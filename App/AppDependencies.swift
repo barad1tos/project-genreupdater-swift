@@ -52,6 +52,8 @@ final class AppDependencies: ObservableObject {
     private(set) var scriptInstaller: ScriptInstaller?
     private(set) var musicReader: MusicLibraryReader?
     private(set) var applescriptBridge: AppleScriptBridge?
+    private(set) var subscriptionService: SubscriptionService?
+    private(set) var featureGate: FeatureGate?
 
     // MARK: - Init
 
@@ -89,6 +91,15 @@ final class AppDependencies: ObservableObject {
 
             let reader = MusicLibraryReader()
             self.musicReader = reader
+
+            // Step 4: Start subscription service + feature gate
+            let subscription = SubscriptionService()
+            await subscription.start()
+            self.subscriptionService = subscription
+            self.featureGate = FeatureGate(
+                tierProvider: { [weak subscription] in subscription?.currentTier ?? .free },
+                freeTracksUsedProvider: { [weak subscription] in subscription?.freeTracksUsed ?? 0 }
+            )
 
             log.info("All services initialized successfully")
             appState = .ready

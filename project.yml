@@ -45,8 +45,6 @@ targets:
         CODE_SIGN_ENTITLEMENTS: App/GenreUpdater.entitlements
         CODE_SIGN_STYLE: Automatic
         ENABLE_APP_SANDBOX: true
-    entitlements:
-      path: App/GenreUpdater.entitlements
     info:
       path: App/Info.plist
       properties:

@@ -21,7 +21,8 @@ GenreUpdater/
 │   ├── Services/                  # External world (APIs, Music.app, cache)
 │   │   └── Sources/Services/
 │   │       ├── Apple/             # AppleScriptBridge, InputSanitizer, ScriptInstaller
-│   │       └── MusicLibraryReader # MusicKit integration
+│   │       ├── MusicLibraryReader # MusicKit integration
+│   │       └── Subscription/      # SubscriptionService, FeatureGate (StoreKit 2)
 │   └── SharedUI/                  # Reusable SwiftUI components
 ├── Tests/                         # App-level tests
 ├── Resources/                     # AppleScript files, assets
@@ -100,15 +101,13 @@ App → SharedUI → Core
 
 ## Dependencies
 
-### Current (Phase 1–2A)
+### Current (Phase 1–2B)
 - MusicKit (Apple framework)
 - OSLog (Apple framework)
 - Carbon.OpenScripting (for AppleScript event constants)
 - **GRDB 7.x** — API response cache (SQLite, Services package)
 - **SwiftData** (Apple framework) — track state persistence (Services package)
-
-### Planned
-- **StoreKit 2** (Phase 2B+) — for subscriptions
+- **StoreKit 2** (Apple framework) — subscriptions (Services package)
 
 ## Build & Test
 
@@ -135,6 +134,7 @@ The app runs in sandbox with these entitlements:
 - `com.apple.security.app-sandbox` — required for App Store
 - `com.apple.security.scripting-targets` → `com.apple.Music` — read/write Music.app library
 - `com.apple.security.network.client` — outbound API requests (MusicBrainz, Discogs)
+- `com.apple.developer.ubiquity-kvstore-identifier` — iCloud KVS for free track counter
 
 ## Key Design Decisions
 
@@ -159,7 +159,7 @@ The app runs in sandbox with these entitlements:
 | 1: Foundation | ✅ Done | 24 files, 2,893 LOC |
 | 1.5: Hotfix | ✅ Done | Entitlements, TrackStatus, InputSanitizer, AppleScriptBridge, Logging |
 | 2A: Persistence | ✅ Done | GRDB cache, SwiftData store, ProgressUpdate |
-| 2B: Monetization | Planned | SubscriptionService, FeatureGate, StringCatalogs |
+| 2B: Monetization | ✅ Done | Tier, AppFeature, SubscriptionService, FeatureGate, StoreKit Config |
 | 3: Core Algorithms | Planned | Genre/Year determination |
 | 4: API + Cache | Planned | MusicBrainz, Discogs, GRDB cache |
 | 5: Workflows | Planned | Pipeline, Undo, Checkpoint |
