@@ -10,11 +10,15 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../Core"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
     ],
     targets: [
         .target(
             name: "Services",
-            dependencies: ["Core"],
+            dependencies: [
+                "Core",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
             path: "Sources/Services",
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),

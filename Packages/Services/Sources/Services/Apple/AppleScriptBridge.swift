@@ -188,7 +188,7 @@ public actor AppleScriptBridge: AppleScriptClient {
     public func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
         // Format: "id1|property1|value1\nid2|property2|value2"
         // Each component is escaped individually to prevent injection via pipe delimiter.
-        let batchArg = updates.map { update in
+        let batchArg: String = updates.map { update -> String in
             let escapedID = InputSanitizer.escapeStringValue(update.trackID)
             let escapedProperty = InputSanitizer.sanitizeScriptCode(update.property)
             let escapedValue = InputSanitizer.escapeStringValue(update.value)
