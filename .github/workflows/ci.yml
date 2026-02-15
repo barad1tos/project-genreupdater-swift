@@ -74,12 +74,17 @@ jobs:
           --lint
 
       - name: Scan for unused code (Periphery)
-        run: >
-          periphery scan
-          --skip-build
-          --index-store-path DerivedData/Index.noindex/DataStore
-          --targets Core Services SharedUI
-          --format xcode
+        run: |
+          for pkg in Core Services; do
+            echo "=== Scanning $pkg ==="
+            cd Packages/$pkg
+            periphery scan \
+              --retain-public \
+              --retain-codable-properties \
+              --format xcode \
+              --strict
+            cd ../..
+          done
 
   gate:
     name: CI Gate
