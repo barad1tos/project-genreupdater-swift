@@ -169,55 +169,34 @@ public struct YearScorer: Sendable {
             Calendar.Component.year, from: Date()
         )
 
-        // Step 3: Existing year boost
-        var finalYear = bestYear
-        var finalScore = bestScore
-        if let existing = existingYear,
-           let existingScore = bestPerYear[existing],
-           existing != bestYear {
-            let boostThreshold = Double(bestScore) * 0.9
-            if Double(existingScore) >= boostThreshold {
-                finalYear = existing
-                finalScore = existingScore
-            }
-        }
+        // Steps 3-5: Apply adjustments
+        var (finalYear, finalScore) = applyExistingYearBoost(
+            year: bestYear, score: bestScore,
+            bestPerYear: bestPerYear,
+            existingYear: existingYear,
+            bestScore: bestScore
+        )
 
-        // Step 4: Future year preference — prefer non-future if available
-        if finalYear > calendarYear {
-            if let nonFuture = sortedYears.first(where: { $0.key <= calendarYear }) {
-                let futureScore = bestPerYear[finalYear] ?? 0
-                let nonFutureScore = nonFuture.value
-                // Prefer non-future if within 90% of future's score
-                if Double(nonFutureScore) >= Double(futureScore) * 0.9 {
-                    finalYear = nonFuture.key
-                    finalScore = nonFutureScore
-                }
-            }
-        }
+        (finalYear, finalScore) = applyFutureYearPreference(
+            year: finalYear, score: finalScore,
+            bestPerYear: bestPerYear,
+            sortedYears: sortedYears,
+            calendarYear: calendarYear
+        )
 
-        // Step 5: Original release preference — prefer non-reissue
-        let originalReleases = scored.filter { !$0.candidate.isReissue }
-        if !originalReleases.isEmpty {
-            let reissueYears = Set(scored.filter(\.candidate.isReissue).map(\.candidate.year))
-            if reissueYears.contains(finalYear) {
-                if let bestOriginal = originalReleases.max(by: { $0.totalScore < $1.totalScore }) {
-                    let origScore = bestOriginal.totalScore
-                    if Double(origScore) >= Double(finalScore) * 0.9 {
-                        finalYear = bestOriginal.candidate.year
-                        finalScore = origScore
-                    }
-                }
-            }
-        }
+        (finalYear, finalScore) = applyOriginalReleasePreference(
+            year: finalYear, score: finalScore,
+            scored: scored
+        )
 
         // Step 6: Determine definitiveness
-        let secondBestScore = sortedYears.count > 1 ? sortedYears[1].value : 0
-        let scoreDiff = finalScore - secondBestScore
-        let isDefinitive = finalScore >= yearLogic.definitiveScoreThreshold
-            && finalYear <= calendarYear
-            && (sortedYears.count <= 1 || scoreDiff >= yearLogic.definitiveScoreDiff)
+        let isDefinitive = checkDefinitiveness(
+            finalScore: finalScore,
+            finalYear: finalYear,
+            sortedYears: sortedYears,
+            calendarYear: calendarYear
+        )
 
-        // Build confidence (0-100 based on score relative to max possible)
         let confidence = min(100, max(0, finalScore))
 
         return YearResult(
@@ -226,6 +205,93 @@ public struct YearScorer: Sendable {
             confidence: confidence,
             yearScores: bestPerYear
         )
+    }
+
+    // MARK: - Resolution Helpers
+
+    private func applyExistingYearBoost(
+        year: Int, score: Int,
+        bestPerYear: [Int: Int],
+        existingYear: Int?,
+        bestScore: Int
+    ) -> (year: Int, score: Int) {
+        guard let existing = existingYear,
+              let existingScore = bestPerYear[existing],
+              existing != year else {
+            return (year, score)
+        }
+        let threshold = Double(bestScore) * 0.9
+        if Double(existingScore) >= threshold {
+            return (existing, existingScore)
+        }
+        return (year, score)
+    }
+
+    private func applyFutureYearPreference(
+        year: Int, score: Int,
+        bestPerYear: [Int: Int],
+        sortedYears: [(key: Int, value: Int)],
+        calendarYear: Int
+    ) -> (year: Int, score: Int) {
+        guard year > calendarYear else {
+            return (year, score)
+        }
+        guard let nonFuture = sortedYears.first(
+            where: { $0.key <= calendarYear }
+        ) else {
+            return (year, score)
+        }
+        let futureScore = bestPerYear[year] ?? 0
+        if Double(nonFuture.value)
+            >= Double(futureScore) * 0.9 {
+            return (nonFuture.key, nonFuture.value)
+        }
+        return (year, score)
+    }
+
+    private func applyOriginalReleasePreference(
+        year: Int, score: Int,
+        scored: [ScoredRelease]
+    ) -> (year: Int, score: Int) {
+        let originals = scored.filter {
+            !$0.candidate.isReissue
+        }
+        guard !originals.isEmpty else {
+            return (year, score)
+        }
+        let reissueYears = Set(
+            scored.filter(\.candidate.isReissue)
+                .map(\.candidate.year)
+        )
+        guard reissueYears.contains(year) else {
+            return (year, score)
+        }
+        guard let best = originals.max(
+            by: { $0.totalScore < $1.totalScore }
+        ) else {
+            return (year, score)
+        }
+        if Double(best.totalScore)
+            >= Double(score) * 0.9 {
+            return (best.candidate.year, best.totalScore)
+        }
+        return (year, score)
+    }
+
+    private func checkDefinitiveness(
+        finalScore: Int,
+        finalYear: Int,
+        sortedYears: [(key: Int, value: Int)],
+        calendarYear: Int
+    ) -> Bool {
+        let secondBest = sortedYears.count > 1
+            ? sortedYears[1].value : 0
+        let gap = finalScore - secondBest
+        return finalScore
+            >= yearLogic.definitiveScoreThreshold
+            && finalYear <= calendarYear
+            && (sortedYears.count <= 1
+                || gap >= yearLogic.definitiveScoreDiff)
     }
 
     // MARK: - Individual Scoring Factors

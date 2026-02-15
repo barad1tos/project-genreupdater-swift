@@ -67,37 +67,12 @@ public struct YearDeterminator: Sendable {
     ) -> YearDeterminationResult {
         let effectiveCurrentYear = currentYear ?? track.year
 
-        // Step 1: Check dominant year across tracks (Python parity: dominant first)
-        if let dominant = validator.getDominantYear(
-            tracks: albumTracks
-        ), !dominant.isSuspicious, dominant.confidence >= 0.8 {
-            return YearDeterminationResult(
-                yearResult: YearResult(
-                    year: dominant.year,
-                    isDefinitive: dominant.confidence >= 0.9,
-                    confidence: Int(dominant.confidence * 100)
-                ),
-                source: .dominant,
-                candidateCount: candidates.count
-            )
-        }
-
-        // Step 2: Check for cross-track consensus release year
-        if let consensus = validator.getConsensusReleaseYear(
-            tracks: albumTracks
+        // Steps 1-2: Cross-track year (dominant, consensus)
+        if let result = checkCrossTrackYear(
+            albumTracks: albumTracks,
+            candidateCount: candidates.count
         ) {
-            let validation = validator.validate(year: consensus)
-            if case .valid = validation {
-                return YearDeterminationResult(
-                    yearResult: YearResult(
-                        year: consensus,
-                        isDefinitive: true,
-                        confidence: 95
-                    ),
-                    source: .consensus,
-                    candidateCount: candidates.count
-                )
-            }
+            return result
         }
 
         // Step 3: Score candidates
@@ -284,6 +259,49 @@ public struct YearDeterminator: Sendable {
         )
     }
 
+    private func checkCrossTrackYear(
+        albumTracks: [Track],
+        candidateCount: Int
+    ) -> YearDeterminationResult? {
+        // Step 1: Dominant year (Python parity: dominant first)
+        if let dominant = validator.getDominantYear(
+            tracks: albumTracks
+        ), !dominant.isSuspicious,
+           dominant.confidence >= 0.8 {
+            return YearDeterminationResult(
+                yearResult: YearResult(
+                    year: dominant.year,
+                    isDefinitive: dominant.confidence >= 0.9,
+                    confidence: Int(dominant.confidence * 100)
+                ),
+                source: .dominant,
+                candidateCount: candidateCount
+            )
+        }
+
+        // Step 2: Consensus release year
+        if let consensus = validator.getConsensusReleaseYear(
+            tracks: albumTracks
+        ) {
+            let validation = validator.validate(
+                year: consensus
+            )
+            if case .valid = validation {
+                return YearDeterminationResult(
+                    yearResult: YearResult(
+                        year: consensus,
+                        isDefinitive: true,
+                        confidence: 95
+                    ),
+                    source: .consensus,
+                    candidateCount: candidateCount
+                )
+            }
+        }
+
+        return nil
+    }
+
     private func mapDecisionToResult(
         decision: FallbackDecision,
         yearResult: YearResult,
@@ -294,71 +312,58 @@ public struct YearDeterminator: Sendable {
             .max(by: { $0.totalScore < $1.totalScore })?
             .breakdown
 
+        let (mapped, source) = mapFallbackDecision(
+            decision, yearResult: yearResult
+        )
+
+        return YearDeterminationResult(
+            yearResult: mapped,
+            source: source,
+            breakdown: bestBreakdown,
+            fallbackDecision: decision,
+            candidateCount: candidateCount
+        )
+    }
+
+    private func mapFallbackDecision(
+        _ decision: FallbackDecision,
+        yearResult: YearResult
+    ) -> (YearResult, YearSource) {
         switch decision {
         case let .useAPIYear(year, confidence):
-            return YearDeterminationResult(
-                yearResult: YearResult(
-                    year: year,
-                    isDefinitive: yearResult.isDefinitive,
-                    confidence: confidence,
-                    yearScores: yearResult.yearScores
-                ),
-                source: .api,
-                breakdown: bestBreakdown,
-                fallbackDecision: decision,
-                candidateCount: candidateCount
-            )
+            return (YearResult(
+                year: year,
+                isDefinitive: yearResult.isDefinitive,
+                confidence: confidence,
+                yearScores: yearResult.yearScores
+            ), .api)
 
         case .keepExisting:
-            return YearDeterminationResult(
-                yearResult: YearResult(
-                    year: yearResult.year,
-                    isDefinitive: false,
-                    confidence: yearResult.confidence,
-                    yearScores: yearResult.yearScores
-                ),
-                source: .library,
-                breakdown: bestBreakdown,
-                fallbackDecision: decision,
-                candidateCount: candidateCount
-            )
+            return (YearResult(
+                year: yearResult.year,
+                isDefinitive: false,
+                confidence: yearResult.confidence,
+                yearScores: yearResult.yearScores
+            ), .library)
 
         case .escalateToVerification:
-            return YearDeterminationResult(
-                yearResult: YearResult(
-                    year: yearResult.year,
-                    isDefinitive: false,
-                    confidence: yearResult.confidence,
-                    yearScores: yearResult.yearScores
-                ),
-                source: .fallback,
-                breakdown: bestBreakdown,
-                fallbackDecision: decision,
-                candidateCount: candidateCount
-            )
+            return (YearResult(
+                year: yearResult.year,
+                isDefinitive: false,
+                confidence: yearResult.confidence,
+                yearScores: yearResult.yearScores
+            ), .fallback)
 
         case .markAndSkip:
-            return YearDeterminationResult(
-                yearResult: YearResult(
-                    year: nil,
-                    isDefinitive: false,
-                    confidence: 0,
-                    yearScores: yearResult.yearScores
-                ),
-                source: .fallback,
-                breakdown: bestBreakdown,
-                fallbackDecision: decision,
-                candidateCount: candidateCount
-            )
+            return (YearResult(
+                year: nil,
+                isDefinitive: false,
+                confidence: 0,
+                yearScores: yearResult.yearScores
+            ), .fallback)
 
         case .noAction:
-            return YearDeterminationResult(
-                yearResult: yearResult,
-                source: .fallback,
-                breakdown: bestBreakdown,
-                fallbackDecision: decision,
-                candidateCount: candidateCount
-            )
+            return (yearResult, .fallback)
         }
     }
 }

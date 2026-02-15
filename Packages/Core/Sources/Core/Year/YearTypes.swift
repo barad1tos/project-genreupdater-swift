@@ -36,12 +36,12 @@ public enum ReleaseStatus: String, Sendable, Codable, CaseIterable {
 
 /// Source that determined a year value.
 public enum YearSource: String, Sendable, Codable {
-    case api = "api"
-    case library = "library"
-    case dominant = "dominant"
-    case consensus = "consensus"
-    case fallback = "fallback"
-    case manual = "manual"
+    case api
+    case library
+    case dominant
+    case consensus
+    case fallback
+    case manual
 }
 
 /// Result of year validation.
