@@ -70,10 +70,14 @@ public struct YearValidator: Sendable {
 
     // MARK: - Cross-Track Analysis
 
+    /// Max count difference between top 2 years to consider a tie.
+    public static let parityThreshold = 1
+
     /// Find the dominant year across album tracks.
     ///
-    /// Returns the most common year if its share exceeds 50% of tracks
-    /// with year data. Returns nil if no year has majority.
+    /// Python parity: checks release year inconsistency first,
+    /// then majority dominance (with suspicious-old check),
+    /// then year parity. Returns nil when API verification needed.
     public func getDominantYear(tracks: [Track]) -> DominantYearResult? {
         let tracksWithYear = tracks.compactMap { $0.year }
         guard !tracksWithYear.isEmpty else { return nil }
@@ -87,17 +91,43 @@ public struct YearValidator: Sendable {
             $0.value < $1.value || ($0.value == $1.value && $0.key > $1.key)
         }) else { return nil }
 
+        // Check release year inconsistency: all same year but
+        // different release_years → use the consistent track year
+        if let consistentYear = checkReleaseYearInconsistency(
+            tracks: tracks
+        ) {
+            return DominantYearResult(
+                year: consistentYear,
+                confidence: 1.0,
+                trackCount: tracksWithYear.count,
+                totalTracks: tracksWithYear.count,
+                isSuspicious: false
+            )
+        }
+
         let confidence = Double(bestCount) / Double(tracksWithYear.count)
 
         // Require >50% share for a dominant year
-        guard confidence > 0.5 else { return nil }
+        guard confidence > 0.5 else {
+            // Before giving up, check parity
+            if checkYearParity(yearCounts: yearCounts) {
+                return nil
+            }
+            return nil
+        }
+
+        // Check if year is suspiciously old vs dateAdded
+        let suspiciousOld = isYearSuspiciouslyOld(
+            year: bestYear, tracks: tracks
+        )
+        let suspicious = isSuspicious(year: bestYear) || suspiciousOld
 
         return DominantYearResult(
             year: bestYear,
             confidence: confidence,
             trackCount: bestCount,
             totalTracks: tracksWithYear.count,
-            isSuspicious: isSuspicious(year: bestYear)
+            isSuspicious: suspicious
         )
     }
 
@@ -112,5 +142,80 @@ public struct YearValidator: Sendable {
 
         let allSame = releaseYears.allSatisfy { $0 == first }
         return allSame ? first : nil
+    }
+
+    // MARK: - Year Parity
+
+    /// Check if top two years have near-equal counts (tie).
+    ///
+    /// When parity exists, no single year dominates and API
+    /// verification is needed. Ported from `_check_year_parity`.
+    public func checkYearParity(yearCounts: [Int: Int]) -> Bool {
+        let sorted = yearCounts.sorted { $0.value > $1.value }
+        guard sorted.count >= 2 else { return false }
+
+        let diff = sorted[0].value - sorted[1].value
+        return diff <= Self.parityThreshold
+    }
+
+    // MARK: - Suspiciously Old Year
+
+    /// Check if a year is suspiciously old compared to when tracks
+    /// were added to the library.
+    ///
+    /// Catches cases where tracks have year 2001 but were added in 2025.
+    /// Ported from `_is_year_suspiciously_old`.
+    public func isYearSuspiciouslyOld(
+        year: Int, tracks: [Track]
+    ) -> Bool {
+        guard let earliestAdded = getEarliestTrackAddedYear(
+            tracks: tracks
+        ) else {
+            return false
+        }
+        let gap = earliestAdded - year
+        return gap > config.suspicionThresholdYears
+    }
+
+    /// Extract the earliest year any track was added to the library.
+    /// Ported from `get_earliest_track_added_year`.
+    public func getEarliestTrackAddedYear(
+        tracks: [Track]
+    ) -> Int? {
+        let years = tracks.compactMap { track -> Int? in
+            guard let dateAdded = track.dateAdded else { return nil }
+            return Calendar.current.component(.year, from: dateAdded)
+        }
+        return years.min()
+    }
+
+    // MARK: - Release Year Inconsistency
+
+    /// Check if all tracks share the same year but have inconsistent
+    /// release years.
+    ///
+    /// When all tracks agree on `year` but disagree on `releaseYear`,
+    /// the consistent track year is preferred.
+    /// Ported from `_check_release_year_inconsistency`.
+    public func checkReleaseYearInconsistency(
+        tracks: [Track]
+    ) -> Int? {
+        let years = tracks.compactMap { $0.year }
+        guard !years.isEmpty else { return nil }
+
+        let uniqueYears = Set(years)
+        guard uniqueYears.count == 1,
+              let consistentYear = uniqueYears.first else {
+            return nil
+        }
+
+        let releaseYears = tracks.compactMap { $0.releaseYear }
+        let uniqueReleaseYears = Set(releaseYears)
+
+        if uniqueReleaseYears.count > 1 {
+            return consistentYear
+        }
+
+        return nil
     }
 }

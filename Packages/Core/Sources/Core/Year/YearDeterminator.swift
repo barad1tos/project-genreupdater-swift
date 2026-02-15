@@ -67,7 +67,22 @@ public struct YearDeterminator: Sendable {
     ) -> YearDeterminationResult {
         let effectiveCurrentYear = currentYear ?? track.year
 
-        // Step 1: Check for cross-track consensus
+        // Step 1: Check dominant year across tracks (Python parity: dominant first)
+        if let dominant = validator.getDominantYear(
+            tracks: albumTracks
+        ), !dominant.isSuspicious, dominant.confidence >= 0.8 {
+            return YearDeterminationResult(
+                yearResult: YearResult(
+                    year: dominant.year,
+                    isDefinitive: dominant.confidence >= 0.9,
+                    confidence: Int(dominant.confidence * 100)
+                ),
+                source: .dominant,
+                candidateCount: candidates.count
+            )
+        }
+
+        // Step 2: Check for cross-track consensus release year
         if let consensus = validator.getConsensusReleaseYear(
             tracks: albumTracks
         ) {
@@ -83,21 +98,6 @@ public struct YearDeterminator: Sendable {
                     candidateCount: candidates.count
                 )
             }
-        }
-
-        // Step 2: Check dominant year across tracks
-        if let dominant = validator.getDominantYear(
-            tracks: albumTracks
-        ), !dominant.isSuspicious, dominant.confidence >= 0.8 {
-            return YearDeterminationResult(
-                yearResult: YearResult(
-                    year: dominant.year,
-                    isDefinitive: dominant.confidence >= 0.9,
-                    confidence: Int(dominant.confidence * 100)
-                ),
-                source: .dominant,
-                candidateCount: candidates.count
-            )
         }
 
         // Step 3: Score candidates
@@ -150,15 +150,26 @@ public struct YearDeterminator: Sendable {
 
     // MARK: - Pre-flight Checks
 
+    /// Album name length at or below which triggers suspicious check.
+    /// Ported from `SUSPICIOUS_ALBUM_MIN_LEN = 3`.
+    public static let suspiciousAlbumMinLen = 3
+
+    /// Number of unique years at or above which triggers suspicious skip.
+    /// Ported from `SUSPICIOUS_MANY_YEARS = 3`.
+    public static let suspiciousManyYears = 3
+
     /// Check if a track should be skipped before processing.
     ///
     /// - Parameters:
     ///   - track: The track to check
     ///   - albumTracks: Other tracks on the album
+    ///   - futureYearThreshold: Max allowed years beyond current
+    ///     (default 1, from ProcessingConfig)
     /// - Returns: Skip reason, or nil if processing should continue
     public func preFlightCheck(
         track: Track,
-        albumTracks: [Track]
+        albumTracks: [Track],
+        futureYearThreshold: Int = 1
     ) -> String? {
         // Skip if already processed by MGU
         if track.hasBeenProcessed {
@@ -175,7 +186,79 @@ public struct YearDeterminator: Sendable {
             return "Track is not editable"
         }
 
+        // Skip suspicious albums (short name + many unique years)
+        if let reason = checkSuspiciousAlbum(
+            track: track, albumTracks: albumTracks
+        ) {
+            return reason
+        }
+
+        // Skip albums with far-future years
+        if let reason = checkFutureYears(
+            albumTracks: albumTracks,
+            futureYearThreshold: futureYearThreshold
+        ) {
+            return reason
+        }
+
         return nil
+    }
+
+    /// Check if the album is suspicious and should be skipped.
+    ///
+    /// A short album name (≤ 3 chars) combined with many unique
+    /// years (≥ 3) suggests a self-titled or single-letter album
+    /// that aggregates unrelated tracks. Ported from
+    /// `check_suspicious_album` in year_determination.py.
+    public func checkSuspiciousAlbum(
+        track: Track,
+        albumTracks: [Track]
+    ) -> String? {
+        let albumName = track.album
+        guard albumName.count <= Self.suspiciousAlbumMinLen else {
+            return nil
+        }
+
+        let uniqueYears = Set(
+            albumTracks.compactMap(\.year)
+        )
+        guard uniqueYears.count >= Self.suspiciousManyYears else {
+            return nil
+        }
+
+        return "Suspicious album '\(albumName)': "
+            + "\(uniqueYears.count) unique years, "
+            + "name length=\(albumName.count)"
+    }
+
+    /// Check if album tracks contain far-future years.
+    ///
+    /// If the max year exceeds currentYear + threshold, the album
+    /// is likely a prerelease and should be skipped. Years within
+    /// the threshold (default 1 year ahead) are tolerated.
+    /// Ported from `handle_future_years` in year_determination.py.
+    public func checkFutureYears(
+        albumTracks: [Track],
+        futureYearThreshold: Int = 1
+    ) -> String? {
+        let currentYear = Calendar.current.component(
+            .year, from: Date()
+        )
+        let futureYears = albumTracks
+            .compactMap(\.year)
+            .filter { $0 > currentYear }
+
+        guard let maxFutureYear = futureYears.max() else {
+            return nil
+        }
+
+        // Within threshold — tolerate (e.g. album releasing next year)
+        if maxFutureYear - currentYear <= futureYearThreshold {
+            return nil
+        }
+
+        return "Future year \(maxFutureYear) exceeds threshold "
+            + "(\(futureYearThreshold) year(s) beyond \(currentYear))"
     }
 
     // MARK: - Helpers

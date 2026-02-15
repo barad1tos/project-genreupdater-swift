@@ -255,4 +255,202 @@ struct YearValidatorTests {
         ]
         #expect(validator.getConsensusReleaseYear(tracks: tracks) == 2010)
     }
+
+    // MARK: - checkYearParity
+
+    @Test("Parity detected when top two years are tied")
+    func parityDetected() {
+        let counts: [Int: Int] = [2000: 3, 2001: 3]
+        #expect(validator.checkYearParity(yearCounts: counts))
+    }
+
+    @Test("Parity detected within threshold (diff=1)")
+    func parityWithinThreshold() {
+        let counts: [Int: Int] = [2000: 4, 2001: 3]
+        #expect(validator.checkYearParity(yearCounts: counts))
+    }
+
+    @Test("No parity when clear winner (diff=2)")
+    func noParityClearWinner() {
+        let counts: [Int: Int] = [2000: 5, 2001: 3]
+        #expect(!validator.checkYearParity(yearCounts: counts))
+    }
+
+    @Test("No parity with single year")
+    func noParitySingleYear() {
+        let counts: [Int: Int] = [2000: 5]
+        #expect(!validator.checkYearParity(yearCounts: counts))
+    }
+
+    @Test("Parity blocks getDominantYear")
+    func parityBlocksDominant() {
+        // 2 tracks each — 50%/50% → below >50% threshold
+        // AND parity detected (diff=0)
+        let tracks = [
+            Track(id: "1", name: "A", artist: "X", album: "Y", year: 2000),
+            Track(id: "2", name: "B", artist: "X", album: "Y", year: 2001),
+        ]
+        #expect(validator.getDominantYear(tracks: tracks) == nil)
+    }
+
+    // MARK: - isYearSuspiciouslyOld
+
+    @Test("Year is suspiciously old vs dateAdded")
+    func suspiciouslyOld() {
+        // Year 2001, tracks added in 2025 → gap=24 > threshold=10
+        let date2025 = Calendar.current.date(
+            from: DateComponents(year: 2025, month: 6, day: 1)
+        )!
+        let tracks = [
+            Track(
+                id: "1", name: "A", artist: "X", album: "Y",
+                year: 2001, dateAdded: date2025
+            ),
+        ]
+        #expect(validator.isYearSuspiciouslyOld(year: 2001, tracks: tracks))
+    }
+
+    @Test("Year is NOT suspiciously old when gap within threshold")
+    func notSuspiciouslyOld() {
+        // Year 2015, tracks added in 2020 → gap=5 <= threshold=10
+        let date2020 = Calendar.current.date(
+            from: DateComponents(year: 2020, month: 6, day: 1)
+        )!
+        let tracks = [
+            Track(
+                id: "1", name: "A", artist: "X", album: "Y",
+                year: 2015, dateAdded: date2020
+            ),
+        ]
+        #expect(!validator.isYearSuspiciouslyOld(year: 2015, tracks: tracks))
+    }
+
+    @Test("Year NOT suspiciously old when no dateAdded")
+    func notSuspiciousNoDate() {
+        let tracks = [
+            Track(id: "1", name: "A", artist: "X", album: "Y", year: 2001),
+        ]
+        #expect(!validator.isYearSuspiciouslyOld(year: 2001, tracks: tracks))
+    }
+
+    @Test("Suspiciously old year marks dominant as suspicious")
+    func suspiciousOldMarksDominant() {
+        let date2025 = Calendar.current.date(
+            from: DateComponents(year: 2025, month: 6, day: 1)
+        )!
+        let tracks = [
+            Track(
+                id: "1", name: "A", artist: "X", album: "Y",
+                year: 2001, dateAdded: date2025
+            ),
+            Track(
+                id: "2", name: "B", artist: "X", album: "Y",
+                year: 2001, dateAdded: date2025
+            ),
+        ]
+        let result = validator.getDominantYear(tracks: tracks)
+        #expect(result?.isSuspicious == true)
+    }
+
+    // MARK: - getEarliestTrackAddedYear
+
+    @Test("Earliest track added year found")
+    func earliestAdded() {
+        let date2020 = Calendar.current.date(
+            from: DateComponents(year: 2020, month: 3, day: 1)
+        )!
+        let date2023 = Calendar.current.date(
+            from: DateComponents(year: 2023, month: 6, day: 1)
+        )!
+        let tracks = [
+            Track(
+                id: "1", name: "A", artist: "X", album: "Y",
+                dateAdded: date2023
+            ),
+            Track(
+                id: "2", name: "B", artist: "X", album: "Y",
+                dateAdded: date2020
+            ),
+        ]
+        #expect(validator.getEarliestTrackAddedYear(tracks: tracks) == 2020)
+    }
+
+    @Test("Earliest track added year nil when no dates")
+    func earliestAddedNil() {
+        let tracks = [
+            Track(id: "1", name: "A", artist: "X", album: "Y"),
+        ]
+        #expect(validator.getEarliestTrackAddedYear(tracks: tracks) == nil)
+    }
+
+    // MARK: - checkReleaseYearInconsistency
+
+    @Test("Detects release year inconsistency")
+    func releaseYearInconsistency() {
+        // All tracks year=2000, but release years differ
+        let tracks = [
+            Track(
+                id: "1", name: "A", artist: "X", album: "Y",
+                year: 2000, releaseYear: 2000
+            ),
+            Track(
+                id: "2", name: "B", artist: "X", album: "Y",
+                year: 2000, releaseYear: 2005
+            ),
+        ]
+        #expect(validator.checkReleaseYearInconsistency(tracks: tracks) == 2000)
+    }
+
+    @Test("No inconsistency when years differ")
+    func noInconsistencyDiffYears() {
+        let tracks = [
+            Track(
+                id: "1", name: "A", artist: "X", album: "Y",
+                year: 2000, releaseYear: 2000
+            ),
+            Track(
+                id: "2", name: "B", artist: "X", album: "Y",
+                year: 2001, releaseYear: 2005
+            ),
+        ]
+        #expect(validator.checkReleaseYearInconsistency(tracks: tracks) == nil)
+    }
+
+    @Test("No inconsistency when release years agree")
+    func noInconsistencyReleaseAgree() {
+        let tracks = [
+            Track(
+                id: "1", name: "A", artist: "X", album: "Y",
+                year: 2000, releaseYear: 2000
+            ),
+            Track(
+                id: "2", name: "B", artist: "X", album: "Y",
+                year: 2000, releaseYear: 2000
+            ),
+        ]
+        #expect(validator.checkReleaseYearInconsistency(tracks: tracks) == nil)
+    }
+
+    @Test("Release year inconsistency prioritized in getDominantYear")
+    func releaseInconsistencyInDominant() {
+        let tracks = [
+            Track(
+                id: "1", name: "A", artist: "X", album: "Y",
+                year: 2000, releaseYear: 2000
+            ),
+            Track(
+                id: "2", name: "B", artist: "X", album: "Y",
+                year: 2000, releaseYear: 2010
+            ),
+            Track(
+                id: "3", name: "C", artist: "X", album: "Y",
+                year: 2000, releaseYear: 2005
+            ),
+        ]
+        let result = validator.getDominantYear(tracks: tracks)
+        #expect(result != nil)
+        #expect(result?.year == 2000)
+        #expect(result?.confidence == 1.0)
+        #expect(result?.isSuspicious == false)
+    }
 }

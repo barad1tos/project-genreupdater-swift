@@ -147,8 +147,8 @@ struct YearScorerScoringTests {
             queryAlbum: "X",
             currentYear: 2000
         )
-        // diff=5, penalty = -5 × 5 = -25
-        #expect(result.breakdown.yearDiff == -25)
+        // diff=5, 1-year grace: penalty = -5 × (5-1) = -20
+        #expect(result.breakdown.yearDiff == -20)
     }
 
     @Test("Year diff penalty capped at max")
@@ -160,7 +160,7 @@ struct YearScorerScoringTests {
             queryAlbum: "X",
             currentYear: 2000
         )
-        // diff=20, penalty = -5 × 20 = -100, capped at -50
+        // diff=20, 1-year grace: penalty = -5 × 19 = -95, capped at -50
         #expect(result.breakdown.yearDiff == -50)
     }
 

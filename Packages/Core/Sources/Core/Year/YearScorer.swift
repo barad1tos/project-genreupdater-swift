@@ -355,8 +355,10 @@ public struct YearScorer: Sendable {
     private func scoreYearDiff(candidateYear: Int, referenceYear: Int?) -> Int {
         guard let ref = referenceYear else { return 0 }
         let diff = abs(candidateYear - ref)
-        guard diff > 0 else { return 0 }
-        let penalty = config.yearDiffPenaltyScale * diff
+        // Python parity: only penalize when diff > 1 (1-year grace),
+        // and use (diff - 1) to match year_scoring.py:735
+        guard diff > 1 else { return 0 }
+        let penalty = config.yearDiffPenaltyScale * (diff - 1)
         return max(penalty, config.yearDiffMaxPenalty)
     }
 

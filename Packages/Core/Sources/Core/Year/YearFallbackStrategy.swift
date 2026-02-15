@@ -113,10 +113,48 @@ public struct YearFallbackStrategy: Sendable {
             )
         }
 
-        // Rule 8: Dramatic year change → escalate
+        // Rule 8: Dramatic year change → cascaded sub-rules
+        // Ported from Python _handle_dramatic_year_change (6 sub-rules)
         if let existing = context.existingYear {
             let diff = abs(bestYear - existing)
             if diff > config.yearDifferenceThreshold {
+                // 8a: High confidence API → trust API despite dramatic change
+                if Double(context.bestScore)
+                    >= config.trustAPIScoreThreshold {
+                    return .useAPIYear(
+                        year: bestYear,
+                        confidence: context.bestScore
+                    )
+                }
+
+                // 8b: Existing year is absurd → trust API
+                if existing < yearLogic.absurdYearThreshold {
+                    return .useAPIYear(
+                        year: bestYear,
+                        confidence: context.bestScore
+                    )
+                }
+
+                // 8c: Proposed year is absurd → keep existing
+                if bestYear < yearLogic.absurdYearThreshold {
+                    return .keepExisting(
+                        reason: "API year \(bestYear) is absurd,"
+                            + " keeping \(existing)"
+                    )
+                }
+
+                // 8d: Existing year has no support in API results → trust API
+                let existingInResults = context.scoredReleases
+                    .contains { $0.candidate.year == existing }
+                if !existingInResults
+                    && !context.scoredReleases.isEmpty {
+                    return .useAPIYear(
+                        year: bestYear,
+                        confidence: context.bestScore
+                    )
+                }
+
+                // 8e: Default → escalate (low confidence + dramatic + plausible)
                 if context.verificationAttempts
                     < YearFallbackStrategy.maxVerificationAttempts {
                     return .escalateToVerification(
@@ -125,7 +163,7 @@ public struct YearFallbackStrategy: Sendable {
                             + "\(config.yearDifferenceThreshold))"
                     )
                 }
-                return .noAction(
+                return .keepExisting(
                     reason: "Max verification attempts reached"
                         + " for dramatic change"
                 )

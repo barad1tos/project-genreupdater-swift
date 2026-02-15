@@ -123,7 +123,10 @@ depends_on:
 - [x] Absurd year detection (< 1900), future dates (> current+1)
 - [x] Artist activity period cross-validation (suspicionThresholdYears)
 - [x] Cross-track analysis: dominant year (>50% share), consensus release year
-- [x] Unit tests with sanity checks, consistency, activity period (24 tests)
+- [x] Year parity (tie detection between top-2 years)
+- [x] Suspiciously old year detection (dateAdded gap check)
+- [x] Release year inconsistency detection (same year, different releaseYears)
+- [x] Unit tests with sanity checks, consistency, activity period (39 tests)
 
 ### YearScorer
 > Port from: `year_scoring.py` 945 LOC + `year_score_resolver.py` 524 LOC — **Pure struct** (TDD Decision 9)
@@ -133,6 +136,7 @@ depends_on:
 - [x] Year candidate deduplication (MAX score per year)
 - [x] Definitive threshold check (configurable)
 - [x] Score resolution: existing year boost, future year preference, original release preference
+- [x] Year diff formula: 1-year grace period (Python parity `(diff-1)*scale`)
 - [x] Extensive unit tests with all scoring factors (45 tests)
 
 ### YearFallbackStrategy
@@ -140,6 +144,7 @@ depends_on:
 
 - [x] Create `Packages/Core/Sources/Core/Year/YearFallbackStrategy.swift`
 - [x] 8-rule decision tree: definitive → absurd → match → low confidence → fresh → no existing → special → dramatic
+- [x] Rule 8 dramatic change: 5-step cascade (8a–8e) ported from Python `_handle_dramatic_year_change`
 - [x] Configurable via `FallbackConfig`
 - [x] Unit tests with each fallback rule + priority order (22 tests)
 
@@ -148,10 +153,10 @@ depends_on:
 
 - [x] Create `Packages/Core/Sources/Core/Year/YearDeterminator.swift`
 - [x] Composes YearScorer + YearValidator + YearFallbackStrategy
-- [x] Coordinates: consensus → dominant → score → validate → fallback
-- [x] Pre-flight checks (already processed, prerelease, non-editable)
+- [x] Coordinates: dominant → consensus → score → validate → fallback (Python-parity order)
+- [x] Pre-flight checks: processed, prerelease, non-editable, suspicious album, future years
 - [x] Returns `YearDeterminationResult` with source, breakdown, fallback decision
-- [x] Unit tests with consensus, dominant, scoring, fallback paths (20 tests)
+- [x] Unit tests with consensus, dominant, scoring, fallback, pre-flight paths (29 tests)
 
 ## Files
 
@@ -174,7 +179,7 @@ depends_on:
 - [ ] Genre determination matches Python behaviour for test cases
 - [ ] Year scoring produces identical rankings for test cases
 - [ ] Agreement rate ≥ 95% with Python version
-- [x] `cd Packages/Core && swift test` — all tests pass (279 tests, 17 suites)
+- [x] `cd Packages/Core && swift test` — all tests pass (303 tests, 17 suites)
 - [x] `cd Packages/Services && swift test` — existing tests pass (68 tests)
 - [ ] `xcodebuild build -scheme GenreUpdater` — BUILD SUCCEEDED
 - [ ] Performance: < 100ms per track (without API calls)

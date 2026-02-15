@@ -284,26 +284,30 @@ struct YearFallbackStrategyTests {
 
     // MARK: - Rule 8: Dramatic Year Change
 
-    @Test("Dramatic year change escalates")
-    func dramaticChangeEscalates() {
+    @Test("High confidence dramatic change uses API year (sub-rule 8a)")
+    func dramaticChangeHighConfidenceUsesAPI() {
+        // score=80 >= trustAPIScoreThreshold=70
+        // → sub-rule 8a fires: high confidence trusts API
         let context = makeContext(
             existingYear: 2000,
             bestScore: 80,
             bestYear: 2020
         )
         let decision = strategy.decide(context)
-        guard case let .escalateToVerification(reason) = decision else {
+        guard case let .useAPIYear(year, confidence) = decision else {
             Issue.record(
-                "Expected .escalateToVerification, got \(decision)"
+                "Expected .useAPIYear, got \(decision)"
             )
             return
         }
-        #expect(reason.contains("2000"))
-        #expect(reason.contains("2020"))
+        #expect(year == 2020)
+        #expect(confidence == 80)
     }
 
-    @Test("Dramatic change with max attempts returns noAction")
-    func dramaticChangeMaxAttempts() {
+    @Test("Dramatic change with high confidence ignores max attempts (sub-rule 8a)")
+    func dramaticChangeHighConfidenceIgnoresAttempts() {
+        // score=80 >= threshold=70 → sub-rule 8a fires
+        // regardless of verificationAttempts
         let context = makeContext(
             existingYear: 2000,
             bestScore: 80,
@@ -311,10 +315,11 @@ struct YearFallbackStrategyTests {
             verificationAttempts: 3
         )
         let decision = strategy.decide(context)
-        guard case .noAction = decision else {
-            Issue.record("Expected .noAction, got \(decision)")
+        guard case let .useAPIYear(year, _) = decision else {
+            Issue.record("Expected .useAPIYear, got \(decision)")
             return
         }
+        #expect(year == 2020)
     }
 
     @Test("Small year diff within threshold uses API year")
@@ -355,25 +360,27 @@ struct YearFallbackStrategyTests {
         }
     }
 
-    @Test("Custom year difference threshold")
+    @Test("Custom year difference threshold triggers Rule 8 cascade")
     func customYearDiffThreshold() {
         var fallbackConfig = FallbackConfig()
         fallbackConfig.yearDifferenceThreshold = 2
         let s = YearFallbackStrategy(config: fallbackConfig)
 
-        // Diff=3 > threshold=2 → escalate
+        // Diff=3 > threshold=2 → Rule 8 triggers
+        // score=80 >= trustAPIScoreThreshold=70 → sub-rule 8a → useAPIYear
         let context = makeContext(
             existingYear: 2000,
             bestScore: 80,
             bestYear: 2003
         )
         let decision = s.decide(context)
-        guard case .escalateToVerification = decision else {
+        guard case let .useAPIYear(year, _) = decision else {
             Issue.record(
-                "Expected .escalateToVerification, got \(decision)"
+                "Expected .useAPIYear, got \(decision)"
             )
             return
         }
+        #expect(year == 2003)
     }
 
     // MARK: - Priority Order

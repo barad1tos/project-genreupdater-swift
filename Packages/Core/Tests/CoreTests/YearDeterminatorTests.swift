@@ -344,6 +344,165 @@ struct YearDeterminatorTests {
         #expect(reason == nil)
     }
 
+    // MARK: - Suspicious Album Pre-flight
+
+    @Test("Short album name + many unique years is suspicious")
+    func suspiciousAlbumDetected() {
+        let track = makeTrack(album: "EP")
+        let albumTracks = [
+            Track(id: "1", name: "A", artist: "X",
+                  album: "EP", year: 2000),
+            Track(id: "2", name: "B", artist: "X",
+                  album: "EP", year: 2005),
+            Track(id: "3", name: "C", artist: "X",
+                  album: "EP", year: 2010),
+        ]
+        let reason = determinator.preFlightCheck(
+            track: track,
+            albumTracks: albumTracks
+        )
+        #expect(reason != nil)
+        #expect(reason?.contains("Suspicious") == true)
+    }
+
+    @Test("Long album name not suspicious")
+    func longAlbumNotSuspicious() {
+        let track = makeTrack(album: "Great Album Title")
+        let albumTracks = [
+            Track(id: "1", name: "A", artist: "X",
+                  album: "Great Album Title", year: 2000),
+            Track(id: "2", name: "B", artist: "X",
+                  album: "Great Album Title", year: 2005),
+            Track(id: "3", name: "C", artist: "X",
+                  album: "Great Album Title", year: 2010),
+        ]
+        let reason = determinator.checkSuspiciousAlbum(
+            track: track,
+            albumTracks: albumTracks
+        )
+        #expect(reason == nil)
+    }
+
+    @Test("Short album name + few unique years not suspicious")
+    func fewYearsNotSuspicious() {
+        let track = makeTrack(album: "EP")
+        let albumTracks = [
+            Track(id: "1", name: "A", artist: "X",
+                  album: "EP", year: 2000),
+            Track(id: "2", name: "B", artist: "X",
+                  album: "EP", year: 2000),
+        ]
+        let reason = determinator.checkSuspiciousAlbum(
+            track: track,
+            albumTracks: albumTracks
+        )
+        #expect(reason == nil)
+    }
+
+    @Test("Exactly 3-char album at boundary is suspicious")
+    func boundaryAlbumSuspicious() {
+        // len("ABC") == 3 == suspiciousAlbumMinLen
+        let track = makeTrack(album: "ABC")
+        let albumTracks = [
+            Track(id: "1", name: "A", artist: "X",
+                  album: "ABC", year: 2000),
+            Track(id: "2", name: "B", artist: "X",
+                  album: "ABC", year: 2001),
+            Track(id: "3", name: "C", artist: "X",
+                  album: "ABC", year: 2002),
+        ]
+        let reason = determinator.checkSuspiciousAlbum(
+            track: track,
+            albumTracks: albumTracks
+        )
+        #expect(reason != nil)
+    }
+
+    // MARK: - Future Year Pre-flight
+
+    @Test("Far-future year triggers skip")
+    func farFutureYearSkips() {
+        let currentYear = Calendar.current.component(
+            .year, from: Date()
+        )
+        let track = makeTrack(album: "New Album")
+        let albumTracks = [
+            Track(id: "1", name: "A", artist: "X",
+                  album: "New Album", year: currentYear + 5),
+        ]
+        let reason = determinator.checkFutureYears(
+            albumTracks: albumTracks,
+            futureYearThreshold: 1
+        )
+        #expect(reason != nil)
+        #expect(reason?.contains("Future year") == true)
+    }
+
+    @Test("Near-future year within threshold passes")
+    func nearFutureYearPasses() {
+        let currentYear = Calendar.current.component(
+            .year, from: Date()
+        )
+        let track = makeTrack(album: "New Album")
+        let albumTracks = [
+            Track(id: "1", name: "A", artist: "X",
+                  album: "New Album", year: currentYear + 1),
+        ]
+        let reason = determinator.checkFutureYears(
+            albumTracks: albumTracks,
+            futureYearThreshold: 1
+        )
+        #expect(reason == nil)
+    }
+
+    @Test("No future years passes")
+    func noFutureYearsPasses() {
+        let albumTracks = [
+            Track(id: "1", name: "A", artist: "X",
+                  album: "Album", year: 2020),
+        ]
+        let reason = determinator.checkFutureYears(
+            albumTracks: albumTracks
+        )
+        #expect(reason == nil)
+    }
+
+    @Test("Custom future year threshold respected")
+    func customFutureThreshold() {
+        let currentYear = Calendar.current.component(
+            .year, from: Date()
+        )
+        let albumTracks = [
+            Track(id: "1", name: "A", artist: "X",
+                  album: "Album", year: currentYear + 3),
+        ]
+        // threshold=5 → year+3 is within threshold
+        let reason = determinator.checkFutureYears(
+            albumTracks: albumTracks,
+            futureYearThreshold: 5
+        )
+        #expect(reason == nil)
+    }
+
+    @Test("Future year integrated in preFlightCheck")
+    func futureYearInPreFlight() {
+        let currentYear = Calendar.current.component(
+            .year, from: Date()
+        )
+        let track = makeTrack(album: "Future Album")
+        let albumTracks = [
+            Track(id: "1", name: "A", artist: "X",
+                  album: "Future Album",
+                  year: currentYear + 10),
+        ]
+        let reason = determinator.preFlightCheck(
+            track: track,
+            albumTracks: albumTracks
+        )
+        #expect(reason != nil)
+        #expect(reason?.contains("Future year") == true)
+    }
+
     @Test("Track uses existing year when no currentYear passed")
     func usesTrackYear() {
         let track = makeTrack(year: 1999, artist: "A", album: "B")
