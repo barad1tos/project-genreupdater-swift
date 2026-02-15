@@ -92,7 +92,6 @@ final class AppDependencies: ObservableObject {
 
             log.info("All services initialized successfully")
             appState = .ready
-
         } catch {
             log.error("Initialization failed: \(error.localizedDescription, privacy: .public)")
             appState = .error(error.localizedDescription)

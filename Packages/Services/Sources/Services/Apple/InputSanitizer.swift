@@ -133,7 +133,7 @@ public enum InputSanitizer {
         let range = NSRange(code.startIndex..., in: code)
         for pattern in dangerousPatterns {
             if let match = pattern.firstMatch(in: code, range: range) {
-                let matchedRange = Range(match.range, in: code)!
+                guard let matchedRange = Range(match.range, in: code) else { continue }
                 let matchedText = String(code[matchedRange])
                 log.error("Security violation: dangerous pattern '\(matchedText, privacy: .public)' in script")
                 throw SanitizationError.dangerousPattern(pattern: matchedText, input: String(code.prefix(100)))

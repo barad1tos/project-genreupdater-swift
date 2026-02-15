@@ -65,7 +65,7 @@ public enum TrackKind: String, Sendable, CaseIterable, Codable, CustomStringConv
         let lowered = rawConstant.lowercased()
 
         // Map 4-char AppleScript codes to TrackKind
-        let appleScriptMapping: [String: TrackKind] = [
+        let appleScriptMapping: [String: Self] = [
             "ksub": .subscription,
             "kpre": .prerelease,
             "kloc": .localOnly,

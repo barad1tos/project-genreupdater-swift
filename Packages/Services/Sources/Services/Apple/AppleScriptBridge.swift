@@ -123,7 +123,7 @@ public actor AppleScriptBridge: AppleScriptClient {
             // Return first completed result, cancel the other
             let result = try await group.next()
             group.cancelAll()
-            return result ?? nil
+            return result.flatMap { $0 }
         }
     }
 

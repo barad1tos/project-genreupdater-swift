@@ -41,7 +41,15 @@ public struct CachedAPIResult: Sendable, Codable, Equatable {
         return Date.now > timestamp.addingTimeInterval(ttl)
     }
 
-    public init(artist: String, album: String, year: Int?, source: String, timestamp: Date, ttl: TimeInterval?, metadata: [String: String] = [:]) {
+    public init(
+        artist: String,
+        album: String,
+        year: Int?,
+        source: String,
+        timestamp: Date,
+        ttl: TimeInterval?,
+        metadata: [String: String] = [:]
+    ) {
         self.artist = artist
         self.album = album
         self.year = year
@@ -110,7 +118,16 @@ public struct PendingAlbumEntry: Sendable, Codable, Identifiable {
     public var recheckInterval: TimeInterval
     public var metadata: [String: String]
 
-    public init(id: String, artist: String, album: String, reason: String, attemptCount: Int = 0, lastAttempt: Date = .now, recheckInterval: TimeInterval = 1_209_600, metadata: [String: String] = [:]) {
+    public init(
+        id: String,
+        artist: String,
+        album: String,
+        reason: String,
+        attemptCount: Int = 0,
+        lastAttempt: Date = .now,
+        recheckInterval: TimeInterval = 1_209_600,
+        metadata: [String: String] = [:]
+    ) {
         self.id = id
         self.artist = artist
         self.album = album
@@ -216,7 +233,11 @@ public extension AppleScriptClient {
         try await runScript(name: name, arguments: arguments, timeout: timeout)
     }
 
-    func fetchTracksByIDs(_ trackIDs: [String], batchSize: Int = 1000, timeout: Duration? = nil) async throws -> [Track] {
+    func fetchTracksByIDs(
+        _ trackIDs: [String],
+        batchSize: Int = 1000,
+        timeout: Duration? = nil
+    ) async throws -> [Track] {
         try await fetchTracksByIDs(trackIDs, batchSize: batchSize, timeout: timeout)
     }
 
@@ -230,7 +251,13 @@ public extension AppleScriptClient {
 /// Protocol for managing albums that need manual year verification.
 public protocol PendingVerificationService: Actor {
     func initialize() async throws
-    func markForVerification(artist: String, album: String, reason: String, metadata: [String: String]?, recheckDays: Int?) async
+    func markForVerification(
+        artist: String,
+        album: String,
+        reason: String,
+        metadata: [String: String]?,
+        recheckDays: Int?
+    ) async
     func removeFromPending(artist: String, album: String) async
     func getEntry(artist: String, album: String) async -> PendingAlbumEntry?
     func getAttemptCount(artist: String, album: String) async -> Int
@@ -296,8 +323,18 @@ public protocol TrackProcessor: Sendable {
 }
 
 public extension TrackProcessor {
-    func updateArtist(track: Track, newArtistName: String, originalArtist: String? = nil, updateAlbumArtist: Bool = true) async throws -> Bool {
-        try await updateArtist(track: track, newArtistName: newArtistName, originalArtist: originalArtist, updateAlbumArtist: updateAlbumArtist)
+    func updateArtist(
+        track: Track,
+        newArtistName: String,
+        originalArtist: String? = nil,
+        updateAlbumArtist: Bool = true
+    ) async throws -> Bool {
+        try await updateArtist(
+            track: track,
+            newArtistName: newArtistName,
+            originalArtist: originalArtist,
+            updateAlbumArtist: updateAlbumArtist
+        )
     }
 }
 

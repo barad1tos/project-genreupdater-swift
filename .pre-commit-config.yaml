@@ -1,0 +1,48 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: check-merge-conflict
+
+  # GitHub Actions security scanner
+  - repo: https://github.com/woodruffw/zizmor-pre-commit
+    rev: v1.22.0
+    hooks:
+      - id: zizmor
+        args: ['--min-severity', 'medium']
+
+  # Swift-specific hooks (local — uses system-installed tools)
+  - repo: local
+    hooks:
+      - id: swiftlint
+        name: SwiftLint
+        entry: swiftlint lint --strict --quiet
+        language: system
+        types: [swift]
+        pass_filenames: false
+
+      - id: swiftformat-lint
+        name: SwiftFormat (check)
+        entry: swiftformat --lint
+        language: system
+        types: [swift]
+        pass_filenames: true
+
+      - id: swift-build-core
+        name: Swift Build (Core)
+        entry: swift build --package-path Packages/Core
+        language: system
+        pass_filenames: false
+        files: ^Packages/Core/
+
+      - id: swift-build-services
+        name: Swift Build (Services)
+        entry: swift build --package-path Packages/Services
+        language: system
+        pass_filenames: false
+        files: ^Packages/(Core|Services)/

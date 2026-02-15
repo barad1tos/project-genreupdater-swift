@@ -167,7 +167,11 @@ private struct WelcomeStep: View {
                 .font(.title)
                 .fontWeight(.bold)
 
-            Text("Automatically update genres and release years for your Music library using MusicBrainz, Discogs, and Apple Music data.")
+            Text(
+                "Automatically update genres and release years "
+                + "for your Music library using MusicBrainz, "
+                + "Discogs, and Apple Music data."
+            )
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -201,7 +205,12 @@ private struct InstallScriptsStep: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Text("Genre Updater needs AppleScript files to write metadata to Music.app. These scripts are bundled with the app and will be installed to a secure system directory.")
+            Text(
+                "Genre Updater needs AppleScript files to write "
+                + "metadata to Music.app. These scripts are bundled "
+                + "with the app and will be installed to a secure "
+                + "system directory."
+            )
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -256,7 +265,11 @@ private struct MusicAccessStep: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Text("Genre Updater uses Apple's MusicKit to read your library. You'll be asked to grant access — this is required to view and update your tracks.")
+            Text(
+                "Genre Updater uses Apple's MusicKit to read your "
+                + "library. You'll be asked to grant access — this "
+                + "is required to view and update your tracks."
+            )
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

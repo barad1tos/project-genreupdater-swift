@@ -29,7 +29,9 @@ public enum MusicLibraryError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .authorizationDenied:
-            "Music library access was denied. Please grant access in System Settings > Privacy & Security > Media & Apple Music."
+            "Music library access was denied. "
+                + "Please grant access in System Settings > "
+                + "Privacy & Security > Media & Apple Music."
         case .authorizationRestricted:
             "Music library access is restricted on this device."
         case let .fetchFailed(detail):

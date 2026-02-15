@@ -35,13 +35,13 @@ public struct AppConfiguration: Sendable, Codable {
     public init() {}
 
     /// Load configuration from the app's container.
-    public static func load() throws -> AppConfiguration {
+    public static func load() throws -> Self {
         let url = configFileURL
         guard FileManager.default.fileExists(atPath: url.path()) else {
-            return AppConfiguration()
+            return Self()
         }
         let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(AppConfiguration.self, from: data)
+        return try JSONDecoder().decode(Self.self, from: data)
     }
 
     /// Save configuration to the app's container.
@@ -54,7 +54,12 @@ public struct AppConfiguration: Sendable, Codable {
 
     /// Path to the JSON config file in the app's Application Support directory.
     public static var configFileURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            preconditionFailure("Application Support directory unavailable")
+        }
         let appDir = appSupport.appendingPathComponent("GenreUpdater", isDirectory: true)
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         return appDir.appendingPathComponent("config.json")
@@ -314,6 +319,7 @@ public struct AnalyticsConfig: Sendable, Codable {
 // MARK: - Cleaning Configuration
 
 public struct CleaningConfig: Sendable, Codable {
+    // swiftlint:disable:next inclusive_language
     public var remasterKeywords: [String] = [
         "remaster", "remastered", "deluxe", "expanded", "anniversary",
         "special edition", "bonus track",

@@ -1,0 +1,114 @@
+# SwiftLint Configuration — GenreUpdater
+# Matches CLAUDE.md code quality standards
+
+excluded:
+  - .build
+  - DerivedData
+  - Packages/Core/.build
+  - Packages/Services/.build
+  - Packages/SharedUI/.build
+  - "*.xcodeproj"
+  - Packages/*/Package.swift
+
+# Rule severity overrides
+opt_in_rules:
+  - closure_end_indentation
+  - closure_spacing
+  - collection_alignment
+  - contains_over_filter_count
+  - contains_over_first_not_nil
+  - discouraged_object_literal
+  - empty_collection_literal
+  - empty_count
+  - empty_string
+  - enum_case_associated_values_count
+  - explicit_init
+  - fallthrough
+  - fatal_error_message
+  - first_where
+  - flatmap_over_map_reduce
+  - identical_operands
+  - joined_default_parameter
+  - last_where
+  - legacy_multiple
+  - modifier_order
+  - overridden_super_call
+  - prefer_self_in_static_references
+  - prefer_self_type_over_type_of_self
+  - private_action
+  - private_outlet
+  - redundant_nil_coalescing
+  - redundant_type_annotation
+  - sorted_first_last
+  - toggle_bool
+  - unneeded_parentheses_in_closure_argument
+  - vertical_whitespace_closing_braces
+  - force_unwrapping
+
+disabled_rules:
+  - trailing_comma
+  - todo
+
+# Line length: 120 warning, 200 error
+line_length:
+  warning: 120
+  error: 200
+  ignores_comments: true
+  ignores_urls: true
+  ignores_interpolated_strings: true
+
+# Type body length
+type_body_length:
+  warning: 300
+  error: 500
+
+# File length
+file_length:
+  warning: 500
+  error: 1000
+
+# Function body length
+function_body_length:
+  warning: 60
+  error: 100
+
+# Cyclomatic complexity
+cyclomatic_complexity:
+  warning: 10
+  error: 20
+
+# Force cast/unwrap are errors (CLAUDE.md: safety-first)
+force_cast: error
+force_try: error
+force_unwrapping: error
+
+# Nesting
+nesting:
+  type_level: 2
+  function_level: 3
+
+# Identifier name
+identifier_name:
+  min_length:
+    warning: 2
+    error: 1
+  max_length:
+    warning: 50
+    error: 60
+  excluded:
+    - id
+    - i
+    - x
+    - y
+
+# Large tuple
+large_tuple:
+  warning: 3
+  error: 4
+
+# Function parameter count
+function_parameter_count:
+  warning: 5
+  error: 8
+
+reporter: xcode
