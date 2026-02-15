@@ -41,3 +41,49 @@ struct CoreSmokeTests {
         #expect(result.confidence == 0)
     }
 }
+
+// MARK: - Hotfix Tests
+
+@Suite("TrackStatus — nil handling (CRITICAL-3 fix)")
+struct TrackStatusNilHandlingTests {
+    @Test("nil trackStatus marks track as available")
+    func nilStatusIsAvailable() {
+        let track = Track(id: "1", name: "Song", artist: "Artist", album: "Album", trackStatus: nil)
+        let filtered = filterAvailableTracks([track])
+        #expect(filtered.count == 1, "Tracks with nil status must be included")
+    }
+
+    @Test("unrecognized trackStatus marks track as available")
+    func unrecognizedStatusIsAvailable() {
+        let track = Track(id: "2", name: "Song", artist: "Artist", album: "Album", trackStatus: "unknown_status_xyz")
+        let filtered = filterAvailableTracks([track])
+        #expect(filtered.count == 1, "Tracks with unrecognized status must be included")
+    }
+
+    @Test("prerelease tracks are excluded")
+    func prereleaseExcluded() {
+        let track = Track(id: "3", name: "Song", artist: "Artist", album: "Album", trackStatus: "prerelease")
+        let filtered = filterAvailableTracks([track])
+        #expect(filtered.isEmpty, "Prerelease tracks must be excluded")
+    }
+
+    @Test("subscription tracks are included")
+    func subscriptionIncluded() {
+        let track = Track(id: "4", name: "Song", artist: "Artist", album: "Album", trackStatus: "subscription")
+        let filtered = filterAvailableTracks([track])
+        #expect(filtered.count == 1)
+    }
+
+    @Test("mixed statuses filter correctly")
+    func mixedStatuses() {
+        let tracks = [
+            Track(id: "1", name: "A", artist: "X", album: "Y", trackStatus: nil),
+            Track(id: "2", name: "B", artist: "X", album: "Y", trackStatus: "subscription"),
+            Track(id: "3", name: "C", artist: "X", album: "Y", trackStatus: "prerelease"),
+            Track(id: "4", name: "D", artist: "X", album: "Y", trackStatus: "purchased"),
+        ]
+        let filtered = filterAvailableTracks(tracks)
+        #expect(filtered.count == 3, "Only prerelease should be excluded")
+        #expect(!filtered.contains { $0.id == "3" })
+    }
+}

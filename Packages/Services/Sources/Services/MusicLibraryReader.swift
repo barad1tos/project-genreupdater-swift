@@ -96,7 +96,7 @@ public actor MusicLibraryReader {
             let tracks = response.items.map { song in
                 songToTrack(song)
             }
-            log.info("Fetched \(tracks.count, privacy: .public) tracks from MusicKit\(artist.map { " (artist: \($0))" } ?? "", privacy: .public)")
+            log.info("Fetched \(tracks.count, privacy: .public) tracks from MusicKit\(artist.map { " (artist: \($0))" } ?? "", privacy: .private)")
             return tracks
         } catch {
             log.error("MusicKit fetch failed: \(error.localizedDescription, privacy: .public)")

@@ -27,3 +27,6 @@ Packages/*/Package.resolved
 
 # Build artifacts
 build/
+
+# Local symlinks (Obsidian vault)
+docs/

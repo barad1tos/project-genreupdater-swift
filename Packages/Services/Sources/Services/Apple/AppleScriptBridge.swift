@@ -174,7 +174,7 @@ public actor AppleScriptBridge: AppleScriptClient {
             name: "update_property",
             arguments: [trackID, property, value]
         )
-        log.info("Updated \(property, privacy: .public) for track \(trackID, privacy: .public): \(value, privacy: .public)")
+        log.info("Updated \(property, privacy: .public) for track \(trackID, privacy: .private): \(value, privacy: .private)")
 
         if let output, output.lowercased().contains("error") {
             throw AppleScriptBridgeError.executionFailed(
@@ -187,7 +187,13 @@ public actor AppleScriptBridge: AppleScriptClient {
     /// Batch update multiple tracks' properties.
     public func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
         // Format: "id1|property1|value1\nid2|property2|value2"
-        let batchArg = updates.map { "\($0.trackID)|\($0.property)|\($0.value)" }.joined(separator: "\n")
+        // Each component is escaped individually to prevent injection via pipe delimiter.
+        let batchArg = updates.map { update in
+            let escapedID = InputSanitizer.escapeStringValue(update.trackID)
+            let escapedProperty = InputSanitizer.sanitizeScriptCode(update.property)
+            let escapedValue = InputSanitizer.escapeStringValue(update.value)
+            return "\(escapedID)|\(escapedProperty)|\(escapedValue)"
+        }.joined(separator: "\n")
 
         let output = try await runScript(
             name: "batch_update_tracks",

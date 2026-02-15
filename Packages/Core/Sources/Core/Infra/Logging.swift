@@ -24,7 +24,7 @@ private let subsystem = "com.genreupdater.app"
 /// Usage:
 /// ```swift
 /// let log = AppLogger.make(category: "APIClient")
-/// log.info("Fetching year for \(artist, privacy: .public) - \(album, privacy: .public)")
+/// log.info("Fetching year for \(artist, privacy: .private) - \(album, privacy: .private)")
 /// ```
 public enum AppLogger {
     /// Create a logger for a specific category (module/component).

@@ -87,13 +87,37 @@ public enum InputSanitizer {
         return sanitized
     }
 
-    /// Simple sanitization for AppleScript — strips shell metacharacters.
-    public static func sanitizeForAppleScript(_ value: String) -> String {
+    /// Sanitize AppleScript **code fragments** by stripping shell metacharacters.
+    ///
+    /// Use this ONLY for dynamically composed script code (e.g., property names,
+    /// script identifiers). **Never** use this for track data (artist names, album
+    /// titles) — those characters are valid in track metadata.
+    ///
+    /// For user-supplied data values (track names, artist names), use
+    /// ``escapeStringValue(_:)`` instead, which preserves all characters but
+    /// escapes quotes and backslashes for safe embedding in AppleScript strings.
+    public static func sanitizeScriptCode(_ value: String) -> String {
         var result = value
         for char in [";", "|", "&", "`", "$", "(", ")", "{", "}"] {
             result = result.replacingOccurrences(of: char, with: "")
         }
         return result
+    }
+
+    /// Escape a **data value** (track name, artist name, album title) for safe
+    /// embedding inside an AppleScript quoted string.
+    ///
+    /// This escapes `"` and `\` so the value can be safely interpolated into
+    /// AppleScript like: `"set trackName to \"" & escapedValue & "\""`.
+    /// Unlike ``sanitizeScriptCode(_:)``, this preserves parentheses, brackets,
+    /// and all other characters that are valid in track metadata.
+    ///
+    /// - Parameter value: Raw track metadata string
+    /// - Returns: Escaped string safe for AppleScript string interpolation
+    public static func escapeStringValue(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
     /// Validate that a string doesn't contain dangerous AppleScript patterns.

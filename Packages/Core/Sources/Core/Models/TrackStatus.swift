@@ -116,9 +116,13 @@ public func normalizeTrackStatus(_ rawStatus: String?) -> TrackKind? {
 }
 
 /// Filter tracks that are available for processing based on status.
+///
+/// Tracks with `nil` or unrecognized status are considered available —
+/// MusicKit tracks often lack a status string, and excluding them
+/// would filter out the entire library.
 public func filterAvailableTracks(_ tracks: [Track]) -> [Track] {
     tracks.filter { track in
-        guard let kind = normalizeTrackStatus(track.trackStatus) else { return false }
+        guard let kind = normalizeTrackStatus(track.trackStatus) else { return true }
         return kind.isAvailableForProcessing
     }
 }
