@@ -16,8 +16,12 @@ GenreUpdater/
 │   ├── Core/                      # Pure domain logic (NO external deps)
 │   │   └── Sources/Core/
 │   │       ├── Config/            # AppConfiguration (JSON-backed)
+│   │       ├── Genre/             # GenreDeterminator (Phase 3B)
 │   │       ├── Infra/             # Logging (os.Logger)
-│   │       └── Models/            # Track, Protocols, TrackStatus, Tier, AppFeature, ProgressUpdate
+│   │       ├── Matching/          # AlbumMatcher, ArtistMatcher (Phase 3A)
+│   │       ├── Models/            # Track, Protocols, TrackStatus, Tier, AppFeature, ProgressUpdate, AlbumType
+│   │       ├── Utils/             # Normalization, ScriptDetector, MetadataUtils (Phase 3A)
+│   │       └── Year/              # YearScorer, YearValidator, YearFallbackStrategy, YearDeterminator (Phase 3B)
 │   ├── Services/                  # External world (APIs, Music.app, cache)
 │   │   └── Sources/Services/
 │   │       ├── Apple/             # AppleScriptBridge, InputSanitizer, ScriptInstaller
@@ -163,7 +167,7 @@ The app runs in sandbox with these entitlements:
 | 1.5: Hotfix | ✅ Done | Entitlements, TrackStatus, InputSanitizer, AppleScriptBridge, Logging |
 | 2A: Persistence | ✅ Done | GRDB cache, SwiftData store, ProgressUpdate |
 | 2B: Monetization | ✅ Done | Tier, AppFeature, SubscriptionService, FeatureGate, StoreKit Config |
-| 3: Core Algorithms | Planned | Genre/Year determination |
+| 3: Core Algorithms | 🔄 Active (3A) | Normalization, ScriptDetector, MetadataUtils, AlbumType, AlbumMatcher, ArtistMatcher |
 | 4: API + Cache | Planned | MusicBrainz, Discogs, GRDB cache |
 | 5: Workflows | Planned | Pipeline, Undo, Checkpoint |
 | 6: Views | Planned | SwiftUI, VoiceOver |

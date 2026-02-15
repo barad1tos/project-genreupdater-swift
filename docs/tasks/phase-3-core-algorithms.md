@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Core Algorithms"
-status: planned
+status: active
 priority: critical
 depends_on:
   - "Phase 2"
@@ -15,120 +15,180 @@ depends_on:
 
 ## Context
 
-Ядро бізнес-логіки: алгоритми визначення жанру та року. Портуються з battle-tested Python-реалізації (32.7K LOC). Перед початком потрібен фіксований тестовий датасет з Python reference outputs для параметризованих тестів.
+Ядро бізнес-логіки: алгоритми визначення жанру та року. Портуються з battle-tested Python-реалізації (32.7K LOC). Розбито на дві sub-phases: 3A (foundation utils + matchers) та 3B (genre/year algorithms).
 
-## Prerequisites
+## Sub-phases
 
-- [ ] Експортувати фіксований тестовий датасет (200-500 треків) з Python-версії
-- [ ] Згенерувати known-good Python outputs для genre determination
-- [ ] Згенерувати known-good Python outputs для year scoring
-- [ ] Зберегти як test fixtures у проєкті
+### Phase 3A: Foundation (Utils + Matchers)
 
-## Deliverables
+**Components:** Normalization, ScriptDetector, MetadataUtils, AlbumType, AlbumMatcher, ArtistMatcher
+**Estimated:** ~2,200 LOC impl + ~900 LOC tests
 
-### GenreManager
-> **TDD ref:** [[TDD#src/core/tracks/ → Packages/Core/ (Genre/, Year/, Processing/)]] (`genre_manager.py` 684 LOC → `GenreDeterminator.swift` 🔴, classification trees, standalone)
+### Phase 3B: Core Algorithms (Genre + Year + Scoring)
 
-- [ ] Створити `Packages/Services/Sources/Services/Genre/GenreManager.swift`
-- [ ] Портувати алгоритм визначення жанру з Python
-- [ ] Multi-source genre resolution (MusicBrainz tags, Discogs styles, Apple Music genre)
-- [ ] Genre normalization та mapping (canonical genres)
-- [ ] Confidence scoring для кожного визначення
-- [ ] Параметризовані тести проти Python reference data
-- [ ] Edge cases: CJK artists, compilations, various genres, empty/missing data
+**Components:** GenreDeterminator, YearScorer, YearValidator, YearFallbackStrategy, YearDeterminator
+**Estimated:** ~3,500 LOC impl + ~1,500 LOC tests
 
-### YearManager
-> **TDD ref:** [[TDD#src/core/tracks/ → Packages/Core/ (Genre/, Year/, Processing/)]] (`year_determination.py` + `year_fallback.py` merge → 1,588 LOC → `YearDeterminator.swift` 🔴)
+## Phase 3A Deliverables
 
-- [ ] Створити `Packages/Services/Sources/Services/Year/YearManager.swift`
-- [ ] Портувати year determination orchestrator
-- [ ] Multi-source year querying (MusicBrainz, Discogs, Apple Music)
-- [ ] Original release year detection (не remaster/reissue)
-- [ ] Artist activity period validation
-- [ ] Suspicious year detection (< 1900, future years)
-- [ ] Параметризовані тести проти Python reference data
+### Normalization
+> Port from: `normalization.py` 51 LOC
 
-### ScoringEngine (найскладніший компонент)
-> **TDD ref:** [[TDD#Decision 9 Year Scoring → Pure Struct]] (чому pure struct без actor: scoring є pure function inputs → score) | [[TDD#src/services/api/ → Packages/Services/Sources/Services/API/]] (`year_scoring.py` 945 LOC + `year_score_resolver.py` 524 LOC → `YearScorer.swift`, moved to Core)
-
-- [ ] Створити `Packages/Services/Sources/Services/Year/ScoringEngine.swift`
-- [ ] Портувати year candidate scoring з Python
-- [ ] Конфігурований definitive threshold
-- [ ] Weighted multi-source scoring
-- [ ] Year candidate deduplication
-- [ ] Рейтинг має бути ідентичний Python-версії для тестового датасету
-- [ ] Extensive unit tests з edge cases
-
-### AlbumMatcher
-> **TDD ref:** [[TDD#src/core/models/ → Packages/Core/Sources/Core/Models/]] (`metadata_utils.py` 803 LOC → `MetadataUtils.swift` 🔴, regex-heavy) — album matching logic lives here
-
-- [ ] Створити `Packages/Services/Sources/Services/Matching/AlbumMatcher.swift`
-- [ ] Fuzzy album matching (Levenshtein distance, normalization)
-- [ ] Remaster/deluxe/edition variant detection
-- [ ] Disc number handling (Disc 1, CD2, etc.)
-- [ ] Unit tests з real-world album name variations
-
-### ArtistMatcher
-> **TDD ref:** [[TDD#src/core/tracks/ → Packages/Core/ (Genre/, Year/, Processing/)]] (`artist_renamer.py` 194 LOC → `TrackCleaningFlow.swift` merge) — artist normalization + featured extraction
-
-- [ ] Створити `Packages/Services/Sources/Services/Matching/ArtistMatcher.swift`
-- [ ] Artist name normalization (The Beatles → Beatles)
-- [ ] Featured artist extraction (feat., ft., with, &)
-- [ ] CJK/Unicode script handling
-- [ ] Collaboration detection (A & B → [A, B])
-- [ ] Unit tests з real-world artist name variations
-
-### MetadataUtils
-> **TDD ref:** [[TDD#src/core/models/ → Packages/Core/Sources/Core/Models/]] (`metadata_utils.py` 803 LOC → `MetadataUtils.swift` 🔴, regex-heavy, direct port)
-
-- [ ] Створити `Packages/Core/Sources/Core/Utils/MetadataUtils.swift`
-- [ ] Track/album name cleaning
-- [ ] Remaster detection та tag removal
-- [ ] Edition/version normalization
-- [ ] Unit tests
+- [x] Create `Packages/Core/Sources/Core/Utils/Normalization.swift`
+- [x] `normalizeForMatching(_:)` — standard pipeline (strip, lowercase)
+- [x] `areNamesEqual(_:_:)` — convenience comparison
+- [x] Unit tests with edge cases, diacritics, CJK, empty strings
 
 ### ScriptDetector
-> **TDD ref:** [[TDD#src/core/models/ → Packages/Core/Sources/Core/Models/]] (`script_detection.py` 519 LOC → `ScriptDetection.swift` 🟡, Swift Regex builder замість re module)
+> Port from: `script_detection.py` 519 LOC
 
-- [ ] Створити `Packages/Core/Sources/Core/Utils/ScriptDetector.swift`
-- [ ] Unicode script detection для CJK handling
-- [ ] Визначення мови тексту (Latin, CJK, Cyrillic, etc.)
-- [ ] Unit tests з multi-script strings
+- [x] Create `Packages/Core/Sources/Core/Utils/ScriptDetector.swift`
+- [x] `ScriptType` enum (latin, cjk, cyrillic, arabic, etc.)
+- [x] Unicode range checks: `hasLatin(_:)`, `hasCJK(_:)`, `hasCyrillic(_:)`, etc.
+- [x] `dominantScript(of:)` — primary script detection
+- [x] `getAllScripts(_:)` — all detected scripts
+- [x] CJK disambiguation (Japanese vs Chinese via hiragana/katakana)
+- [x] Unit tests with multi-script, mixed strings
 
-## Files (~7, 5 з high complexity)
+### MetadataUtils
+> Port from: `metadata_utils.py` 803 LOC (cleaning functions only)
 
-| File | Complexity | Description |
-|------|-----------|-------------|
-| `Services/Genre/GenreManager.swift` | High | Genre determination |
-| `Services/Year/YearManager.swift` | High | Year orchestrator |
-| `Services/Year/ScoringEngine.swift` | Critical | Year scoring — most complex |
-| `Services/Matching/AlbumMatcher.swift` | High | Fuzzy album matching |
-| `Services/Matching/ArtistMatcher.swift` | High | Artist normalization |
-| `Core/Utils/MetadataUtils.swift` | Medium | Name cleaning |
-| `Core/Utils/ScriptDetector.swift` | Medium | Unicode detection |
+- [x] Create `Packages/Core/Sources/Core/Utils/MetadataUtils.swift`
+- [x] Remaster detection and tag removal
+- [x] Album name cleaning: "(Remastered)", "[Deluxe]", etc.
+- [x] Edition/version normalization
+- [x] Balanced parentheses/brackets removal with keyword matching
+- [x] Uses `CleaningConfig` from `AppConfiguration`
+- [x] Unit tests with remaster patterns, cleaning edge cases
+
+### AlbumType
+> Port from: `album_type.py` 405 LOC
+
+- [x] Create `Packages/Core/Sources/Core/Models/AlbumType.swift`
+- [x] `AlbumType` enum: normal, special, compilation, reissue
+- [x] `YearHandlingStrategy` enum: normal, markAndSkip, markAndUpdate
+- [x] `AlbumTypeInfo` struct with detected pattern + strategy
+- [x] Pattern-based classification (special, compilation, reissue keywords)
+- [x] `detectAlbumType(_:)` — main classification function
+- [x] Unit tests with classification edge cases
+
+### AlbumMatcher
+> Port from: album matching logic in `metadata_utils.py`
+
+- [x] Create `Packages/Core/Sources/Core/Matching/AlbumMatcher.swift`
+- [x] Levenshtein distance implementation (~30 LOC)
+- [x] Fuzzy album matching with configurable threshold
+- [x] Remaster/deluxe/edition variant detection
+- [x] Disc number handling (Disc 1, CD2)
+- [x] Unit tests with fuzzy matching, variants, disc numbers
+
+### ArtistMatcher
+> Port from: `artist_renamer.py` 194 LOC + `year_utils.py` `normalize_collaboration_artist`
+
+- [x] Create `Packages/Core/Sources/Core/Matching/ArtistMatcher.swift`
+- [x] "The Beatles" → "Beatles" article normalization
+- [x] Featured artist extraction: feat., ft., with, &
+- [x] CJK-aware matching via ScriptDetector
+- [x] Collaboration split: "A & B" → ["A", "B"]
+- [x] `extractMainArtist(_:)` — extract main from collaboration
+- [x] Unit tests with normalization, features, collabs, CJK
+
+## Phase 3B Deliverables
+
+### GenreUpdateConfig Extension
+
+- [ ] Extend `GenreUpdateConfig` with `minimumConfidence`, `overrideExisting`, `normalization`
+
+### GenreDeterminator
+> Port from: `genre_manager.py` 684 LOC — **Pure struct** (TDD Decision 9 pattern)
+
+- [ ] Create `Packages/Core/Sources/Core/Genre/GenreDeterminator.swift`
+- [ ] `GenreInput` struct (musicBrainzTags, discogsStyles, appleMusicGenre, currentGenre)
+- [ ] `GenreResult` struct (genre, confidence, source)
+- [ ] Genre normalization to canonical genres (mapping table)
+- [ ] Classification trees for genre hierarchy
+- [ ] Confidence scoring 0-100
+- [ ] Unit tests with classification, normalization, confidence, CJK
+
+### YearValidator
+> Port from: `year_consistency.py` 393 LOC + `year_utils.py` 128 LOC — **Pure struct**
+
+- [ ] Create `Packages/Core/Sources/Core/Year/YearValidator.swift`
+- [ ] Absurd year detection (< 1900), future dates
+- [ ] Artist activity period cross-validation
+- [ ] Album consistency (same album ≠ different years)
+- [ ] Unit tests with sanity checks, consistency, activity period
+
+### YearScorer
+> Port from: `year_scoring.py` 945 LOC + `year_score_resolver.py` 524 LOC — **Pure struct, static methods** (TDD Decision 9)
+
+- [ ] Create `Packages/Core/Sources/Core/Year/YearScorer.swift`
+- [ ] Weighted multi-source scoring per `ScoringConfig` (30+ factors)
+- [ ] Year candidate deduplication
+- [ ] Definitive threshold check (configurable)
+- [ ] Conflict resolution between sources
+- [ ] CRITICAL: must produce identical rankings to Python
+- [ ] Extensive unit tests with all scoring factors
+
+### YearFallbackStrategy
+> Extracted from: `year_fallback.py` 871 LOC — **Pure struct**
+
+- [ ] Create `Packages/Core/Sources/Core/Year/YearFallbackStrategy.swift`
+- [ ] Fallback chain: library year → earliest added date → artist period heuristics
+- [ ] Configurable via `FallbackConfig`
+- [ ] Unit tests with each fallback strategy
+
+### YearDeterminator
+> Port from: `year_determination.py` 717 LOC — **Orchestrator with protocol injection**
+
+- [ ] Create `Packages/Core/Sources/Core/Year/YearDeterminator.swift`
+- [ ] Accepts `ExternalAPIService` + `CacheService` through init
+- [ ] Coordinates: query → score → validate → fallback
+- [ ] Multi-source querying via `ExternalAPIService`
+- [ ] Original release year detection (uses AlbumMatcher)
+- [ ] Returns `YearResult` (already defined in Protocols.swift)
+- [ ] Unit tests with mock API, end-to-end orchestration
+
+## Files
+
+| File | Location | Complexity | Description |
+|------|----------|-----------|-------------|
+| `Normalization.swift` | `Core/Utils/` | Low | Text normalization |
+| `ScriptDetector.swift` | `Core/Utils/` | Medium | Unicode script detection |
+| `MetadataUtils.swift` | `Core/Utils/` | Medium | Name cleaning |
+| `AlbumType.swift` | `Core/Models/` | Medium | Album classification |
+| `AlbumMatcher.swift` | `Core/Matching/` | High | Fuzzy album matching |
+| `ArtistMatcher.swift` | `Core/Matching/` | High | Artist normalization |
+| `GenreDeterminator.swift` | `Core/Genre/` | High | Genre determination |
+| `YearScorer.swift` | `Core/Year/` | Critical | Year scoring — most complex |
+| `YearValidator.swift` | `Core/Year/` | Medium | Year sanity checks |
+| `YearFallbackStrategy.swift` | `Core/Year/` | Medium | Fallback chain |
+| `YearDeterminator.swift` | `Core/Year/` | High | Year orchestrator |
 
 ## Acceptance Criteria
 
-- [ ] Genre determination matches Python версії для reference dataset
-- [ ] Year scoring produces identical rankings для test cases
-- [ ] Всі параметризовані тести проходять проти Python reference data
-- [ ] Agreement rate ≥ 95% з Python-версією
-- [ ] `swift test` проходить для всіх пакетів
-- [ ] Performance: обробка одного треку < 100ms (без API calls)
+- [ ] Genre determination matches Python behaviour for test cases
+- [ ] Year scoring produces identical rankings for test cases
+- [ ] Agreement rate ≥ 95% with Python version
+- [x] `cd Packages/Core && swift test` — all new tests pass (153 tests, 11 suites)
+- [x] `cd Packages/Services && swift test` — existing tests pass (68 tests)
+- [ ] `xcodebuild build -scheme GenreUpdater` — BUILD SUCCEEDED
+- [ ] Performance: < 100ms per track (without API calls)
 
 ## Dependencies
 
-- Phase 2 (persistence, domain type extensions)
-- Python reference dataset (MUST be ready before starting)
+- Phase 2 (persistence, domain type extensions) ✅ Done
 
 ## Risks
 
-- Складність портування Python scoring algorithm — може потребувати ітерацій
-- Fuzzy matching в Swift може давати інші результати через Unicode normalization
-- CJK handling потребує ретельного тестування
+- YearScorer Python parity — parameterized fixtures for line-by-line porting
+- Swift Regex vs Python re — use raw literals, test edge cases
+- Unicode normalization differences — both use ICU; test Turkish locale
+- Levenshtein performance — O(nm) fine for <200 char strings
+- 6,200 LOC scope — sub-phases, incremental tests
 
 ## Notes
 
 - Це найскладніша фаза — планувати більше часу
 - API client stubs з Phase 4 можна scaffold паралельно
-- ScoringEngine має бути максимально покритий тестами (це серце додатку)
+- YearScorer має бути максимально покритий тестами (це серце додатку)
