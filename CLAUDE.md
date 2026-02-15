@@ -17,11 +17,14 @@ GenreUpdater/
 │   │   └── Sources/Core/
 │   │       ├── Config/            # AppConfiguration (JSON-backed)
 │   │       ├── Infra/             # Logging (os.Logger)
-│   │       └── Models/            # Track, Protocols, TrackStatus
+│   │       └── Models/            # Track, Protocols, TrackStatus, Tier, AppFeature, ProgressUpdate
 │   ├── Services/                  # External world (APIs, Music.app, cache)
 │   │   └── Sources/Services/
 │   │       ├── Apple/             # AppleScriptBridge, InputSanitizer, ScriptInstaller
 │   │       ├── MusicLibraryReader # MusicKit integration
+│   │       ├── Persistence/
+│   │       │   ├── GRDB/          # GRDBCacheService, GRDBModels, GRDBMigrations
+│   │       │   └── SwiftData/     # PersistedTrack, SwiftDataTrackStore
 │   │       └── Subscription/      # SubscriptionService, FeatureGate (StoreKit 2)
 │   └── SharedUI/                  # Reusable SwiftUI components
 ├── Tests/                         # App-level tests

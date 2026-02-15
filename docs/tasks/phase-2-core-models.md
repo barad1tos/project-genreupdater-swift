@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Core Models + Infrastructure + Subscription Foundation"
-status: active
+status: done
 priority: high
 depends_on:
   - "Phase 1 ✅"
@@ -63,21 +63,21 @@ depends_on:
 ### GRDB Setup
 > **TDD ref:** [[TDD#Decision 8 3-Tier Cache → SwiftData + GRDB + NSCache]] (чому GRDB для API cache: raw speed, 10 Python files 2,993 LOC → 3 Swift files ~800 LOC) | [[TDD#Caching — SwiftData + GRDB]] (code pattern: `@Model CachedAPIResult` з TTL)
 
-- [ ] Додати GRDB dependency в `Packages/Services/Package.swift`
-- [ ] Створити `CachedAPIResult` GRDB Row type
-- [ ] Composite index на (artist, album, source)
-- [ ] Реалізувати `GRDBCacheService` що відповідає `CacheService` протоколу
-- [ ] Міграційна схема (VersionedSchema) для майбутніх змін
-- [ ] Unit tests: CRUD, TTL expiry, index performance
+- [x] Додати GRDB dependency в `Packages/Services/Package.swift` *(done in Phase 2A)*
+- [x] Створити `CachedAPIResult` GRDB Row type *(done in Phase 2A — GRDBModels.swift)*
+- [x] Composite index на (artist, album, source) *(done in Phase 2A)*
+- [x] Реалізувати `GRDBCacheService` що відповідає `CacheService` протоколу *(done in Phase 2A)*
+- [x] Міграційна схема (VersionedSchema) для майбутніх змін *(done in Phase 2A — GRDBMigrations.swift)*
+- [x] Unit tests: CRUD, TTL expiry, index performance *(done in Phase 2A — 15 tests)*
 
 ### PersistedTrack (SwiftData @Model)
 > **TDD ref:** [[TDD#Decision 1 Pydantic → Three-Layer Types]] (чому 3 шари: domain `Track` struct + `PersistedTrack` @Model + Codable DTO — prevents persistence leaking into business logic) | [[TDD#src/core/models/ → Packages/Core/Sources/Core/Models/]] (`track_models.py` 713 LOC → split)
 
-- [ ] Створити `PersistedTrack` @Model клас
-- [ ] Mapping функції: `Track` ↔ `PersistedTrack`
-- [ ] Indexed fields: id, artist, album, genre
-- [ ] Relationships з ChangeLogEntry
-- [ ] Unit tests: mapping correctness, persistence cycle
+- [x] Створити `PersistedTrack` @Model клас *(done in Phase 2A)*
+- [x] Mapping функції: `Track` ↔ `PersistedTrack` *(done in Phase 2A)*
+- [x] Indexed fields: id, artist, album, genre *(done in Phase 2A)*
+- [ ] Relationships з ChangeLogEntry *(deferred — ChangeLogEntry not yet defined)*
+- [x] Unit tests: mapping correctness, persistence cycle *(done in Phase 2A — 9 tests)*
 
 ### MusicKit-AppleScript ID Mapping
 > **TDD ref:** [[TDD#Music.app Integration]] (MusicKit reads + AppleScript writes = потрібен маппінг між двома ID systems) | [[TDD#Lesson 5 MusicItemID Init is NOT Failable]] | [[TDD#Decision 6 subprocess → NSUserAppleScriptTask actor]] (scripts run outside sandbox)
@@ -90,10 +90,10 @@ depends_on:
 ### ProgressUpdate Stream
 > **TDD ref:** [[TDD#Decision 3 asyncio.gather → async let / TaskGroup]] (`AsyncStream` pattern для progress reporting від `TaskGroup` до UI)
 
-- [ ] Створити `AsyncStream<ProgressUpdate>` based infrastructure
-- [ ] `ProgressUpdate` struct: phase, current, total, message, estimatedTimeRemaining
-- [ ] Інтеграція з Services для reporting progress до UI
-- [ ] Unit tests: stream emission, cancellation
+- [x] Створити `AsyncStream<ProgressUpdate>` based infrastructure *(done in Phase 2A — ProgressUpdate.swift)*
+- [x] `ProgressUpdate` struct: phase, current, total, message, estimatedTimeRemaining *(done in Phase 2A)*
+- [ ] Інтеграція з Services для reporting progress до UI *(deferred — Phase 5 workflows)*
+- [x] Unit tests: stream emission, cancellation *(done in Phase 2A — 8 tests)*
 
 ### String Catalogs
 - [ ] Налаштувати String Catalogs для локалізації
@@ -116,20 +116,21 @@ depends_on:
 | `App/GenreUpdater.entitlements` | Modify ✅ | + iCloud KVS entitlement |
 | `App/AppDependencies.swift` | Modify ✅ | + SubscriptionService, FeatureGate DI |
 | `project.yml` | Modify ✅ | Remove entitlements block (xcodegen fix) |
-| `Services/Package.swift` | Modify | Add GRDB dependency (Phase 2A) |
-| `Services/Cache/GRDBCacheService.swift` | New | GRDB cache implementation (Phase 2A) |
-| `Services/Cache/CachedAPIResult.swift` | New | GRDB Row type (Phase 2A) |
-| `Services/Cache/VersionedSchema.swift` | New | DB migrations (Phase 2A) |
-| `Services/Persistence/PersistedTrack.swift` | New | SwiftData @Model (Phase 2A) |
+| `Services/Package.swift` | Modify ✅ | Add GRDB dependency (Phase 2A) |
+| `Services/Persistence/GRDB/GRDBCacheService.swift` | New ✅ | GRDB cache implementation (Phase 2A) |
+| `Services/Persistence/GRDB/GRDBModels.swift` | New ✅ | GRDB Row types (Phase 2A) |
+| `Services/Persistence/GRDB/GRDBMigrations.swift` | New ✅ | DB migrations (Phase 2A) |
+| `Services/Persistence/SwiftData/PersistedTrack.swift` | New ✅ | SwiftData @Model (Phase 2A) |
+| `Services/Persistence/SwiftData/SwiftDataTrackStore.swift` | New ✅ | TrackStateStore impl (Phase 2A) |
 | `Services/MusicLibraryReader.swift` | Modify | Add ID mapping (Phase 4-5) |
-| `Core/Models/ProgressUpdate.swift` | New | Progress reporting (Phase 2A) |
+| `Core/Models/ProgressUpdate.swift` | New ✅ | Progress reporting (Phase 2A) |
 
 ## Acceptance Criteria
 
 - [x] Всі domain types компілюються і мають unit tests (Tier, AppFeature, FeatureGate)
 - [x] SubscriptionService працює в StoreKit sandbox (стorekit config created)
 - [x] FeatureGate правильно гейтить features по тірах (18 тестів)
-- [ ] GRDB database створюється і мігрує (Phase 2A — окремий branch)
+- [x] GRDB database створюється і мігрує *(done in Phase 2A — 15 tests pass)*
 - [x] `swift build` + `swift test` проходять для Core (27) + Services (68)
 - [x] `xcodebuild build` проходить без помилок (BUILD SUCCEEDED)
 
