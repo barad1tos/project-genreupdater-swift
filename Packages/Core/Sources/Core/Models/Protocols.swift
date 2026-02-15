@@ -167,6 +167,39 @@ public protocol CacheService: Actor {
     func syncToDisk() async throws
 }
 
+// MARK: - Track State Store
+
+/// Protocol for persisting track processing state (SwiftData-backed).
+///
+/// Replaces Python's in-memory track dictionary with a persistent store
+/// that survives app restarts and supports 30K+ track libraries.
+public protocol TrackStateStore: Actor {
+    /// Set up the persistent store (create schema, run migrations).
+    func initialize() async throws
+
+    /// Load all persisted tracks.
+    func loadAllTracks() async throws -> [Track]
+
+    /// Persist a batch of tracks (insert or update).
+    func saveTracks(_ tracks: [Track]) async throws
+
+    /// Retrieve a single track by its Music.app persistent ID.
+    func getTrack(byID id: String) async throws -> Track?
+
+    /// Update processing state flags for a track.
+    func updateTrackProcessingState(
+        id: String,
+        genreUpdated: Bool?,
+        yearUpdated: Bool?
+    ) async throws
+
+    /// Retrieve tracks that haven't been fully processed yet.
+    func getUnprocessedTracks() async throws -> [Track]
+
+    /// Total number of persisted tracks.
+    func trackCount() async throws -> Int
+}
+
 // MARK: - External API Service
 
 /// Protocol for external music metadata API clients (MusicBrainz, Discogs, Last.fm).

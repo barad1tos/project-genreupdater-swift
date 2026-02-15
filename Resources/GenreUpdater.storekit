@@ -1,0 +1,112 @@
+{
+  "identifier" : "5B8A7D3E-2F1C-4E9A-B6D5-8C3F7A1E9B4D",
+  "nonRenewableSubscriptions" : [
+    {
+      "displayPrice" : "1.99",
+      "familyShareable" : false,
+      "internalID" : "NR001",
+      "localizations" : [
+        {
+          "description" : "7 days of unlimited genre & year updates",
+          "displayName" : "Week Pass",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "genreupdater.weekpass",
+      "referenceName" : "Week Pass",
+      "type" : "NonRenewingSubscription"
+    }
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "APP001",
+    "_developerTeamID" : "TEAMID",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "SG001",
+      "localizations" : [
+        {
+          "description" : "GenreUpdater Pro subscription",
+          "displayName" : "GenreUpdater Pro",
+          "locale" : "en_US"
+        }
+      ],
+      "name" : "GenreUpdater Pro",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "4.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "SUB001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited updates + auto-sync",
+              "displayName" : "Pro Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "genreupdater.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Pro Monthly",
+          "subscriptionGroupID" : "SG001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "29.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "SUB002",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited updates + auto-sync — save 50%",
+              "displayName" : "Pro Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "genreupdater.pro.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Pro Yearly",
+          "subscriptionGroupID" : "SG001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}
