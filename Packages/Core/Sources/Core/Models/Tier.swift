@@ -5,7 +5,7 @@ public enum Tier: Int, Comparable, Sendable, CaseIterable {
     case weekPass = 1
     case pro = 2
 
-    public static func < (lhs: Tier, rhs: Tier) -> Bool {
+    public static func < (lhs: Self, rhs: Self) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
 }

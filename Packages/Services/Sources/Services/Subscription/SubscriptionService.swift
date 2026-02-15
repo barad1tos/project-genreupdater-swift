@@ -183,8 +183,7 @@ public final class SubscriptionService {
                     detectedTier = .pro
                     detectedProExpiry = expiry
                 } else if let expiry,
-                    expiry.addingTimeInterval(SubscriptionDuration.proGraceInterval) > now
-                {
+                    expiry.addingTimeInterval(SubscriptionDuration.proGraceInterval) > now {
                     detectedTier = max(detectedTier, .pro)
                     detectedProExpiry = expiry
                 }
@@ -221,7 +220,7 @@ public final class SubscriptionService {
 
     // MARK: - Internal: Verification
 
-    private nonisolated func checkVerification(
+    nonisolated private func checkVerification(
         _ verification: VerificationResult<Transaction>
     ) throws -> Transaction {
         switch verification {
@@ -235,7 +234,7 @@ public final class SubscriptionService {
 
     // MARK: - Internal: Pro Expiry
 
-    private nonisolated func proExpiryDate(for transaction: Transaction) -> Date? {
+    nonisolated private func proExpiryDate(for transaction: Transaction) -> Date? {
         transaction.expirationDate
     }
 
@@ -254,7 +253,6 @@ public final class SubscriptionService {
         guard transaction.productID == SubscriptionProductID.weekPass else { return }
         weekPassPurchaseCount += 1
         iCloudStore.set(Int64(weekPassPurchaseCount), forKey: KVSKey.weekPassPurchaseCount)
-
     }
 }
 
@@ -263,28 +261,28 @@ public final class SubscriptionService {
 extension SubscriptionService {
 
     /// Calculate Week Pass expiry from purchase date. Pure function for testing.
-    public nonisolated static func weekPassExpiryDate(purchaseDate: Date) -> Date {
+    nonisolated public static func weekPassExpiryDate(purchaseDate: Date) -> Date {
         purchaseDate.addingTimeInterval(SubscriptionDuration.weekPassInterval)
     }
 
     /// Calculate cooldown end date from Week Pass expiry. Pure function for testing.
-    public nonisolated static func weekPassCooldownEndDate(weekPassExpiry: Date) -> Date {
+    nonisolated public static func weekPassCooldownEndDate(weekPassExpiry: Date) -> Date {
         weekPassExpiry.addingTimeInterval(SubscriptionDuration.weekPassCooldownInterval)
     }
 
     /// Whether a Week Pass is active at the given date. Pure function for testing.
-    public nonisolated static func isWeekPassActive(purchaseDate: Date, at now: Date) -> Bool {
+    nonisolated public static func isWeekPassActive(purchaseDate: Date, at now: Date) -> Bool {
         now < weekPassExpiryDate(purchaseDate: purchaseDate)
     }
 
     /// Whether a Pro subscription is in grace period. Pure function for testing.
-    public nonisolated static func isProInGracePeriod(expiryDate: Date, at now: Date) -> Bool {
+    nonisolated public static func isProInGracePeriod(expiryDate: Date, at now: Date) -> Bool {
         now >= expiryDate
             && now < expiryDate.addingTimeInterval(SubscriptionDuration.proGraceInterval)
     }
 
     /// Whether cooldown has passed since Week Pass expiry. Pure function for testing.
-    public nonisolated static func isCooldownOver(weekPassExpiry: Date, at now: Date) -> Bool {
+    nonisolated public static func isCooldownOver(weekPassExpiry: Date, at now: Date) -> Bool {
         now >= weekPassCooldownEndDate(weekPassExpiry: weekPassExpiry)
     }
 }
