@@ -172,6 +172,15 @@ The app runs in sandbox with these entitlements:
 - **`.public` in logs**: Never log user music data as `.public` — use `.private`.
 - **nil trackStatus filtering**: `filterAvailableTracks` must return `true` for `nil` status (not `false`).
 
+### Tool Integration Pitfalls
+
+- **SwiftFormat + Swift 6 actors**: `--self remove` breaks actor autoclosures (os.Logger interpolation requires explicit `self.`). Use `--self init-only` and `--disable redundantSelf`.
+- **SwiftFormat + SwiftLint modifier_order**: SwiftFormat puts `private nonisolated`, SwiftLint requires `nonisolated private`. Disable `modifierOrder` in `.swiftformat`.
+- **SwiftFormat CLI syntax**: Paths BEFORE flags — `swiftformat App ... --lint`, NOT `swiftformat --lint App ...`.
+- **Periphery + SPM**: No `--targets` flag. Use per-package scanning: `cd Packages/$pkg && periphery scan`.
+- **Periphery false positives**: Always use `--retain-public` (phased dev) and `--retain-codable-properties` (GRDB/SwiftData models).
+- **Periphery inline ignore**: `// periphery:ignore` does NOT work for "assign-only property" warnings — use global flags instead.
+
 ## Phase Status
 
 | Phase | Status | Key Files |
