@@ -56,8 +56,8 @@ depends_on:
 - [x] `canAccess(_ feature:)` → `currentTier >= feature.minimumTier`
 - [x] Cooldown перевірка реалізована в `SubscriptionService.isCooldownOver()`
 - [x] **Free tier counter**: `NSUbiquitousKeyValueStore` (iCloud key-value storage) — прив'язаний до iCloud account
-- [ ] Fallback для counter: UserDefaults якщо iCloud недоступний, sync при відновленні зв'язку
-- [ ] **Progressive upsell nudge logic**: після 2+ Week Pass покупок показувати порівняння цін (UI — Phase 6)
+- [ ] Fallback для counter: UserDefaults якщо iCloud недоступний, sync при відновленні зв'язку *(deferred → Phase 5)*
+- [ ] **Progressive upsell nudge logic**: після 2+ Week Pass покупок показувати порівняння цін *(deferred → Phase 6)*
 - [x] Unit tests: Free limits, Week Pass access, Pro access, track capacity (18 тестів FeatureGate + 9 Core)
 
 ### GRDB Setup
@@ -76,29 +76,29 @@ depends_on:
 - [x] Створити `PersistedTrack` @Model клас *(done in Phase 2A)*
 - [x] Mapping функції: `Track` ↔ `PersistedTrack` *(done in Phase 2A)*
 - [x] Indexed fields: id, artist, album, genre *(done in Phase 2A)*
-- [ ] Relationships з ChangeLogEntry *(deferred — ChangeLogEntry not yet defined)*
+- [ ] Relationships з ChangeLogEntry *(deferred → Phase 5)*
 - [x] Unit tests: mapping correctness, persistence cycle *(done in Phase 2A — 9 tests)*
 
 ### MusicKit-AppleScript ID Mapping
 > **TDD ref:** [[TDD#Music.app Integration]] (MusicKit reads + AppleScript writes = потрібен маппінг між двома ID systems) | [[TDD#Lesson 5 MusicItemID Init is NOT Failable]] | [[TDD#Decision 6 subprocess → NSUserAppleScriptTask actor]] (scripts run outside sandbox)
 
-- [ ] Створити маппінг-сервіс для кореляції MusicKit IDs ↔ AppleScript IDs
-- [ ] Стратегія: match по (name + artist + album) з fuzzy fallback
-- [ ] Кеш маппінгів для повторних операцій
-- [ ] Unit tests: exact match, fuzzy match, collision handling
+- [ ] Створити маппінг-сервіс для кореляції MusicKit IDs ↔ AppleScript IDs *(deferred → Phase 4)*
+- [ ] Стратегія: match по (name + artist + album) з fuzzy fallback *(deferred → Phase 4)*
+- [ ] Кеш маппінгів для повторних операцій *(deferred → Phase 4)*
+- [ ] Unit tests: exact match, fuzzy match, collision handling *(deferred → Phase 4)*
 
 ### ProgressUpdate Stream
 > **TDD ref:** [[TDD#Decision 3 asyncio.gather → async let / TaskGroup]] (`AsyncStream` pattern для progress reporting від `TaskGroup` до UI)
 
 - [x] Створити `AsyncStream<ProgressUpdate>` based infrastructure *(done in Phase 2A — ProgressUpdate.swift)*
 - [x] `ProgressUpdate` struct: phase, current, total, message, estimatedTimeRemaining *(done in Phase 2A)*
-- [ ] Інтеграція з Services для reporting progress до UI *(deferred — Phase 5 workflows)*
+- [ ] Інтеграція з Services для reporting progress до UI *(deferred → Phase 5)*
 - [x] Unit tests: stream emission, cancellation *(done in Phase 2A — 8 tests)*
 
 ### String Catalogs
-- [ ] Налаштувати String Catalogs для локалізації
-- [ ] English як base language
-- [ ] Підготувати всі user-facing strings для Phase 2
+- [ ] Налаштувати String Catalogs для локалізації *(deferred → Phase 6)*
+- [ ] English як base language *(deferred → Phase 6)*
+- [ ] Підготувати всі user-facing strings для Phase 2 *(deferred → Phase 6)*
 
 ## Files (~17+)
 
