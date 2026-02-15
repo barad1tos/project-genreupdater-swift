@@ -59,7 +59,7 @@ final class AppDependencies: ObservableObject {
 
     init() {
         // Load config synchronously (it's just JSON from disk)
-        self.config = (try? AppConfiguration.load()) ?? AppConfiguration()
+        config = (try? AppConfiguration.load()) ?? AppConfiguration()
     }
 
     // MARK: - Lifecycle
@@ -73,7 +73,7 @@ final class AppDependencies: ObservableObject {
         do {
             // Step 1: Create script installer
             let installer = try ScriptInstaller()
-            self.scriptInstaller = installer
+            scriptInstaller = installer
 
             // Step 2: Check if scripts are installed
             let scriptsReady = await installer.areScriptsInstalled()
@@ -87,16 +87,16 @@ final class AppDependencies: ObservableObject {
             // Step 3: Initialize services
             let bridge = AppleScriptBridge(installer: installer, config: config.applescript)
             try await bridge.initialize()
-            self.applescriptBridge = bridge
+            applescriptBridge = bridge
 
             let reader = MusicLibraryReader()
-            self.musicReader = reader
+            musicReader = reader
 
             // Step 4: Start subscription service + feature gate
             let subscription = SubscriptionService()
             await subscription.start()
-            self.subscriptionService = subscription
-            self.featureGate = FeatureGate(
+            subscriptionService = subscription
+            featureGate = FeatureGate(
                 tierProvider: { [weak subscription] in subscription?.currentTier ?? .free },
                 freeTracksUsedProvider: { [weak subscription] in subscription?.freeTracksUsed ?? 0 }
             )

@@ -1,8 +1,8 @@
 // SharedUI — Shared SwiftUI components, charts, and report views
 // Placeholder for Phase 1. Real content added in Phase 6.
 
-import SwiftUI
 import Core
+import SwiftUI
 
 /// Namespace for shared UI components.
 public enum SharedUIModule {

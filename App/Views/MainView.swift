@@ -21,7 +21,9 @@ enum NavigationCategory: String, CaseIterable, Identifiable {
     case batchOperations = "Batch"
     case analytics = "Analytics"
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var icon: String {
         switch self {
@@ -81,8 +83,8 @@ struct MainView: View {
                     systemImage: searchText.isEmpty ? "music.note" : "magnifyingglass",
                     description: Text(
                         searchText.isEmpty
-                        ? "Your library appears empty. Make sure Music.app has tracks."
-                        : "No tracks match '\(searchText)'"
+                            ? "Your library appears empty. Make sure Music.app has tracks."
+                            : "No tracks match '\(searchText)'"
                     )
                 )
             } else {
@@ -135,9 +137,9 @@ struct MainView: View {
         let query = searchText.lowercased()
         return tracks.filter { track in
             track.name.lowercased().contains(query)
-            || track.artist.lowercased().contains(query)
-            || track.album.lowercased().contains(query)
-            || (track.genre?.lowercased().contains(query) ?? false)
+                || track.artist.lowercased().contains(query)
+                || track.album.lowercased().contains(query)
+                || (track.genre?.lowercased().contains(query) ?? false)
         }
     }
 

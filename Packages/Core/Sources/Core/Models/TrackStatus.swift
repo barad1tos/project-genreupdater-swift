@@ -13,12 +13,12 @@ import Foundation
 /// handles this translation.
 public enum TrackKind: String, Sendable, CaseIterable, Codable, CustomStringConvertible {
     case localOnly = "local only"
-    case purchased = "purchased"
-    case matched = "matched"
-    case uploaded = "uploaded"
-    case subscription = "subscription"
-    case downloaded = "downloaded"
-    case prerelease = "prerelease"
+    case purchased
+    case matched
+    case uploaded
+    case subscription
+    case downloaded
+    case prerelease
 
     /// Human-readable description for UI display.
     public var description: String {
@@ -47,9 +47,9 @@ public enum TrackKind: String, Sendable, CaseIterable, Codable, CustomStringConv
     public var isAvailableForProcessing: Bool {
         switch self {
         case .localOnly, .purchased, .matched, .uploaded, .subscription, .downloaded:
-            return true
+            true
         case .prerelease:
-            return false
+            false
         }
     }
 

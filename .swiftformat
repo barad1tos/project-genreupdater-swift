@@ -1,0 +1,36 @@
+# SwiftFormat Configuration — GenreUpdater
+# Aligned with .swiftlint.yml and CLAUDE.md standards
+
+--swiftversion 6.0
+--maxwidth 120
+--indent 4
+--indentcase false
+--ifdef no-indent
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--closingparen balanced
+--funcattributes prev-line
+--typeattributes prev-line
+--varattributes preserve
+--self init-only
+# redundantSelf disabled: Swift 6 strict concurrency requires self. in actor autoclosures (os.Logger, etc.)
+--disable redundantSelf
+--importgrouping testable-bottom
+--commas inline
+--semicolons never
+--operatorfunc spaced
+--ranges spaced
+--stripunusedargs closure-only
+--header ignore
+--organizetypes actor,class,struct,enum,protocol,extension
+--extensionacl on-declarations
+
+# Disabled rules (conflict with project style or SwiftLint)
+--disable trailingCommas
+--disable blankLinesBetweenScopes
+--disable wrapMultilineStatementBraces
+--disable modifierOrder
+
+# Excluded paths
+--exclude .build,DerivedData,Packages/*/.build

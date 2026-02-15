@@ -1,10 +1,10 @@
 // SwiftDataTrackStore.swift — SwiftData-backed track state persistence
 // Phase 2A: Persistence Layer
 
-import Foundation
-import SwiftData
 import Core
+import Foundation
 import OSLog
+import SwiftData
 
 /// Persistent store for track processing state using SwiftData.
 ///

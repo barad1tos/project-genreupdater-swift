@@ -16,12 +16,21 @@ public struct YearResult: Sendable, Codable, Equatable {
     public let year: Int?
     public let isDefinitive: Bool
     public let confidence: Int
+    /// Pre-clamped score for debugging (can be negative).
+    public let rawScore: Int
     public let yearScores: [Int: Int]
 
-    public init(year: Int? = nil, isDefinitive: Bool = false, confidence: Int = 0, yearScores: [Int: Int] = [:]) {
+    public init(
+        year: Int? = nil,
+        isDefinitive: Bool = false,
+        confidence: Int = 0,
+        rawScore: Int? = nil,
+        yearScores: [Int: Int] = [:]
+    ) {
         self.year = year
         self.isDefinitive = isDefinitive
         self.confidence = confidence
+        self.rawScore = rawScore ?? confidence
         self.yearScores = yearScores
     }
 }
@@ -150,7 +159,7 @@ public protocol CacheService: Actor {
 
     // Generic key-value cache
     func get<T: Codable & Sendable>(key: String) async -> T?
-    func set<T: Codable & Sendable>(key: String, value: T, ttl: TimeInterval?) async
+    func set(key: String, value: some Codable & Sendable, ttl: TimeInterval?) async
     func invalidate(key: String) async
     func clear() async
 
@@ -163,7 +172,7 @@ public protocol CacheService: Actor {
     func getCachedAPIResult(artist: String, album: String, source: String) async -> CachedAPIResult?
     func setCachedAPIResult(_ result: CachedAPIResult) async
 
-    // Persistence
+    /// Persistence
     func syncToDisk() async throws
 }
 
@@ -225,12 +234,12 @@ public protocol ExternalAPIService: Sendable {
     func close() async
 }
 
-public extension ExternalAPIService {
-    func initialize(force: Bool = false) async throws {
+extension ExternalAPIService {
+    public func initialize(force: Bool = false) async throws {
         try await initialize(force: force)
     }
 
-    func close() async {}
+    public func close() async {}
 }
 
 // MARK: - AppleScript Client
@@ -261,12 +270,12 @@ public protocol AppleScriptClient: Actor {
     func fetchAllTrackIDs(timeout: Duration?) async throws -> [String]
 }
 
-public extension AppleScriptClient {
-    func runScript(name: String, arguments: [String] = [], timeout: Duration? = nil) async throws -> String? {
+extension AppleScriptClient {
+    public func runScript(name: String, arguments: [String] = [], timeout: Duration? = nil) async throws -> String? {
         try await runScript(name: name, arguments: arguments, timeout: timeout)
     }
 
-    func fetchTracksByIDs(
+    public func fetchTracksByIDs(
         _ trackIDs: [String],
         batchSize: Int = 1000,
         timeout: Duration? = nil
@@ -274,7 +283,7 @@ public extension AppleScriptClient {
         try await fetchTracksByIDs(trackIDs, batchSize: batchSize, timeout: timeout)
     }
 
-    func fetchAllTrackIDs(timeout: Duration? = nil) async throws -> [String] {
+    public func fetchAllTrackIDs(timeout: Duration? = nil) async throws -> [String] {
         try await fetchAllTrackIDs(timeout: timeout)
     }
 }
@@ -355,8 +364,8 @@ public protocol TrackProcessor: Sendable {
     ) async throws -> Bool
 }
 
-public extension TrackProcessor {
-    func updateArtist(
+extension TrackProcessor {
+    public func updateArtist(
         track: Track,
         newArtistName: String,
         originalArtist: String? = nil,

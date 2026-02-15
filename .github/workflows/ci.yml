@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -17,10 +20,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Cache SPM packages
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             Packages/Core/.build
@@ -48,8 +53,8 @@ jobs:
       - name: Test Services
         run: swift test --package-path Packages/Services
 
-      - name: Install SwiftLint
-        run: brew install swiftlint
+      - name: Install lint tools
+        run: brew install swiftlint swiftformat periphery
 
       - name: Run SwiftLint
         run: >
@@ -58,6 +63,28 @@ jobs:
           Packages/Core/Sources
           Packages/Services/Sources
           Packages/SharedUI/Sources
+
+      - name: Run SwiftFormat (check)
+        run: >
+          swiftformat
+          App
+          Packages/Core/Sources
+          Packages/Services/Sources
+          Packages/SharedUI/Sources
+          --lint
+
+      - name: Scan for unused code (Periphery)
+        run: |
+          for pkg in Core Services; do
+            echo "=== Scanning $pkg ==="
+            cd Packages/$pkg
+            periphery scan \
+              --retain-public \
+              --retain-codable-properties \
+              --format xcode \
+              --strict
+            cd ../..
+          done
 
   gate:
     name: CI Gate

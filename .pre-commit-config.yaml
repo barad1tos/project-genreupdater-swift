@@ -21,17 +21,17 @@ repos:
     hooks:
       - id: swiftlint
         name: SwiftLint
-        entry: swiftlint lint --strict --quiet
+        entry: swiftlint lint --strict --quiet App Packages/Core/Sources Packages/Services/Sources Packages/SharedUI/Sources
         language: system
         types: [swift]
         pass_filenames: false
 
       - id: swiftformat-lint
         name: SwiftFormat (check)
-        entry: swiftformat --lint
+        entry: swiftformat App Packages/Core/Sources Packages/Services/Sources Packages/SharedUI/Sources --lint
         language: system
         types: [swift]
-        pass_filenames: true
+        pass_filenames: false
 
       - id: swift-build-core
         name: Swift Build (Core)

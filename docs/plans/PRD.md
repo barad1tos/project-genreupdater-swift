@@ -642,9 +642,9 @@ These are internal to Services and never exposed to Core or App.
 
 | Product ID | Type | Price |
 |-----------|------|-------|
-| `pro_monthly` | Auto-renewable subscription | $4.99/mo |
-| `pro_annual` | Auto-renewable subscription | $29.99/yr (~50% savings) |
-| `week_pass` | Non-renewing subscription | $1.99 |
+| `genreupdater.pro.monthly` | Auto-renewable subscription | $4.99/mo |
+| `genreupdater.pro.yearly` | Auto-renewable subscription | $29.99/yr (~50% savings) |
+| `genreupdater.weekpass` | Non-renewing subscription | $1.99 |
 
 No lifetime purchase (ongoing API costs).
 
@@ -673,37 +673,40 @@ No lifetime purchase (ongoing API costs).
 
 ### Implementation
 
-**FeatureGate**: Centralized `@Observable` class on MainActor:
+**Tier** (Core): `enum Tier: Int, Comparable, Sendable { case free = 0, weekPass = 1, pro = 2 }`
+
+**AppFeature** (Core): Each feature declares its `minimumTier` property:
 
 ```swift
-enum Tier: Comparable { case free, weekPass, pro }
+public enum AppFeature: String, CaseIterable, Sendable {
+    case genreUpdate, yearUpdate, preview, undo,
+         libraryBrowsing, basicCaching, reportsLog       // .free
+    case batchProcessing, reportsCharts, csvExport,
+         artistAlbumCleaning, advancedCache               // .weekPass
+    case autoSync                                         // .pro
 
-@Observable
-final class FeatureGate {
-    var currentTier: Tier { subscriptionService.currentTier }
+    public var minimumTier: Tier { /* ... */ }
+}
+```
 
-    func canProcess(trackCount: Int) -> Bool {
-        currentTier >= .weekPass || totalProcessed + trackCount <= 500
-    }
+**FeatureGate** (Services): `@MainActor` class with closure-based tier provider:
 
-    func minimumTier(for feature: AppFeature) -> Tier {
-        switch feature {
-        case .genreUpdate, .yearUpdate, .preview, .undo, .libraryBrowsing:
-            return .free
-        case .batchProcessing, .reportsCharts, .csvExport,
-             .artistCleaning, .albumCleaning, .advancedCache:
-            return .weekPass
-        case .autoSync:
-            return .pro
-        }
-    }
+```swift
+@MainActor
+public final class FeatureGate {
+    private let tierProvider: () -> Tier
+
+    // Production: init(tierProvider: { subscriptionService.currentTier })
+    // Testing:    init(fixedTier: .pro)
 
     func canAccess(_ feature: AppFeature) -> Bool {
-        currentTier >= minimumTier(for: feature)
+        currentTier >= feature.minimumTier
     }
 
-    var canPurchaseWeekPass: Bool {
-        subscriptionService.weekPassCooldownRemaining == nil
+    func canProcessTracks(count: Int) -> Bool {
+        currentTier == .free
+            ? freeTracksUsed + count <= 500
+            : true
     }
 }
 ```
@@ -740,7 +743,7 @@ final class FeatureGate {
 - HIGH-1: AppleScriptBridge batch update now sanitizes each component individually
 - HIGH-2: Logging privacy changed to `.private` for all user-generated values
 
-**Acceptance**: swift build (all packages), swift test (17 tests pass), xcodebuild build (exit 0)
+**Acceptance**: swift build (all packages), swift test (pass), xcodebuild build (exit 0)
 
 ### Phase 2A: Persistence Layer -- DONE
 
@@ -754,11 +757,11 @@ hide backlink
 hide edit button
 ```
 
-**Acceptance**: GRDB creates + migrates | TTL expiry works | Batch save 600+ tracks | 50 tests pass (18 Core, 32 Services)
+**Acceptance**: GRDB creates + migrates | TTL expiry works | Batch save 600+ tracks | 50 tests pass (18 Core, 32 Services) ✅
 
-### Phase 2B: Monetization + Remaining Models
+### Phase 2B: Monetization + Remaining Models -- DONE
 
-**Status**: Planned | **Task**: [[phase-2-core-models]]
+**Status**: Done | **Task**: [[phase-2-core-models]]
 
 ```tasks
 path includes Tasks/phase-2-core-models

@@ -47,7 +47,7 @@ public enum SanitizationError: Error, LocalizedError {
 /// it's better to reject valid input than to allow dangerous input.
 public enum InputSanitizer {
     /// Maximum allowed size for any input string (10 KB).
-    public static let maxInputSize = 10_000
+    public static let maxInputSize = 10000
 
     /// Regex patterns that indicate dangerous AppleScript commands.
     private static let dangerousPatterns: [NSRegularExpression] = {

@@ -16,12 +16,19 @@ GenreUpdater/
 │   ├── Core/                      # Pure domain logic (NO external deps)
 │   │   └── Sources/Core/
 │   │       ├── Config/            # AppConfiguration (JSON-backed)
+│   │       ├── Genre/             # GenreDeterminator (Phase 3B)
 │   │       ├── Infra/             # Logging (os.Logger)
-│   │       └── Models/            # Track, Protocols, TrackStatus
+│   │       ├── Matching/          # AlbumMatcher, ArtistMatcher (Phase 3A)
+│   │       ├── Models/            # Track, Protocols, TrackStatus, Tier, AppFeature, ProgressUpdate, AlbumType
+│   │       ├── Utils/             # Normalization, ScriptDetector, MetadataUtils (Phase 3A)
+│   │       └── Year/              # YearScorer, YearValidator, YearFallbackStrategy, YearDeterminator (Phase 3B)
 │   ├── Services/                  # External world (APIs, Music.app, cache)
 │   │   └── Sources/Services/
 │   │       ├── Apple/             # AppleScriptBridge, InputSanitizer, ScriptInstaller
 │   │       ├── MusicLibraryReader # MusicKit integration
+│   │       ├── Persistence/
+│   │       │   ├── GRDB/          # GRDBCacheService, GRDBModels, GRDBMigrations
+│   │       │   └── SwiftData/     # PersistedTrack, SwiftDataTrackStore
 │   │       └── Subscription/      # SubscriptionService, FeatureGate (StoreKit 2)
 │   └── SharedUI/                  # Reusable SwiftUI components
 ├── Tests/                         # App-level tests
@@ -33,6 +40,7 @@ GenreUpdater/
 │   ├── hooks/                     # Claude Code quality gates
 │   │   ├── lib/common.sh          # Shared helpers (jq-based, hardened)
 │   │   ├── commit-docs-sync-check.sh  # Blocking: Swift commit → needs docs
+│   │   ├── swiftlint-precommit-check.sh   # Blocking: SwiftLint --strict before commit
 │   │   ├── swift-task-tracking-reminder.sh  # Advisory: .swift edit reminder
 │   │   ├── session-start-phase-context.sh   # Advisory: phase context on start
 │   │   └── test-hooks.sh          # Validation suite (18 tests)
@@ -109,6 +117,11 @@ App → SharedUI → Core
 - **SwiftData** (Apple framework) — track state persistence (Services package)
 - **StoreKit 2** (Apple framework) — subscriptions (Services package)
 
+### Dev Tools (Homebrew)
+- **SwiftLint** — linting (pre-commit + CI, `--strict`)
+- **SwiftFormat** — auto-formatting (pre-commit + CI, config: `.swiftformat`)
+- **Periphery** — dead code detection (CI only, blocking)
+
 ## Build & Test
 
 ```bash
@@ -124,6 +137,13 @@ cd Packages/Services && swift test
 # Full Xcode build
 xcodebuild build -project GenreUpdater.xcodeproj -scheme GenreUpdater \
   -destination "platform=macOS,arch=arm64" -quiet
+
+# Lint
+swiftlint lint --strict App Packages/Core/Sources Packages/Services/Sources Packages/SharedUI/Sources
+swiftformat App Packages/Core/Sources Packages/Services/Sources Packages/SharedUI/Sources --lint
+
+# Auto-format (applies fixes)
+swiftformat App Packages/Core/Sources Packages/Services/Sources Packages/SharedUI/Sources
 
 # XcodeGen (if project.yml changed)
 xcodegen generate
@@ -152,6 +172,15 @@ The app runs in sandbox with these entitlements:
 - **`.public` in logs**: Never log user music data as `.public` — use `.private`.
 - **nil trackStatus filtering**: `filterAvailableTracks` must return `true` for `nil` status (not `false`).
 
+### Tool Integration Pitfalls
+
+- **SwiftFormat + Swift 6 actors**: `--self remove` breaks actor autoclosures (os.Logger interpolation requires explicit `self.`). Use `--self init-only` and `--disable redundantSelf`.
+- **SwiftFormat + SwiftLint modifier_order**: SwiftFormat puts `private nonisolated`, SwiftLint requires `nonisolated private`. Disable `modifierOrder` in `.swiftformat`.
+- **SwiftFormat CLI syntax**: Paths BEFORE flags — `swiftformat App ... --lint`, NOT `swiftformat --lint App ...`.
+- **Periphery + SPM**: No `--targets` flag. Use per-package scanning: `cd Packages/$pkg && periphery scan`.
+- **Periphery false positives**: Always use `--retain-public` (phased dev) and `--retain-codable-properties` (GRDB/SwiftData models).
+- **Periphery inline ignore**: `// periphery:ignore` does NOT work for "assign-only property" warnings — use global flags instead.
+
 ## Phase Status
 
 | Phase | Status | Key Files |
@@ -160,7 +189,7 @@ The app runs in sandbox with these entitlements:
 | 1.5: Hotfix | ✅ Done | Entitlements, TrackStatus, InputSanitizer, AppleScriptBridge, Logging |
 | 2A: Persistence | ✅ Done | GRDB cache, SwiftData store, ProgressUpdate |
 | 2B: Monetization | ✅ Done | Tier, AppFeature, SubscriptionService, FeatureGate, StoreKit Config |
-| 3: Core Algorithms | Planned | Genre/Year determination |
+| 3: Core Algorithms | 🔄 Active (3A) | Normalization, ScriptDetector, MetadataUtils, AlbumType, AlbumMatcher, ArtistMatcher |
 | 4: API + Cache | Planned | MusicBrainz, Discogs, GRDB cache |
 | 5: Workflows | Planned | Pipeline, Undo, Checkpoint |
 | 6: Views | Planned | SwiftUI, VoiceOver |
@@ -230,6 +259,7 @@ Quality gates in `.claude/hooks/`, enforced automatically. All hooks use `jq` (n
 | Hook | Event | Type | Fail-safe | What it does |
 |------|-------|------|-----------|-------------|
 | `commit-docs-sync-check.sh` | PreToolUse (Bash) | Blocking | DENY | Any `git commit` with Swift files requires docs staged |
+| `swiftlint-precommit-check.sh` | PreToolUse (Bash) | Blocking | DENY | Runs SwiftLint --strict on staged Swift files before commit (matches CI) |
 | `swift-task-tracking-reminder.sh` | PreToolUse (Edit/Write) | Advisory | ALLOW | Reminds to update task checkboxes when editing `.swift` |
 | `session-start-phase-context.sh` | SessionStart | Advisory | ALLOW | Loads current phase progress at session start |
 

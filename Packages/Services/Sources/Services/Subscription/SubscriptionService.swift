@@ -31,9 +31,15 @@ public enum SubscriptionDuration {
     public static let proGracePeriodDays = 16
     public static let offlineCacheDays = 7
 
-    static var weekPassInterval: TimeInterval { TimeInterval(weekPassDays * 86_400) }
-    static var weekPassCooldownInterval: TimeInterval { TimeInterval(weekPassCooldownDays * 86_400) }
-    static var proGraceInterval: TimeInterval { TimeInterval(proGracePeriodDays * 86_400) }
+    static var weekPassInterval: TimeInterval {
+        TimeInterval(weekPassDays * 86400)
+    }
+    static var weekPassCooldownInterval: TimeInterval {
+        TimeInterval(weekPassCooldownDays * 86400)
+    }
+    static var proGraceInterval: TimeInterval {
+        TimeInterval(proGracePeriodDays * 86400)
+    }
 }
 
 // MARK: - iCloud KVS Keys
@@ -48,7 +54,6 @@ private enum KVSKey {
 @MainActor
 @Observable
 public final class SubscriptionService {
-
     // MARK: - Published State
 
     public private(set) var currentTier: Tier = .free
@@ -100,7 +105,7 @@ public final class SubscriptionService {
         let result = try await product.purchase()
 
         switch result {
-        case .success(let verification):
+        case let .success(verification):
             let transaction = try checkVerification(verification)
             await refreshEntitlements()
             await transaction.finish()
@@ -183,7 +188,7 @@ public final class SubscriptionService {
                     detectedTier = .pro
                     detectedProExpiry = expiry
                 } else if let expiry,
-                    expiry.addingTimeInterval(SubscriptionDuration.proGraceInterval) > now {
+                          expiry.addingTimeInterval(SubscriptionDuration.proGraceInterval) > now {
                     detectedTier = max(detectedTier, .pro)
                     detectedProExpiry = expiry
                 }
@@ -191,9 +196,10 @@ public final class SubscriptionService {
 
             if transaction.productID == SubscriptionProductID.weekPass {
                 let expiry = transaction.purchaseDate.addingTimeInterval(
-                    SubscriptionDuration.weekPassInterval)
+                    SubscriptionDuration.weekPassInterval
+                )
                 detectedWeekPassExpiry = expiry
-                if expiry > now && detectedTier < .weekPass {
+                if expiry > now, detectedTier < .weekPass {
                     detectedTier = .weekPass
                 }
             }
@@ -224,9 +230,9 @@ public final class SubscriptionService {
         _ verification: VerificationResult<Transaction>
     ) throws -> Transaction {
         switch verification {
-        case .verified(let transaction):
+        case let .verified(transaction):
             return transaction
-        case .unverified(_, let error):
+        case let .unverified(_, error):
             log.error("Transaction verification failed: \(error.localizedDescription, privacy: .public)")
             throw error
         }
@@ -241,7 +247,6 @@ public final class SubscriptionService {
     // MARK: - Internal: iCloud Counters
 
     private func loadICloudCounters() {
-
         freeTracksUsed = Int(iCloudStore.longLong(forKey: KVSKey.freeTracksUsed))
         weekPassPurchaseCount = Int(iCloudStore.longLong(forKey: KVSKey.weekPassPurchaseCount))
         log.debug(
@@ -259,7 +264,6 @@ public final class SubscriptionService {
 // MARK: - Testable Math (pure functions)
 
 extension SubscriptionService {
-
     /// Calculate Week Pass expiry from purchase date. Pure function for testing.
     nonisolated public static func weekPassExpiryDate(purchaseDate: Date) -> Date {
         purchaseDate.addingTimeInterval(SubscriptionDuration.weekPassInterval)

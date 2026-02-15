@@ -20,7 +20,6 @@ public enum FeatureGateError: Error, Sendable {
 
 @MainActor
 public final class FeatureGate {
-
     public static let freeTrackLimit = 500
 
     private let tierProvider: () -> Tier
@@ -43,8 +42,8 @@ public final class FeatureGate {
 
     /// Convenience: create a gate with a fixed tier (for tests and previews).
     public init(fixedTier: Tier, freeTracksUsed: Int = 0) {
-        self.tierProvider = { fixedTier }
-        self.freeTracksUsedProvider = { freeTracksUsed }
+        tierProvider = { fixedTier }
+        freeTracksUsedProvider = { freeTracksUsed }
     }
 
     // MARK: - Public API

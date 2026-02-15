@@ -164,8 +164,8 @@ public struct ChangeLogEntry: Sendable, Codable, Identifiable {
         trackName: String = "",
         albumName: String = ""
     ) {
-        self.id = UUID()
-        self.timestamp = .now
+        id = UUID()
+        timestamp = .now
         self.changeType = changeType
         self.trackID = trackID
         self.artist = artist
@@ -236,14 +236,14 @@ private func parseAppleScriptDate(_ string: String) -> Date? {
     return naturalFormatter.date(from: string)
 }
 
-public extension Collection {
-    subscript(safe index: Index) -> Element? {
+extension Collection {
+    public subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
     }
 }
 
-public extension String {
-    var nilIfEmpty: String? {
+extension String {
+    public var nilIfEmpty: String? {
         isEmpty ? nil : self
     }
 }

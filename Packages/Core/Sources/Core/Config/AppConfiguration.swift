@@ -103,11 +103,11 @@ public struct AppleScriptTimeouts: Sendable, Codable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        defaultTimeout = .seconds(try container.decodeIfPresent(Int.self, forKey: .defaultTimeoutSeconds) ?? 3600)
-        fullLibraryFetch = .seconds(try container.decodeIfPresent(Int.self, forKey: .fullLibraryFetchSeconds) ?? 3600)
-        singleArtistFetch = .seconds(try container.decodeIfPresent(Int.self, forKey: .singleArtistFetchSeconds) ?? 600)
-        batchUpdate = .seconds(try container.decodeIfPresent(Int.self, forKey: .batchUpdateSeconds) ?? 1800)
-        idsBatchFetch = .seconds(try container.decodeIfPresent(Int.self, forKey: .idsBatchFetchSeconds) ?? 120)
+        defaultTimeout = try .seconds(container.decodeIfPresent(Int.self, forKey: .defaultTimeoutSeconds) ?? 3600)
+        fullLibraryFetch = try .seconds(container.decodeIfPresent(Int.self, forKey: .fullLibraryFetchSeconds) ?? 3600)
+        singleArtistFetch = try .seconds(container.decodeIfPresent(Int.self, forKey: .singleArtistFetchSeconds) ?? 600)
+        batchUpdate = try .seconds(container.decodeIfPresent(Int.self, forKey: .batchUpdateSeconds) ?? 1800)
+        idsBatchFetch = try .seconds(container.decodeIfPresent(Int.self, forKey: .idsBatchFetchSeconds) ?? 120)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -185,12 +185,13 @@ public struct YearLogicConfig: Sendable, Codable {
     public var minConfidenceForNewYear: Double = 30
     public var preferredCountries: [String] = ["US", "GB", "DE", "JP"]
     public var majorMarketCodes: [String] = ["US", "GB", "DE", "JP", "AU", "CA", "FR"]
+    public var dominantYearMinConfidence: Double = 0.8
 
     public init() {}
 }
 
 public struct ScoringConfig: Sendable, Codable {
-    // Base
+    /// Base
     public var baseScore: Int = 50
 
     // Artist matching
@@ -206,7 +207,8 @@ public struct ScoringConfig: Sendable, Codable {
     public var albumSubstringPenalty: Int = -15
     public var albumUnrelatedPenalty: Int = -50
 
-    // Soundtrack
+    /// Soundtrack: intentionally high to offset expected artist mismatch
+    /// on soundtracks (various artists vs. original performer).
     public var soundtrackCompensationBonus: Int = 75
 
     // Release characteristics
@@ -248,6 +250,7 @@ public struct FallbackConfig: Sendable, Codable {
     public var enabled: Bool = true
     public var yearDifferenceThreshold: Int = 5
     public var trustAPIScoreThreshold: Double = 70
+    public var maxVerificationAttempts: Int = 3
 
     public init() {}
 }
@@ -267,6 +270,7 @@ public struct ScriptAPIPriority: Sendable, Codable {
 public struct GenreUpdateConfig: Sendable, Codable {
     public var batchSize: Int = 50
     public var concurrentLimit: Int = 5
+    public var overrideExisting: Bool = false
 
     public init() {}
 }
@@ -303,6 +307,9 @@ public struct ProcessingConfig: Sendable, Codable {
     public var futureYearThreshold: Int = 1
     public var prereleaseRecheckDays: Int = 30
     public var incrementalIntervalMinutes: Int = 15
+    public var minConfidenceToCache: Int = 50
+    public var suspiciousAlbumMinLen: Int = 3
+    public var suspiciousManyYears: Int = 3
 
     public init() {}
 }

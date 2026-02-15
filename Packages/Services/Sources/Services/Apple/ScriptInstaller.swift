@@ -56,7 +56,7 @@ public actor ScriptInstaller {
     private let scriptsDirectory: URL
 
     public init() throws {
-        self.scriptsDirectory = try FileManager.default.url(
+        scriptsDirectory = try FileManager.default.url(
             for: .applicationScriptsDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
@@ -126,7 +126,7 @@ public actor ScriptInstaller {
             }
         }
 
-        if installed.isEmpty && !errors.isEmpty {
+        if installed.isEmpty, !errors.isEmpty {
             throw ScriptInstallerError.allScriptsFailed(errors: errors)
         }
 

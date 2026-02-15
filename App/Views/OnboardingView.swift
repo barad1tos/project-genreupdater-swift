@@ -169,13 +169,13 @@ private struct WelcomeStep: View {
 
             Text(
                 "Automatically update genres and release years "
-                + "for your Music library using MusicBrainz, "
-                + "Discogs, and Apple Music data."
+                    + "for your Music library using MusicBrainz, "
+                    + "Discogs, and Apple Music data."
             )
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 400)
+            .font(.body)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 400)
 
             Spacer()
 
@@ -207,14 +207,14 @@ private struct InstallScriptsStep: View {
 
             Text(
                 "Genre Updater needs AppleScript files to write "
-                + "metadata to Music.app. These scripts are bundled "
-                + "with the app and will be installed to a secure "
-                + "system directory."
+                    + "metadata to Music.app. These scripts are bundled "
+                    + "with the app and will be installed to a secure "
+                    + "system directory."
             )
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 420)
+            .font(.body)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 420)
 
             Spacer()
 
@@ -227,7 +227,7 @@ private struct InstallScriptsStep: View {
             case .installing:
                 ProgressView("Installing scripts...")
 
-            case .success(let count):
+            case let .success(count):
                 Label("\(count) scripts installed successfully", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
 
@@ -267,13 +267,13 @@ private struct MusicAccessStep: View {
 
             Text(
                 "Genre Updater uses Apple's MusicKit to read your "
-                + "library. You'll be asked to grant access — this "
-                + "is required to view and update your tracks."
+                    + "library. You'll be asked to grant access — this "
+                    + "is required to view and update your tracks."
             )
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 420)
+            .font(.body)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 420)
 
             Spacer()
 
