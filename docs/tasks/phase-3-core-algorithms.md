@@ -97,57 +97,61 @@ depends_on:
 
 ### GenreUpdateConfig Extension
 
-- [ ] Extend `GenreUpdateConfig` with `minimumConfidence`, `overrideExisting`, `normalization`
+- [x] Extend `GenreUpdateConfig` with `overrideExisting`
+- [x] Removed `minimumConfidence`, `sourceWeights` (not used in earliest-album algorithm)
+
+### YearTypes
+- [x] Create `Packages/Core/Sources/Core/Year/YearTypes.swift`
+- [x] Shared enums: `APISource`, `ReleaseType`, `ReleaseStatus`, `YearSource`, `YearValidation`, `FallbackDecision`
+- [x] Shared structs: `ReleaseCandidate`, `ScoreBreakdown`, `ScoredRelease`, `DominantYearResult`, `FallbackContext`, `YearDeterminationResult`
 
 ### GenreDeterminator
-> Port from: `genre_manager.py` 684 LOC — **Pure struct** (TDD Decision 9 pattern)
+> Port from: `metadata_utils.py` `determine_dominant_genre_for_artist()` — **Pure struct** (TDD Decision 9 pattern)
 
-- [ ] Create `Packages/Core/Sources/Core/Genre/GenreDeterminator.swift`
-- [ ] `GenreInput` struct (musicBrainzTags, discogsStyles, appleMusicGenre, currentGenre)
-- [ ] `GenreResult` struct (genre, confidence, source)
-- [ ] Genre normalization to canonical genres (mapping table)
-- [ ] Classification trees for genre hierarchy
-- [ ] Confidence scoring 0-100
-- [ ] Unit tests with classification, normalization, confidence, CJK
+- [x] Create `Packages/Core/Sources/Core/Genre/GenreDeterminator.swift`
+- [x] `GenreResult` struct (genre, sourceAlbum, sourceTrackDateAdded)
+- [x] Dominant genre from earliest album algorithm (port of Python)
+- [x] Group tracks by album, find earliest dateAdded per album, then earliest across albums
+- [x] Genre returned as-is (no normalization, no mapping table)
+- [x] nil/empty genre → "Unknown" (matches Python behavior)
+- [x] Unit tests: empty, single, multi-album, no-date, empty-album, nil-genre, performance (20 tests)
 
 ### YearValidator
 > Port from: `year_consistency.py` 393 LOC + `year_utils.py` 128 LOC — **Pure struct**
 
-- [ ] Create `Packages/Core/Sources/Core/Year/YearValidator.swift`
-- [ ] Absurd year detection (< 1900), future dates
-- [ ] Artist activity period cross-validation
-- [ ] Album consistency (same album ≠ different years)
-- [ ] Unit tests with sanity checks, consistency, activity period
+- [x] Create `Packages/Core/Sources/Core/Year/YearValidator.swift`
+- [x] Absurd year detection (< 1900), future dates (> current+1)
+- [x] Artist activity period cross-validation (suspicionThresholdYears)
+- [x] Cross-track analysis: dominant year (>50% share), consensus release year
+- [x] Unit tests with sanity checks, consistency, activity period (24 tests)
 
 ### YearScorer
-> Port from: `year_scoring.py` 945 LOC + `year_score_resolver.py` 524 LOC — **Pure struct, static methods** (TDD Decision 9)
+> Port from: `year_scoring.py` 945 LOC + `year_score_resolver.py` 524 LOC — **Pure struct** (TDD Decision 9)
 
-- [ ] Create `Packages/Core/Sources/Core/Year/YearScorer.swift`
-- [ ] Weighted multi-source scoring per `ScoringConfig` (30+ factors)
-- [ ] Year candidate deduplication
-- [ ] Definitive threshold check (configurable)
-- [ ] Conflict resolution between sources
-- [ ] CRITICAL: must produce identical rankings to Python
-- [ ] Extensive unit tests with all scoring factors
+- [x] Create `Packages/Core/Sources/Core/Year/YearScorer.swift`
+- [x] 14 weighted scoring factors per `ScoringConfig`
+- [x] Year candidate deduplication (MAX score per year)
+- [x] Definitive threshold check (configurable)
+- [x] Score resolution: existing year boost, future year preference, original release preference
+- [x] Extensive unit tests with all scoring factors (45 tests)
 
 ### YearFallbackStrategy
 > Extracted from: `year_fallback.py` 871 LOC — **Pure struct**
 
-- [ ] Create `Packages/Core/Sources/Core/Year/YearFallbackStrategy.swift`
-- [ ] Fallback chain: library year → earliest added date → artist period heuristics
-- [ ] Configurable via `FallbackConfig`
-- [ ] Unit tests with each fallback strategy
+- [x] Create `Packages/Core/Sources/Core/Year/YearFallbackStrategy.swift`
+- [x] 8-rule decision tree: definitive → absurd → match → low confidence → fresh → no existing → special → dramatic
+- [x] Configurable via `FallbackConfig`
+- [x] Unit tests with each fallback rule + priority order (22 tests)
 
 ### YearDeterminator
-> Port from: `year_determination.py` 717 LOC — **Orchestrator with protocol injection**
+> Port from: `year_determination.py` 717 LOC — **Pure struct orchestrator**
 
-- [ ] Create `Packages/Core/Sources/Core/Year/YearDeterminator.swift`
-- [ ] Accepts `ExternalAPIService` + `CacheService` through init
-- [ ] Coordinates: query → score → validate → fallback
-- [ ] Multi-source querying via `ExternalAPIService`
-- [ ] Original release year detection (uses AlbumMatcher)
-- [ ] Returns `YearResult` (already defined in Protocols.swift)
-- [ ] Unit tests with mock API, end-to-end orchestration
+- [x] Create `Packages/Core/Sources/Core/Year/YearDeterminator.swift`
+- [x] Composes YearScorer + YearValidator + YearFallbackStrategy
+- [x] Coordinates: consensus → dominant → score → validate → fallback
+- [x] Pre-flight checks (already processed, prerelease, non-editable)
+- [x] Returns `YearDeterminationResult` with source, breakdown, fallback decision
+- [x] Unit tests with consensus, dominant, scoring, fallback paths (20 tests)
 
 ## Files
 
@@ -170,7 +174,7 @@ depends_on:
 - [ ] Genre determination matches Python behaviour for test cases
 - [ ] Year scoring produces identical rankings for test cases
 - [ ] Agreement rate ≥ 95% with Python version
-- [x] `cd Packages/Core && swift test` — all new tests pass (153 tests, 11 suites)
+- [x] `cd Packages/Core && swift test` — all tests pass (279 tests, 17 suites)
 - [x] `cd Packages/Services && swift test` — existing tests pass (68 tests)
 - [ ] `xcodebuild build -scheme GenreUpdater` — BUILD SUCCEEDED
 - [ ] Performance: < 100ms per track (without API calls)

@@ -267,6 +267,7 @@ public struct ScriptAPIPriority: Sendable, Codable {
 public struct GenreUpdateConfig: Sendable, Codable {
     public var batchSize: Int = 50
     public var concurrentLimit: Int = 5
+    public var overrideExisting: Bool = false
 
     public init() {}
 }
