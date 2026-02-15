@@ -16,12 +16,21 @@ public struct YearResult: Sendable, Codable, Equatable {
     public let year: Int?
     public let isDefinitive: Bool
     public let confidence: Int
+    /// Pre-clamped score for debugging (can be negative).
+    public let rawScore: Int
     public let yearScores: [Int: Int]
 
-    public init(year: Int? = nil, isDefinitive: Bool = false, confidence: Int = 0, yearScores: [Int: Int] = [:]) {
+    public init(
+        year: Int? = nil,
+        isDefinitive: Bool = false,
+        confidence: Int = 0,
+        rawScore: Int? = nil,
+        yearScores: [Int: Int] = [:]
+    ) {
         self.year = year
         self.isDefinitive = isDefinitive
         self.confidence = confidence
+        self.rawScore = rawScore ?? confidence
         self.yearScores = yearScores
     }
 }

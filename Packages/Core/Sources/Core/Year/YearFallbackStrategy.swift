@@ -23,9 +23,6 @@ public struct YearFallbackStrategy: Sendable {
     public let config: FallbackConfig
     public let yearLogic: YearLogicConfig
 
-    /// Maximum verification attempts before giving up.
-    public static let maxVerificationAttempts = 3
-
     public init(
         config: FallbackConfig = FallbackConfig(),
         yearLogic: YearLogicConfig = YearLogicConfig()
@@ -111,7 +108,7 @@ public struct YearFallbackStrategy: Sendable {
             return nil
         }
         if ctx.verificationAttempts
-            < Self.maxVerificationAttempts {
+            < config.maxVerificationAttempts {
             return .escalateToVerification(
                 reason: "Score \(ctx.bestScore) below "
                     + "threshold "
@@ -200,7 +197,7 @@ public struct YearFallbackStrategy: Sendable {
         }
         // 8e: Default → escalate
         if ctx.verificationAttempts
-            < Self.maxVerificationAttempts {
+            < config.maxVerificationAttempts {
             return .escalateToVerification(
                 reason: "Year change \(existing)→\(bestYear)"
                     + " (diff \(diff) > threshold "

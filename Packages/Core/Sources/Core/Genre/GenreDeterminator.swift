@@ -93,11 +93,10 @@ public struct GenreDeterminator: Sendable {
             guard let trackDate = track.dateAdded else { continue }
 
             if let existing = albumEarliest[album],
-               let existingDate = existing.dateAdded {
-                if trackDate < existingDate {
-                    albumEarliest[album] = track
-                }
-            } else {
+               let existingDate = existing.dateAdded,
+               trackDate < existingDate {
+                albumEarliest[album] = track
+            } else if albumEarliest[album] == nil {
                 albumEarliest[album] = track
             }
         }

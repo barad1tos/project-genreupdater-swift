@@ -107,12 +107,10 @@ public struct YearValidator: Sendable {
 
         let confidence = Double(bestCount) / Double(tracksWithYear.count)
 
-        // Require >50% share for a dominant year
+        // Require >50% share for a dominant year.
+        // Parity (tie between top two years) also returns nil —
+        // both cases need API verification.
         guard confidence > 0.5 else {
-            // Before giving up, check parity
-            if checkYearParity(yearCounts: yearCounts) {
-                return nil
-            }
             return nil
         }
 
@@ -209,9 +207,12 @@ public struct YearValidator: Sendable {
             return nil
         }
 
+        // Only tracks with a non-nil releaseYear can reveal inconsistency;
+        // need at least 2 to compare.
         let releaseYears = tracks.compactMap(\.releaseYear)
-        let uniqueReleaseYears = Set(releaseYears)
+        guard releaseYears.count >= 2 else { return nil }
 
+        let uniqueReleaseYears = Set(releaseYears)
         if uniqueReleaseYears.count > 1 {
             return consistentYear
         }

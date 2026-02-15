@@ -23,18 +23,18 @@ public struct YearDeterminator: Sendable {
     public let scorer: YearScorer
     public let validator: YearValidator
     public let fallback: YearFallbackStrategy
-
-    /// Minimum score to cache a result.
-    public static let minConfidenceToCache = 50
+    public let processingConfig: ProcessingConfig
 
     public init(
         scorer: YearScorer = YearScorer(),
         validator: YearValidator = YearValidator(),
-        fallback: YearFallbackStrategy = YearFallbackStrategy()
+        fallback: YearFallbackStrategy = YearFallbackStrategy(),
+        processingConfig: ProcessingConfig = ProcessingConfig()
     ) {
         self.scorer = scorer
         self.validator = validator
         self.fallback = fallback
+        self.processingConfig = processingConfig
     }
 
     // MARK: - Determine Year (Pure Logic)
@@ -125,13 +125,7 @@ public struct YearDeterminator: Sendable {
 
     // MARK: - Pre-flight Checks
 
-    /// Album name length at or below which triggers suspicious check.
-    /// Ported from `SUSPICIOUS_ALBUM_MIN_LEN = 3`.
-    public static let suspiciousAlbumMinLen = 3
-
-    /// Number of unique years at or above which triggers suspicious skip.
-    /// Ported from `SUSPICIOUS_MANY_YEARS = 3`.
-    public static let suspiciousManyYears = 3
+    // suspiciousAlbumMinLen and suspiciousManyYears are in ProcessingConfig
 
     /// Check if a track should be skipped before processing.
     ///
@@ -190,14 +184,14 @@ public struct YearDeterminator: Sendable {
         albumTracks: [Track]
     ) -> String? {
         let albumName = track.album
-        guard albumName.count <= Self.suspiciousAlbumMinLen else {
+        guard albumName.count <= processingConfig.suspiciousAlbumMinLen else {
             return nil
         }
 
         let uniqueYears = Set(
             albumTracks.compactMap(\.year)
         )
-        guard uniqueYears.count >= Self.suspiciousManyYears else {
+        guard uniqueYears.count >= processingConfig.suspiciousManyYears else {
             return nil
         }
 
@@ -267,7 +261,7 @@ public struct YearDeterminator: Sendable {
         if let dominant = validator.getDominantYear(
             tracks: albumTracks
         ), !dominant.isSuspicious,
-        dominant.confidence >= 0.8 {
+        dominant.confidence >= validator.config.dominantYearMinConfidence {
             return YearDeterminationResult(
                 yearResult: YearResult(
                     year: dominant.year,

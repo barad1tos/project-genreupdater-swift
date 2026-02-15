@@ -185,6 +185,7 @@ public struct YearLogicConfig: Sendable, Codable {
     public var minConfidenceForNewYear: Double = 30
     public var preferredCountries: [String] = ["US", "GB", "DE", "JP"]
     public var majorMarketCodes: [String] = ["US", "GB", "DE", "JP", "AU", "CA", "FR"]
+    public var dominantYearMinConfidence: Double = 0.8
 
     public init() {}
 }
@@ -206,7 +207,8 @@ public struct ScoringConfig: Sendable, Codable {
     public var albumSubstringPenalty: Int = -15
     public var albumUnrelatedPenalty: Int = -50
 
-    /// Soundtrack
+    /// Soundtrack: intentionally high to offset expected artist mismatch
+    /// on soundtracks (various artists vs. original performer).
     public var soundtrackCompensationBonus: Int = 75
 
     // Release characteristics
@@ -248,6 +250,7 @@ public struct FallbackConfig: Sendable, Codable {
     public var enabled: Bool = true
     public var yearDifferenceThreshold: Int = 5
     public var trustAPIScoreThreshold: Double = 70
+    public var maxVerificationAttempts: Int = 3
 
     public init() {}
 }
@@ -304,6 +307,9 @@ public struct ProcessingConfig: Sendable, Codable {
     public var futureYearThreshold: Int = 1
     public var prereleaseRecheckDays: Int = 30
     public var incrementalIntervalMinutes: Int = 15
+    public var minConfidenceToCache: Int = 50
+    public var suspiciousAlbumMinLen: Int = 3
+    public var suspiciousManyYears: Int = 3
 
     public init() {}
 }

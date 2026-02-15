@@ -203,6 +203,7 @@ public struct YearScorer: Sendable {
             year: finalScore > 0 ? finalYear : nil,
             isDefinitive: isDefinitive,
             confidence: confidence,
+            rawScore: finalScore,
             yearScores: bestPerYear
         )
     }
@@ -427,6 +428,7 @@ extension YearScorer {
         // and use (diff - 1) to match year_scoring.py:735
         guard diff > 1 else { return 0 }
         let penalty = config.yearDiffPenaltyScale * (diff - 1)
+        // max() caps severity: max(-95, -50) = -50 (less severe)
         return max(penalty, config.yearDiffMaxPenalty)
     }
 
