@@ -24,17 +24,17 @@ public func levenshteinDistance(_ s1: String, _ s2: String) -> Int {
     let s1Chars = Array(s1)
     let s2Chars = Array(s2)
 
-    var prev = Array(0...len2)
+    var prev = Array(0 ... len2)
     var curr = Array(repeating: 0, count: len2 + 1)
 
-    for row in 1...len1 {
+    for row in 1 ... len1 {
         curr[0] = row
-        for col in 1...len2 {
+        for col in 1 ... len2 {
             let cost = s1Chars[row - 1] == s2Chars[col - 1] ? 0 : 1
             curr[col] = min(
-                prev[col] + 1,       // deletion
-                curr[col - 1] + 1,   // insertion
-                prev[col - 1] + cost  // substitution
+                prev[col] + 1, // deletion
+                curr[col - 1] + 1, // insertion
+                prev[col - 1] + cost // substitution
             )
         }
         swap(&prev, &curr)

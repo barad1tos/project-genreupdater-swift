@@ -8,9 +8,9 @@ import Foundation
 /// API data source for release metadata.
 public enum APISource: String, Sendable, Codable, CaseIterable {
     case musicBrainz = "musicbrainz"
-    case discogs = "discogs"
-    case itunes = "itunes"
-    case unknown = "unknown"
+    case discogs
+    case itunes
+    case unknown
 }
 
 /// Type classification for a music release.

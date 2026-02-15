@@ -67,7 +67,7 @@ public func stripAlbumSuffixes(_ album: String, suffixes: [String]) -> String {
                   let matchRange = Range(match.range, in: cleaned)
             else { continue }
 
-            cleaned = String(cleaned[cleaned.startIndex..<matchRange.lowerBound])
+            cleaned = String(cleaned[cleaned.startIndex ..< matchRange.lowerBound])
             cleaned = cleaned.trimmingCharacters(
                 in: CharacterSet(charactersIn: " \t-\u{2013}\u{2014}")
             )
@@ -104,8 +104,10 @@ public func cleanNames(
         album: albumName,
         exceptions: config.trackCleaningExceptions
     ) {
-        return (trackName.trimmingCharacters(in: .whitespaces),
-                albumName.trimmingCharacters(in: .whitespaces))
+        return (
+            trackName.trimmingCharacters(in: .whitespaces),
+            albumName.trimmingCharacters(in: .whitespaces)
+        )
     }
 
     let keywords = config.remasterKeywords
@@ -139,17 +141,16 @@ private func removeSegments(
 
     while position < chars.count {
         if chars[position] == open {
-            let endPos: Int
-            if balanced {
-                endPos = findMatchingParenthesis(chars, start: position, open: open, close: close)
+            let endPos: Int = if balanced {
+                findMatchingParenthesis(chars, start: position, open: open, close: close)
             } else {
-                endPos = findClosingBracket(chars, start: position, close: close)
+                findClosingBracket(chars, start: position, close: close)
             }
 
             if endPos != -1 {
-                let segment = String(chars[position...endPos])
+                let segment = String(chars[position ... endPos])
                 if textContainsKeywords(segment, keywords: keywords) {
-                    chars.removeSubrange(position...endPos)
+                    chars.removeSubrange(position ... endPos)
                     continue
                 }
             }
@@ -182,7 +183,7 @@ private func findMatchingParenthesis(
 
 /// Find the next occurrence of the closing character after start.
 private func findClosingBracket(_ chars: [Character], start: Int, close: Character) -> Int {
-    for idx in (start + 1)..<chars.count where chars[idx] == close {
+    for idx in (start + 1) ..< chars.count where chars[idx] == close {
         return idx
     }
     return -1
@@ -216,7 +217,9 @@ private func compileSuffixPatterns(_ rawSuffixes: [String]) -> [(String, NSRegul
         if hasSpecial {
             // Match literally at end of string (rstrip trailing whitespace from suffix)
             var rstripped = suffix
-            while rstripped.last?.isWhitespace == true { rstripped.removeLast() }
+            while rstripped.last?.isWhitespace == true {
+                rstripped.removeLast()
+            }
             let escaped = NSRegularExpression.escapedPattern(for: rstripped)
             pattern = "\(escaped)\\s*$"
         } else {

@@ -66,11 +66,10 @@ public func fetchRecentLogs(
     let store = try OSLogStore(scope: .currentProcessIdentifier)
     let position = store.position(date: Date.now.addingTimeInterval(-since.timeInterval))
 
-    var predicate: NSPredicate
-    if let category {
-        predicate = NSPredicate(format: "subsystem == %@ AND category == %@", subsystem, category)
+    var predicate = if let category {
+        NSPredicate(format: "subsystem == %@ AND category == %@", subsystem, category)
     } else {
-        predicate = NSPredicate(format: "subsystem == %@", subsystem)
+        NSPredicate(format: "subsystem == %@", subsystem)
     }
 
     let entries = try store.getEntries(at: position, matching: predicate)

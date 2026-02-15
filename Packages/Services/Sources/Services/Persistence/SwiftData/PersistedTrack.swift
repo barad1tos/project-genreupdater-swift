@@ -1,9 +1,9 @@
 // PersistedTrack.swift — SwiftData model for track processing state
 // Phase 2A: Persistence Layer
 
+import Core
 import Foundation
 import SwiftData
-import Core
 
 /// Persistent representation of a track's processing state.
 ///

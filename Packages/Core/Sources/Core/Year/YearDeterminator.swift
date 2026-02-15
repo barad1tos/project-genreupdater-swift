@@ -267,7 +267,7 @@ public struct YearDeterminator: Sendable {
         if let dominant = validator.getDominantYear(
             tracks: albumTracks
         ), !dominant.isSuspicious,
-           dominant.confidence >= 0.8 {
+        dominant.confidence >= 0.8 {
             return YearDeterminationResult(
                 yearResult: YearResult(
                     year: dominant.year,
@@ -331,7 +331,7 @@ public struct YearDeterminator: Sendable {
     ) -> (YearResult, YearSource) {
         switch decision {
         case let .useAPIYear(year, confidence):
-            return (YearResult(
+            (YearResult(
                 year: year,
                 isDefinitive: yearResult.isDefinitive,
                 confidence: confidence,
@@ -339,7 +339,7 @@ public struct YearDeterminator: Sendable {
             ), .api)
 
         case .keepExisting:
-            return (YearResult(
+            (YearResult(
                 year: yearResult.year,
                 isDefinitive: false,
                 confidence: yearResult.confidence,
@@ -347,7 +347,7 @@ public struct YearDeterminator: Sendable {
             ), .library)
 
         case .escalateToVerification:
-            return (YearResult(
+            (YearResult(
                 year: yearResult.year,
                 isDefinitive: false,
                 confidence: yearResult.confidence,
@@ -355,7 +355,7 @@ public struct YearDeterminator: Sendable {
             ), .fallback)
 
         case .markAndSkip:
-            return (YearResult(
+            (YearResult(
                 year: nil,
                 isDefinitive: false,
                 confidence: 0,
@@ -363,7 +363,7 @@ public struct YearDeterminator: Sendable {
             ), .fallback)
 
         case .noAction:
-            return (yearResult, .fallback)
+            (yearResult, .fallback)
         }
     }
 }

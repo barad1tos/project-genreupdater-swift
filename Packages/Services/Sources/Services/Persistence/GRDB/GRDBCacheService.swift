@@ -1,9 +1,9 @@
 // GRDBCacheService.swift — GRDB-backed persistent API cache
 // Phase 2A: Persistence Layer
 
+import Core
 import Foundation
 import GRDB
-import Core
 import OSLog
 
 /// Persistent cache for API responses and album year data.
@@ -30,7 +30,7 @@ public actor GRDBCacheService: CacheService {
     /// - Parameter databasePath: Path to the SQLite database file.
     ///   Created automatically if it doesn't exist.
     public init(databasePath: String) throws {
-        self.dbWriter = try DatabasePool(path: databasePath)
+        dbWriter = try DatabasePool(path: databasePath)
     }
 
     /// Create a cache service with an existing DatabaseWriter (for testing).
@@ -79,7 +79,7 @@ public actor GRDBCacheService: CacheService {
         }
     }
 
-    public func set<T: Codable & Sendable>(key: String, value: T, ttl: TimeInterval?) async {
+    public func set(key: String, value: some Codable & Sendable, ttl: TimeInterval?) async {
         do {
             let data = try JSONEncoder().encode(value)
             try await dbWriter.write { database in
@@ -203,9 +203,8 @@ public actor GRDBCacheService: CacheService {
 
     public func setCachedAPIResult(_ result: CachedAPIResult) async {
         do {
-            let resultWithTTL: CachedAPIResult
-            if result.ttl == nil {
-                resultWithTTL = CachedAPIResult(
+            let resultWithTTL: CachedAPIResult = if result.ttl == nil {
+                CachedAPIResult(
                     artist: result.artist,
                     album: result.album,
                     year: result.year,
@@ -215,7 +214,7 @@ public actor GRDBCacheService: CacheService {
                     metadata: result.metadata
                 )
             } else {
-                resultWithTTL = result
+                result
             }
 
             try await dbWriter.write { database in

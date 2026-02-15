@@ -40,6 +40,7 @@ GenreUpdater/
 │   ├── hooks/                     # Claude Code quality gates
 │   │   ├── lib/common.sh          # Shared helpers (jq-based, hardened)
 │   │   ├── commit-docs-sync-check.sh  # Blocking: Swift commit → needs docs
+│   │   ├── swiftlint-precommit-check.sh   # Blocking: SwiftLint --strict before commit
 │   │   ├── swift-task-tracking-reminder.sh  # Advisory: .swift edit reminder
 │   │   ├── session-start-phase-context.sh   # Advisory: phase context on start
 │   │   └── test-hooks.sh          # Validation suite (18 tests)
@@ -116,6 +117,11 @@ App → SharedUI → Core
 - **SwiftData** (Apple framework) — track state persistence (Services package)
 - **StoreKit 2** (Apple framework) — subscriptions (Services package)
 
+### Dev Tools (Homebrew)
+- **SwiftLint** — linting (pre-commit + CI, `--strict`)
+- **SwiftFormat** — auto-formatting (pre-commit + CI, config: `.swiftformat`)
+- **Periphery** — dead code detection (CI only, blocking)
+
 ## Build & Test
 
 ```bash
@@ -131,6 +137,13 @@ cd Packages/Services && swift test
 # Full Xcode build
 xcodebuild build -project GenreUpdater.xcodeproj -scheme GenreUpdater \
   -destination "platform=macOS,arch=arm64" -quiet
+
+# Lint
+swiftlint lint --strict App Packages/Core/Sources Packages/Services/Sources Packages/SharedUI/Sources
+swiftformat App Packages/Core/Sources Packages/Services/Sources Packages/SharedUI/Sources --lint
+
+# Auto-format (applies fixes)
+swiftformat App Packages/Core/Sources Packages/Services/Sources Packages/SharedUI/Sources
 
 # XcodeGen (if project.yml changed)
 xcodegen generate
@@ -237,6 +250,7 @@ Quality gates in `.claude/hooks/`, enforced automatically. All hooks use `jq` (n
 | Hook | Event | Type | Fail-safe | What it does |
 |------|-------|------|-----------|-------------|
 | `commit-docs-sync-check.sh` | PreToolUse (Bash) | Blocking | DENY | Any `git commit` with Swift files requires docs staged |
+| `swiftlint-precommit-check.sh` | PreToolUse (Bash) | Blocking | DENY | Runs SwiftLint --strict on staged Swift files before commit (matches CI) |
 | `swift-task-tracking-reminder.sh` | PreToolUse (Edit/Write) | Advisory | ALLOW | Reminds to update task checkboxes when editing `.swift` |
 | `session-start-phase-context.sh` | SessionStart | Advisory | ALLOW | Loads current phase progress at session start |
 

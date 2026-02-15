@@ -46,7 +46,7 @@ public func extractMainArtist(_ artist: String) -> String {
             of: separator,
             options: .caseInsensitive
         ) {
-            let main = trimmed[trimmed.startIndex..<range.lowerBound]
+            let main = trimmed[trimmed.startIndex ..< range.lowerBound]
             let result = main.trimmingCharacters(in: .whitespaces)
             return result.isEmpty ? trimmed : result
         }
@@ -190,14 +190,14 @@ public func fuzzyArtistMatch(
 
 // MARK: - Internal Helpers
 
-private extension String {
+extension String {
     /// Split string on separator case-insensitively.
-    func splitCaseInsensitive(separator: String) -> [String] {
+    fileprivate func splitCaseInsensitive(separator: String) -> [String] {
         var results: [String] = []
         var remaining = self[startIndex...]
 
         while let range = remaining.range(of: separator, options: .caseInsensitive) {
-            let part = remaining[remaining.startIndex..<range.lowerBound]
+            let part = remaining[remaining.startIndex ..< range.lowerBound]
             results.append(String(part))
             remaining = remaining[range.upperBound...]
         }

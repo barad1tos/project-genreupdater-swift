@@ -34,42 +34,42 @@ private let minimumScriptRatio: Double = 0.25
 /// Check if text contains Arabic characters (U+0600–U+06FF, U+0750–U+077F).
 public func hasArabic(_ text: String) -> Bool {
     text.unicodeScalars.contains { scalar in
-        (0x0600...0x06FF).contains(scalar.value)
-            || (0x0750...0x077F).contains(scalar.value)
+        (0x0600 ... 0x06FF).contains(scalar.value)
+            || (0x0750 ... 0x077F).contains(scalar.value)
     }
 }
 
 /// Check if text contains Chinese characters (CJK Unified Ideographs + Extension A).
 public func hasChinese(_ text: String) -> Bool {
     text.unicodeScalars.contains { scalar in
-        (0x4E00...0x9FFF).contains(scalar.value)
-            || (0x3400...0x4DBF).contains(scalar.value)
+        (0x4E00 ... 0x9FFF).contains(scalar.value)
+            || (0x3400 ... 0x4DBF).contains(scalar.value)
     }
 }
 
 /// Check if text contains Cyrillic characters.
 public func hasCyrillic(_ text: String) -> Bool {
     text.unicodeScalars.contains { scalar in
-        (0x0400...0x04FF).contains(scalar.value)
-            || (0x0500...0x052F).contains(scalar.value)
-            || (0x2DE0...0x2DFF).contains(scalar.value)
-            || (0xA640...0xA69F).contains(scalar.value)
+        (0x0400 ... 0x04FF).contains(scalar.value)
+            || (0x0500 ... 0x052F).contains(scalar.value)
+            || (0x2DE0 ... 0x2DFF).contains(scalar.value)
+            || (0xA640 ... 0xA69F).contains(scalar.value)
     }
 }
 
 /// Check if text contains Devanagari characters (U+0900–U+097F).
 public func hasDevanagari(_ text: String) -> Bool {
-    text.unicodeScalars.contains { (0x0900...0x097F).contains($0.value) }
+    text.unicodeScalars.contains { (0x0900 ... 0x097F).contains($0.value) }
 }
 
 /// Check if text contains Greek characters (U+0370–U+03FF).
 public func hasGreek(_ text: String) -> Bool {
-    text.unicodeScalars.contains { (0x0370...0x03FF).contains($0.value) }
+    text.unicodeScalars.contains { (0x0370 ... 0x03FF).contains($0.value) }
 }
 
 /// Check if text contains Hebrew characters (U+0590–U+05FF).
 public func hasHebrew(_ text: String) -> Bool {
-    text.unicodeScalars.contains { (0x0590...0x05FF).contains($0.value) }
+    text.unicodeScalars.contains { (0x0590 ... 0x05FF).contains($0.value) }
 }
 
 /// Check if text contains Japanese-specific characters (Hiragana + Katakana).
@@ -78,17 +78,17 @@ public func hasHebrew(_ text: String) -> Bool {
 /// Use `hasHiraganaOrKatakana` to distinguish Japanese from Chinese.
 public func hasJapanese(_ text: String) -> Bool {
     text.unicodeScalars.contains { scalar in
-        (0x3040...0x309F).contains(scalar.value)  // Hiragana
-            || (0x30A0...0x30FF).contains(scalar.value)  // Katakana
-            || (0x4E00...0x9FFF).contains(scalar.value)  // CJK (Kanji)
+        (0x3040 ... 0x309F).contains(scalar.value) // Hiragana
+            || (0x30A0 ... 0x30FF).contains(scalar.value) // Katakana
+            || (0x4E00 ... 0x9FFF).contains(scalar.value) // CJK (Kanji)
     }
 }
 
 /// Check if text contains Korean characters (Hangul Syllables + Jamo).
 public func hasKorean(_ text: String) -> Bool {
     text.unicodeScalars.contains { scalar in
-        (0xAC00...0xD7AF).contains(scalar.value)
-            || (0x1100...0x11FF).contains(scalar.value)
+        (0xAC00 ... 0xD7AF).contains(scalar.value)
+            || (0x1100 ... 0x11FF).contains(scalar.value)
     }
 }
 
@@ -97,17 +97,17 @@ public func hasLatin(_ text: String) -> Bool {
     text.unicodeScalars.contains { scalar in
         let value = scalar.value
         guard scalar.properties.isAlphabetic else { return false }
-        return (0x0041...0x005A).contains(value)  // A-Z
-            || (0x0061...0x007A).contains(value)  // a-z
-            || (0x0080...0x00FF).contains(value)  // Latin-1 Supplement
-            || (0x0100...0x017F).contains(value)  // Latin Extended-A
-            || (0x0180...0x024F).contains(value)  // Latin Extended-B
+        return (0x0041 ... 0x005A).contains(value) // A-Z
+            || (0x0061 ... 0x007A).contains(value) // a-z
+            || (0x0080 ... 0x00FF).contains(value) // Latin-1 Supplement
+            || (0x0100 ... 0x017F).contains(value) // Latin Extended-A
+            || (0x0180 ... 0x024F).contains(value) // Latin Extended-B
     }
 }
 
 /// Check if text contains Thai characters (U+0E00–U+0E7F).
 public func hasThai(_ text: String) -> Bool {
-    text.unicodeScalars.contains { (0x0E00...0x0E7F).contains($0.value) }
+    text.unicodeScalars.contains { (0x0E00 ... 0x0E7F).contains($0.value) }
 }
 
 // MARK: - CJK Convenience
@@ -213,7 +213,7 @@ private func handleCJKDetection(_ text: String) -> ScriptType? {
 
     // Hiragana or Katakana are unique to Japanese
     let hasKana = text.unicodeScalars.contains { scalar in
-        (0x3040...0x309F).contains(scalar.value) || (0x30A0...0x30FF).contains(scalar.value)
+        (0x3040 ... 0x309F).contains(scalar.value) || (0x30A0 ... 0x30FF).contains(scalar.value)
     }
 
     // If only Kanji (shared), default to Chinese as it's more common
@@ -232,7 +232,7 @@ private func countScriptCharacters(_ text: String) -> ([ScriptType: Int], Int) {
 
         for (scriptType, detector) in scriptDetectorPairs() where detector(charString) {
             scriptCounts[scriptType, default: 0] += 1
-            break  // Count character only for the first matching script
+            break // Count character only for the first matching script
         }
     }
 

@@ -1,9 +1,9 @@
 // GRDBModels.swift — GRDB row types for API cache tables
 // Phase 2A: Persistence Layer
 
+import Core
 import Foundation
 import GRDB
-import Core
 
 // MARK: - Cached API Result Row
 
@@ -23,14 +23,14 @@ struct CachedAPIRow: Codable, FetchableRecord, PersistableRecord, Sendable {
     var metadata: String
 
     init(from result: CachedAPIResult) {
-        self.artist = result.artist
-        self.album = result.album
-        self.source = result.source
-        self.year = result.year
-        self.confidence = 0
-        self.timestamp = result.timestamp
-        self.ttl = result.ttl
-        self.metadata = Self.encodeMetadata(result.metadata)
+        artist = result.artist
+        album = result.album
+        source = result.source
+        year = result.year
+        confidence = 0
+        timestamp = result.timestamp
+        ttl = result.ttl
+        metadata = Self.encodeMetadata(result.metadata)
     }
 
     func toCachedAPIResult() -> CachedAPIResult {
@@ -74,11 +74,11 @@ struct AlbumYearRow: Codable, FetchableRecord, PersistableRecord, Sendable {
     var timestamp: Date
 
     init(from entry: AlbumCacheEntry) {
-        self.artist = entry.artist
-        self.album = entry.album
-        self.year = entry.year
-        self.confidence = entry.confidence
-        self.timestamp = entry.timestamp
+        artist = entry.artist
+        album = entry.album
+        year = entry.year
+        confidence = entry.confidence
+        timestamp = entry.timestamp
     }
 
     func toAlbumCacheEntry() -> AlbumCacheEntry {

@@ -79,7 +79,7 @@ public struct YearValidator: Sendable {
     /// then majority dominance (with suspicious-old check),
     /// then year parity. Returns nil when API verification needed.
     public func getDominantYear(tracks: [Track]) -> DominantYearResult? {
-        let tracksWithYear = tracks.compactMap { $0.year }
+        let tracksWithYear = tracks.compactMap(\.year)
         guard !tracksWithYear.isEmpty else { return nil }
 
         var yearCounts: [Int: Int] = [:]
@@ -200,7 +200,7 @@ public struct YearValidator: Sendable {
     public func checkReleaseYearInconsistency(
         tracks: [Track]
     ) -> Int? {
-        let years = tracks.compactMap { $0.year }
+        let years = tracks.compactMap(\.year)
         guard !years.isEmpty else { return nil }
 
         let uniqueYears = Set(years)
@@ -209,7 +209,7 @@ public struct YearValidator: Sendable {
             return nil
         }
 
-        let releaseYears = tracks.compactMap { $0.releaseYear }
+        let releaseYears = tracks.compactMap(\.releaseYear)
         let uniqueReleaseYears = Set(releaseYears)
 
         if uniqueReleaseYears.count > 1 {

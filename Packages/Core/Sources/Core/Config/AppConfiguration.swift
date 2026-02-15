@@ -103,11 +103,11 @@ public struct AppleScriptTimeouts: Sendable, Codable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        defaultTimeout = .seconds(try container.decodeIfPresent(Int.self, forKey: .defaultTimeoutSeconds) ?? 3600)
-        fullLibraryFetch = .seconds(try container.decodeIfPresent(Int.self, forKey: .fullLibraryFetchSeconds) ?? 3600)
-        singleArtistFetch = .seconds(try container.decodeIfPresent(Int.self, forKey: .singleArtistFetchSeconds) ?? 600)
-        batchUpdate = .seconds(try container.decodeIfPresent(Int.self, forKey: .batchUpdateSeconds) ?? 1800)
-        idsBatchFetch = .seconds(try container.decodeIfPresent(Int.self, forKey: .idsBatchFetchSeconds) ?? 120)
+        defaultTimeout = try .seconds(container.decodeIfPresent(Int.self, forKey: .defaultTimeoutSeconds) ?? 3600)
+        fullLibraryFetch = try .seconds(container.decodeIfPresent(Int.self, forKey: .fullLibraryFetchSeconds) ?? 3600)
+        singleArtistFetch = try .seconds(container.decodeIfPresent(Int.self, forKey: .singleArtistFetchSeconds) ?? 600)
+        batchUpdate = try .seconds(container.decodeIfPresent(Int.self, forKey: .batchUpdateSeconds) ?? 1800)
+        idsBatchFetch = try .seconds(container.decodeIfPresent(Int.self, forKey: .idsBatchFetchSeconds) ?? 120)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -190,7 +190,7 @@ public struct YearLogicConfig: Sendable, Codable {
 }
 
 public struct ScoringConfig: Sendable, Codable {
-    // Base
+    /// Base
     public var baseScore: Int = 50
 
     // Artist matching
@@ -206,7 +206,7 @@ public struct ScoringConfig: Sendable, Codable {
     public var albumSubstringPenalty: Int = -15
     public var albumUnrelatedPenalty: Int = -50
 
-    // Soundtrack
+    /// Soundtrack
     public var soundtrackCompensationBonus: Int = 75
 
     // Release characteristics

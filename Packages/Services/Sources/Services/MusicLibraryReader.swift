@@ -50,7 +50,6 @@ public enum MusicLibraryError: Error, LocalizedError {
 /// For write operations (updating genre, year), use `AppleScriptBridge` instead —
 /// MusicKit does not support writing metadata.
 public actor MusicLibraryReader {
-
     public init() {}
 
     /// Request access to the user's music library.
@@ -98,7 +97,10 @@ public actor MusicLibraryReader {
             let tracks = response.items.map { song in
                 songToTrack(song)
             }
-            log.info("Fetched \(tracks.count, privacy: .public) tracks from MusicKit\(artist.map { " (artist: \($0))" } ?? "", privacy: .private)")
+            log
+                .info(
+                    "Fetched \(tracks.count, privacy: .public) tracks from MusicKit\(artist.map { " (artist: \($0))" } ?? "", privacy: .private)"
+                )
             return tracks
         } catch {
             log.error("MusicKit fetch failed: \(error.localizedDescription, privacy: .public)")

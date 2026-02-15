@@ -123,7 +123,7 @@ public actor AppleScriptBridge: AppleScriptClient {
             // Return first completed result, cancel the other
             let result = try await group.next()
             group.cancelAll()
-            return result.flatMap { $0 }
+            return result.flatMap(\.self)
         }
     }
 
@@ -151,7 +151,10 @@ public actor AppleScriptBridge: AppleScriptClient {
             allTracks.append(contentsOf: tracks)
         }
 
-        log.info("Fetched \(allTracks.count, privacy: .public) tracks by IDs (\(trackIDs.count, privacy: .public) requested)")
+        log
+            .info(
+                "Fetched \(allTracks.count, privacy: .public) tracks by IDs (\(trackIDs.count, privacy: .public) requested)"
+            )
         return allTracks
     }
 
@@ -174,7 +177,10 @@ public actor AppleScriptBridge: AppleScriptClient {
             name: "update_property",
             arguments: [trackID, property, value]
         )
-        log.info("Updated \(property, privacy: .public) for track \(trackID, privacy: .private): \(value, privacy: .private)")
+        log
+            .info(
+                "Updated \(property, privacy: .public) for track \(trackID, privacy: .private): \(value, privacy: .private)"
+            )
 
         if let output, output.lowercased().contains("error") {
             throw AppleScriptBridgeError.executionFailed(
@@ -217,11 +223,13 @@ public actor AppleScriptBridge: AppleScriptClient {
     private func buildAppleEvent(arguments: [String]) throws -> NSAppleEventDescriptor? {
         guard !arguments.isEmpty else { return nil }
 
-        let event = NSAppleEventDescriptor(eventClass: AEEventClass(kASAppleScriptSuite),
-                                           eventID: AEEventID(kASSubroutineEvent),
-                                           targetDescriptor: nil,
-                                           returnID: AEReturnID(kAutoGenerateReturnID),
-                                           transactionID: AETransactionID(kAnyTransactionID))
+        let event = NSAppleEventDescriptor(
+            eventClass: AEEventClass(kASAppleScriptSuite),
+            eventID: AEEventID(kASSubroutineEvent),
+            targetDescriptor: nil,
+            returnID: AEReturnID(kAutoGenerateReturnID),
+            transactionID: AETransactionID(kAnyTransactionID)
+        )
 
         let argList = NSAppleEventDescriptor.list()
         for (index, arg) in arguments.enumerated() {
@@ -245,7 +253,7 @@ extension Array {
     /// Split array into chunks of the given size.
     func chunked(into size: Int) -> [[Element]] {
         stride(from: 0, to: count, by: size).map {
-            Array(self[$0..<Swift.min($0 + size, count)])
+            Array(self[$0 ..< Swift.min($0 + size, count)])
         }
     }
 }

@@ -58,14 +58,14 @@ public struct YearFallbackStrategy: Sendable {
     private func applyRules(
         _ ctx: FallbackContext, bestYear: Int
     ) -> FallbackDecision {
-        if let r = ruleDefinitive(ctx, bestYear: bestYear) { return r }
-        if let r = ruleAbsurd(ctx, bestYear: bestYear) { return r }
-        if let r = ruleMatch(ctx, bestYear: bestYear) { return r }
-        if let r = ruleLowConfidence(ctx) { return r }
-        if let r = ruleFresh(ctx, bestYear: bestYear) { return r }
-        if let r = ruleNoExisting(ctx, bestYear: bestYear) { return r }
-        if let r = ruleSpecialAlbum(ctx) { return r }
-        if let r = ruleDramaticChange(ctx, bestYear: bestYear) { return r }
+        if let result = ruleDefinitive(ctx, bestYear: bestYear) { return result }
+        if let result = ruleAbsurd(ctx, bestYear: bestYear) { return result }
+        if let result = ruleMatch(ctx, bestYear: bestYear) { return result }
+        if let result = ruleLowConfidence(ctx) { return result }
+        if let result = ruleFresh(ctx, bestYear: bestYear) { return result }
+        if let result = ruleNoExisting(ctx, bestYear: bestYear) { return result }
+        if let result = ruleSpecialAlbum(ctx) { return result }
+        if let result = ruleDramaticChange(ctx, bestYear: bestYear) { return result }
 
         return .useAPIYear(
             year: bestYear, confidence: ctx.bestScore
@@ -192,8 +192,8 @@ public struct YearFallbackStrategy: Sendable {
         // 8d: Existing has no support → trust API
         let existingInResults = ctx.scoredReleases
             .contains { $0.candidate.year == existing }
-        if !existingInResults
-            && !ctx.scoredReleases.isEmpty {
+        if !existingInResults,
+           !ctx.scoredReleases.isEmpty {
             return .useAPIYear(
                 year: bestYear, confidence: ctx.bestScore
             )

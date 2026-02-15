@@ -11,16 +11,16 @@ import Foundation
 /// Album type classification for year handling.
 public enum AlbumType: String, Sendable, Codable, CaseIterable {
     case normal
-    case special       // B-Sides, Demo, Vault, etc.
-    case compilation   // Greatest Hits, Best Of, etc.
-    case reissue       // Remastered, Anniversary, Deluxe, etc.
+    case special // B-Sides, Demo, Vault, etc.
+    case compilation // Greatest Hits, Best Of, etc.
+    case reissue // Remastered, Anniversary, Deluxe, etc.
 }
 
 /// Strategy for handling year updates based on album type.
 public enum YearHandlingStrategy: String, Sendable, Codable {
-    case normal           // Apply year normally
-    case markAndSkip      // Mark for verification, skip update
-    case markAndUpdate    // Mark for verification, still update
+    case normal // Apply year normally
+    case markAndSkip // Mark for verification, skip update
+    case markAndUpdate // Mark for verification, still update
 }
 
 // MARK: - AlbumTypeInfo
@@ -64,8 +64,8 @@ public let defaultCompilationPatterns: Set<String> = [
     "essential", "definitive", "ultimate",
     "gold", "platinum", "hits", "singles",
     "collected", "retrospective",
-    "\u{0445}\u{0456}\u{0442}\u{0438}",  // Ukrainian: "hits"
-    "\u{0445}\u{0456}\u{0442}",           // Ukrainian: "hit"
+    "\u{0445}\u{0456}\u{0442}\u{0438}", // Ukrainian: "hits"
+    "\u{0445}\u{0456}\u{0442}", // Ukrainian: "hit"
 ]
 
 /// Patterns indicating reissued/remastered albums.

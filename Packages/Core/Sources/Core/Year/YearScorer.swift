@@ -293,9 +293,11 @@ public struct YearScorer: Sendable {
             && (sortedYears.count <= 1
                 || gap >= yearLogic.definitiveScoreDiff)
     }
+}
 
-    // MARK: - Individual Scoring Factors
+// MARK: - Individual Scoring Factors
 
+extension YearScorer {
     private func scoreArtistMatch(query: String, candidate: String) -> Int {
         let normQuery = normalizeArtistForMatching(query)
         let normCandidate = normalizeArtistForMatching(candidate)
@@ -393,28 +395,28 @@ public struct YearScorer: Sendable {
     private func scoreReleaseType(_ type: ReleaseType) -> Int {
         switch type {
         case .album:
-            return config.typeAlbumBonus
+            config.typeAlbumBonus
         case .ep, .single:
-            return config.typeEPSinglePenalty
+            config.typeEPSinglePenalty
         case .compilation, .live:
-            return config.typeCompilationLivePenalty
+            config.typeCompilationLivePenalty
         case .soundtrack:
-            return config.typeAlbumBonus
+            config.typeAlbumBonus
         case .remix, .other:
-            return config.typeEPSinglePenalty
+            config.typeEPSinglePenalty
         }
     }
 
     private func scoreReleaseStatus(_ status: ReleaseStatus) -> Int {
         switch status {
         case .official:
-            return config.statusOfficialBonus
+            config.statusOfficialBonus
         case .bootleg:
-            return config.statusBootlegPenalty
+            config.statusBootlegPenalty
         case .promotional:
-            return config.statusPromoPenalty
+            config.statusPromoPenalty
         case .pseudoRelease, .other:
-            return 0
+            0
         }
     }
 
@@ -471,22 +473,25 @@ public struct YearScorer: Sendable {
     private func scoreSourceReliability(_ source: APISource) -> Int {
         switch source {
         case .musicBrainz:
-            return config.sourceMBBonus
+            config.sourceMBBonus
         case .discogs:
-            return config.sourceDiscogsBonus
+            config.sourceDiscogsBonus
         case .itunes:
-            return config.sourceITunesBonus
+            config.sourceITunesBonus
         case .unknown:
-            return 0
+            0
         }
     }
 
-    // MARK: - Helpers
-
     private func isSoundtrackAlbum(_ album: String) -> Bool {
         let lower = album.lowercased()
-        let keywords = ["soundtrack", "ost", "original score",
-                        "motion picture", "film score"]
+        let keywords = [
+            "soundtrack",
+            "ost",
+            "original score",
+            "motion picture",
+            "film score"
+        ]
         return keywords.contains { lower.contains($0) }
     }
 }

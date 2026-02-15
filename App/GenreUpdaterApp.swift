@@ -65,7 +65,7 @@ struct ContentView: View {
             case .ready:
                 MainView()
 
-            case .error(let message):
+            case let .error(message):
                 ErrorView(message: message) {
                     Task { await dependencies.initialize() }
                 }
