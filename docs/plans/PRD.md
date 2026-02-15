@@ -746,10 +746,13 @@ final class FeatureGate {
 
 **Status**: Done | **Task**: [[phase-2a-persistence]]
 
-- [x] GRDB setup + CachedAPIResult schema (GRDBCacheService, GRDBModels, GRDBMigrations)
-- [x] PersistedTrack @Model (SwiftData) + SwiftDataTrackStore
-- [x] ProgressUpdate struct + ProcessingPhase enum
-- [x] TrackStateStore protocol in Core
+```tasks
+path includes Tasks/phase-2a-persistence
+heading does not include Acceptance
+group by heading
+hide backlink
+hide edit button
+```
 
 **Acceptance**: GRDB creates + migrates | TTL expiry works | Batch save 600+ tracks | 50 tests pass (18 Core, 32 Services)
 
@@ -757,10 +760,13 @@ final class FeatureGate {
 
 **Status**: Planned | **Task**: [[phase-2-core-models]]
 
-- [ ] [[phase-2-core-models#SubscriptionService (StoreKit 2)|SubscriptionService — StoreKit 2 integration]]
-- [ ] [[phase-2-core-models#FeatureGate (3-Tier Free / Week Pass / Pro)|FeatureGate — 3-tier feature gating]]
-- [ ] [[phase-2-core-models#MusicKit-AppleScript ID Mapping|MusicKit-AppleScript ID Mapping]]
-- [ ] [[phase-2-core-models#String Catalogs|String Catalogs setup]]
+```tasks
+path includes Tasks/phase-2-core-models
+heading does not include Acceptance
+group by heading
+hide backlink
+hide edit button
+```
 
 **Acceptance**: SubscriptionService in StoreKit sandbox | FeatureGate gates Pro features | All domain types compile + unit tests
 
@@ -768,15 +774,13 @@ final class FeatureGate {
 
 **Status**: Planned | **Task**: [[phase-3-core-algorithms]] | **Porting ref**: [[TDD#src/core/tracks/ → Packages/Core/ (Genre/, Year/, Processing/)]]
 
-**Prerequisites**: Python reference dataset (200-500 tracks) MUST be ready before starting.
-
-- [ ] [[phase-3-core-algorithms#GenreManager|GenreManager — genre determination]]
-- [ ] [[phase-3-core-algorithms#YearManager|YearManager — year determination orchestrator]]
-- [ ] [[phase-3-core-algorithms#ScoringEngine (найскладніший компонент)|ScoringEngine — year candidate scoring (most complex)]]
-- [ ] [[phase-3-core-algorithms#AlbumMatcher|AlbumMatcher — fuzzy album matching]]
-- [ ] [[phase-3-core-algorithms#ArtistMatcher|ArtistMatcher — artist name normalization]]
-- [ ] [[phase-3-core-algorithms#MetadataUtils|MetadataUtils — name cleaning, remaster detection]]
-- [ ] [[phase-3-core-algorithms#ScriptDetector|ScriptDetector — Unicode/CJK handling]]
+```tasks
+path includes Tasks/phase-3-core-algorithms
+heading does not include Acceptance
+group by heading
+hide backlink
+hide edit button
+```
 
 **Acceptance**: Genre matches Python for reference dataset | Year scoring identical rankings | ≥ 95% agreement | All parameterized tests pass
 
@@ -786,13 +790,13 @@ final class FeatureGate {
 
 > Can scaffold API client stubs in parallel with Phase 3.
 
-- [ ] [[phase-4-api-cache#MusicBrainzClient|MusicBrainzClient — MusicBrainz API]]
-- [ ] [[phase-4-api-cache#DiscogsClient|DiscogsClient — Discogs API]]
-- [ ] [[phase-4-api-cache#AppleMusicSearchClient|AppleMusicSearchClient — Apple Music catalog]]
-- [ ] [[phase-4-api-cache#APIOrchestrator|APIOrchestrator — multi-source coordination]]
-- [ ] [[phase-4-api-cache#GRDBCacheService (повна реалізація)|GRDBCacheService — full cache implementation]]
-- [ ] [[phase-4-api-cache#NetworkReachability|NetworkReachability — internet detection]]
-- [ ] [[phase-4-api-cache#Rate Limiter Implementations|Rate limiter implementations]]
+```tasks
+path includes Tasks/phase-4-api-cache
+heading does not include Acceptance
+group by heading
+hide backlink
+hide edit button
+```
 
 **Acceptance**: API fetch → score → cache end-to-end | Cache hit/miss/expiry verified | Rate limiting works | Offline handled gracefully
 
@@ -800,12 +804,13 @@ final class FeatureGate {
 
 **Status**: Planned | **Task**: [[phase-5-workflows]] | **Porting ref**: [[TDD#src/app/ → Sources/App/]]
 
-- [ ] [[phase-5-workflows#UpdateCoordinator|UpdateCoordinator — full pipeline orchestration]]
-- [ ] [[phase-5-workflows#CheckpointManager|CheckpointManager — save/restore progress]]
-- [ ] [[phase-5-workflows#UndoCoordinator|UndoCoordinator — revert changes]]
-- [ ] [[phase-5-workflows#BatchProcessor|BatchProcessor — batch operations + progress]]
-- [ ] [[phase-5-workflows#LibrarySyncService|LibrarySyncService — library change detection]]
-- [ ] [[phase-5-workflows#Change Preview Pipeline|Change Preview Pipeline]]
+```tasks
+path includes Tasks/phase-5-workflows
+heading does not include Acceptance
+group by heading
+hide backlink
+hide edit button
+```
 
 **Acceptance**: Full pipeline end-to-end | Checkpoint/resume after restart | Undo individual + batch | Real-time progress streaming
 
@@ -813,14 +818,13 @@ final class FeatureGate {
 
 **Status**: Planned | **Task**: [[phase-6-views-polish]]
 
-- [ ] [[phase-6-views-polish#MainView (розширення)|MainView — split-view layout expansion]]
-- [ ] [[phase-6-views-polish#UpdateView|UpdateView — update workflow modal]]
-- [ ] [[phase-6-views-polish#BatchView (Pro)|BatchView — batch processing (Pro)]]
-- [ ] [[phase-6-views-polish#ReportsView (Reports Tab)|ReportsView — reports tab (change log + charts)]]
-- [ ] [[phase-6-views-polish#SettingsView (розширення)|SettingsView — full settings tabs]]
-- [ ] [[phase-6-views-polish#Accessibility|Accessibility — VoiceOver, keyboard nav, Dynamic Type]]
-- [ ] [[phase-6-views-polish#Animations та Polish|Animations + polish]]
-- [ ] [[phase-6-views-polish#String Catalogs|String Catalogs — localization]]
+```tasks
+path includes Tasks/phase-6-views-polish
+heading does not include Acceptance
+group by heading
+hide backlink
+hide edit button
+```
 
 **Acceptance**: All views connected to real data | VoiceOver navigates app | No unhandled errors | Animations 60fps
 
@@ -828,13 +832,13 @@ final class FeatureGate {
 
 **Status**: Planned | **Task**: [[phase-7-testing-launch]]
 
-- [ ] [[phase-7-testing-launch#Comprehensive Test Suite|Comprehensive test suite — unit, integration, performance]]
-- [ ] [[phase-7-testing-launch#Parallel Run Testing|Parallel run — Python vs Swift comparison]]
-- [ ] [[phase-7-testing-launch#Performance Profiling|Performance profiling — 30K+ track library]]
-- [ ] [[phase-7-testing-launch#App Review Preparation|App Review preparation — justification + video]]
-- [ ] [[phase-7-testing-launch#Privacy & Legal|Privacy & Legal — privacy policy, licenses]]
-- [ ] [[phase-7-testing-launch#TestFlight Beta|TestFlight beta — 2+ weeks testing]]
-- [ ] [[phase-7-testing-launch#App Store Submission|App Store submission]]
+```tasks
+path includes Tasks/phase-7-testing-launch
+heading does not include Acceptance
+group by heading
+hide backlink
+hide edit button
+```
 
 **Acceptance**: All tests pass in CI | Performance targets met | ≥ 95% agreement with Python | App Review approval | Zero critical bugs in TestFlight
 
