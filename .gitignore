@@ -28,5 +28,11 @@ Packages/*/Package.resolved
 # Build artifacts
 build/
 
-# Local symlinks (Obsidian vault)
-docs/
+# Override global gitignore: track project docs and Claude Code config
+!CLAUDE.md
+!docs/
+!docs/plans/
+!docs/tasks/
+!.claude/
+# Re-ignore local-only Claude Code settings (permissions, not hooks)
+.claude/settings.local.json
