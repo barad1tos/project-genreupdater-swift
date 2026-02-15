@@ -133,7 +133,7 @@ public final class SubscriptionService {
     public func incrementFreeTracksUsed(by count: Int) {
         freeTracksUsed += count
         iCloudStore.set(Int64(freeTracksUsed), forKey: KVSKey.freeTracksUsed)
-        iCloudStore.synchronize()
+
         log.debug("Free tracks used: \(self.freeTracksUsed, privacy: .public)")
     }
 
@@ -208,7 +208,7 @@ public final class SubscriptionService {
     // MARK: - Internal: Transaction Listener
 
     private func listenForTransactions() {
-        transactionListener = Task(priority: .utility) { [weak self] in
+        transactionListener = Task(priority: .utility) { @MainActor [weak self] in
             for await verification in Transaction.updates {
                 guard let self else { return }
                 if let transaction = try? self.checkVerification(verification) {
@@ -242,7 +242,7 @@ public final class SubscriptionService {
     // MARK: - Internal: iCloud Counters
 
     private func loadICloudCounters() {
-        iCloudStore.synchronize()
+
         freeTracksUsed = Int(iCloudStore.longLong(forKey: KVSKey.freeTracksUsed))
         weekPassPurchaseCount = Int(iCloudStore.longLong(forKey: KVSKey.weekPassPurchaseCount))
         log.debug(
@@ -254,7 +254,7 @@ public final class SubscriptionService {
         guard transaction.productID == SubscriptionProductID.weekPass else { return }
         weekPassPurchaseCount += 1
         iCloudStore.set(Int64(weekPassPurchaseCount), forKey: KVSKey.weekPassPurchaseCount)
-        iCloudStore.synchronize()
+
     }
 }
 
