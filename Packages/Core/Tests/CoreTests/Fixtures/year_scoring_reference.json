@@ -1,0 +1,834 @@
+[
+  {
+    "id": "score_perfect_match",
+    "description": "Perfect artist + album match, official album, MusicBrainz",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 1982,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 125
+    }
+  },
+  {
+    "id": "score_discogs_source",
+    "description": "Same match quality but from Discogs",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 1982,
+      "source": "discogs",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 102
+    }
+  },
+  {
+    "id": "score_itunes_source",
+    "description": "Same match quality but from iTunes",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 1982,
+      "source": "itunes",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 90
+    }
+  },
+  {
+    "id": "score_artist_mismatch",
+    "description": "Different artist entirely",
+    "release": {
+      "artist": "Someone Else",
+      "album": "Thriller",
+      "year": 1982,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 35
+    }
+  },
+  {
+    "id": "score_album_substring",
+    "description": "Album is substring (deluxe edition)",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller (Deluxe Edition)",
+      "year": 2008,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 85
+    }
+  },
+  {
+    "id": "score_album_unrelated",
+    "description": "Completely unrelated album",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Some Other Album",
+      "year": 1991,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 50
+    }
+  },
+  {
+    "id": "score_ep_type",
+    "description": "EP release type penalty",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller EP",
+      "year": 1982,
+      "source": "musicbrainz",
+      "releaseType": "ep",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller EP",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 100
+    }
+  },
+  {
+    "id": "score_compilation_type",
+    "description": "Compilation release type penalty",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Greatest Hits",
+      "year": 1995,
+      "source": "musicbrainz",
+      "releaseType": "compilation",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Greatest Hits",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 75
+    }
+  },
+  {
+    "id": "score_bootleg_status",
+    "description": "Bootleg release status penalty",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 1983,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "bootleg",
+      "country": "DE",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 60
+    }
+  },
+  {
+    "id": "score_promo_status",
+    "description": "Promotional release status penalty",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 1982,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "promotional",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 95
+    }
+  },
+  {
+    "id": "score_reissue",
+    "description": "Reissue penalty",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 2001,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": true,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 95
+    }
+  },
+  {
+    "id": "score_major_market",
+    "description": "Country is major market but not artist's home",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 1982,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "GB",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 120
+    }
+  },
+  {
+    "id": "score_future_year",
+    "description": "Future year penalty",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 2027,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 115
+    }
+  },
+  {
+    "id": "score_invalid_year",
+    "description": "Invalid year returns score 0",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 0,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 0
+    }
+  },
+  {
+    "id": "score_empty_year",
+    "description": "Empty year returns score 0",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 0,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 0
+    }
+  },
+  {
+    "id": "score_rg_match",
+    "description": "Release group first date matches year",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 1982,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": 1982,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 175
+    }
+  },
+  {
+    "id": "score_rg_mismatch",
+    "description": "Release year differs from RG first year",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 1985,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": 1982,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 115
+    }
+  },
+  {
+    "id": "score_soundtrack",
+    "description": "Soundtrack artist compensation",
+    "release": {
+      "artist": "Hans Zimmer",
+      "album": "Interstellar",
+      "year": 2014,
+      "source": "musicbrainz",
+      "releaseType": "soundtrack",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": "Soundtrack"
+    },
+    "query": {
+      "artist": "Various Artists",
+      "album": "Interstellar",
+      "artistRegion": null,
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 50
+    }
+  },
+  {
+    "id": "score_cjk_artist",
+    "description": "Japanese artist exact match",
+    "release": {
+      "artist": "ずっと真夜中でいいのに。",
+      "album": "花と水飴、最終電車",
+      "year": 2021,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "JP",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "ずっと真夜中でいいのに。",
+      "album": "花と水飴、最終電車",
+      "artistRegion": "JP",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 125
+    }
+  },
+  {
+    "id": "score_cyrillic_artist",
+    "description": "Ukrainian artist exact match",
+    "release": {
+      "artist": "ДахаБраха",
+      "album": "Тіні забутих предків",
+      "year": 2016,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "UA",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "ДахаБраха",
+      "album": "Тіні забутих предків",
+      "artistRegion": "UA",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 125
+    }
+  },
+  {
+    "id": "score_cross_script",
+    "description": "Cross-script artist penalty",
+    "release": {
+      "artist": "ДахаБраха",
+      "album": "Тіні забутих предків",
+      "year": 2016,
+      "source": "itunes",
+      "releaseType": "album",
+      "status": "official",
+      "country": "UA",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "DakhaBrakha",
+      "album": "Тіні забутих предків",
+      "artistRegion": "UA",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 50
+    }
+  },
+  {
+    "id": "score_before_artist_start",
+    "description": "Year before artist career start",
+    "release": {
+      "artist": "New Band",
+      "album": "First Album",
+      "year": 1990,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "New Band",
+      "album": "First Album",
+      "artistRegion": "US",
+      "artistPeriodStart": 2000,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 90
+    }
+  },
+  {
+    "id": "score_near_artist_start",
+    "description": "Year near artist career start (bonus)",
+    "release": {
+      "artist": "New Band",
+      "album": "Debut",
+      "year": 2000,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "New Band",
+      "album": "Debut",
+      "artistRegion": "US",
+      "artistPeriodStart": 2000,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 145
+    }
+  },
+  {
+    "id": "score_no_country",
+    "description": "No country information",
+    "release": {
+      "artist": "Artist",
+      "album": "Album",
+      "year": 2020,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": null,
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Artist",
+      "album": "Album",
+      "artistRegion": null,
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 115
+    }
+  },
+  {
+    "id": "ranking_source_preference",
+    "description": "Same release, different sources - MusicBrainz should rank highest",
+    "type": "ranking",
+    "query": {
+      "artist": "Radiohead",
+      "album": "OK Computer",
+      "artistRegion": "GB",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "candidates": [
+      {
+        "release": {
+          "artist": "Radiohead",
+          "album": "OK Computer",
+          "year": 1997,
+          "source": "musicbrainz",
+          "releaseType": "album",
+          "status": "official",
+          "country": "GB",
+          "isReissue": false,
+          "mbReleaseGroupID": null,
+          "mbReleaseGroupFirstYear": null,
+          "genre": null
+        },
+        "totalScore": 125
+      },
+      {
+        "release": {
+          "artist": "Radiohead",
+          "album": "OK Computer",
+          "year": 1997,
+          "source": "discogs",
+          "releaseType": "album",
+          "status": "official",
+          "country": "GB",
+          "isReissue": false,
+          "mbReleaseGroupID": null,
+          "mbReleaseGroupFirstYear": null,
+          "genre": null
+        },
+        "totalScore": 102
+      },
+      {
+        "release": {
+          "artist": "Radiohead",
+          "album": "OK Computer",
+          "year": 1997,
+          "source": "itunes",
+          "releaseType": "album",
+          "status": "official",
+          "country": "GB",
+          "isReissue": false,
+          "mbReleaseGroupID": null,
+          "mbReleaseGroupFirstYear": null,
+          "genre": null
+        },
+        "totalScore": 90
+      }
+    ],
+    "expectedRanking": [
+      "musicbrainz",
+      "discogs",
+      "itunes"
+    ]
+  },
+  {
+    "id": "ranking_type_preference",
+    "description": "Same album, different types - Album should rank highest",
+    "type": "ranking",
+    "query": {
+      "artist": "The Beatles",
+      "album": "Abbey Road",
+      "artistRegion": "GB",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "candidates": [
+      {
+        "release": {
+          "artist": "The Beatles",
+          "album": "Abbey Road",
+          "year": 1969,
+          "source": "musicbrainz",
+          "releaseType": "album",
+          "status": "official",
+          "country": "GB",
+          "isReissue": false,
+          "mbReleaseGroupID": null,
+          "mbReleaseGroupFirstYear": null,
+          "genre": null
+        },
+        "totalScore": 125
+      },
+      {
+        "release": {
+          "artist": "The Beatles",
+          "album": "Abbey Road",
+          "year": 1969,
+          "source": "musicbrainz",
+          "releaseType": "ep",
+          "status": "official",
+          "country": "GB",
+          "isReissue": false,
+          "mbReleaseGroupID": null,
+          "mbReleaseGroupFirstYear": null,
+          "genre": null
+        },
+        "totalScore": 100
+      },
+      {
+        "release": {
+          "artist": "The Beatles",
+          "album": "Abbey Road",
+          "year": 1969,
+          "source": "musicbrainz",
+          "releaseType": "compilation",
+          "status": "official",
+          "country": "GB",
+          "isReissue": false,
+          "mbReleaseGroupID": null,
+          "mbReleaseGroupFirstYear": null,
+          "genre": null
+        },
+        "totalScore": 75
+      }
+    ],
+    "expectedRanking": [
+      "musicbrainz",
+      "musicbrainz",
+      "musicbrainz"
+    ]
+  },
+  {
+    "id": "ranking_original_vs_reissue",
+    "description": "Original release should rank higher than reissue",
+    "type": "ranking",
+    "query": {
+      "artist": "Pink Floyd",
+      "album": "The Dark Side of the Moon",
+      "artistRegion": "GB",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "candidates": [
+      {
+        "release": {
+          "artist": "Pink Floyd",
+          "album": "The Dark Side of the Moon",
+          "year": 1973,
+          "source": "musicbrainz",
+          "releaseType": "album",
+          "status": "official",
+          "country": "GB",
+          "isReissue": false,
+          "mbReleaseGroupID": null,
+          "mbReleaseGroupFirstYear": null,
+          "genre": null
+        },
+        "totalScore": 125
+      },
+      {
+        "release": {
+          "artist": "Pink Floyd",
+          "album": "The Dark Side of the Moon",
+          "year": 2003,
+          "source": "musicbrainz",
+          "releaseType": "album",
+          "status": "official",
+          "country": "US",
+          "isReissue": true,
+          "mbReleaseGroupID": null,
+          "mbReleaseGroupFirstYear": null,
+          "genre": null
+        },
+        "totalScore": 90
+      }
+    ],
+    "expectedRanking": [
+      "musicbrainz",
+      "musicbrainz"
+    ]
+  }
+]
