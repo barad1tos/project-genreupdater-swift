@@ -178,5 +178,50 @@
     "expected": {
       "decision": "useAPIYear"
     }
+  },
+  {
+    "id": "fallback_verification_below_threshold",
+    "description": "Verification attempts one below threshold should still escalate",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 40,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "normal",
+      "verificationAttempts": 2
+    },
+    "expected": {
+      "decision": "escalateToVerification"
+    }
+  },
+  {
+    "id": "fallback_score_at_confidence_threshold",
+    "description": "Score below confidence threshold with no existing year",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 50,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "escalateToVerification"
+    }
+  },
+  {
+    "id": "fallback_definitive_with_existing_close",
+    "description": "Definitive API result overrides even close existing year",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 90,
+      "isDefinitive": true,
+      "existingYear": 2019,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "useAPIYear"
+    }
   }
 ]

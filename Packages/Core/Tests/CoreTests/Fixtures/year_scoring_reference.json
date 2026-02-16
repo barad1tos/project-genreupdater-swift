@@ -648,6 +648,60 @@
     }
   },
   {
+    "id": "score_year_diff_one",
+    "description": "1-year RG diff tests grace period boundary",
+    "release": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "year": 1983,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": 1982,
+      "genre": null
+    },
+    "query": {
+      "artist": "Michael Jackson",
+      "album": "Thriller",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 125
+    }
+  },
+  {
+    "id": "score_cross_script_cjk_latin",
+    "description": "CJK artist name vs Latin query tests cross-script path",
+    "release": {
+      "artist": "ずっと真夜中でいいのに。",
+      "album": "花と水飴、最終電車",
+      "year": 2021,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "JP",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Zutomayo",
+      "album": "花と水飴、最終電車",
+      "artistRegion": "JP",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 85
+    }
+  },
+  {
     "id": "ranking_source_preference",
     "description": "Same release, different sources - MusicBrainz should rank highest",
     "type": "ranking",

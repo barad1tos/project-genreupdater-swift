@@ -487,6 +487,27 @@ If App Review rejects NSUserAppleScriptTask:
 
 ---
 
+## 6.5 Intentional Python / Swift Divergences
+
+The Swift port intentionally diverges from Python in several areas.
+These are design decisions, not bugs — "parity" means algorithmic
+equivalence within each language's idioms, not identical output.
+
+| Area | Python | Swift | Rationale |
+|------|--------|-------|-----------|
+| Genre nil | Returns `"Unknown"` string when no genre is found | Returns `nil` (Optional) | Swift idiom: optionals express absence more precisely than sentinel strings. Callers pattern-match rather than comparing to a magic string. |
+| Definitiveness | Combines score threshold + gap to second-best + release status flags | Uses `score >= 85` only (single threshold) | Simpler logic that avoids coupling the definitiveness check to scoring internals. The gap heuristic added complexity without measurably improving accuracy in testing. |
+| Country scoring | Tiered bonus system for major markets (US, GB, DE, JP, etc.) with graduated penalties | Flat `+10` for artist-region match, `-5` for mismatch | Country data from MusicBrainz/Discogs is inconsistent. Flat scoring reduces sensitivity to noisy input while preserving the basic signal. |
+| Earliest-year heuristic | Implicitly prefers earliest year through sorting | Explicit 90th-percentile heuristic to filter reissues | Makes the reissue-detection intent explicit. The 90% threshold was tuned against the test library to match Python's effective behavior. |
+| Concurrency | Sequential processing with thread pool for I/O | Swift actors for shared mutable state, async/await throughout | Required for macOS app architecture. Actors provide compile-time data-race safety that Python's GIL handles implicitly. |
+
+Parity test fixtures validate that scoring, resolution, fallback,
+and validation produce equivalent results within these documented
+divergences. The fixture generator (`tools/generate_swift_fixtures.py`)
+captures Python's exact output as the reference baseline.
+
+---
+
 ## 7. Phase 1: Completion Report
 
 **Commit**: `f4726fd` on `main` branch
