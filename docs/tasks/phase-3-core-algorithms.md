@@ -143,10 +143,9 @@ depends_on:
 > Extracted from: `year_fallback.py` 871 LOC — **Pure struct**
 
 - [x] Create `Packages/Core/Sources/Core/Year/YearFallbackStrategy.swift`
-- [x] 8-rule decision tree: definitive → absurd → match → low confidence → fresh → no existing → special → dramatic
-- [x] Rule 8 dramatic change: 5-step cascade (8a–8e) ported from Python `_handle_dramatic_year_change`
-- [x] Configurable via `FallbackConfig`
-- [x] Unit tests with each fallback rule + priority order (22 tests)
+- [x] Python-parity decision tree: definitive → no candidates → special album → max attempts → close diff → large diff + low/high confidence → no existing + low/high confidence
+- [x] Configurable via `FallbackConfig` (yearDifferenceThreshold, trustAPIScoreThreshold, maxVerificationAttempts)
+- [x] Unit tests with each fallback rule + priority order (19 tests)
 
 ### YearDeterminator
 > Port from: `year_determination.py` 717 LOC — **Pure struct orchestrator**
@@ -176,10 +175,10 @@ depends_on:
 
 ## Acceptance Criteria
 
-- [ ] Genre determination matches Python behaviour for test cases
-- [ ] Year scoring produces identical rankings for test cases
-- [ ] Agreement rate ≥ 95% with Python version
-- [x] `cd Packages/Core && swift test` — all tests pass (303 tests, 17 suites)
+- [x] Genre determination matches Python behaviour for test cases
+- [x] Year scoring produces identical rankings for test cases
+- [x] Agreement rate ≥ 95% with Python version (100% — 91 fixture cases pass)
+- [x] `cd Packages/Core && swift test` — all tests pass (310 tests, 22 suites)
 - [x] `cd Packages/Services && swift test` — existing tests pass (68 tests)
 - [ ] `xcodebuild build -scheme GenreUpdater` — BUILD SUCCEEDED
 - [ ] Performance: < 100ms per track (without API calls)

@@ -21,6 +21,7 @@ struct GenreDeterminatorTests {
         components.minute = 0
         components.second = 0
         components.timeZone = TimeZone(identifier: "UTC")
+        // swiftlint:disable:next force_unwrapping
         return Calendar(identifier: .gregorian).date(from: components)!
     }
 
@@ -170,20 +171,22 @@ struct GenreDeterminatorTests {
         #expect(result.genre == nil)
     }
 
-    // MARK: - Empty / Nil Genre → "Unknown"
+    // MARK: - Empty / Nil Genre → nil
 
-    @Test("Track with nil genre returns Unknown")
-    func nilGenreReturnsUnknown() {
+    @Test("Track with nil genre returns nil")
+    func nilGenreReturnsNil() {
         let track = makeTrack(genre: nil, dateAdded: date(2020, 1, 1))
         let result = determinator.determineDominantGenre(artistTracks: [track])
-        #expect(result.genre == "Unknown")
+        #expect(result.genre == nil)
+        #expect(result.sourceAlbum == nil)
     }
 
-    @Test("Track with empty genre returns Unknown")
-    func emptyGenreReturnsUnknown() {
+    @Test("Track with empty genre returns nil")
+    func emptyGenreReturnsNil() {
         let track = makeTrack(genre: "", dateAdded: date(2020, 1, 1))
         let result = determinator.determineDominantGenre(artistTracks: [track])
-        #expect(result.genre == "Unknown")
+        #expect(result.genre == nil)
+        #expect(result.sourceAlbum == nil)
     }
 
     // MARK: - Genre Returned As-Is (No Normalization)

@@ -41,7 +41,7 @@ public struct GenreResult: Sendable, Equatable {
 /// 2. For each album, find the track with the earliest `dateAdded`.
 /// 3. Among those earliest-per-album tracks, find the absolute earliest.
 /// 4. Return that track's genre (as-is, no normalization).
-/// 5. If genre is nil or empty, return "Unknown".
+/// 5. If genre is nil or empty, return nil.
 public struct GenreDeterminator: Sendable {
     public init() {}
 
@@ -68,8 +68,10 @@ public struct GenreDeterminator: Sendable {
             return GenreResult(genre: nil)
         }
 
-        // Step 3: Extract genre
-        let genre = extractGenre(from: earliestTrack)
+        // Step 3: Extract genre (nil if track has no genre)
+        guard let genre = extractGenre(from: earliestTrack) else {
+            return GenreResult(genre: nil)
+        }
 
         return GenreResult(
             genre: genre,
@@ -128,10 +130,10 @@ public struct GenreDeterminator: Sendable {
 
     /// Extract genre string from a track.
     ///
-    /// Returns "Unknown" if genre is nil or empty (matches Python behavior).
-    private func extractGenre(from track: Track) -> String {
+    /// Python parity: returns nil if genre is nil or empty.
+    private func extractGenre(from track: Track) -> String? {
         guard let genre = track.genre, !genre.isEmpty else {
-            return "Unknown"
+            return nil
         }
         return genre
     }

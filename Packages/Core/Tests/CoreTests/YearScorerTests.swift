@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import Foundation
 import Testing
 @testable import Core
@@ -56,15 +57,17 @@ struct YearScorerScoringTests {
     func albumPerfectMatch() {
         let candidate = makeCandidate(artist: "X", album: "OK Computer", year: 2000)
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "OK Computer")
-        #expect(result.breakdown.albumMatch == 40)
+        // Python parity: albumExactMatchBonus(25) + perfectMatchBonus(40) when artist also matches
+        #expect(result.breakdown.albumMatch == 65)
     }
 
-    @Test("Album variant gives variant bonus")
+    @Test("Album variant treated as substring match for scoring")
     func albumVariant() {
         let candidate = makeCandidate(artist: "X", album: "OK Computer (Remastered)", year: 2017)
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "OK Computer")
-        // After album comparison normalization: both become "ok computer" → exact match
-        #expect(result.breakdown.albumMatch == 25)
+        // Python parity: normalized strings differ ("okcomputer" vs "okcomputerremastered"),
+        // "okcomputer" is substring of "okcomputerremastered" → albumSubstringPenalty
+        #expect(result.breakdown.albumMatch == -15)
     }
 
     @Test("Unrelated album gives penalty")
@@ -286,15 +289,16 @@ struct YearScorerScoringTests {
         #expect(result.breakdown.releaseGroupMatch == 20)
     }
 
-    @Test("MB release group with different first year gives half bonus")
-    func releaseGroupMatchHalf() {
+    @Test("MB release group with different first year gives no bonus")
+    func releaseGroupMatchDiff() {
         let candidate = makeCandidate(
             artist: "X", album: "X", year: 2017,
             mbReleaseGroupID: "abc-123",
             mbReleaseGroupFirstYear: 1997
         )
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
-        #expect(result.breakdown.releaseGroupMatch == 10)
+        // Python parity: RG bonus only when year matches RG first year exactly
+        #expect(result.breakdown.releaseGroupMatch == 0)
     }
 
     // MARK: - Total Score Integration
@@ -470,15 +474,15 @@ struct YearScorerResolutionTests {
         #expect(result.isDefinitive == false)
     }
 
-    @Test("Not definitive when gap too small")
-    func notDefinitiveSmallGap() {
+    @Test("Definitive when score meets threshold (no gap requirement)")
+    func definitiveNoGapCheck() {
         let scored = [
             makeScoredRelease(year: 2000, score: 85),
             makeScoredRelease(year: 2001, score: 80),
         ]
         let result = scorer.resolveScores(scored)
-        // Gap = 5 < definitiveScoreDiff(20)
-        #expect(result.isDefinitive == false)
+        // Python parity: only checks score >= threshold, no gap-to-runner-up
+        #expect(result.isDefinitive == true)
     }
 
     @Test("Year scores map included in result")

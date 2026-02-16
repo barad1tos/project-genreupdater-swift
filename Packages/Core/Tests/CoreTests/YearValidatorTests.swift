@@ -117,17 +117,17 @@ struct YearValidatorTests {
         config.minValidYear = 1950
         config.absurdYearThreshold = 1980
         config.suspicionThresholdYears = 5
-        let v = YearValidator(config: config)
+        let customValidator = YearValidator(config: config)
 
         // 1949 < 1950 → absurd
-        #expect(v.isAbsurd(1949))
+        #expect(customValidator.isAbsurd(1949))
         // 1950 is valid but < 1980 → suspicious
-        #expect(!v.isAbsurd(1950))
-        #expect(v.isSuspicious(year: 1950))
+        #expect(!customValidator.isAbsurd(1950))
+        #expect(customValidator.isSuspicious(year: 1950))
 
         // Artist started 2000, threshold=5 → 1994 < 1995 → suspicious
-        #expect(v.isSuspicious(year: 1994, artistStartYear: 2000))
-        #expect(!v.isSuspicious(year: 1995, artistStartYear: 2000))
+        #expect(customValidator.isSuspicious(year: 1994, artistStartYear: 2000))
+        #expect(!customValidator.isSuspicious(year: 1995, artistStartYear: 2000))
     }
 
     // MARK: - getDominantYear
@@ -148,14 +148,17 @@ struct YearValidatorTests {
         #expect(result?.confidence == 0.75)
     }
 
-    @Test("No dominant year when evenly split")
-    func noDominantYear() {
+    @Test("50/50 split returns higher year at 0.5 confidence")
+    func evenSplitReturnsHigherYear() {
+        // Python parity: >=0.5 confidence passes, tiebreaker picks higher year
         let tracks = [
             Track(id: "1", name: "A", artist: "X", album: "Y", year: 2000),
             Track(id: "2", name: "B", artist: "X", album: "Y", year: 2001),
         ]
         let result = validator.getDominantYear(tracks: tracks)
-        #expect(result == nil)
+        #expect(result != nil)
+        #expect(result?.year == 2001)
+        #expect(result?.confidence == 0.5)
     }
 
     @Test("Dominant year ignores tracks without year")
@@ -189,15 +192,16 @@ struct YearValidatorTests {
         #expect(result == nil)
     }
 
-    @Test("Dominant year marks suspicious years")
+    @Test("Suspicious dominant year returns nil")
     func dominantYearSuspicious() {
         let tracks = [
             Track(id: "1", name: "A", artist: "X", album: "Y", year: 1960),
             Track(id: "2", name: "B", artist: "X", album: "Y", year: 1960),
             Track(id: "3", name: "C", artist: "X", album: "Y", year: 1960),
         ]
+        // Python parity: suspicious years → nil (need API verification)
         let result = validator.getDominantYear(tracks: tracks)
-        #expect(result?.isSuspicious == true)
+        #expect(result == nil)
     }
 
     @Test("Single track is dominant (100% confidence)")
@@ -255,6 +259,11 @@ struct YearValidatorTests {
         ]
         #expect(validator.getConsensusReleaseYear(tracks: tracks) == 2010)
     }
+}
+
+// MARK: - Year Parity & Suspicious Year Tests
+
+extension YearValidatorTests {
 
     // MARK: - checkYearParity
 
@@ -282,18 +291,22 @@ struct YearValidatorTests {
         #expect(!validator.checkYearParity(yearCounts: counts))
     }
 
-    @Test("Parity blocks getDominantYear")
-    func parityBlocksDominant() {
-        // 2 tracks each — 50%/50% → below >50% threshold
-        // AND parity detected (diff=0)
+    @Test("Below 50% confidence returns nil from getDominantYear")
+    func belowHalfConfidenceReturnsNil() {
+        // 3 years, best has 2/5 = 40% < 50% → nil
         let tracks = [
-            Track(id: "1", name: "A", artist: "X", album: "Y", year: 2000),
-            Track(id: "2", name: "B", artist: "X", album: "Y", year: 2001),
+            Track(id: "1", name: "A", artist: "X", album: "Y", year: 2020),
+            Track(id: "2", name: "B", artist: "X", album: "Y", year: 2020),
+            Track(id: "3", name: "C", artist: "X", album: "Y", year: 2019),
+            Track(id: "4", name: "D", artist: "X", album: "Y", year: 2018),
+            Track(id: "5", name: "E", artist: "X", album: "Y", year: 2018),
         ]
         #expect(validator.getDominantYear(tracks: tracks) == nil)
     }
 
     // MARK: - isYearSuspiciouslyOld
+
+    // swiftlint:disable force_unwrapping
 
     @Test("Year is suspiciously old vs dateAdded")
     func suspiciouslyOld() {
@@ -333,7 +346,7 @@ struct YearValidatorTests {
         #expect(!validator.isYearSuspiciouslyOld(year: 2001, tracks: tracks))
     }
 
-    @Test("Suspiciously old year marks dominant as suspicious")
+    @Test("Suspiciously old year returns nil from getDominantYear")
     func suspiciousOldMarksDominant() {
         let date2025 = Calendar.current.date(
             from: DateComponents(year: 2025, month: 6, day: 1)
@@ -348,8 +361,9 @@ struct YearValidatorTests {
                 year: 2001, dateAdded: date2025
             ),
         ]
+        // Python parity: suspiciously old → nil (need API verification)
         let result = validator.getDominantYear(tracks: tracks)
-        #expect(result?.isSuspicious == true)
+        #expect(result == nil)
     }
 
     // MARK: - getEarliestTrackAddedYear
@@ -382,6 +396,8 @@ struct YearValidatorTests {
         ]
         #expect(validator.getEarliestTrackAddedYear(tracks: tracks) == nil)
     }
+
+    // swiftlint:enable force_unwrapping
 
     // MARK: - checkReleaseYearInconsistency
 

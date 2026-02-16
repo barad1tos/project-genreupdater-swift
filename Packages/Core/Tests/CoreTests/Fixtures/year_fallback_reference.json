@@ -1,0 +1,227 @@
+[
+  {
+    "id": "fallback_high_confidence_api",
+    "description": "High confidence API result should be used",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 90,
+      "isDefinitive": true,
+      "existingYear": null,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "useAPIYear"
+    }
+  },
+  {
+    "id": "fallback_keep_existing_close",
+    "description": "Keep existing year when API year is close",
+    "context": {
+      "bestYear": 2021,
+      "bestScore": 60,
+      "isDefinitive": false,
+      "existingYear": 2020,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "keepExisting"
+    }
+  },
+  {
+    "id": "fallback_no_candidates",
+    "description": "No scored releases available",
+    "context": {
+      "bestYear": null,
+      "bestScore": 0,
+      "isDefinitive": false,
+      "existingYear": 2020,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "keepExisting"
+    }
+  },
+  {
+    "id": "fallback_no_candidates_no_existing",
+    "description": "No scored releases and no existing year",
+    "context": {
+      "bestYear": null,
+      "bestScore": 0,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "noAction"
+    }
+  },
+  {
+    "id": "fallback_compilation_skip",
+    "description": "Compilation album should be marked and skipped",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 50,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "compilation",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "markAndSkip"
+    }
+  },
+  {
+    "id": "fallback_reissue_album",
+    "description": "Reissue album should be marked and skipped",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 50,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "reissue",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "markAndSkip"
+    }
+  },
+  {
+    "id": "fallback_low_confidence_no_existing",
+    "description": "Low confidence with no existing year triggers verification",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 30,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "escalateToVerification"
+    }
+  },
+  {
+    "id": "fallback_max_verification_attempts",
+    "description": "Max verification attempts reached, use best available",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 40,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "normal",
+      "verificationAttempts": 3
+    },
+    "expected": {
+      "decision": "useAPIYear"
+    }
+  },
+  {
+    "id": "fallback_definitive_overrides_existing",
+    "description": "Definitive API result overrides existing year",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 95,
+      "isDefinitive": true,
+      "existingYear": 2018,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "useAPIYear"
+    }
+  },
+  {
+    "id": "fallback_large_year_diff_keep_existing",
+    "description": "Large year difference with low confidence keeps existing",
+    "context": {
+      "bestYear": 1990,
+      "bestScore": 45,
+      "isDefinitive": false,
+      "existingYear": 2020,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "keepExisting"
+    }
+  },
+  {
+    "id": "fallback_special_album_type",
+    "description": "Special album type should be marked and skipped",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 50,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "special",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "markAndSkip"
+    }
+  },
+  {
+    "id": "fallback_moderate_confidence_use_api",
+    "description": "Moderate confidence with no existing year uses API",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 70,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "useAPIYear"
+    }
+  },
+  {
+    "id": "fallback_verification_below_threshold",
+    "description": "Verification attempts one below threshold should still escalate",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 40,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "normal",
+      "verificationAttempts": 2
+    },
+    "expected": {
+      "decision": "escalateToVerification"
+    }
+  },
+  {
+    "id": "fallback_score_at_confidence_threshold",
+    "description": "Score below confidence threshold with no existing year",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 50,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "escalateToVerification"
+    }
+  },
+  {
+    "id": "fallback_definitive_with_existing_close",
+    "description": "Definitive API result overrides even close existing year",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 90,
+      "isDefinitive": true,
+      "existingYear": 2019,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "useAPIYear"
+    }
+  }
+]

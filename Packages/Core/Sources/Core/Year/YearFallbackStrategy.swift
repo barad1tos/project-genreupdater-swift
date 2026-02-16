@@ -10,15 +10,17 @@ import Foundation
 
 /// Decides how to handle year updates when scoring alone isn't sufficient.
 ///
-/// 8-rule decision tree (first match wins):
+/// Python-parity decision tree (first match wins):
 /// 1. Definitive API result → USE_API_YEAR
-/// 2. Absurd year + no existing → USE_API_YEAR
-/// 3. Existing matches API → KEEP_EXISTING
-/// 4. Low confidence → ESCALATE_TO_VERIFICATION
-/// 5. Fresh album (dateAdded < 1 year) → USE_API_YEAR
-/// 6. No existing year → USE_API_YEAR
-/// 7. Special album type → MARK_AND_SKIP
-/// 8. Dramatic year change → ESCALATE_TO_VERIFICATION
+/// 2. No candidates: has existing → KEEP_EXISTING; no existing → NO_ACTION
+/// 3. Special album type → MARK_AND_SKIP
+/// 4. Max verification attempts → USE_API_YEAR
+/// 5. Has existing + close diff → KEEP_EXISTING
+/// 6. Has existing + large diff + low confidence → KEEP_EXISTING
+/// 7. Has existing + large diff + high confidence → USE_API_YEAR
+/// 8. No existing + low confidence → ESCALATE_TO_VERIFICATION
+/// 9. No existing + high confidence → USE_API_YEAR
+/// 10. Default → USE_API_YEAR
 public struct YearFallbackStrategy: Sendable {
     public let config: FallbackConfig
     public let yearLogic: YearLogicConfig
@@ -36,14 +38,27 @@ public struct YearFallbackStrategy: Sendable {
     /// Evaluate context and return a fallback decision.
     ///
     /// Rules are evaluated in order; the first matching rule wins.
-    /// If no rule matches, returns `.noAction`.
+    /// If no rule matches, returns `.useAPIYear`.
     public func decide(_ context: FallbackContext) -> FallbackDecision {
         guard config.enabled else {
             return .noAction(reason: "Fallback disabled")
         }
 
+        // Rule 1: Definitive result always wins
+        if context.isDefinitive, let bestYear = context.bestYear {
+            return .useAPIYear(
+                year: bestYear, confidence: context.bestScore
+            )
+        }
+
+        // Rule 2: No candidates
         guard let bestYear = context.bestYear,
               context.bestScore > 0 else {
+            if context.existingYear != nil {
+                return .keepExisting(
+                    reason: "No candidates, keeping existing year"
+                )
+            }
             return .noAction(reason: "No scored candidates")
         }
 
@@ -55,84 +70,36 @@ public struct YearFallbackStrategy: Sendable {
     private func applyRules(
         _ ctx: FallbackContext, bestYear: Int
     ) -> FallbackDecision {
-        if let result = ruleDefinitive(ctx, bestYear: bestYear) { return result }
-        if let result = ruleAbsurd(ctx, bestYear: bestYear) { return result }
-        if let result = ruleMatch(ctx, bestYear: bestYear) { return result }
-        if let result = ruleLowConfidence(ctx) { return result }
-        if let result = ruleFresh(ctx, bestYear: bestYear) { return result }
-        if let result = ruleNoExisting(ctx, bestYear: bestYear) { return result }
+        // Rule 3: Special album type (before confidence checks)
         if let result = ruleSpecialAlbum(ctx) { return result }
-        if let result = ruleDramaticChange(ctx, bestYear: bestYear) { return result }
 
-        return .useAPIYear(
-            year: bestYear, confidence: ctx.bestScore
-        )
-    }
-
-    private func ruleDefinitive(
-        _ ctx: FallbackContext, bestYear: Int
-    ) -> FallbackDecision? {
-        guard ctx.isDefinitive else { return nil }
-        return .useAPIYear(
-            year: bestYear, confidence: ctx.bestScore
-        )
-    }
-
-    private func ruleAbsurd(
-        _ ctx: FallbackContext, bestYear: Int
-    ) -> FallbackDecision? {
-        guard let existing = ctx.existingYear,
-              existing < yearLogic.minValidYear else {
-            return nil
-        }
-        return .useAPIYear(
-            year: bestYear, confidence: ctx.bestScore
-        )
-    }
-
-    private func ruleMatch(
-        _ ctx: FallbackContext, bestYear: Int
-    ) -> FallbackDecision? {
-        guard let existing = ctx.existingYear,
-              existing == bestYear else { return nil }
-        return .keepExisting(
-            reason: "Existing year \(existing) matches API"
-        )
-    }
-
-    private func ruleLowConfidence(
-        _ ctx: FallbackContext
-    ) -> FallbackDecision? {
-        guard Double(ctx.bestScore)
-            < config.trustAPIScoreThreshold else {
-            return nil
-        }
-        if ctx.verificationAttempts
-            < config.maxVerificationAttempts {
-            return .escalateToVerification(
-                reason: "Score \(ctx.bestScore) below "
-                    + "threshold "
-                    + "\(Int(config.trustAPIScoreThreshold))"
+        // Rule 4: Max verification attempts → use best available
+        if ctx.verificationAttempts >= config.maxVerificationAttempts {
+            return .useAPIYear(
+                year: bestYear, confidence: ctx.bestScore
             )
         }
-        return .noAction(
-            reason: "Max verification attempts reached"
-        )
-    }
 
-    private func ruleFresh(
-        _ ctx: FallbackContext, bestYear: Int
-    ) -> FallbackDecision? {
-        guard isFreshAlbum(ctx.track) else { return nil }
-        return .useAPIYear(
-            year: bestYear, confidence: ctx.bestScore
-        )
-    }
+        // Rules 5-7: Has existing year
+        if let result = ruleWithExisting(ctx, bestYear: bestYear) {
+            return result
+        }
 
-    private func ruleNoExisting(
-        _ ctx: FallbackContext, bestYear: Int
-    ) -> FallbackDecision? {
-        guard ctx.existingYear == nil else { return nil }
+        // Rules 8-9: No existing year
+        if ctx.existingYear == nil {
+            if Double(ctx.bestScore) < config.trustAPIScoreThreshold {
+                return .escalateToVerification(
+                    reason: "Score \(ctx.bestScore) below "
+                        + "threshold "
+                        + "\(Int(config.trustAPIScoreThreshold))"
+                )
+            }
+            return .useAPIYear(
+                year: bestYear, confidence: ctx.bestScore
+            )
+        }
+
+        // Rule 10: Default
         return .useAPIYear(
             year: bestYear, confidence: ctx.bestScore
         )
@@ -153,71 +120,34 @@ public struct YearFallbackStrategy: Sendable {
         )
     }
 
-    /// Rule 8: Dramatic year change cascade (8a–8e).
-    /// Ported from Python `_handle_dramatic_year_change`.
-    private func ruleDramaticChange(
+    /// Rules for when an existing year is present.
+    /// Close diff → keep; large diff + low confidence → keep;
+    /// large diff + high confidence → use API.
+    private func ruleWithExisting(
         _ ctx: FallbackContext, bestYear: Int
     ) -> FallbackDecision? {
-        guard let existing = ctx.existingYear else {
-            return nil
-        }
+        guard let existing = ctx.existingYear else { return nil }
+
         let diff = abs(bestYear - existing)
-        guard diff > config.yearDifferenceThreshold else {
-            return nil
-        }
 
-        // 8a: High confidence → trust API
-        if Double(ctx.bestScore)
-            >= config.trustAPIScoreThreshold {
-            return .useAPIYear(
-                year: bestYear, confidence: ctx.bestScore
-            )
-        }
-        // 8b: Existing year is absurd → trust API
-        if existing < yearLogic.absurdYearThreshold {
-            return .useAPIYear(
-                year: bestYear, confidence: ctx.bestScore
-            )
-        }
-        // 8c: Proposed year is absurd → keep existing
-        if bestYear < yearLogic.absurdYearThreshold {
+        // Rule 5: Close difference → keep existing
+        if diff <= config.yearDifferenceThreshold {
             return .keepExisting(
-                reason: "API year \(bestYear) is absurd,"
-                    + " keeping \(existing)"
+                reason: "Year difference \(diff) within threshold"
             )
         }
-        // 8d: Existing has no support → trust API
-        let existingInResults = ctx.scoredReleases
-            .contains { $0.candidate.year == existing }
-        if !existingInResults,
-           !ctx.scoredReleases.isEmpty {
-            return .useAPIYear(
-                year: bestYear, confidence: ctx.bestScore
+
+        // Rule 6: Large diff + low confidence → keep existing
+        if Double(ctx.bestScore) < config.trustAPIScoreThreshold {
+            return .keepExisting(
+                reason: "Low confidence \(ctx.bestScore) with"
+                    + " large year change \(existing)→\(bestYear)"
             )
         }
-        // 8e: Default → escalate
-        if ctx.verificationAttempts
-            < config.maxVerificationAttempts {
-            return .escalateToVerification(
-                reason: "Year change \(existing)→\(bestYear)"
-                    + " (diff \(diff) > threshold "
-                    + "\(config.yearDifferenceThreshold))"
-            )
-        }
-        return .keepExisting(
-            reason: "Max verification attempts reached"
-                + " for dramatic change"
+
+        // Rule 7: Large diff + high confidence → use API
+        return .useAPIYear(
+            year: bestYear, confidence: ctx.bestScore
         )
-    }
-
-    // MARK: - Helpers
-
-    /// Check if a track was added within the last year.
-    private func isFreshAlbum(_ track: Track) -> Bool {
-        guard let dateAdded = track.dateAdded else { return false }
-        let oneYearAgo = Calendar.current.date(
-            byAdding: .year, value: -1, to: Date()
-        ) ?? Date.distantPast
-        return dateAdded > oneYearAgo
     }
 }

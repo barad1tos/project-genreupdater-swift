@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 // YearScorer.swift — Multi-factor release scoring and year resolution
 // Ported from: year_scoring.py (947 LOC) + year_score_resolver.py (525 LOC)
 //
@@ -49,6 +50,15 @@ public struct YearScorer: Sendable {
         artistActivityPeriod: (start: Int?, end: Int?)? = nil,
         artistCountry: String? = nil
     ) -> ScoredRelease {
+        // Python parity: reject invalid years early (year=0 or < minValidYear)
+        if candidate.year < yearLogic.minValidYear {
+            return ScoredRelease(
+                candidate: candidate,
+                totalScore: 0,
+                breakdown: ScoreBreakdown()
+            )
+        }
+
         var breakdown = ScoreBreakdown()
 
         // 1. Base score
@@ -60,10 +70,11 @@ public struct YearScorer: Sendable {
             candidate: candidate.artist
         )
 
-        // 3. Album match
+        // 3. Album match (Python parity: perfect match bonus depends on artist match)
         breakdown.albumMatch = scoreAlbumMatch(
             query: queryAlbum,
-            candidate: candidate.album
+            candidate: candidate.album,
+            artistMatchScore: breakdown.artistMatch
         )
 
         // 4. Soundtrack compensation
@@ -177,6 +188,8 @@ public struct YearScorer: Sendable {
             bestScore: bestScore
         )
 
+        let existingYearBoosted = (finalYear != bestYear)
+
         (finalYear, finalScore) = applyFutureYearPreference(
             year: finalYear, score: finalScore,
             bestPerYear: bestPerYear,
@@ -186,14 +199,14 @@ public struct YearScorer: Sendable {
 
         (finalYear, finalScore) = applyOriginalReleasePreference(
             year: finalYear, score: finalScore,
-            scored: scored
+            scored: scored,
+            existingYearBoosted: existingYearBoosted
         )
 
         // Step 6: Determine definitiveness
         let isDefinitive = checkDefinitiveness(
             finalScore: finalScore,
             finalYear: finalYear,
-            sortedYears: sortedYears,
             calendarYear: calendarYear
         )
 
@@ -250,49 +263,45 @@ public struct YearScorer: Sendable {
         return (year, score)
     }
 
+    /// Python parity: prefer the earliest year (likely original release) when its
+    /// score is within 90% of the best. Skip if existing year was already boosted
+    /// to avoid undoing that preference.
     private func applyOriginalReleasePreference(
         year: Int, score: Int,
-        scored: [ScoredRelease]
+        scored: [ScoredRelease],
+        existingYearBoosted: Bool
     ) -> (year: Int, score: Int) {
-        let originals = scored.filter {
-            !$0.candidate.isReissue
-        }
-        guard !originals.isEmpty else {
+        guard !existingYearBoosted else {
             return (year, score)
         }
-        let reissueYears = Set(
-            scored.filter(\.candidate.isReissue)
-                .map(\.candidate.year)
-        )
-        guard reissueYears.contains(year) else {
+
+        guard let earliestYear = scored.map(\.candidate.year).min(),
+              earliestYear < year else {
             return (year, score)
         }
-        guard let best = originals.max(
-            by: { $0.totalScore < $1.totalScore }
-        ) else {
+
+        guard let earliestScore = scored
+            .filter({ $0.candidate.year == earliestYear })
+            .max(by: { $0.totalScore < $1.totalScore })?
+            .totalScore else {
             return (year, score)
         }
-        if Double(best.totalScore)
-            >= Double(score) * 0.9 {
-            return (best.candidate.year, best.totalScore)
+
+        if Double(earliestScore) >= Double(score) * 0.9 {
+            return (earliestYear, earliestScore)
         }
         return (year, score)
     }
 
+    /// Python parity: definitiveness = score >= threshold AND year not in future.
+    /// No gap-to-runner-up requirement.
     private func checkDefinitiveness(
         finalScore: Int,
         finalYear: Int,
-        sortedYears: [(key: Int, value: Int)],
         calendarYear: Int
     ) -> Bool {
-        let secondBest = sortedYears.count > 1
-            ? sortedYears[1].value : 0
-        let gap = finalScore - secondBest
-        return finalScore
-            >= yearLogic.definitiveScoreThreshold
+        finalScore >= yearLogic.definitiveScoreThreshold
             && finalYear <= calendarYear
-            && (sortedYears.count <= 1
-                || gap >= yearLogic.definitiveScoreDiff)
     }
 }
 
@@ -308,12 +317,12 @@ extension YearScorer {
             return config.artistExactMatchBonus
         }
 
-        // Cross-script detection
+        // Cross-script detection (Python parity: one Latin + one non-Latin)
         let queryScript = dominantScript(of: query)
         let candidateScript = dominantScript(of: candidate)
         if queryScript != candidateScript,
-           queryScript != .latin, queryScript != .unknown,
-           candidateScript != .latin, candidateScript != .unknown {
+           queryScript != .unknown, candidateScript != .unknown,
+           isCrossScriptComparison(queryScript, candidateScript) {
             return config.artistCrossScriptPenalty
         }
 
@@ -330,39 +339,39 @@ extension YearScorer {
         return config.artistMismatchPenalty
     }
 
-    private func scoreAlbumMatch(query: String, candidate: String) -> Int {
-        let normQuery = normalizeForMatching(query)
-        let normCandidate = normalizeForMatching(candidate)
+    private func scoreAlbumMatch(
+        query: String,
+        candidate: String,
+        artistMatchScore: Int = 0
+    ) -> Int {
+        // Python parity: normalize by lowercasing + removing non-alphanumeric
+        // (no edition stripping — Python only strips if remaster_keywords provided)
+        let compQuery = normalizeForScoreComparison(query)
+        let compCandidate = normalizeForScoreComparison(candidate)
 
-        // Perfect match — both normalized and album-comparison-normalized match
-        let cleanQuery = normalizeAlbumForComparison(query)
-        let cleanCandidate = normalizeAlbumForComparison(candidate)
-
-        if normQuery == normCandidate {
-            return config.perfectMatchBonus
-        }
-
-        // Exact match after album cleaning
-        if cleanQuery == cleanCandidate {
-            return config.albumExactMatchBonus
-        }
-
-        // Album variant (remaster, deluxe, etc.)
-        if isAlbumVariant(query, candidate) {
-            return config.albumVariationBonus
+        // Exact match (Python: comp_release_title == comp_album_norm)
+        if compQuery == compCandidate {
+            var bonus = config.albumExactMatchBonus
+            // Python parity: add perfectMatchBonus when artist also matched
+            if artistMatchScore > 0 {
+                bonus += config.perfectMatchBonus
+            }
+            return bonus
         }
 
         // Substring match
-        if normQuery.contains(normCandidate) || normCandidate.contains(normQuery) {
+        if compQuery.contains(compCandidate) || compCandidate.contains(compQuery) {
             return config.albumSubstringPenalty
         }
 
-        // Fuzzy match
-        if fuzzyAlbumMatch(query, candidate) {
-            return config.albumExactMatchBonus
-        }
-
         return config.albumUnrelatedPenalty
+    }
+
+    /// Python parity: normalize by lowercasing and removing non-alphanumeric characters.
+    /// Matches Python's `_normalize_for_comparison`.
+    private func normalizeForScoreComparison(_ text: String) -> String {
+        text.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
+            .map { String($0) }.joined()
     }
 
     private func scoreSoundtrackCompensation(
@@ -383,14 +392,13 @@ extension YearScorer {
     }
 
     private func scoreReleaseGroupMatch(_ candidate: ReleaseCandidate) -> Int {
-        // Bonus if release group ID is present (indicates verified grouping)
-        guard candidate.mbReleaseGroupID != nil else { return 0 }
-        // Extra bonus if release group first year matches candidate year
-        if let firstYear = candidate.mbReleaseGroupFirstYear,
-           firstYear == candidate.year {
+        // Python parity: RG bonus based on first year presence + source + year match
+        guard let firstYear = candidate.mbReleaseGroupFirstYear else { return 0 }
+        // Full bonus only for MusicBrainz source where year matches RG first year
+        if candidate.source == .musicBrainz, firstYear == candidate.year {
             return config.mbReleaseGroupMatchBonus
         }
-        return config.mbReleaseGroupMatchBonus / 2
+        return 0
     }
 
     private func scoreReleaseType(_ type: ReleaseType) -> Int {
@@ -399,10 +407,8 @@ extension YearScorer {
             config.typeAlbumBonus
         case .ep, .single:
             config.typeEPSinglePenalty
-        case .compilation, .live:
+        case .compilation, .live, .soundtrack:
             config.typeCompilationLivePenalty
-        case .soundtrack:
-            config.typeAlbumBonus
         case .remix, .other:
             config.typeEPSinglePenalty
         }
@@ -455,13 +461,15 @@ extension YearScorer {
         return 0
     }
 
+    /// Python parity: country scoring only applies when artistCountry is known.
+    /// When artistCountry is nil, return 0 (no major market bonus either).
     private func scoreCountry(
         candidateCountry: String?,
         artistCountry: String?
     ) -> Int {
-        guard let country = candidateCountry else { return 0 }
+        guard let country = candidateCountry, let artistCountry else { return 0 }
 
-        if let artistCountry, country.uppercased() == artistCountry.uppercased() {
+        if country.uppercased() == artistCountry.uppercased() {
             return config.countryArtistMatchBonus
         }
 
@@ -495,5 +503,21 @@ extension YearScorer {
             "film score"
         ]
         return keywords.contains { lower.contains($0) }
+    }
+
+    /// Python parity: cross-script = one is Latin AND other is non-Latin.
+    private func isCrossScriptComparison(
+        _ script1: ScriptType,
+        _ script2: ScriptType
+    ) -> Bool {
+        let nonLatinScripts: Set<ScriptType> = [
+            .cyrillic, .chinese, .japanese, .korean,
+            .arabic, .hebrew, .greek, .thai, .devanagari
+        ]
+        let s1Latin = script1 == .latin
+        let s2Latin = script2 == .latin
+        let s1NonLatin = nonLatinScripts.contains(script1)
+        let s2NonLatin = nonLatinScripts.contains(script2)
+        return (s1Latin && s2NonLatin) || (s1NonLatin && s2Latin)
     }
 }

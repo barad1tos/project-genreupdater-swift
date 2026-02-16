@@ -1,0 +1,236 @@
+[
+  {
+    "id": "resolve_clear_winner",
+    "description": "One year clearly dominates",
+    "yearScores": {
+      "1982": [
+        90,
+        85,
+        70
+      ],
+      "2001": [
+        40,
+        35
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 1982,
+      "isDefinitive": true,
+      "confidence": 90
+    }
+  },
+  {
+    "id": "resolve_close_scores",
+    "description": "Two years with close scores (not definitive)",
+    "yearScores": {
+      "1997": [
+        80
+      ],
+      "1998": [
+        75
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 1997,
+      "isDefinitive": false,
+      "confidence": 80
+    }
+  },
+  {
+    "id": "resolve_existing_year_boost",
+    "description": "Existing year gets boost when close to best",
+    "yearScores": {
+      "1982": [
+        90
+      ],
+      "1983": [
+        85
+      ]
+    },
+    "existingYear": "1983",
+    "expected": {
+      "year": 1983,
+      "isDefinitive": true,
+      "confidence": 85
+    }
+  },
+  {
+    "id": "resolve_single_result",
+    "description": "Only one year candidate",
+    "yearScores": {
+      "2020": [
+        75
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 2020,
+      "isDefinitive": false,
+      "confidence": 75
+    }
+  },
+  {
+    "id": "resolve_empty",
+    "description": "No year scores",
+    "yearScores": {},
+    "existingYear": null,
+    "expected": {
+      "year": null,
+      "isDefinitive": false,
+      "confidence": 0
+    }
+  },
+  {
+    "id": "resolve_many_candidates",
+    "description": "Many year candidates with spread scores",
+    "yearScores": {
+      "1969": [
+        95,
+        80
+      ],
+      "1970": [
+        45
+      ],
+      "1987": [
+        30
+      ],
+      "2003": [
+        50,
+        40
+      ],
+      "2011": [
+        25
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 1969,
+      "isDefinitive": true,
+      "confidence": 95
+    }
+  },
+  {
+    "id": "resolve_future_vs_past",
+    "description": "Future year vs past year preference",
+    "yearScores": {
+      "2027": [
+        85
+      ],
+      "2020": [
+        80
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 2020,
+      "isDefinitive": false,
+      "confidence": 80
+    }
+  },
+  {
+    "id": "resolve_existing_year_far",
+    "description": "Existing year too far from best (no boost)",
+    "yearScores": {
+      "2020": [
+        90
+      ],
+      "1990": [
+        30
+      ]
+    },
+    "existingYear": "1990",
+    "expected": {
+      "year": 2020,
+      "isDefinitive": true,
+      "confidence": 90
+    }
+  },
+  {
+    "id": "resolve_tie_prefer_earlier",
+    "description": "Equal scores prefer earlier year",
+    "yearScores": {
+      "2005": [
+        80
+      ],
+      "2000": [
+        80
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 2000,
+      "isDefinitive": false,
+      "confidence": 80
+    }
+  },
+  {
+    "id": "resolve_high_confidence",
+    "description": "Very high score is definitive",
+    "yearScores": {
+      "2015": [
+        95
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 2015,
+      "isDefinitive": true,
+      "confidence": 95
+    }
+  },
+  {
+    "id": "resolve_low_confidence",
+    "description": "Low score is not definitive",
+    "yearScores": {
+      "2015": [
+        30
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 2015,
+      "isDefinitive": false,
+      "confidence": 30
+    }
+  },
+  {
+    "id": "resolve_multiple_sources_same_year",
+    "description": "Multiple sources agree on same year",
+    "yearScores": {
+      "2010": [
+        90,
+        85,
+        80
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 2010,
+      "isDefinitive": true,
+      "confidence": 90
+    }
+  },
+  {
+    "id": "resolve_reissue_detection",
+    "description": "Original year preferred over reissue year",
+    "yearScores": {
+      "1973": [
+        85
+      ],
+      "2003": [
+        90
+      ],
+      "2011": [
+        70
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 1973,
+      "isDefinitive": true,
+      "confidence": 85
+    }
+  }
+]

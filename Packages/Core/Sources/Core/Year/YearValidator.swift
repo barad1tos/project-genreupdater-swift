@@ -79,7 +79,8 @@ public struct YearValidator: Sendable {
     /// then majority dominance (with suspicious-old check),
     /// then year parity. Returns nil when API verification needed.
     public func getDominantYear(tracks: [Track]) -> DominantYearResult? {
-        let tracksWithYear = tracks.compactMap(\.year)
+        // Python parity: filter out year=0 (invalid/empty years)
+        let tracksWithYear = tracks.compactMap(\.year).filter { $0 > 0 }
         guard !tracksWithYear.isEmpty else { return nil }
 
         var yearCounts: [Int: Int] = [:]
@@ -87,8 +88,9 @@ public struct YearValidator: Sendable {
             yearCounts[year, default: 0] += 1
         }
 
+        // Python parity: tiebreak picks higher year (first-seen in Counter)
         guard let (bestYear, bestCount) = yearCounts.max(by: {
-            $0.value < $1.value || ($0.value == $1.value && $0.key > $1.key)
+            $0.value < $1.value || ($0.value == $1.value && $0.key < $1.key)
         }) else { return nil }
 
         // Check release year inconsistency: all same year but
@@ -107,25 +109,26 @@ public struct YearValidator: Sendable {
 
         let confidence = Double(bestCount) / Double(tracksWithYear.count)
 
-        // Require >50% share for a dominant year.
-        // Parity (tie between top two years) also returns nil —
-        // both cases need API verification.
-        guard confidence > 0.5 else {
+        // Python parity: require >=50% share (not strictly >50%).
+        // Below 50% means no single year dominates → API verification needed.
+        guard confidence >= 0.5 else {
             return nil
         }
 
-        // Check if year is suspiciously old vs dateAdded
+        // Python parity: suspicious years return nil (need API verification)
         let suspiciousOld = isYearSuspiciouslyOld(
             year: bestYear, tracks: tracks
         )
-        let suspicious = isSuspicious(year: bestYear) || suspiciousOld
+        if isSuspicious(year: bestYear) || suspiciousOld {
+            return nil
+        }
 
         return DominantYearResult(
             year: bestYear,
             confidence: confidence,
             trackCount: bestCount,
             totalTracks: tracksWithYear.count,
-            isSuspicious: suspicious
+            isSuspicious: false
         )
     }
 
