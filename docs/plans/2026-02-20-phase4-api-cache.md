@@ -1376,7 +1376,7 @@ REST API client for album year + genre data
 
 ---
 
-## Task 7: AppleMusicSearchClient
+## Task 7: AppleMusicSearchClient [DONE]
 
 Uses MusicKit `CatalogSearchRequest` for genre data from Apple Music catalog.
 No rate limiting needed (Apple manages internally).
@@ -1550,6 +1550,13 @@ MusicKit-based catalog search for genres
 - Graceful fallback when not authorized
 - 3 tests (protocol conformance, no-entitlement)
 ```
+
+**Implementation notes (2026-02-20):**
+- MusicKit authorization check via `MusicAuthorization.request()` before any catalog request
+- All user data (artist, album, genres) logged with `.private` privacy
+- `getArtistActivityPeriod` and `getArtistStartYear` return nil stubs — MusicKit lacks this data
+- `initialize(force:)` and `close()` are no-ops — MusicKit manages its own lifecycle
+- Tests verify graceful degradation without entitlement (confidence <= 50)
 
 ---
 
