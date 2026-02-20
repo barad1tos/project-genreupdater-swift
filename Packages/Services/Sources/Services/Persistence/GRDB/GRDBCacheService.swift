@@ -225,6 +225,97 @@ public actor GRDBCacheService: CacheService {
         }
     }
 
+    // MARK: - Bulk Operations
+
+    /// Store multiple album year entries in a single write transaction.
+    ///
+    /// More efficient than calling `storeAlbumYear` in a loop because all
+    /// inserts share a single SQLite transaction (one fsync instead of N).
+    ///
+    /// - Parameter entries: Album year entries to store.
+    public func bulkStoreAlbumYears(_ entries: [BulkAlbumYearEntry]) async {
+        do {
+            try await dbWriter.write { database in
+                for entry in entries {
+                    let cacheEntry = AlbumCacheEntry(
+                        artist: entry.artist,
+                        album: entry.album,
+                        year: entry.year,
+                        confidence: entry.confidence,
+                        timestamp: .now
+                    )
+                    try AlbumYearRow(from: cacheEntry).save(database)
+                }
+            }
+            log.info("Bulk stored \(entries.count, privacy: .public) album years")
+        } catch {
+            log.error("bulkStoreAlbumYears failed: \(error, privacy: .public)")
+        }
+    }
+
+    /// Delete multiple album year entries in a single write transaction.
+    ///
+    /// - Parameter albums: Tuples of (artist, album) identifying entries to remove.
+    public func bulkInvalidateAlbums(
+        _ albums: [(artist: String, album: String)]
+    ) async {
+        do {
+            try await dbWriter.write { database in
+                for (artist, album) in albums {
+                    try database.execute(
+                        sql: "DELETE FROM album_years WHERE artist = ? AND album = ?",
+                        arguments: [artist, album]
+                    )
+                }
+            }
+        } catch {
+            log.error("bulkInvalidateAlbums failed: \(error, privacy: .public)")
+        }
+    }
+
+    // MARK: - Cache Statistics
+
+    /// Aggregate statistics about cache contents.
+    ///
+    /// Counts entries in each table and identifies expired generic cache rows
+    /// (those with a non-nil TTL whose timestamp + TTL is in the past).
+    ///
+    /// - Returns: A `CacheStatistics` snapshot. Returns zeroes on database error.
+    public func getCacheStatistics() async -> CacheStatistics {
+        do {
+            return try await dbWriter.read { database in
+                let albumYearCount = try AlbumYearRow.fetchCount(database)
+                let apiResultCount = try CachedAPIRow.fetchCount(database)
+                let genericCacheCount = try GenericCacheRow.fetchCount(database)
+
+                // SQL-level expiry check avoids loading all rows into memory.
+                // GRDB stores Date as "yyyy-MM-dd HH:mm:ss.SSS" strings,
+                // so we use strftime to convert to epoch seconds for arithmetic.
+                let expiredCount = try Int.fetchOne(database, sql: """
+                SELECT COUNT(*) FROM generic_cache
+                WHERE ttl IS NOT NULL
+                  AND (CAST(strftime('%s', timestamp) AS REAL) + ttl)
+                    < CAST(strftime('%s', 'now') AS REAL)
+                """) ?? 0
+
+                return CacheStatistics(
+                    albumYearCount: albumYearCount,
+                    apiResultCount: apiResultCount,
+                    genericCacheCount: genericCacheCount,
+                    expiredCount: expiredCount
+                )
+            }
+        } catch {
+            log.error("getCacheStatistics failed: \(error, privacy: .public)")
+            return CacheStatistics(
+                albumYearCount: 0,
+                apiResultCount: 0,
+                genericCacheCount: 0,
+                expiredCount: 0
+            )
+        }
+    }
+
     // MARK: - Persistence
 
     public func syncToDisk() async throws {
@@ -262,5 +353,36 @@ extension GRDBCacheService {
     public static func createInMemory() throws -> GRDBCacheService {
         let dbQueue = try DatabaseQueue()
         return GRDBCacheService(dbWriter: dbQueue)
+    }
+}
+
+// MARK: - Cache Statistics
+
+/// Aggregate snapshot of cache contents.
+///
+/// All counts reflect the state at the time `getCacheStatistics()` was called.
+/// `expiredCount` only tracks generic cache entries (album years and API results
+/// use age-based TTL checks at read time instead).
+public struct CacheStatistics: Sendable {
+    public let albumYearCount: Int
+    public let apiResultCount: Int
+    public let genericCacheCount: Int
+    public let expiredCount: Int
+}
+
+// MARK: - Bulk Album Year Entry
+
+/// Input for `bulkStoreAlbumYears` — avoids a 4-member tuple (SwiftLint large_tuple).
+public struct BulkAlbumYearEntry: Sendable {
+    public let artist: String
+    public let album: String
+    public let year: Int
+    public let confidence: Int
+
+    public init(artist: String, album: String, year: Int, confidence: Int) {
+        self.artist = artist
+        self.album = album
+        self.year = year
+        self.confidence = confidence
     }
 }

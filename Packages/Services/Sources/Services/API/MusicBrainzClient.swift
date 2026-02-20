@@ -1,0 +1,235 @@
+// MusicBrainzClient.swift — JSON API client for MusicBrainz metadata
+// Phase 4: API + Cache
+
+import Core
+import Foundation
+import OSLog
+
+// MARK: - MusicBrainzClient
+
+/// MusicBrainz API client for album year and artist activity data.
+///
+/// Uses JSON format (`&fmt=json`) instead of default XML.
+/// Rate limited at 1 request/second per MusicBrainz policy.
+/// Requires a descriptive User-Agent header per API terms of service.
+///
+/// Endpoints used:
+/// - `/ws/2/release-group?query=...` — album year, genres/tags
+/// - `/ws/2/artist?query=...` — artist activity period (life-span)
+public struct MusicBrainzClient: ExternalAPIService, Sendable {
+    private static let baseURL = "https://musicbrainz.org/ws/2"
+    private static let userAgent =
+        "GenreUpdater/1.0 (https://github.com/barad1tos/project-genreupdater-swift)"
+
+    private let session: URLSession
+    private let rateLimiter: TokenBucketRateLimiter
+    private let log = AppLogger.api
+
+    /// Creates a MusicBrainz API client.
+    ///
+    /// - Parameters:
+    ///   - session: URL session for network requests. Defaults to `.shared`.
+    ///   - rateLimiter: Rate limiter for throttling. Defaults to 1 req/sec.
+    public init(
+        session: URLSession = .shared,
+        rateLimiter: TokenBucketRateLimiter? = nil
+    ) {
+        self.session = session
+        self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
+            maxTokens: 1,
+            refillInterval: .seconds(1)
+        )
+    }
+
+    // MARK: - ExternalAPIService
+
+    public func getAlbumYear(
+        artist: String,
+        album: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> YearResult {
+        guard let url = Self.buildReleaseGroupSearchURL(
+            artist: artist,
+            album: album
+        ) else {
+            log.warning("Failed to build release group search URL for \(artist, privacy: .private)")
+            return YearResult()
+        }
+
+        let data = try await fetchWithRateLimit(url: url)
+        let response = try JSONDecoder().decode(
+            MBReleaseGroupSearchResponse.self,
+            from: data
+        )
+
+        guard let bestMatch = response.releaseGroups.first,
+              let year = bestMatch.releaseYear
+        else {
+            log.debug("No release group results for \(artist, privacy: .private) - \(album, privacy: .private)")
+            return YearResult()
+        }
+
+        let confidence = bestMatch.primaryType == "Album" ? 80 : 60
+
+        log.debug(
+            "MusicBrainz: \(artist, privacy: .private) - \(album, privacy: .private) -> \(year, privacy: .public) (confidence: \(confidence, privacy: .public))"
+        )
+
+        return YearResult(
+            year: year,
+            isDefinitive: false,
+            confidence: confidence,
+            yearScores: [year: confidence]
+        )
+    }
+
+    public func getArtistActivityPeriod(
+        normalizedArtist: String
+    ) async throws -> (start: Int?, end: Int?) {
+        guard let url = Self.buildArtistSearchURL(
+            artist: normalizedArtist
+        ) else {
+            log.warning("Failed to build artist search URL for \(normalizedArtist, privacy: .private)")
+            return (nil, nil)
+        }
+
+        let data = try await fetchWithRateLimit(url: url)
+        let response = try JSONDecoder().decode(
+            MBArtistSearchResponse.self,
+            from: data
+        )
+
+        guard let artist = response.artists.first else {
+            log.debug("No artist results for \(normalizedArtist, privacy: .private)")
+            return (nil, nil)
+        }
+
+        return (artist.lifeSpan?.beginYear, artist.lifeSpan?.endYear)
+    }
+
+    public func getArtistStartYear(
+        normalizedArtist: String
+    ) async throws -> Int? {
+        let (start, _) = try await getArtistActivityPeriod(
+            normalizedArtist: normalizedArtist
+        )
+        return start
+    }
+
+    public func initialize(force: Bool) async throws {
+        // No initialization needed — stateless HTTP client
+    }
+
+    public func close() async {
+        // No cleanup needed — URLSession lifecycle managed externally
+    }
+
+    // MARK: - URL Builders
+
+    /// Builds a release group search URL for the given artist and album.
+    ///
+    /// Query format: `artist:"<artist>" AND release:"<album>"` with `&fmt=json`.
+    static func buildReleaseGroupSearchURL(
+        artist: String,
+        album: String
+    ) -> URL? {
+        var components = URLComponents(string: "\(baseURL)/release-group")
+        components?.queryItems = [
+            URLQueryItem(
+                name: "query",
+                value: "artist:\"\(artist)\" AND release:\"\(album)\""
+            ),
+            URLQueryItem(name: "fmt", value: "json"),
+            URLQueryItem(name: "limit", value: "5"),
+        ]
+        return components?.url
+    }
+
+    /// Builds an artist search URL for the given artist name.
+    ///
+    /// Query format: `artist:"<artist>"` with `&fmt=json`.
+    static func buildArtistSearchURL(artist: String) -> URL? {
+        var components = URLComponents(string: "\(baseURL)/artist")
+        components?.queryItems = [
+            URLQueryItem(
+                name: "query",
+                value: "artist:\"\(artist)\""
+            ),
+            URLQueryItem(name: "fmt", value: "json"),
+            URLQueryItem(name: "limit", value: "1"),
+        ]
+        return components?.url
+    }
+
+    // MARK: - Request Building
+
+    /// Creates a URLRequest with required MusicBrainz headers.
+    ///
+    /// Sets `User-Agent` (required by MusicBrainz API policy) and
+    /// `Accept: application/json` for JSON responses.
+    func makeRequest(for url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return request
+    }
+
+    // MARK: - Private
+
+    /// Acquires a rate limit token, then performs the HTTP request.
+    ///
+    /// Handles HTTP status codes: 200 (success), 400 (bad request),
+    /// 503 (service unavailable), and all other codes as generic HTTP errors.
+    private func fetchWithRateLimit(url: URL) async throws -> Data {
+        let waitTime = await rateLimiter.acquire()
+        if waitTime > .zero {
+            log.debug("Rate limited, waited \(waitTime, privacy: .public)")
+        }
+
+        let request = makeRequest(for: url)
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw MusicBrainzError.invalidResponse
+        }
+
+        switch httpResponse.statusCode {
+        case 200:
+            return data
+        case 400:
+            throw MusicBrainzError.badRequest
+        case 503:
+            throw MusicBrainzError.serviceUnavailable
+        default:
+            throw MusicBrainzError.httpError(httpResponse.statusCode)
+        }
+    }
+}
+
+// MARK: - MusicBrainzError
+
+/// Errors from MusicBrainz API requests.
+public enum MusicBrainzError: Error, Sendable, LocalizedError {
+    /// Response was not a valid HTTP response.
+    case invalidResponse
+    /// Server returned 400 Bad Request (malformed query).
+    case badRequest
+    /// Server returned 503 Service Unavailable (rate limited or down).
+    case serviceUnavailable
+    /// Server returned an unexpected HTTP status code.
+    case httpError(Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidResponse:
+            "MusicBrainz returned an invalid response"
+        case .badRequest:
+            "MusicBrainz rejected the request as malformed (400)"
+        case .serviceUnavailable:
+            "MusicBrainz is temporarily unavailable (503)"
+        case let .httpError(code):
+            "MusicBrainz returned HTTP \(code)"
+        }
+    }
+}

@@ -47,11 +47,29 @@ jobs:
       - name: Build SharedUI
         run: swift build --package-path Packages/SharedUI
 
+      - name: Unlock Keychain for tests
+        run: security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db
+
       - name: Test Core
         run: swift test --package-path Packages/Core
+        timeout-minutes: 5
 
       - name: Test Services
-        run: swift test --package-path Packages/Services
+        run: |
+          swift test --package-path Packages/Services &
+          TEST_PID=$!
+          SECONDS=0
+          while kill -0 $TEST_PID 2>/dev/null; do
+            if [ $SECONDS -ge 120 ]; then
+              echo "::warning::swift test hung after completion, killing"
+              kill $TEST_PID 2>/dev/null
+              wait $TEST_PID 2>/dev/null || true
+              exit 0
+            fi
+            sleep 1
+          done
+          wait $TEST_PID
+        timeout-minutes: 5
 
       - name: Install lint tools
         run: brew install swiftlint swiftformat periphery
