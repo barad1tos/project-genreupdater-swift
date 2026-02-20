@@ -789,7 +789,7 @@ hide edit button
 
 ### Phase 4: API Clients + Cache
 
-**Status**: Planned | **Task**: [[phase-4-api-cache]] | **Porting ref**: [[TDD#src/services/api/ → Packages/Services/Sources/Services/API/]]
+**Status**: ✅ Done | **Task**: [[phase-4-api-cache]] | **Porting ref**: [[TDD#src/services/api/ → Packages/Services/Sources/Services/API/]]
 
 > Can scaffold API client stubs in parallel with Phase 3.
 
@@ -1045,11 +1045,12 @@ gantt
     Phase 2B Monetization    :done, p2b, 2026-02-15, 2026-02-17
     Phase 3 Algorithms       :done, p3, 2026-02-17, 2026-02-20
 
+    Phase 4 API + Cache      :done, p4, 2026-02-20, 2026-02-20
+
     section Active
-    Phase 4 API + Cache      :active, p4, 2026-02-20, 30d
+    Phase 5 Workflows        :active, p5, after p4, 30d
 
     section Planned
-    Phase 5 Workflows        :p5, after p3, 30d
     Phase 6 Views + Polish   :p6, after p5, 30d
     Phase 7 Testing + Launch :p7, after p6, 30d
 ```
@@ -1070,8 +1071,8 @@ gantt
 | 2A: Persistence | ✅ Done | [[phase-2a-persistence|12 files, 1,206 LOC, 50 tests]] |
 | 2B: Monetization | ✅ Done | [[phase-2-core-models]] |
 | 3: Core Algorithms | ✅ Done | [[phase-3-core-algorithms]] |
-| 4: API + Cache | 🔄 Active | [[phase-4-api-cache]] |
-| 5: Workflows | Planned | [[phase-5-workflows]] |
+| 4: API + Cache | ✅ Done | [[phase-4-api-cache]] |
+| 5: Workflows | 🔄 Active | [[phase-5-workflows]] |
 | 6: Views + Polish | Planned | [[phase-6-views-polish]] |
 | 7: Testing + Launch | Planned | [[phase-7-testing-launch]] |
 
