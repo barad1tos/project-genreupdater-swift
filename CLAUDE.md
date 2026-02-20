@@ -253,7 +253,7 @@ When working on code:
 
 ### Custom Agents
 
-Project-local agents in `.claude/agents/` (discovered at session start, restart required after changes):
+Project-local agents in `.claude/agents/` (gitignored — not in repo, set up manually per machine; discovered at session start, restart required after changes):
 
 | Agent | Scope | Overrides Built-in? |
 |-------|-------|---------------------|
