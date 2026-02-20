@@ -1778,6 +1778,14 @@ and statistics
 - 4 new tests
 ```
 
+**Implementation notes (2026-02-20):**
+- `BulkAlbumYearEntry` struct replaces 4-member tuple to satisfy SwiftLint `large_tuple` rule
+- `CacheStatistics` struct placed at file scope (not inside actor) for public API ergonomics
+- `bulkInvalidateAlbums` keeps 2-member tuple since it passes SwiftLint's 3-member limit
+- Pre-existing `identifier_name` violations (`a`/`b`) in `genericCacheClear` test fixed as `valueA`/`valueB`
+- Expired count filters generic cache rows with non-nil TTL, then checks `isExpired` in Swift (not SQL) since SQLite lacks timestamp arithmetic with `Date.now`
+- Total test count: 19 (15 existing + 4 new)
+
 ---
 
 ## Task 9: APIOrchestrator

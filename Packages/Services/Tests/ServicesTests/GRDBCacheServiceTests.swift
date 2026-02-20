@@ -1,11 +1,10 @@
-import Testing
 import Foundation
-@testable import Services
+import Testing
 @testable import Core
+@testable import Services
 
 @Suite("GRDBCacheService — Phase 2A")
 struct GRDBCacheServiceTests {
-
     /// Create an in-memory GRDBCacheService for testing.
     private func makeService() async throws -> GRDBCacheService {
         let service = try GRDBCacheService.createInMemory()
@@ -17,7 +16,7 @@ struct GRDBCacheServiceTests {
 
     @Test("Migrations run without error on empty database")
     func migrationsSucceed() async throws {
-        let _ = try await makeService()
+        _ = try await makeService()
     }
 
     // MARK: - Generic Cache
@@ -68,10 +67,10 @@ struct GRDBCacheServiceTests {
         await service.set(key: "b", value: 2, ttl: nil)
         await service.clear()
 
-        let a: Int? = await service.get(key: "a")
-        let b: Int? = await service.get(key: "b")
-        #expect(a == nil)
-        #expect(b == nil)
+        let valueA: Int? = await service.get(key: "a")
+        let valueB: Int? = await service.get(key: "b")
+        #expect(valueA == nil)
+        #expect(valueB == nil)
     }
 
     // MARK: - Album Year Cache
@@ -201,6 +200,88 @@ struct GRDBCacheServiceTests {
         await service.setCachedAPIResult(result)
         let cached = await service.getCachedAPIResult(artist: "Test", album: "Album", source: "discogs")
         #expect(cached == nil)
+    }
+
+    // MARK: - Bulk Operations
+
+    @Test("Bulk store album years stores all entries in one transaction")
+    func bulkStoreAlbumYears() async throws {
+        let service = try await makeService()
+
+        await service.bulkStoreAlbumYears([
+            BulkAlbumYearEntry(artist: "Metallica", album: "Master of Puppets", year: 1986, confidence: 95),
+            BulkAlbumYearEntry(artist: "Metallica", album: "Ride the Lightning", year: 1984, confidence: 90),
+            BulkAlbumYearEntry(artist: "Iron Maiden", album: "Powerslave", year: 1984, confidence: 85),
+        ])
+
+        let entry1 = await service.getAlbumYear(artist: "Metallica", album: "Master of Puppets")
+        let entry2 = await service.getAlbumYear(artist: "Metallica", album: "Ride the Lightning")
+        let entry3 = await service.getAlbumYear(artist: "Iron Maiden", album: "Powerslave")
+
+        #expect(entry1?.year == 1986)
+        #expect(entry1?.confidence == 95)
+        #expect(entry2?.year == 1984)
+        #expect(entry3?.year == 1984)
+        #expect(entry3?.confidence == 85)
+    }
+
+    @Test("Bulk invalidate removes all specified entries")
+    func bulkInvalidateAlbumYears() async throws {
+        let service = try await makeService()
+
+        await service.storeAlbumYear(artist: "A", album: "X", year: 2020, confidence: 80)
+        await service.storeAlbumYear(artist: "B", album: "Y", year: 2021, confidence: 80)
+
+        await service.bulkInvalidateAlbums([
+            (artist: "A", album: "X"),
+            (artist: "B", album: "Y"),
+        ])
+
+        let entryA = await service.getAlbumYear(artist: "A", album: "X")
+        let entryB = await service.getAlbumYear(artist: "B", album: "Y")
+        #expect(entryA == nil)
+        #expect(entryB == nil)
+    }
+
+    // MARK: - Cache Statistics
+
+    @Test("Cache statistics track entry counts across tables")
+    func cacheStatisticsEntryCounts() async throws {
+        let service = try await makeService()
+
+        await service.storeAlbumYear(artist: "A", album: "X", year: 2020, confidence: 80)
+        await service.set(key: "k1", value: "v1", ttl: nil)
+
+        let apiResult = CachedAPIResult(
+            artist: "Test",
+            album: "Album",
+            year: 2020,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: 3600
+        )
+        await service.setCachedAPIResult(apiResult)
+
+        let stats = await service.getCacheStatistics()
+        #expect(stats.albumYearCount == 1)
+        #expect(stats.genericCacheCount == 1)
+        #expect(stats.apiResultCount == 1)
+    }
+
+    @Test("Cache statistics report expired generic cache entries")
+    func cacheStatisticsExpiredEntries() async throws {
+        let service = try await makeService()
+
+        // Expired entry (TTL of -1 second — already past)
+        await service.set(key: "expired", value: "old", ttl: -1)
+        // Valid entry with future TTL
+        await service.set(key: "valid", value: "new", ttl: 3600)
+        // Entry with no TTL (never expires)
+        await service.set(key: "permanent", value: "forever", ttl: nil)
+
+        let stats = await service.getCacheStatistics()
+        #expect(stats.genericCacheCount == 3)
+        #expect(stats.expiredCount == 1)
     }
 
     // MARK: - syncToDisk
