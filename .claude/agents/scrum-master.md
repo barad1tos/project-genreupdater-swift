@@ -86,3 +86,13 @@ Always respond in Ukrainian. Structure reports with:
 - Task files are in `docs/tasks/`, plan docs in `docs/plans/`
 - These are symlinks to Obsidian vault — treat as regular files
 - The project uses SPM packages: Core, Services, SharedUI under `Packages/`
+
+## Hook Awareness
+
+The project has quality hooks in `.claude/hooks/` that enforce:
+- **commit-docs-sync-check**: Swift commits require docs staged (blocking)
+- **swiftlint-precommit-check**: SwiftLint --strict before commit (blocking)
+- **swift-task-tracking-reminder**: Reminder to update task checkboxes (advisory)
+- **session-start-phase-context**: Loads phase progress at session start (advisory)
+
+When auditing, verify hook behavior aligns with documented rules in CLAUDE.md.
