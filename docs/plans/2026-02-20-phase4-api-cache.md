@@ -186,7 +186,7 @@ actor-based token bucket for API rate limiting
 
 ---
 
-## Task 2: MusicBrainz DTO Models
+## Task 2: MusicBrainz DTO Models [DONE]
 
 Codable DTOs for MusicBrainz JSON API responses. Separate file keeps client clean.
 
@@ -308,7 +308,7 @@ Codable structs for JSON API responses
 
 ---
 
-## Task 3: MusicBrainzClient
+## Task 3: MusicBrainzClient [DONE]
 
 `Sendable struct` conforming to `ExternalAPIService`. Uses URLSession + JSON Codable.
 Rate limited at 1 req/sec. Required User-Agent header.
