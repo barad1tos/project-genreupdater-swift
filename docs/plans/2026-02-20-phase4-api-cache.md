@@ -1369,6 +1369,11 @@ REST API client for album year + genre data
 - 6 tests (JSON parsing, URL building, auth header)
 ```
 
+**Implementation notes (2026-02-20):**
+- `DiscogsError` enum includes `LocalizedError` conformance with `errorDescription`
+- `inclusive_language` SwiftLint annotations applied for Discogs API terminology ("master release")
+- `KeychainHelper` committed separately as prerequisite
+
 ---
 
 ## Task 7: AppleMusicSearchClient
