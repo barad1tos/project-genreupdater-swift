@@ -766,7 +766,7 @@ Codable structs for Discogs REST API
 
 ---
 
-## Task 5: Keychain Helper
+## Task 5: Keychain Helper [DONE]
 
 Minimal Keychain wrapper for storing/retrieving the Discogs Personal Access Token.
 
@@ -980,7 +980,7 @@ Minimal Keychain wrapper for Discogs PAT
 
 ---
 
-## Task 6: DiscogsClient
+## Task 6: DiscogsClient [DONE]
 
 `Sendable struct` conforming to `ExternalAPIService`. Uses URLSession + JSON Codable.
 Rate limited at 60 req/min. Auth via Keychain-stored Personal Access Token.
