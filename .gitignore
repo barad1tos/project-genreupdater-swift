@@ -34,8 +34,9 @@ build/
 !docs/plans/
 !docs/tasks/
 !.claude/
-# Re-ignore local-only Claude Code settings (permissions, not hooks)
+# Re-ignore local-only Claude Code settings and agents (hooks stay tracked)
 .claude/settings.local.json
+.claude/agents/
 
 # SPM build artifacts (symlink variant used on iCloud Drive)
 .build.nosync/
