@@ -16,7 +16,7 @@ import SwiftUI
 // MARK: - Onboarding View
 
 struct OnboardingView: View {
-    @EnvironmentObject private var dependencies: AppDependencies
+    @Environment(AppDependencies.self) private var dependencies
     @State private var currentStep: OnboardingStep = .welcome
     @State private var installationProgress: InstallationProgress = .idle
     @State private var errorMessage: String?

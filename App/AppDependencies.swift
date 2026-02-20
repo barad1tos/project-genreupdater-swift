@@ -4,7 +4,7 @@
 // Python's DI container manually registered + resolved ~20 services with lifecycle management.
 // Swift replaces this with:
 // - Constructor injection (compile-time safety)
-// - @EnvironmentObject for SwiftUI propagation
+// - @Environment for SwiftUI propagation (@Observable)
 // - Lazy initialization via async initialize()
 //
 // The massive LOC reduction comes from:
@@ -34,18 +34,19 @@ enum AppState: Sendable {
 /// Central dependency container and app state manager.
 ///
 /// Owns all service instances and manages initialization order.
-/// Published as `@EnvironmentObject` to make services available throughout the view hierarchy.
+/// Injected via `.environment()` to make services available throughout the view hierarchy.
 ///
 /// ## Initialization Order
 /// 1. Load configuration
 /// 2. Check script installation status
 /// 3. If scripts installed → ready; else → onboarding
+@Observable
 @MainActor
-final class AppDependencies: ObservableObject {
-    // MARK: - Published State
+final class AppDependencies {
+    // MARK: - Observable State
 
-    @Published private(set) var appState: AppState = .loading
-    @Published private(set) var config: AppConfiguration
+    private(set) var appState: AppState = .loading
+    private(set) var config: AppConfiguration
 
     // MARK: - Services (lazy, initialized in initialize())
 

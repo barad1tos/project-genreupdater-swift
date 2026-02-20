@@ -225,15 +225,22 @@ extension Track {
 
 // MARK: - Helpers
 
-private func parseAppleScriptDate(_ string: String) -> Date? {
-    // AppleScript dates come as "Monday, January 1, 2024 at 12:00:00 AM" or ISO format
-    let formatter = ISO8601DateFormatter()
-    if let date = formatter.date(from: string) { return date }
+// Safety: Both formatters are configured once at init and never mutated afterward.
+// They are effectively read-only after initialization, making concurrent access safe.
+private enum AppleScriptDateFormatters {
+    nonisolated(unsafe) static let iso8601: ISO8601DateFormatter = .init()
 
-    let naturalFormatter = DateFormatter()
-    naturalFormatter.dateFormat = "EEEE, MMMM d, yyyy 'at' h:mm:ss a"
-    naturalFormatter.locale = Locale(identifier: "en_US")
-    return naturalFormatter.date(from: string)
+    static let natural: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMMM d, yyyy 'at' h:mm:ss a"
+        formatter.locale = Locale(identifier: "en_US")
+        return formatter
+    }()
+}
+
+private func parseAppleScriptDate(_ string: String) -> Date? {
+    if let date = AppleScriptDateFormatters.iso8601.date(from: string) { return date }
+    return AppleScriptDateFormatters.natural.date(from: string)
 }
 
 extension Collection {

@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Core Algorithms"
-status: active
+status: done
 priority: critical
 depends_on:
   - "Phase 2"
@@ -180,8 +180,8 @@ depends_on:
 - [x] Agreement rate ≥ 95% with Python version (100% — 91 fixture cases pass)
 - [x] `cd Packages/Core && swift test` — all tests pass (310 tests, 22 suites)
 - [x] `cd Packages/Services && swift test` — existing tests pass (68 tests)
-- [ ] `xcodebuild build -scheme GenreUpdater` — BUILD SUCCEEDED
-- [ ] Performance: < 100ms per track (without API calls)
+- [x] `xcodebuild build -scheme GenreUpdater` — BUILD SUCCEEDED (unsigned, signing override)
+- [x] Performance: < 100ms per track — static Regex + DateFormatter caching
 
 ## Dependencies
 

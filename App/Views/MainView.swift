@@ -39,9 +39,10 @@ enum NavigationCategory: String, CaseIterable, Identifiable {
 // MARK: - Main View
 
 struct MainView: View {
-    @EnvironmentObject private var dependencies: AppDependencies
+    @Environment(AppDependencies.self) private var dependencies
     @State private var selectedCategory: NavigationCategory? = .library
     @State private var tracks: [Track] = []
+    @State private var filteredTracks: [Track] = []
     @State private var searchText = ""
     @State private var isLoading = false
     @State private var selectedTrack: Track?
@@ -55,6 +56,8 @@ struct MainView: View {
             trackDetail
         }
         .searchable(text: $searchText, prompt: "Search tracks...")
+        .onChange(of: searchText) { updateFilteredTracks() }
+        .onChange(of: tracks) { updateFilteredTracks() }
         .task {
             await loadTracks()
         }
@@ -132,14 +135,16 @@ struct MainView: View {
 
     // MARK: - Data
 
-    private var filteredTracks: [Track] {
-        guard !searchText.isEmpty else { return tracks }
-        let query = searchText.lowercased()
-        return tracks.filter { track in
-            track.name.lowercased().contains(query)
-                || track.artist.lowercased().contains(query)
-                || track.album.lowercased().contains(query)
-                || (track.genre?.lowercased().contains(query) ?? false)
+    private func updateFilteredTracks() {
+        guard !searchText.isEmpty else {
+            filteredTracks = tracks
+            return
+        }
+        filteredTracks = tracks.filter { track in
+            track.name.localizedStandardContains(searchText)
+                || track.artist.localizedStandardContains(searchText)
+                || track.album.localizedStandardContains(searchText)
+                || (track.genre?.localizedStandardContains(searchText) ?? false)
         }
     }
 

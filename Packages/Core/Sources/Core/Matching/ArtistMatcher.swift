@@ -115,12 +115,14 @@ public func stripThePrefix(_ artist: String) -> String {
 ///
 /// - Parameter text: Text containing potential featured artist info
 /// - Returns: Array of featured artist names, or empty if none found
-public func extractFeaturedArtists(_ text: String) -> [String] {
-    guard let regex = try? NSRegularExpression(
+private let featuredArtistRegex: NSRegularExpression = // swiftlint:disable:next force_try
+    try! NSRegularExpression(
         pattern: "[\\(\\[]\\s*(?:feat\\.?|ft\\.?|featuring)\\s+(.+?)[\\)\\]]",
         options: .caseInsensitive
-    ) else { return [] }
+    )
 
+public func extractFeaturedArtists(_ text: String) -> [String] {
+    let regex = featuredArtistRegex
     let range = NSRange(text.startIndex..., in: text)
     let matches = regex.matches(in: text, range: range)
 
