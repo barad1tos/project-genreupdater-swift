@@ -85,17 +85,3 @@ struct DiscogsArtistRef: Codable, Sendable {
     let id: Int
     let name: String
 }
-
-// MARK: - Artist
-
-/// A full Discogs artist profile, fetched from `/artists/{id}`.
-///
-/// Contains the artist's biography (`profile`) and group membership
-/// information. Use `DiscogsArtistRef` for lightweight references
-/// within release contexts.
-struct DiscogsArtist: Codable, Sendable {
-    let id: Int
-    let name: String
-    let profile: String?
-    let members: [DiscogsArtistRef]?
-}

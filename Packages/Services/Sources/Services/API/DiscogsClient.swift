@@ -91,8 +91,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     public func getAlbumYear(
         artist: String,
         album: String,
-        currentLibraryYear: Int?,
-        earliestTrackAddedYear: Int?
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
     ) async throws -> YearResult {
         guard token != nil else {
             throw DiscogsError.noToken

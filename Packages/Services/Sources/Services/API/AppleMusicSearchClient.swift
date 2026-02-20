@@ -39,8 +39,8 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
     public func getAlbumYear(
         artist: String,
         album: String,
-        currentLibraryYear: Int?,
-        earliestTrackAddedYear: Int?
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
     ) async throws -> YearResult {
         let authorizationStatus = await requestAuthorization()
         guard authorizationStatus == .authorized else {
