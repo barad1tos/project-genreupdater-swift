@@ -94,12 +94,18 @@ App → SharedUI → Core
 - Example: `log.info("Updated \(property, privacy: .public) for \(trackID, privacy: .private)")`
 
 ### DateFormatter Caching
-- Use `static let` for DateFormatters — they're expensive to create:
+- Use `static let` for DateFormatters — they're expensive to create
+- `DateFormatter` is `Sendable` — no special annotation needed
+- `ISO8601DateFormatter` is NOT `Sendable` — requires `nonisolated(unsafe)` with safety comment:
   ```swift
-  private static let isoFormatter: ISO8601DateFormatter = {
-      let f = ISO8601DateFormatter()
-      return f
-  }()
+  private enum Formatters {
+      // Safety: configured once, never mutated — concurrent reads are safe.
+      nonisolated(unsafe) static let iso8601: ISO8601DateFormatter = {
+          let f = ISO8601DateFormatter()
+          return f
+      }()
+      static let natural: DateFormatter = { /* ... */ }()
+  }
   ```
 
 ### Error Handling
@@ -134,9 +140,10 @@ cd Packages/SharedUI && swift build
 cd Packages/Core && swift test
 cd Packages/Services && swift test
 
-# Full Xcode build
+# Full Xcode build (unsigned — no certificate required)
 xcodebuild build -project GenreUpdater.xcodeproj -scheme GenreUpdater \
-  -destination "platform=macOS,arch=arm64" -quiet
+  -destination "platform=macOS,arch=arm64" \
+  CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -quiet
 
 # Lint
 swiftlint lint --strict App Packages/Core/Sources Packages/Services/Sources Packages/SharedUI/Sources
@@ -171,6 +178,9 @@ The app runs in sandbox with these entitlements:
 - **sanitizeScriptCode on data**: This strips `(){}` — never use on track/artist/album names.
 - **`.public` in logs**: Never log user music data as `.public` — use `.private`.
 - **nil trackStatus filtering**: `filterAvailableTracks` must return `true` for `nil` status (not `false`).
+- **ISO8601DateFormatter not Sendable**: Swift 6 strict concurrency — use `nonisolated(unsafe)` with safety comment. `DateFormatter` IS Sendable.
+- **xcodebuild requires signing override**: Entitlements trigger mandatory signing. Add `CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO`.
+- **Agent review false positives**: Always verify review findings against actual code before fixing — reviews are heuristic, not authoritative.
 
 ### Tool Integration Pitfalls
 
@@ -241,7 +251,22 @@ When working on code:
 | Build dependency added | Update CLAUDE.md Dependencies section + TDD.md |
 | Any Swift file in commit | Must include docs/ or CLAUDE.md in staged files (hook-enforced) |
 
-### Scrum Master Agent
+### Custom Agents
+
+Project-local agents in `.claude/agents/` (discovered at session start, restart required after changes):
+
+| Agent | Scope | Overrides Built-in? |
+|-------|-------|---------------------|
+| `swift-expert` | Non-UI Swift: concurrency, protocols, SPM, testing, domain logic | Yes |
+| `swiftui-expert` | SwiftUI views, state management, animations, navigation, Liquid Glass | No (new type) |
+| `scrum-master` | Read-only project auditing, sprint planning, docs consistency | No (new type) |
+
+- `swiftui-expert` has 14 reference files in `.claude/agents/swiftui-references/`
+- `swift-expert` delegates SwiftUI work to `swiftui-expert` and vice versa
+- Agent placement: ONLY project-local `.claude/agents/` works — global `~/.claude/agents/` is inert
+- Based on [AvdLee/SwiftUI-Agent-Skill](https://github.com/AvdLee/SwiftUI-Agent-Skill) v1.1.2
+
+#### Scrum Master Usage
 
 Use `@scrum-master` for project auditing:
 - **Status check**: "What's the current project status?" — phase progress with % completion

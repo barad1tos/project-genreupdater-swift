@@ -3,7 +3,7 @@
 //
 // This replaces the entire CLI layer (cli.py + main.py) with SwiftUI's
 // declarative app lifecycle. WindowGroup handles window creation,
-// @Environment propagates dependencies, and ScenePhase provides lifecycle hooks.
+// @Observable + @Environment propagates dependencies, and ScenePhase provides lifecycle hooks.
 
 import Core
 import Services
@@ -11,13 +11,13 @@ import SwiftUI
 
 @main
 struct GenreUpdaterApp: App {
-    @StateObject private var dependencies = AppDependencies()
+    @State private var dependencies = AppDependencies()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environmentObject(dependencies)
+                .environment(dependencies)
                 .task {
                     await dependencies.initialize()
                 }
@@ -41,7 +41,7 @@ struct GenreUpdaterApp: App {
 
         Settings {
             SettingsPlaceholderView()
-                .environmentObject(dependencies)
+                .environment(dependencies)
         }
     }
 }
@@ -50,7 +50,7 @@ struct GenreUpdaterApp: App {
 
 /// Root content view that decides between onboarding and main interface.
 struct ContentView: View {
-    @EnvironmentObject private var dependencies: AppDependencies
+    @Environment(AppDependencies.self) private var dependencies
 
     var body: some View {
         Group {
