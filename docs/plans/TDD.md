@@ -683,6 +683,61 @@ dependencies:
   - package: SharedUI
 ```
 
+## Phase 2B Completion Report
+
+**Completed**: 2026-02-15 | **LOC**: ~520 impl + ~180 tests | **Files**: 5
+
+| Component | File | Description |
+|-----------|------|-------------|
+| Tier | `Core/Models/Tier.swift` | Free/Pro/Premium tier enum |
+| AppFeature | `Core/Models/AppFeature.swift` | Feature flags per tier |
+| SubscriptionService | `Services/Subscription/SubscriptionService.swift` | StoreKit 2 integration |
+| FeatureGate | `Services/Subscription/FeatureGate.swift` | Runtime feature gating |
+| StoreKit Config | `Resources/GenreUpdater.storekit` | Sandbox product definitions |
+
+**Key decisions:**
+- StoreKit 2 only (no StoreKit 1 fallback) — minimum deployment macOS 15
+- `FeatureGate` is a Sendable struct, not an actor — tier checks are read-only
+- Free tier = 50 tracks/month, tracked via iCloud KVS counter
+
+## Phase 3 Completion Report
+
+**Completed**: 2026-02-20 | **LOC**: ~4,800 impl + ~2,100 tests | **Files**: 11 | **Tests**: 310 (22 suites)
+
+### Phase 3A: Foundation (Utils + Matchers)
+
+| Component | File | LOC | Tests |
+|-----------|------|-----|-------|
+| Normalization | `Core/Utils/Normalization.swift` | ~60 | 15 |
+| ScriptDetector | `Core/Utils/ScriptDetector.swift` | ~280 | 32 |
+| MetadataUtils | `Core/Utils/MetadataUtils.swift` | ~450 | 28 |
+| AlbumType | `Core/Models/AlbumType.swift` | ~200 | 18 |
+| AlbumMatcher | `Core/Matching/AlbumMatcher.swift` | ~180 | 24 |
+| ArtistMatcher | `Core/Matching/ArtistMatcher.swift` | ~170 | 21 |
+
+### Phase 3B: Core Algorithms (Genre + Year)
+
+| Component | File | LOC | Tests |
+|-----------|------|-----|-------|
+| YearTypes | `Core/Year/YearTypes.swift` | ~250 | — |
+| GenreDeterminator | `Core/Genre/GenreDeterminator.swift` | ~180 | 20 |
+| YearValidator | `Core/Year/YearValidator.swift` | ~380 | 39 |
+| YearScorer | `Core/Year/YearScorer.swift` | ~620 | 45 |
+| YearFallbackStrategy | `Core/Year/YearFallbackStrategy.swift` | ~280 | 19 |
+| YearDeterminator | `Core/Year/YearDeterminator.swift` | ~450 | 29 |
+
+**Key decisions:**
+- All algorithms are pure structs (TDD Decision 9) — no actors, no state
+- Python parity verified via 91 parameterized fixture cases (100% agreement)
+- Year scoring uses 14 weighted factors from `ScoringConfig`
+- Genre determination uses earliest-album algorithm (not frequency-based)
+- `Regex` compiled once as static `let` for performance
+
+**Lessons:**
+- `ISO8601DateFormatter` is NOT `Sendable` — requires `nonisolated(unsafe)`
+- SwiftFormat `redundantClosure` rule simplifies static `let` regex/formatter init
+- `xcodebuild` requires explicit signing override for sandboxed entitlements
+
 ---
 
 *End of TDD*

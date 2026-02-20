@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "API Clients + Cache"
-status: planned
+status: active
 priority: high
 depends_on:
   - "Phase 2 (GRDB setup)"

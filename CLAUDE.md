@@ -199,8 +199,8 @@ The app runs in sandbox with these entitlements:
 | 1.5: Hotfix | ✅ Done | Entitlements, TrackStatus, InputSanitizer, AppleScriptBridge, Logging |
 | 2A: Persistence | ✅ Done | GRDB cache, SwiftData store, ProgressUpdate |
 | 2B: Monetization | ✅ Done | Tier, AppFeature, SubscriptionService, FeatureGate, StoreKit Config |
-| 3: Core Algorithms | 🔄 Active (3A) | Normalization, ScriptDetector, MetadataUtils, AlbumType, AlbumMatcher, ArtistMatcher |
-| 4: API + Cache | Planned | MusicBrainz, Discogs, GRDB cache |
+| 3: Core Algorithms | ✅ Done | Normalization, ScriptDetector, MetadataUtils, AlbumType, AlbumMatcher, ArtistMatcher, GenreDeterminator, YearScorer, YearValidator, YearFallbackStrategy, YearDeterminator |
+| 4: API + Cache | 🔄 Active | MusicBrainz, Discogs, GRDB cache |
 | 5: Workflows | Planned | Pipeline, Undo, Checkpoint |
 | 6: Views | Planned | SwiftUI, VoiceOver |
 | 7: Launch | Planned | Testing, App Store |

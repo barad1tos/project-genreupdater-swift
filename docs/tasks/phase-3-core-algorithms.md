@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Core Algorithms"
-status: active
+status: done
 priority: critical
 depends_on:
   - "Phase 2"

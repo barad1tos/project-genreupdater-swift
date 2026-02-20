@@ -775,7 +775,7 @@ hide edit button
 
 ### Phase 3: Core Algorithms — Hardest Phase
 
-**Status**: Planned | **Task**: [[phase-3-core-algorithms]] | **Porting ref**: [[TDD#src/core/tracks/ → Packages/Core/ (Genre/, Year/, Processing/)]]
+**Status**: ✅ Done | **Task**: [[phase-3-core-algorithms]] | **Porting ref**: [[TDD#src/core/tracks/ → Packages/Core/ (Genre/, Year/, Processing/)]]
 
 ```tasks
 path includes Tasks/phase-3-core-algorithms
@@ -1042,11 +1042,13 @@ gantt
     Phase 1 Foundation       :done, p1, 2026-01-01, 2026-02-01
     Phase 1.5 Hotfix         :done, p15, 2026-02-01, 2026-02-10
     Phase 2A Persistence     :done, p2a, 2026-02-10, 2026-02-15
+    Phase 2B Monetization    :done, p2b, 2026-02-15, 2026-02-17
+    Phase 3 Algorithms       :done, p3, 2026-02-17, 2026-02-20
+
+    section Active
+    Phase 4 API + Cache      :active, p4, 2026-02-20, 30d
 
     section Planned
-    Phase 2B Monetization    :p2b, 2026-02-16, 20d
-    Phase 3 Algorithms       :p3, after p2b, 45d
-    Phase 4 API + Cache      :p4, after p2b, 30d
     Phase 5 Workflows        :p5, after p3, 30d
     Phase 6 Views + Polish   :p6, after p5, 30d
     Phase 7 Testing + Launch :p7, after p6, 30d
@@ -1066,9 +1068,9 @@ gantt
 | 1: Foundation | ✅ Done | [[TDD#Phase 1 Completion Report|24 files, 2,893 LOC]] |
 | 1.5: Hotfix | ✅ Done | [[TDD#Lessons Learned (CRITICAL for future phases)|Lessons learned]] |
 | 2A: Persistence | ✅ Done | [[phase-2a-persistence|12 files, 1,206 LOC, 50 tests]] |
-| 2B: Monetization | Planned | [[phase-2-core-models]] |
-| 3: Core Algorithms | Planned | [[phase-3-core-algorithms]] |
-| 4: API + Cache | Planned | [[phase-4-api-cache]] |
+| 2B: Monetization | ✅ Done | [[phase-2-core-models]] |
+| 3: Core Algorithms | ✅ Done | [[phase-3-core-algorithms]] |
+| 4: API + Cache | 🔄 Active | [[phase-4-api-cache]] |
 | 5: Workflows | Planned | [[phase-5-workflows]] |
 | 6: Views + Polish | Planned | [[phase-6-views-polish]] |
 | 7: Testing + Launch | Planned | [[phase-7-testing-launch]] |
