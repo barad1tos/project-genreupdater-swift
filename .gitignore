@@ -36,3 +36,10 @@ build/
 !.claude/
 # Re-ignore local-only Claude Code settings (permissions, not hooks)
 .claude/settings.local.json
+
+# SPM build artifacts (symlink variant used on iCloud Drive)
+.build.nosync/
+
+# Obsidian symlinks (point to vault, not tracked in git)
+docs/plans 2
+docs/tasks 2
