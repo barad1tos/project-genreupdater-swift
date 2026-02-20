@@ -138,7 +138,9 @@ public actor APIOrchestrator {
                     throw OrchestratorTimeoutError()
                 }
 
-                // First task to complete wins
+                // Race: group.next() returns whichever task finishes first.
+                // If the API call wins, we get the result; if the sleep timer
+                // wins, it throws OrchestratorTimeoutError caught below.
                 guard let result = try await group.next() else {
                     return YearResult()
                 }

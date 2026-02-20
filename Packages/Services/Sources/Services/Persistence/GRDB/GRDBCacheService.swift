@@ -288,11 +288,15 @@ public actor GRDBCacheService: CacheService {
                 let apiResultCount = try CachedAPIRow.fetchCount(database)
                 let genericCacheCount = try GenericCacheRow.fetchCount(database)
 
-                let expiredCount = try GenericCacheRow
-                    .filter(Column("ttl") != nil)
-                    .fetchAll(database)
-                    .filter(\.isExpired)
-                    .count
+                // SQL-level expiry check avoids loading all rows into memory.
+                // GRDB stores Date as "yyyy-MM-dd HH:mm:ss.SSS" strings,
+                // so we use strftime to convert to epoch seconds for arithmetic.
+                let expiredCount = try Int.fetchOne(database, sql: """
+                SELECT COUNT(*) FROM generic_cache
+                WHERE ttl IS NOT NULL
+                  AND (CAST(strftime('%s', timestamp) AS REAL) + ttl)
+                    < CAST(strftime('%s', 'now') AS REAL)
+                """) ?? 0
 
                 return CacheStatistics(
                     albumYearCount: albumYearCount,

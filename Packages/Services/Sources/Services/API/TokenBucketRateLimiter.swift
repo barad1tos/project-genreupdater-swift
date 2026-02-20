@@ -123,6 +123,9 @@ public actor TokenBucketRateLimiter: RateLimiter {
     }
 
     /// Calculates how many whole tokens should be added for a given elapsed duration.
+    ///
+    /// Nanosecond arithmetic is safe for durations up to ~292 years (Int64 range).
+    /// API rate limiters operate on sub-minute intervals, well within bounds.
     private func tokenCount(for elapsed: Duration) -> Int {
         let intervalNanoseconds = refillInterval.components.seconds * 1_000_000_000
             + refillInterval.components.attoseconds / 1_000_000_000

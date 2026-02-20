@@ -32,7 +32,9 @@ struct AppleMusicSearchClientTests {
             currentLibraryYear: nil,
             earliestTrackAddedYear: nil
         )
-        // Without entitlement, expect empty or low-confidence result
+        // Without MusicKit entitlement, the client returns an empty YearResult
+        // (year=nil, confidence=0). We assert <= 50 to allow for minor
+        // implementation changes while ensuring no false-positive high confidence.
         #expect(result.confidence <= 50)
     }
 
