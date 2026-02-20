@@ -2195,6 +2195,18 @@ Actor coordinating MB + Discogs + Apple Music
 - 5 tests with MockAPIService
 ```
 
+**Implementation notes (2026-02-20):**
+- Used `withTaskGroup` (not `async let`) to avoid actor re-entrance serialization -- `async let` to actor-isolated methods would serialize instead of running concurrently
+- Introduced `SourceQuery` struct to bundle fetch parameters, satisfying SwiftLint's `function_parameter_count` rule (max 5 params)
+- `fetchWithTimeout` is a `static` method to avoid actor isolation -- the timeout race runs in its own `withThrowingTaskGroup` with two child tasks: the real API call vs a sleep timer
+- `OrchestratorTimeoutError` (private) distinguishes timeout from `CancellationError` and source errors
+- `aggregateResults` is `static` (pure function) -- merges `yearScores` additively, caps confidence at 100
+- `isDefinitive` = true when 2+ sources report the same best year
+- All logging uses `.public` for source names and error messages, `.private` for user data (per project convention)
+- Timeout test uses `.milliseconds(200)` for fast assertions, `.seconds(10)` for slow mock to ensure timeout fires
+- Total tests: 5 (aggregate, fallback, all-fail, timeout, score-ranking)
+- Full Services test suite: 103 tests, 0 failures
+
 ---
 
 ## Task 10: Update task file and docs
