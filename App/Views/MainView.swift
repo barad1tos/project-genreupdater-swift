@@ -99,22 +99,26 @@ struct MainView: View {
         NavigationSplitView {
             sidebar
         } content: {
-            switch selectedCategory {
-            case .library, .genreUpdate, .yearUpdate, .none:
-                trackList
-            case .byArtist:
-                artistGroupedList
-            case .byAlbum:
-                albumGroupedList
-            case .batchOperations:
-                BatchView(tracks: filteredTracks)
-            case .reports:
-                ReportsView()
-            case .recentChanges:
-                recentChangesView
-            case .playlists:
-                playlistsStub
+            Group {
+                switch selectedCategory {
+                case .library, .genreUpdate, .yearUpdate, .none:
+                    trackList
+                case .byArtist:
+                    artistGroupedList
+                case .byAlbum:
+                    albumGroupedList
+                case .batchOperations:
+                    BatchView(tracks: filteredTracks)
+                case .reports:
+                    ReportsView()
+                case .recentChanges:
+                    recentChangesView
+                case .playlists:
+                    playlistsStub
+                }
             }
+            .navigationTitle(contentTitle)
+            .navigationSubtitle("\(filteredTracks.count.formatted()) tracks")
         } detail: {
             trackDetail
         }
@@ -147,6 +151,10 @@ struct MainView: View {
     /// Tracks to send to the update sheet (falls back to all filtered tracks).
     private var tracksForUpdate: [Track] {
         filteredTracks
+    }
+
+    private var contentTitle: String {
+        selectedCategory?.rawValue ?? "Library"
     }
 
     // MARK: - Sidebar
@@ -198,13 +206,6 @@ struct MainView: View {
         }
         .navigationSplitViewColumnWidth(min: 300, ideal: 450)
         .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Text("\(filteredTracks.count) tracks")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("\(filteredTracks.count) tracks in library")
-            }
-
             ToolbarItem(placement: .automatic) {
                 Button {
                     Task { await loadTracks() }
