@@ -7,6 +7,7 @@
 
 import Core
 import Services
+import SwiftData
 import SwiftUI
 
 @main
@@ -18,6 +19,7 @@ struct GenreUpdaterApp: App {
         WindowGroup {
             ContentView()
                 .environment(dependencies)
+                .optionalModelContainer(dependencies.modelContainer)
                 .task {
                     await dependencies.initialize()
                 }
@@ -32,6 +34,16 @@ struct GenreUpdaterApp: App {
                 }
                 .keyboardShortcut("r", modifiers: .command)
             }
+
+            CommandMenu("Update") {
+                Button("Update Selected Tracks") {
+                    NotificationCenter.default.post(
+                        name: .updateSelectedTracks,
+                        object: nil
+                    )
+                }
+                .keyboardShortcut("u", modifiers: .command)
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .inactive {
@@ -40,7 +52,7 @@ struct GenreUpdaterApp: App {
         }
 
         Settings {
-            SettingsPlaceholderView()
+            SettingsView()
                 .environment(dependencies)
         }
     }
@@ -105,12 +117,27 @@ struct ErrorView: View {
     }
 }
 
-// MARK: - Settings Placeholder
+// MARK: - Notification Names
 
-struct SettingsPlaceholderView: View {
-    var body: some View {
-        Text("Settings will be implemented in Phase 6")
-            .frame(width: 400, height: 300)
-            .padding()
+extension Notification.Name {
+    /// Posted by the Update menu command (Cmd+U) to trigger the update sheet.
+    static let updateSelectedTracks = Notification.Name("GenreUpdater.updateSelectedTracks")
+}
+
+// MARK: - Optional Model Container
+
+extension View {
+    /// Attaches a `ModelContainer` to the view hierarchy when available.
+    ///
+    /// If the container is nil (ModelContainerFactory failed in init), the view
+    /// renders without SwiftData — `@Query` properties will return empty results
+    /// until the container is created during `initialize()`.
+    @ViewBuilder
+    fileprivate func optionalModelContainer(_ container: ModelContainer?) -> some View {
+        if let container {
+            self.modelContainer(container)
+        } else {
+            self
+        }
     }
 }

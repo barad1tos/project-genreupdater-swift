@@ -15,6 +15,7 @@
 import Core
 import OSLog
 import Services
+import SwiftData
 import SwiftUI
 
 private let log = AppLogger.make(category: "dependencies")
@@ -46,7 +47,7 @@ final class AppDependencies {
     // MARK: - Observable State
 
     private(set) var appState: AppState = .loading
-    private(set) var config: AppConfiguration
+    var config: AppConfiguration
 
     // MARK: - Services (lazy, initialized in initialize())
 
@@ -55,12 +56,33 @@ final class AppDependencies {
     private(set) var applescriptBridge: AppleScriptBridge?
     private(set) var subscriptionService: SubscriptionService?
     private(set) var featureGate: FeatureGate?
+    private(set) var apiOrchestrator: APIOrchestrator?
+    private(set) var cacheService: GRDBCacheService?
+    private(set) var trackStore: SwiftDataTrackStore?
+    private(set) var changeLogStore: SwiftDataChangeLogStore?
+    private(set) var modelContainer: ModelContainer?
+    private(set) var genreDeterminator: GenreDeterminator?
+    private(set) var yearDeterminator: YearDeterminator?
+    private(set) var updateCoordinator: UpdateCoordinator?
+    private(set) var batchProcessor: BatchProcessor?
+    private(set) var undoCoordinator: UndoCoordinator?
+    private(set) var checkpointManager: CheckpointManager?
+    private(set) var librarySyncService: LibrarySyncService?
+    private(set) var changePreviewPipeline: ChangePreviewPipeline?
 
     // MARK: - Init
 
     init() {
         // Load config synchronously (it's just JSON from disk)
         config = (try? AppConfiguration.load()) ?? AppConfiguration()
+
+        // Create ModelContainer eagerly so SwiftUI can attach .modelContainer() immediately.
+        // ModelContainerFactory.create() is synchronous.
+        do {
+            modelContainer = try ModelContainerFactory.create()
+        } catch {
+            log.error("Failed to create ModelContainer in init: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     // MARK: - Lifecycle
@@ -97,10 +119,16 @@ final class AppDependencies {
             let subscription = SubscriptionService()
             await subscription.start()
             subscriptionService = subscription
-            featureGate = FeatureGate(
+            let gate = FeatureGate(
                 tierProvider: { [weak subscription] in subscription?.currentTier ?? .free },
                 freeTracksUsedProvider: { [weak subscription] in subscription?.freeTracksUsed ?? 0 }
             )
+            featureGate = gate
+
+            // Steps 5-8: Persistence, algorithms, API, and workflow services
+            try await initializePersistence()
+            initializeAlgorithmsAndAPI()
+            initializeWorkflowServices(bridge: bridge, gate: gate)
 
             log.info("All services initialized successfully")
             appState = .ready
@@ -135,5 +163,93 @@ final class AppDependencies {
         } catch {
             log.error("Failed to save state: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    // MARK: - Initialization Helpers
+
+    /// Step 5: Set up SwiftData and GRDB persistence layers.
+    private func initializePersistence() async throws {
+        let container: ModelContainer
+        if let existing = modelContainer {
+            container = existing
+        } else {
+            container = try ModelContainerFactory.create()
+            modelContainer = container
+        }
+
+        let store = SwiftDataTrackStore(modelContainer: container)
+        try await store.initialize()
+        trackStore = store
+
+        let logStore = SwiftDataChangeLogStore(modelContainer: container)
+        changeLogStore = logStore
+
+        let cache = try GRDBCacheService.createDefault()
+        try await cache.initialize()
+        cacheService = cache
+    }
+
+    /// Steps 6-7: Create core algorithm instances and API orchestrator.
+    private func initializeAlgorithmsAndAPI() {
+        let genreDeterm = GenreDeterminator()
+        genreDeterminator = genreDeterm
+
+        let yearDeterm = YearDeterminator()
+        yearDeterminator = yearDeterm
+
+        // DiscogsClient gracefully handles missing Keychain token (nil token = unauthenticated).
+        let discogsClient = (try? DiscogsClient.fromKeychain()) ?? DiscogsClient()
+        let orchestrator = APIOrchestrator(
+            musicBrainz: MusicBrainzClient(),
+            discogs: discogsClient,
+            appleMusic: AppleMusicSearchClient()
+        )
+        apiOrchestrator = orchestrator
+    }
+
+    /// Step 8: Wire workflow services that depend on persistence, algorithms, and the script bridge.
+    private func initializeWorkflowServices(bridge: AppleScriptBridge, gate: FeatureGate) {
+        let checkpoint = CheckpointManager()
+        checkpointManager = checkpoint
+
+        guard let logStore = changeLogStore,
+              let store = trackStore,
+              let cache = cacheService,
+              let orchestrator = apiOrchestrator,
+              let genreDeterm = genreDeterminator,
+              let yearDeterm = yearDeterminator
+        else {
+            log.error("Cannot initialize workflow services — prerequisite services are nil")
+            return
+        }
+
+        let undo = UndoCoordinator(
+            scriptBridge: bridge,
+            changeLogStore: logStore
+        )
+        undoCoordinator = undo
+
+        updateCoordinator = UpdateCoordinator(
+            apiOrchestrator: orchestrator,
+            scriptBridge: bridge,
+            trackStore: store,
+            cache: cache,
+            undoCoordinator: undo,
+            genreDeterminator: genreDeterm,
+            yearDeterminator: yearDeterm
+        )
+
+        batchProcessor = BatchProcessor(
+            checkpointManager: checkpoint,
+            featureGate: gate
+        )
+
+        librarySyncService = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        changePreviewPipeline = ChangePreviewPipeline()
     }
 }

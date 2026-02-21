@@ -206,7 +206,7 @@ The app runs in sandbox with these entitlements:
 | 3: Core Algorithms | ✅ Done | Normalization, ScriptDetector, MetadataUtils, AlbumType, AlbumMatcher, ArtistMatcher, GenreDeterminator, YearScorer, YearValidator, YearFallbackStrategy, YearDeterminator |
 | 4: API + Cache | ✅ Done | TokenBucketRateLimiter, MusicBrainzClient, DiscogsClient, AppleMusicSearchClient, KeychainHelper, APIOrchestrator, GRDBCacheService (bulk+stats) |
 | 5: Workflows | ✅ Done | ChangePreviewPipeline, CheckpointManager, UndoCoordinator, BatchProcessor, UpdateCoordinator, LibrarySyncService |
-| 6: Views | Planned | SwiftUI, VoiceOver |
+| 6: Views + Polish | ✅ Done | 20 files, ~3,100 LOC — UpdateView, BatchView, ReportsView, SettingsView, SubscriptionView, FeatureGatedView, SharedUI components (ConfidenceBadge, ProgressRing, EmptyStateView, TierBadge, PaywallOverlay, TrackRow, TrackDetailView, ReportsChangeLog, ReportsCharts), ViewModels (UpdateViewModel, BatchViewModel), AppDependencies wiring |
 | 7: Launch | Planned | Testing, App Store |
 
 ## Development Workflow

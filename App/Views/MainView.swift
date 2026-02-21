@@ -3,13 +3,16 @@
 //
 // Python's CLI used argparse subcommands (update, update_years, clean_artist, etc.).
 // SwiftUI replaces this with a NavigationSplitView layout:
-// - Sidebar: command categories (Genre, Year, Batch, Analytics)
+// - Sidebar: command categories (Genre, Year, Batch, Reports)
 // - Content: track list with search/filter
 // - Detail: track inspector
 //
 // MusicKit provides the track data via MusicLibraryReader.
 
+import Combine
 import Core
+import Services
+import SharedUI
 import SwiftUI
 
 // MARK: - Sidebar Navigation
@@ -19,7 +22,7 @@ enum NavigationCategory: String, CaseIterable, Identifiable {
     case genreUpdate = "Genre Update"
     case yearUpdate = "Year Update"
     case batchOperations = "Batch"
-    case analytics = "Analytics"
+    case reports = "Reports"
 
     var id: String {
         rawValue
@@ -31,7 +34,7 @@ enum NavigationCategory: String, CaseIterable, Identifiable {
         case .genreUpdate: "tag.fill"
         case .yearUpdate: "calendar"
         case .batchOperations: "square.stack.3d.up.fill"
-        case .analytics: "chart.bar.fill"
+        case .reports: "chart.bar.fill"
         }
     }
 }
@@ -46,12 +49,20 @@ struct MainView: View {
     @State private var searchText = ""
     @State private var isLoading = false
     @State private var selectedTrack: Track?
+    @State private var showUpdateSheet = false
 
     var body: some View {
         NavigationSplitView {
             sidebar
         } content: {
-            trackList
+            switch selectedCategory {
+            case .library, .genreUpdate, .yearUpdate, .none:
+                trackList
+            case .batchOperations:
+                BatchView(tracks: filteredTracks)
+            case .reports:
+                ReportsView()
+            }
         } detail: {
             trackDetail
         }
@@ -61,6 +72,28 @@ struct MainView: View {
         .task {
             await loadTracks()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .updateSelectedTracks)) { _ in
+            if !filteredTracks.isEmpty {
+                showUpdateSheet = true
+            }
+        }
+        .sheet(isPresented: $showUpdateSheet) {
+            if let coordinator = dependencies.updateCoordinator,
+               let pipeline = dependencies.changePreviewPipeline {
+                let viewModel = UpdateViewModel(
+                    updateCoordinator: coordinator,
+                    changePreviewPipeline: pipeline
+                )
+                UpdateView(viewModel: viewModel, tracks: tracksForUpdate)
+            }
+        }
+    }
+
+    // MARK: - Computed Properties
+
+    /// Tracks to send to the update sheet (falls back to all filtered tracks).
+    private var tracksForUpdate: [Track] {
+        filteredTracks
     }
 
     // MARK: - Sidebar
@@ -104,6 +137,7 @@ struct MainView: View {
                 Text("\(filteredTracks.count) tracks")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel("\(filteredTracks.count) tracks in library")
             }
 
             ToolbarItem(placement: .automatic) {
@@ -112,7 +146,18 @@ struct MainView: View {
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
+                .accessibilityLabel("Refresh library")
                 .help("Refresh library")
+            }
+
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    showUpdateSheet = true
+                } label: {
+                    Label("Update Tracks", systemImage: "wand.and.stars")
+                }
+                .help("Update genre and year for selected tracks")
+                .disabled(filteredTracks.isEmpty)
             }
         }
     }
@@ -159,74 +204,5 @@ struct MainView: View {
         } catch {
             tracks = []
         }
-    }
-}
-
-// MARK: - Track Row
-
-struct TrackRow: View {
-    let track: Track
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(track.name)
-                .font(.body)
-                .lineLimit(1)
-
-            HStack(spacing: 4) {
-                Text(track.artist)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if !track.album.isEmpty {
-                    Text("—")
-                        .font(.caption)
-                        .foregroundStyle(.quaternary)
-
-                    Text(track.album)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-// MARK: - Track Detail View
-
-struct TrackDetailView: View {
-    let track: Track
-
-    var body: some View {
-        Form {
-            Section("Track Info") {
-                LabeledContent("Title", value: track.name)
-                LabeledContent("Artist", value: track.artist)
-                LabeledContent("Album", value: track.album)
-            }
-
-            Section("Metadata") {
-                LabeledContent("Genre", value: track.genre ?? "Unknown")
-                LabeledContent("Year", value: track.year.map(String.init) ?? "Unknown")
-                LabeledContent("Track ID", value: track.id)
-            }
-
-            if let dateAdded = track.dateAdded {
-                Section("Dates") {
-                    LabeledContent("Date Added", value: dateAdded.formatted(date: .abbreviated, time: .shortened))
-                }
-            }
-
-            if let kind = track.kind {
-                Section("Status") {
-                    LabeledContent("Type", value: kind.description)
-                    LabeledContent("Can Edit", value: kind.canEditMetadata ? "Yes" : "No")
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
     }
 }

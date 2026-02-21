@@ -129,3 +129,35 @@ Closes H1/H3 from Phase 1–5 audit:
 - **H1**: `PersistedChangeLogEntry` SwiftData model + `SwiftDataChangeLogStore` + `ModelContainerFactory` — enables SwiftData-backed change log persistence alongside existing JSON persistence; `UndoCoordinator` optionally writes to both
 - **H3**: `PersistedTrack.changeLog` `@Relationship` to `PersistedChangeLogEntry` with cascade delete
 - **Pre-existing fixes**: Updated `UpdateCoordinatorTests` to use temp directory (fixed flaky assertion), fixed `empty_count` lint violation in `FeatureGateTests`
+
+## AppleScript Integration Fix (Phase 5.6)
+
+Closes gap between Swift-side AppleScript code (Phase 1/1.5) and actual AppleScript files from the Python project. Swift parser assumptions didn't match the battle-tested scripts.
+
+### AppleScript Files
+- [x] Copy 5 `.applescript` files from Python project to `Resources/Scripts/`
+- [x] `fetch_tracks.applescript` — bulk track metadata fetch (37K+ tracks tested)
+- [x] `fetch_tracks_by_ids.applescript` — fetch specific tracks by ID
+- [x] `fetch_track_ids.applescript` — lightweight ID-only fetch for delta sync
+- [x] `update_property.applescript` — single track property update
+- [x] `batch_update_tracks.applescript` — batch property updates with ASCII separators
+
+### Track Parser Fix (`Track.swift`)
+- [x] Fix `fromAppleScriptOutput()` field order to match `serializeTrack` output: [3]=albumArtist, [4]=album, [9]=year, [10]=releaseYear (was mismatched)
+- [x] Add `releaseYear` parsing (field [10], was not parsed)
+- [x] Update minimum field guard from 4 to 5
+- [x] Add compact date formatter `"yyyy-MM-dd HH:mm:ss"` for AppleScript `formatDate` handler output
+
+### AppleScriptBridge Fix (`AppleScriptBridge.swift`)
+- [x] Fix `batchUpdateTracks` separators: ASCII 30 (field) / ASCII 29 (command) — was using `|` / `\n`
+- [x] Fix `fetchAllTrackIDs` parsing: comma-separated — was using record separator
+
+### Tests
+- [x] `TrackAppleScriptTests.swift` — 12 tests: full/minimal record parse, empty optionals, field order verification, compact date parsing, year/releaseYear, round-trip, parentheses preservation
+
+| File | Type | Description |
+|------|------|-------------|
+| `Resources/Scripts/*.applescript` (5 files) | New | Battle-tested AppleScript files from Python project |
+| `Core/Models/Track.swift` | Modify | Field order fix, compact date formatter, releaseYear parsing |
+| `Services/Apple/AppleScriptBridge.swift` | Modify | Batch separator fix, ID parsing fix |
+| `CoreTests/TrackAppleScriptTests.swift` | New | 12 unit tests for AppleScript field parsing |
