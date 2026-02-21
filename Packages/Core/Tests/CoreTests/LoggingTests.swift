@@ -26,7 +26,7 @@ struct AppLoggerTests {
             ("sync", AppLogger.sync),
         ]
     )
-    func preBuiltLoggers(name: String, logger: Logger) {
+    func preBuiltLoggers(_: String, logger: Logger) {
         // Accessing each static logger must not crash
         _ = logger
     }
