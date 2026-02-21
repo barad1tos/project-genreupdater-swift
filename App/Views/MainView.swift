@@ -18,11 +18,17 @@ import SwiftUI
 // MARK: - Sidebar Navigation
 
 enum NavigationCategory: String, CaseIterable, Identifiable {
+    // Browse
     case library = "Library"
+    case byArtist = "By Artist"
+    case byAlbum = "By Album"
+    // Actions
     case genreUpdate = "Genre Update"
     case yearUpdate = "Year Update"
     case batchOperations = "Batch"
     case reports = "Reports"
+    case recentChanges = "Recent Changes"
+    case playlists = "Playlists"
 
     var id: String {
         rawValue
@@ -31,11 +37,49 @@ enum NavigationCategory: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .library: "music.note.list"
+        case .byArtist: "person.2"
+        case .byAlbum: "square.stack"
         case .genreUpdate: "tag.fill"
         case .yearUpdate: "calendar"
         case .batchOperations: "square.stack.3d.up.fill"
         case .reports: "chart.bar.fill"
+        case .recentChanges: "clock.arrow.circlepath"
+        case .playlists: "music.note.list"
         }
+    }
+
+    /// All categories in sidebar order, used for Cmd+N shortcuts.
+    static var allInOrder: [Self] {
+        browseCategories + actionCategories
+    }
+
+    static var browseCategories: [Self] {
+        [.library, .byArtist, .byAlbum]
+    }
+
+    static var actionCategories: [Self] {
+        [
+            .genreUpdate,
+            .yearUpdate,
+            .batchOperations,
+            .reports,
+            .recentChanges,
+            .playlists
+        ]
+    }
+}
+
+// MARK: - Focused Value (Keyboard Shortcut Wiring)
+
+/// Exposes the sidebar selection to the menu bar commands.
+struct FocusedCategoryKey: FocusedValueKey {
+    typealias Value = Binding<NavigationCategory?>
+}
+
+extension FocusedValues {
+    var selectedCategory: Binding<NavigationCategory?>? {
+        get { self[FocusedCategoryKey.self] }
+        set { self[FocusedCategoryKey.self] = newValue }
     }
 }
 
@@ -58,10 +102,18 @@ struct MainView: View {
             switch selectedCategory {
             case .library, .genreUpdate, .yearUpdate, .none:
                 trackList
+            case .byArtist:
+                artistGroupedList
+            case .byAlbum:
+                albumGroupedList
             case .batchOperations:
                 BatchView(tracks: filteredTracks)
             case .reports:
                 ReportsView()
+            case .recentChanges:
+                recentChangesView
+            case .playlists:
+                playlistsStub
             }
         } detail: {
             trackDetail
@@ -87,6 +139,7 @@ struct MainView: View {
                 UpdateView(viewModel: viewModel, tracks: tracksForUpdate)
             }
         }
+        .focusedValue(\.selectedCategory, $selectedCategory)
     }
 
     // MARK: - Computed Properties
@@ -99,8 +152,20 @@ struct MainView: View {
     // MARK: - Sidebar
 
     private var sidebar: some View {
-        List(NavigationCategory.allCases, selection: $selectedCategory) { category in
-            Label(category.rawValue, systemImage: category.icon)
+        List(selection: $selectedCategory) {
+            Section("Browse") {
+                ForEach(NavigationCategory.browseCategories) { category in
+                    Label(category.rawValue, systemImage: category.icon)
+                        .tag(category)
+                }
+            }
+
+            Section("Actions") {
+                ForEach(NavigationCategory.actionCategories) { category in
+                    Label(category.rawValue, systemImage: category.icon)
+                        .tag(category)
+                }
+            }
         }
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 250)
@@ -176,6 +241,66 @@ struct MainView: View {
                 )
             }
         }
+    }
+
+    // MARK: - Grouped Views
+
+    private var artistGroupedList: some View {
+        let grouped = Dictionary(grouping: filteredTracks) { $0.effectiveArtist }
+        let sortedKeys = grouped.keys.sorted(by: { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending })
+
+        return List(selection: $selectedTrack) {
+            ForEach(sortedKeys, id: \.self) { artist in
+                DisclosureGroup(artist) {
+                    ForEach(grouped[artist] ?? []) { track in
+                        TrackRow(track: track)
+                            .tag(track)
+                    }
+                }
+            }
+        }
+        .listStyle(.inset(alternatesRowBackgrounds: true))
+        .navigationSplitViewColumnWidth(min: 300, ideal: 450)
+    }
+
+    private var albumGroupedList: some View {
+        let grouped = Dictionary(grouping: filteredTracks) { $0.album }
+        let sortedKeys = grouped.keys.sorted(by: { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending })
+
+        return List(selection: $selectedTrack) {
+            ForEach(sortedKeys, id: \.self) { album in
+                DisclosureGroup(album.isEmpty ? "Unknown Album" : album) {
+                    ForEach(grouped[album] ?? []) { track in
+                        TrackRow(track: track)
+                            .tag(track)
+                    }
+                }
+            }
+        }
+        .listStyle(.inset(alternatesRowBackgrounds: true))
+        .navigationSplitViewColumnWidth(min: 300, ideal: 450)
+    }
+
+    private var recentChangesView: some View {
+        ContentUnavailableView(
+            "Recent Changes",
+            systemImage: "clock.arrow.circlepath",
+            description: Text(
+                "Changes will appear here after you update tracks. "
+                    + "Check the Reports tab for the full change log."
+            )
+        )
+    }
+
+    private var playlistsStub: some View {
+        ContentUnavailableView(
+            "Playlists",
+            systemImage: "music.note.list",
+            description: Text(
+                "Playlist support is not yet available. "
+                    + "MusicKit does not provide write access to playlists in library context."
+            )
+        )
     }
 
     // MARK: - Data

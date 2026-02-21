@@ -44,6 +44,8 @@ struct GenreUpdaterApp: App {
                 }
                 .keyboardShortcut("u", modifiers: .command)
             }
+
+            NavigationCommands()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .inactive {
@@ -96,8 +98,10 @@ struct ErrorView: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 48))
+                .font(.largeTitle)
+                .imageScale(.large)
                 .foregroundStyle(.yellow)
+                .accessibilityHidden(true)
 
             Text("Something went wrong")
                 .font(.title2)
@@ -122,6 +126,30 @@ struct ErrorView: View {
 extension Notification.Name {
     /// Posted by the Update menu command (Cmd+U) to trigger the update sheet.
     static let updateSelectedTracks = Notification.Name("GenreUpdater.updateSelectedTracks")
+}
+
+// MARK: - Navigation Commands
+
+/// Cmd+1 through Cmd+9 shortcuts for sidebar categories.
+struct NavigationCommands: Commands {
+    @FocusedValue(\.selectedCategory) private var selectedCategory
+
+    var body: some Commands {
+        CommandMenu("Navigate") {
+            ForEach(
+                Array(NavigationCategory.allInOrder.enumerated()),
+                id: \.element.id
+            ) { index, category in
+                Button(category.rawValue) {
+                    selectedCategory?.wrappedValue = category
+                }
+                .keyboardShortcut(
+                    KeyEquivalent(Character("\(index + 1)")),
+                    modifiers: .command
+                )
+            }
+        }
+    }
 }
 
 // MARK: - Optional Model Container

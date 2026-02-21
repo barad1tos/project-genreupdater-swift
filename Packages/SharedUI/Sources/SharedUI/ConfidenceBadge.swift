@@ -24,11 +24,13 @@ public struct ConfidenceBadge: View {
         Text(formattedPercentage)
             .font(.caption2)
             .bold()
-            .foregroundStyle(.white)
+            .foregroundStyle(badgeForeground)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(badgeColor, in: .capsule)
-            .accessibilityLabel("\(Int(clampedConfidence * 100)) percent confidence")
+            .accessibilityLabel(
+                "\(Int(clampedConfidence * 100)) percent confidence"
+            )
     }
 
     // MARK: - Private Helpers
@@ -39,6 +41,12 @@ public struct ConfidenceBadge: View {
 
     private var formattedPercentage: String {
         "\(Int(clampedConfidence * 100))%"
+    }
+
+    /// White text on green/red passes WCAG AA; yellow needs dark text.
+    private var badgeForeground: Color {
+        clampedConfidence >= 0.5 && clampedConfidence < 0.8
+            ? .black : .white
     }
 
     private var badgeColor: Color {

@@ -25,7 +25,7 @@ public struct TierBadge: View {
         Text(tier.displayName)
             .font(.caption2)
             .bold()
-            .foregroundStyle(.white)
+            .foregroundStyle(tier.badgeForeground)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(tier.badgeColor, in: .capsule)
@@ -56,6 +56,11 @@ extension Tier {
         case .pro:
             .yellow
         }
+    }
+
+    /// White text on gray/blue passes WCAG AA; yellow needs dark text.
+    public var badgeForeground: Color {
+        self == .pro ? .black : .white
     }
 }
 
