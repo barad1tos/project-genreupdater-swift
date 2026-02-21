@@ -35,6 +35,27 @@ targets:
       - package: Core
       - package: Services
       - package: SharedUI
+    postBuildScripts:
+      - name: Compile and copy AppleScript files to bundle
+        script: |
+          DEST="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/Scripts"
+          mkdir -p "$DEST"
+          for f in "${SRCROOT}/Resources/Scripts/"*.applescript; do
+            name=$(basename "$f" .applescript)
+            /usr/bin/osacompile -o "$DEST/${name}.scpt" "$f"
+          done
+        inputFiles:
+          - $(SRCROOT)/Resources/Scripts/fetch_tracks.applescript
+          - $(SRCROOT)/Resources/Scripts/fetch_tracks_by_ids.applescript
+          - $(SRCROOT)/Resources/Scripts/fetch_track_ids.applescript
+          - $(SRCROOT)/Resources/Scripts/update_property.applescript
+          - $(SRCROOT)/Resources/Scripts/batch_update_tracks.applescript
+        outputFiles:
+          - $(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Scripts/fetch_tracks.scpt
+          - $(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Scripts/fetch_tracks_by_ids.scpt
+          - $(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Scripts/fetch_track_ids.scpt
+          - $(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Scripts/update_property.scpt
+          - $(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Scripts/batch_update_tracks.scpt
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.genreupdater.app
@@ -44,7 +65,11 @@ targets:
         INFOPLIST_FILE: App/Info.plist
         CODE_SIGN_ENTITLEMENTS: App/GenreUpdater.entitlements
         CODE_SIGN_STYLE: Automatic
-        ENABLE_APP_SANDBOX: true
+      configs:
+        Debug:
+          ENABLE_APP_SANDBOX: false
+        Release:
+          ENABLE_APP_SANDBOX: true
     info:
       path: App/Info.plist
       properties:

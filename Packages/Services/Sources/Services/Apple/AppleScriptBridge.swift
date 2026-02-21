@@ -32,7 +32,7 @@ public enum AppleScriptBridgeError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .scriptNotFound(name, path):
-            "Script '\(name).scpt' not found at \(path.path())"
+            "Script '\(name).scpt' not found at \(path.path)"
         case let .executionFailed(name, detail):
             "AppleScript '\(name)' failed: \(detail)"
         case let .timeout(name, duration):
@@ -88,7 +88,7 @@ public actor AppleScriptBridge: AppleScriptClient {
     ) async throws -> String? {
         let scriptURL = await installer.scriptURL(for: name)
 
-        guard FileManager.default.fileExists(atPath: scriptURL.path()) else {
+        guard FileManager.default.fileExists(atPath: scriptURL.path) else {
             throw AppleScriptBridgeError.scriptNotFound(name: name, searchPath: scriptURL.deletingLastPathComponent())
         }
 

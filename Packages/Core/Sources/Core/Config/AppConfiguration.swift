@@ -37,7 +37,7 @@ public struct AppConfiguration: Sendable, Codable {
     /// Load configuration from the app's container.
     public static func load() throws -> Self {
         let url = configFileURL
-        guard FileManager.default.fileExists(atPath: url.path()) else {
+        guard FileManager.default.fileExists(atPath: url.path) else {
             return Self()
         }
         let data = try Data(contentsOf: url)

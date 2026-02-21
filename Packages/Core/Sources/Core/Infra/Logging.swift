@@ -66,7 +66,7 @@ public func fetchRecentLogs(
     let store = try OSLogStore(scope: .currentProcessIdentifier)
     let position = store.position(date: Date.now.addingTimeInterval(-since.timeInterval))
 
-    var predicate = if let category {
+    let predicate = if let category {
         NSPredicate(format: "subsystem == %@ AND category == %@", subsystem, category)
     } else {
         NSPredicate(format: "subsystem == %@", subsystem)
