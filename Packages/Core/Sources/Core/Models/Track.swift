@@ -134,7 +134,7 @@ public struct Track: Sendable, Codable, Identifiable, Hashable {
 /// A record of a metadata change applied to a track.
 ///
 /// Used for change reports, undo/revert functionality, and audit trail.
-public struct ChangeLogEntry: Sendable, Codable, Identifiable {
+public struct ChangeLogEntry: Sendable, Codable, Identifiable, Equatable {
     public let id: UUID
     public let timestamp: Date
     public let changeType: ChangeType

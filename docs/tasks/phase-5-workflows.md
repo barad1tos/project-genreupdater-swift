@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: "Application Workflows"
-status: planned
+status: done
 priority: high
 depends_on:
   - "Phase 3 (algorithms)"
@@ -23,69 +23,69 @@ depends_on:
 ### UpdateCoordinator
 > **TDD ref:** [[TDD#src/core/tracks/ → Packages/Core/ (Genre/, Year/, Processing/)]] (`update_executor.py` + `track_updater.py` merge → `UpdateExecutor.swift` 🔴) | [[TDD#src/app/ → Sources/App/]] (orchestration layer)
 
-- [ ] Створити `Packages/Services/Sources/Services/Workflow/UpdateCoordinator.swift`
-- [ ] Full update pipeline orchestration: read → process → preview → write → log
-- [ ] Single track update flow
-- [ ] Multi-track update flow
-- [ ] Progress reporting через ProgressUpdate stream
-- [ ] Error aggregation (partial failures allowed)
-- [ ] Dry-run mode для preview без запису
-- [ ] Unit tests: full pipeline, partial failures, dry-run
-- [ ] Integration test: end-to-end з real Music.app
+- [x]Створити `Packages/Services/Sources/Services/Workflow/UpdateCoordinator.swift`
+- [x]Full update pipeline orchestration: read → process → preview → write → log
+- [x]Single track update flow
+- [x]Multi-track update flow
+- [x]Progress reporting через ProgressUpdate stream
+- [x]Error aggregation (partial failures allowed)
+- [x]Dry-run mode для preview без запису
+- [x]Unit tests: full pipeline, partial failures, dry-run
+- [x]Integration test: end-to-end з real Music.app
 
 ### CheckpointManager
 > **TDD ref:** [[TDD#src/app/features/ → Sources/App/Workflows/]] (batch workflow infrastructure) | [[TDD#Risks & Mitigation]] (SwiftData performance 30K+ tracks — checkpoint prevents data loss on crash)
 
-- [ ] Створити `Packages/Services/Sources/Services/Workflow/CheckpointManager.swift`
-- [ ] Save progress of long-running batch operations
-- [ ] Resume from last checkpoint після app restart
-- [ ] Checkpoint storage: JSON file in app support directory
-- [ ] Auto-checkpoint кожні N треків (configurable)
-- [ ] Cleanup old checkpoints
-- [ ] Unit tests: save, resume, cleanup, corruption handling
+- [x]Створити `Packages/Services/Sources/Services/Workflow/CheckpointManager.swift`
+- [x]Save progress of long-running batch operations
+- [x]Resume from last checkpoint після app restart
+- [x]Checkpoint storage: JSON file in app support directory
+- [x]Auto-checkpoint кожні N треків (configurable)
+- [x]Cleanup old checkpoints
+- [x]Unit tests: save, resume, cleanup, corruption handling
 
 ### UndoCoordinator
 > **TDD ref:** Немає прямого Python-аналогу — новий Swift requirement. Бізнес-обґрунтування: [[PRD#Undo/Redo]]. Персистенція через SwiftData ([[TDD#Decision 8 3-Tier Cache → SwiftData + GRDB + NSCache]])
 
-- [ ] Створити `Packages/Services/Sources/Services/Workflow/UndoCoordinator.swift`
-- [ ] Central coordinator для reverting changes
-- [ ] Individual change revert (single ChangeLogEntry)
-- [ ] Batch revert (all changes in a session)
-- [ ] Selective revert (user picks which changes to undo)
-- [ ] Revert history persists across app launches (SwiftData)
-- [ ] Confirmation dialog before destructive undo
-- [ ] Unit tests: individual, batch, selective, persistence
+- [x]Створити `Packages/Services/Sources/Services/Workflow/UndoCoordinator.swift`
+- [x]Central coordinator для reverting changes
+- [x]Individual change revert (single ChangeLogEntry)
+- [x]Batch revert (all changes in a session)
+- [x]Selective revert (user picks which changes to undo)
+- [x]Revert history persists across app launches (SwiftData)
+- [x]Confirmation dialog before destructive undo
+- [x]Unit tests: individual, batch, selective, persistence
 
 ### BatchProcessor
 > **TDD ref:** [[TDD#src/core/tracks/ → Packages/Core/ (Genre/, Year/, Processing/)]] (`year_batch.py` 528 + `batch_fetcher.py` 390 → `BatchFlow.swift` merge) | [[TDD#Decision 3 asyncio.gather → async let / TaskGroup]] (`TaskGroup` для dynamic batch concurrency)
 
-- [ ] Створити `Packages/Services/Sources/Services/Workflow/BatchProcessor.swift`
-- [ ] Batch operations з progress streaming
-- [ ] Configurable concurrency (max parallel operations)
-- [ ] Pause/resume/cancel controls
-- [ ] Integration з CheckpointManager
-- [ ] ETA calculation based on processing speed
-- [ ] Feature gating через FeatureGate: доступно для Week Pass (.weekPass) та Pro (.pro)
-- [ ] Unit tests: progress, pause/resume, cancel, checkpointing
+- [x]Створити `Packages/Services/Sources/Services/Workflow/BatchProcessor.swift`
+- [x]Batch operations з progress streaming
+- [x]Configurable concurrency (max parallel operations)
+- [x]Pause/resume/cancel controls
+- [x]Integration з CheckpointManager
+- [x]ETA calculation based on processing speed
+- [x]Feature gating через FeatureGate: доступно для Week Pass (.weekPass) та Pro (.pro)
+- [x]Unit tests: progress, pause/resume, cancel, checkpointing
 
 ### LibrarySyncService
 > **TDD ref:** Немає прямого Python-аналогу — новий Swift requirement для incremental sync. Пов'язано з [[TDD#Music.app Integration]] (MusicKit `MusicLibraryRequest` для detect changes)
 
-- [ ] Створити `Packages/Services/Sources/Services/Workflow/LibrarySyncService.swift`
-- [ ] Detect library changes (new tracks, modified tracks)
-- [ ] Suggest updates для нових треків
-- [ ] Background sync (Pro-exclusive feature, Auto-sync — not available in Week Pass)
-- [ ] Diff: current library vs last known state
-- [ ] Unit tests: change detection, diff calculation
+- [x]Створити `Packages/Services/Sources/Services/Workflow/LibrarySyncService.swift`
+- [x]Detect library changes (new tracks, modified tracks)
+- [x]Suggest updates для нових треків
+- [x]Background sync (Pro-exclusive feature, Auto-sync — not available in Week Pass)
+- [x]Diff: current library vs last known state
+- [x]Unit tests: change detection, diff calculation
 
 ### Change Preview Pipeline
 > **TDD ref:** [[TDD#src/app/ → Sources/App/]] (result presentation before write — Python CLI output → SwiftUI preview table)
 
-- [ ] Preview aggregation: collect all proposed changes
-- [ ] Confidence threshold filtering (configurable)
-- [ ] Group by artist/album для зручного перегляду
-- [ ] Accept all / reject all / toggle individual
-- [ ] Export preview to CSV (Pro)
+- [x]Preview aggregation: collect all proposed changes
+- [x]Confidence threshold filtering (configurable)
+- [x]Group by artist/album для зручного перегляду
+- [x]Accept all / reject all / toggle individual
+- [x]Export preview to CSV (Pro)
 
 ## Files (~6)
 
@@ -100,13 +100,13 @@ depends_on:
 
 ## Acceptance Criteria
 
-- [ ] Full pipeline: read → process → preview → write → verify працює end-to-end
-- [ ] Checkpoint/resume працює після app restart
-- [ ] Undo reverts individual та batch changes
-- [ ] Progress updates стрімяться до UI в real-time
-- [ ] Batch processing працює з pause/resume/cancel
-- [ ] Pro features gated correctly
-- [ ] `swift build` + `swift test` проходять
+- [x]Full pipeline: read → process → preview → write → verify працює end-to-end
+- [x]Checkpoint/resume працює після app restart
+- [x]Undo reverts individual та batch changes
+- [x]Progress updates стрімяться до UI в real-time
+- [x]Batch processing працює з pause/resume/cancel
+- [x]Pro features gated correctly
+- [x]`swift build` + `swift test` проходять
 
 ## Dependencies
 

@@ -268,6 +268,9 @@ public protocol AppleScriptClient: Actor {
 
     /// Fetch all track IDs from the library (lightweight).
     func fetchAllTrackIDs(timeout: Duration?) async throws -> [String]
+
+    /// Update a single property on a track in Music.app.
+    func updateTrackProperty(trackID: String, property: String, value: String) async throws
 }
 
 extension AppleScriptClient {

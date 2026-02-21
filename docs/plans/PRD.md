@@ -805,7 +805,7 @@ hide edit button
 
 ### Phase 5: Application Workflows
 
-**Status**: Planned | **Task**: [[phase-5-workflows]] | **Porting ref**: [[TDD#src/app/ → Sources/App/]]
+**Status**: Done | **Task**: [[phase-5-workflows]] | **Porting ref**: [[TDD#src/app/ → Sources/App/]]
 
 ```tasks
 path includes Tasks/phase-5-workflows
@@ -1046,12 +1046,12 @@ gantt
     Phase 3 Algorithms       :done, p3, 2026-02-17, 2026-02-20
 
     Phase 4 API + Cache      :done, p4, 2026-02-20, 2026-02-20
+    Phase 5 Workflows        :done, p5, 2026-02-21, 2026-02-21
 
     section Active
-    Phase 5 Workflows        :active, p5, after p4, 30d
+    Phase 6 Views + Polish   :active, p6, after p5, 30d
 
     section Planned
-    Phase 6 Views + Polish   :p6, after p5, 30d
     Phase 7 Testing + Launch :p7, after p6, 30d
 ```
 

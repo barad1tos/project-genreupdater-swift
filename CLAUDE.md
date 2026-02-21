@@ -29,7 +29,8 @@ GenreUpdater/
 │   │       ├── Persistence/
 │   │       │   ├── GRDB/          # GRDBCacheService, GRDBModels, GRDBMigrations
 │   │       │   └── SwiftData/     # PersistedTrack, SwiftDataTrackStore
-│   │       └── Subscription/      # SubscriptionService, FeatureGate (StoreKit 2)
+│   │       ├── Subscription/      # SubscriptionService, FeatureGate (StoreKit 2)
+│   │       └── Workflow/          # UpdateCoordinator, BatchProcessor, UndoCoordinator, CheckpointManager, LibrarySyncService, ChangePreviewPipeline
 │   └── SharedUI/                  # Reusable SwiftUI components
 ├── Tests/                         # App-level tests
 ├── Resources/                     # AppleScript files, assets
@@ -190,6 +191,9 @@ The app runs in sandbox with these entitlements:
 - **Periphery + SPM**: No `--targets` flag. Use per-package scanning: `cd Packages/$pkg && periphery scan`.
 - **Periphery false positives**: Always use `--retain-public` (phased dev) and `--retain-codable-properties` (GRDB/SwiftData models).
 - **Periphery inline ignore**: `// periphery:ignore` does NOT work for "assign-only property" warnings — use global flags instead.
+- **Periphery ignore on referenced symbols**: `// periphery:ignore` is superfluous for protocol methods with conforming implementations — use `_ paramName` in implementations instead.
+- **macOS CI runners lack GNU coreutils**: `timeout` command unavailable — use bash background process + kill pattern.
+- **swift test hangs on CI**: SwiftData prevents clean exit on headless runners — ci.yml uses background process with 120s kill timeout.
 
 ## Phase Status
 
@@ -201,7 +205,7 @@ The app runs in sandbox with these entitlements:
 | 2B: Monetization | ✅ Done | Tier, AppFeature, SubscriptionService, FeatureGate, StoreKit Config |
 | 3: Core Algorithms | ✅ Done | Normalization, ScriptDetector, MetadataUtils, AlbumType, AlbumMatcher, ArtistMatcher, GenreDeterminator, YearScorer, YearValidator, YearFallbackStrategy, YearDeterminator |
 | 4: API + Cache | ✅ Done | TokenBucketRateLimiter, MusicBrainzClient, DiscogsClient, AppleMusicSearchClient, KeychainHelper, APIOrchestrator, GRDBCacheService (bulk+stats) |
-| 5: Workflows | Planned | Pipeline, Undo, Checkpoint |
+| 5: Workflows | ✅ Done | ChangePreviewPipeline, CheckpointManager, UndoCoordinator, BatchProcessor, UpdateCoordinator, LibrarySyncService |
 | 6: Views | Planned | SwiftUI, VoiceOver |
 | 7: Launch | Planned | Testing, App Store |
 
