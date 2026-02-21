@@ -119,6 +119,7 @@ struct MainView: View {
             }
             .navigationTitle(contentTitle)
             .navigationSubtitle("\(filteredTracks.count.formatted()) tracks")
+            .animation(.easeInOut(duration: 0.2), value: selectedCategory)
         } detail: {
             trackDetail
         }
