@@ -101,8 +101,28 @@ struct MainView: View {
         } content: {
             Group {
                 switch selectedCategory {
-                case .library, .genreUpdate, .yearUpdate, .none:
+                case .library, .none:
                     trackList
+                case .genreUpdate:
+                    VStack(spacing: 0) {
+                        actionBanner(
+                            title: "Genre Update",
+                            description: "Select tracks to update genre metadata",
+                            icon: "tag.fill",
+                            color: .orange
+                        )
+                        trackList
+                    }
+                case .yearUpdate:
+                    VStack(spacing: 0) {
+                        actionBanner(
+                            title: "Year Update",
+                            description: "Select tracks to update release year",
+                            icon: "calendar",
+                            color: .blue
+                        )
+                        trackList
+                    }
                 case .byArtist:
                     artistGroupedList
                 case .byAlbum:
@@ -156,6 +176,30 @@ struct MainView: View {
 
     private var contentTitle: String {
         selectedCategory?.rawValue ?? "Library"
+    }
+
+    private func actionBanner(
+        title: String,
+        description: String,
+        icon: String,
+        color: Color
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.headline)
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(.quaternary)
     }
 
     // MARK: - Sidebar
