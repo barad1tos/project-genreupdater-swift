@@ -1,12 +1,11 @@
-import Testing
 import Foundation
 import SwiftData
-@testable import Services
+import Testing
 @testable import Core
+@testable import Services
 
 @Suite("SwiftDataTrackStore — Phase 2A")
 struct SwiftDataTrackStoreTests {
-
     /// Create an in-memory SwiftDataTrackStore for testing.
     private func makeStore() throws -> SwiftDataTrackStore {
         try SwiftDataTrackStore.createInMemory()
@@ -147,7 +146,7 @@ struct SwiftDataTrackStoreTests {
         let store = try makeStore()
         try await store.initialize()
 
-        let tracks = (0..<600).map { index in
+        let tracks = (0 ..< 600).map { index in
             Track(
                 id: "BATCH\(index)",
                 name: "Track \(index)",
