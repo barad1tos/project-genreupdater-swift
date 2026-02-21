@@ -136,14 +136,28 @@ App → SharedUI → Core
 ## Build & Test
 
 ```bash
+# Local CI — full pipeline (mirrors .github/workflows/ci.yml)
+# Requires: brew install just
+just ci
+
+# Individual steps
+just build        # Build Core → Services → SharedUI
+just test         # Test Core + Services (with coverage)
+just coverage     # Check coverage thresholds (Core ≥85%, Services ≥65%)
+just entitlements # Validate entitlements whitelist
+just lint         # SwiftLint --strict
+just format       # SwiftFormat --lint (check only)
+just periphery    # Periphery scan Core + Services
+just fix          # Auto-fix: apply SwiftFormat
+
 # Build all packages
-cd Packages/Core && swift build
-cd Packages/Services && swift build
-cd Packages/SharedUI && swift build
+swift build --package-path Packages/Core
+swift build --package-path Packages/Services
+swift build --package-path Packages/SharedUI
 
 # Run tests
-cd Packages/Core && swift test
-cd Packages/Services && swift test
+swift test --package-path Packages/Core
+swift test --package-path Packages/Services
 
 # Full Xcode build (unsigned — no certificate required)
 xcodebuild build -project GenreUpdater.xcodeproj -scheme GenreUpdater \
