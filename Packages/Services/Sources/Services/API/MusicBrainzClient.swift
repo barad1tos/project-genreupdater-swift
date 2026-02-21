@@ -18,9 +18,8 @@ import OSLog
 /// - `/ws/2/artist?query=...` — artist activity period (life-span)
 public struct MusicBrainzClient: ExternalAPIService, Sendable {
     private static let baseURL = "https://musicbrainz.org/ws/2"
-    private static let userAgent =
-        "GenreUpdater/1.0 (https://github.com/barad1tos/project-genreupdater-swift)"
 
+    private let userAgent: String
     private let session: URLSession
     private let rateLimiter: TokenBucketRateLimiter
     private let log = AppLogger.api
@@ -28,12 +27,19 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     /// Creates a MusicBrainz API client.
     ///
     /// - Parameters:
+    ///   - contactEmail: Contact email included in User-Agent header per MusicBrainz policy.
     ///   - session: URL session for network requests. Defaults to `.shared`.
     ///   - rateLimiter: Rate limiter for throttling. Defaults to 1 req/sec.
     public init(
+        contactEmail: String = "",
         session: URLSession = .shared,
         rateLimiter: TokenBucketRateLimiter? = nil
     ) {
+        if contactEmail.isEmpty {
+            self.userAgent = "GenreUpdater/1.0 (https://github.com/barad1tos/project-genreupdater-swift)"
+        } else {
+            self.userAgent = "GenreUpdater/1.0 (\(contactEmail); https://github.com/barad1tos/project-genreupdater-swift)"
+        }
         self.session = session
         self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
             maxTokens: 1,
@@ -170,7 +176,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     /// `Accept: application/json` for JSON responses.
     func makeRequest(for url: URL) -> URLRequest {
         var request = URLRequest(url: url)
-        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return request
     }

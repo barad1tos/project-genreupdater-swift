@@ -91,6 +91,7 @@ private struct GeneralTab: View {
 // MARK: - API Keys Tab
 
 private struct APIKeysTab: View {
+    @AppStorage("contactEmail") private var contactEmail = ""
     @State private var tokenInput = ""
     @State private var tokenStatus: TokenStatus = .unknown
     @State private var statusMessage = ""
@@ -99,6 +100,15 @@ private struct APIKeysTab: View {
 
     var body: some View {
         Form {
+            Section {
+                TextField("Contact Email", text: $contactEmail)
+                    .textFieldStyle(.roundedBorder)
+            } header: {
+                Text("Contact Information")
+            } footer: {
+                Text("Included in API request headers (User-Agent). Required by MusicBrainz, recommended by Discogs.")
+            }
+
             Section {
                 SecureField("Discogs Personal Access Token", text: $tokenInput)
                     .textFieldStyle(.roundedBorder)

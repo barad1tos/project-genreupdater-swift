@@ -199,10 +199,13 @@ final class AppDependencies {
         let yearDeterm = YearDeterminator()
         yearDeterminator = yearDeterm
 
+        let contactEmail = UserDefaults.standard.string(forKey: "contactEmail") ?? ""
+
         // DiscogsClient gracefully handles missing Keychain token (nil token = unauthenticated).
-        let discogsClient = (try? DiscogsClient.fromKeychain()) ?? DiscogsClient()
+        let discogsClient = (try? DiscogsClient.fromKeychain(contactEmail: contactEmail))
+            ?? DiscogsClient(contactEmail: contactEmail)
         let orchestrator = APIOrchestrator(
-            musicBrainz: MusicBrainzClient(),
+            musicBrainz: MusicBrainzClient(contactEmail: contactEmail),
             discogs: discogsClient,
             appleMusic: AppleMusicSearchClient()
         )

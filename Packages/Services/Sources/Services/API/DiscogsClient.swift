@@ -22,8 +22,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     private static let baseURL = "https://api.discogs.com"
     private static let keychainService = "com.genreupdater.discogs"
     private static let keychainAccount = "personal-access-token"
-    private static let userAgent = "GenreUpdater/1.0"
 
+    private let userAgent: String
     private let session: URLSession
     private let rateLimiter: TokenBucketRateLimiter
     private let token: String?
@@ -35,13 +35,20 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     ///
     /// - Parameters:
     ///   - token: Personal Access Token for Discogs API authentication.
+    ///   - contactEmail: Contact email included in User-Agent header.
     ///   - session: URL session for network requests. Defaults to `.shared`.
     ///   - rateLimiter: Rate limiter for throttling. Defaults to 60 req/min.
     public init(
         token: String? = nil,
+        contactEmail: String = "",
         session: URLSession = .shared,
         rateLimiter: TokenBucketRateLimiter? = nil
     ) {
+        if contactEmail.isEmpty {
+            self.userAgent = "GenreUpdater/1.0"
+        } else {
+            self.userAgent = "GenreUpdater/1.0 (\(contactEmail))"
+        }
         self.token = token
         self.session = session
         self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
@@ -53,11 +60,13 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     /// Creates a Discogs client by loading the token from the Keychain.
     ///
     /// - Parameters:
+    ///   - contactEmail: Contact email included in User-Agent header.
     ///   - session: URL session for network requests. Defaults to `.shared`.
     ///   - rateLimiter: Rate limiter for throttling. Defaults to 60 req/min.
     /// - Returns: A configured `DiscogsClient`.
     /// - Throws: `KeychainError` if the Keychain read fails.
     public static func fromKeychain(
+        contactEmail: String = "",
         session: URLSession = .shared,
         rateLimiter: TokenBucketRateLimiter? = nil
     ) throws -> Self {
@@ -68,6 +77,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         )
         return Self(
             token: token,
+            contactEmail: contactEmail,
             session: session,
             rateLimiter: rateLimiter
         )
@@ -193,7 +203,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             )
         }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         return request
     }
 
