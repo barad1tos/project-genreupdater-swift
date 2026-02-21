@@ -245,15 +245,15 @@ Swift protocols are shorter due to inference and default implementations.
 
 ```python
 # Python
-results = await asyncio.gather(fetch_mb(), fetch_dc(), fetch_lf())
+results = await asyncio.gather(fetch_mb(), fetch_dc(), fetch_am())
 ```
 
 ```swift
 // Swift — fixed set of tasks
 async let mb = fetchMB()
 async let dc = fetchDC()
-async let lf = fetchLF()
-let results = await [try? mb, try? dc, try? lf]
+async let am = fetchAM()
+let results = await [try? mb, try? dc, try? am]
 
 // Swift — dynamic collection
 try await withThrowingTaskGroup(of: YearResult.self) { group in
@@ -324,15 +324,17 @@ Scoring is a pure function from inputs → score. Does NOT need actor.
 
 Referenced by: [[phase-3-core-algorithms#ScoringEngine (найскладніший компонент)]]
 
-### Decision 10: Error Handling → Typed Throws (Swift 6)
+### Decision 10: Error Handling → Per-Module Error Enums
 
 ```swift
 // Per-module error enums
 enum APIError: Error { case rateLimited(retryAfter: Duration), notFound, ... }
 enum CacheError: Error { case expired, corrupted(path: URL), ... }
 
-// Typed throws
-func fetchYear(artist: String, album: String) throws(APIError) -> YearResult
+// Standard throws — typed throws deferred (protocol erasure and TaskGroup
+// interop make them impractical at scale; per-module enums achieve the
+// same safety pragmatically)
+func fetchYear(artist: String, album: String) throws -> YearResult
 ```
 
 See: [[PRD#Error Handling Architecture]]
@@ -384,8 +386,8 @@ actor APIOrchestrator {
     func getAlbumYear(artist: String, album: String) async throws -> YearResult {
         async let mb = musicBrainz.fetchYear(artist: artist, album: album)
         async let dc = discogs.fetchYear(artist: artist, album: album)
-        async let lf = lastFM.fetchYear(artist: artist, album: album)
-        let results = await [try? mb, try? dc, try? lf]
+        async let am = appleMusicSearch.fetchYear(artist: artist, album: album)
+        let results = await [try? mb, try? dc, try? am]
         return resolveYearScores(results.compactMap { $0 })
     }
 }
@@ -698,7 +700,7 @@ dependencies:
 **Key decisions:**
 - StoreKit 2 only (no StoreKit 1 fallback) — minimum deployment macOS 15
 - `FeatureGate` is a Sendable struct, not an actor — tier checks are read-only
-- Free tier = 50 tracks/month, tracked via iCloud KVS counter
+- Free tier = 500 lifetime tracks, tracked via iCloud KVS counter
 
 ## Phase 3 Completion Report
 

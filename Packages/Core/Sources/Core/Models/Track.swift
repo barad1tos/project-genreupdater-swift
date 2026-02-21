@@ -276,6 +276,7 @@ private enum AppleScriptDateFormatters {
         return formatter
     }()
 
+    // Safety: Configured once at init, never mutated — concurrent reads are safe.
     nonisolated(unsafe) static let iso8601: ISO8601DateFormatter = .init()
 
     static let natural: DateFormatter = {

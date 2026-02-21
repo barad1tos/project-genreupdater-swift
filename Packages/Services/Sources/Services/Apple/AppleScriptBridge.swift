@@ -49,9 +49,8 @@ public enum AppleScriptBridgeError: Error, LocalizedError {
 
 // MARK: - Sendable Wrapper
 
-/// Wraps non-Sendable Foundation types for safe transfer into TaskGroup closures.
-/// Used for NSUserAppleScriptTask and NSAppleEventDescriptor which are not Sendable
-/// but are safe in our actor-serialized context (only one task executes at a time).
+// Safety: NSUserAppleScriptTask and NSAppleEventDescriptor are not Sendable
+// but are safe here — actor serialization ensures only one task executes at a time.
 private struct UnsafeSendable<T>: @unchecked Sendable {
     let value: T
 }
