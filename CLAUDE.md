@@ -32,8 +32,12 @@ GenreUpdater/
 │   │       ├── Subscription/      # SubscriptionService, FeatureGate (StoreKit 2)
 │   │       └── Workflow/          # UpdateCoordinator, BatchProcessor, UndoCoordinator, CheckpointManager, LibrarySyncService, ChangePreviewPipeline
 │   └── SharedUI/                  # Reusable SwiftUI components
-├── Tests/                         # App-level tests
+├── Tests/
+│   ├── GenreUpdaterTests/         # App-level unit tests
+│   ├── IntegrationTests/          # MusicKit + AppleScript (local only)
+│   └── UITests/                   # XCUITests for critical flows
 ├── Resources/                     # AppleScript files, assets
+├── scripts/                       # CI helper scripts (validate-entitlements.sh)
 ├── docs/
 │   ├── plans/                     # PRD.md, TDD.md
 │   └── tasks/                     # Phase task files (phase-*.md)
@@ -207,7 +211,7 @@ The app runs in sandbox with these entitlements:
 | 4: API + Cache | ✅ Done | TokenBucketRateLimiter, MusicBrainzClient, DiscogsClient, AppleMusicSearchClient, KeychainHelper, APIOrchestrator, GRDBCacheService (bulk+stats) |
 | 5: Workflows | ✅ Done | ChangePreviewPipeline, CheckpointManager, UndoCoordinator, BatchProcessor, UpdateCoordinator, LibrarySyncService |
 | 6: Views + Polish | ✅ Done | 20 files, ~3,100 LOC — UpdateView, BatchView, ReportsView, SettingsView, SubscriptionView, FeatureGatedView, SharedUI components (ConfidenceBadge, ProgressRing, EmptyStateView, TierBadge, PaywallOverlay, TrackRow, TrackDetailView, ReportsChangeLog, ReportsCharts), ViewModels (UpdateViewModel, BatchViewModel), AppDependencies wiring |
-| 7: Launch | Planned | Testing, App Store |
+| 7: Launch | 🔄 Active | Testing (418+316 tests), CSVExporter, DryRunReport, GenreMappings, Keyboard Shortcuts, Accessibility, Integration Tests, UI Tests, Entitlements CI, Coverage enforcement |
 
 ## Development Workflow
 
