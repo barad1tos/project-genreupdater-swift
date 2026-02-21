@@ -51,12 +51,12 @@ jobs:
         run: security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db
 
       - name: Test Core
-        run: swift test --package-path Packages/Core
+        run: swift test --package-path Packages/Core --enable-code-coverage
         timeout-minutes: 5
 
       - name: Test Services
         run: |
-          swift test --package-path Packages/Services &
+          swift test --package-path Packages/Services --enable-code-coverage &
           TEST_PID=$!
           SECONDS=0
           while kill -0 $TEST_PID 2>/dev/null; do
@@ -70,6 +70,61 @@ jobs:
           done
           wait $TEST_PID
         timeout-minutes: 5
+
+      - name: Check coverage thresholds
+        run: |
+          FAILED=0
+
+          # Core coverage (threshold: 85%)
+          echo "=== Core coverage ==="
+          PROFDATA=$(find Packages/Core/.build -name "default.profdata" -type f 2>/dev/null | head -1)
+          BINARY=$(find Packages/Core/.build -name "CorePackageTests.xctest" -type d 2>/dev/null | head -1)
+          if [ -n "$PROFDATA" ] && [ -n "$BINARY" ]; then
+            xcrun llvm-cov report "$BINARY/Contents/MacOS/CorePackageTests" \
+              -instr-profile "$PROFDATA" \
+              --ignore-filename-regex="Tests/" --ignore-filename-regex="\.build/" | tail -3
+            CORE_COV=$(xcrun llvm-cov export "$BINARY/Contents/MacOS/CorePackageTests" \
+              --instr-profile "$PROFDATA" --summary-only \
+              --ignore-filename-regex="Tests/" --ignore-filename-regex="\.build/" 2>/dev/null \
+              | python3 -c "import sys,json;d=json.load(sys.stdin);print(int(d['data'][0]['totals']['lines']['percent']))")
+            echo "Core line coverage: ${CORE_COV}% (threshold: 85%)"
+            if [ "$CORE_COV" -lt 85 ]; then
+              echo "::error::Core coverage ${CORE_COV}% is below threshold 85%"
+              FAILED=1
+            fi
+          else
+            echo "::warning::Core coverage data not found"
+          fi
+
+          # Services coverage (threshold: 65%)
+          # Excludes Core/ sources (tested separately) and system-dependent files
+          echo "=== Services coverage ==="
+          PROFDATA=$(find Packages/Services/.build -name "default.profdata" -type f 2>/dev/null | head -1)
+          BINARY=$(find Packages/Services/.build -name "ServicesPackageTests.xctest" -type d 2>/dev/null | head -1)
+          if [ -n "$PROFDATA" ] && [ -n "$BINARY" ]; then
+            xcrun llvm-cov report "$BINARY/Contents/MacOS/ServicesPackageTests" \
+              -instr-profile "$PROFDATA" \
+              --ignore-filename-regex="Tests/" --ignore-filename-regex="\.build/" --ignore-filename-regex="Core/" | tail -3
+            SVC_COV=$(xcrun llvm-cov export "$BINARY/Contents/MacOS/ServicesPackageTests" \
+              --instr-profile "$PROFDATA" --summary-only \
+              --ignore-filename-regex="Tests/" --ignore-filename-regex="\.build/" --ignore-filename-regex="Core/" 2>/dev/null \
+              | python3 -c "import sys,json;d=json.load(sys.stdin);print(int(d['data'][0]['totals']['lines']['percent']))")
+            echo "Services line coverage: ${SVC_COV}% (threshold: 65%)"
+            if [ "$SVC_COV" -lt 65 ]; then
+              echo "::error::Services coverage ${SVC_COV}% is below threshold 65%"
+              FAILED=1
+            fi
+          else
+            echo "::warning::Services coverage data not found"
+          fi
+
+          if [ "$FAILED" -ne 0 ]; then
+            exit 1
+          fi
+          echo "All coverage thresholds passed"
+
+      - name: Validate entitlements
+        run: bash scripts/validate-entitlements.sh
 
       - name: Install lint tools
         run: brew install swiftlint swiftformat periphery
