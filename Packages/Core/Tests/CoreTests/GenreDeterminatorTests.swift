@@ -294,3 +294,155 @@ struct GenreDeterminatorTests {
         #expect(result.sourceTrackDateAdded == expectedDate)
     }
 }
+
+// MARK: - Genre Mapping Tests
+
+@Suite("GenreDeterminator — Custom Genre Mappings")
+struct GenreMappingTests {
+
+    let determinator = GenreDeterminator()
+
+    private func date(_ year: Int, _ month: Int, _ day: Int) -> Date {
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = 0
+        components.minute = 0
+        components.second = 0
+        components.timeZone = TimeZone(identifier: "UTC")
+        // swiftlint:disable:next force_unwrapping
+        return Calendar(identifier: .gregorian).date(from: components)!
+    }
+
+    private func makeTrack(
+        id: String = "1",
+        name: String = "Track",
+        artist: String = "Artist",
+        album: String = "Album",
+        genre: String? = "Rock",
+        dateAdded: Date? = nil
+    ) -> Track {
+        Track(
+            id: id,
+            name: name,
+            artist: artist,
+            album: album,
+            genre: genre,
+            dateAdded: dateAdded
+        )
+    }
+
+    // MARK: - determineDominantGenre with Mappings
+
+    @Test("Genre mapping replaces matching genre")
+    func genreMappingReplaces() {
+        let track = makeTrack(genre: "Electronica", dateAdded: date(2020, 1, 1))
+        let mappings = ["Electronica": "Electronic"]
+        let result = determinator.determineDominantGenre(
+            artistTracks: [track],
+            genreMappings: mappings
+        )
+        #expect(result.genre == "Electronic")
+    }
+
+    @Test("Genre mapping is case-insensitive on lookup")
+    func genreMappingCaseInsensitive() {
+        let track = makeTrack(genre: "hip hop", dateAdded: date(2020, 1, 1))
+        let mappings = ["Hip Hop": "Hip-Hop"]
+        let result = determinator.determineDominantGenre(
+            artistTracks: [track],
+            genreMappings: mappings
+        )
+        #expect(result.genre == "Hip-Hop")
+    }
+
+    @Test("Genre mapping preserves target case from dictionary")
+    func genreMappingPreservesTargetCase() {
+        let track = makeTrack(genre: "ELECTRONICA", dateAdded: date(2020, 1, 1))
+        let mappings = ["electronica": "Electronic Dance Music"]
+        let result = determinator.determineDominantGenre(
+            artistTracks: [track],
+            genreMappings: mappings
+        )
+        #expect(result.genre == "Electronic Dance Music")
+    }
+
+    @Test("Genre mapping with no match returns original genre")
+    func genreMappingNoMatch() {
+        let track = makeTrack(genre: "Metal", dateAdded: date(2020, 1, 1))
+        let mappings = ["Electronica": "Electronic"]
+        let result = determinator.determineDominantGenre(
+            artistTracks: [track],
+            genreMappings: mappings
+        )
+        #expect(result.genre == "Metal")
+    }
+
+    @Test("Genre mapping with empty dictionary returns original genre")
+    func genreMappingEmptyDict() {
+        let track = makeTrack(genre: "Rock", dateAdded: date(2020, 1, 1))
+        let result = determinator.determineDominantGenre(
+            artistTracks: [track],
+            genreMappings: [:]
+        )
+        #expect(result.genre == "Rock")
+    }
+
+    @Test("Genre mapping does not apply when genre is nil")
+    func genreMappingNilGenre() {
+        let track = makeTrack(genre: nil, dateAdded: date(2020, 1, 1))
+        let mappings = ["Rock": "Alternative"]
+        let result = determinator.determineDominantGenre(
+            artistTracks: [track],
+            genreMappings: mappings
+        )
+        #expect(result.genre == nil)
+    }
+
+    @Test("No-arg overload behaves identically to empty mappings")
+    func noArgOverloadSameAsEmpty() {
+        let track = makeTrack(genre: "Jazz", dateAdded: date(2020, 1, 1))
+        let resultNoArg = determinator.determineDominantGenre(artistTracks: [track])
+        let resultEmpty = determinator.determineDominantGenre(
+            artistTracks: [track],
+            genreMappings: [:]
+        )
+        #expect(resultNoArg == resultEmpty)
+    }
+
+    // MARK: - applyGenreMapping (Static Helper)
+
+    @Test("applyGenreMapping exact match returns mapped value")
+    func applyGenreMappingExact() {
+        let result = GenreDeterminator.applyGenreMapping(
+            "Electronica",
+            mappings: ["Electronica": "Electronic"]
+        )
+        #expect(result == "Electronic")
+    }
+
+    @Test("applyGenreMapping case-insensitive match")
+    func applyGenreMappingCaseInsensitive() {
+        let result = GenreDeterminator.applyGenreMapping(
+            "hip hop",
+            mappings: ["Hip Hop": "Hip-Hop"]
+        )
+        #expect(result == "Hip-Hop")
+    }
+
+    @Test("applyGenreMapping no match returns original")
+    func applyGenreMappingNoMatch() {
+        let result = GenreDeterminator.applyGenreMapping(
+            "Metal",
+            mappings: ["Rock": "Alternative"]
+        )
+        #expect(result == "Metal")
+    }
+
+    @Test("applyGenreMapping empty mappings returns original")
+    func applyGenreMappingEmpty() {
+        let result = GenreDeterminator.applyGenreMapping("Rock", mappings: [:])
+        #expect(result == "Rock")
+    }
+}

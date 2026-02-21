@@ -4073,5 +4073,197 @@
       "genre": "Rock",
       "sourceAlbum": "Old Album"
     }
+  },
+  {
+    "id": "genre_edge_empty_genre_string",
+    "description": "Track with empty string genre treated as nil",
+    "tracks": [
+      {
+        "id": "e5",
+        "name": "Silent Genre",
+        "artist": "Artist",
+        "album": "Album",
+        "genre": "",
+        "year": "2020",
+        "dateAdded": "2020-01-01 00:00:00"
+      }
+    ],
+    "expected": {
+      "genre": null,
+      "sourceAlbum": null
+    }
+  },
+  {
+    "id": "genre_edge_compilation_various_artists",
+    "description": "Various Artists compilation album",
+    "tracks": [
+      {
+        "id": "e6",
+        "name": "Track One",
+        "artist": "Various Artists",
+        "album": "Now That's What I Call Music! 100",
+        "genre": "Pop",
+        "year": "2018",
+        "dateAdded": "2018-07-01 00:00:00",
+        "albumArtist": "Various Artists"
+      },
+      {
+        "id": "e7",
+        "name": "Track Two",
+        "artist": "Various Artists",
+        "album": "Now That's What I Call Music! 100",
+        "genre": "Pop",
+        "year": "2018",
+        "dateAdded": "2018-07-01 00:00:00",
+        "albumArtist": "Various Artists"
+      }
+    ],
+    "expected": {
+      "genre": "Pop",
+      "sourceAlbum": "Now That's What I Call Music! 100"
+    }
+  },
+  {
+    "id": "genre_edge_cjk_artist_album",
+    "description": "CJK (Japanese) artist and album names",
+    "tracks": [
+      {
+        "id": "e8",
+        "name": "夜に駆ける",
+        "artist": "YOASOBI",
+        "album": "THE BOOK",
+        "genre": "J-Pop",
+        "year": "2021",
+        "dateAdded": "2021-01-06 00:00:00",
+        "albumArtist": "YOASOBI"
+      },
+      {
+        "id": "e9",
+        "name": "群青",
+        "artist": "YOASOBI",
+        "album": "THE BOOK",
+        "genre": "J-Pop",
+        "year": "2021",
+        "dateAdded": "2021-01-06 00:00:00",
+        "albumArtist": "YOASOBI"
+      }
+    ],
+    "expected": {
+      "genre": "J-Pop",
+      "sourceAlbum": "THE BOOK"
+    }
+  },
+  {
+    "id": "genre_edge_multiple_genres_majority",
+    "description": "Multiple genres across tracks, majority wins",
+    "tracks": [
+      {
+        "id": "e10",
+        "name": "Song A",
+        "artist": "Band",
+        "album": "Album X",
+        "genre": "Alternative Rock",
+        "year": "2019",
+        "dateAdded": "2019-03-01 00:00:00"
+      },
+      {
+        "id": "e11",
+        "name": "Song B",
+        "artist": "Band",
+        "album": "Album X",
+        "genre": "Alternative Rock",
+        "year": "2019",
+        "dateAdded": "2019-03-01 00:00:00"
+      },
+      {
+        "id": "e12",
+        "name": "Song C",
+        "artist": "Band",
+        "album": "Album X",
+        "genre": "Indie Rock",
+        "year": "2019",
+        "dateAdded": "2019-03-01 00:00:00"
+      }
+    ],
+    "expected": {
+      "genre": "Alternative Rock",
+      "sourceAlbum": "Album X"
+    }
+  },
+  {
+    "id": "genre_edge_korean_artist",
+    "description": "Korean (Hangul) artist and album names",
+    "tracks": [
+      {
+        "id": "e13",
+        "name": "봄날",
+        "artist": "방탄소년단",
+        "album": "You Never Walk Alone",
+        "genre": "K-Pop",
+        "year": "2017",
+        "dateAdded": "2017-02-13 00:00:00",
+        "albumArtist": "방탄소년단"
+      }
+    ],
+    "expected": {
+      "genre": "K-Pop",
+      "sourceAlbum": "You Never Walk Alone"
+    }
+  },
+  {
+    "id": "genre_edge_mixed_nil_and_real_genres",
+    "description": "Mix of nil and real genres, nil is dominant when majority",
+    "tracks": [
+      {
+        "id": "e14",
+        "name": "Intro",
+        "artist": "Artist",
+        "album": "Album",
+        "genre": null,
+        "year": "2020",
+        "dateAdded": "2020-01-01 00:00:00"
+      },
+      {
+        "id": "e15",
+        "name": "Main Track",
+        "artist": "Artist",
+        "album": "Album",
+        "genre": "Electronic",
+        "year": "2020",
+        "dateAdded": "2020-01-01 00:00:00"
+      },
+      {
+        "id": "e16",
+        "name": "Outro",
+        "artist": "Artist",
+        "album": "Album",
+        "genre": null,
+        "year": "2020",
+        "dateAdded": "2020-01-01 00:00:00"
+      }
+    ],
+    "expected": {
+      "genre": null,
+      "sourceAlbum": null
+    }
+  },
+  {
+    "id": "genre_edge_slash_genre",
+    "description": "Genre with slash separator preserved as-is",
+    "tracks": [
+      {
+        "id": "e17",
+        "name": "Dark Song",
+        "artist": "Gothic Band",
+        "album": "Shadows",
+        "genre": "Gothic / Darkwave",
+        "year": "2022",
+        "dateAdded": "2022-05-10 00:00:00"
+      }
+    ],
+    "expected": {
+      "genre": "Gothic / Darkwave",
+      "sourceAlbum": "Shadows"
+    }
   }
 ]

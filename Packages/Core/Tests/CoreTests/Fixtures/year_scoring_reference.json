@@ -884,5 +884,167 @@
       "musicbrainz",
       "musicbrainz"
     ]
+  },
+  {
+    "id": "score_bootleg_with_reissue",
+    "description": "Bootleg status combined with reissue flag compounds penalties",
+    "release": {
+      "artist": "Led Zeppelin",
+      "album": "How the West Was Won",
+      "year": 2003,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "bootleg",
+      "country": "US",
+      "isReissue": true,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Led Zeppelin",
+      "album": "How the West Was Won",
+      "artistRegion": "GB",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 30
+    }
+  },
+  {
+    "id": "score_reissue_with_rg_first_year",
+    "description": "Reissue detected via RG first year difference",
+    "release": {
+      "artist": "Nirvana",
+      "album": "Nevermind",
+      "year": 2011,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": true,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": 1991,
+      "genre": null
+    },
+    "query": {
+      "artist": "Nirvana",
+      "album": "Nevermind",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 55
+    }
+  },
+  {
+    "id": "score_soundtrack_non_va_artist",
+    "description": "Soundtrack release with matching artist (no compensation needed)",
+    "release": {
+      "artist": "Hans Zimmer",
+      "album": "Inception",
+      "year": 2010,
+      "source": "musicbrainz",
+      "releaseType": "soundtrack",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": "Soundtrack"
+    },
+    "query": {
+      "artist": "Hans Zimmer",
+      "album": "Inception",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 75
+    }
+  },
+  {
+    "id": "score_after_artist_end",
+    "description": "Year after artist career end (deceased/disbanded)",
+    "release": {
+      "artist": "Joy Division",
+      "album": "Still",
+      "year": 1981,
+      "source": "musicbrainz",
+      "releaseType": "compilation",
+      "status": "official",
+      "country": "GB",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Joy Division",
+      "album": "Still",
+      "artistRegion": "GB",
+      "artistPeriodStart": 1976,
+      "artistPeriodEnd": 1980
+    },
+    "expected": {
+      "totalScore": 50
+    }
+  },
+  {
+    "id": "score_live_release_type",
+    "description": "Live release type penalty",
+    "release": {
+      "artist": "Metallica",
+      "album": "S&M",
+      "year": 1999,
+      "source": "musicbrainz",
+      "releaseType": "live",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Metallica",
+      "album": "S&M",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 75
+    }
+  },
+  {
+    "id": "score_artist_substring_match",
+    "description": "Artist is substring of release artist (feat. credit)",
+    "release": {
+      "artist": "Eminem feat. Rihanna",
+      "album": "Recovery",
+      "year": 2010,
+      "source": "musicbrainz",
+      "releaseType": "album",
+      "status": "official",
+      "country": "US",
+      "isReissue": false,
+      "mbReleaseGroupID": null,
+      "mbReleaseGroupFirstYear": null,
+      "genre": null
+    },
+    "query": {
+      "artist": "Eminem",
+      "album": "Recovery",
+      "artistRegion": "US",
+      "artistPeriodStart": null,
+      "artistPeriodEnd": null
+    },
+    "expected": {
+      "totalScore": 125
+    }
   }
 ]

@@ -58,9 +58,38 @@ targets:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - Tests
+      - path: Tests
+        excludes:
+          - IntegrationTests
+          - E2ETests
+          - UITests
     dependencies:
       - target: GenreUpdater
       - package: Core
       - package: Services
       - package: SharedUI
+
+  GenreUpdaterUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - Tests/UITests
+    dependencies:
+      - target: GenreUpdater
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.genreupdater.uitests
+        TEST_TARGET_NAME: GenreUpdater
+
+  IntegrationTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/IntegrationTests
+    dependencies:
+      - target: GenreUpdater
+      - package: Core
+      - package: Services
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.genreupdater.integration-tests

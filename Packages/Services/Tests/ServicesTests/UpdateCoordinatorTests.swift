@@ -17,41 +17,6 @@ private actor ProgressAccumulator {
     }
 }
 
-// MARK: - Mock Cache Service
-
-actor MockCacheService: CacheService {
-    var albumYears: [String: AlbumCacheEntry] = [:]
-
-    func initialize() async throws {}
-    func get<T: Codable & Sendable>(key: String) async -> T? {
-        nil
-    }
-    func set(key: String, value: some Codable & Sendable, ttl: TimeInterval?) async {}
-    func invalidate(key: String) async {}
-    func clear() async {}
-
-    func getAlbumYear(artist: String, album: String) async -> AlbumCacheEntry? {
-        albumYears["\(artist)-\(album)"]
-    }
-
-    func storeAlbumYear(artist: String, album: String, year: Int, confidence: Int) async {
-        albumYears["\(artist)-\(album)"] = AlbumCacheEntry(
-            artist: artist,
-            album: album,
-            year: year,
-            confidence: confidence,
-            timestamp: Date()
-        )
-    }
-
-    func invalidateAlbum(artist: String, album: String) async {}
-    func getCachedAPIResult(artist: String, album: String, source: String) async -> CachedAPIResult? {
-        nil
-    }
-    func setCachedAPIResult(_ result: CachedAPIResult) async {}
-    func syncToDisk() async throws {}
-}
-
 // MARK: - Helpers
 
 private func makeEditableTrack(
@@ -242,11 +207,16 @@ struct UpdateCoordinatorTests {
             }
         )
 
-        try await Task.sleep(for: .milliseconds(50))
+        // Wait for unstructured Task closures to deliver all progress updates
+        for _ in 0 ..< 20 {
+            let current = await accumulator.getAll()
+            if current.count >= 4 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
         let updates = await accumulator.getAll()
         // 3 tracks + 1 complete
         #expect(updates.count == 4)
-        #expect(updates.last?.phase == .complete)
+        #expect(updates.contains { $0.phase == .complete })
         #expect(result.entries.count == 3)
         #expect(result.failedTrackIDs.isEmpty)
     }

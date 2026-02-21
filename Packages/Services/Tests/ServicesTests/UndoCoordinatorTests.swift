@@ -3,80 +3,6 @@ import Testing
 @testable import Core
 @testable import Services
 
-// MARK: - Mock AppleScript Client
-
-actor MockAppleScriptClient: AppleScriptClient {
-    var writtenProperties: [(trackID: String, property: String, value: String)] = []
-    var shouldThrow = false
-
-    func initialize() async throws {}
-
-    func runScript(
-        name: String,
-        arguments: [String],
-        timeout: Duration?
-    ) async throws -> String? {
-        nil
-    }
-
-    func fetchTracksByIDs(
-        _ trackIDs: [String],
-        batchSize: Int,
-        timeout: Duration?
-    ) async throws -> [Track] {
-        []
-    }
-
-    func fetchAllTrackIDs(timeout: Duration?) async throws -> [String] {
-        []
-    }
-
-    func updateTrackProperty(trackID: String, property: String, value: String) async throws {
-        if shouldThrow {
-            throw MockScriptError.intentional
-        }
-        writtenProperties.append((trackID, property, value))
-    }
-}
-
-enum MockScriptError: Error {
-    case intentional
-}
-
-// MARK: - Mock Track Store
-
-actor MockTrackStore: TrackStateStore {
-    var tracks: [Track] = []
-
-    func initialize() async throws {}
-
-    func loadAllTracks() async throws -> [Track] {
-        tracks
-    }
-
-    func saveTracks(_ newTracks: [Track]) async throws {
-        tracks = newTracks
-    }
-
-    func getTrack(byID id: String) async throws -> Track? {
-        tracks.first { $0.id == id }
-    }
-
-    func updateTrackProcessingState(
-        id: String,
-        genreUpdated: Bool?,
-        yearUpdated: Bool?
-    ) async throws {}
-
-    func getUnprocessedTracks() async throws -> [Track] {
-        tracks
-    }
-
-    func trackCount() async throws -> Int {
-        tracks.count
-    }
-}
-
 // MARK: - Helpers
 
 private func makeTempDirectory() -> URL {
@@ -319,13 +245,5 @@ struct UndoCoordinatorPersistenceTests {
 
         await coordinator.clearHistory()
         #expect(!FileManager.default.fileExists(atPath: historyURL.path))
-    }
-}
-
-// MARK: - Mock Extensions
-
-extension MockAppleScriptClient {
-    func setThrowMode(_ shouldFail: Bool) {
-        shouldThrow = shouldFail
     }
 }

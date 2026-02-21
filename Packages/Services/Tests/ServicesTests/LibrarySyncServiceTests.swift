@@ -220,3 +220,167 @@ extension SyncMockTrackStore {
         storedTracks = tracks
     }
 }
+
+// MARK: - SyncResult Tests
+
+@Suite("SyncResult — hasChanges computed property")
+struct SyncResultTests {
+    @Test("hasChanges is false for empty result")
+    func emptyResult() {
+        let result = SyncResult()
+        #expect(result.hasChanges == false)
+    }
+
+    @Test("hasChanges is true when newTracks is non-empty")
+    func hasNewTracks() {
+        let track = Track(id: "1", name: "Song", artist: "A", album: "B")
+        let result = SyncResult(newTracks: [track])
+        #expect(result.hasChanges == true)
+    }
+
+    @Test("hasChanges is true when removedTrackIDs is non-empty")
+    func hasRemovedTracks() {
+        let result = SyncResult(removedTrackIDs: ["1"])
+        #expect(result.hasChanges == true)
+    }
+
+    @Test("hasChanges is true when modifiedTracks is non-empty")
+    func hasModifiedTracks() {
+        let track = Track(id: "1", name: "Song", artist: "A", album: "B")
+        let result = SyncResult(modifiedTracks: [track])
+        #expect(result.hasChanges == true)
+    }
+}
+
+// MARK: - LibrarySyncError Tests
+
+@Suite("LibrarySyncError — error descriptions")
+struct LibrarySyncErrorTests {
+    @Test("featureNotAvailable includes feature and tier info")
+    func featureNotAvailable() {
+        let error = LibrarySyncError.featureNotAvailable(
+            feature: .autoSync,
+            currentTier: .free
+        )
+        let description = error.errorDescription ?? ""
+        #expect(description.contains("autoSync"))
+        #expect(description.contains("free"))
+    }
+
+    @Test("syncAlreadyRunning has a description")
+    func syncAlreadyRunning() {
+        let error = LibrarySyncError.syncAlreadyRunning
+        #expect(error.errorDescription?.isEmpty == false)
+    }
+}
+
+// MARK: - Auto-Sync Lifecycle Tests
+
+@Suite("LibrarySyncService — auto-sync start/stop lifecycle")
+struct LibrarySyncAutoSyncTests {
+    @Test("Start and stop auto-sync without crash")
+    @MainActor
+    func startAndStop() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = FeatureGate(fixedTier: .pro)
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        try await service.startAutoSync(interval: .seconds(300))
+        let running = await service.isAutoSyncRunning
+        #expect(running == true)
+
+        await service.stopAutoSync()
+        let stopped = await service.isAutoSyncRunning
+        #expect(stopped == false)
+    }
+
+    @Test("Double start throws syncAlreadyRunning")
+    @MainActor
+    func doubleStartThrows() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = FeatureGate(fixedTier: .pro)
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        try await service.startAutoSync(interval: .seconds(300))
+        await #expect(throws: LibrarySyncError.self) {
+            try await service.startAutoSync(interval: .seconds(300))
+        }
+        await service.stopAutoSync()
+    }
+
+    @Test("isAutoSyncRunning is false initially")
+    @MainActor
+    func notRunningInitially() async {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = FeatureGate(fixedTier: .pro)
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        let running = await service.isAutoSyncRunning
+        #expect(running == false)
+    }
+
+    @Test("Detect modified tracks by field change (no lastModified)")
+    func detectModifiedByFieldChange() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+
+        // Same track but with changed genre
+        await bridge.setLibrary(ids: ["T1"], tracks: [
+            "T1": Track(id: "T1", name: "Song", artist: "A", album: "B", genre: "Metal"),
+        ])
+        await store.setStored([
+            Track(id: "T1", name: "Song", artist: "A", album: "B", genre: "Rock"),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        let result = try await service.detectChanges()
+        #expect(result.modifiedTracks.count == 1)
+    }
+
+    @Test("Detect modified tracks by name change")
+    func detectModifiedByNameChange() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+
+        await bridge.setLibrary(ids: ["T1"], tracks: [
+            "T1": Track(id: "T1", name: "New Name", artist: "A", album: "B"),
+        ])
+        await store.setStored([
+            Track(id: "T1", name: "Old Name", artist: "A", album: "B"),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        let result = try await service.detectChanges()
+        #expect(result.modifiedTracks.count == 1)
+    }
+}

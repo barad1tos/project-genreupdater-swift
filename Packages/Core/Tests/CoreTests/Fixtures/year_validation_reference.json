@@ -632,5 +632,240 @@
       "mostCommonYear": 2018,
       "consensusReleaseYear": null
     }
+  },
+  {
+    "id": "valid_null_year_strings",
+    "description": "Tracks with null year values are ignored",
+    "tracks": [
+      {
+        "id": "1",
+        "name": "T1",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": null,
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      },
+      {
+        "id": "2",
+        "name": "T2",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2020",
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      }
+    ],
+    "expected": {
+      "dominantYear": 2020,
+      "mostCommonYear": 2020,
+      "consensusReleaseYear": null
+    }
+  },
+  {
+    "id": "valid_exactly_50_percent",
+    "description": "Exactly 50% threshold (2 of 4) is not dominant",
+    "tracks": [
+      {
+        "id": "1",
+        "name": "T1",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2020",
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      },
+      {
+        "id": "2",
+        "name": "T2",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2020",
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      },
+      {
+        "id": "3",
+        "name": "T3",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2019",
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      },
+      {
+        "id": "4",
+        "name": "T4",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2018",
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      }
+    ],
+    "expected": {
+      "dominantYear": 2020,
+      "mostCommonYear": 2020,
+      "consensusReleaseYear": null
+    }
+  },
+  {
+    "id": "valid_just_over_50_percent",
+    "description": "Just over 50% threshold (3 of 5) is dominant",
+    "tracks": [
+      {
+        "id": "1",
+        "name": "T1",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2020",
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      },
+      {
+        "id": "2",
+        "name": "T2",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2020",
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      },
+      {
+        "id": "3",
+        "name": "T3",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2020",
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      },
+      {
+        "id": "4",
+        "name": "T4",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2019",
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      },
+      {
+        "id": "5",
+        "name": "T5",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2018",
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      }
+    ],
+    "expected": {
+      "dominantYear": 2020,
+      "mostCommonYear": 2020,
+      "consensusReleaseYear": null
+    }
+  },
+  {
+    "id": "valid_mixed_release_years_no_consensus",
+    "description": "Partial release years with no consensus",
+    "tracks": [
+      {
+        "id": "1",
+        "name": "T1",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2020",
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": "2019",
+        "albumArtist": null,
+        "trackStatus": null
+      },
+      {
+        "id": "2",
+        "name": "T2",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2020",
+        "dateAdded": "2020-06-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      }
+    ],
+    "expected": {
+      "dominantYear": 2020,
+      "mostCommonYear": 2020,
+      "consensusReleaseYear": 2019
+    }
+  },
+  {
+    "id": "valid_future_year_suspicious",
+    "description": "Future year treated as suspicious",
+    "tracks": [
+      {
+        "id": "1",
+        "name": "T1",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2099",
+        "dateAdded": "2024-01-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      },
+      {
+        "id": "2",
+        "name": "T2",
+        "artist": "A",
+        "album": "Al",
+        "genre": null,
+        "year": "2099",
+        "dateAdded": "2024-01-01 00:00:00",
+        "releaseYear": null,
+        "albumArtist": null,
+        "trackStatus": null
+      }
+    ],
+    "expected": {
+      "dominantYear": 2099,
+      "mostCommonYear": 2099,
+      "consensusReleaseYear": null
+    }
   }
 ]

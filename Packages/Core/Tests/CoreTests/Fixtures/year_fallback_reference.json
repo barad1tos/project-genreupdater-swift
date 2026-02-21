@@ -223,5 +223,110 @@
     "expected": {
       "decision": "useAPIYear"
     }
+  },
+  {
+    "id": "fallback_score_at_threshold_boundary_51",
+    "description": "Score at 51 (just above escalation threshold of 50) with no existing year",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 51,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "escalateToVerification"
+    }
+  },
+  {
+    "id": "fallback_score_at_threshold_boundary_49",
+    "description": "Score at 49 (just below escalation threshold of 50) triggers verification",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 49,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "escalateToVerification"
+    }
+  },
+  {
+    "id": "fallback_tied_scores_with_existing",
+    "description": "Low confidence API year same as existing year keeps existing",
+    "context": {
+      "bestYear": 2015,
+      "bestScore": 45,
+      "isDefinitive": false,
+      "existingYear": 2015,
+      "albumType": "normal",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "keepExisting"
+    }
+  },
+  {
+    "id": "fallback_soundtrack_album_type",
+    "description": "Soundtrack album type should be marked and skipped",
+    "context": {
+      "bestYear": 2014,
+      "bestScore": 55,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "soundtrack",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "escalateToVerification"
+    }
+  },
+  {
+    "id": "fallback_high_score_compilation",
+    "description": "Even high score cannot overcome compilation album type",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 85,
+      "isDefinitive": false,
+      "existingYear": null,
+      "albumType": "compilation",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "markAndSkip"
+    }
+  },
+  {
+    "id": "fallback_definitive_compilation_override",
+    "description": "Definitive result overrides compilation album type",
+    "context": {
+      "bestYear": 2020,
+      "bestScore": 95,
+      "isDefinitive": true,
+      "existingYear": null,
+      "albumType": "compilation",
+      "verificationAttempts": 0
+    },
+    "expected": {
+      "decision": "useAPIYear"
+    }
+  },
+  {
+    "id": "fallback_zero_score_with_existing",
+    "description": "Zero API score with existing year keeps existing",
+    "context": {
+      "bestYear": null,
+      "bestScore": 0,
+      "isDefinitive": false,
+      "existingYear": 2018,
+      "albumType": "normal",
+      "verificationAttempts": 3
+    },
+    "expected": {
+      "decision": "keepExisting"
+    }
   }
 ]

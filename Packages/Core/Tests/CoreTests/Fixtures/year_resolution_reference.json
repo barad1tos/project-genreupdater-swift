@@ -232,5 +232,99 @@
       "isDefinitive": true,
       "confidence": 85
     }
+  },
+  {
+    "id": "resolve_tied_scores_earlier_wins",
+    "description": "Three years with identical top scores, earliest wins",
+    "yearScores": {
+      "2010": [
+        80
+      ],
+      "2015": [
+        80
+      ],
+      "2020": [
+        80
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 2010,
+      "isDefinitive": false,
+      "confidence": 80
+    }
+  },
+  {
+    "id": "resolve_existing_year_exact_match",
+    "description": "Existing year matches best year exactly",
+    "yearScores": {
+      "2015": [
+        85
+      ],
+      "2016": [
+        60
+      ]
+    },
+    "existingYear": "2015",
+    "expected": {
+      "year": 2015,
+      "isDefinitive": true,
+      "confidence": 85
+    }
+  },
+  {
+    "id": "resolve_all_low_scores",
+    "description": "All candidates have low scores, none definitive",
+    "yearScores": {
+      "2000": [
+        25
+      ],
+      "2001": [
+        20
+      ],
+      "2002": [
+        15
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 2000,
+      "isDefinitive": false,
+      "confidence": 25
+    }
+  },
+  {
+    "id": "resolve_single_very_high_score",
+    "description": "Single candidate with maximum confidence",
+    "yearScores": {
+      "1982": [
+        125
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 1982,
+      "isDefinitive": true,
+      "confidence": 100
+    }
+  },
+  {
+    "id": "resolve_many_sources_agree",
+    "description": "Five sources agree on same year (aggregated)",
+    "yearScores": {
+      "2005": [
+        90,
+        85,
+        80,
+        75,
+        70
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 2005,
+      "isDefinitive": true,
+      "confidence": 90
+    }
   }
 ]

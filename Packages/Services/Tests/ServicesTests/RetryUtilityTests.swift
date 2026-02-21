@@ -172,6 +172,76 @@ struct RetryUtilityTests {
     }
 }
 
+// MARK: - isTransientError Classifier Tests
+
+@Suite("isTransientError — error classification for retry decisions")
+struct TransientErrorClassifierTests {
+    @Test("MusicBrainzError.serviceUnavailable is transient")
+    func musicBrainzServiceUnavailable() {
+        #expect(isTransientError(MusicBrainzError.serviceUnavailable) == true)
+    }
+
+    @Test("MusicBrainzError.badRequest is NOT transient")
+    func musicBrainzBadRequest() {
+        #expect(isTransientError(MusicBrainzError.badRequest) == false)
+    }
+
+    @Test("MusicBrainzError.invalidResponse is NOT transient")
+    func musicBrainzInvalidResponse() {
+        #expect(isTransientError(MusicBrainzError.invalidResponse) == false)
+    }
+
+    @Test("MusicBrainzError.httpError is NOT transient")
+    func musicBrainzHttpError() {
+        #expect(isTransientError(MusicBrainzError.httpError(500)) == false)
+    }
+
+    @Test("DiscogsError.rateLimited is transient")
+    func discogsRateLimited() {
+        #expect(isTransientError(DiscogsError.rateLimited) == true)
+    }
+
+    @Test("DiscogsError.noToken is NOT transient")
+    func discogsNoToken() {
+        #expect(isTransientError(DiscogsError.noToken) == false)
+    }
+
+    @Test("DiscogsError.unauthorized is NOT transient")
+    func discogsUnauthorized() {
+        #expect(isTransientError(DiscogsError.unauthorized) == false)
+    }
+
+    @Test(
+        "URLError transient codes are retryable",
+        arguments: [
+            URLError.Code.timedOut,
+            URLError.Code.networkConnectionLost,
+            URLError.Code.notConnectedToInternet,
+            URLError.Code.cannotConnectToHost,
+        ]
+    )
+    func urlErrorTransientCodes(code: URLError.Code) {
+        #expect(isTransientError(URLError(code)) == true)
+    }
+
+    @Test(
+        "URLError non-transient codes are NOT retryable",
+        arguments: [
+            URLError.Code.badURL,
+            URLError.Code.cancelled,
+            URLError.Code.badServerResponse,
+        ]
+    )
+    func urlErrorNonTransientCodes(code: URLError.Code) {
+        #expect(isTransientError(URLError(code)) == false)
+    }
+
+    @Test("Unknown error types are NOT transient")
+    func unknownErrors() {
+        #expect(isTransientError(TestError.nonRetryable) == false)
+    }
+}
+
 // MARK: - Test Helpers
 
 /// Thread-safe counter for tracking attempt counts across async boundaries.

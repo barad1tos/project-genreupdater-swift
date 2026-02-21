@@ -1,0 +1,299 @@
+// PersistenceModelTests.swift — Unit tests for SwiftData persistence models
+// Task A7: PersistedTrack, PersistedChangeLogEntry, ModelContainerFactory
+
+import Foundation
+import SwiftData
+import Testing
+
+@testable import Core
+@testable import Services
+
+// MARK: - PersistedTrack Tests
+
+@Suite("PersistedTrack — domain model mapping")
+struct PersistedTrackTests {
+    private let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private func sampleTrack(
+        id: String = "T1",
+        name: String = "Song",
+        artist: String = "Artist",
+        album: String = "Album",
+        genre: String? = "Rock",
+        year: Int? = 2020,
+        albumArtist: String? = "AlbumArtist"
+    ) -> Core.Track {
+        Core.Track(
+            id: id,
+            name: name,
+            artist: artist,
+            album: album,
+            genre: genre,
+            year: year,
+            dateAdded: fixedDate,
+            albumArtist: albumArtist
+        )
+    }
+
+    @Test("init(from:) maps all fields from Core.Track")
+    func initFromTrackMapsAllFields() {
+        let track = sampleTrack()
+        let persisted = PersistedTrack(from: track)
+
+        #expect(persisted.trackID == "T1")
+        #expect(persisted.name == "Song")
+        #expect(persisted.artist == "Artist")
+        #expect(persisted.album == "Album")
+        #expect(persisted.genre == "Rock")
+        #expect(persisted.year == 2020)
+        #expect(persisted.dateAdded == fixedDate)
+        #expect(persisted.albumArtist == "AlbumArtist")
+        #expect(persisted.genreUpdated == false)
+        #expect(persisted.yearUpdated == false)
+        #expect(persisted.processedDate == nil)
+    }
+
+    @Test("init(from:) handles nil optional fields")
+    func initFromTrackHandlesNils() {
+        let track = Core.Track(id: "T2", name: "Minimal", artist: "A", album: "B")
+        let persisted = PersistedTrack(from: track)
+
+        #expect(persisted.genre == nil)
+        #expect(persisted.year == nil)
+        #expect(persisted.dateAdded == nil)
+        #expect(persisted.albumArtist == nil)
+    }
+
+    @Test("toTrack() converts back to matching domain Track")
+    func toTrackConvertsBack() {
+        let persisted = PersistedTrack(from: sampleTrack())
+        let result = persisted.toTrack()
+
+        #expect(result.id == "T1")
+        #expect(result.name == "Song")
+        #expect(result.artist == "Artist")
+        #expect(result.album == "Album")
+        #expect(result.genre == "Rock")
+        #expect(result.year == 2020)
+        #expect(result.dateAdded == fixedDate)
+        #expect(result.albumArtist == "AlbumArtist")
+    }
+
+    @Test("Round-trip Track -> PersistedTrack -> Track preserves all mapped fields")
+    func roundTripPreservesFields() {
+        let original = sampleTrack()
+        let roundTripped = PersistedTrack(from: original).toTrack()
+
+        #expect(roundTripped.id == original.id)
+        #expect(roundTripped.name == original.name)
+        #expect(roundTripped.artist == original.artist)
+        #expect(roundTripped.album == original.album)
+        #expect(roundTripped.genre == original.genre)
+        #expect(roundTripped.year == original.year)
+        #expect(roundTripped.dateAdded == original.dateAdded)
+        #expect(roundTripped.albumArtist == original.albumArtist)
+    }
+
+    @Test("update(from:) updates mutable fields but preserves processing state")
+    func updatePreservesProcessingState() {
+        let persisted = PersistedTrack(from: sampleTrack())
+
+        // Simulate processing
+        persisted.genreUpdated = true
+        persisted.yearUpdated = true
+        let processedAt = Date(timeIntervalSince1970: 1_700_100_000)
+        persisted.processedDate = processedAt
+        persisted.lastError = "some error"
+
+        // Update from a new version of the same track
+        let newTrack = Core.Track(
+            id: "T1",
+            name: "New Song",
+            artist: "New Artist",
+            album: "New Album",
+            genre: "Pop",
+            year: 2025,
+            albumArtist: "New AlbumArtist"
+        )
+        persisted.update(from: newTrack)
+
+        // Mutable fields updated
+        #expect(persisted.name == "New Song")
+        #expect(persisted.artist == "New Artist")
+        #expect(persisted.album == "New Album")
+        #expect(persisted.genre == "Pop")
+        #expect(persisted.year == 2025)
+        #expect(persisted.albumArtist == "New AlbumArtist")
+
+        // Processing state preserved
+        #expect(persisted.genreUpdated == true)
+        #expect(persisted.yearUpdated == true)
+        #expect(persisted.processedDate == processedAt)
+        #expect(persisted.lastError == "some error")
+    }
+
+    @Test("update(from:) can set optional fields to nil")
+    func updateCanClearOptionalFields() {
+        let persisted = PersistedTrack(from: sampleTrack())
+        #expect(persisted.genre == "Rock")
+        #expect(persisted.year == 2020)
+
+        let nilTrack = Core.Track(id: "T1", name: "Song", artist: "Artist", album: "Album")
+        persisted.update(from: nilTrack)
+
+        #expect(persisted.genre == nil)
+        #expect(persisted.year == nil)
+        #expect(persisted.albumArtist == nil)
+    }
+}
+
+// MARK: - PersistedChangeLogEntry Tests
+
+@Suite("PersistedChangeLogEntry — domain model mapping")
+struct PersistedChangeLogEntryTests {
+    private func makeGenreEntry() -> Core.ChangeLogEntry {
+        var entry = Core.ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "T1",
+            artist: "Artist",
+            trackName: "Track",
+            albumName: "Album"
+        )
+        entry.oldGenre = "Rock"
+        entry.newGenre = "Pop"
+        return entry
+    }
+
+    @Test("init(from:) maps all fields from Core.ChangeLogEntry")
+    func initFromEntryMapsAllFields() {
+        let entry = makeGenreEntry()
+        let persisted = PersistedChangeLogEntry(from: entry)
+
+        #expect(persisted.entryID == entry.id)
+        #expect(persisted.timestamp == entry.timestamp)
+        #expect(persisted.changeTypeRaw == "genre_update")
+        #expect(persisted.trackID == "T1")
+        #expect(persisted.artist == "Artist")
+        #expect(persisted.trackName == "Track")
+        #expect(persisted.albumName == "Album")
+        #expect(persisted.oldGenre == "Rock")
+        #expect(persisted.newGenre == "Pop")
+    }
+
+    @Test("init(from:) maps year change fields")
+    func initFromEntryMapsYearFields() {
+        var entry = Core.ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "T2",
+            artist: "Artist",
+            trackName: "Track",
+            albumName: "Album"
+        )
+        entry.oldYear = 1982
+        entry.newYear = 1983
+
+        let persisted = PersistedChangeLogEntry(from: entry)
+
+        #expect(persisted.changeTypeRaw == "year_update")
+        #expect(persisted.oldYear == 1982)
+        #expect(persisted.newYear == 1983)
+        #expect(persisted.oldGenre == nil)
+        #expect(persisted.newGenre == nil)
+    }
+
+    @Test("init(from:) maps name cleaning fields")
+    func initFromEntryMapsNameCleaningFields() {
+        var entry = Core.ChangeLogEntry(
+            changeType: .trackCleaning,
+            trackID: "T3",
+            artist: "Artist",
+            trackName: "Track",
+            albumName: "Album"
+        )
+        entry.oldTrackName = "Song (Remastered)"
+        entry.newTrackName = "Song"
+        entry.oldAlbumName = "Album (Deluxe)"
+        entry.newAlbumName = "Album"
+
+        let persisted = PersistedChangeLogEntry(from: entry)
+
+        #expect(persisted.changeTypeRaw == "track_cleaning")
+        #expect(persisted.oldTrackName == "Song (Remastered)")
+        #expect(persisted.newTrackName == "Song")
+        #expect(persisted.oldAlbumName == "Album (Deluxe)")
+        #expect(persisted.newAlbumName == "Album")
+    }
+
+    @Test("toChangeLogEntry() converts back to matching domain entry")
+    func toChangeLogEntryConvertsBack() {
+        let original = makeGenreEntry()
+        let result = PersistedChangeLogEntry(from: original).toChangeLogEntry()
+
+        #expect(result.id == original.id)
+        #expect(result.timestamp == original.timestamp)
+        #expect(result.changeType == .genreUpdate)
+        #expect(result.trackID == "T1")
+        #expect(result.artist == "Artist")
+        #expect(result.trackName == "Track")
+        #expect(result.albumName == "Album")
+        #expect(result.oldGenre == "Rock")
+        #expect(result.newGenre == "Pop")
+    }
+
+    @Test("Unknown changeTypeRaw defaults to .genreUpdate")
+    func unknownChangeTypeDefaultsToGenreUpdate() {
+        let persisted = PersistedChangeLogEntry(
+            entryID: UUID(),
+            timestamp: Date(),
+            changeTypeRaw: "unknown_type",
+            trackID: "T1",
+            artist: "A",
+            trackName: "T",
+            albumName: "Al"
+        )
+        let entry = persisted.toChangeLogEntry()
+
+        #expect(entry.changeType == .genreUpdate)
+    }
+
+    @Test(
+        "All ChangeType rawValues round-trip correctly",
+        arguments: ChangeType.allCases
+    )
+    func changeTypeRoundTrip(changeType: ChangeType) {
+        var entry = Core.ChangeLogEntry(
+            changeType: changeType,
+            trackID: "RT1",
+            artist: "Artist",
+            trackName: "Track",
+            albumName: "Album"
+        )
+        // Populate fields relevant to each change type
+        entry.oldGenre = "OldGenre"
+        entry.newGenre = "NewGenre"
+        entry.oldYear = 2000
+        entry.newYear = 2001
+        entry.oldTrackName = "OldTrack"
+        entry.newTrackName = "NewTrack"
+        entry.oldAlbumName = "OldAlbum"
+        entry.newAlbumName = "NewAlbum"
+
+        let persisted = PersistedChangeLogEntry(from: entry)
+        let roundTripped = persisted.toChangeLogEntry()
+
+        #expect(roundTripped.changeType == changeType)
+        #expect(persisted.changeTypeRaw == changeType.rawValue)
+    }
+}
+
+// MARK: - ModelContainerFactory Tests
+
+@Suite("ModelContainerFactory — container creation")
+struct ModelContainerFactoryTests {
+    @Test("createInMemory() succeeds without throwing")
+    func createInMemorySucceeds() {
+        #expect(throws: Never.self) {
+            _ = try ModelContainerFactory.createInMemory()
+        }
+    }
+}

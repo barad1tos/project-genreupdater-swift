@@ -3,62 +3,6 @@ import Testing
 @testable import Core
 @testable import Services
 
-// MARK: - Mock API Service
-
-/// Mock `ExternalAPIService` for testing orchestration logic.
-///
-/// Returns a preconfigured `YearResult`, optionally throwing or delaying
-/// to simulate network failures and slow responses.
-struct MockAPIService: ExternalAPIService {
-    let yearResult: YearResult
-    let shouldThrow: Bool
-    let delay: Duration
-
-    init(
-        yearResult: YearResult = YearResult(),
-        shouldThrow: Bool = false,
-        delay: Duration = .zero
-    ) {
-        self.yearResult = yearResult
-        self.shouldThrow = shouldThrow
-        self.delay = delay
-    }
-
-    func getAlbumYear(
-        artist: String,
-        album: String,
-        currentLibraryYear _: Int?,
-        earliestTrackAddedYear _: Int?
-    ) async throws -> YearResult {
-        if delay > .zero {
-            try await Task.sleep(for: delay)
-        }
-        if shouldThrow {
-            throw MockAPIError.intentional
-        }
-        return yearResult
-    }
-
-    func getArtistActivityPeriod(
-        normalizedArtist: String
-    ) async throws -> (start: Int?, end: Int?) {
-        (nil, nil)
-    }
-
-    func getArtistStartYear(
-        normalizedArtist: String
-    ) async throws -> Int? {
-        nil
-    }
-
-    func initialize(force: Bool) async throws {}
-    func close() async {}
-}
-
-enum MockAPIError: Error {
-    case intentional
-}
-
 // MARK: - APIOrchestratorTests
 
 @Suite("APIOrchestrator — parallel multi-source year aggregation")
