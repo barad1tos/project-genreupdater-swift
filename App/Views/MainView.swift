@@ -91,6 +91,7 @@ struct MainView: View {
     @State private var tracks: [Track] = []
     @State private var filteredTracks: [Track] = []
     @State private var searchText = ""
+    @State private var debouncedSearchText = ""
     @State private var isLoading = false
     @State private var selectedTrack: Track?
     @State private var showUpdateSheet = false
@@ -144,7 +145,12 @@ struct MainView: View {
             trackDetail
         }
         .searchable(text: $searchText, prompt: "Search tracks...")
-        .onChange(of: searchText) { updateFilteredTracks() }
+        .task(id: searchText) {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            debouncedSearchText = searchText
+            updateFilteredTracks()
+        }
         .onChange(of: tracks) { updateFilteredTracks() }
         .task {
             await loadTracks()
@@ -352,15 +358,16 @@ struct MainView: View {
     // MARK: - Data
 
     private func updateFilteredTracks() {
-        guard !searchText.isEmpty else {
+        guard !debouncedSearchText.isEmpty else {
             filteredTracks = tracks
             return
         }
+        let query = debouncedSearchText
         filteredTracks = tracks.filter { track in
-            track.name.localizedStandardContains(searchText)
-                || track.artist.localizedStandardContains(searchText)
-                || track.album.localizedStandardContains(searchText)
-                || (track.genre?.localizedStandardContains(searchText) ?? false)
+            track.name.localizedStandardContains(query)
+                || track.artist.localizedStandardContains(query)
+                || track.album.localizedStandardContains(query)
+                || (track.genre?.localizedStandardContains(query) ?? false)
         }
     }
 
