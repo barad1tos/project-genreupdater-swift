@@ -16,9 +16,6 @@ private actor Accumulator<T: Sendable> {
         items
     }
 
-    var count: Int {
-        items.count
-    }
 }
 
 private actor Counter {

@@ -71,7 +71,6 @@ public actor UpdateCoordinator {
     private let undoCoordinator: UndoCoordinator
     private let idMapper: (any TrackIDMapping)?
     private let genreDeterminator: GenreDeterminator
-    private let yearDeterminator: YearDeterminator
     private let log = Logger(subsystem: "com.genreupdater", category: "UpdateCoordinator")
 
     public init(
@@ -81,8 +80,7 @@ public actor UpdateCoordinator {
         cache: any CacheService,
         undoCoordinator: UndoCoordinator,
         idMapper: (any TrackIDMapping)? = nil,
-        genreDeterminator: GenreDeterminator,
-        yearDeterminator: YearDeterminator
+        genreDeterminator: GenreDeterminator
     ) {
         self.apiOrchestrator = apiOrchestrator
         self.scriptBridge = scriptBridge
@@ -91,7 +89,6 @@ public actor UpdateCoordinator {
         self.undoCoordinator = undoCoordinator
         self.idMapper = idMapper
         self.genreDeterminator = genreDeterminator
-        self.yearDeterminator = yearDeterminator
     }
 
     // MARK: Single Track

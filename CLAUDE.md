@@ -131,7 +131,7 @@ App → SharedUI → Core
 ### Dev Tools (Homebrew)
 - **SwiftLint** — linting (pre-commit + CI, `--strict`)
 - **SwiftFormat** — auto-formatting (pre-commit + CI, config: `.swiftformat`)
-- **Periphery** — dead code detection (CI only, blocking)
+- **Periphery** — dead code detection (pre-commit + CI, `--strict`)
 
 ## Build & Test
 
@@ -293,6 +293,7 @@ Quality gates in `.claude/hooks/`, enforced automatically. All hooks use `jq` (n
 |------|-------|------|-----------|-------------|
 | `commit-docs-sync-check.sh` | PreToolUse (Bash) | Blocking | DENY | Any `git commit` with Swift files requires docs staged |
 | `swiftlint-precommit-check.sh` | PreToolUse (Bash) | Blocking | DENY | Runs SwiftLint --strict on staged Swift files before commit (matches CI) |
+| `pre-push-tests.sh` | PreToolUse (Bash) | Blocking | DENY | Runs `swift test` for Core + Services before `git push` |
 | `swift-task-tracking-reminder.sh` | PreToolUse (Edit/Write) | Advisory | ALLOW | Reminds to update task checkboxes when editing `.swift` |
 | `session-start-phase-context.sh` | SessionStart | Advisory | ALLOW | Loads current phase progress at session start |
 

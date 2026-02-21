@@ -7,15 +7,6 @@ import Testing
 
 @Suite("CSVExporter — RFC 4180 CSV generation")
 struct CSVExporterTests {
-    private func makeTrack(
-        id: String = "T1",
-        name: String = "Song",
-        artist: String = "Artist",
-        album: String = "Album"
-    ) -> Track {
-        Track(id: id, name: name, artist: artist, album: album)
-    }
-
     private func makeEntry(
         changeType: ChangeType,
         trackName: String = "Song",

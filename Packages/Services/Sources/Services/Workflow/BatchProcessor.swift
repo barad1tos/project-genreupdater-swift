@@ -200,7 +200,7 @@ public actor BatchProcessor {
     }
 
     private func loadResumeState(
-        tracks: [Track],
+        tracks _: [Track],
         resumeBatchID: UUID?
     ) async throws -> ResumeState {
         let batchID = resumeBatchID ?? UUID()

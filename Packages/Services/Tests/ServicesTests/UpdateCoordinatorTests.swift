@@ -42,8 +42,6 @@ private func makeEditableTrack(
 private struct CoordinatorFixture {
     let coordinator: UpdateCoordinator
     let bridge: MockAppleScriptClient
-    let store: MockTrackStore
-    let cache: MockCacheService
     let undo: UndoCoordinator
 }
 
@@ -86,15 +84,12 @@ struct UpdateCoordinatorTests {
             trackStore: store,
             cache: cacheService,
             undoCoordinator: undo,
-            genreDeterminator: GenreDeterminator(),
-            yearDeterminator: YearDeterminator()
+            genreDeterminator: GenreDeterminator()
         )
 
         return CoordinatorFixture(
             coordinator: coordinator,
             bridge: bridge,
-            store: store,
-            cache: cacheService,
             undo: undo
         )
     }

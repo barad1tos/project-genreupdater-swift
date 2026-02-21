@@ -46,3 +46,31 @@ repos:
         language: system
         pass_filenames: false
         files: ^Packages/(Core|Services)/
+
+      - id: swift-build-sharedui
+        name: Swift Build (SharedUI)
+        entry: swift build --package-path Packages/SharedUI
+        language: system
+        pass_filenames: false
+        files: ^Packages/(Core|SharedUI)/
+
+      - id: validate-entitlements
+        name: Validate Entitlements
+        entry: bash scripts/validate-entitlements.sh
+        language: system
+        pass_filenames: false
+        files: (\.entitlements$|validate-entitlements\.sh$)
+
+      - id: periphery-core
+        name: Periphery (Core)
+        entry: bash -c 'cd Packages/Core && periphery scan --retain-public --retain-codable-properties --format xcode --strict'
+        language: system
+        pass_filenames: false
+        files: ^Packages/Core/
+
+      - id: periphery-services
+        name: Periphery (Services)
+        entry: bash -c 'cd Packages/Services && periphery scan --retain-public --retain-codable-properties --format xcode --strict'
+        language: system
+        pass_filenames: false
+        files: ^Packages/(Core|Services)/

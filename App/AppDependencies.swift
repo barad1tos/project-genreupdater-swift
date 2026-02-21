@@ -219,7 +219,7 @@ final class AppDependencies {
               let cache = cacheService,
               let orchestrator = apiOrchestrator,
               let genreDeterm = genreDeterminator,
-              let yearDeterm = yearDeterminator
+              yearDeterminator != nil
         else {
             log.error("Cannot initialize workflow services — prerequisite services are nil")
             return
@@ -237,8 +237,7 @@ final class AppDependencies {
             trackStore: store,
             cache: cache,
             undoCoordinator: undo,
-            genreDeterminator: genreDeterm,
-            yearDeterminator: yearDeterm
+            genreDeterminator: genreDeterm
         )
 
         batchProcessor = BatchProcessor(

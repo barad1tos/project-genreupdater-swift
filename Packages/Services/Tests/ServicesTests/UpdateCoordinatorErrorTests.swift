@@ -147,8 +147,7 @@ struct UpdateCoordinatorWriteFailureTests {
             trackStore: store,
             cache: cache,
             undoCoordinator: undo,
-            genreDeterminator: GenreDeterminator(),
-            yearDeterminator: YearDeterminator()
+            genreDeterminator: GenreDeterminator()
         )
     }
 
@@ -201,8 +200,7 @@ struct UpdateCoordinatorWriteFailureTests {
             trackStore: store,
             cache: cache,
             undoCoordinator: undo,
-            genreDeterminator: GenreDeterminator(),
-            yearDeterminator: YearDeterminator()
+            genreDeterminator: GenreDeterminator()
         )
 
         let track = Track(
