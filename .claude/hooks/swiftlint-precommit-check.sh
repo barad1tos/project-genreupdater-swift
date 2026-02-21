@@ -37,8 +37,8 @@ if ! printf '%s' "$command" | grep -qE 'git\s+commit'; then
   hook_skip
 fi
 
-# Skip for amend/merge commits
-if printf '%s' "$command" | grep -qE '\-\-amend|\-\-no\-edit|merge'; then
+# Skip for amend commits (merge commits should still be linted)
+if printf '%s' "$command" | grep -qE '\-\-amend|\-\-no\-edit'; then
   hook_skip
 fi
 
