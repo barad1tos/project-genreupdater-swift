@@ -164,7 +164,8 @@ public actor AppleScriptBridge: AppleScriptClient {
             return []
         }
 
-        let ids = output.split(separator: Core.Track.recordSeparator).map(String.init)
+        // fetch_track_ids.applescript returns comma-separated IDs
+        let ids = output.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
         log.info("Fetched \(ids.count, privacy: .public) track IDs from library")
         return ids
     }
@@ -192,14 +193,16 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     /// Batch update multiple tracks' properties.
     public func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
-        // Format: "id1|property1|value1\nid2|property2|value2"
-        // Each component is escaped individually to prevent injection via pipe delimiter.
+        // Format matches batch_update_tracks.applescript:
+        // Fields separated by ASCII 30 (Record Separator), commands by ASCII 29 (Group Separator).
+        let fieldSep = String(Core.Track.fieldSeparator) // \x1E — between fields
+        let commandSep = String(Core.Track.recordSeparator) // \x1D — between commands
         let batchArg: String = updates.map { update -> String in
             let escapedID = InputSanitizer.escapeStringValue(update.trackID)
             let escapedProperty = InputSanitizer.sanitizeScriptCode(update.property)
             let escapedValue = InputSanitizer.escapeStringValue(update.value)
-            return "\(escapedID)|\(escapedProperty)|\(escapedValue)"
-        }.joined(separator: "\n")
+            return "\(escapedID)\(fieldSep)\(escapedProperty)\(fieldSep)\(escapedValue)"
+        }.joined(separator: commandSep)
 
         let output = try await runScript(
             name: "batch_update_tracks",
