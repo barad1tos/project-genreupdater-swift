@@ -101,6 +101,9 @@ public actor BatchProcessor {
             resumeBatchID: resumeBatchID
         )
 
+        let signpostState = AppSignpost.batchProcessing.beginInterval("batchProcess")
+        defer { AppSignpost.batchProcessing.endInterval("batchProcess", signpostState) }
+
         currentState = .running
         pauseRequested = false
         cancelRequested = false

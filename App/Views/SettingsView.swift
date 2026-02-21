@@ -121,10 +121,12 @@ private struct APIKeysTab: View {
                 HStack(spacing: 6) {
                     Image(systemName: tokenStatus.symbolName)
                         .foregroundStyle(tokenStatus.color)
+                        .accessibilityHidden(true)
                     Text(statusMessage)
                         .foregroundStyle(.secondary)
                         .font(.caption)
                 }
+                .accessibilityElement(children: .combine)
             } header: {
                 Text("Discogs API")
             } footer: {
@@ -305,6 +307,8 @@ private struct CleaningTab: View {
     // swiftlint:disable:next inclusive_language
     @State private var newRemasterKeyword = ""
     @State private var newAlbumSuffix = ""
+    @State private var newMappingSource = ""
+    @State private var newMappingTarget = ""
 
     var body: some View {
         Form {
@@ -345,6 +349,18 @@ private struct CleaningTab: View {
                     .disabled(newAlbumSuffix.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
+
+            GenreMappingsEditor(
+                mappings: Binding(
+                    get: { dependencies.config.cleaning.genreMappings },
+                    set: { newValue in
+                        dependencies.config.cleaning.genreMappings = newValue
+                        saveConfig()
+                    }
+                ),
+                newSource: $newMappingSource,
+                newTarget: $newMappingTarget
+            )
         }
         .formStyle(.grouped)
         .padding()

@@ -1,9 +1,10 @@
 // UpdateView.swift — Sheet-based update workflow with configure, preview, and apply phases.
 //
 // Presents a staged flow for track metadata updates:
-// 1. Configure: choose genre/year updates and confidence threshold
+// 1. Configure: choose genre/year updates, confidence threshold, and preview-only mode
 // 2. Processing: dry-run analysis with progress feedback
-// 3. Preview: review proposed changes, accept/reject individually or in bulk
+// 3a. Preview: review proposed changes, accept/reject individually or in bulk (normal mode)
+// 3b. Dry-run summary: read-only report of what would change (preview-only mode)
 // 4. Applying: progress while writing changes to Music.app
 // 5. Done: summary of applied changes
 //
@@ -32,6 +33,8 @@ struct UpdateView: View {
                     processingView
                 case .preview:
                     previewView
+                case .dryRunSummary:
+                    dryRunSummaryView
                 case .done:
                     doneView
                 }
@@ -74,6 +77,20 @@ struct UpdateView: View {
             Section("Update Options") {
                 Toggle("Update Genre", isOn: $viewModel.updateGenre)
                 Toggle("Update Year", isOn: $viewModel.updateYear)
+            }
+
+            Section {
+                Toggle(
+                    "Preview only (dry run)",
+                    isOn: $viewModel.previewOnly
+                )
+            } footer: {
+                Text(
+                    "Show a summary of what would change "
+                        + "without modifying your library."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Confidence Threshold") {
@@ -231,7 +248,10 @@ struct UpdateView: View {
         .accessibilityHidden(true)
     }
 
-    private func changeValueLabel(oldValue: String?, newValue: String?) -> some View {
+    private func changeValueLabel(
+        oldValue: String?,
+        newValue: String?
+    ) -> some View {
         HStack(spacing: 4) {
             Text(oldValue ?? "none")
                 .foregroundStyle(.secondary)
@@ -239,12 +259,17 @@ struct UpdateView: View {
             Image(systemName: "arrow.right")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
             Text(newValue ?? "none")
                 .foregroundStyle(.primary)
                 .bold()
         }
         .font(.callout)
         .lineLimit(1)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "from \(oldValue ?? "none") to \(newValue ?? "none")"
+        )
     }
 
     private var previewActionBar: some View {
@@ -271,6 +296,17 @@ struct UpdateView: View {
         .background(.bar)
     }
 
+    // MARK: - Dry Run Summary Phase
+
+    private var dryRunSummaryView: some View {
+        DryRunSummaryView(
+            report: viewModel.dryRunReport
+        ) {
+            viewModel.reset()
+            dismiss()
+        }
+    }
+
     // MARK: - Done Phase
 
     private var doneView: some View {
@@ -278,7 +314,8 @@ struct UpdateView: View {
             Spacer()
 
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 56))
+                .font(.largeTitle)
+                .imageScale(.large)
                 .foregroundStyle(.green)
                 .accessibilityHidden(true)
 

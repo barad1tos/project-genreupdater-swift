@@ -122,6 +122,9 @@ public actor GRDBCacheService: CacheService {
     // MARK: - Album Year Cache
 
     public func getAlbumYear(artist: String, album: String) async -> AlbumCacheEntry? {
+        let signpostState = AppSignpost.cacheOperation.beginInterval("getAlbumYear")
+        defer { AppSignpost.cacheOperation.endInterval("getAlbumYear", signpostState) }
+
         do {
             return try await dbWriter.read { database -> AlbumCacheEntry? in
                 let row = try AlbumYearRow.fetchOne(
@@ -178,6 +181,9 @@ public actor GRDBCacheService: CacheService {
     // MARK: - API Result Cache
 
     public func getCachedAPIResult(artist: String, album: String, source: String) async -> CachedAPIResult? {
+        let signpostState = AppSignpost.cacheOperation.beginInterval("getCachedAPIResult")
+        defer { AppSignpost.cacheOperation.endInterval("getCachedAPIResult", signpostState) }
+
         do {
             return try await dbWriter.read { database -> CachedAPIResult? in
                 let row = try CachedAPIRow.fetchOne(

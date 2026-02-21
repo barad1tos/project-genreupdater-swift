@@ -170,6 +170,9 @@ public actor UpdateCoordinator {
         options: UpdateOptions,
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> BatchUpdateResult {
+        let signpostState = AppSignpost.batchProcessing.beginInterval("updateTracks")
+        defer { AppSignpost.batchProcessing.endInterval("updateTracks", signpostState) }
+
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
 

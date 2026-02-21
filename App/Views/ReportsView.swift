@@ -3,7 +3,9 @@
 // Uses @Query to fetch PersistedChangeLogEntry from SwiftData, converts to
 // Core.ChangeLogEntry for the SharedUI presentation components.
 // Change log is available on free tier; charts are gated behind .reportsCharts.
+// CSV export is gated behind .csvExport (Week Pass).
 
+import AppKit
 import Core
 import Services
 import SharedUI
@@ -21,6 +23,11 @@ struct ReportsView: View {
     @Query(sort: \PersistedChangeLogEntry.timestamp, order: .reverse)
     private var persistedEntries: [PersistedChangeLogEntry]
 
+    @Environment(AppDependencies.self) private var dependencies
+
+    @State private var exportError: String?
+    @State private var showingExportError = false
+
     var body: some View {
         let entries = persistedEntries.map { $0.toChangeLogEntry() }
 
@@ -34,6 +41,66 @@ struct ReportsView: View {
             .frame(minHeight: 250)
         }
         .navigationTitle("Reports")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                exportCSVButton(entries: entries)
+            }
+        }
+        .alert("Export Failed", isPresented: $showingExportError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exportError ?? "An unknown error occurred.")
+        }
+    }
+
+    // MARK: - Export Button
+
+    @ViewBuilder
+    private func exportCSVButton(
+        entries: [ChangeLogEntry]
+    ) -> some View {
+        let canExport = dependencies.featureGate?.canAccess(.csvExport) == true
+
+        Button {
+            exportCSV(entries: entries)
+        } label: {
+            Label("Export CSV", systemImage: "square.and.arrow.up")
+        }
+        .disabled(!canExport || entries.isEmpty)
+        .help(exportButtonHelpText(canExport: canExport, isEmpty: entries.isEmpty))
+    }
+
+    private func exportButtonHelpText(
+        canExport: Bool,
+        isEmpty: Bool
+    ) -> String {
+        if !canExport {
+            return "CSV export requires Week Pass or higher"
+        }
+        if isEmpty {
+            return "No entries to export"
+        }
+        return "Export change log as CSV"
+    }
+
+    // MARK: - CSV Export
+
+    private func exportCSV(entries: [ChangeLogEntry]) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.nameFieldStringValue = "genre-updater-changes.csv"
+        panel.title = "Export Change Log"
+        panel.prompt = "Export"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let csv = CSVExporter.export(changes: entries)
+        do {
+            try csv.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            exportError = error.localizedDescription
+            showingExportError = true
+        }
     }
 
     // MARK: - Data Aggregation

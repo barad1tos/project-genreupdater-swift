@@ -193,7 +193,7 @@ public struct ReportsChangeLog: View {
 // MARK: - ChangeType Display Helpers
 
 extension ChangeType {
-    var displayLabel: String {
+    public var displayLabel: String {
         switch self {
         case .genreUpdate: "Genre"
         case .yearUpdate: "Year"
@@ -204,7 +204,7 @@ extension ChangeType {
         }
     }
 
-    var iconName: String {
+    public var iconName: String {
         switch self {
         case .genreUpdate: "tag.fill"
         case .yearUpdate: "calendar"
@@ -215,7 +215,7 @@ extension ChangeType {
         }
     }
 
-    var tintColor: Color {
+    public var tintColor: Color {
         switch self {
         case .genreUpdate: .purple
         case .yearUpdate: .blue

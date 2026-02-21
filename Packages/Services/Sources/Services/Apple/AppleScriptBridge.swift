@@ -92,6 +92,9 @@ public actor AppleScriptBridge: AppleScriptClient {
             throw AppleScriptBridgeError.scriptNotFound(name: name, searchPath: scriptURL.deletingLastPathComponent())
         }
 
+        let runScriptSignpost = AppSignpost.appleScriptWrite.beginInterval("runScript")
+        defer { AppSignpost.appleScriptWrite.endInterval("runScript", runScriptSignpost) }
+
         // Sanitize arguments
         let sanitizedArgs = try InputSanitizer.sanitizeArguments(arguments)
 
@@ -192,6 +195,9 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     /// Batch update multiple tracks' properties.
     public func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
+        let batchUpdateSignpost = AppSignpost.appleScriptWrite.beginInterval("batchUpdateTracks")
+        defer { AppSignpost.appleScriptWrite.endInterval("batchUpdateTracks", batchUpdateSignpost) }
+
         // Format matches batch_update_tracks.applescript:
         // Fields separated by ASCII 30 (Record Separator), commands by ASCII 29 (Group Separator).
         let fieldSep = String(Core.Track.fieldSeparator) // \x1E — between fields

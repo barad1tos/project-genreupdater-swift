@@ -112,7 +112,9 @@ final class AppDependencies {
             try await bridge.initialize()
             applescriptBridge = bridge
 
-            let reader = MusicLibraryReader()
+            let reader = MusicLibraryReader(
+                testArtists: config.development.testArtists
+            )
             musicReader = reader
 
             // Step 4: Start subscription service + feature gate

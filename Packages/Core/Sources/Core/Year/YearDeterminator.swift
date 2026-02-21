@@ -5,6 +5,7 @@
 // cache → API → score → validate → fallback → persist
 
 import Foundation
+import OSLog
 
 // MARK: - YearDeterminator
 
@@ -65,6 +66,9 @@ public struct YearDeterminator: Sendable {
         albumTypeInfo: AlbumTypeInfo? = nil,
         verificationAttempts: Int = 0
     ) -> YearDeterminationResult {
+        let signpostState = AppSignpost.yearDetermination.beginInterval("determineYear")
+        defer { AppSignpost.yearDetermination.endInterval("determineYear", signpostState) }
+
         let effectiveCurrentYear = currentYear ?? track.year
 
         // Steps 1-2: Cross-track year (dominant, consensus)

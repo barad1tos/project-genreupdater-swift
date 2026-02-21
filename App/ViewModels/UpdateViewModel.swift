@@ -12,6 +12,7 @@ enum UpdatePhase: Sendable {
     case preview
     case applying
     case done
+    case dryRunSummary
 }
 
 // MARK: - Update View Model
@@ -29,6 +30,10 @@ final class UpdateViewModel {
     var updateGenre: Bool = true
     var updateYear: Bool = true
 
+    /// When true, analysis results are shown as a read-only summary
+    /// without offering the option to apply changes.
+    var previewOnly: Bool = false
+
     /// Confidence threshold as a slider value (0.0 to 1.0).
     /// Converted to an integer percentage (0-100) when passed to Services.
     var minConfidence: Double = 0.6
@@ -44,6 +49,7 @@ final class UpdateViewModel {
     // MARK: - Result State
 
     var result: BatchUpdateResult?
+    var dryRunReport: DryRunReport?
     var errorMessage: String?
 
     // MARK: - Computed Properties
@@ -119,11 +125,20 @@ final class UpdateViewModel {
                     allChanges.append(contentsOf: changes)
                 }
 
-                proposedChanges = changePreviewPipeline.filter(
+                let filtered = changePreviewPipeline.filter(
                     changes: allChanges,
                     minConfidence: confidencePercentage
                 )
-                phase = .preview
+                proposedChanges = filtered
+
+                if previewOnly {
+                    dryRunReport = DryRunReport(
+                        proposedChanges: filtered
+                    )
+                    phase = .dryRunSummary
+                } else {
+                    phase = .preview
+                }
                 progress = nil
             } catch is CancellationError {
                 phase = .configuring
@@ -212,6 +227,8 @@ final class UpdateViewModel {
         progress = nil
         proposedChanges = []
         result = nil
+        dryRunReport = nil
+        previewOnly = false
         errorMessage = nil
     }
 }

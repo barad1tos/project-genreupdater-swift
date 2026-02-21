@@ -337,6 +337,13 @@ public struct CleaningConfig: Sendable, Codable {
     ]
     public var trackCleaningExceptions: [TrackCleaningException] = []
 
+    /// User-defined genre mappings applied after genre determination.
+    ///
+    /// Keys are source genres, values are replacement genres.
+    /// Lookup is case-insensitive but the mapped value preserves its original case.
+    /// Example: `{"Electronica": "Electronic", "Hip Hop": "Hip-Hop"}`
+    public var genreMappings: [String: String] = [:]
+
     public init() {}
 }
 

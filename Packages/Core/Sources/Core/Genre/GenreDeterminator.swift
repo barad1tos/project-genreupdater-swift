@@ -6,6 +6,7 @@
 // No API calls, no mapping, no weighted voting.
 
 import Foundation
+import OSLog
 
 // MARK: - Result Type
 
@@ -52,9 +53,29 @@ public struct GenreDeterminator: Sendable {
     public func determineDominantGenre(
         artistTracks: [Track]
     ) -> GenreResult {
+        determineDominantGenre(artistTracks: artistTracks, genreMappings: [:])
+    }
+
+    /// Determine dominant genre for an artist, applying user-defined genre mappings.
+    ///
+    /// After the standard earliest-album algorithm determines a genre, the result
+    /// is checked against `genreMappings`. Lookup is case-insensitive but the
+    /// mapped value preserves its original case from the dictionary.
+    ///
+    /// - Parameters:
+    ///   - artistTracks: All tracks for a single artist.
+    ///   - genreMappings: User-defined source-to-target genre replacements.
+    /// - Returns: Genre result with the (possibly remapped) dominant genre.
+    public func determineDominantGenre(
+        artistTracks: [Track],
+        genreMappings: [String: String]
+    ) -> GenreResult {
         guard !artistTracks.isEmpty else {
             return GenreResult(genre: nil)
         }
+
+        let signpostState = AppSignpost.genreDetermination.beginInterval("determineDominantGenre")
+        defer { AppSignpost.genreDetermination.endInterval("determineDominantGenre", signpostState) }
 
         // Step 1: Find the earliest track per album
         let albumEarliest = getEarliestTrackPerAlbum(artistTracks)
@@ -73,11 +94,31 @@ public struct GenreDeterminator: Sendable {
             return GenreResult(genre: nil)
         }
 
+        // Step 4: Apply user-defined genre mapping (case-insensitive lookup)
+        let mappedGenre = Self.applyGenreMapping(genre, mappings: genreMappings)
+
         return GenreResult(
-            genre: genre,
+            genre: mappedGenre,
             sourceAlbum: earliestTrack.album,
             sourceTrackDateAdded: earliestTrack.dateAdded
         )
+    }
+
+    /// Look up a genre in the user-defined mappings using case-insensitive comparison.
+    ///
+    /// - Parameters:
+    ///   - genre: The determined genre to look up.
+    ///   - mappings: Source-to-target genre dictionary.
+    /// - Returns: The mapped genre if a match is found, otherwise the original genre.
+    static func applyGenreMapping(
+        _ genre: String,
+        mappings: [String: String]
+    ) -> String {
+        let lowercasedGenre = genre.lowercased()
+        for (source, target) in mappings where source.lowercased() == lowercasedGenre {
+            return target
+        }
+        return genre
     }
 
     // MARK: - Private Helpers
