@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "API Clients + Cache"
-status: active
+status: done
 priority: high
 depends_on:
   - "Phase 2 (GRDB setup)"
@@ -57,6 +57,7 @@ depends_on:
 - [x] Catalog search (artist + album)
 - [x] Genre extraction з Apple Music catalog (via genreNames)
 - [x] Graceful fallback when MusicKit not authorized
+- [x] Unit tests (3 tests: statusCode200, missingAuthorization, noResults)
 - [ ] Integration tests — deferred to Phase 7
 
 ### APIOrchestrator
@@ -84,16 +85,15 @@ depends_on:
 - [x] Cache statistics (CacheStatistics struct with entry counts + expired)
 - [x] Unit tests: CRUD, expiry, bulk, statistics (19 tests total)
 
-### NetworkReachability (deferred to Phase 5)
+### NetworkReachability (implemented in Phase 5.5)
 > **TDD ref:** [[TDD#Risks & Mitigation]] (network unavailability = 🟡 Medium risk, "Queue requests for retry on reconnect")
 
-> **Decision:** Deferred to Phase 5 (Workflows). API clients throw network errors; offline handling is a workflow concern.
-
-- [ ] Створити `Packages/Services/Sources/Services/Network/NetworkReachability.swift`
-- [ ] Detect internet availability (NWPathMonitor)
-- [ ] Show offline indicator в UI
-- [ ] Queue requests для повторної спроби при reconnect
-- [ ] Unit tests
+- [x] Створити `Packages/Services/Sources/Services/Network/NetworkReachabilityMonitor.swift`
+- [x] Detect internet availability (NWPathMonitor) — actor-based
+- [x] Wired into APIOrchestrator (skip API calls when offline)
+- [ ] Show offline indicator в UI — Phase 6
+- [ ] Queue requests для повторної спроби при reconnect — Phase 6
+- [x] Unit tests (2 lifecycle tests)
 
 ### Rate Limiter Implementations
 > **TDD ref:** [[TDD#Decision 4 Decorators → Generic Async Functions]] (Python `@retry` → Swift `withRetry()`) | [[TDD#src/services/apple/ → Packages/Services/Sources/Services/Apple/]] (`rate_limiter.py` 149 LOC → actor-based token bucket)
@@ -122,7 +122,7 @@ depends_on:
 - [x] API fetch → score → cache cycle працює end-to-end (APIOrchestrator + GRDBCacheService)
 - [x] Cache hit/miss/expiry поведінка verified (19 GRDB tests)
 - [x] Rate limiting запобігає API throttling (TokenBucketRateLimiter, 6 tests)
-- [ ] Network unavailability handled gracefully (offline mode) — deferred to Phase 5
+- [x] Network unavailability handled gracefully (NetworkReachabilityMonitor, Phase 5.5)
 - [ ] Всі API clients мають integration tests — deferred to Phase 7
 - [x] `swift build` + `swift test` проходять (103 tests, 18 suites)
 

@@ -1,5 +1,5 @@
-import Testing
 import Core
+import Testing
 @testable import Services
 
 // MARK: - Access Control
@@ -7,7 +7,6 @@ import Core
 @Suite("FeatureGate — feature access per tier")
 @MainActor
 struct FeatureGateAccessTests {
-
     @Test("Free tier can access all free features")
     func freeAccessesFreeFeatures() {
         let gate = FeatureGate(fixedTier: .free)
@@ -66,7 +65,6 @@ struct FeatureGateAccessTests {
 @Suite("FeatureGate — require throws on insufficient tier")
 @MainActor
 struct FeatureGateRequireTests {
-
     @Test("require succeeds for accessible feature")
     func requireSucceeds() throws {
         let gate = FeatureGate(fixedTier: .pro)
@@ -88,7 +86,7 @@ struct FeatureGateRequireTests {
             try gate.require(.autoSync)
             Issue.record("Should have thrown")
         } catch let error as FeatureGateError {
-            if case .featureRequiresTier(let feature, let required, let current) = error {
+            if case let .featureRequiresTier(feature, required, current) = error {
                 #expect(feature == .autoSync)
                 #expect(required == .pro)
                 #expect(current == .free)
@@ -106,13 +104,12 @@ struct FeatureGateRequireTests {
 @Suite("FeatureGate — free tier track limits")
 @MainActor
 struct FeatureGateTrackLimitTests {
-
     @Test("Paid tiers have unlimited track capacity")
     func paidUnlimited() {
         let weekGate = FeatureGate(fixedTier: .weekPass)
         let proGate = FeatureGate(fixedTier: .pro)
-        #expect(weekGate.canProcessTracks(count: 10_000))
-        #expect(proGate.canProcessTracks(count: 10_000))
+        #expect(weekGate.canProcessTracks(count: 10000))
+        #expect(proGate.canProcessTracks(count: 10000))
     }
 
     @Test("Free tier allows tracks within limit")
@@ -154,7 +151,6 @@ struct FeatureGateTrackLimitTests {
 @Suite("FeatureGate — feature listing")
 @MainActor
 struct FeatureGateListingTests {
-
     @Test("Free tier: 7 accessible, 6 locked")
     func freeListings() {
         let gate = FeatureGate(fixedTier: .free)
@@ -173,6 +169,6 @@ struct FeatureGateListingTests {
     func proListings() {
         let gate = FeatureGate(fixedTier: .pro)
         #expect(gate.accessibleFeatures().count == 13)
-        #expect(gate.lockedFeatures().count == 0)
+        #expect(gate.lockedFeatures().isEmpty)
     }
 }

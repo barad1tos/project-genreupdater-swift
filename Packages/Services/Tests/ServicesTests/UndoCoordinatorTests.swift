@@ -77,7 +77,12 @@ actor MockTrackStore: TrackStateStore {
     }
 }
 
-// MARK: - Helper
+// MARK: - Helpers
+
+private func makeTempDirectory() -> URL {
+    FileManager.default.temporaryDirectory
+        .appendingPathComponent("UndoCoordinatorTests-\(UUID().uuidString)")
+}
 
 private func makeGenreEntry(
     trackID: String = "T1",
@@ -120,7 +125,7 @@ struct UndoCoordinatorTests {
     @Test("Record and get history")
     func recordAndGetHistory() async {
         let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge)
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
 
         let entry1 = makeGenreEntry(trackID: "T1")
         let entry2 = makeYearEntry(trackID: "T2")
@@ -135,7 +140,7 @@ struct UndoCoordinatorTests {
     @Test("Revert single genre change writes old value")
     func revertSingleGenre() async throws {
         let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge)
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
 
         let entry = makeGenreEntry(trackID: "T1", oldGenre: "Rock", newGenre: "Pop")
         await coordinator.recordChange(entry)
@@ -154,7 +159,7 @@ struct UndoCoordinatorTests {
     @Test("Revert single year change writes old value")
     func revertSingleYear() async throws {
         let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge)
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
 
         let entry = makeYearEntry(trackID: "T1", oldYear: 1984)
         await coordinator.recordChange(entry)
@@ -169,7 +174,7 @@ struct UndoCoordinatorTests {
     @Test("Batch revert processes all entries")
     func batchRevert() async throws {
         let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge)
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
 
         let entries = [
             makeGenreEntry(trackID: "T1"),
@@ -185,7 +190,7 @@ struct UndoCoordinatorTests {
     @Test("Batch revert on empty list throws noChangesToRevert")
     func batchRevertEmpty() async {
         let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge)
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
 
         await #expect(throws: UndoCoordinatorError.self) {
             try await coordinator.revertBatch([])
@@ -195,7 +200,7 @@ struct UndoCoordinatorTests {
     @Test("Partial revert failure reports failed counts")
     func partialRevertFailure() async {
         let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge)
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
 
         let entry1 = makeGenreEntry(trackID: "T1")
         let entry2 = makeYearEntry(trackID: "T2")
@@ -220,7 +225,7 @@ struct UndoCoordinatorTests {
     @Test("Clear history removes all entries")
     func clearHistory() async {
         let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge)
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
 
         await coordinator.recordChange(makeGenreEntry())
         await coordinator.recordChange(makeYearEntry())
@@ -233,7 +238,7 @@ struct UndoCoordinatorTests {
     @Test("Selective revert only reverts specified entries")
     func selectiveRevert() async throws {
         let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge)
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
 
         let entry1 = makeGenreEntry(trackID: "T1")
         let entry2 = makeYearEntry(trackID: "T2")
@@ -256,7 +261,7 @@ struct UndoCoordinatorTests {
     @Test("History limit returns only N most recent entries")
     func historyLimit() async {
         let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge)
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
 
         for i in 0 ..< 5 {
             await coordinator.recordChange(makeGenreEntry(trackID: "T\(i)"))
@@ -264,6 +269,56 @@ struct UndoCoordinatorTests {
 
         let limited = await coordinator.getHistory(limit: 2)
         #expect(limited.count == 2)
+    }
+}
+
+// MARK: - Persistence Tests
+
+@Suite("UndoCoordinator — JSON persistence")
+struct UndoCoordinatorPersistenceTests {
+    @Test("History survives round-trip through new coordinator instance")
+    func persistenceRoundTrip() async {
+        let directory = makeTempDirectory()
+        let bridge = MockAppleScriptClient()
+
+        let coordinator1 = UndoCoordinator(scriptBridge: bridge, directory: directory)
+        await coordinator1.recordChange(makeGenreEntry(trackID: "T1"))
+        await coordinator1.recordChange(makeYearEntry(trackID: "T2"))
+
+        let coordinator2 = UndoCoordinator(scriptBridge: bridge, directory: directory)
+        let history = await coordinator2.getHistory()
+        #expect(history.count == 2)
+
+        let trackIDs = Set(history.map(\.trackID))
+        #expect(trackIDs == ["T1", "T2"])
+    }
+
+    @Test("Corrupt history file loads empty history")
+    func corruptFileReturnsEmpty() async {
+        let directory = makeTempDirectory()
+        let historyURL = directory.appendingPathComponent("undo-history.json")
+
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? Data("not valid json".utf8).write(to: historyURL)
+
+        let bridge = MockAppleScriptClient()
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: directory)
+        let history = await coordinator.getHistory()
+        #expect(history.isEmpty)
+    }
+
+    @Test("clearHistory deletes the history file")
+    func clearHistoryDeletesFile() async {
+        let directory = makeTempDirectory()
+        let historyURL = directory.appendingPathComponent("undo-history.json")
+        let bridge = MockAppleScriptClient()
+
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: directory)
+        await coordinator.recordChange(makeGenreEntry())
+        #expect(FileManager.default.fileExists(atPath: historyURL.path))
+
+        await coordinator.clearHistory()
+        #expect(!FileManager.default.fileExists(atPath: historyURL.path))
     }
 }
 

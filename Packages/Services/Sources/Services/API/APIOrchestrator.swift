@@ -29,6 +29,7 @@ public actor APIOrchestrator {
     private let musicBrainz: any ExternalAPIService
     private let discogs: any ExternalAPIService
     private let appleMusic: any ExternalAPIService
+    private let reachability: NetworkReachabilityMonitor?
     private let timeout: Duration
     private let log = AppLogger.api
 
@@ -38,16 +39,19 @@ public actor APIOrchestrator {
     ///   - musicBrainz: MusicBrainz API client.
     ///   - discogs: Discogs API client.
     ///   - appleMusic: Apple Music catalog search client.
+    ///   - reachability: Optional network monitor. When offline, API calls are skipped.
     ///   - timeout: Maximum time to wait for each source. Defaults to 15 seconds.
     public init(
         musicBrainz: any ExternalAPIService,
         discogs: any ExternalAPIService,
         appleMusic: any ExternalAPIService,
+        reachability: NetworkReachabilityMonitor? = nil,
         timeout: Duration = .seconds(15)
     ) {
         self.musicBrainz = musicBrainz
         self.discogs = discogs
         self.appleMusic = appleMusic
+        self.reachability = reachability
         self.timeout = timeout
     }
 
@@ -69,6 +73,11 @@ public actor APIOrchestrator {
         currentLibraryYear: Int?,
         earliestTrackAddedYear: Int?
     ) async -> YearResult {
+        if let reachability, await !reachability.isConnected {
+            log.info("Skipping API calls: network offline")
+            return YearResult()
+        }
+
         let sources: [(name: String, service: any ExternalAPIService)] = [
             ("musicbrainz", musicBrainz),
             ("discogs", discogs),

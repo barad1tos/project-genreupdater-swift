@@ -1,6 +1,6 @@
 # GenreUpdater -- Product Requirements Document
 
-> Version 1.0 | Last updated: 2026-02-15 | Status: Active
+> Version 1.0 | Last updated: 2026-02-21 | Status: Active
 >
 > Technical companion: [[TDD]] — file mapping, pattern translations, architecture implementation, lessons learned
 
@@ -805,7 +805,7 @@ hide edit button
 
 ### Phase 5: Application Workflows
 
-**Status**: Done | **Task**: [[phase-5-workflows]] | **Porting ref**: [[TDD#src/app/ → Sources/App/]]
+**Status**: ✅ Done | **Task**: [[phase-5-workflows]] | **Porting ref**: [[TDD#src/app/ → Sources/App/]]
 
 ```tasks
 path includes Tasks/phase-5-workflows
@@ -819,7 +819,7 @@ hide edit button
 
 ### Phase 6: Views + Polish
 
-**Status**: Planned | **Task**: [[phase-6-views-polish]]
+**Status**: 🔄 Active | **Task**: [[phase-6-views-polish]]
 
 ```tasks
 path includes Tasks/phase-6-views-polish
@@ -1072,8 +1072,8 @@ gantt
 | 2B: Monetization | ✅ Done | [[phase-2-core-models]] |
 | 3: Core Algorithms | ✅ Done | [[phase-3-core-algorithms]] |
 | 4: API + Cache | ✅ Done | [[phase-4-api-cache]] |
-| 5: Workflows | 🔄 Active | [[phase-5-workflows]] |
-| 6: Views + Polish | Planned | [[phase-6-views-polish]] |
+| 5: Workflows | ✅ Done | [[phase-5-workflows]] |
+| 6: Views + Polish | 🔄 Active | [[phase-6-views-polish]] |
 | 7: Testing + Launch | Planned | [[phase-7-testing-launch]] |
 
 ---

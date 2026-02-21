@@ -172,6 +172,41 @@ public struct ChangeLogEntry: Sendable, Codable, Identifiable, Equatable {
         self.trackName = trackName
         self.albumName = albumName
     }
+
+    /// Round-trip init for restoring from persistence (preserves original id and timestamp).
+    public init(
+        id: UUID,
+        timestamp: Date,
+        changeType: ChangeType,
+        trackID: String,
+        artist: String,
+        trackName: String = "",
+        albumName: String = "",
+        oldGenre: String? = nil,
+        newGenre: String? = nil,
+        oldYear: Int? = nil,
+        newYear: Int? = nil,
+        oldTrackName: String? = nil,
+        newTrackName: String? = nil,
+        oldAlbumName: String? = nil,
+        newAlbumName: String? = nil
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.changeType = changeType
+        self.trackID = trackID
+        self.artist = artist
+        self.trackName = trackName
+        self.albumName = albumName
+        self.oldGenre = oldGenre
+        self.newGenre = newGenre
+        self.oldYear = oldYear
+        self.newYear = newYear
+        self.oldTrackName = oldTrackName
+        self.newTrackName = newTrackName
+        self.oldAlbumName = oldAlbumName
+        self.newAlbumName = newAlbumName
+    }
 }
 
 /// Types of metadata changes the app can make.

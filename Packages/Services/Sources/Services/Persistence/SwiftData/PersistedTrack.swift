@@ -30,6 +30,9 @@ public final class PersistedTrack {
     public var dateAdded: Date?
     public var albumArtist: String?
 
+    @Relationship(deleteRule: .cascade, inverse: \PersistedChangeLogEntry.track)
+    public var changeLog: [PersistedChangeLogEntry] = []
+
     public init(
         trackID: String,
         name: String,

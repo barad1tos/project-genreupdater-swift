@@ -383,6 +383,40 @@ extension TrackProcessor {
     }
 }
 
+// MARK: - Change Log Store
+
+/// Protocol for persisting undo/redo change log entries (SwiftData-backed).
+///
+/// Survives app restarts so users can undo changes from previous sessions.
+public protocol ChangeLogStore: Actor {
+    func saveEntry(_ entry: ChangeLogEntry) async throws
+    func saveEntries(_ entries: [ChangeLogEntry]) async throws
+    func loadAll() async throws -> [ChangeLogEntry]
+    func delete(entryID: UUID) async throws
+    func deleteAll() async throws
+}
+
+// MARK: - Track ID Mapping
+
+/// Maps between MusicKit IDs and AppleScript persistent IDs.
+///
+/// MusicKit uses numeric `MusicItemID` strings while AppleScript uses
+/// hex persistent IDs. This protocol bridges the two ID spaces by
+/// matching tracks on (name, artist, album) tuples.
+public protocol TrackIDMapping: Sendable {
+    /// Get the AppleScript persistent ID for a MusicKit track.
+    func appleScriptID(forMusicKitID musicKitID: String) async -> String?
+
+    /// Build/refresh the mapping table from both ID sources.
+    func refreshMapping(
+        musicKitTracks: [Track],
+        appleScriptTracks: [Track]
+    ) async
+
+    /// Whether a mapping exists for the given MusicKit ID.
+    func hasMappingFor(musicKitID: String) async -> Bool
+}
+
 // MARK: - Analytics
 
 /// Protocol for performance tracking and analytics instrumentation.

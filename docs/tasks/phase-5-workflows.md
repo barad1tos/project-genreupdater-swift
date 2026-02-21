@@ -52,7 +52,7 @@ depends_on:
 - [x]Individual change revert (single ChangeLogEntry)
 - [x]Batch revert (all changes in a session)
 - [x]Selective revert (user picks which changes to undo)
-- [x]Revert history persists across app launches (SwiftData)
+- [x]Revert history persists across app launches (JSON file in Application Support)
 - [x]Confirmation dialog before destructive undo
 - [x]Unit tests: individual, batch, selective, persistence
 
@@ -97,6 +97,8 @@ depends_on:
 | `Services/Workflow/BatchProcessor.swift` | Batch operations |
 | `Services/Workflow/LibrarySyncService.swift` | Library change detection |
 | `Services/Workflow/ChangePreviewPipeline.swift` | Preview aggregation |
+| `Services/Workflow/TrackIDMapper.swift` | MusicKit ↔ AppleScript ID mapping (Phase 5.5) |
+| `Services/Network/NetworkReachabilityMonitor.swift` | NWPathMonitor wrapper (Phase 5.5) |
 
 ## Acceptance Criteria
 
@@ -119,3 +121,11 @@ depends_on:
 - UpdateCoordinator — центральна точка інтеграції, найскладніший компонент фази
 - CheckpointManager критичний для UX: користувач не має втрачати прогрес
 - Undo має бути надійним — це довіра користувача до додатку
+
+## Post-Phase Audit Fixes (Phase 5.5)
+
+Closes H1/H3 from Phase 1–5 audit:
+
+- **H1**: `PersistedChangeLogEntry` SwiftData model + `SwiftDataChangeLogStore` + `ModelContainerFactory` — enables SwiftData-backed change log persistence alongside existing JSON persistence; `UndoCoordinator` optionally writes to both
+- **H3**: `PersistedTrack.changeLog` `@Relationship` to `PersistedChangeLogEntry` with cascade delete
+- **Pre-existing fixes**: Updated `UpdateCoordinatorTests` to use temp directory (fixed flaky assertion), fixed `empty_count` lint violation in `FeatureGateTests`

@@ -69,6 +69,7 @@ public actor UpdateCoordinator {
     private let trackStore: any TrackStateStore
     private let cache: any CacheService
     private let undoCoordinator: UndoCoordinator
+    private let idMapper: (any TrackIDMapping)?
     private let genreDeterminator: GenreDeterminator
     private let yearDeterminator: YearDeterminator
     private let log = Logger(subsystem: "com.genreupdater", category: "UpdateCoordinator")
@@ -79,6 +80,7 @@ public actor UpdateCoordinator {
         trackStore: any TrackStateStore,
         cache: any CacheService,
         undoCoordinator: UndoCoordinator,
+        idMapper: (any TrackIDMapping)? = nil,
         genreDeterminator: GenreDeterminator,
         yearDeterminator: YearDeterminator
     ) {
@@ -87,6 +89,7 @@ public actor UpdateCoordinator {
         self.trackStore = trackStore
         self.cache = cache
         self.undoCoordinator = undoCoordinator
+        self.idMapper = idMapper
         self.genreDeterminator = genreDeterminator
         self.yearDeterminator = yearDeterminator
     }
@@ -296,9 +299,15 @@ public actor UpdateCoordinator {
         case .artistRename: "artist"
         }
 
+        let writeID = if let idMapper {
+            await idMapper.appleScriptID(forMusicKitID: change.track.id) ?? change.track.id
+        } else {
+            change.track.id
+        }
+
         do {
             try await scriptBridge.updateTrackProperty(
-                trackID: change.track.id,
+                trackID: writeID,
                 property: property,
                 value: newValue
             )

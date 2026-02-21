@@ -93,7 +93,9 @@ struct UpdateCoordinatorTests {
         let bridge = scriptBridge ?? MockAppleScriptClient()
         let store = MockTrackStore()
         let cacheService = cache ?? MockCacheService()
-        let undo = UndoCoordinator(scriptBridge: bridge)
+        let undoDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("UpdateCoordinatorTests-\(UUID().uuidString)")
+        let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
 
         // yearScores must be populated for APIOrchestrator.aggregateResults
         let yearScores: [Int: Int] = if let year {

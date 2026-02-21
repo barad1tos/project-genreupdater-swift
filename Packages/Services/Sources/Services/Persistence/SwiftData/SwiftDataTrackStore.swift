@@ -110,28 +110,15 @@ public actor SwiftDataTrackStore: TrackStateStore {
 // MARK: - Factory
 
 extension SwiftDataTrackStore {
-    /// Create a track store with the default SwiftData configuration.
+    /// Create a track store with the default shared ModelContainer.
     public static func createDefault() throws -> SwiftDataTrackStore {
-        let schema = Schema([PersistedTrack.self])
-        let config = ModelConfiguration(
-            "GenreUpdater",
-            schema: schema,
-            isStoredInMemoryOnly: false,
-            groupContainer: .none,
-            cloudKitDatabase: .none
-        )
-        let container = try ModelContainer(for: schema, configurations: [config])
+        let container = try ModelContainerFactory.create()
         return SwiftDataTrackStore(modelContainer: container)
     }
 
     /// Create a track store with an in-memory container (for testing).
     public static func createInMemory() throws -> SwiftDataTrackStore {
-        let schema = Schema([PersistedTrack.self])
-        let config = ModelConfiguration(
-            schema: schema,
-            isStoredInMemoryOnly: true
-        )
-        let container = try ModelContainer(for: schema, configurations: [config])
+        let container = try ModelContainerFactory.createInMemory()
         return SwiftDataTrackStore(modelContainer: container)
     }
 }
