@@ -93,6 +93,8 @@ struct MainView: View {
     @State private var searchText = ""
     @State private var debouncedSearchText = ""
     @State private var isLoading = false
+    @State private var artistGroups: [(key: String, tracks: [Track])] = []
+    @State private var albumGroups: [(key: String, tracks: [Track])] = []
     @State private var selectedTrack: Track?
     @State private var showUpdateSheet = false
 
@@ -298,13 +300,10 @@ struct MainView: View {
     // MARK: - Grouped Views
 
     private var artistGroupedList: some View {
-        let grouped = Dictionary(grouping: filteredTracks) { $0.effectiveArtist }
-        let sortedKeys = grouped.keys.sorted(by: { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending })
-
-        return List(selection: $selectedTrack) {
-            ForEach(sortedKeys, id: \.self) { artist in
-                DisclosureGroup(artist) {
-                    ForEach(grouped[artist] ?? []) { track in
+        List(selection: $selectedTrack) {
+            ForEach(artistGroups, id: \.key) { group in
+                DisclosureGroup(group.key) {
+                    ForEach(group.tracks) { track in
                         TrackRow(track: track)
                             .tag(track)
                     }
@@ -316,13 +315,10 @@ struct MainView: View {
     }
 
     private var albumGroupedList: some View {
-        let grouped = Dictionary(grouping: filteredTracks) { $0.album }
-        let sortedKeys = grouped.keys.sorted(by: { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending })
-
-        return List(selection: $selectedTrack) {
-            ForEach(sortedKeys, id: \.self) { album in
-                DisclosureGroup(album.isEmpty ? "Unknown Album" : album) {
-                    ForEach(grouped[album] ?? []) { track in
+        List(selection: $selectedTrack) {
+            ForEach(albumGroups, id: \.key) { group in
+                DisclosureGroup(group.key.isEmpty ? "Unknown Album" : group.key) {
+                    ForEach(group.tracks) { track in
                         TrackRow(track: track)
                             .tag(track)
                     }
@@ -360,6 +356,7 @@ struct MainView: View {
     private func updateFilteredTracks() {
         guard !debouncedSearchText.isEmpty else {
             filteredTracks = tracks
+            updateGroupedData()
             return
         }
         let query = debouncedSearchText
@@ -369,6 +366,19 @@ struct MainView: View {
                 || track.album.localizedStandardContains(query)
                 || (track.genre?.localizedStandardContains(query) ?? false)
         }
+        updateGroupedData()
+    }
+
+    private func updateGroupedData() {
+        let byArtist = Dictionary(grouping: filteredTracks) { $0.effectiveArtist }
+        artistGroups = byArtist.keys
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            .map { (key: $0, tracks: byArtist[$0] ?? []) }
+
+        let byAlbum = Dictionary(grouping: filteredTracks) { $0.album }
+        albumGroups = byAlbum.keys
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            .map { (key: $0, tracks: byAlbum[$0] ?? []) }
     }
 
     private func loadTracks() async {
