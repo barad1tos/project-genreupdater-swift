@@ -81,7 +81,6 @@ public actor APIOrchestrator {
         let signpostState = AppSignpost.apiCall.beginInterval("orchestrateAlbumYear")
         defer { AppSignpost.apiCall.endInterval("orchestrateAlbumYear", signpostState) }
 
-
         let sources: [(name: String, service: any ExternalAPIService)] = [
             ("musicbrainz", musicBrainz),
             ("discogs", discogs),
