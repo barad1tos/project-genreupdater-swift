@@ -137,6 +137,7 @@ All interactive list rows (ArtistListRow, AlbumListRow) share a consistent trio:
 - **SwiftData** (Apple framework) — track state persistence (Services package)
 - **StoreKit 2** (Apple framework) — subscriptions (Services package)
 - **SwiftUI-Shimmer 1.5.1** — shimmer loading animations (SharedUI package)
+- **LucideIcons 0.575.0** — sidebar navigation icons, ISC license (SharedUI package)
 
 ### Dev Tools (Homebrew)
 - **SwiftLint** — linting (pre-commit + CI, `--strict`)
