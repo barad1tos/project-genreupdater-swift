@@ -71,11 +71,15 @@ Plans:
 **Depends on**: Phase 3
 **Requirements**: NAV-01, NAV-02, NAV-03
 **Success Criteria** (what must be TRUE):
-  1. Sidebar renders with an Ayu dark background in both light and dark system themes
+  1. Sidebar renders with an Ayu adaptive background (bgSecondary in expanded mode, clear in compact) in both light and dark system themes
   2. The active sidebar item has a sliding highlight that moves with matchedGeometryEffect when switching screens
   3. Navigating to Dashboard, Update, or Reports shows a two-column layout — no detail panel placeholder appears
   4. Navigating to Browse with a selected track reveals the detail panel; deselecting collapses it back
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Sidebar components: LucideIcons dependency, Motion.curveSmooth, SidebarView/SidebarItemView/SidebarSectionHeader
+- [ ] 04-02-PLAN.md — MainView integration: SidebarView wiring, column layout fix, content centering, settings cleanup
 
 ### Phase 5: Dashboard Redesign
 **Goal**: Dashboard is a compelling first impression — it shows real library data instantly on every launch, never displays "0 tracks", and gives users one-click access to the most impactful actions for their specific library
@@ -133,7 +137,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 1. Design System Foundation | 2/2 | Complete    | 2026-02-22 |
 | 2. Theme Switching | 1/1 | Complete | 2026-02-22 |
 | 3. SharedUI Component Library | 3/3 | Complete | 2026-02-22 |
-| 4. Navigation Shell | 0/TBD | Not started | - |
+| 4. Navigation Shell | 0/2 | Not started | - |
 | 5. Dashboard Redesign | 0/TBD | Not started | - |
 | 6. Browse Redesign | 0/TBD | Not started | - |
 | 7. Update and Reports Polish | 0/TBD | Not started | - |
