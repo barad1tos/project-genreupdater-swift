@@ -44,7 +44,10 @@ Plans:
   2. Selecting Dark or Light immediately updates the entire app — sidebar, content area, sheets, and date pickers all change color mode
   3. The chosen theme persists after quitting and relaunching the app
   4. When set to System, the app tracks the system appearance change in real time without a restart
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 02-01-PLAN.md — AppearanceMode enum, dual-layer appearance wiring, Appearance settings tab
 
 ### Phase 3: SharedUI Component Library
 **Goal**: All reusable UI components exist as independently previewable SwiftUI views with correct hover, press, and focus states so screen-level work never blocks on missing primitives
