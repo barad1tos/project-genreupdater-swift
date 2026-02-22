@@ -93,37 +93,37 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DSYS-01 | — | Pending |
-| DSYS-02 | — | Pending |
-| DSYS-03 | — | Pending |
-| DSYS-04 | — | Pending |
-| DSYS-05 | — | Pending |
-| NAV-01 | — | Pending |
-| NAV-02 | — | Pending |
-| NAV-03 | — | Pending |
-| DASH-01 | — | Pending |
-| DASH-02 | — | Pending |
-| DASH-03 | — | Pending |
-| DASH-04 | — | Pending |
-| BRWS-01 | — | Pending |
-| BRWS-02 | — | Pending |
-| BRWS-03 | — | Pending |
-| BRWS-04 | — | Pending |
-| UPDT-01 | — | Pending |
-| UPDT-02 | — | Pending |
-| UPDT-03 | — | Pending |
-| UPDT-04 | — | Pending |
-| UPDT-05 | — | Pending |
-| RPTS-01 | — | Pending |
-| RPTS-02 | — | Pending |
-| RPTS-03 | — | Pending |
-| RPTS-04 | — | Pending |
+| DSYS-01 | Phase 2 | Pending |
+| DSYS-02 | Phase 1 | Pending |
+| DSYS-03 | Phase 3 | Pending |
+| DSYS-04 | Phase 8 | Pending |
+| DSYS-05 | Phase 1 | Pending |
+| NAV-01 | Phase 4 | Pending |
+| NAV-02 | Phase 4 | Pending |
+| NAV-03 | Phase 4 | Pending |
+| DASH-01 | Phase 5 | Pending |
+| DASH-02 | Phase 5 | Pending |
+| DASH-03 | Phase 5 | Pending |
+| DASH-04 | Phase 5 | Pending |
+| BRWS-01 | Phase 6 | Pending |
+| BRWS-02 | Phase 6 | Pending |
+| BRWS-03 | Phase 6 | Pending |
+| BRWS-04 | Phase 6 | Pending |
+| UPDT-01 | Phase 7 | Pending |
+| UPDT-02 | Phase 7 | Pending |
+| UPDT-03 | Phase 7 | Pending |
+| UPDT-04 | Phase 7 | Pending |
+| UPDT-05 | Phase 7 | Pending |
+| RPTS-01 | Phase 7 | Pending |
+| RPTS-02 | Phase 7 | Pending |
+| RPTS-03 | Phase 7 | Pending |
+| RPTS-04 | Phase 7 | Pending |
 
 **Coverage:**
 - v1 requirements: 25 total
-- Mapped to phases: 0
-- Unmapped: 25 ⚠️
+- Mapped to phases: 25
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-02-22*
-*Last updated: 2026-02-22 after initial definition*
+*Last updated: 2026-02-22 after roadmap creation*
