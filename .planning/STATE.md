@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-22)
 
 ## Current Position
 
-Phase: 4 of 8 (Navigation Shell)
-Plan: 1 of 2 in current phase
-Status: Executing
-Last activity: 2026-02-22 — Phase 4 Plan 1 complete
+Phase: 4 of 8 (Navigation Shell) -- COMPLETE
+Plan: 2 of 2 in current phase
+Status: Phase Complete
+Last activity: 2026-02-22 — Phase 4 Plan 2 complete
 
-Progress: [████▓░░░░░] 44%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
-- Average duration: 6min
-- Total execution time: 45min
+- Total plans completed: 8
+- Average duration: 7min
+- Total execution time: 53min
 
 **By Phase:**
 
@@ -30,11 +30,11 @@ Progress: [████▓░░░░░] 44%
 | 01-design-system-foundation | 2 | 14min | 7min |
 | 02-theme-switching | 1 | 15min | 15min |
 | 03-sharedui-component-library | 3 | 10min | 3min |
-| 04-navigation-shell | 1 | 6min | 6min |
+| 04-navigation-shell | 2 | 14min | 7min |
 
 **Recent Trend:**
-- Last 5 plans: 3min, 3min, 4min, 6min
-- Trend: stable-fast
+- Last 5 plans: 3min, 4min, 6min, 8min
+- Trend: stable
 
 *Updated after each plan completion*
 
@@ -65,6 +65,9 @@ Recent decisions affecting current work:
 - [Phase 04]: SidebarView.Item struct for data-driven sidebar instead of generic/protocol approach
 - [Phase 04]: NSImage copy + isTemplate = true for Lucide icon foregroundStyle tinting
 - [Phase 04]: LucideIcons 0.575.0 added to SharedUI (second external dependency after SwiftUI-Shimmer)
+- [Phase 04]: LucideIcons added as direct App target dependency for NavigationCategory icon mapping
+- [Phase 04]: centeredContent uses frame-based approach (no extra ScrollView) since views already scroll
+- [Phase 04]: Opaque generic parameter (some View) for centeredContent per SwiftFormat rule
 
 ### Pending Todos
 
@@ -79,5 +82,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-22
-Stopped at: Completed 04-01-PLAN.md
+Stopped at: Completed 04-02-PLAN.md
 Resume file: .planning/ROADMAP.md

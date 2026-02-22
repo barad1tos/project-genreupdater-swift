@@ -18,8 +18,8 @@ Requirements for the UI/UX redesign milestone. Each maps to roadmap phases.
 ### Navigation
 
 - [x] **NAV-01**: Sidebar has Ayu dark background with matchedGeometryEffect sliding active indicator
-- [ ] **NAV-02**: Dashboard, Update, and Reports screens use doubleColumn layout (no spurious "Select a Track" panel)
-- [ ] **NAV-03**: App enforces minimum window width of 900pt to prevent layout collapse
+- [x] **NAV-02**: Dashboard, Update, and Reports screens use doubleColumn layout (no spurious "Select a Track" panel)
+- [x] **NAV-03**: App enforces minimum window width of 900pt to prevent layout collapse
 
 ### Dashboard
 
@@ -99,8 +99,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DSYS-04 | Phase 8 | Pending |
 | DSYS-05 | Phase 1 | Complete |
 | NAV-01 | Phase 4 | Complete |
-| NAV-02 | Phase 4 | Pending |
-| NAV-03 | Phase 4 | Pending |
+| NAV-02 | Phase 4 | Complete |
+| NAV-03 | Phase 4 | Complete |
 | DASH-01 | Phase 5 | Pending |
 | DASH-02 | Phase 5 | Pending |
 | DASH-03 | Phase 5 | Pending |
