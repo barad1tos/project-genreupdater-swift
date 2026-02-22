@@ -1,4 +1,4 @@
-// SettingsView.swift — Simplified settings with 3 tabs (was 6).
+// SettingsView.swift — Settings with 4 tabs: General, API & Cache, Advanced, Appearance.
 
 import Core
 import Services
@@ -25,13 +25,6 @@ enum UpdateBehavior: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Keychain Constants
-
-private enum DiscogsKeychain {
-    static let service = "GenreUpdater-Discogs"
-    static let account = "pat"
-}
-
 // MARK: - Settings View
 
 struct SettingsView: View {
@@ -47,12 +40,15 @@ struct SettingsView: View {
 
             AdvancedTab()
                 .tabItem { Label("Advanced", systemImage: "wrench") }
+
+            AppearanceTab()
+                .tabItem { Label("Appearance", systemImage: "paintbrush") }
         }
         .frame(width: 520)
     }
 }
 
-// MARK: - General Tab (merged: General + Scoring + Subscription)
+// MARK: - General Tab
 
 private struct GeneralTab: View {
     @Environment(AppDependencies.self) private var dependencies
@@ -125,9 +121,13 @@ private struct GeneralTab: View {
     }
 }
 
-// MARK: - API & Cache Tab (merged: API Keys + Cache from Advanced)
+// MARK: - API & Cache Tab
 
 private struct APIAndCacheTab: View {
+    private enum DiscogsKeychain {
+        static let service = "GenreUpdater-Discogs"
+        static let account = "pat"
+    }
     @Environment(AppDependencies.self) private var dependencies
     @AppStorage("contactEmail") private var contactEmail = ""
     @State private var tokenInput = ""
@@ -201,8 +201,6 @@ private struct APIAndCacheTab: View {
         }
     }
 
-    // MARK: - Token Management
-
     private func loadTokenStatus() {
         do {
             if let existing = try keychain.retrieve(
@@ -270,8 +268,6 @@ private struct APIAndCacheTab: View {
         }
     }
 
-    // MARK: - Cache Management
-
     private func loadCacheStatistics() {
         isLoadingStatistics = true
         Task {
@@ -291,8 +287,6 @@ private struct APIAndCacheTab: View {
         }
     }
 }
-
-// MARK: - Token Status
 
 private enum TokenStatus {
     case unknown, saved, missing, error
@@ -316,7 +310,7 @@ private enum TokenStatus {
     }
 }
 
-// MARK: - Advanced Tab (merged: Cleaning + Debug + Reset)
+// MARK: - Advanced Tab
 
 private struct AdvancedTab: View {
     @Environment(AppDependencies.self) private var dependencies
@@ -447,5 +441,60 @@ private struct AdvancedTab: View {
     private func resetConfiguration() {
         dependencies.config = AppConfiguration()
         try? dependencies.config.save()
+    }
+}
+
+// MARK: - Appearance Tab
+
+private struct AppearanceTab: View {
+    @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
+
+    var body: some View {
+        Form {
+            Section("Theme") {
+                Picker("Appearance", selection: $appearanceMode) {
+                    ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                        Image(systemName: mode.symbolName)
+                            .accessibilityLabel(mode.accessibilityLabel)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                HStack(spacing: Spacing.xs) {
+                    ColorSwatch(color: Ayu.bgPrimary, label: "Background")
+                    ColorSwatch(color: Ayu.bgSecondary, label: "Surface")
+                    ColorSwatch(color: Ayu.fgPrimary, label: "Text")
+                    ColorSwatch(color: Ayu.accent, label: "Accent")
+                }
+                .padding(.top, Spacing.xxs)
+            }
+
+            Section("Sidebar Style") {
+                Text("Coming in a future update")
+                    .foregroundStyle(Ayu.fgMuted)
+                    .font(AppFont.caption)
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+    }
+}
+
+// MARK: - Color Swatch
+
+private struct ColorSwatch: View {
+    let color: Color
+    let label: String
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: Radius.xs)
+            .fill(color)
+            .frame(width: 32, height: 32)
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.xs)
+                    .strokeBorder(Ayu.fgMuted.opacity(0.3), lineWidth: 1)
+            )
+            .accessibilityLabel(label)
     }
 }
