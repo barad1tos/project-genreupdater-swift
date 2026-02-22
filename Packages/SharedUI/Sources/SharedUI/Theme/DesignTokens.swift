@@ -98,3 +98,115 @@ extension View {
         }
     }
 }
+
+// MARK: - Shadow
+
+/// A shadow definition for use with `.ayuShadow(_:)`.
+public struct ShadowToken: Sendable {
+    public let color: Color
+    public let radius: CGFloat
+    public let x: CGFloat
+    public let y: CGFloat
+}
+
+/// Elevation-based shadow tokens using Ayu accent tinting.
+///
+/// All shadows use soft/diffuse spread (large blur, wide offset) matching Apple/Spotify aesthetic.
+/// Tinted with `Ayu.accent.opacity(...)` for brand identity in both themes.
+public enum Shadow {
+    /// Cards, list rows — barely lifted off the surface.
+    public static let subtle = ShadowToken(
+        color: Ayu.accent.opacity(0.08),
+        radius: 8,
+        x: 0,
+        y: 2
+    )
+    /// Dropdowns, popovers — clearly above content.
+    public static let medium = ShadowToken(
+        color: Ayu.accent.opacity(0.12),
+        radius: 16,
+        x: 0,
+        y: 4
+    )
+    /// Modals, sheets — prominent elevation.
+    public static let elevated = ShadowToken(
+        color: Ayu.accent.opacity(0.16),
+        radius: 24,
+        x: 0,
+        y: 8
+    )
+    /// Drag-and-drop, tooltips — maximum lift.
+    public static let floating = ShadowToken(
+        color: Ayu.accent.opacity(0.22),
+        radius: 32,
+        x: 0,
+        y: 12
+    )
+    /// Pressed/inset button state — subtle negative-Y offset trick.
+    public static let inner = ShadowToken(
+        color: Ayu.accent.opacity(0.15),
+        radius: 4,
+        x: 0,
+        y: -2
+    )
+}
+
+extension View {
+    /// Applies an Ayu elevation shadow from the design token system.
+    ///
+    /// Prefer this over raw `.shadow(color:radius:x:y:)` — tokens are the single source of truth.
+    public func ayuShadow(_ token: ShadowToken) -> some View {
+        shadow(
+            color: token.color,
+            radius: token.radius,
+            x: token.x,
+            y: token.y
+        )
+    }
+}
+
+// MARK: - Motion
+
+/// Duration and easing constants for consistent animations.
+///
+/// Use `Motion.*` instead of raw literals in `.animation()` calls.
+/// Pair with `.motionAnimation(_:value:reduceMotion:)` to respect macOS "Reduce Motion".
+///
+/// - Note: GaugeView uses `.spring()` as an explicit exemption for its entrance animation.
+///   Do not convert it to Motion tokens.
+public enum Motion {
+    // MARK: Durations
+
+    /// 200ms — immediate feedback (hover, press).
+    public static let durationFast: Double = 0.2
+    /// 300ms — standard transitions (content swap, panel slide).
+    public static let durationNormal: Double = 0.3
+    /// 400ms — emphasized transitions (modal appear, loading complete).
+    public static let durationEmphasis: Double = 0.4
+
+    // MARK: Curves
+
+    /// easeInOut 300ms — symmetrical entry and exit; default for most transitions.
+    public static let curveDefault: Animation = .easeInOut(duration: durationNormal)
+    /// easeOut 300ms — fast start, graceful stop; use for elements appearing.
+    public static let curveAppear: Animation = .easeOut(duration: durationNormal)
+    /// easeInOut 200ms — hover and press feedback.
+    public static let curveFast: Animation = .easeInOut(duration: durationFast)
+    /// easeInOut 400ms — modal and sheet entrance.
+    public static let curveEmphasis: Animation = .easeInOut(duration: durationEmphasis)
+}
+
+extension View {
+    /// Applies an animation that respects macOS "Reduce Motion" accessibility setting.
+    ///
+    /// When reduce motion is enabled, uses `.default` (instant) so users who need
+    /// reduced motion are not affected. Pass `reduceMotion` from
+    /// `@Environment(\.accessibilityReduceMotion)` at the call site.
+    public func motionAnimation(
+        _ animation: Animation,
+        value: some Equatable,
+        reduceMotion: Bool
+    ) -> some View {
+        self.animation(reduceMotion ? .default : animation, value: value)
+    }
+}
