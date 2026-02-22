@@ -38,6 +38,7 @@ targets:
       - package: Core
       - package: Services
       - package: SharedUI
+      - package: LucideIcons
     postBuildScripts:
       - name: Compile and copy AppleScript files to bundle
         script: |

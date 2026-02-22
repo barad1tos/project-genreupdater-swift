@@ -1,7 +1,8 @@
-// MainView.swift — Main interface with 4-item sidebar (Settings via Cmd+,).
+// MainView.swift — Main interface with custom sidebar (Settings via Cmd+,).
 
 import Combine
 import Core
+import LucideIcons
 import Services
 import SharedUI
 import SwiftUI
@@ -11,24 +12,35 @@ import SwiftUI
 enum NavigationCategory: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case browse = "Browse"
-    case update = "Update"
     case reports = "Reports"
+    case update = "Update"
 
     var id: String {
         rawValue
     }
 
-    var icon: String {
+    var section: String {
         switch self {
-        case .dashboard: "gauge.open.with.lines.needle.33percent.and.arrowtriangle"
-        case .browse: "music.note.list"
-        case .update: "wand.and.stars"
-        case .reports: "chart.bar.fill"
+        case .dashboard, .browse, .reports: "LIBRARY"
+        case .update: "TOOLS"
         }
     }
 
+    var lucideIcon: NSImage {
+        switch self {
+        case .dashboard: Lucide.layoutDashboard
+        case .browse: Lucide.music2
+        case .reports: Lucide.chartBar
+        case .update: Lucide.wandSparkles
+        }
+    }
+
+    var sidebarItem: SidebarView.Item {
+        SidebarView.Item(id: id, title: rawValue, icon: lucideIcon, section: section)
+    }
+
     static var allInOrder: [Self] {
-        [.dashboard, .browse, .update, .reports]
+        [.dashboard, .browse, .reports, .update]
     }
 }
 
@@ -55,6 +67,7 @@ struct MainView: View {
     @State private var isLoading = false
     @State private var selectedTrack: Track?
     @State private var showUpdateSheet = false
+    @AppStorage("sidebarCompact") private var isSidebarCompact = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -67,6 +80,7 @@ struct MainView: View {
         } detail: {
             trackDetail
         }
+        .toolbar(removing: .sidebarToggle)
         .navigationSplitViewStyle(.balanced)
         .task { await loadTracks() }
         .onReceive(NotificationCenter.default.publisher(for: .updateSelectedTracks)) { _ in
@@ -83,14 +97,23 @@ struct MainView: View {
     // MARK: - Sidebar
 
     private var sidebar: some View {
-        List(selection: $selectedCategory) {
-            ForEach(NavigationCategory.allInOrder) { category in
-                Label(category.rawValue, systemImage: category.icon)
-                    .tag(category)
+        SidebarView(
+            selectedItemID: Binding(
+                get: { selectedCategory?.id },
+                set: { newID in
+                    selectedCategory = NavigationCategory.allInOrder.first { $0.id == newID }
+                }
+            ),
+            items: NavigationCategory.allInOrder.map(\.sidebarItem),
+            onSettingsTapped: {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
             }
-        }
-        .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+        )
+        .navigationSplitViewColumnWidth(
+            min: isSidebarCompact ? 52 : 160,
+            ideal: isSidebarCompact ? 52 : 200,
+            max: isSidebarCompact ? 52 : 260
+        )
     }
 
     // MARK: - Content Router
@@ -99,19 +122,35 @@ struct MainView: View {
     private var contentView: some View {
         switch selectedCategory {
         case .dashboard, .none:
-            DashboardView(tracks: tracks) { category in
-                selectedCategory = category
+            centeredContent {
+                DashboardView(tracks: tracks) { category in
+                    selectedCategory = category
+                }
             }
 
         case .browse:
             BrowseView(tracks: tracks, selectedTrack: $selectedTrack)
 
         case .update:
-            updateContent
+            centeredContent {
+                updateContent
+            }
 
         case .reports:
-            ReportsView()
+            centeredContent {
+                ReportsView()
+            }
         }
+    }
+
+    // MARK: - Centered Content Container
+
+    private func centeredContent(
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        content()
+            .frame(maxWidth: 800)
+            .frame(maxWidth: .infinity)
     }
 
     // MARK: - Update Content
@@ -141,14 +180,10 @@ struct MainView: View {
 
     @ViewBuilder
     private var trackDetail: some View {
-        if let track = selectedTrack {
+        if selectedCategory == .browse, let track = selectedTrack {
             TrackDetailView(track: track)
         } else {
-            ContentUnavailableView(
-                "Select a Track",
-                systemImage: "music.note",
-                description: Text("Choose a track from the list to view details.")
-            )
+            Color.clear
         }
     }
 
