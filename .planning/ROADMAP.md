@@ -29,7 +29,11 @@ The backend is complete through Phase 6 (734 tests, all algorithms, APIs, persis
   1. Shadow and Motion enums exist in DesignTokens alongside the existing Spacing, Radius, and AppFont enums
   2. Ayu light-mode foreground colors pass WCAG AA contrast ratio (>=4.5:1) against the light background — verifiable with any contrast checker
   3. Minimum window width of 900pt is enforced — dragging the window narrower snaps back or stops at 900pt
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Shadow and Motion token enums in DesignTokens.swift
+- [ ] 01-02-PLAN.md — fgSecondary WCAG AA fix and window size enforcement
 
 ### Phase 2: Theme Switching
 **Goal**: Users can switch between dark and light themes and the preference persists across launches; all surfaces including AppKit sheets honor the selected theme
