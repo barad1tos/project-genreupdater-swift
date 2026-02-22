@@ -5,6 +5,7 @@
 // declarative app lifecycle. WindowGroup handles window creation,
 // @Observable + @Environment propagates dependencies, and ScenePhase provides lifecycle hooks.
 
+import AppKit
 import Core
 import Services
 import SharedUI
@@ -14,6 +15,7 @@ import SwiftUI
 @main
 struct GenreUpdaterApp: App {
     @State private var dependencies = AppDependencies()
+    @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -21,8 +23,13 @@ struct GenreUpdaterApp: App {
             ContentView()
                 .environment(dependencies)
                 .optionalModelContainer(dependencies.modelContainer)
+                .preferredColorScheme(appearanceMode.colorScheme)
+                .onChange(of: appearanceMode) { _, newMode in
+                    applyAppKitAppearance(newMode)
+                }
                 .task {
                     await dependencies.initialize()
+                    applyAppKitAppearance(appearanceMode)
                 }
         }
         .defaultSize(width: 1280, height: 800)
@@ -58,7 +65,23 @@ struct GenreUpdaterApp: App {
         Settings {
             SettingsView()
                 .environment(dependencies)
+                .preferredColorScheme(appearanceMode.colorScheme)
                 .frame(minWidth: 520, idealWidth: 520, maxWidth: 520, minHeight: 400)
+        }
+    }
+
+    /// Syncs AppKit's global appearance to match the SwiftUI color scheme.
+    ///
+    /// Setting `NSApp.appearance` to `nil` for `.system` lets AppKit surfaces
+    /// (sheets, date pickers, context menus) track the OS setting in real time.
+    private func applyAppKitAppearance(_ mode: AppearanceMode) {
+        switch mode {
+        case .system:
+            NSApp.appearance = nil
+        case .light:
+            NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApp.appearance = NSAppearance(named: .darkAqua)
         }
     }
 }

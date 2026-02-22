@@ -32,7 +32,7 @@ GenreUpdater/
 │   │       ├── Subscription/      # SubscriptionService, FeatureGate (StoreKit 2)
 │   │       └── Workflow/          # UpdateCoordinator, BatchProcessor, UndoCoordinator, CheckpointManager, LibrarySyncService, ChangePreviewPipeline
 │   └── SharedUI/                  # Reusable SwiftUI components
-│       └── Theme/                 # DesignTokens (Spacing, Radius, AppFont, Shadow, Motion), AyuColors
+│       └── Theme/                 # DesignTokens (Spacing, Radius, AppFont, Shadow, Motion), AyuColors, AppearanceMode
 ├── Tests/
 │   ├── GenreUpdaterTests/         # App-level unit tests
 │   ├── IntegrationTests/          # MusicKit + AppleScript (local only)
