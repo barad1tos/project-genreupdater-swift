@@ -90,7 +90,11 @@ Plans:
   2. Launching the app shows cached library metrics immediately (never "0 tracks"), even before MusicKit finishes loading
   3. On first launch (no cache), skeleton shimmer placeholders fill the gauge and metric cards — no empty numeric values appear
   4. Quick action buttons display live counts derived from actual library state (e.g. "327 tracks missing genre — Fix Now") and those counts update after a background scan completes
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — Data layer (PersistedMetricsSnapshot, DashboardViewModel loading states/trends) and HeroGauge redesign (colors, stacked layout, shadow, click callback)
+- [ ] 05-02-PLAN.md — DashboardView rewrite (HeroGauge hero, MetricCard redesign, soft QuickActions, shimmer/loading states, GaugeView deletion)
 
 ### Phase 6: Browse Redesign
 **Goal**: Users can navigate 38,000+ tracks efficiently — drill into artist/album hierarchies, select multiple items for batch processing, and search with instant results — without any lag or layout collapse
@@ -138,7 +142,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 2. Theme Switching | 1/1 | Complete | 2026-02-22 |
 | 3. SharedUI Component Library | 3/3 | Complete | 2026-02-22 |
 | 4. Navigation Shell | 1/2 | Complete    | 2026-02-22 |
-| 5. Dashboard Redesign | 0/TBD | Not started | - |
+| 5. Dashboard Redesign | 0/2 | Not started | - |
 | 6. Browse Redesign | 0/TBD | Not started | - |
 | 7. Update and Reports Polish | 0/TBD | Not started | - |
 | 8. Animations and Final Polish | 0/TBD | Not started | - |
