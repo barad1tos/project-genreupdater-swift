@@ -10,7 +10,7 @@ The backend is complete through Phase 6 (734 tests, all algorithms, APIs, persis
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Design System Foundation** - Extend DesignTokens with Shadow/Motion enums and fix Ayu light-mode contrast to WCAG AA
+- [x] **Phase 1: Design System Foundation** - Extend DesignTokens with Shadow/Motion enums and fix Ayu light-mode contrast to WCAG AA
 - [ ] **Phase 2: Theme Switching** - Wire AppTheme enum with @AppStorage, preferredColorScheme, and NSApp.appearance sync
 - [ ] **Phase 3: SharedUI Component Library** - Build HeroGauge, StatCard, ArtistListRow, AlbumListRow, FilterChip, SectionIndexBar with hover/press/focus states
 - [ ] **Phase 4: Navigation Shell** - Restyle sidebar with Ayu dark background and matchedGeometryEffect indicator; fix column visibility for non-Browse screens
@@ -32,8 +32,8 @@ The backend is complete through Phase 6 (734 tests, all algorithms, APIs, persis
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Shadow and Motion token enums in DesignTokens.swift
-- [ ] 01-02-PLAN.md — fgSecondary WCAG AA fix and window size enforcement
+- [x] 01-01-PLAN.md — Shadow and Motion token enums in DesignTokens.swift
+- [x] 01-02-PLAN.md — fgSecondary WCAG AA fix and window size enforcement
 
 ### Phase 2: Theme Switching
 **Goal**: Users can switch between dark and light themes and the preference persists across launches; all surfaces including AppKit sheets honor the selected theme
@@ -122,7 +122,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Design System Foundation | 0/TBD | Not started | - |
+| 1. Design System Foundation | 2/2 | Complete | 2026-02-22 |
 | 2. Theme Switching | 0/TBD | Not started | - |
 | 3. SharedUI Component Library | 0/TBD | Not started | - |
 | 4. Navigation Shell | 0/TBD | Not started | - |
