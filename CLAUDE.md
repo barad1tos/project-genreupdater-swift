@@ -33,7 +33,7 @@ GenreUpdater/
 │   │       └── Workflow/          # UpdateCoordinator, BatchProcessor, UndoCoordinator, CheckpointManager, LibrarySyncService, ChangePreviewPipeline
 │   └── SharedUI/                  # Reusable SwiftUI components
 │       ├── Theme/                 # DesignTokens (Spacing, Radius, AppFont, Shadow, Motion), AyuColors, AppearanceMode
-│       └── Components/            # ShimmerPlaceholder, FilterChip, StatCard, ArtistListRow, AlbumListRow, SectionIndexBar, HeroGauge
+│       └── Components/            # ShimmerPlaceholder, FilterChip, StatCard, ArtistListRow, AlbumListRow, SectionIndexBar, HeroGauge (dashboard hero arc gauge)
 ├── Tests/
 │   ├── GenreUpdaterTests/         # App-level unit tests
 │   ├── IntegrationTests/          # MusicKit + AppleScript (local only)
