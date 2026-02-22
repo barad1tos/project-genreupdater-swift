@@ -37,7 +37,7 @@ public enum Ayu {
 
     /// Captions and placeholders.
     public static let fgSecondary = Color.adaptive(
-        light: hex(0x8A9199),
+        light: hex(0x697078), // 4.89:1 on bgPrimary, 4.55:1 on bgSecondary — PASSES WCAG AA
         dark: hex(0x8A9199)
     )
 

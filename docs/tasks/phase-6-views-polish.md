@@ -146,7 +146,7 @@ depends_on:
 | `SharedUI/TrackDetailView.swift` | New | ~47 | Track detail (extracted from MainView) |
 | `SharedUI/Reports/ReportsChangeLog.swift` | New | ~219 | Change log table |
 | `SharedUI/Charts/ReportsCharts.swift` | New | ~232 | Charts + summary cards |
-| `SharedUI/Theme/AyuColors.swift` | New | ~183 | Ayu color palette tokens |
+| `SharedUI/Theme/AyuColors.swift` | Modified | ~183 | Ayu color palette tokens (fgSecondary light fixed: 0x8A9199 -> 0x697078 for WCAG AA) |
 | `SharedUI/Theme/DesignTokens.swift` | New | ~95 | Spacing, typography, glass helpers |
 | `App/Views/Components/GaugeView.swift` | New | ~211 | Multi-ring library health gauge |
 | `App/Views/Components/MetricCard.swift` | New | ~146 | Dashboard metric card |
