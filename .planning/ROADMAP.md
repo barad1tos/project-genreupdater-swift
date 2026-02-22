@@ -59,7 +59,12 @@ Plans:
   3. FilterChip, StatCard, and SectionIndexBar render correctly in both dark and light theme previews
   4. All interactive components show a visual press state (scale or opacity change) on mouse-down
   5. SwiftUI-Shimmer is added to the SharedUI Package.swift and a ShimmerPlaceholder view is usable from App target
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — SwiftUI-Shimmer dependency, ShimmerPlaceholder, FilterChip, StatCard
+- [ ] 03-02-PLAN.md — ArtistListRow, AlbumListRow, SectionIndexBar
+- [ ] 03-03-PLAN.md — HeroGauge (concentric arcs, draw-in animation, per-arc hover)
 
 ### Phase 4: Navigation Shell
 **Goal**: The sidebar is visually polished and the column layout is correct for every screen — Dashboard, Update, and Reports never show a spurious "Select a Track" detail column
@@ -127,7 +132,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 |-------|----------------|--------|-----------|
 | 1. Design System Foundation | 2/2 | Complete    | 2026-02-22 |
 | 2. Theme Switching | 1/1 | Complete | 2026-02-22 |
-| 3. SharedUI Component Library | 0/TBD | Not started | - |
+| 3. SharedUI Component Library | 0/3 | Not started | - |
 | 4. Navigation Shell | 0/TBD | Not started | - |
 | 5. Dashboard Redesign | 0/TBD | Not started | - |
 | 6. Browse Redesign | 0/TBD | Not started | - |
