@@ -210,6 +210,7 @@ The app runs in sandbox with these entitlements:
 - **ISO8601DateFormatter not Sendable**: Swift 6 strict concurrency — use `nonisolated(unsafe)` with safety comment. `DateFormatter` IS Sendable.
 - **xcodebuild requires signing override**: Entitlements trigger mandatory signing. Add `CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO`.
 - **Agent review false positives**: Always verify review findings against actual code before fixing — reviews are heuristic, not authoritative.
+- **HeroGauge butt caps**: Line cap must be `.butt` (not `.round`) for technical/minimalist look — `.round` is only for ProgressRing
 
 ### Tool Integration Pitfalls
 

@@ -87,10 +87,11 @@ public struct SectionIndexBar: View {
 // MARK: - Preview
 
 #Preview("SectionIndexBar") {
-    // Smart mode: only letters with content (skipping Q, U, V, X, Y, Z)
+    // Full alphabet — the consumer filters to only letters with content at runtime
     let availableLetters = [
         "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
-        "K", "L", "M", "N", "O", "P", "R", "S", "T", "W",
+        "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
+        "U", "V", "W", "X", "Y", "Z",
     ]
 
     HStack(spacing: 0) {
