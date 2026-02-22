@@ -21,6 +21,9 @@ packages:
     path: Packages/Services
   SharedUI:
     path: Packages/SharedUI
+  LucideIcons:
+    url: https://github.com/JakubMazur/lucide-icons-swift.git
+    from: 0.575.0
 
 targets:
   GenreUpdater:

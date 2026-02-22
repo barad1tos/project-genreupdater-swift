@@ -11,6 +11,7 @@ let package = Package(
     dependencies: [
         .package(path: "../Core"),
         .package(url: "https://github.com/markiv/SwiftUI-Shimmer.git", from: "1.5.1"),
+        .package(url: "https://github.com/JakubMazur/lucide-icons-swift.git", from: "0.575.0"),
     ],
     targets: [
         .target(
@@ -18,6 +19,7 @@ let package = Package(
             dependencies: [
                 "Core",
                 .product(name: "Shimmer", package: "SwiftUI-Shimmer"),
+                .product(name: "LucideIcons", package: "lucide-icons-swift"),
             ],
             path: "Sources/SharedUI",
             swiftSettings: [

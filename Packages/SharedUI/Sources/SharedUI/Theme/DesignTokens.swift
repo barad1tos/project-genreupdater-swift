@@ -181,6 +181,8 @@ public enum Motion {
     public static let durationFast: Double = 0.2
     /// 300ms — standard transitions (content swap, panel slide).
     public static let durationNormal: Double = 0.3
+    /// 350ms — sidebar and layout transitions.
+    public static let durationSmooth: Double = 0.35
     /// 400ms — emphasized transitions (modal appear, loading complete).
     public static let durationEmphasis: Double = 0.4
 
@@ -192,6 +194,8 @@ public enum Motion {
     public static let curveAppear: Animation = .easeOut(duration: durationNormal)
     /// easeInOut 200ms — hover and press feedback.
     public static let curveFast: Animation = .easeInOut(duration: durationFast)
+    /// easeInOut 350ms — sidebar pill slide and layout transitions.
+    public static let curveSmooth: Animation = .easeInOut(duration: durationSmooth)
     /// easeInOut 400ms — modal and sheet entrance.
     public static let curveEmphasis: Animation = .easeInOut(duration: durationEmphasis)
 }
