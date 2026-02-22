@@ -11,7 +11,7 @@ The backend is complete through Phase 6 (734 tests, all algorithms, APIs, persis
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Design System Foundation** - Extend DesignTokens with Shadow/Motion enums and fix Ayu light-mode contrast to WCAG AA
-- [ ] **Phase 2: Theme Switching** - Wire AppTheme enum with @AppStorage, preferredColorScheme, and NSApp.appearance sync
+- [x] **Phase 2: Theme Switching** - Wire AppTheme enum with @AppStorage, preferredColorScheme, and NSApp.appearance sync
 - [ ] **Phase 3: SharedUI Component Library** - Build HeroGauge, StatCard, ArtistListRow, AlbumListRow, FilterChip, SectionIndexBar with hover/press/focus states
 - [ ] **Phase 4: Navigation Shell** - Restyle sidebar with Ayu dark background and matchedGeometryEffect indicator; fix column visibility for non-Browse screens
 - [ ] **Phase 5: Dashboard Redesign** - Half-circle HeroGauge hero, cached-first metrics loading, smart quick-actions with live counts, skeleton shimmer
@@ -47,7 +47,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 02-01-PLAN.md — AppearanceMode enum, dual-layer appearance wiring, Appearance settings tab
+- [x] 02-01-PLAN.md — AppearanceMode enum, dual-layer appearance wiring, Appearance settings tab
 
 ### Phase 3: SharedUI Component Library
 **Goal**: All reusable UI components exist as independently previewable SwiftUI views with correct hover, press, and focus states so screen-level work never blocks on missing primitives
@@ -126,7 +126,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Design System Foundation | 2/2 | Complete    | 2026-02-22 |
-| 2. Theme Switching | 0/TBD | Not started | - |
+| 2. Theme Switching | 1/1 | Complete | 2026-02-22 |
 | 3. SharedUI Component Library | 0/TBD | Not started | - |
 | 4. Navigation Shell | 0/TBD | Not started | - |
 | 5. Dashboard Redesign | 0/TBD | Not started | - |
