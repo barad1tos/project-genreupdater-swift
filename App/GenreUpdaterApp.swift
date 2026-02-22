@@ -25,6 +25,7 @@ struct GenreUpdaterApp: App {
                     await dependencies.initialize()
                 }
         }
+        .defaultSize(width: 1280, height: 800)
         .commands {
             // Replace default "New Window" with custom commands
             CommandGroup(replacing: .newItem) {}
@@ -87,7 +88,7 @@ struct ContentView: View {
                 }
             }
         }
-        .frame(minWidth: 800, minHeight: 600)
+        .frame(minWidth: 900, minHeight: 600)
         .animation(.easeInOut(duration: 0.3), value: "\(dependencies.appState)")
     }
 }
