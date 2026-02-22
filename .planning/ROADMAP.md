@@ -13,7 +13,7 @@ The backend is complete through Phase 6 (734 tests, all algorithms, APIs, persis
 - [x] **Phase 1: Design System Foundation** - Extend DesignTokens with Shadow/Motion enums and fix Ayu light-mode contrast to WCAG AA
 - [x] **Phase 2: Theme Switching** - Wire AppTheme enum with @AppStorage, preferredColorScheme, and NSApp.appearance sync
 - [ ] **Phase 3: SharedUI Component Library** - Build HeroGauge, StatCard, ArtistListRow, AlbumListRow, FilterChip, SectionIndexBar with hover/press/focus states
-- [ ] **Phase 4: Navigation Shell** - Restyle sidebar with Ayu dark background and matchedGeometryEffect indicator; fix column visibility for non-Browse screens
+- [x] **Phase 4: Navigation Shell** - Restyle sidebar with Ayu dark background and matchedGeometryEffect indicator; fix column visibility for non-Browse screens (completed 2026-02-22)
 - [ ] **Phase 5: Dashboard Redesign** - Half-circle HeroGauge hero, cached-first metrics loading, smart quick-actions with live counts, skeleton shimmer
 - [ ] **Phase 6: Browse Redesign** - Artist/Album/Track drill-down with List-backed multi-select, debounced off-main-thread search, sticky section headers
 - [ ] **Phase 7: Update and Reports Polish** - Mode selector UI, per-track progress rows, Reports charts and empty states, change history with undo
@@ -137,7 +137,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 1. Design System Foundation | 2/2 | Complete    | 2026-02-22 |
 | 2. Theme Switching | 1/1 | Complete | 2026-02-22 |
 | 3. SharedUI Component Library | 3/3 | Complete | 2026-02-22 |
-| 4. Navigation Shell | 1/2 | In Progress | - |
+| 4. Navigation Shell | 1/2 | Complete    | 2026-02-22 |
 | 5. Dashboard Redesign | 0/TBD | Not started | - |
 | 6. Browse Redesign | 0/TBD | Not started | - |
 | 7. Update and Reports Polish | 0/TBD | Not started | - |
