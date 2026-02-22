@@ -10,11 +10,15 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../Core"),
+        .package(url: "https://github.com/markiv/SwiftUI-Shimmer.git", from: "1.5.1"),
     ],
     targets: [
         .target(
             name: "SharedUI",
-            dependencies: ["Core"],
+            dependencies: [
+                "Core",
+                .product(name: "Shimmer", package: "SwiftUI-Shimmer"),
+            ],
             path: "Sources/SharedUI",
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),

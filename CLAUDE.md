@@ -32,7 +32,8 @@ GenreUpdater/
 │   │       ├── Subscription/      # SubscriptionService, FeatureGate (StoreKit 2)
 │   │       └── Workflow/          # UpdateCoordinator, BatchProcessor, UndoCoordinator, CheckpointManager, LibrarySyncService, ChangePreviewPipeline
 │   └── SharedUI/                  # Reusable SwiftUI components
-│       └── Theme/                 # DesignTokens (Spacing, Radius, AppFont, Shadow, Motion), AyuColors, AppearanceMode
+│       ├── Theme/                 # DesignTokens (Spacing, Radius, AppFont, Shadow, Motion), AyuColors, AppearanceMode
+│       └── Components/            # ShimmerPlaceholder, FilterChip, StatCard, ArtistListRow, AlbumListRow, SectionIndexBar, HeroGauge
 ├── Tests/
 │   ├── GenreUpdaterTests/         # App-level unit tests
 │   ├── IntegrationTests/          # MusicKit + AppleScript (local only)
@@ -121,13 +122,14 @@ App → SharedUI → Core
 
 ## Dependencies
 
-### Current (Phase 1–2B)
+### Current
 - MusicKit (Apple framework)
 - OSLog (Apple framework)
 - Carbon.OpenScripting (for AppleScript event constants)
 - **GRDB 7.x** — API response cache (SQLite, Services package)
 - **SwiftData** (Apple framework) — track state persistence (Services package)
 - **StoreKit 2** (Apple framework) — subscriptions (Services package)
+- **SwiftUI-Shimmer 1.5.1** — shimmer loading animations (SharedUI package)
 
 ### Dev Tools (Homebrew)
 - **SwiftLint** — linting (pre-commit + CI, `--strict`)
