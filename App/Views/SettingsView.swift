@@ -448,6 +448,7 @@ private struct AdvancedTab: View {
 
 private struct AppearanceTab: View {
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
+    @AppStorage("sidebarCompact") private var isSidebarCompact = false
 
     var body: some View {
         Form {
@@ -470,9 +471,11 @@ private struct AppearanceTab: View {
                 .padding(.top, Spacing.xxs)
             }
 
-            Section("Sidebar Style") {
-                Text("Coming in a future update")
-                    .foregroundStyle(Ayu.fgMuted)
+            Section("Sidebar") {
+                Toggle("Compact sidebar", isOn: $isSidebarCompact)
+
+                Text(isSidebarCompact ? "Icons only" : "Icons and labels")
+                    .foregroundStyle(Ayu.fgSecondary)
                     .font(AppFont.caption)
             }
         }
@@ -491,10 +494,7 @@ private struct ColorSwatch: View {
         RoundedRectangle(cornerRadius: Radius.xs)
             .fill(color)
             .frame(width: 32, height: 32)
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.xs)
-                    .strokeBorder(Ayu.fgMuted.opacity(0.3), lineWidth: 1)
-            )
+            .overlay(RoundedRectangle(cornerRadius: Radius.xs).strokeBorder(Ayu.fgMuted.opacity(0.3), lineWidth: 1))
             .accessibilityLabel(label)
     }
 }
