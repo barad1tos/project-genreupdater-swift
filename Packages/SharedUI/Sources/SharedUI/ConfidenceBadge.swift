@@ -43,21 +43,12 @@ public struct ConfidenceBadge: View {
         "\(Int(clampedConfidence * 100))%"
     }
 
-    /// White text on green/red passes WCAG AA; yellow needs dark text.
     private var badgeForeground: Color {
-        clampedConfidence >= 0.5 && clampedConfidence < 0.8
-            ? .black : .white
+        Ayu.confidenceForeground(clampedConfidence)
     }
 
     private var badgeColor: Color {
-        switch clampedConfidence {
-        case 0.8 ... 1.0:
-            .green
-        case 0.5 ..< 0.8:
-            .yellow
-        default:
-            .red
-        }
+        Ayu.confidence(clampedConfidence)
     }
 }
 

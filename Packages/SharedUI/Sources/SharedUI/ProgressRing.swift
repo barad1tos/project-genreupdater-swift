@@ -83,7 +83,7 @@ public struct ProgressRing: View {
 
     private var progressGradient: AngularGradient {
         AngularGradient(
-            gradient: Gradient(colors: [.blue, .purple]),
+            gradient: Gradient(colors: [Ayu.accent, Ayu.purple]),
             center: .center,
             startAngle: .degrees(0),
             endAngle: .degrees(360 * clampedProgress)

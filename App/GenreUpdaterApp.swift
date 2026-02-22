@@ -7,6 +7,7 @@
 
 import Core
 import Services
+import SharedUI
 import SwiftData
 import SwiftUI
 
@@ -56,6 +57,7 @@ struct GenreUpdaterApp: App {
         Settings {
             SettingsView()
                 .environment(dependencies)
+                .frame(minWidth: 520, idealWidth: 520, maxWidth: 520, minHeight: 400)
         }
     }
 }
@@ -86,6 +88,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 800, minHeight: 600)
+        .animation(.easeInOut(duration: 0.3), value: "\(dependencies.appState)")
     }
 }
 
@@ -96,26 +99,27 @@ struct ErrorView: View {
     let retryAction: () -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Spacing.md) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.largeTitle)
                 .imageScale(.large)
-                .foregroundStyle(.yellow)
+                .foregroundStyle(Ayu.warning)
                 .accessibilityHidden(true)
 
             Text("Something went wrong")
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(AppFont.headline)
+                .foregroundStyle(Ayu.fgPrimary)
 
             Text(message)
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(AppFont.body)
+                .foregroundStyle(Ayu.fgSecondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+                .padding(.horizontal, Spacing.xxxl)
 
             Button("Try Again", action: retryAction)
                 .buttonStyle(.borderedProminent)
-                .padding(.top, 8)
+                .tint(Ayu.accent)
+                .padding(.top, Spacing.xs)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

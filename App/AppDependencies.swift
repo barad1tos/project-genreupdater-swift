@@ -121,10 +121,16 @@ final class AppDependencies {
             let subscription = SubscriptionService()
             await subscription.start()
             subscriptionService = subscription
+
+            #if DEBUG
+            let gate = FeatureGate(fixedTier: .pro)
+            log.info("DEBUG: FeatureGate set to .pro (all features unlocked)")
+            #else
             let gate = FeatureGate(
                 tierProvider: { [weak subscription] in subscription?.currentTier ?? .free },
                 freeTracksUsedProvider: { [weak subscription] in subscription?.freeTracksUsed ?? 0 }
             )
+            #endif
             featureGate = gate
 
             // Steps 5-8: Persistence, algorithms, API, and workflow services

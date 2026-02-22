@@ -4,6 +4,8 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
 	<key>com.apple.security.scripting-targets</key>
 	<dict>
 		<key>com.apple.Music</key>
@@ -12,8 +14,6 @@
 			<string>com.apple.music.library.read-write</string>
 		</array>
 	</dict>
-	<key>com.apple.security.network.client</key>
-	<true/>
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
 	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
 </dict>

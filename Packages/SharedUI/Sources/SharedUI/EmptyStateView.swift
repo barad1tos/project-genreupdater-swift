@@ -41,16 +41,16 @@ public struct EmptyStateView: View {
             Image(systemName: icon)
                 .font(.largeTitle)
                 .imageScale(.large)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ayu.fgSecondary)
                 .accessibilityHidden(true)
 
             Text(title)
-                .font(.title2)
-                .bold()
+                .font(AppFont.headline)
+                .foregroundStyle(Ayu.fgPrimary)
 
             Text(description)
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(AppFont.body)
+                .foregroundStyle(Ayu.fgSecondary)
                 .multilineTextAlignment(.center)
 
             if let actionTitle, let action {

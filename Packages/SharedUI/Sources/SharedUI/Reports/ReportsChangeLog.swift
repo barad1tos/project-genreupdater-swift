@@ -217,12 +217,12 @@ extension ChangeType {
 
     public var tintColor: Color {
         switch self {
-        case .genreUpdate: .purple
-        case .yearUpdate: .blue
-        case .trackCleaning: .orange
-        case .albumCleaning: .green
-        case .artistRename: .teal
-        case .yearRevert: .red
+        case .genreUpdate: Ayu.purple
+        case .yearUpdate: Ayu.info
+        case .trackCleaning: Ayu.accent
+        case .albumCleaning: Ayu.success
+        case .artistRename: Ayu.teal
+        case .yearRevert: Ayu.error
         }
     }
 }

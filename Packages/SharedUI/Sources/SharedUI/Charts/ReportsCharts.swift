@@ -91,21 +91,21 @@ public struct ReportsCharts: View {
                 title: "Total Processed",
                 value: data.totalProcessed,
                 icon: "music.note.list",
-                tint: .blue
+                tint: Ayu.info
             )
 
             SummaryCard(
                 title: "Genres Updated",
                 value: data.genresUpdated,
                 icon: "tag.fill",
-                tint: .purple
+                tint: Ayu.purple
             )
 
             SummaryCard(
                 title: "Years Updated",
                 value: data.yearsUpdated,
                 icon: "calendar",
-                tint: .orange
+                tint: Ayu.accent
             )
         }
     }
@@ -131,14 +131,14 @@ public struct ReportsCharts: View {
                         x: .value("Count", item.count),
                         y: .value("Genre", item.genre)
                     )
-                    .foregroundStyle(.purple.gradient)
+                    .foregroundStyle(Ayu.purple.gradient)
                     .clipShape(.rect(cornerRadius: 4))
                 }
                 .chartXAxisLabel("Tracks Updated")
                 .frame(height: genreChartHeight)
             }
             .padding()
-            .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 12))
+            .background(Ayu.bgSecondary.opacity(0.5), in: .rect(cornerRadius: Radius.md))
         }
     }
 
@@ -163,21 +163,21 @@ public struct ReportsCharts: View {
                         x: .value("Date", item.date, unit: .day),
                         y: .value("Changes", item.count)
                     )
-                    .foregroundStyle(.blue.gradient)
+                    .foregroundStyle(Ayu.info.gradient)
                     .interpolationMethod(.catmullRom)
 
                     AreaMark(
                         x: .value("Date", item.date, unit: .day),
                         y: .value("Changes", item.count)
                     )
-                    .foregroundStyle(.blue.opacity(0.1).gradient)
+                    .foregroundStyle(Ayu.info.opacity(0.1).gradient)
                     .interpolationMethod(.catmullRom)
 
                     PointMark(
                         x: .value("Date", item.date, unit: .day),
                         y: .value("Changes", item.count)
                     )
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Ayu.info)
                     .symbolSize(30)
                 }
                 .chartXAxis {
@@ -190,7 +190,7 @@ public struct ReportsCharts: View {
                 .frame(height: 200)
             }
             .padding()
-            .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 12))
+            .background(Ayu.bgSecondary.opacity(0.5), in: .rect(cornerRadius: Radius.md))
         }
     }
 
@@ -238,7 +238,7 @@ struct SummaryCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 12))
+        .background(Ayu.bgSecondary.opacity(0.5), in: .rect(cornerRadius: Radius.md))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(title): \(value)")
     }

@@ -1,13 +1,4 @@
-// MainView.swift — Primary library browser interface
-// Ported from: src/app/cli.py (291 LOC) → SwiftUI declarative UI
-//
-// Python's CLI used argparse subcommands (update, update_years, clean_artist, etc.).
-// SwiftUI replaces this with a NavigationSplitView layout:
-// - Sidebar: command categories (Genre, Year, Batch, Reports)
-// - Content: track list with search/filter
-// - Detail: track inspector
-//
-// MusicKit provides the track data via MusicLibraryReader.
+// MainView.swift — Main interface with 4-item sidebar (Settings via Cmd+,).
 
 import Combine
 import Core
@@ -18,17 +9,10 @@ import SwiftUI
 // MARK: - Sidebar Navigation
 
 enum NavigationCategory: String, CaseIterable, Identifiable {
-    // Browse
-    case library = "Library"
-    case byArtist = "By Artist"
-    case byAlbum = "By Album"
-    // Actions
-    case genreUpdate = "Genre Update"
-    case yearUpdate = "Year Update"
-    case batchOperations = "Batch"
+    case dashboard = "Dashboard"
+    case browse = "Browse"
+    case update = "Update"
     case reports = "Reports"
-    case recentChanges = "Recent Changes"
-    case playlists = "Playlists"
 
     var id: String {
         rawValue
@@ -36,42 +20,20 @@ enum NavigationCategory: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .library: "music.note.list"
-        case .byArtist: "person.2"
-        case .byAlbum: "square.stack"
-        case .genreUpdate: "tag.fill"
-        case .yearUpdate: "calendar"
-        case .batchOperations: "square.stack.3d.up.fill"
+        case .dashboard: "gauge.open.with.lines.needle.33percent.and.arrowtriangle"
+        case .browse: "music.note.list"
+        case .update: "wand.and.stars"
         case .reports: "chart.bar.fill"
-        case .recentChanges: "clock.arrow.circlepath"
-        case .playlists: "music.note.list"
         }
     }
 
-    /// All categories in sidebar order, used for Cmd+N shortcuts.
     static var allInOrder: [Self] {
-        browseCategories + actionCategories
-    }
-
-    static var browseCategories: [Self] {
-        [.library, .byArtist, .byAlbum]
-    }
-
-    static var actionCategories: [Self] {
-        [
-            .genreUpdate,
-            .yearUpdate,
-            .batchOperations,
-            .reports,
-            .recentChanges,
-            .playlists
-        ]
+        [.dashboard, .browse, .update, .reports]
     }
 }
 
 // MARK: - Focused Value (Keyboard Shortcut Wiring)
 
-/// Exposes the sidebar selection to the menu bar commands.
 struct FocusedCategoryKey: FocusedValueKey {
     typealias Value = Binding<NavigationCategory?>
 }
@@ -87,299 +49,136 @@ extension FocusedValues {
 
 struct MainView: View {
     @Environment(AppDependencies.self) private var dependencies
-    @State private var selectedCategory: NavigationCategory? = .library
+    @State private var selectedCategory: NavigationCategory? = .dashboard
+    @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     @State private var tracks: [Track] = []
-    @State private var filteredTracks: [Track] = []
-    @State private var searchText = ""
-    @State private var debouncedSearchText = ""
     @State private var isLoading = false
-    @State private var artistGroups: [(key: String, tracks: [Track])] = []
-    @State private var albumGroups: [(key: String, tracks: [Track])] = []
     @State private var selectedTrack: Track?
     @State private var showUpdateSheet = false
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
         } content: {
-            Group {
-                switch selectedCategory {
-                case .library, .none:
-                    trackList
-                case .genreUpdate:
-                    VStack(spacing: 0) {
-                        actionBanner(
-                            title: "Genre Update",
-                            description: "Select tracks to update genre metadata",
-                            icon: "tag.fill",
-                            color: .orange
-                        )
-                        trackList
-                    }
-                case .yearUpdate:
-                    VStack(spacing: 0) {
-                        actionBanner(
-                            title: "Year Update",
-                            description: "Select tracks to update release year",
-                            icon: "calendar",
-                            color: .blue
-                        )
-                        trackList
-                    }
-                case .byArtist:
-                    artistGroupedList
-                case .byAlbum:
-                    albumGroupedList
-                case .batchOperations:
-                    BatchView(tracks: filteredTracks)
-                case .reports:
-                    ReportsView()
-                case .recentChanges:
-                    recentChangesView
-                case .playlists:
-                    playlistsStub
-                }
-            }
-            .navigationTitle(contentTitle)
-            .navigationSubtitle("\(filteredTracks.count.formatted()) tracks")
-            .animation(.easeInOut(duration: 0.2), value: selectedCategory)
+            contentView
+                .navigationTitle(selectedCategory?.rawValue ?? "Dashboard")
+                .contentTransition(.opacity)
+                .animation(.easeInOut(duration: 0.2), value: selectedCategory)
         } detail: {
             trackDetail
         }
-        .searchable(text: $searchText, prompt: "Search tracks...")
-        .task(id: searchText) {
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            debouncedSearchText = searchText
-            updateFilteredTracks()
-        }
-        .onChange(of: tracks) { updateFilteredTracks() }
-        .task {
-            await loadTracks()
-        }
+        .navigationSplitViewStyle(.balanced)
+        .task { await loadTracks() }
         .onReceive(NotificationCenter.default.publisher(for: .updateSelectedTracks)) { _ in
-            if !filteredTracks.isEmpty {
-                showUpdateSheet = true
-            }
+            selectedCategory = .update
         }
+        .onChange(of: selectedCategory) { updateColumnVisibility() }
+        .onChange(of: selectedTrack) { updateColumnVisibility() }
         .sheet(isPresented: $showUpdateSheet) {
-            if let coordinator = dependencies.updateCoordinator,
-               let pipeline = dependencies.changePreviewPipeline {
-                let viewModel = UpdateViewModel(
-                    updateCoordinator: coordinator,
-                    changePreviewPipeline: pipeline
-                )
-                UpdateView(viewModel: viewModel, tracks: tracksForUpdate)
-            }
+            updateSheet
         }
         .focusedValue(\.selectedCategory, $selectedCategory)
-    }
-
-    // MARK: - Computed Properties
-
-    /// Tracks to send to the update sheet (falls back to all filtered tracks).
-    private var tracksForUpdate: [Track] {
-        filteredTracks
-    }
-
-    private var contentTitle: String {
-        selectedCategory?.rawValue ?? "Library"
-    }
-
-    private func actionBanner(
-        title: String,
-        description: String,
-        icon: String,
-        color: Color
-    ) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(color)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.headline)
-                Text(description)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 10)
-        .background(.quaternary)
     }
 
     // MARK: - Sidebar
 
     private var sidebar: some View {
         List(selection: $selectedCategory) {
-            Section("Browse") {
-                ForEach(NavigationCategory.browseCategories) { category in
-                    Label(category.rawValue, systemImage: category.icon)
-                        .tag(category)
-                }
-            }
-
-            Section("Actions") {
-                ForEach(NavigationCategory.actionCategories) { category in
-                    Label(category.rawValue, systemImage: category.icon)
-                        .tag(category)
-                }
+            ForEach(NavigationCategory.allInOrder) { category in
+                Label(category.rawValue, systemImage: category.icon)
+                    .tag(category)
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 250)
+        .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
     }
 
-    // MARK: - Track List
+    // MARK: - Content Router
 
-    private var trackList: some View {
-        Group {
-            if isLoading {
-                ProgressView("Loading library...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if filteredTracks.isEmpty {
-                ContentUnavailableView(
-                    searchText.isEmpty ? "No Tracks" : "No Results",
-                    systemImage: searchText.isEmpty ? "music.note" : "magnifyingglass",
-                    description: Text(
-                        searchText.isEmpty
-                            ? "Your library appears empty. Make sure Music.app has tracks."
-                            : "No tracks match '\(searchText)'"
-                    )
-                )
-            } else {
-                List(filteredTracks, selection: $selectedTrack) { track in
-                    TrackRow(track: track)
-                        .tag(track)
-                }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
+    @ViewBuilder
+    private var contentView: some View {
+        switch selectedCategory {
+        case .dashboard, .none:
+            DashboardView(tracks: tracks) { category in
+                selectedCategory = category
             }
+
+        case .browse:
+            BrowseView(tracks: tracks, selectedTrack: $selectedTrack)
+
+        case .update:
+            updateContent
+
+        case .reports:
+            ReportsView()
         }
-        .navigationSplitViewColumnWidth(min: 300, ideal: 450)
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Button {
-                    Task { await loadTracks() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .accessibilityLabel("Refresh library")
-                .help("Refresh library")
-            }
+    }
 
-            ToolbarItem(placement: .automatic) {
-                Button {
-                    showUpdateSheet = true
-                } label: {
-                    Label("Update Tracks", systemImage: "wand.and.stars")
-                }
-                .help("Update genre and year for selected tracks")
-                .disabled(filteredTracks.isEmpty)
+    // MARK: - Update Content
+
+    private var updateContent: some View {
+        VStack(spacing: 0) {
+            if let coordinator = dependencies.updateCoordinator,
+               let pipeline = dependencies.changePreviewPipeline,
+               let processor = dependencies.batchProcessor {
+                let viewModel = WorkflowViewModel(
+                    updateCoordinator: coordinator,
+                    batchProcessor: processor,
+                    changePreviewPipeline: pipeline
+                )
+                UpdateWorkflowView(viewModel: viewModel, tracks: tracks)
+            } else {
+                ContentUnavailableView(
+                    "Services Unavailable",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text("Update services are still initializing. Please wait.")
+                )
             }
         }
     }
 
     // MARK: - Track Detail
 
+    @ViewBuilder
     private var trackDetail: some View {
-        Group {
-            if let track = selectedTrack {
-                TrackDetailView(track: track)
-            } else {
-                ContentUnavailableView(
-                    "Select a Track",
-                    systemImage: "music.note",
-                    description: Text("Choose a track from the list to view details.")
-                )
-            }
-        }
-    }
-
-    // MARK: - Grouped Views
-
-    private var artistGroupedList: some View {
-        List(selection: $selectedTrack) {
-            ForEach(artistGroups, id: \.key) { group in
-                DisclosureGroup(group.key) {
-                    ForEach(group.tracks) { track in
-                        TrackRow(track: track)
-                            .tag(track)
-                    }
-                }
-            }
-        }
-        .listStyle(.inset(alternatesRowBackgrounds: true))
-        .navigationSplitViewColumnWidth(min: 300, ideal: 450)
-    }
-
-    private var albumGroupedList: some View {
-        List(selection: $selectedTrack) {
-            ForEach(albumGroups, id: \.key) { group in
-                DisclosureGroup(group.key.isEmpty ? "Unknown Album" : group.key) {
-                    ForEach(group.tracks) { track in
-                        TrackRow(track: track)
-                            .tag(track)
-                    }
-                }
-            }
-        }
-        .listStyle(.inset(alternatesRowBackgrounds: true))
-        .navigationSplitViewColumnWidth(min: 300, ideal: 450)
-    }
-
-    private var recentChangesView: some View {
-        ContentUnavailableView(
-            "Recent Changes",
-            systemImage: "clock.arrow.circlepath",
-            description: Text(
-                "Changes will appear here after you update tracks. "
-                    + "Check the Reports tab for the full change log."
+        if let track = selectedTrack {
+            TrackDetailView(track: track)
+        } else {
+            ContentUnavailableView(
+                "Select a Track",
+                systemImage: "music.note",
+                description: Text("Choose a track from the list to view details.")
             )
-        )
+        }
     }
 
-    private var playlistsStub: some View {
-        ContentUnavailableView(
-            "Playlists",
-            systemImage: "music.note.list",
-            description: Text(
-                "Playlist support is not yet available. "
-                    + "MusicKit does not provide write access to playlists in library context."
+    // MARK: - Update Sheet (legacy Cmd+U support)
+
+    @ViewBuilder
+    private var updateSheet: some View {
+        if let coordinator = dependencies.updateCoordinator,
+           let pipeline = dependencies.changePreviewPipeline {
+            let viewModel = UpdateViewModel(
+                updateCoordinator: coordinator,
+                changePreviewPipeline: pipeline
             )
-        )
+            UpdateView(viewModel: viewModel, tracks: tracks)
+        }
+    }
+
+    // MARK: - Column Visibility
+
+    private func updateColumnVisibility() {
+        let needsDetail = selectedCategory == .browse && selectedTrack != nil
+        let target: NavigationSplitViewVisibility = needsDetail ? .all : .doubleColumn
+        if columnVisibility != target {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                columnVisibility = target
+            }
+        }
     }
 
     // MARK: - Data
-
-    private func updateFilteredTracks() {
-        guard !debouncedSearchText.isEmpty else {
-            filteredTracks = tracks
-            updateGroupedData()
-            return
-        }
-        let query = debouncedSearchText
-        filteredTracks = tracks.filter { track in
-            track.name.localizedStandardContains(query)
-                || track.artist.localizedStandardContains(query)
-                || track.album.localizedStandardContains(query)
-                || (track.genre?.localizedStandardContains(query) ?? false)
-        }
-        updateGroupedData()
-    }
-
-    private func updateGroupedData() {
-        let byArtist = Dictionary(grouping: filteredTracks) { $0.effectiveArtist }
-        artistGroups = byArtist.keys
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-            .map { (key: $0, tracks: byArtist[$0] ?? []) }
-
-        let byAlbum = Dictionary(grouping: filteredTracks) { $0.album }
-        albumGroups = byAlbum.keys
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-            .map { (key: $0, tracks: byAlbum[$0] ?? []) }
-    }
 
     private func loadTracks() async {
         guard let reader = dependencies.musicReader else { return }

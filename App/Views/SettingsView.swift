@@ -1,4 +1,4 @@
-// SettingsView.swift — macOS Settings window (Cmd+,) with tabbed configuration.
+// SettingsView.swift — Simplified settings with 3 tabs (was 6).
 
 import Core
 import Services
@@ -7,7 +7,6 @@ import SwiftUI
 
 // MARK: - Update Behavior
 
-/// Controls which metadata fields the app updates by default.
 enum UpdateBehavior: String, CaseIterable, Identifiable {
     case genreOnly = "genre_only"
     case yearOnly = "year_only"
@@ -35,10 +34,6 @@ private enum DiscogsKeychain {
 
 // MARK: - Settings View
 
-/// Tabbed settings view displayed via macOS Settings (Cmd+,).
-///
-/// Each tab manages a distinct configuration area: general preferences, API keys,
-/// scoring parameters, cleaning rules, subscription status, and advanced/debug options.
 struct SettingsView: View {
     @Environment(AppDependencies.self) private var dependencies
 
@@ -47,54 +42,100 @@ struct SettingsView: View {
             GeneralTab()
                 .tabItem { Label("General", systemImage: "gear") }
 
-            APIKeysTab()
-                .tabItem { Label("API Keys", systemImage: "key") }
-
-            ScoringTab()
-                .tabItem { Label("Scoring", systemImage: "slider.horizontal.3") }
-
-            CleaningTab()
-                .tabItem { Label("Cleaning", systemImage: "scissors") }
-
-            SubscriptionView()
-                .tabItem { Label("Subscription", systemImage: "creditcard") }
+            APIAndCacheTab()
+                .tabItem { Label("API & Cache", systemImage: "key") }
 
             AdvancedTab()
                 .tabItem { Label("Advanced", systemImage: "wrench") }
         }
-        .frame(width: 520, height: 420)
+        .frame(width: 520)
     }
 }
 
-// MARK: - General Tab
+// MARK: - General Tab (merged: General + Scoring + Subscription)
 
 private struct GeneralTab: View {
+    @Environment(AppDependencies.self) private var dependencies
     @AppStorage("defaultUpdateBehavior") private var updateBehavior: String = UpdateBehavior.both.rawValue
     @AppStorage("showNotifications") private var showNotifications = true
 
     var body: some View {
         Form {
-            Picker("Default update behavior", selection: $updateBehavior) {
-                ForEach(UpdateBehavior.allCases) { behavior in
-                    Text(behavior.displayName).tag(behavior.rawValue)
+            Section("Update Behavior") {
+                Picker("Default update behavior", selection: $updateBehavior) {
+                    ForEach(UpdateBehavior.allCases) { behavior in
+                        Text(behavior.displayName).tag(behavior.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Toggle("Show notifications on completion", isOn: $showNotifications)
+            }
+
+            Section("Confidence Thresholds") {
+                let confidenceBinding = Binding<Double>(
+                    get: { Double(dependencies.config.yearRetrieval.logic.minConfidenceForNewYear) },
+                    set: { newValue in
+                        dependencies.config.yearRetrieval.logic.minConfidenceForNewYear = newValue
+                        saveConfig()
+                    }
+                )
+
+                VStack(alignment: .leading) {
+                    Text("Minimum confidence: \(Int(dependencies.config.yearRetrieval.logic.minConfidenceForNewYear))%")
+                    Slider(value: confidenceBinding, in: 0 ... 100, step: 5)
+                }
+
+                let definitiveBinding = Binding<Double>(
+                    get: { Double(dependencies.config.yearRetrieval.logic.definitiveScoreThreshold) },
+                    set: { newValue in
+                        dependencies.config.yearRetrieval.logic.definitiveScoreThreshold = Int(newValue)
+                        saveConfig()
+                    }
+                )
+
+                VStack(alignment: .leading) {
+                    Text(
+                        "Definitive score threshold: \(dependencies.config.yearRetrieval.logic.definitiveScoreThreshold)"
+                    )
+                    Slider(value: definitiveBinding, in: 0 ... 100, step: 5)
                 }
             }
-            .pickerStyle(.segmented)
 
-            Toggle("Show notifications on completion", isOn: $showNotifications)
+            Section("Subscription") {
+                if let gate = dependencies.featureGate {
+                    HStack {
+                        Text("Current plan")
+                        Spacer()
+                        TierBadge(tier: gate.currentTier)
+                    }
+                }
+
+                NavigationLink("Manage Subscription") {
+                    SubscriptionView()
+                }
+            }
         }
         .formStyle(.grouped)
         .padding()
     }
+
+    private func saveConfig() {
+        try? dependencies.config.save()
+    }
 }
 
-// MARK: - API Keys Tab
+// MARK: - API & Cache Tab (merged: API Keys + Cache from Advanced)
 
-private struct APIKeysTab: View {
+private struct APIAndCacheTab: View {
+    @Environment(AppDependencies.self) private var dependencies
     @AppStorage("contactEmail") private var contactEmail = ""
     @State private var tokenInput = ""
     @State private var tokenStatus: TokenStatus = .unknown
     @State private var statusMessage = ""
+    @State private var cacheStatistics: CacheStatistics?
+    @State private var isLoadingStatistics = false
+    @State private var isClearingCache = false
 
     private let keychain = KeychainHelper()
 
@@ -106,53 +147,61 @@ private struct APIKeysTab: View {
             } header: {
                 Text("Contact Information")
             } footer: {
-                Text("Included in API request headers (User-Agent). Required by MusicBrainz, recommended by Discogs.")
+                Text("Required by MusicBrainz, recommended by Discogs.")
             }
 
             Section {
                 SecureField("Discogs Personal Access Token", text: $tokenInput)
                     .textFieldStyle(.roundedBorder)
 
-                HStack(spacing: 12) {
-                    Button("Save Token") {
-                        saveToken()
-                    }
-                    .disabled(tokenInput.isEmpty)
-
-                    Button("Delete Token", role: .destructive) {
-                        deleteToken()
-                    }
-
-                    Button("Test Token") {
-                        testToken()
-                    }
+                HStack(spacing: Spacing.sm) {
+                    Button("Save Token") { saveToken() }
+                        .disabled(tokenInput.isEmpty)
+                    Button("Delete Token", role: .destructive) { deleteToken() }
+                    Button("Test Token") { testToken() }
                 }
 
                 HStack(spacing: 6) {
                     Image(systemName: tokenStatus.symbolName)
                         .foregroundStyle(tokenStatus.color)
-                        .accessibilityHidden(true)
                     Text(statusMessage)
                         .foregroundStyle(.secondary)
                         .font(.caption)
                 }
-                .accessibilityElement(children: .combine)
             } header: {
                 Text("Discogs API")
-            } footer: {
-                Text(
-                    "A Personal Access Token from discogs.com/settings/developers enables authenticated API requests with higher rate limits."
-                )
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            }
+
+            Section("Cache Statistics") {
+                if let statistics = cacheStatistics {
+                    LabeledContent("Album year entries", value: "\(statistics.albumYearCount)")
+                    LabeledContent("API result entries", value: "\(statistics.apiResultCount)")
+                    LabeledContent("Generic cache entries", value: "\(statistics.genericCacheCount)")
+                    LabeledContent("Expired entries", value: "\(statistics.expiredCount)")
+                } else if isLoadingStatistics {
+                    ProgressView("Loading statistics...")
+                } else {
+                    Text("No cache data available")
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack {
+                    Button("Refresh") { loadCacheStatistics() }
+                        .disabled(isLoadingStatistics)
+                    Button("Clear Cache", role: .destructive) { clearCache() }
+                        .disabled(isClearingCache || dependencies.cacheService == nil)
+                }
             }
         }
         .formStyle(.grouped)
         .padding()
         .task {
             loadTokenStatus()
+            loadCacheStatistics()
         }
     }
+
+    // MARK: - Token Management
 
     private func loadTokenStatus() {
         do {
@@ -210,7 +259,7 @@ private struct APIKeysTab: View {
                 account: DiscogsKeychain.account
             ), !token.isEmpty {
                 tokenStatus = .saved
-                statusMessage = "Token is present and non-empty (\(token.count) characters)"
+                statusMessage = "Token is present (\(token.count) characters)"
             } else {
                 tokenStatus = .missing
                 statusMessage = "No token found — save one first"
@@ -220,13 +269,33 @@ private struct APIKeysTab: View {
             statusMessage = "Test failed: \(error.localizedDescription)"
         }
     }
+
+    // MARK: - Cache Management
+
+    private func loadCacheStatistics() {
+        isLoadingStatistics = true
+        Task {
+            let statistics = await dependencies.cacheService?.getCacheStatistics()
+            cacheStatistics = statistics
+            isLoadingStatistics = false
+        }
+    }
+
+    private func clearCache() {
+        isClearingCache = true
+        Task {
+            await dependencies.cacheService?.clear()
+            cacheStatistics = nil
+            isClearingCache = false
+            loadCacheStatistics()
+        }
+    }
 }
 
+// MARK: - Token Status
+
 private enum TokenStatus {
-    case unknown
-    case saved
-    case missing
-    case error
+    case unknown, saved, missing, error
 
     var symbolName: String {
         switch self {
@@ -240,48 +309,83 @@ private enum TokenStatus {
     var color: Color {
         switch self {
         case .unknown: .secondary
-        case .saved: .green
-        case .missing: .orange
-        case .error: .red
+        case .saved: Ayu.success
+        case .missing: Ayu.warning
+        case .error: Ayu.error
         }
     }
 }
 
-// MARK: - Scoring Tab
+// MARK: - Advanced Tab (merged: Cleaning + Debug + Reset)
 
-private struct ScoringTab: View {
+private struct AdvancedTab: View {
     @Environment(AppDependencies.self) private var dependencies
+    // swiftlint:disable:next inclusive_language
+    @State private var newRemasterKeyword = ""
+    @State private var newAlbumSuffix = ""
+    @State private var newMappingSource = ""
+    @State private var newMappingTarget = ""
+    @State private var showResetConfirmation = false
 
     var body: some View {
         Form {
-            Section("Confidence Thresholds") {
-                let confidenceBinding = Binding<Double>(
-                    get: { Double(dependencies.config.yearRetrieval.logic.minConfidenceForNewYear) },
-                    set: { newValue in
-                        dependencies.config.yearRetrieval.logic.minConfidenceForNewYear = newValue
-                        saveConfig()
-                    }
+            Section("Genre Mappings") {
+                GenreMappingsEditor(
+                    mappings: Binding(
+                        get: { dependencies.config.cleaning.genreMappings },
+                        set: { newValue in
+                            dependencies.config.cleaning.genreMappings = newValue
+                            saveConfig()
+                        }
+                    ),
+                    newSource: $newMappingSource,
+                    newTarget: $newMappingTarget
                 )
+            }
 
-                VStack(alignment: .leading) {
-                    Text("Minimum confidence: \(Int(dependencies.config.yearRetrieval.logic.minConfidenceForNewYear))%")
-                    Slider(value: confidenceBinding, in: 0 ... 100, step: 5)
+            Section("Remaster Keywords") {
+                ForEach(dependencies.config.cleaning.remasterKeywords, id: \.self) { keyword in
+                    Text(keyword)
+                }
+                .onDelete { offsets in
+                    dependencies.config.cleaning.remasterKeywords.remove(atOffsets: offsets)
+                    saveConfig()
                 }
 
-                let definitiveBinding = Binding<Double>(
-                    get: { Double(dependencies.config.yearRetrieval.logic.definitiveScoreThreshold) },
+                HStack {
+                    TextField("New keyword", text: $newRemasterKeyword)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Add") { addRemasterKeyword() }
+                        .disabled(newRemasterKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+
+            Section("Album Suffixes to Remove") {
+                ForEach(dependencies.config.cleaning.albumSuffixesToRemove, id: \.self) { suffix in
+                    Text(suffix)
+                }
+                .onDelete { offsets in
+                    dependencies.config.cleaning.albumSuffixesToRemove.remove(atOffsets: offsets)
+                    saveConfig()
+                }
+
+                HStack {
+                    TextField("New suffix", text: $newAlbumSuffix)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Add") { addAlbumSuffix() }
+                        .disabled(newAlbumSuffix.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+
+            Section("Debug") {
+                let debugBinding = Binding<Bool>(
+                    get: { dependencies.config.development.debugMode },
                     set: { newValue in
-                        dependencies.config.yearRetrieval.logic.definitiveScoreThreshold = Int(newValue)
-                        saveConfig()
+                        dependencies.config.development.debugMode = newValue
+                        try? dependencies.config.save()
                     }
                 )
-
-                VStack(alignment: .leading) {
-                    Text(
-                        "Definitive score threshold: \(dependencies.config.yearRetrieval.logic.definitiveScoreThreshold)"
-                    )
-                    Slider(value: definitiveBinding, in: 0 ... 100, step: 5)
-                }
+                Toggle("Debug mode", isOn: debugBinding)
             }
 
             Section("Year Difference Penalty") {
@@ -300,77 +404,20 @@ private struct ScoringTab: View {
                     Slider(value: penaltyScaleBinding, in: 0 ... 20, step: 1)
                 }
             }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
 
-    private func saveConfig() {
-        try? dependencies.config.save()
-    }
-}
-
-// MARK: - Cleaning Tab
-
-private struct CleaningTab: View {
-    @Environment(AppDependencies.self) private var dependencies
-    // swiftlint:disable:next inclusive_language
-    @State private var newRemasterKeyword = ""
-    @State private var newAlbumSuffix = ""
-    @State private var newMappingSource = ""
-    @State private var newMappingTarget = ""
-
-    var body: some View {
-        Form {
-            Section("Remaster Keywords") {
-                ForEach(dependencies.config.cleaning.remasterKeywords, id: \.self) { keyword in
-                    Text(keyword)
+            Section("Reset") {
+                Button("Reset Configuration to Defaults", role: .destructive) {
+                    showResetConfirmation = true
                 }
-                .onDelete { offsets in
-                    dependencies.config.cleaning.remasterKeywords.remove(atOffsets: offsets)
-                    saveConfig()
-                }
-
-                HStack {
-                    TextField("New keyword", text: $newRemasterKeyword)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Add") {
-                        addRemasterKeyword()
-                    }
-                    .disabled(newRemasterKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
+                .confirmationDialog(
+                    "Reset all settings to defaults?",
+                    isPresented: $showResetConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Reset", role: .destructive) { resetConfiguration() }
+                    Button("Cancel", role: .cancel) {}
                 }
             }
-
-            Section("Album Suffixes to Remove") {
-                ForEach(dependencies.config.cleaning.albumSuffixesToRemove, id: \.self) { suffix in
-                    Text(suffix)
-                }
-                .onDelete { offsets in
-                    dependencies.config.cleaning.albumSuffixesToRemove.remove(atOffsets: offsets)
-                    saveConfig()
-                }
-
-                HStack {
-                    TextField("New suffix", text: $newAlbumSuffix)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Add") {
-                        addAlbumSuffix()
-                    }
-                    .disabled(newAlbumSuffix.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
-
-            GenreMappingsEditor(
-                mappings: Binding(
-                    get: { dependencies.config.cleaning.genreMappings },
-                    set: { newValue in
-                        dependencies.config.cleaning.genreMappings = newValue
-                        saveConfig()
-                    }
-                ),
-                newSource: $newMappingSource,
-                newTarget: $newMappingTarget
-            )
         }
         .formStyle(.grouped)
         .padding()
@@ -395,98 +442,6 @@ private struct CleaningTab: View {
 
     private func saveConfig() {
         try? dependencies.config.save()
-    }
-}
-
-// MARK: - Advanced Tab
-
-private struct AdvancedTab: View {
-    @Environment(AppDependencies.self) private var dependencies
-    @State private var cacheStatistics: CacheStatistics?
-    @State private var isLoadingStatistics = false
-    @State private var isClearingCache = false
-    @State private var showResetConfirmation = false
-
-    var body: some View {
-        Form {
-            Section("Cache") {
-                if let statistics = cacheStatistics {
-                    LabeledContent("Album year entries", value: "\(statistics.albumYearCount)")
-                    LabeledContent("API result entries", value: "\(statistics.apiResultCount)")
-                    LabeledContent("Generic cache entries", value: "\(statistics.genericCacheCount)")
-                    LabeledContent("Expired entries", value: "\(statistics.expiredCount)")
-                } else if isLoadingStatistics {
-                    ProgressView("Loading statistics...")
-                } else {
-                    Text("No cache data available")
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack {
-                    Button("Refresh Statistics") {
-                        loadCacheStatistics()
-                    }
-                    .disabled(isLoadingStatistics)
-
-                    Button("Clear Cache", role: .destructive) {
-                        clearCache()
-                    }
-                    .disabled(isClearingCache || dependencies.cacheService == nil)
-                }
-            }
-
-            Section("Debug") {
-                let debugBinding = Binding<Bool>(
-                    get: { dependencies.config.development.debugMode },
-                    set: { newValue in
-                        dependencies.config.development.debugMode = newValue
-                        try? dependencies.config.save()
-                    }
-                )
-
-                Toggle("Debug mode", isOn: debugBinding)
-            }
-
-            Section("Reset") {
-                Button("Reset Configuration to Defaults", role: .destructive) {
-                    showResetConfirmation = true
-                }
-                .confirmationDialog(
-                    "Reset all settings to defaults?",
-                    isPresented: $showResetConfirmation,
-                    titleVisibility: .visible
-                ) {
-                    Button("Reset", role: .destructive) {
-                        resetConfiguration()
-                    }
-                    Button("Cancel", role: .cancel) {}
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-        .task {
-            loadCacheStatistics()
-        }
-    }
-
-    private func loadCacheStatistics() {
-        isLoadingStatistics = true
-        Task {
-            let statistics = await dependencies.cacheService?.getCacheStatistics()
-            cacheStatistics = statistics
-            isLoadingStatistics = false
-        }
-    }
-
-    private func clearCache() {
-        isClearingCache = true
-        Task {
-            await dependencies.cacheService?.clear()
-            cacheStatistics = nil
-            isClearingCache = false
-            loadCacheStatistics()
-        }
     }
 
     private func resetConfiguration() {

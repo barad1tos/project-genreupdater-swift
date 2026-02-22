@@ -49,18 +49,14 @@ extension Tier {
 
     public var badgeColor: Color {
         switch self {
-        case .free:
-            .gray
-        case .weekPass:
-            .blue
-        case .pro:
-            .yellow
+        case .free: Ayu.fgMuted
+        case .weekPass: Ayu.info
+        case .pro: Ayu.accent
         }
     }
 
-    /// White text on gray/blue passes WCAG AA; yellow needs dark text.
     public var badgeForeground: Color {
-        self == .pro ? .black : .white
+        self == .pro ? Ayu.fgPrimary : .white
     }
 }
 

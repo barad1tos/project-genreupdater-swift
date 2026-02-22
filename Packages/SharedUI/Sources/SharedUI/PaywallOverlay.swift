@@ -63,9 +63,9 @@ public struct PaywallOverlay: View {
             purchaseButtons
             restoreButton
         }
-        .padding(32)
+        .padding(Spacing.xxl)
         .frame(maxWidth: 400)
-        .background(.ultraThinMaterial, in: .rect(cornerRadius: 20))
+        .background(.ultraThinMaterial, in: .rect(cornerRadius: Radius.xl))
         .padding()
     }
 

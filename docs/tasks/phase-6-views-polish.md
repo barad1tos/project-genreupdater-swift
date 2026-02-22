@@ -146,6 +146,18 @@ depends_on:
 | `SharedUI/TrackDetailView.swift` | New | ~47 | Track detail (extracted from MainView) |
 | `SharedUI/Reports/ReportsChangeLog.swift` | New | ~219 | Change log table |
 | `SharedUI/Charts/ReportsCharts.swift` | New | ~232 | Charts + summary cards |
+| `SharedUI/Theme/AyuColors.swift` | New | ~183 | Ayu color palette tokens |
+| `SharedUI/Theme/DesignTokens.swift` | New | ~95 | Spacing, typography, glass helpers |
+| `App/Views/Components/GaugeView.swift` | New | ~211 | Multi-ring library health gauge |
+| `App/Views/Components/MetricCard.swift` | New | ~146 | Dashboard metric card |
+| `App/Views/Components/QuickActionButton.swift` | New | ~92 | Horizontal action button with hover |
+| `App/Views/Components/AlbumCard.swift` | New | — | Album card component |
+| `App/Views/Components/ArtistRow.swift` | New | — | Artist row component |
+| `App/Views/DashboardView.swift` | New | ~231 | Library health dashboard |
+| `App/Views/BrowseView.swift` | New | — | Browse/search library view |
+| `App/Views/UpdateWorkflowView.swift` | New | — | Unified update workflow |
+| `App/ViewModels/DashboardViewModel.swift` | New | ~112 | Dashboard metrics computation |
+| `App/ViewModels/WorkflowViewModel.swift` | New | — | Update workflow ViewModel |
 
 ## Acceptance Criteria
 

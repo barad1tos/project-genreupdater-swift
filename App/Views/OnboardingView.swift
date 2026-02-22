@@ -11,6 +11,7 @@
 
 import Core
 import Services
+import SharedUI
 import SwiftUI
 
 // MARK: - Onboarding View
@@ -23,14 +24,12 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Step indicator
             StepIndicator(currentStep: currentStep)
-                .padding(.top, 24)
-                .padding(.bottom, 16)
+                .padding(.top, Spacing.xl)
+                .padding(.bottom, Spacing.md)
 
             Divider()
 
-            // Step content
             Group {
                 switch currentStep {
                 case .welcome:
@@ -53,9 +52,10 @@ struct OnboardingView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(32)
+            .padding(Spacing.xxl)
         }
         .frame(width: 600, height: 450)
+        .background(Ayu.bgPrimary)
     }
 
     // MARK: - Actions
@@ -134,17 +134,17 @@ private struct StepIndicator: View {
     let currentStep: OnboardingStep
 
     var body: some View {
-        HStack(spacing: 24) {
+        HStack(spacing: Spacing.xl) {
             ForEach(OnboardingStep.allCases, id: \.rawValue) { step in
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.xs) {
                     Circle()
-                        .fill(step.rawValue <= currentStep.rawValue ? Color.accentColor : Color.secondary.opacity(0.3))
+                        .fill(step.rawValue <= currentStep.rawValue ? Ayu.accent : Ayu.fgMuted.opacity(0.3))
                         .frame(width: 8, height: 8)
 
                     if step.rawValue < OnboardingStep.allCases.count - 1 {
                         Text(step.title)
-                            .font(.caption)
-                            .foregroundStyle(step.rawValue <= currentStep.rawValue ? .primary : .secondary)
+                            .font(AppFont.caption)
+                            .foregroundStyle(step.rawValue <= currentStep.rawValue ? Ayu.fgPrimary : Ayu.fgSecondary)
                     }
                 }
             }
@@ -158,22 +158,22 @@ private struct WelcomeStep: View {
     let onContinue: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.lg) {
             Image(systemName: "music.note.list")
                 .font(.system(size: 56))
-                .foregroundStyle(.tint)
+                .foregroundStyle(Ayu.accent)
 
             Text("Welcome to Genre Updater")
-                .font(.title)
-                .fontWeight(.bold)
+                .font(AppFont.headline)
+                .foregroundStyle(Ayu.fgPrimary)
 
             Text(
                 "Automatically update genres and release years "
                     + "for your Music library using MusicBrainz, "
                     + "Discogs, and Apple Music data."
             )
-            .font(.body)
-            .foregroundStyle(.secondary)
+            .font(AppFont.body)
+            .foregroundStyle(Ayu.fgSecondary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: 400)
 
@@ -183,6 +183,7 @@ private struct WelcomeStep: View {
                 onContinue()
             }
             .buttonStyle(.borderedProminent)
+            .tint(Ayu.accent)
             .controlSize(.large)
         }
     }
@@ -196,14 +197,14 @@ private struct InstallScriptsStep: View {
     let onInstall: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.lg) {
             Image(systemName: "applescript.fill")
                 .font(.system(size: 48))
-                .foregroundStyle(.orange)
+                .foregroundStyle(Ayu.warning)
 
             Text("Install AppleScript Components")
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(AppFont.headline)
+                .foregroundStyle(Ayu.fgPrimary)
 
             Text(
                 "Genre Updater needs AppleScript files to write "
@@ -211,8 +212,8 @@ private struct InstallScriptsStep: View {
                     + "with the app and will be installed to a secure "
                     + "system directory."
             )
-            .font(.body)
-            .foregroundStyle(.secondary)
+            .font(AppFont.body)
+            .foregroundStyle(Ayu.fgSecondary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: 420)
 
@@ -222,6 +223,7 @@ private struct InstallScriptsStep: View {
             case .idle:
                 Button("Install Scripts", action: onInstall)
                     .buttonStyle(.borderedProminent)
+                    .tint(Ayu.accent)
                     .controlSize(.large)
 
             case .installing:
@@ -229,17 +231,17 @@ private struct InstallScriptsStep: View {
 
             case let .success(count):
                 Label("\(count) scripts installed successfully", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Ayu.success)
 
             case .failed:
-                VStack(spacing: 8) {
+                VStack(spacing: Spacing.xs) {
                     Label("Installation failed", systemImage: "xmark.circle.fill")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Ayu.error)
 
                     if let errorMessage {
                         Text(errorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(AppFont.caption)
+                            .foregroundStyle(Ayu.fgSecondary)
                     }
 
                     Button("Retry", action: onInstall)
@@ -256,22 +258,22 @@ private struct MusicAccessStep: View {
     let onContinue: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.lg) {
             Image(systemName: "lock.shield.fill")
                 .font(.system(size: 48))
-                .foregroundStyle(.blue)
+                .foregroundStyle(Ayu.info)
 
             Text("Music Library Access")
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(AppFont.headline)
+                .foregroundStyle(Ayu.fgPrimary)
 
             Text(
                 "Genre Updater uses Apple's MusicKit to read your "
                     + "library. You'll be asked to grant access — this "
                     + "is required to view and update your tracks."
             )
-            .font(.body)
-            .foregroundStyle(.secondary)
+            .font(AppFont.body)
+            .foregroundStyle(Ayu.fgSecondary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: 420)
 
@@ -281,6 +283,7 @@ private struct MusicAccessStep: View {
                 onContinue()
             }
             .buttonStyle(.borderedProminent)
+            .tint(Ayu.accent)
             .controlSize(.large)
         }
     }
@@ -292,18 +295,18 @@ private struct CompleteStep: View {
     let onFinish: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.lg) {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 56))
-                .foregroundStyle(.green)
+                .foregroundStyle(Ayu.success)
 
             Text("All Set!")
-                .font(.title)
-                .fontWeight(.bold)
+                .font(AppFont.headline)
+                .foregroundStyle(Ayu.fgPrimary)
 
             Text("Genre Updater is ready to use. Your library will be loaded automatically.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(AppFont.body)
+                .foregroundStyle(Ayu.fgSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 400)
 
@@ -313,6 +316,7 @@ private struct CompleteStep: View {
                 onFinish()
             }
             .buttonStyle(.borderedProminent)
+            .tint(Ayu.accent)
             .controlSize(.large)
         }
     }
