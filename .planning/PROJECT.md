@@ -31,6 +31,9 @@ The app must feel fast, intuitive, and satisfying to use on a 38K+ track library
 - ✓ Structured logging with privacy levels — Phase 1
 - ✓ 734 unit tests (Core 418, Services 316) with CI coverage enforcement — Phase 7
 - ✓ Basic SwiftUI views (Dashboard, Browse, Update, Reports, Settings) — Phase 6
+- ✓ Shadow tokens (5 Ayu accent-tinted elevations) + Motion tokens (3 durations + 4 curves) — UI Phase 1
+- ✓ Ayu light-mode fgSecondary WCAG AA compliance (4.89:1) — UI Phase 1
+- ✓ Window size enforcement (900pt min, 1280x800 default) — UI Phase 1
 
 ### Active
 
@@ -140,6 +143,10 @@ The app must feel fast, intuitive, and satisfying to use on a 38K+ track library
 | Drill-down + Smart Filters for selection | User needs both browse-by-artist AND filter-by-criteria | — Pending |
 | Cache metrics for instant Dashboard | "0 tracks" on launch is unacceptable UX | — Pending |
 | Reuse LibrarySyncService for delta | Existing delta scanning mechanism, extend for dashboard metrics | — Pending |
+| Ayu accent-tinted shadows | Brand identity via colored shadows, not generic black | Shipped Phase 1 |
+| Bezier curves over springs for motion | 200-400ms easeInOut/easeOut — Spotify-style, not bouncy | Shipped Phase 1 |
+| fgPrimary unchanged (6.10:1) | Research disproved stale blocker — already WCAG AA | Shipped Phase 1 |
+| Opaque generics (`some Equatable`) | SwiftFormat rule; idiomatic Swift 5.9+ pattern | Shipped Phase 1 |
 
 ---
-*Last updated: 2026-02-22 after initialization*
+*Last updated: 2026-02-22 after Phase 1 (Design System Foundation)*
