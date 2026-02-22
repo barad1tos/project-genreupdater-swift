@@ -78,6 +78,13 @@ App → SharedUI → Core
 
 ## Coding Patterns
 
+### SharedUI List Row Interaction
+All interactive list rows (ArtistListRow, AlbumListRow) share a consistent trio:
+- **Hover**: leading accent bar (3pt `Ayu.accent`) + `Ayu.bgTertiary.opacity(0.5)` background via `.onHover`
+- **Press**: `.scaleEffect(0.98)` with `Motion.curveFast` animation
+- **Selected**: persistent accent bar + `Ayu.accent.opacity(0.1)` background (parent-controlled `isSelected`)
+- **Scroll fix**: `.contentShape(.rect)` on all interactive rows (macOS 15 regression)
+
 ### Concurrency
 - **Actors** for shared mutable state: `AppleScriptBridge`, `CacheService`, `APIOrchestrator`
 - **Sendable** on all domain types (Track, YearResult, etc.)
