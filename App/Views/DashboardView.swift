@@ -1,207 +1,295 @@
-// DashboardView.swift — Library Health dashboard.
+// DashboardView.swift — Library health dashboard with cached-first metrics.
 
 import Core
+import Services
 import SharedUI
 import SwiftUI
 
 // MARK: - Dashboard View
 
-/// Top-level dashboard assembling a health gauge, metric cards, and quick action buttons.
+/// Calm observatory showing library health state via HeroGauge, metric cards, and soft quick actions.
 ///
-/// Receives a pre-loaded track array from the parent (MainView) and delegates
-/// metric computation to `DashboardViewModel`. Quick actions navigate to other
-/// sidebar categories via a callback.
+/// Uses a two-phase cached-first loading pattern: loads persisted metrics snapshot instantly
+/// on appear, then refreshes from live MusicKit data when tracks arrive. First launch shows
+/// full shimmer placeholders; subsequent launches never show "0 tracks".
 struct DashboardView: View {
     @State private var viewModel = DashboardViewModel()
+
     let tracks: [Track]
+    let metricsSnapshot: PersistedMetricsSnapshot?
+    let isLoadingTracks: Bool
     let onNavigate: (NavigationCategory) -> Void
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                gaugeSection
-                    .padding(.bottom, Spacing.xxxl)
-
-                metricsSection
-                    .padding(.bottom, Spacing.xxl)
-
-                topGenresSection
-                    .padding(.bottom, Spacing.xxl)
-
-                quickActionsSection
+                switch viewModel.loadingState {
+                case .shimmer:
+                    shimmerContent
+                case .permissionDenied:
+                    permissionDeniedView
+                case .emptyLibrary:
+                    emptyLibraryView
+                case let .error(message):
+                    errorView(message)
+                default:
+                    liveContent
+                }
             }
             .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.xxl)
         }
+        .onAppear {
+            viewModel.loadCachedMetrics(from: metricsSnapshot)
+        }
         .task(id: tracks.count) {
-            viewModel.refresh(tracks: tracks)
+            viewModel.refreshFromLive(tracks: tracks)
+        }
+    }
+
+    // MARK: - Live Content
+
+    private var liveContent: some View {
+        VStack(spacing: 0) {
+            updatingIndicator
+            gaugeSection
+            metricsSection
+            quickActionsSection
+            timestampFooter
+        }
+    }
+
+    // MARK: - Updating Indicator
+
+    @ViewBuilder
+    private var updatingIndicator: some View {
+        if isLoadingTracks, case .cached = viewModel.loadingState {
+            HStack(spacing: Spacing.xs) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Updating...")
+                    .font(AppFont.caption)
+                    .foregroundStyle(Ayu.fgMuted)
+            }
+            .padding(.bottom, Spacing.md)
         }
     }
 
     // MARK: - Gauge Section
 
     private var gaugeSection: some View {
-        GaugeView(
-            totalTracks: viewModel.totalTracks,
-            genreFillPercent: viewModel.genreFillPercent,
-            yearFillPercent: viewModel.yearFillPercent,
-            size: 280
+        HeroGauge(
+            genreCoverage: viewModel.metrics.genreCoverage,
+            yearCoverage: viewModel.metrics.yearCoverage,
+            consistencyCoverage: viewModel.metrics.consistencyCoverage,
+            trackCount: viewModel.metrics.totalTracks,
+            onArcTapped: { layer in
+                switch layer {
+                case .genre, .year, .consistency:
+                    onNavigate(.update)
+                }
+            },
+            detailedCounts: .init(
+                genre: (
+                    tagged: viewModel.metrics.tracksWithGenre,
+                    total: viewModel.metrics.totalTracks
+                ),
+                year: (
+                    tagged: viewModel.metrics.tracksWithYear,
+                    total: viewModel.metrics.totalTracks
+                ),
+                consistency: (
+                    tagged: viewModel.metrics.tracksWithBoth,
+                    total: viewModel.metrics.totalTracks
+                )
+            )
         )
+        .frame(width: 300, height: 180)
         .frame(maxWidth: .infinity)
+        .padding(.bottom, Spacing.xxxl)
     }
 
     // MARK: - Metrics Section
 
     private var metricsSection: some View {
-        HStack(spacing: Spacing.md) {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 180, maximum: 280))],
+            spacing: Spacing.md
+        ) {
             MetricCard(
-                title: "Unique Genres",
-                value: viewModel.uniqueGenres.formatted(),
-                subtitle: genreSubtitle,
+                label: "Need Genre",
+                value: viewModel.metrics.tracksNeedingGenre.formatted(),
                 icon: "tag.fill",
-                tint: Ayu.purple
-            )
+                tint: Ayu.purple,
+                trend: viewModel.genreTrend,
+                trendDelta: viewModel.genreTrendDelta
+            ) {
+                onNavigate(.update)
+            }
 
             MetricCard(
-                title: "Need Year",
-                value: viewModel.tracksNeedingYear.formatted(),
-                subtitle: yearSubtitle,
+                label: "Need Year",
+                value: viewModel.metrics.tracksNeedingYear.formatted(),
                 icon: "calendar.badge.exclamationmark",
-                tint: Ayu.warning
-            )
+                tint: Ayu.info,
+                trend: viewModel.yearTrend,
+                trendDelta: viewModel.yearTrendDelta
+            ) {
+                onNavigate(.update)
+            }
 
             MetricCard(
-                title: "Recently Added",
-                value: viewModel.recentlyAdded.formatted(),
-                subtitle: "last 7 days",
+                label: "Recently Added",
+                value: viewModel.metrics.recentlyAdded.formatted(),
                 icon: "clock.arrow.circlepath",
-                tint: Ayu.success
-            )
-        }
-    }
-
-    // MARK: - Top Genres Section
-
-    @ViewBuilder
-    private var topGenresSection: some View {
-        if !viewModel.topGenres.isEmpty {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                Text("Top Genres")
-                    .font(AppFont.headline)
-                    .foregroundStyle(Ayu.fgPrimary)
-
-                let maxCount = viewModel.topGenres.first?.count ?? 1
-                VStack(spacing: Spacing.xs) {
-                    ForEach(Array(viewModel.topGenres.enumerated()), id: \.offset) { _, genre in
-                        genreBarRow(name: genre.name, count: genre.count, maxCount: maxCount)
-                    }
-                }
-                .padding(Spacing.md)
-                .background(Ayu.bgSecondary, in: RoundedRectangle(cornerRadius: Radius.md))
+                tint: Ayu.success,
+                trend: viewModel.recentTrend,
+                trendDelta: viewModel.recentTrendDelta
+            ) {
+                onNavigate(.browse)
             }
         }
-    }
-
-    private func genreBarRow(name: String, count: Int, maxCount: Int) -> some View {
-        HStack(spacing: Spacing.sm) {
-            Text(name)
-                .font(AppFont.body)
-                .foregroundStyle(Ayu.fgPrimary)
-                .frame(width: 120, alignment: .leading)
-                .lineLimit(1)
-
-            GeometryReader { geometry in
-                let fraction = maxCount > 0 ? CGFloat(count) / CGFloat(maxCount) : 0
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: Radius.xs)
-                        .fill(Ayu.purple.opacity(0.15))
-                        .frame(width: geometry.size.width)
-
-                    RoundedRectangle(cornerRadius: Radius.xs)
-                        .fill(Ayu.purple.opacity(0.6))
-                        .frame(width: geometry.size.width * fraction)
-                }
-            }
-            .frame(height: 20)
-
-            Text(count.formatted())
-                .font(AppFont.caption)
-                .foregroundStyle(Ayu.fgSecondary)
-                .frame(width: 40, alignment: .trailing)
-                .monospacedDigit()
-        }
-        .frame(height: 24)
+        .padding(.bottom, Spacing.xxl)
     }
 
     // MARK: - Quick Actions Section
 
     private var quickActionsSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            Text("Quick Actions")
-                .font(AppFont.headline)
-                .foregroundStyle(Ayu.fgPrimary)
+        VStack(spacing: Spacing.xs) {
+            QuickActionButton(
+                category: "Genre",
+                untaggedCount: viewModel.metrics.tracksNeedingGenre,
+                icon: "tag.fill",
+                tint: Ayu.purple
+            ) {
+                onNavigate(.update)
+            }
 
-            HStack(spacing: Spacing.md) {
-                QuickActionButton(
-                    title: "Update Genres",
-                    icon: "tag.fill",
-                    tint: Ayu.purple,
-                    badge: viewModel.tracksNeedingGenre
-                ) {
-                    onNavigate(.update)
-                }
+            QuickActionButton(
+                category: "Year",
+                untaggedCount: viewModel.metrics.tracksNeedingYear,
+                icon: "calendar",
+                tint: Ayu.info
+            ) {
+                onNavigate(.update)
+            }
+        }
+        .padding(.bottom, Spacing.xxl)
+    }
 
-                QuickActionButton(
-                    title: "Update Years",
-                    icon: "calendar",
-                    tint: Ayu.info,
-                    badge: viewModel.tracksNeedingYear
-                ) {
-                    onNavigate(.update)
-                }
+    // MARK: - Timestamp Footer
 
-                QuickActionButton(
-                    title: "View Reports",
-                    icon: "chart.bar.fill",
-                    tint: Ayu.accent,
-                    badge: nil
-                ) {
-                    onNavigate(.reports)
-                }
+    @ViewBuilder
+    private var timestampFooter: some View {
+        if case let .cached(lastUpdated) = viewModel.loadingState {
+            HStack {
+                Spacer()
+                Text("Updated \(lastUpdated, format: .relative(presentation: .named))")
+                    .font(AppFont.caption)
+                    .foregroundStyle(Ayu.fgMuted)
+                Spacer()
             }
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - Shimmer Content
 
-    private var genreSubtitle: String {
-        if viewModel.tracksNeedingGenre > 0 {
-            return "\(viewModel.tracksNeedingGenre.formatted()) need genre"
+    private var shimmerContent: some View {
+        VStack(spacing: 0) {
+            ShimmerPlaceholder(shape: .gauge)
+                .frame(width: 280, height: 140)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, Spacing.xxxl)
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 180, maximum: 280))],
+                spacing: Spacing.md
+            ) {
+                ShimmerPlaceholder(shape: .card)
+                ShimmerPlaceholder(shape: .card)
+                ShimmerPlaceholder(shape: .card)
+            }
+            .padding(.bottom, Spacing.xxl)
+
+            VStack(spacing: Spacing.xs) {
+                ShimmerPlaceholder(shape: .rectangle(width: .infinity, height: 44))
+                    .frame(maxWidth: .infinity)
+                ShimmerPlaceholder(shape: .rectangle(width: .infinity, height: 44))
+                    .frame(maxWidth: .infinity)
+            }
         }
-        return "all tracks tagged"
     }
 
-    private var yearSubtitle: String {
-        if viewModel.tracksNeedingYear > 0 {
-            return "\(viewModel.tracksNeedingYear.formatted()) need year"
+    // MARK: - Permission Denied
+
+    private var permissionDeniedView: some View {
+        ContentUnavailableView {
+            Label("Music Access Required", systemImage: "music.note.list")
+        } description: {
+            Text("GenreUpdater needs permission to read your Music library. Grant access in System Settings.")
+        } actions: {
+            Button("Open System Settings") {
+                if let url = URL(string: "x-apple.systempreferences:") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Ayu.accent)
         }
-        return "all tracks dated"
+    }
+
+    // MARK: - Empty Library
+
+    private var emptyLibraryView: some View {
+        ContentUnavailableView {
+            Label("Your Music Library is Empty", systemImage: "music.note")
+        } description: {
+            Text("Add some music to Music.app and come back -- GenreUpdater will help organize it.")
+        } actions: {
+            Button("Open Music") {
+                if let url = URL(string: "music://") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Ayu.accent)
+        }
+    }
+
+    // MARK: - Error View
+
+    private func errorView(_ message: String) -> some View {
+        ContentUnavailableView {
+            Label("Something Went Wrong", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("Retry") {
+                viewModel.loadCachedMetrics(from: metricsSnapshot)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Ayu.accent)
+        }
     }
 }
 
 // MARK: - Preview
 
-#Preview("Dashboard — Populated") {
+#Preview("Dashboard -- Populated") {
     DashboardView(
         tracks: PreviewData.sampleTracks,
+        metricsSnapshot: nil,
+        isLoadingTracks: false,
         onNavigate: { _ in }
     )
     .frame(width: 700, height: 800)
 }
 
-#Preview("Dashboard — Empty") {
+#Preview("Dashboard -- Shimmer") {
     DashboardView(
         tracks: [],
+        metricsSnapshot: nil,
+        isLoadingTracks: true,
         onNavigate: { _ in }
     )
     .frame(width: 700, height: 800)

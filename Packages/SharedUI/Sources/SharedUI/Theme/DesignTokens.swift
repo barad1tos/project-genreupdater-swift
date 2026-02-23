@@ -172,8 +172,8 @@ extension View {
 /// Use `Motion.*` instead of raw literals in `.animation()` calls.
 /// Pair with `.motionAnimation(_:value:reduceMotion:)` to respect macOS "Reduce Motion".
 ///
-/// - Note: GaugeView uses `.spring()` as an explicit exemption for its entrance animation.
-///   Do not convert it to Motion tokens.
+/// - Note: HeroGauge uses static fill on appear (Phase 8 will add draw-in animation).
+///   Do not convert gauge animations to Motion tokens.
 public enum Motion {
     // MARK: Durations
 

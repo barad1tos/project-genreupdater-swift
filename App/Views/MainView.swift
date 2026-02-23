@@ -5,6 +5,7 @@ import Core
 import LucideIcons
 import Services
 import SharedUI
+import SwiftData
 import SwiftUI
 
 // MARK: - Sidebar Navigation
@@ -61,12 +62,14 @@ extension FocusedValues {
 
 struct MainView: View {
     @Environment(AppDependencies.self) private var dependencies
+    @Environment(\.modelContext) private var modelContext
     @State private var selectedCategory: NavigationCategory? = .dashboard
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     @State private var tracks: [Track] = []
     @State private var isLoading = false
     @State private var selectedTrack: Track?
     @State private var showUpdateSheet = false
+    @State private var metricsSnapshot: PersistedMetricsSnapshot?
     @AppStorage("sidebarCompact") private var isSidebarCompact = false
 
     var body: some View {
@@ -123,7 +126,11 @@ struct MainView: View {
         switch selectedCategory {
         case .dashboard, .none:
             centeredContent {
-                DashboardView(tracks: tracks) { category in
+                DashboardView(
+                    tracks: tracks,
+                    metricsSnapshot: metricsSnapshot,
+                    isLoadingTracks: isLoading
+                ) { category in
                     selectedCategory = category
                 }
             }
@@ -216,6 +223,8 @@ struct MainView: View {
     // MARK: - Data
 
     private func loadTracks() async {
+        loadCachedSnapshot()
+
         guard let reader = dependencies.musicReader else { return }
         isLoading = true
         defer { isLoading = false }
@@ -223,8 +232,76 @@ struct MainView: View {
         do {
             try await reader.requestAuthorization()
             tracks = try await reader.fetchAllTracks()
+            saveMetricsSnapshot(from: tracks)
         } catch {
             tracks = []
         }
+    }
+
+    // MARK: - Metrics Snapshot
+
+    private func loadCachedSnapshot() {
+        let descriptor = FetchDescriptor<PersistedMetricsSnapshot>()
+        metricsSnapshot = try? modelContext.fetch(descriptor).first
+    }
+
+    private func saveMetricsSnapshot(from loadedTracks: [Track]) {
+        guard !loadedTracks.isEmpty else { return }
+
+        let total = loadedTracks.count
+        var genreCount = 0
+        var yearCount = 0
+        var bothCount = 0
+        var recentCount = 0
+        let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: .now)
+
+        for track in loadedTracks {
+            let hasGenre = track.genre.map { !$0.isEmpty } ?? false
+            let hasYear = track.year != nil
+
+            if hasGenre { genreCount += 1 }
+            if hasYear { yearCount += 1 }
+            if hasGenre, hasYear { bothCount += 1 }
+
+            if let dateAdded = track.dateAdded,
+               let cutoff = sevenDaysAgo,
+               dateAdded >= cutoff {
+                recentCount += 1
+            }
+        }
+
+        let descriptor = FetchDescriptor<PersistedMetricsSnapshot>()
+        let existing = try? modelContext.fetch(descriptor).first
+
+        if let snapshot = existing {
+            // Shift current values to previous before updating
+            snapshot.previousTotalTracks = snapshot.totalTracks
+            snapshot.previousTracksNeedingGenre = snapshot.tracksNeedingGenre
+            snapshot.previousTracksNeedingYear = snapshot.tracksNeedingYear
+            snapshot.previousRecentlyAdded = snapshot.recentlyAdded
+
+            snapshot.totalTracks = total
+            snapshot.tracksWithGenre = genreCount
+            snapshot.tracksWithYear = yearCount
+            snapshot.tracksWithBoth = bothCount
+            snapshot.tracksNeedingGenre = total - genreCount
+            snapshot.tracksNeedingYear = total - yearCount
+            snapshot.recentlyAdded = recentCount
+            snapshot.timestamp = .now
+        } else {
+            let snapshot = PersistedMetricsSnapshot(
+                totalTracks: total,
+                tracksWithGenre: genreCount,
+                tracksWithYear: yearCount,
+                tracksWithBoth: bothCount,
+                tracksNeedingGenre: total - genreCount,
+                tracksNeedingYear: total - yearCount,
+                recentlyAdded: recentCount
+            )
+            modelContext.insert(snapshot)
+        }
+
+        try? modelContext.save()
+        metricsSnapshot = try? modelContext.fetch(descriptor).first
     }
 }
