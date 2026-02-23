@@ -37,11 +37,11 @@ Requirements for the UI/UX redesign milestone. Each maps to roadmap phases.
 
 ### Update
 
-- [ ] **UPDT-01**: User sees a clear mode selection UI with visual preview of scope (Selected Tracks / Full Library)
+- [x] **UPDT-01**: User sees a clear mode selection UI with visual preview of scope (Selected Tracks / Full Library)
 - [ ] **UPDT-02**: User can preview proposed changes inline (before/after diff) via ChangePreviewPipeline before applying
-- [ ] **UPDT-03**: User sees real-time batch progress with per-track status from BatchProcessor AsyncStream
+- [x] **UPDT-03**: User sees real-time batch progress with per-track status from BatchProcessor AsyncStream
 - [ ] **UPDT-04**: Each proposed change displays a confidence badge showing determination confidence level
-- [ ] **UPDT-05**: Dry-run is the default update mode; user must explicitly opt into live writes (protects library from accidental changes)
+- [x] **UPDT-05**: Dry-run is the default update mode; user must explicitly opt into live writes (protects library from accidental changes)
 
 ### Reports
 
@@ -109,11 +109,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BRWS-02 | Phase 6 | Pending |
 | BRWS-03 | Phase 6 | Pending |
 | BRWS-04 | Phase 6 | Pending |
-| UPDT-01 | Phase 7 | Pending |
+| UPDT-01 | Phase 7 | Complete |
 | UPDT-02 | Phase 7 | Pending |
-| UPDT-03 | Phase 7 | Pending |
+| UPDT-03 | Phase 7 | Complete |
 | UPDT-04 | Phase 7 | Pending |
-| UPDT-05 | Phase 7 | Pending |
+| UPDT-05 | Phase 7 | Complete |
 | RPTS-01 | Phase 7 | Complete |
 | RPTS-02 | Phase 7 | Complete |
 | RPTS-03 | Phase 7 | Complete |

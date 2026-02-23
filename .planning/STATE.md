@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-23)
 ## Current Position
 
 Phase: 7 (Update and Reports Polish)
-Plan: 3 of 4 in current phase
+Plan: 1 of 4 (also 3 of 4) in current phase
 Status: In progress
-Last activity: 2026-02-23 — Completed 07-03-PLAN.md
+Last activity: 2026-02-23 — Completed 07-01-PLAN.md
 
 Progress: [███████░░░] 75%
 
@@ -41,6 +41,7 @@ Progress: [███████░░░] 75%
 *Updated after each plan completion*
 | Phase 06.1 P01 | 6min | 2 tasks | 5 files |
 | Phase 06.1 P02 | 15min | 2 tasks | 6 files |
+| Phase 07 P01 | 14min | 2 tasks | 3 files |
 | Phase 07 P03 | 6min | 2 tasks | 2 files |
 
 ## Accumulated Context
@@ -101,6 +102,9 @@ Recent decisions affecting current work:
 - [Phase 07]: 60-second gap threshold for session boundary detection in change log grouping
 - [Phase 07]: Ayu.accent.gradient for year chart (distinct from genre's Ayu.purple.gradient)
 - [Phase 07]: Empty global state in change log delegates to ReportsView (no local empty CTA)
+- [Phase 07]: Extension body split for applySmartFilter/handleBatchError to stay under type_body_length 300-line limit
+- [Phase 07]: Batch per-track status updates via progressHandler (not operation closure) for Swift 6 @Sendable safety
+- [Phase 07]: previewOnly resets to true in reset() to maintain dry-run-default contract
 
 ### Pending Todos
 
@@ -120,5 +124,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 07-03-PLAN.md
-Resume file: .planning/phases/07-update-reports-polish/07-03-SUMMARY.md
+Stopped at: Completed 07-01-PLAN.md
+Resume file: .planning/phases/07-update-reports-polish/07-01-SUMMARY.md
