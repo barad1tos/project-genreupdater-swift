@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** The app must feel fast, intuitive, and satisfying to use on a 38K+ track library — users should never feel lost, never see empty states, and always understand what the app can do for their music collection.
-**Current focus:** Phase 6 — Browse Redesign
+**Current focus:** Phase 6.1 — Card Lift Interaction
 
 ## Current Position
 
-Phase: 5.1 (Dashboard Hotfix)
-Plan: 2 of 2 in current phase
-Status: Complete
-Last activity: 2026-02-23 — Plan 05.1-02 complete (token consistency sweep)
+Phase: 6.1 (Card Lift Interaction)
+Plan: 0 of TBD in current phase
+Status: Context gathered, ready for planning
+Last activity: 2026-02-23 — Phase 6.1 context gathered
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -92,6 +92,10 @@ Recent decisions affecting current work:
 
 None yet.
 
+### Roadmap Evolution
+
+- Phase 06.1 inserted after Phase 06: Card Lift Interaction (URGENT) — Things 3-style double-click card expansion with Ayu neon glow, replaces hover-expand in Browse. SharedUI primitive for app-wide reuse.
+
 ### Blockers/Concerns
 
 - ~~Ayu light-mode fgPrimary (0x5C6166) on white is ~4.2:1~~ RESOLVED: Research confirmed 6.10:1 on bgPrimary (0xFCFCFC), passes WCAG AA
@@ -102,5 +106,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-browse-redesign/06-CONTEXT.md
+Stopped at: Phase 6.1 context gathered
+Resume file: .planning/phases/06.1-card-lift-interaction/06.1-CONTEXT.md
