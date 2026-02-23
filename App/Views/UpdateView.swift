@@ -94,7 +94,7 @@ struct UpdateView: View {
             }
 
             Section("Confidence Threshold") {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
                     Text("Minimum confidence: \(viewModel.confidencePercentage)%")
                         .font(.headline)
                     Slider(
@@ -137,7 +137,7 @@ struct UpdateView: View {
     // MARK: - Processing Phase
 
     private var processingView: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: Spacing.xl) {
             Spacer()
 
             ProgressRing(
@@ -195,7 +195,7 @@ struct UpdateView: View {
 
     private func changeRow(at index: Int) -> some View {
         let change = viewModel.proposedChanges[index]
-        return HStack(spacing: 12) {
+        return HStack(spacing: Spacing.sm) {
             Toggle(
                 isOn: Binding(
                     get: { viewModel.proposedChanges[index].isAccepted },
@@ -252,7 +252,7 @@ struct UpdateView: View {
         oldValue: String?,
         newValue: String?
     ) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xxs) {
             Text(oldValue ?? "none")
                 .foregroundStyle(.secondary)
                 .strikethrough()
@@ -310,7 +310,7 @@ struct UpdateView: View {
     // MARK: - Done Phase
 
     private var doneView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.lg) {
             Spacer()
 
             Image(systemName: "checkmark.circle.fill")
@@ -341,7 +341,7 @@ struct UpdateView: View {
     }
 
     private func resultSummary(for result: BatchUpdateResult) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Spacing.xs) {
             Text("\(result.entries.count) tracks updated successfully")
                 .font(.body)
 

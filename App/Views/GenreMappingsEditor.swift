@@ -1,5 +1,6 @@
 // GenreMappingsEditor.swift — Editable list of user-defined genre mappings.
 
+import SharedUI
 import SwiftUI
 
 // MARK: - Genre Mappings Editor
@@ -70,7 +71,7 @@ struct GenreMappingsEditor: View {
     }
 
     private var addMappingRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.xs) {
             TextField("From", text: $newSource)
                 .textFieldStyle(.roundedBorder)
             Image(systemName: "arrow.right")

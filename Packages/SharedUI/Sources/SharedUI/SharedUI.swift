@@ -1,6 +1,5 @@
 // SharedUI — Shared SwiftUI components, themes, and design tokens.
 
-import Core
 import SwiftUI
 
 /// Namespace for shared UI components.

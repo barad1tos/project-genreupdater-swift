@@ -79,7 +79,7 @@ struct MainView: View {
             contentView
                 .navigationTitle(selectedCategory?.rawValue ?? "Dashboard")
                 .contentTransition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: selectedCategory)
+                .animation(Motion.curveFast, value: selectedCategory)
         } detail: {
             trackDetail
         }
@@ -214,7 +214,7 @@ struct MainView: View {
         let needsDetail = selectedCategory == .browse && selectedTrack != nil
         let target: NavigationSplitViewVisibility = needsDetail ? .all : .doubleColumn
         if columnVisibility != target {
-            withAnimation(.easeInOut(duration: 0.25)) {
+            withAnimation(Motion.curveLayout) {
                 columnVisibility = target
             }
         }

@@ -112,7 +112,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 600)
-        .animation(.easeInOut(duration: 0.3), value: "\(dependencies.appState)")
+        .animation(Motion.curveDefault, value: "\(dependencies.appState)")
     }
 }
 

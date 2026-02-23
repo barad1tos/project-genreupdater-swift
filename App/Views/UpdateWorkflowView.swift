@@ -30,7 +30,7 @@ struct UpdateWorkflowView: View {
                 errorView(message: message)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: "\(viewModel.phase)")
+        .animation(Motion.curveFast, value: "\(viewModel.phase)")
     }
 
     // MARK: - Configure Phase

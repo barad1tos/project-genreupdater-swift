@@ -33,9 +33,9 @@ struct DryRunSummaryView: View {
     // MARK: - Header
 
     private var summaryHeader: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Spacing.sm) {
             if let report {
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.xs) {
                     Image(systemName: "eye.fill")
                         .foregroundStyle(.blue)
                         .accessibilityHidden(true)
@@ -44,7 +44,7 @@ struct DryRunSummaryView: View {
                     Spacer()
                 }
 
-                HStack(spacing: 16) {
+                HStack(spacing: Spacing.md) {
                     statBadge(
                         count: report.totalChanges,
                         label: "Changes"
@@ -86,7 +86,7 @@ struct DryRunSummaryView: View {
     private func typeBreakdown(
         report: DryRunReport
     ) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.sm) {
             ForEach(
                 report.changesByType,
                 id: \.type
@@ -116,7 +116,7 @@ struct DryRunSummaryView: View {
     private func changeRow(
         _ change: ProposedChange
     ) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.sm) {
             changeTypeIcon(for: change.changeType)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -160,7 +160,7 @@ struct DryRunSummaryView: View {
         oldValue: String?,
         newValue: String?
     ) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xxs) {
             Text(oldValue ?? "none")
                 .foregroundStyle(.secondary)
                 .strikethrough()
@@ -183,7 +183,7 @@ struct DryRunSummaryView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Spacing.sm) {
             Spacer()
             Image(systemName: "checkmark.seal")
                 .font(.largeTitle)

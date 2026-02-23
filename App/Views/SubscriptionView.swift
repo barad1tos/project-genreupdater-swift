@@ -20,7 +20,7 @@ struct SubscriptionView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
+            VStack(spacing: Spacing.xl) {
                 currentTierSection
                 productsSection
                 weekPassCooldownSection
@@ -42,7 +42,7 @@ struct SubscriptionView: View {
     // MARK: - Current Tier Section
 
     private var currentTierSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Spacing.sm) {
             Text("Current Plan")
                 .font(.headline)
                 .foregroundStyle(.secondary)
@@ -76,7 +76,7 @@ struct SubscriptionView: View {
     // MARK: - Products Section
 
     private var productsSection: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Spacing.md) {
             Text("Available Plans")
                 .font(.title3)
                 .bold()
@@ -93,7 +93,7 @@ struct SubscriptionView: View {
 
     private func productRow(for product: Product) -> some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text(product.displayName)
                     .font(.headline)
 
@@ -126,7 +126,7 @@ struct SubscriptionView: View {
     private var weekPassCooldownSection: some View {
         if let remaining = dependencies.subscriptionService?.weekPassCooldownRemaining {
             let cooldownEnd = Date().addingTimeInterval(remaining)
-            VStack(spacing: 8) {
+            VStack(spacing: Spacing.xs) {
                 Label("Week Pass Cooldown Active", systemImage: "clock.fill")
                     .font(.subheadline)
                     .foregroundStyle(.orange)
@@ -162,7 +162,7 @@ struct SubscriptionView: View {
     // MARK: - Feature Comparison Section
 
     private var featureComparisonSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             Text("Feature Comparison")
                 .font(.title3)
                 .bold()
