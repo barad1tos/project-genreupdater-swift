@@ -12,9 +12,10 @@ The backend is complete through Phase 6 (734 tests, all algorithms, APIs, persis
 
 - [x] **Phase 1: Design System Foundation** - Extend DesignTokens with Shadow/Motion enums and fix Ayu light-mode contrast to WCAG AA
 - [x] **Phase 2: Theme Switching** - Wire AppTheme enum with @AppStorage, preferredColorScheme, and NSApp.appearance sync
-- [ ] **Phase 3: SharedUI Component Library** - Build HeroGauge, StatCard, ArtistListRow, AlbumListRow, FilterChip, SectionIndexBar with hover/press/focus states
+- [x] **Phase 3: SharedUI Component Library** - Build HeroGauge, StatCard, ArtistListRow, AlbumListRow, FilterChip, SectionIndexBar with hover/press/focus states (completed 2026-02-22)
 - [x] **Phase 4: Navigation Shell** - Restyle sidebar with Ayu dark background and matchedGeometryEffect indicator; fix column visibility for non-Browse screens (completed 2026-02-22)
 - [x] **Phase 5: Dashboard Redesign** - Half-circle HeroGauge hero, cached-first metrics loading, smart quick-actions with live counts, skeleton shimmer
+- [ ] **Phase 5.1: Dashboard Hotfix** - INSERTED: Fix shimmer timing on first launch and ShimmerPlaceholder CGFloat.infinity layout bug (audit gap closure)
 - [ ] **Phase 6: Browse Redesign** - Artist/Album/Track drill-down with List-backed multi-select, debounced off-main-thread search, sticky section headers
 - [ ] **Phase 7: Update and Reports Polish** - Mode selector UI, per-track progress rows, Reports charts and empty states, change history with undo
 - [ ] **Phase 8: Animations and Final Polish** - Content transitions between screens, entrance animations on Dashboard, hover/press states audit across all views
@@ -62,9 +63,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — SwiftUI-Shimmer dependency, ShimmerPlaceholder, FilterChip, StatCard
-- [ ] 03-02-PLAN.md — ArtistListRow, AlbumListRow, SectionIndexBar
-- [ ] 03-03-PLAN.md — HeroGauge (concentric arcs, draw-in animation, per-arc hover)
+- [x] 03-01-PLAN.md — SwiftUI-Shimmer dependency, ShimmerPlaceholder, FilterChip, StatCard
+- [x] 03-02-PLAN.md — ArtistListRow, AlbumListRow, SectionIndexBar
+- [x] 03-03-PLAN.md — HeroGauge (concentric arcs, draw-in animation, per-arc hover)
 
 ### Phase 4: Navigation Shell
 **Goal**: The sidebar is visually polished and the column layout is correct for every screen — Dashboard, Update, and Reports never show a spurious "Select a Track" detail column
@@ -78,8 +79,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Sidebar components: LucideIcons dependency, Motion.curveSmooth, SidebarView/SidebarItemView/SidebarSectionHeader
-- [ ] 04-02-PLAN.md — MainView integration: SidebarView wiring, column layout fix, content centering, settings cleanup
+- [x] 04-01-PLAN.md — Sidebar components: LucideIcons dependency, Motion.curveSmooth, SidebarView/SidebarItemView/SidebarSectionHeader
+- [x] 04-02-PLAN.md — MainView integration: SidebarView wiring, column layout fix, content centering, settings cleanup
 
 ### Phase 5: Dashboard Redesign
 **Goal**: Dashboard is a compelling first impression — it shows real library data instantly on every launch, never displays "0 tracks", and gives users one-click access to the most impactful actions for their specific library
@@ -95,6 +96,17 @@ Plans:
 Plans:
 - [x] 05-01-PLAN.md — Data layer (PersistedMetricsSnapshot, DashboardViewModel loading states/trends) and HeroGauge redesign (colors, stacked layout, shadow, click callback)
 - [x] 05-02-PLAN.md — DashboardView rewrite (HeroGauge hero, MetricCard redesign, soft QuickActions, shimmer/loading states, GaugeView deletion)
+
+### Phase 5.1: Dashboard Hotfix
+**Goal**: Fix two integration bugs found by milestone audit — shimmer timing on first launch and ShimmerPlaceholder layout — so the Dashboard loading sequence works correctly for all launch scenarios
+**Depends on**: Phase 5
+**Requirements**: DASH-02, DASH-03 (integration fixes — requirements already satisfied, these are bug fixes in the implementation)
+**Gap Closure**: Closes integration issues from v1.0-MILESTONE-AUDIT.md
+**Success Criteria** (what must be TRUE):
+  1. On first launch (no cache, MusicKit loading), the Dashboard stays in shimmer state until tracks arrive — no flash of "Your Music Library is Empty" before data loads
+  2. ShimmerPlaceholder quick-action rows render at full container width — no collapsed or overflowing layout from CGFloat.infinity
+  3. Tech debt: stale SharedUI.swift placeholder comment removed, motionAnimation extension either has call sites or is deleted, raw Motion literal in GenreUpdaterApp.swift replaced with token
+**Plans**: TBD
 
 ### Phase 6: Browse Redesign
 **Goal**: Users can navigate 38,000+ tracks efficiently — drill into artist/album hierarchies, select multiple items for batch processing, and search with instant results — without any lag or layout collapse
@@ -134,15 +146,16 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
+Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 5.1 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Design System Foundation | 2/2 | Complete    | 2026-02-22 |
 | 2. Theme Switching | 1/1 | Complete | 2026-02-22 |
 | 3. SharedUI Component Library | 3/3 | Complete | 2026-02-22 |
-| 4. Navigation Shell | 1/2 | Complete    | 2026-02-22 |
+| 4. Navigation Shell | 2/2 | Complete    | 2026-02-22 |
 | 5. Dashboard Redesign | 2/2 | Complete    | 2026-02-23 |
+| 5.1 Dashboard Hotfix | 0/TBD | Not started | - |
 | 6. Browse Redesign | 0/TBD | Not started | - |
 | 7. Update and Reports Polish | 0/TBD | Not started | - |
 | 8. Animations and Final Polish | 0/TBD | Not started | - |
