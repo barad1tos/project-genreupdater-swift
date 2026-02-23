@@ -61,6 +61,8 @@ depends_on:
 - [x] E12: Xcode Cloud decision (GitHub Actions CI + Xcode Cloud distribution)
 - [x] E13: XCUITests for critical flows (OnboardingFlow, Navigation, UpdateFlow)
 - [x] E14: Documentation sync (launch-checklist, phase-7, CLAUDE.md)
+- [x] E15: Reports empty state CTA, year distribution aggregation, undo callback wiring
+- [x] E16: Reports "Go to Update" navigation via notification
 
 ### Files Created/Modified in Phase 7
 

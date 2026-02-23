@@ -16,9 +16,9 @@ import SwiftUI
 
 /// Reports dashboard combining a change log table and summary charts.
 ///
-/// The change log (`ReportsChangeLog`) is always visible (free tier feature).
-/// The charts section (`ReportsCharts`) requires Week Pass or higher and is
-/// wrapped in `FeatureGatedView`.
+/// Shows a full-screen EmptyStateView with "Go to Update" CTA when no entries
+/// exist. Otherwise displays a VSplitView with change log (top) and feature-gated
+/// charts (bottom). Undo callbacks are wired to UndoCoordinator via closures.
 struct ReportsView: View {
     @Query(sort: \PersistedChangeLogEntry.timestamp, order: .reverse)
     private var persistedEntries: [PersistedChangeLogEntry]
@@ -31,25 +31,56 @@ struct ReportsView: View {
     var body: some View {
         let entries = persistedEntries.map { $0.toChangeLogEntry() }
 
+        Group {
+            if entries.isEmpty {
+                EmptyStateView(
+                    icon: "chart.bar.doc.horizontal",
+                    title: "Run your first scan to see library insights",
+                    description: "Update your library to see genre distribution, year analytics, and change history.",
+                    actionTitle: "Go to Update"
+                ) {
+                    NotificationCenter.default.post(name: .navigateToUpdate, object: nil)
+                }
+            } else {
+                reportsContent(entries: entries)
+            }
+        }
+        .navigationTitle("Reports")
+        .alert("Export Failed", isPresented: $showingExportError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exportError ?? "An unknown error occurred.")
+        }
+    }
+
+    // MARK: - Reports Content
+
+    private func reportsContent(entries: [ChangeLogEntry]) -> some View {
         VSplitView {
-            ReportsChangeLog(entries: entries)
-                .frame(minHeight: 200)
+            ReportsChangeLog(
+                entries: entries,
+                onUndoEntry: { entry in
+                    Task {
+                        try? await dependencies.undoCoordinator?.revertChange(entry)
+                    }
+                },
+                onUndoSession: { sessionEntries in
+                    Task {
+                        try? await dependencies.undoCoordinator?.revertBatch(sessionEntries)
+                    }
+                }
+            )
+            .frame(minHeight: 200)
 
             FeatureGatedView(feature: .reportsCharts) {
                 ReportsCharts(data: aggregateData(from: entries))
             }
             .frame(minHeight: 250)
         }
-        .navigationTitle("Reports")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 exportCSVButton(entries: entries)
             }
-        }
-        .alert("Export Failed", isPresented: $showingExportError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(exportError ?? "An unknown error occurred.")
         }
     }
 
@@ -107,13 +138,14 @@ struct ReportsView: View {
 
     /// Build chart summary data from change log entries.
     ///
-    /// Groups entries by type and date to produce genre distribution and
-    /// daily change counts for the charts view.
+    /// Groups entries by type and date to produce genre distribution, year
+    /// distribution, and daily change counts for the charts view.
     private func aggregateData(from entries: [ChangeLogEntry]) -> ChartSummaryData {
         let genreEntries = entries.filter { $0.changeType == .genreUpdate }
         let yearEntries = entries.filter { $0.changeType == .yearUpdate || $0.changeType == .yearRevert }
 
         let genreDistribution = buildGenreDistribution(from: genreEntries)
+        let yearDistribution = buildYearDistribution(from: entries)
         let changesOverTime = buildChangesOverTime(from: entries)
 
         return ChartSummaryData(
@@ -121,6 +153,7 @@ struct ReportsView: View {
             genresUpdated: genreEntries.count,
             yearsUpdated: yearEntries.count,
             genreDistribution: genreDistribution,
+            yearDistribution: yearDistribution,
             changesOverTime: changesOverTime
         )
     }
@@ -137,6 +170,21 @@ struct ReportsView: View {
         }
         return genreCounts.map { ChartSummaryData.GenreCount(genre: $0.key, count: $0.value) }
             .sorted { $0.count > $1.count }
+    }
+
+    /// Count occurrences of each new year across year update entries.
+    private func buildYearDistribution(
+        from entries: [ChangeLogEntry]
+    ) -> [ChartSummaryData.YearCount] {
+        let yearEntries = entries.filter { $0.changeType == .yearUpdate }
+        var yearCounts: [Int: Int] = [:]
+        for entry in yearEntries {
+            if let year = entry.newYear {
+                yearCounts[year, default: 0] += 1
+            }
+        }
+        return yearCounts.map { ChartSummaryData.YearCount(year: $0.key, count: $0.value) }
+            .sorted { $0.year < $1.year }
     }
 
     /// Group entries by calendar day and count changes per day.

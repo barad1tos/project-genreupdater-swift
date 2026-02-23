@@ -154,6 +154,9 @@ struct ErrorView: View {
 extension Notification.Name {
     /// Posted by the Update menu command (Cmd+U) to trigger the update sheet.
     static let updateSelectedTracks = Notification.Name("GenreUpdater.updateSelectedTracks")
+
+    /// Posted by Reports empty state to navigate to the Update screen.
+    static let navigateToUpdate = Notification.Name("GenreUpdater.navigateToUpdate")
 }
 
 // MARK: - Navigation Commands
