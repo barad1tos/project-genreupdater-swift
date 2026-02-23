@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-23)
 ## Current Position
 
 Phase: 6.1 (Card Lift Interaction)
-Plan: 0 of TBD in current phase
-Status: Context gathered, ready for planning
-Last activity: 2026-02-23 — Phase 6.1 context gathered
+Plan: 1 of 2 in current phase
+Status: Executing plans
+Last activity: 2026-02-23 — Completed 06.1-01-PLAN.md
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -39,6 +39,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: stable
 
 *Updated after each plan completion*
+| Phase 06.1 P01 | 6min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,9 @@ Recent decisions affecting current work:
 - [Phase 05.1]: Motion.curveLayout at 0.25s fills gap between curveFast (0.2s) and curveDefault (0.3s)
 - [Phase 05.1]: ProgressRing uses Ayu.fgSecondary/fgPrimary/bgTertiary instead of system colors
 - [Phase 05.1]: Periphery pre-existing findings deferred: HeroGauge lineWidth, SidebarItemView reduceMotion
+- [Phase 06.1]: Flat cascade parent fields (parentSourceID/parentContentType/parentSourceFrame) instead of recursive struct for Sendable conformance
+- [Phase 06.1]: Dark mode 1.0x / light mode 0.6x multiplier on glow opacity for NeonGlowBorder theme adaptation
+- [Phase 06.1]: Ayu.accent for artist glow, Ayu.info for album glow -- visual hierarchy distinction
 
 ### Pending Todos
 
@@ -106,5 +110,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Phase 6.1 context gathered
-Resume file: .planning/phases/06.1-card-lift-interaction/06.1-CONTEXT.md
+Stopped at: Completed 06.1-01-PLAN.md
+Resume file: .planning/phases/06.1-card-lift-interaction/06.1-01-SUMMARY.md

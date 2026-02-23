@@ -144,7 +144,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06.1-01-PLAN.md — SharedUI CardLift primitives (state machine, DoubleClickDetector, NeonGlowBorder, CardLiftOverlay) + Motion tokens
+- [x] 06.1-01-PLAN.md — SharedUI CardLift primitives (state machine, DoubleClickDetector, NeonGlowBorder, CardLiftOverlay) + Motion tokens
 - [ ] 06.1-02-PLAN.md — Card content views (ArtistCardContent, AlbumCardContent) + BrowseView/ViewModel integration with cascade navigation
 
 ### Phase 7: Update and Reports Polish
@@ -185,6 +185,6 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 5.1 → 6 → 6.1 →
 | 5. Dashboard Redesign | 2/2 | Complete    | 2026-02-23 |
 | 5.1 Dashboard Hotfix | 2/2 | Complete | 2026-02-23 |
 | 6. Browse Redesign | 4/4 | Complete | 2026-02-23 |
-| 6.1 Card Lift Interaction | 0/2 | In Progress | - |
+| 6.1 Card Lift Interaction | 1/2 | In Progress | - |
 | 7. Update and Reports Polish | 0/TBD | Not started | - |
 | 8. Animations and Final Polish | 0/TBD | Not started | - |
