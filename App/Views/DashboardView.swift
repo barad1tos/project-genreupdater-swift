@@ -14,6 +14,10 @@ import SwiftUI
 /// full shimmer placeholders; subsequent launches never show "0 tracks".
 struct DashboardView: View {
     @State private var viewModel = DashboardViewModel()
+    @State private var showGauge = false
+    @State private var showMetrics = false
+    @State private var showActions = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let tracks: [Track]
     let metricsSnapshot: PersistedMetricsSnapshot?
@@ -23,17 +27,29 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                switch viewModel.loadingState {
-                case .shimmer:
-                    shimmerContent
-                case .permissionDenied:
+                // Shimmer/live crossfade via ZStack with opacity
+                ZStack {
+                    if viewModel.showShimmer {
+                        shimmerContent
+                            .transition(.opacity)
+                    }
+                    if viewModel.showLiveContent {
+                        liveContent
+                            .transition(.opacity)
+                    }
+                }
+                .animation(Motion.curveCrossfade, value: viewModel.showShimmer)
+                .animation(Motion.curveCrossfade, value: viewModel.showLiveContent)
+
+                // Error states appear instantly -- no crossfade
+                if case .permissionDenied = viewModel.loadingState {
                     permissionDeniedView
-                case .emptyLibrary:
+                }
+                if case .emptyLibrary = viewModel.loadingState {
                     emptyLibraryView
-                case let .error(message):
+                }
+                if case let .error(message) = viewModel.loadingState {
                     errorView(message)
-                default:
-                    liveContent
                 }
             }
             .padding(.horizontal, Spacing.xl)
@@ -43,7 +59,19 @@ struct DashboardView: View {
             viewModel.loadCachedMetrics(from: metricsSnapshot)
         }
         .task(id: tracks.count) {
-            viewModel.refreshFromLive(tracks: tracks)
+            viewModel.refreshFromLive(tracks: tracks, isLoadingTracks: isLoadingTracks)
+        }
+        .onChange(of: viewModel.showLiveContent) { _, isVisible in
+            guard isVisible else { return }
+            if reduceMotion || !viewModel.isFirstLoad {
+                showGauge = true
+                showMetrics = true
+                showActions = true
+            } else {
+                withAnimation(.easeOut(duration: 0.5)) { showGauge = true }
+                withAnimation(.easeOut(duration: 0.5).delay(0.05)) { showMetrics = true }
+                withAnimation(.easeOut(duration: 0.5).delay(0.10)) { showActions = true }
+            }
         }
     }
 
@@ -51,11 +79,20 @@ struct DashboardView: View {
 
     private var liveContent: some View {
         VStack(spacing: 0) {
-            updatingIndicator
-            gaugeSection
+            Group {
+                updatingIndicator
+                gaugeSection
+            }
+            .opacity(showGauge ? 1 : 0)
+
             metricsSection
-            quickActionsSection
-            timestampFooter
+                .opacity(showMetrics ? 1 : 0)
+
+            Group {
+                quickActionsSection
+                timestampFooter
+            }
+            .opacity(showActions ? 1 : 0)
         }
     }
 
@@ -196,11 +233,13 @@ struct DashboardView: View {
 
     private var shimmerContent: some View {
         VStack(spacing: 0) {
+            // Match real gaugeSection: 300x180 frame + xxxl bottom padding
             ShimmerPlaceholder(shape: .gauge)
-                .frame(width: 280, height: 140)
+                .frame(width: 300, height: 180)
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, Spacing.xxxl)
 
+            // Match real metricsSection: same grid + xxl bottom padding
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 180, maximum: 280))],
                 spacing: Spacing.md
@@ -211,12 +250,12 @@ struct DashboardView: View {
             }
             .padding(.bottom, Spacing.xxl)
 
+            // Match real quickActionsSection: same VStack spacing + xxl bottom padding
             VStack(spacing: Spacing.xs) {
-                ShimmerPlaceholder(shape: .rectangle(width: .infinity, height: 44))
-                    .frame(maxWidth: .infinity)
-                ShimmerPlaceholder(shape: .rectangle(width: .infinity, height: 44))
-                    .frame(maxWidth: .infinity)
+                ShimmerPlaceholder(shape: .quickAction(height: 44))
+                ShimmerPlaceholder(shape: .quickAction(height: 44))
             }
+            .padding(.bottom, Spacing.xxl)
         }
     }
 

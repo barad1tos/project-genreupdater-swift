@@ -94,6 +94,39 @@ final class DashboardViewModel {
     private(set) var loadingState: DashboardLoadingState = .shimmer
     private(set) var metrics: DashboardMetrics = .empty
     private(set) var previousMetrics: DashboardMetrics?
+    private(set) var isFirstLoad = true
+
+    // MARK: - Shimmer Timing
+
+    private var shimmerStartTime: Date?
+    private var loadingTimeoutTask: Task<Void, Never>?
+
+    // MARK: - Computed View State
+
+    /// Whether shimmer placeholders should be visible.
+    var showShimmer: Bool {
+        loadingState == .shimmer
+    }
+
+    /// Whether live/cached content should be visible.
+    var showLiveContent: Bool {
+        switch loadingState {
+        case .cached, .updating, .live:
+            true
+        default:
+            false
+        }
+    }
+
+    /// Whether an error state should be visible.
+    var showError: Bool {
+        switch loadingState {
+        case .error, .permissionDenied, .emptyLibrary:
+            true
+        default:
+            false
+        }
+    }
 
     // MARK: - Cached-First Loading
 
@@ -105,6 +138,8 @@ final class DashboardViewModel {
     func loadCachedMetrics(from snapshot: PersistedMetricsSnapshot?) {
         guard let snapshot else {
             loadingState = .shimmer
+            shimmerStartTime = Date()
+            startLoadingTimeout()
             return
         }
 
@@ -144,9 +179,15 @@ final class DashboardViewModel {
     ///
     /// Computes all metrics in a single O(n) pass. Saves current metrics
     /// as previous for trend calculation if they contain real data.
-    func refreshFromLive(tracks: [Track]) {
+    /// The `isLoadingTracks` guard prevents transitioning to `.emptyLibrary`
+    /// while MusicKit is still fetching (core bug fix for first-launch flash).
+    func refreshFromLive(tracks: [Track], isLoadingTracks: Bool) {
+        // Core bug fix: don't transition to emptyLibrary while still loading
+        guard !isLoadingTracks || !tracks.isEmpty else { return }
+
         guard !tracks.isEmpty else {
             loadingState = .emptyLibrary
+            loadingTimeoutTask?.cancel()
             return
         }
 
@@ -195,17 +236,56 @@ final class DashboardViewModel {
             consistencyCoverage: Double(bothCount) / Double(total)
         )
 
-        loadingState = .live
+        loadingTimeoutTask?.cancel()
+
+        // Enforce minimum shimmer hold time before transitioning to live
+        if loadingState == .shimmer, let startTime = shimmerStartTime {
+            let elapsed = Date().timeIntervalSince(startTime)
+            let remainingHold = max(0, 0.5 - elapsed)
+            if remainingHold > 0 {
+                Task {
+                    try? await Task.sleep(for: .seconds(remainingHold))
+                    transitionToLive()
+                }
+                return
+            }
+        }
+
+        transitionToLive()
     }
 
     /// Set the permission denied state.
     func setPermissionDenied() {
+        loadingTimeoutTask?.cancel()
         loadingState = .permissionDenied
     }
 
     /// Set the error state with a message.
     func setError(_ message: String) {
+        loadingTimeoutTask?.cancel()
         loadingState = .error(message)
+    }
+
+    // MARK: - Transition Helpers
+
+    /// Transition from shimmer to live state.
+    private func transitionToLive() {
+        loadingState = .live
+        isFirstLoad = false
+    }
+
+    /// Start a 15-second loading timeout that shows an error if
+    /// shimmer is still active (MusicKit unresponsive).
+    private func startLoadingTimeout() {
+        loadingTimeoutTask?.cancel()
+        loadingTimeoutTask = Task {
+            try? await Task.sleep(for: .seconds(15))
+            if loadingState == .shimmer {
+                loadingState = .error(
+                    "Loading timed out. Please check your Music library access and try again."
+                )
+            }
+        }
     }
 
     // MARK: - Trend Calculations

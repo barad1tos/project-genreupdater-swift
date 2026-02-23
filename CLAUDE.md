@@ -97,6 +97,13 @@ All interactive list rows (ArtistListRow, AlbumListRow) share a consistent trio:
 - **async/await** everywhere, no completion handlers
 - `@Observable` instead of `ObservableObject` for SwiftUI state
 
+### Dashboard Loading Pattern
+- **Guard loading state in `.task(id:)`**: `guard !isLoadingTracks || !tracks.isEmpty else { return }` prevents empty-state flash during MusicKit fetch
+- **Minimum shimmer hold**: 0.5s via `shimmerStartTime` + `Task.sleep` before transitioning to `.live`
+- **ZStack crossfade**: shimmer and live content overlap in ZStack with `.animation(Motion.curveCrossfade)` for smooth transition
+- **Stagger cascade**: Hero gauge -> Metric cards -> Quick actions with 50ms delays on first load only; `reduceMotion` disables stagger
+- **15s loading timeout**: Shows error state with Retry if MusicKit is unresponsive
+
 ### InputSanitizer (CRITICAL — two functions)
 - `sanitizeScriptCode()` — for AppleScript CODE fragments (strips `; | & $ () {}`)
 - `escapeStringValue()` — for DATA values (track names, etc.) (escapes `"` and `\` only)
