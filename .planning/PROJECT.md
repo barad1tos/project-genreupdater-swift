@@ -43,7 +43,7 @@ The app must feel fast, intuitive, and satisfying to use on a 38K+ track library
 - [ ] Toggle-able gauge overlays (genre distribution, year distribution, etc.)
 - [ ] Metrics ring around gauge — key library stats for quick comprehension
 - [ ] Instant data on launch — cache library metrics, show cached on start, delta-scan in background
-- [ ] Loading state hidden behind animations (skeleton / shimmer), never show "0 tracks"
+- [x] Loading state hidden behind animations (skeleton / shimmer), never show "0 tracks" — Phase 5.1
 - [ ] Smart quick actions that reflect actual library state (not generic buttons)
 
 **Browse:**
@@ -147,6 +147,9 @@ The app must feel fast, intuitive, and satisfying to use on a 38K+ track library
 | Bezier curves over springs for motion | 200-400ms easeInOut/easeOut — Spotify-style, not bouncy | Shipped Phase 1 |
 | fgPrimary unchanged (6.10:1) | Research disproved stale blocker — already WCAG AA | Shipped Phase 1 |
 | Opaque generics (`some Equatable`) | SwiftFormat rule; idiomatic Swift 5.9+ pattern | Shipped Phase 1 |
+| ZStack crossfade for shimmer-to-content | Avoids layout jumps that SwiftUI .transition causes | Shipped Phase 5.1 |
+| Sub-token spacing (0, 2, 6) as raw literals | Below Spacing.xxs (4pt) minimum — no matching token | Shipped Phase 5.1 |
+| Motion.curveLayout at 0.25s | Fills gap between curveFast (0.2s) and curveDefault (0.3s) | Shipped Phase 5.1 |
 
 ---
-*Last updated: 2026-02-22 after Phase 1 (Design System Foundation)*
+*Last updated: 2026-02-23 after Phase 5.1 (Dashboard Hotfix)*
