@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** The app must feel fast, intuitive, and satisfying to use on a 38K+ track library — users should never feel lost, never see empty states, and always understand what the app can do for their music collection.
-**Current focus:** Phase 4 — Navigation Shell
+**Current focus:** Phase 5 — Dashboard Redesign
 
 ## Current Position
 
-Phase: 4 of 8 (Navigation Shell) -- COMPLETE
-Plan: 2 of 2 in current phase
-Status: Phase Complete
-Last activity: 2026-02-22 — Phase 4 Plan 2 complete
+Phase: 5 of 8 (Dashboard Redesign)
+Plan: 1 of 2 in current phase
+Status: In Progress
+Last activity: 2026-02-23 — Phase 5 Plan 1 complete
 
-Progress: [█████░░░░░] 50%
+Progress: [██████░░░░] 56%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
+- Total plans completed: 9
 - Average duration: 7min
-- Total execution time: 53min
+- Total execution time: 61min
 
 **By Phase:**
 
@@ -31,9 +31,10 @@ Progress: [█████░░░░░] 50%
 | 02-theme-switching | 1 | 15min | 15min |
 | 03-sharedui-component-library | 3 | 10min | 3min |
 | 04-navigation-shell | 2 | 14min | 7min |
+| 05-dashboard-redesign | 1 | 8min | 8min |
 
 **Recent Trend:**
-- Last 5 plans: 3min, 4min, 6min, 8min
+- Last 5 plans: 3min, 4min, 6min, 8min, 8min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -68,6 +69,11 @@ Recent decisions affecting current work:
 - [Phase 04]: LucideIcons added as direct App target dependency for NavigationCategory icon mapping
 - [Phase 04]: centeredContent uses frame-based approach (no extra ScrollView) since views already scroll
 - [Phase 04]: Opaque generic parameter (some View) for centeredContent per SwiftFormat rule
+- [Phase 05]: Single-row PersistedMetricsSnapshot with inline previous values for trend calculation (no history table)
+- [Phase 05]: TrendDirection moved from MetricCard to DashboardViewModel as ViewModel concern
+- [Phase 05]: GaugeLayer made public for onArcTapped callback across App/SharedUI boundary
+- [Phase 05]: Shared detectLayer method for hover and tap avoids ring-detection code duplication
+- [Phase 05]: Static fill on appear per CONTEXT.md -- Phase 8 will add draw-in animation
 
 ### Pending Todos
 
@@ -78,9 +84,10 @@ None yet.
 - ~~Ayu light-mode fgPrimary (0x5C6166) on white is ~4.2:1~~ RESOLVED: Research confirmed 6.10:1 on bgPrimary (0xFCFCFC), passes WCAG AA
 - ~~SwiftUI-Shimmer version number needs verification~~ RESOLVED: 1.5.1 confirmed, dependency resolves and builds cleanly
 - Table vs List for track-level Browse rows warrants a prototype spike before committing in Phase 6
+- DashboardView.swift has temporary build errors from removed ViewModel API -- Plan 05-02 will rewrite entirely
 
 ## Session Continuity
 
-Last session: 2026-02-22
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-02-23
+Stopped at: Completed 05-01-PLAN.md
 Resume file: .planning/ROADMAP.md
