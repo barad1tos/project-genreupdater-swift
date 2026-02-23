@@ -204,6 +204,22 @@ public enum Motion {
     public static let curveCrossfade: Animation = .easeInOut(duration: durationCrossfade)
     /// easeInOut 250ms — layout column visibility changes.
     public static let curveLayout: Animation = .easeInOut(duration: 0.25)
+
+    // MARK: Card Lift
+
+    /// Card lift spring — slight overshoot for physical lift feel.
+    public static let cardLiftSpring: Animation = .spring(
+        response: 0.45,
+        dampingFraction: 0.75,
+        blendDuration: 0.1
+    )
+
+    /// Pre-lift press-in — fast, critically damped, no bounce.
+    public static let pressInCurve: Animation = .spring(
+        response: 0.15,
+        dampingFraction: 1.0,
+        blendDuration: 0
+    )
 }
 
 extension View {
