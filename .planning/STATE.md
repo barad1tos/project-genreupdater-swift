@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** The app must feel fast, intuitive, and satisfying to use on a 38K+ track library — users should never feel lost, never see empty states, and always understand what the app can do for their music collection.
-**Current focus:** Phase 6 — Browse Redesign
+**Current focus:** Phase 5.1 — Dashboard Hotfix
 
 ## Current Position
 
-Phase: 6 of 8 (Browse Redesign)
-Plan: 0 of TBD in current phase
+Phase: 5.1 (Dashboard Hotfix)
+Plan: 1 of 2 in current phase
 Status: In Progress
-Last activity: 2026-02-23 — Phase 5 complete (all plans)
+Last activity: 2026-02-23 — Plan 05.1-01 complete (shimmer timing + crossfade)
 
 Progress: [██████░░░░] 63%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
+- Total plans completed: 11
 - Average duration: 7min
-- Total execution time: 72min
+- Total execution time: 80min
 
 **By Phase:**
 
@@ -32,9 +32,10 @@ Progress: [██████░░░░] 63%
 | 03-sharedui-component-library | 3 | 10min | 3min |
 | 04-navigation-shell | 2 | 14min | 7min |
 | 05-dashboard-redesign | 2 | 19min | 10min |
+| 05.1-dashboard-hotfix | 1 | 8min | 8min |
 
 **Recent Trend:**
-- Last 5 plans: 4min, 6min, 8min, 8min, 11min
+- Last 5 plans: 6min, 8min, 8min, 11min, 8min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -78,6 +79,10 @@ Recent decisions affecting current work:
 - [Phase 05]: QuickActionButton param renamed count to untaggedCount to avoid SwiftLint empty_count false positive
 - [Phase 05]: MainView saves metrics snapshot to SwiftData directly (no separate service) for simplicity
 - [Phase 05]: No "Library Health" title above gauge -- gauge + legend are self-explanatory per CONTEXT.md
+- [Phase 05.1]: ZStack crossfade (not SwiftUI .transition) for shimmer-to-content to avoid layout jumps
+- [Phase 05.1]: isLoadingTracks guard in refreshFromLive prevents emptyLibrary flash during MusicKit fetch
+- [Phase 05.1]: Stagger only on first load; subsequent visits show content immediately
+- [Phase 05.1]: Reduce Motion disables all stagger and crossfade animations
 
 ### Pending Todos
 
@@ -93,5 +98,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 05-02-PLAN.md (Phase 5 complete)
-Resume file: .planning/ROADMAP.md
+Stopped at: Completed 05.1-01-PLAN.md
+Resume file: .planning/phases/05.1-dashboard-hotfix/05.1-02-PLAN.md

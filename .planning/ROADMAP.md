@@ -109,7 +109,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05.1-01-PLAN.md — Fix ShimmerPlaceholder layout, shimmer timing guard, crossfade + stagger transition
+- [x] 05.1-01-PLAN.md — Fix ShimmerPlaceholder layout, shimmer timing guard, crossfade + stagger transition
 - [ ] 05.1-02-PLAN.md — Token consistency sweep (raw literals to tokens) and Periphery dead code scan
 
 ### Phase 6: Browse Redesign
@@ -159,7 +159,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 5.1 → 6 → 7 → 8
 | 3. SharedUI Component Library | 3/3 | Complete | 2026-02-22 |
 | 4. Navigation Shell | 2/2 | Complete    | 2026-02-22 |
 | 5. Dashboard Redesign | 2/2 | Complete    | 2026-02-23 |
-| 5.1 Dashboard Hotfix | 0/2 | Not started | - |
+| 5.1 Dashboard Hotfix | 1/2 | In Progress | - |
 | 6. Browse Redesign | 0/TBD | Not started | - |
 | 7. Update and Reports Polish | 0/TBD | Not started | - |
 | 8. Animations and Final Polish | 0/TBD | Not started | - |
