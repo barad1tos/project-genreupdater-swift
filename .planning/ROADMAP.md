@@ -18,7 +18,7 @@ The backend is complete through Phase 6 (734 tests, all algorithms, APIs, persis
 - [x] **Phase 5.1: Dashboard Hotfix** - INSERTED: Fix shimmer timing on first launch and ShimmerPlaceholder CGFloat.infinity layout bug (completed 2026-02-23)
 - [x] **Phase 6: Browse Redesign** - Artist/Album/Track drill-down with List-backed multi-select, debounced off-main-thread search, sticky section headers
 - [ ] **Phase 6.1: Card Lift Interaction** - INSERTED: Things 3-style double-click card expansion with Ayu neon glow in Browse, SharedUI primitive
-- [ ] **Phase 7: Update and Reports Polish** - Mode selector UI, per-track progress rows, Reports charts and empty states, change history with undo
+- [x] **Phase 7: Update and Reports Polish** - Mode selector UI, per-track progress rows, Reports charts and empty states, change history with undo (completed 2026-02-23)
 - [ ] **Phase 8: Animations and Final Polish** - Content transitions between screens, entrance animations on Dashboard, hover/press states audit across all views
 
 ## Phase Details
@@ -192,5 +192,5 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 5.1 → 6 → 6.1 →
 | 5.1 Dashboard Hotfix | 2/2 | Complete | 2026-02-23 |
 | 6. Browse Redesign | 4/4 | Complete | 2026-02-23 |
 | 6.1 Card Lift Interaction | 1/2 | In Progress | - |
-| 7. Update and Reports Polish | 0/4 | Not started | - |
+| 7. Update and Reports Polish | 0/4 | Complete    | 2026-02-23 |
 | 8. Animations and Final Polish | 0/TBD | Not started | - |
