@@ -12,7 +12,11 @@ import SwiftData
 public enum ModelContainerFactory {
     /// Create a production container persisted to disk.
     public static func create() throws -> ModelContainer {
-        let schema = Schema([PersistedTrack.self, PersistedChangeLogEntry.self])
+        let schema = Schema([
+            PersistedTrack.self,
+            PersistedChangeLogEntry.self,
+            PersistedMetricsSnapshot.self,
+        ])
         let config = ModelConfiguration(
             "GenreUpdater",
             schema: schema,
@@ -25,7 +29,11 @@ public enum ModelContainerFactory {
 
     /// Create an in-memory container (for testing).
     public static func createInMemory() throws -> ModelContainer {
-        let schema = Schema([PersistedTrack.self, PersistedChangeLogEntry.self])
+        let schema = Schema([
+            PersistedTrack.self,
+            PersistedChangeLogEntry.self,
+            PersistedMetricsSnapshot.self,
+        ])
         let config = ModelConfiguration(
             schema: schema,
             isStoredInMemoryOnly: true
