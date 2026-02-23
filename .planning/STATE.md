@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-23)
 ## Current Position
 
 Phase: 6.1 (Card Lift Interaction)
-Plan: 1 of 2 in current phase
-Status: Executing plans
-Last activity: 2026-02-23 — Completed 06.1-01-PLAN.md
+Plan: 2 of 2 in current phase
+Status: Phase complete
+Last activity: 2026-02-23 — Completed 06.1-02-PLAN.md
 
-Progress: [█████░░░░░] 50%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -40,6 +40,7 @@ Progress: [█████░░░░░] 50%
 
 *Updated after each plan completion*
 | Phase 06.1 P01 | 6min | 2 tasks | 5 files |
+| Phase 06.1 P02 | 15min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,10 @@ Recent decisions affecting current work:
 - [Phase 06.1]: Flat cascade parent fields (parentSourceID/parentContentType/parentSourceFrame) instead of recursive struct for Sendable conformance
 - [Phase 06.1]: Dark mode 1.0x / light mode 0.6x multiplier on glow opacity for NeonGlowBorder theme adaptation
 - [Phase 06.1]: Ayu.accent for artist glow, Ayu.info for album glow -- visual hierarchy distinction
+- [Phase 06.1]: RowFrameKey PreferenceKey with nonisolated(unsafe) for Swift 6 concurrency on row frame capture
+- [Phase 06.1]: BrowseBuilders extracted to own file (internal enum) to stay under SwiftLint 500-line file_length
+- [Phase 06.1]: Extension body split on BrowseView for search/empty states to stay under 300-line type_body_length
+- [Phase 06.1]: Explicit content: label on CardLiftOverlay avoids multiple_closures_with_trailing_closure lint violation
 
 ### Pending Todos
 
@@ -110,5 +115,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 06.1-01-PLAN.md
-Resume file: .planning/phases/06.1-card-lift-interaction/06.1-01-SUMMARY.md
+Stopped at: Completed 06.1-02-PLAN.md (phase 6.1 complete)
+Resume file: .planning/phases/06.1-card-lift-interaction/06.1-02-SUMMARY.md

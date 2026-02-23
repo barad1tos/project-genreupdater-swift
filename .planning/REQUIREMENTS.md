@@ -30,7 +30,7 @@ Requirements for the UI/UX redesign milestone. Each maps to roadmap phases.
 
 ### Browse
 
-- [ ] **BRWS-01**: User can navigate Artist → Album → Track hierarchy with collapsible sections
+- [x] **BRWS-01**: User can navigate Artist → Album → Track hierarchy with collapsible sections
 - [ ] **BRWS-02**: User can select multiple items via Shift-click (range) and Cmd-click (individual) with a persistent bulk-action bar when selection count > 0
 - [ ] **BRWS-03**: User can search across artists, albums, and tracks with 300ms debounced filtering computed off the main thread
 - [ ] **BRWS-04**: Browse displays alphabetical section headers with sticky behavior and track count badges per artist/album
@@ -105,7 +105,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DASH-02 | Phase 5 | Complete |
 | DASH-03 | Phase 5 | Complete |
 | DASH-04 | Phase 5 | Complete |
-| BRWS-01 | Phase 6 | Pending |
+| BRWS-01 | Phase 6 | Complete |
 | BRWS-02 | Phase 6 | Pending |
 | BRWS-03 | Phase 6 | Pending |
 | BRWS-04 | Phase 6 | Pending |
