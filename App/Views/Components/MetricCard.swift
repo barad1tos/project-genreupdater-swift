@@ -1,36 +1,26 @@
-// MetricCard.swift — Dashboard metric card.
+// MetricCard.swift — Dashboard metric card with trend hover and click navigation.
 
 import SharedUI
 import SwiftUI
 
 // MARK: - MetricCard
 
-/// Compact stat card showing an icon, primary value, title, and optional subtitle with trend.
+/// Compact stat card showing a metric value, trend arrow, and hover-revealed trend delta.
 ///
-/// Used on the dashboard to display key library metrics (unique genres, tracks needing year, etc.).
+/// Follows the StatCard hover/press interaction pattern: shadow elevation + accent border
+/// glow + 0.98 scale on press. Trend arrow shows direction by default; hovering reveals
+/// the delta number (e.g. "+12 since last scan").
 struct MetricCard: View {
-    let title: String
+    let label: String
     let value: String
-    let subtitle: String?
     let icon: String
     let tint: Color
     var trend: TrendDirection?
+    var trendDelta: Int?
+    let onTap: () -> Void
 
-    init(
-        title: String,
-        value: String,
-        subtitle: String? = nil,
-        icon: String,
-        tint: Color,
-        trend: TrendDirection? = nil
-    ) {
-        self.title = title
-        self.value = value
-        self.subtitle = subtitle
-        self.icon = icon
-        self.tint = tint
-        self.trend = trend
-    }
+    @State private var isHovered = false
+    @State private var isPressed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -40,10 +30,36 @@ struct MetricCard: View {
         }
         .padding(Spacing.md)
         .frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
-        .background(Ayu.bgSecondary, in: RoundedRectangle(cornerRadius: Radius.md))
+        .background(
+            RoundedRectangle(cornerRadius: Radius.md)
+                .fill(Ayu.bgSecondary)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: Radius.md)
+                .strokeBorder(Ayu.accent, lineWidth: 1.5)
+                .opacity(isHovered ? 1 : 0)
+        }
+        .ayuShadow(isHovered ? Shadow.elevated : Shadow.subtle)
+        .contentShape(.rect)
+        .scaleEffect(isPressed ? 0.98 : 1.0)
+        .animation(Motion.curveFast, value: isPressed)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in
+                    isPressed = false
+                    onTap()
+                }
+        )
+        .onHover { hovering in
+            withAnimation(Motion.curveFast) {
+                isHovered = hovering
+            }
+        }
+        .focusable()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title): \(value)")
-        .accessibilityValue(subtitle ?? "")
+        .accessibilityLabel("\(label): \(value)")
+        .accessibilityValue(trendAccessibilityValue)
     }
 
     // MARK: - Subviews
@@ -54,12 +70,23 @@ struct MetricCard: View {
                 .font(.title3)
                 .foregroundStyle(tint)
                 .accessibilityHidden(true)
+
             Spacer()
+
             if let trend {
-                Image(systemName: trend.icon)
-                    .font(AppFont.caption)
-                    .foregroundStyle(trend.tint)
-                    .accessibilityHidden(true)
+                HStack(spacing: Spacing.xxs) {
+                    Image(systemName: trend.icon)
+                        .font(AppFont.caption)
+                        .foregroundStyle(trend.tint)
+
+                    if isHovered, let delta = trendDelta {
+                        Text(deltaText(delta))
+                            .font(AppFont.caption)
+                            .foregroundStyle(trend.tint)
+                            .transition(.opacity)
+                    }
+                }
+                .accessibilityHidden(true)
             }
         }
     }
@@ -72,49 +99,78 @@ struct MetricCard: View {
     }
 
     private var footerRow: some View {
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-            Text(title)
-                .font(AppFont.caption)
-                .foregroundStyle(Ayu.fgSecondary)
-            if let subtitle {
-                Text(subtitle)
-                    .font(AppFont.caption)
-                    .foregroundStyle(Ayu.fgMuted)
-            }
+        Text(label)
+            .font(AppFont.caption)
+            .foregroundStyle(Ayu.fgSecondary)
+    }
+
+    // MARK: - Helpers
+
+    private func deltaText(_ delta: Int) -> String {
+        let prefix = delta > 0 ? "+" : ""
+        return "\(prefix)\(delta) since last scan"
+    }
+
+    private var trendAccessibilityValue: String {
+        guard let trend, let delta = trendDelta else { return "" }
+        let direction = switch trend {
+        case .up: "up"
+        case .down: "down"
+        case .flat: "flat"
         }
+        return "\(direction), \(deltaText(delta))"
     }
 }
 
 // MARK: - Preview
 
 #Preview("Metric Cards") {
-    HStack(spacing: Spacing.md) {
+    LazyVGrid(
+        columns: [GridItem(.adaptive(minimum: 180, maximum: 280))],
+        spacing: Spacing.md
+    ) {
         MetricCard(
-            title: "Unique Genres",
-            value: "42",
-            subtitle: "across library",
-            icon: "tag.fill",
-            tint: Ayu.purple
-        )
-
-        MetricCard(
-            title: "Missing Year",
+            label: "Need Genre",
             value: "1,204",
-            subtitle: "tracks need attention",
-            icon: "calendar.badge.exclamationmark",
-            tint: Ayu.warning,
-            trend: .down
+            icon: "tag.fill",
+            tint: Ayu.purple,
+            trend: .down,
+            trendDelta: -18,
+            onTap: {}
         )
 
         MetricCard(
-            title: "Recently Updated",
+            label: "Need Year",
+            value: "856",
+            icon: "calendar.badge.exclamationmark",
+            tint: Ayu.info,
+            trend: .up,
+            trendDelta: 5,
+            onTap: {}
+        )
+
+        MetricCard(
+            label: "Recently Added",
             value: "86",
-            subtitle: "last 7 days",
             icon: "clock.arrow.circlepath",
             tint: Ayu.success,
-            trend: .up
+            trend: .flat,
+            trendDelta: 0,
+            onTap: {}
         )
     }
     .padding()
     .frame(width: 600)
+}
+
+#Preview("Metric Card — No Trend") {
+    MetricCard(
+        label: "Need Genre",
+        value: "0",
+        icon: "tag.fill",
+        tint: Ayu.purple,
+        onTap: {}
+    )
+    .padding()
+    .frame(width: 200)
 }
