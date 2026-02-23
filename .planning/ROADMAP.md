@@ -14,7 +14,7 @@ The backend is complete through Phase 6 (734 tests, all algorithms, APIs, persis
 - [x] **Phase 2: Theme Switching** - Wire AppTheme enum with @AppStorage, preferredColorScheme, and NSApp.appearance sync
 - [ ] **Phase 3: SharedUI Component Library** - Build HeroGauge, StatCard, ArtistListRow, AlbumListRow, FilterChip, SectionIndexBar with hover/press/focus states
 - [x] **Phase 4: Navigation Shell** - Restyle sidebar with Ayu dark background and matchedGeometryEffect indicator; fix column visibility for non-Browse screens (completed 2026-02-22)
-- [ ] **Phase 5: Dashboard Redesign** - Half-circle HeroGauge hero, cached-first metrics loading, smart quick-actions with live counts, skeleton shimmer
+- [x] **Phase 5: Dashboard Redesign** - Half-circle HeroGauge hero, cached-first metrics loading, smart quick-actions with live counts, skeleton shimmer
 - [ ] **Phase 6: Browse Redesign** - Artist/Album/Track drill-down with List-backed multi-select, debounced off-main-thread search, sticky section headers
 - [ ] **Phase 7: Update and Reports Polish** - Mode selector UI, per-track progress rows, Reports charts and empty states, change history with undo
 - [ ] **Phase 8: Animations and Final Polish** - Content transitions between screens, entrance animations on Dashboard, hover/press states audit across all views
@@ -93,8 +93,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Data layer (PersistedMetricsSnapshot, DashboardViewModel loading states/trends) and HeroGauge redesign (colors, stacked layout, shadow, click callback)
-- [ ] 05-02-PLAN.md — DashboardView rewrite (HeroGauge hero, MetricCard redesign, soft QuickActions, shimmer/loading states, GaugeView deletion)
+- [x] 05-01-PLAN.md — Data layer (PersistedMetricsSnapshot, DashboardViewModel loading states/trends) and HeroGauge redesign (colors, stacked layout, shadow, click callback)
+- [x] 05-02-PLAN.md — DashboardView rewrite (HeroGauge hero, MetricCard redesign, soft QuickActions, shimmer/loading states, GaugeView deletion)
 
 ### Phase 6: Browse Redesign
 **Goal**: Users can navigate 38,000+ tracks efficiently — drill into artist/album hierarchies, select multiple items for batch processing, and search with instant results — without any lag or layout collapse
@@ -142,7 +142,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 2. Theme Switching | 1/1 | Complete | 2026-02-22 |
 | 3. SharedUI Component Library | 3/3 | Complete | 2026-02-22 |
 | 4. Navigation Shell | 1/2 | Complete    | 2026-02-22 |
-| 5. Dashboard Redesign | 1/2 | In Progress | - |
+| 5. Dashboard Redesign | 2/2 | Complete | 2026-02-23 |
 | 6. Browse Redesign | 0/TBD | Not started | - |
 | 7. Update and Reports Polish | 0/TBD | Not started | - |
 | 8. Animations and Final Polish | 0/TBD | Not started | - |

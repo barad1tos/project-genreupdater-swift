@@ -23,10 +23,10 @@ Requirements for the UI/UX redesign milestone. Each maps to roadmap phases.
 
 ### Dashboard
 
-- [ ] **DASH-01**: Dashboard displays a half-circle gauge as the hero element showing library track count with genre/year/consistency arc layers
-- [ ] **DASH-02**: Dashboard shows cached metrics instantly on launch from SwiftData snapshot, then updates to live metrics via background delta-scan — never displays "0 tracks"
-- [ ] **DASH-03**: First launch uses skeleton/shimmer animations (SwiftUI-Shimmer) to indicate loading instead of empty values
-- [ ] **DASH-04**: Quick action buttons reflect actual library state with live counts (e.g. "327 tracks missing genre — fix now")
+- [x] **DASH-01**: Dashboard displays a half-circle gauge as the hero element showing library track count with genre/year/consistency arc layers
+- [x] **DASH-02**: Dashboard shows cached metrics instantly on launch from SwiftData snapshot, then updates to live metrics via background delta-scan — never displays "0 tracks"
+- [x] **DASH-03**: First launch uses skeleton/shimmer animations (SwiftUI-Shimmer) to indicate loading instead of empty values
+- [x] **DASH-04**: Quick action buttons reflect actual library state with live counts (e.g. "327 tracks missing genre — fix now")
 
 ### Browse
 
@@ -101,10 +101,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NAV-01 | Phase 4 | Complete |
 | NAV-02 | Phase 4 | Complete |
 | NAV-03 | Phase 4 | Complete |
-| DASH-01 | Phase 5 | Pending |
-| DASH-02 | Phase 5 | Pending |
-| DASH-03 | Phase 5 | Pending |
-| DASH-04 | Phase 5 | Pending |
+| DASH-01 | Phase 5 | Complete |
+| DASH-02 | Phase 5 | Complete |
+| DASH-03 | Phase 5 | Complete |
+| DASH-04 | Phase 5 | Complete |
 | BRWS-01 | Phase 6 | Pending |
 | BRWS-02 | Phase 6 | Pending |
 | BRWS-03 | Phase 6 | Pending |

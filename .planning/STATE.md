@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** The app must feel fast, intuitive, and satisfying to use on a 38K+ track library — users should never feel lost, never see empty states, and always understand what the app can do for their music collection.
-**Current focus:** Phase 5 — Dashboard Redesign
+**Current focus:** Phase 6 — Browse Redesign
 
 ## Current Position
 
-Phase: 5 of 8 (Dashboard Redesign)
-Plan: 1 of 2 in current phase
+Phase: 6 of 8 (Browse Redesign)
+Plan: 0 of TBD in current phase
 Status: In Progress
-Last activity: 2026-02-23 — Phase 5 Plan 1 complete
+Last activity: 2026-02-23 — Phase 5 complete (all plans)
 
-Progress: [██████░░░░] 56%
+Progress: [██████░░░░] 63%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
+- Total plans completed: 10
 - Average duration: 7min
-- Total execution time: 61min
+- Total execution time: 72min
 
 **By Phase:**
 
@@ -31,10 +31,10 @@ Progress: [██████░░░░] 56%
 | 02-theme-switching | 1 | 15min | 15min |
 | 03-sharedui-component-library | 3 | 10min | 3min |
 | 04-navigation-shell | 2 | 14min | 7min |
-| 05-dashboard-redesign | 1 | 8min | 8min |
+| 05-dashboard-redesign | 2 | 19min | 10min |
 
 **Recent Trend:**
-- Last 5 plans: 3min, 4min, 6min, 8min, 8min
+- Last 5 plans: 4min, 6min, 8min, 8min, 11min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -74,6 +74,10 @@ Recent decisions affecting current work:
 - [Phase 05]: GaugeLayer made public for onArcTapped callback across App/SharedUI boundary
 - [Phase 05]: Shared detectLayer method for hover and tap avoids ring-detection code duplication
 - [Phase 05]: Static fill on appear per CONTEXT.md -- Phase 8 will add draw-in animation
+- [Phase 05]: MetricCard uses StatCard-consistent hover/press pattern (shadow elevation + accent border + 0.98 scale)
+- [Phase 05]: QuickActionButton param renamed count to untaggedCount to avoid SwiftLint empty_count false positive
+- [Phase 05]: MainView saves metrics snapshot to SwiftData directly (no separate service) for simplicity
+- [Phase 05]: No "Library Health" title above gauge -- gauge + legend are self-explanatory per CONTEXT.md
 
 ### Pending Todos
 
@@ -84,10 +88,10 @@ None yet.
 - ~~Ayu light-mode fgPrimary (0x5C6166) on white is ~4.2:1~~ RESOLVED: Research confirmed 6.10:1 on bgPrimary (0xFCFCFC), passes WCAG AA
 - ~~SwiftUI-Shimmer version number needs verification~~ RESOLVED: 1.5.1 confirmed, dependency resolves and builds cleanly
 - Table vs List for track-level Browse rows warrants a prototype spike before committing in Phase 6
-- DashboardView.swift has temporary build errors from removed ViewModel API -- Plan 05-02 will rewrite entirely
+- ~~DashboardView.swift has temporary build errors from removed ViewModel API~~ RESOLVED: Plan 05-02 rewrote DashboardView entirely
 
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 05-01-PLAN.md
+Stopped at: Completed 05-02-PLAN.md (Phase 5 complete)
 Resume file: .planning/ROADMAP.md
