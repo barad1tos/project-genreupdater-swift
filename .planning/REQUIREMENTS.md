@@ -45,10 +45,10 @@ Requirements for the UI/UX redesign milestone. Each maps to roadmap phases.
 
 ### Reports
 
-- [ ] **RPTS-01**: Reports shows meaningful empty states with guidance CTA ("Run your first scan to see results") instead of "No Data"
-- [ ] **RPTS-02**: Reports displays genre distribution as a horizontal bar chart sorted by count (Swift Charts)
-- [ ] **RPTS-03**: Reports displays year distribution as a histogram or sparkline timeline (Swift Charts)
-- [ ] **RPTS-04**: Reports shows change history log with undo affordance per entry via UndoCoordinator
+- [x] **RPTS-01**: Reports shows meaningful empty states with guidance CTA ("Run your first scan to see results") instead of "No Data"
+- [x] **RPTS-02**: Reports displays genre distribution as a horizontal bar chart sorted by count (Swift Charts)
+- [x] **RPTS-03**: Reports displays year distribution as a histogram or sparkline timeline (Swift Charts)
+- [x] **RPTS-04**: Reports shows change history log with undo affordance per entry via UndoCoordinator
 
 ## v2 Requirements
 
@@ -114,10 +114,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | UPDT-03 | Phase 7 | Pending |
 | UPDT-04 | Phase 7 | Pending |
 | UPDT-05 | Phase 7 | Pending |
-| RPTS-01 | Phase 7 | Pending |
-| RPTS-02 | Phase 7 | Pending |
-| RPTS-03 | Phase 7 | Pending |
-| RPTS-04 | Phase 7 | Pending |
+| RPTS-01 | Phase 7 | Complete |
+| RPTS-02 | Phase 7 | Complete |
+| RPTS-03 | Phase 7 | Complete |
+| RPTS-04 | Phase 7 | Complete |
 
 **Coverage:**
 - v1 requirements: 25 total
