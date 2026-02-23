@@ -105,7 +105,7 @@ depends_on:
 | `Services/Tests/ServicesTests/BatchProcessorErrorTests.swift` | 7E | New |
 | `Core/Tests/CoreTests/ProtocolModelTests.swift` | 7E | New |
 | `Core/Tests/CoreTests/GenreDeterminatorTests.swift` | 7E | Modified |
-| `App/Views/MainView.swift` | 7E | Modified |
+| `App/Views/MainView.swift` | 7E | Modified (+ navigateToUpdate) |
 | `App/Views/ReportsView.swift` | 7E | Modified |
 | `App/Views/SettingsView.swift` | 7E | Modified |
 | `App/Views/UpdateView.swift` | 7E | Modified |

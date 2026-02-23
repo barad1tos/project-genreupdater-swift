@@ -90,6 +90,9 @@ struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: .updateSelectedTracks)) { _ in
             selectedCategory = .update
         }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToUpdate)) { _ in
+            selectedCategory = .update
+        }
         .onChange(of: selectedCategory) { updateColumnVisibility() }
         .onChange(of: browseViewModel.selectedAlbum) { updateColumnVisibility() }
         .sheet(isPresented: $showUpdateSheet) {
