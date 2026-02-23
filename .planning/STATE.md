@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-23)
 ## Current Position
 
 Phase: 7 (Update and Reports Polish)
-Plan: 1 of 4 (also 3 of 4) in current phase
-Status: In progress
-Last activity: 2026-02-23 — Completed 07-01-PLAN.md
+Plan: 4 of 4 in current phase
+Status: Phase complete
+Last activity: 2026-02-23 — Completed 07-04-PLAN.md
 
-Progress: [███████░░░] 75%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 13
+- Total plans completed: 14
 - Average duration: 8min
-- Total execution time: 97min
+- Total execution time: 107min
 
 **By Phase:**
 
@@ -43,6 +43,8 @@ Progress: [███████░░░] 75%
 | Phase 06.1 P02 | 15min | 2 tasks | 6 files |
 | Phase 07 P01 | 14min | 2 tasks | 3 files |
 | Phase 07 P03 | 6min | 2 tasks | 2 files |
+| Phase 07 P02 | 9min | 2 tasks | 5 files |
+| Phase 07 P04 | 10min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -105,6 +107,11 @@ Recent decisions affecting current work:
 - [Phase 07]: Extension body split for applySmartFilter/handleBatchError to stay under type_body_length 300-line limit
 - [Phase 07]: Batch per-track status updates via progressHandler (not operation closure) for Swift 6 @Sendable safety
 - [Phase 07]: previewOnly resets to true in reset() to maintain dry-run-default contract
+- [Phase 07]: Config section visible during scanning/applying so user sees chosen mode and options
+- [Phase 07]: Grouped preview uses local Dictionary(grouping:) to keep Views independent of Services package
+- [Phase 07]: onScrollPhaseChange (macOS 15+) for user scroll detection in streaming section
+- [Phase 07]: NotificationCenter for Reports-to-Update navigation (consistent with updateSelectedTracks pattern)
+- [Phase 07]: Notification.Name extensions centralized in GenreUpdaterApp.swift
 
 ### Pending Todos
 
@@ -124,5 +131,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 07-01-PLAN.md
-Resume file: .planning/phases/07-update-reports-polish/07-01-SUMMARY.md
+Stopped at: Completed 07-04-PLAN.md (Phase 07 complete)
+Resume file: .planning/phases/07-update-reports-polish/07-04-SUMMARY.md
