@@ -67,9 +67,10 @@ struct MainView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     @State private var tracks: [Track] = []
     @State private var isLoading = false
-    @State private var selectedTrack: Track?
+    @State private var browseViewModel = BrowseViewModel()
     @State private var showUpdateSheet = false
     @State private var metricsSnapshot: PersistedMetricsSnapshot?
+    @State private var workflowViewModel: WorkflowViewModel?
     @AppStorage("sidebarCompact") private var isSidebarCompact = false
 
     var body: some View {
@@ -90,7 +91,7 @@ struct MainView: View {
             selectedCategory = .update
         }
         .onChange(of: selectedCategory) { updateColumnVisibility() }
-        .onChange(of: selectedTrack) { updateColumnVisibility() }
+        .onChange(of: browseViewModel.selectedAlbum) { updateColumnVisibility() }
         .sheet(isPresented: $showUpdateSheet) {
             updateSheet
         }
@@ -136,7 +137,7 @@ struct MainView: View {
             }
 
         case .browse:
-            BrowseView(tracks: tracks, selectedTrack: $selectedTrack)
+            BrowseView(viewModel: browseViewModel)
 
         case .update:
             centeredContent {
@@ -162,24 +163,16 @@ struct MainView: View {
 
     // MARK: - Update Content
 
+    @ViewBuilder
     private var updateContent: some View {
-        VStack(spacing: 0) {
-            if let coordinator = dependencies.updateCoordinator,
-               let pipeline = dependencies.changePreviewPipeline,
-               let processor = dependencies.batchProcessor {
-                let viewModel = WorkflowViewModel(
-                    updateCoordinator: coordinator,
-                    batchProcessor: processor,
-                    changePreviewPipeline: pipeline
-                )
-                UpdateWorkflowView(viewModel: viewModel, tracks: tracks)
-            } else {
-                ContentUnavailableView(
-                    "Services Unavailable",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text("Update services are still initializing. Please wait.")
-                )
-            }
+        if let viewModel = workflowViewModel {
+            UpdateWorkflowView(viewModel: viewModel, tracks: tracks)
+        } else {
+            ContentUnavailableView(
+                "Services Unavailable",
+                systemImage: "exclamationmark.triangle",
+                description: Text("Update services are still initializing. Please wait.")
+            )
         }
     }
 
@@ -187,8 +180,8 @@ struct MainView: View {
 
     @ViewBuilder
     private var trackDetail: some View {
-        if selectedCategory == .browse, let track = selectedTrack {
-            TrackDetailView(track: track)
+        if selectedCategory == .browse {
+            BrowseDetailView(viewModel: browseViewModel)
         } else {
             Color.clear
         }
@@ -211,7 +204,7 @@ struct MainView: View {
     // MARK: - Column Visibility
 
     private func updateColumnVisibility() {
-        let needsDetail = selectedCategory == .browse && selectedTrack != nil
+        let needsDetail = selectedCategory == .browse && browseViewModel.selectedAlbum != nil
         let target: NavigationSplitViewVisibility = needsDetail ? .all : .doubleColumn
         if columnVisibility != target {
             withAnimation(Motion.curveLayout) {
@@ -224,6 +217,7 @@ struct MainView: View {
 
     private func loadTracks() async {
         loadCachedSnapshot()
+        ensureWorkflowViewModel()
 
         guard let reader = dependencies.musicReader else { return }
         isLoading = true
@@ -232,10 +226,26 @@ struct MainView: View {
         do {
             try await reader.requestAuthorization()
             tracks = try await reader.fetchAllTracks()
+            browseViewModel.tracks = tracks
             saveMetricsSnapshot(from: tracks)
         } catch {
             tracks = []
         }
+    }
+
+    /// Lazily create the WorkflowViewModel when dependencies are available.
+    private func ensureWorkflowViewModel() {
+        guard workflowViewModel == nil,
+              let coordinator = dependencies.updateCoordinator,
+              let pipeline = dependencies.changePreviewPipeline,
+              let processor = dependencies.batchProcessor
+        else { return }
+
+        workflowViewModel = WorkflowViewModel(
+            updateCoordinator: coordinator,
+            batchProcessor: processor,
+            changePreviewPipeline: pipeline
+        )
     }
 
     // MARK: - Metrics Snapshot
