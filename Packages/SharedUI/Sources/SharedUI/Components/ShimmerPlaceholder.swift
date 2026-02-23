@@ -15,6 +15,8 @@ public enum ShimmerShape: Sendable {
     case gauge
     /// StatCard-shaped rectangle spanning full available width.
     case card
+    /// Quick-action row filling parent width via `maxWidth: .infinity`.
+    case quickAction(height: CGFloat)
 }
 
 // MARK: - ShimmerPlaceholder
@@ -32,7 +34,13 @@ public struct ShimmerPlaceholder: View {
 
     public var body: some View {
         shapeView
-            .shimmering()
+            .shimmering(
+                gradient: Gradient(colors: [
+                    .clear,
+                    Ayu.bgSecondary.opacity(0.5),
+                    .clear,
+                ])
+            )
     }
 
     @ViewBuilder
@@ -57,6 +65,12 @@ public struct ShimmerPlaceholder: View {
             RoundedRectangle(cornerRadius: Radius.sm)
                 .fill(Ayu.bgTertiary)
                 .frame(height: 80)
+                .frame(maxWidth: .infinity)
+
+        case let .quickAction(height):
+            RoundedRectangle(cornerRadius: Radius.sm)
+                .fill(Ayu.bgTertiary)
+                .frame(height: height)
                 .frame(maxWidth: .infinity)
         }
     }
@@ -90,6 +104,7 @@ private struct GaugeArc: Shape {
         ShimmerPlaceholder(shape: .circle(diameter: 48))
         ShimmerPlaceholder(shape: .gauge)
         ShimmerPlaceholder(shape: .card)
+        ShimmerPlaceholder(shape: .quickAction(height: 44))
     }
     .padding()
 }

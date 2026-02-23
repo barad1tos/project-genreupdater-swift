@@ -236,6 +236,7 @@ The app runs in sandbox with these entitlements:
 | 3: Core Algorithms | ✅ Done | Normalization, ScriptDetector, MetadataUtils, AlbumType, AlbumMatcher, ArtistMatcher, GenreDeterminator, YearScorer, YearValidator, YearFallbackStrategy, YearDeterminator |
 | 4: API + Cache | ✅ Done | TokenBucketRateLimiter, MusicBrainzClient, DiscogsClient, AppleMusicSearchClient, KeychainHelper, APIOrchestrator, GRDBCacheService (bulk+stats) |
 | 5: Workflows | ✅ Done | ChangePreviewPipeline, CheckpointManager, UndoCoordinator, BatchProcessor, UpdateCoordinator, LibrarySyncService |
+| 5.1: Dashboard Hotfix | 🔄 Active | ShimmerPlaceholder quickAction shape, Motion.curveCrossfade, DashboardViewModel shimmer timing, DashboardView ZStack crossfade + stagger |
 | 6: Views + Polish | ✅ Done | 20 files, ~3,100 LOC — UpdateView, BatchView, ReportsView, SettingsView (4 tabs incl. Appearance), SubscriptionView, FeatureGatedView, SharedUI components (ConfidenceBadge, ProgressRing, EmptyStateView, TierBadge, PaywallOverlay, TrackRow, TrackDetailView, ReportsChangeLog, ReportsCharts), ViewModels (UpdateViewModel, BatchViewModel), AppDependencies wiring |
 | 7: Launch | 🔄 Active | Testing (418+316 tests), CSVExporter, DryRunReport, GenreMappings, Keyboard Shortcuts, Accessibility, Integration Tests, UI Tests, Entitlements CI, Coverage enforcement |
 

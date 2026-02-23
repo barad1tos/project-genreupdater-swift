@@ -185,6 +185,8 @@ public enum Motion {
     public static let durationSmooth: Double = 0.35
     /// 400ms — emphasized transitions (modal appear, loading complete).
     public static let durationEmphasis: Double = 0.4
+    /// 500ms — shimmer-to-content crossfade transition.
+    public static let durationCrossfade: Double = 0.5
 
     // MARK: Curves
 
@@ -198,6 +200,8 @@ public enum Motion {
     public static let curveSmooth: Animation = .easeInOut(duration: durationSmooth)
     /// easeInOut 400ms — modal and sheet entrance.
     public static let curveEmphasis: Animation = .easeInOut(duration: durationEmphasis)
+    /// easeInOut 500ms — shimmer-to-content crossfade transition.
+    public static let curveCrossfade: Animation = .easeInOut(duration: durationCrossfade)
 }
 
 extension View {
