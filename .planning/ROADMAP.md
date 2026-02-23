@@ -110,7 +110,7 @@ Plans:
 
 Plans:
 - [x] 05.1-01-PLAN.md — Fix ShimmerPlaceholder layout, shimmer timing guard, crossfade + stagger transition
-- [ ] 05.1-02-PLAN.md — Token consistency sweep (raw literals to tokens) and Periphery dead code scan
+- [x] 05.1-02-PLAN.md — Token consistency sweep (raw literals to tokens) and Periphery dead code scan
 
 ### Phase 6: Browse Redesign
 **Goal**: Users can navigate 38,000+ tracks efficiently — drill into artist/album hierarchies, select multiple items for batch processing, and search with instant results — without any lag or layout collapse

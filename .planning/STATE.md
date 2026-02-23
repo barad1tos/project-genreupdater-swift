@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-22)
 ## Current Position
 
 Phase: 5.1 (Dashboard Hotfix)
-Plan: 1 of 2 in current phase
-Status: In Progress
-Last activity: 2026-02-23 — Plan 05.1-01 complete (shimmer timing + crossfade)
+Plan: 2 of 2 in current phase
+Status: Complete
+Last activity: 2026-02-23 — Plan 05.1-02 complete (token consistency sweep)
 
-Progress: [██████░░░░] 63%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
-- Average duration: 7min
-- Total execution time: 80min
+- Total plans completed: 12
+- Average duration: 8min
+- Total execution time: 91min
 
 **By Phase:**
 
@@ -32,10 +32,10 @@ Progress: [██████░░░░] 63%
 | 03-sharedui-component-library | 3 | 10min | 3min |
 | 04-navigation-shell | 2 | 14min | 7min |
 | 05-dashboard-redesign | 2 | 19min | 10min |
-| 05.1-dashboard-hotfix | 1 | 8min | 8min |
+| 05.1-dashboard-hotfix | 2 | 19min | 10min |
 
 **Recent Trend:**
-- Last 5 plans: 6min, 8min, 8min, 11min, 8min
+- Last 5 plans: 8min, 8min, 11min, 8min, 11min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -83,6 +83,10 @@ Recent decisions affecting current work:
 - [Phase 05.1]: isLoadingTracks guard in refreshFromLive prevents emptyLibrary flash during MusicKit fetch
 - [Phase 05.1]: Stagger only on first load; subsequent visits show content immediately
 - [Phase 05.1]: Reduce Motion disables all stagger and crossfade animations
+- [Phase 05.1]: Sub-token spacing values (0, 2, 6) left as raw literals -- below Spacing.xxs minimum
+- [Phase 05.1]: Motion.curveLayout at 0.25s fills gap between curveFast (0.2s) and curveDefault (0.3s)
+- [Phase 05.1]: ProgressRing uses Ayu.fgSecondary/fgPrimary/bgTertiary instead of system colors
+- [Phase 05.1]: Periphery pre-existing findings deferred: HeroGauge lineWidth, SidebarItemView reduceMotion
 
 ### Pending Todos
 
@@ -98,5 +102,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 05.1-01-PLAN.md
-Resume file: .planning/phases/05.1-dashboard-hotfix/05.1-02-PLAN.md
+Stopped at: Completed 05.1-02-PLAN.md (Phase 5.1 complete)
+Resume file: Next phase
