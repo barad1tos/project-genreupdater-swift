@@ -15,8 +15,9 @@ The backend is complete through Phase 6 (734 tests, all algorithms, APIs, persis
 - [x] **Phase 3: SharedUI Component Library** - Build HeroGauge, StatCard, ArtistListRow, AlbumListRow, FilterChip, SectionIndexBar with hover/press/focus states (completed 2026-02-22)
 - [x] **Phase 4: Navigation Shell** - Restyle sidebar with Ayu dark background and matchedGeometryEffect indicator; fix column visibility for non-Browse screens (completed 2026-02-22)
 - [x] **Phase 5: Dashboard Redesign** - Half-circle HeroGauge hero, cached-first metrics loading, smart quick-actions with live counts, skeleton shimmer
-- [ ] **Phase 5.1: Dashboard Hotfix** - INSERTED: Fix shimmer timing on first launch and ShimmerPlaceholder CGFloat.infinity layout bug (audit gap closure)
-- [ ] **Phase 6: Browse Redesign** - Artist/Album/Track drill-down with List-backed multi-select, debounced off-main-thread search, sticky section headers
+- [x] **Phase 5.1: Dashboard Hotfix** - INSERTED: Fix shimmer timing on first launch and ShimmerPlaceholder CGFloat.infinity layout bug (completed 2026-02-23)
+- [x] **Phase 6: Browse Redesign** - Artist/Album/Track drill-down with List-backed multi-select, debounced off-main-thread search, sticky section headers
+- [ ] **Phase 6.1: Card Lift Interaction** - INSERTED: Things 3-style double-click card expansion with Ayu neon glow in Browse, SharedUI primitive
 - [ ] **Phase 7: Update and Reports Polish** - Mode selector UI, per-track progress rows, Reports charts and empty states, change history with undo
 - [ ] **Phase 8: Animations and Final Polish** - Content transitions between screens, entrance animations on Dashboard, hover/press states audit across all views
 
@@ -121,7 +122,30 @@ Plans:
   2. Shift-clicking two artists selects the full range; Cmd-clicking adds or removes individual artists; when any items are selected a bulk-action bar appears at the bottom of the list and persists while scrolling
   3. Typing in the search field filters artists, albums, and tracks within 300ms with computation running off the main thread — the UI remains responsive while filtering
   4. Artist rows display sticky alphabetical section headers as the user scrolls; each artist row shows a track count badge
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [x] 06-01-PLAN.md — BrowseViewModel data layer + enhanced SharedUI row components (HoverCheckbox, hover-expand ArtistListRow/AlbumListRow)
+- [x] 06-02-PLAN.md — BrowseView rewrite (inline expand, sticky sections, SectionIndexBar) + BrowseToolbar (search, sort, filters, bulk actions)
+- [x] 06-03-PLAN.md — BrowseDetailView (album detail panel with art, track list, prev/next navigation, HeroGauge watermark)
+- [x] 06-04-PLAN.md — MainView integration (wire ViewModel, BrowseDetailView) + delete obsolete ArtistRow/AlbumCard
+
+### Phase 6.1: Card Lift Interaction (INSERTED)
+
+**Goal**: Build Things 3-style Card Lift primitive in SharedUI (double-click -> card lifts with Ayu neon glow border, background dims to 40%) and apply to Browse artist/album rows. Other screens adopt in Phase 8
+**Depends on**: Phase 6
+**Requirements**: BRWS-01
+**Success Criteria** (what must be TRUE):
+  1. Double-clicking an artist/album/track row lifts it as a card with Ayu accent glow border (3pt blur, 0.6 opacity) and shadow elevation
+  2. Background list dims to ~40% opacity while card is lifted — one card at a time (modal)
+  3. The CardLift modifier lives in SharedUI as a reusable ViewModifier
+  4. Escape or click-outside dismisses the card and restores the list
+  5. Dark mode: vivid glow; Light mode: muted glow — adapts automatically via Ayu tokens
+**Plans**: 2 plans
+
+Plans:
+- [ ] 06.1-01-PLAN.md — SharedUI CardLift primitives (state machine, DoubleClickDetector, NeonGlowBorder, CardLiftOverlay) + Motion tokens
+- [ ] 06.1-02-PLAN.md — Card content views (ArtistCardContent, AlbumCardContent) + BrowseView/ViewModel integration with cascade navigation
 
 ### Phase 7: Update and Reports Polish
 **Goal**: The Update and Reports screens are complete — Update gives users clear control over what will change and real-time feedback during execution; Reports surfaces meaningful library insights instead of empty charts
@@ -150,7 +174,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 5.1 → 6 → 7 → 8
+Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 5.1 → 6 → 6.1 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -159,7 +183,8 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 5.1 → 6 → 7 → 8
 | 3. SharedUI Component Library | 3/3 | Complete | 2026-02-22 |
 | 4. Navigation Shell | 2/2 | Complete    | 2026-02-22 |
 | 5. Dashboard Redesign | 2/2 | Complete    | 2026-02-23 |
-| 5.1 Dashboard Hotfix | 1/2 | In Progress | - |
-| 6. Browse Redesign | 0/TBD | Not started | - |
+| 5.1 Dashboard Hotfix | 2/2 | Complete | 2026-02-23 |
+| 6. Browse Redesign | 4/4 | Complete | 2026-02-23 |
+| 6.1 Card Lift Interaction | 0/2 | In Progress | - |
 | 7. Update and Reports Polish | 0/TBD | Not started | - |
 | 8. Animations and Final Polish | 0/TBD | Not started | - |
