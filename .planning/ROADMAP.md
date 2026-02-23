@@ -158,7 +158,13 @@ Plans:
   4. Reports displays a horizontal genre bar chart and a year histogram using Swift Charts data — both charts render with actual data after at least one scan has run
   5. Reports empty state shows a specific guidance CTA ("Run your first scan to see results") — the phrase "No Data" does not appear anywhere in Reports
   6. The change history log shows each past change with an Undo button that reverses the change via UndoCoordinator
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 07-01-PLAN.md — WorkflowViewModel extension (per-track status, scope preview, dry-run default) + MainView @State fix
+- [ ] 07-02-PLAN.md — Update screen rewrite (config section, grouped preview, streaming rows, done summary)
+- [ ] 07-03-PLAN.md — ReportsChangeLog session grouping with undo + ReportsCharts year histogram and guidance CTAs
+- [ ] 07-04-PLAN.md — ReportsView wiring (empty state routing, year data aggregation, undo callbacks, navigation)
 
 ### Phase 8: Animations and Final Polish
 **Goal**: The app feels alive and responsive — every screen transition is smooth, Dashboard metrics animate in on load, and all interactive elements provide immediate tactile feedback
@@ -186,5 +192,5 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 5.1 → 6 → 6.1 →
 | 5.1 Dashboard Hotfix | 2/2 | Complete | 2026-02-23 |
 | 6. Browse Redesign | 4/4 | Complete | 2026-02-23 |
 | 6.1 Card Lift Interaction | 1/2 | In Progress | - |
-| 7. Update and Reports Polish | 0/TBD | Not started | - |
+| 7. Update and Reports Polish | 0/4 | Not started | - |
 | 8. Animations and Final Polish | 0/TBD | Not started | - |

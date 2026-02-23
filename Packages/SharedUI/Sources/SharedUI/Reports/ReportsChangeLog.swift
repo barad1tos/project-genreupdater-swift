@@ -1,26 +1,44 @@
-// ReportsChangeLog.swift — Table-based change log with sorting, filtering, and search.
+// ReportsChangeLog.swift — Session-grouped change log with sticky headers and hover undo.
 
 import Core
 import SwiftUI
 
+// MARK: - Session Group
+
+/// A cluster of change log entries within a single update session.
+private struct SessionGroup: Identifiable {
+    let id: Date
+    let header: String
+    let entries: [ChangeLogEntry]
+}
+
 // MARK: - Reports Change Log
 
-/// Sortable, filterable table of metadata changes applied to tracks.
+/// Session-grouped change log with sticky headers, hover-only undo, and confirmation alerts.
 ///
 /// Pure presentation component that accepts `[ChangeLogEntry]` from Core.
-/// Supports column sorting, change type filtering via picker, and text search
-/// across track name and artist fields. Shows `EmptyStateView` when no entries match.
+/// Undo actions are injected via callbacks — SharedUI does not import Services.
+/// Entries are grouped by session (entries within 60-second gaps share a session).
 public struct ReportsChangeLog: View {
     public let entries: [ChangeLogEntry]
+    public let onUndoEntry: ((ChangeLogEntry) -> Void)?
+    public let onUndoSession: (([ChangeLogEntry]) -> Void)?
 
     @State private var searchText = ""
     @State private var selectedChangeType: ChangeType?
-    @State private var sortOrder: [KeyPathComparator<ChangeLogEntry>] = [
-        .init(\.timestamp, order: .reverse),
-    ]
+    @State private var hoveredEntryID: UUID?
+    @State private var showUndoConfirmation = false
+    @State private var undoConfirmationEntry: ChangeLogEntry?
+    @State private var undoConfirmationSession: SessionGroup?
 
-    public init(entries: [ChangeLogEntry]) {
+    public init(
+        entries: [ChangeLogEntry],
+        onUndoEntry: ((ChangeLogEntry) -> Void)? = nil,
+        onUndoSession: (([ChangeLogEntry]) -> Void)? = nil
+    ) {
         self.entries = entries
+        self.onUndoEntry = onUndoEntry
+        self.onUndoSession = onUndoSession
     }
 
     public var body: some View {
@@ -29,16 +47,33 @@ public struct ReportsChangeLog: View {
             Divider()
 
             if filteredEntries.isEmpty {
-                EmptyStateView(
-                    icon: "doc.text.magnifyingglass",
-                    title: "No Changes Found",
-                    description: searchText.isEmpty && selectedChangeType == nil
-                        ? "No metadata changes have been recorded yet."
-                        : "No changes match the current filters."
-                )
+                if entries.isEmpty, searchText.isEmpty, selectedChangeType == nil {
+                    // Global empty — ReportsView handles the full-screen CTA.
+                    // Show a minimal spacer to avoid a blank void.
+                    Spacer()
+                } else {
+                    EmptyStateView(
+                        icon: "doc.text.magnifyingglass",
+                        title: "No changes match the current filters",
+                        description: "Try adjusting the search text or change type filter."
+                    )
+                }
             } else {
-                changeLogTable
+                sessionGroupedList
             }
+        }
+        .alert(
+            undoAlertTitle,
+            isPresented: $showUndoConfirmation
+        ) {
+            Button("Cancel", role: .cancel) {
+                clearUndoState()
+            }
+            Button("Undo", role: .destructive) {
+                performUndo()
+            }
+        } message: {
+            Text(undoAlertMessage)
         }
     }
 
@@ -47,7 +82,7 @@ public struct ReportsChangeLog: View {
     private var filterBar: some View {
         HStack(spacing: Spacing.sm) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ayu.fgSecondary)
 
             TextField("Search tracks or artists...", text: $searchText)
                 .textFieldStyle(.plain)
@@ -55,12 +90,12 @@ public struct ReportsChangeLog: View {
             changeTypePicker
 
             Text("\(filteredEntries.count) entries")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(AppFont.caption)
+                .foregroundStyle(Ayu.fgSecondary)
                 .monospacedDigit()
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xs)
     }
 
     private var changeTypePicker: some View {
@@ -77,68 +112,127 @@ public struct ReportsChangeLog: View {
         .frame(width: 160)
     }
 
-    // MARK: - Table
+    // MARK: - Session-Grouped List
 
-    private var changeLogTable: some View {
-        Table(filteredEntries, sortOrder: $sortOrder) {
-            TableColumn("Date", value: \.timestamp) { entry in
-                Text(entry.timestamp, format: .dateTime.month(.abbreviated).day().hour().minute())
-                    .font(.caption)
-                    .monospacedDigit()
-            }
-            .width(min: 120, ideal: 150)
-
-            TableColumn("Track", value: \.trackName) { entry in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.trackName)
-                        .font(.body)
-                        .lineLimit(1)
-                    Text(entry.artist)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+    private var sessionGroupedList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                ForEach(sessionGroups) { group in
+                    Section {
+                        ForEach(group.entries) { entry in
+                            changeLogRow(entry: entry)
+                            Divider()
+                                .padding(.leading, Spacing.md)
+                        }
+                    } header: {
+                        sessionHeader(group: group)
+                    }
                 }
             }
-            .width(min: 150, ideal: 220)
-
-            TableColumn("Type") { entry in
-                changeTypeLabel(for: entry.changeType)
-            }
-            .width(min: 80, ideal: 120)
-
-            TableColumn("Change") { entry in
-                changeValueLabel(for: entry)
-            }
-            .width(min: 140, ideal: 200)
         }
-        .onChange(of: sortOrder) { _, _ in }
+    }
+
+    // MARK: - Session Header
+
+    private func sessionHeader(group: SessionGroup) -> some View {
+        HStack {
+            Text(group.header)
+                .font(AppFont.caption)
+                .foregroundStyle(Ayu.fgSecondary)
+
+            Spacer()
+
+            if onUndoSession != nil {
+                Button {
+                    undoConfirmationSession = group
+                    showUndoConfirmation = true
+                } label: {
+                    Label("Undo Session", systemImage: "arrow.uturn.backward")
+                        .font(AppFont.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Ayu.warning)
+            }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xs)
+        .background(Ayu.bgPrimary)
+    }
+
+    // MARK: - Change Log Row
+
+    private func changeLogRow(entry: ChangeLogEntry) -> some View {
+        HStack(spacing: Spacing.sm) {
+            changeTypeLabel(for: entry.changeType)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.trackName)
+                    .font(.body)
+                    .lineLimit(1)
+                Text(entry.artist)
+                    .font(AppFont.caption)
+                    .foregroundStyle(Ayu.fgSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            changeValueLabel(for: entry)
+
+            if hoveredEntryID == entry.id, onUndoEntry != nil {
+                Button {
+                    undoConfirmationEntry = entry
+                    showUndoConfirmation = true
+                } label: {
+                    Image(systemName: "arrow.uturn.backward.circle")
+                        .foregroundStyle(Ayu.warning)
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xs)
+        .background(
+            hoveredEntryID == entry.id
+                ? Ayu.bgTertiary.opacity(0.5)
+                : Color.clear
+        )
+        .contentShape(.rect)
+        .onHover { isHovered in
+            withAnimation(Motion.curveFast) {
+                hoveredEntryID = isHovered ? entry.id : nil
+            }
+        }
     }
 
     // MARK: - Cell Views
 
     private func changeTypeLabel(for changeType: ChangeType) -> some View {
-        Label(changeType.displayLabel, systemImage: changeType.iconName)
-            .font(.caption)
+        Image(systemName: changeType.iconName)
+            .font(.body)
             .foregroundStyle(changeType.tintColor)
+            .frame(width: 24)
+            .accessibilityLabel(changeType.displayLabel)
     }
 
     private func changeValueLabel(for entry: ChangeLogEntry) -> some View {
         HStack(spacing: Spacing.xxs) {
             Text(oldValueText(for: entry))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ayu.fgSecondary)
                 .strikethrough()
             Image(systemName: "arrow.right")
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Ayu.fgMuted)
             Text(newValueText(for: entry))
-                .foregroundStyle(.primary)
+                .foregroundStyle(Ayu.fgPrimary)
                 .bold()
         }
         .font(.callout)
         .lineLimit(1)
     }
 
-    // MARK: - Filtering and Sorting
+    // MARK: - Filtering and Grouping
 
     private var filteredEntries: [ChangeLogEntry] {
         var result = entries
@@ -154,7 +248,77 @@ public struct ReportsChangeLog: View {
             }
         }
 
-        return result.sorted(using: sortOrder)
+        return result.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    private var sessionGroups: [SessionGroup] {
+        groupBySession(filteredEntries)
+    }
+
+    // MARK: - Session Grouping
+
+    private func groupBySession(_ sortedEntries: [ChangeLogEntry]) -> [SessionGroup] {
+        guard !sortedEntries.isEmpty else { return [] }
+
+        var groups: [SessionGroup] = []
+        var currentEntries: [ChangeLogEntry] = []
+        var sessionStart: Date?
+
+        for entry in sortedEntries {
+            if let start = sessionStart,
+               abs(entry.timestamp.timeIntervalSince(start)) > 60 {
+                let header = Self.formatSessionHeader(start: start, count: currentEntries.count)
+                groups.append(SessionGroup(id: start, header: header, entries: currentEntries))
+                currentEntries = [entry]
+                sessionStart = entry.timestamp
+            } else {
+                currentEntries.append(entry)
+                if sessionStart == nil { sessionStart = entry.timestamp }
+            }
+        }
+
+        if let start = sessionStart, !currentEntries.isEmpty {
+            let header = Self.formatSessionHeader(start: start, count: currentEntries.count)
+            groups.append(SessionGroup(id: start, header: header, entries: currentEntries))
+        }
+
+        return groups
+    }
+
+    // MARK: - Undo Confirmation
+
+    private var undoAlertTitle: String {
+        if let entry = undoConfirmationEntry {
+            return "Revert \(entry.changeType.displayLabel.lowercased()) change for \(entry.trackName)?"
+        }
+        if let session = undoConfirmationSession {
+            return "Revert all \(session.entries.count) changes in this session?"
+        }
+        return "Confirm Undo"
+    }
+
+    private var undoAlertMessage: String {
+        if undoConfirmationEntry != nil {
+            return "This will restore the previous value."
+        }
+        if let session = undoConfirmationSession {
+            return "All \(session.entries.count) changes from this session will be reverted."
+        }
+        return ""
+    }
+
+    private func performUndo() {
+        if let entry = undoConfirmationEntry {
+            onUndoEntry?(entry)
+        } else if let session = undoConfirmationSession {
+            onUndoSession?(session.entries)
+        }
+        clearUndoState()
+    }
+
+    private func clearUndoState() {
+        undoConfirmationEntry = nil
+        undoConfirmationSession = nil
     }
 
     // MARK: - Value Formatting
@@ -187,6 +351,20 @@ public struct ReportsChangeLog: View {
         case .artistRename:
             entry.artist
         }
+    }
+
+    // MARK: - Formatters
+
+    private static let sessionDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy '\u{2014}' HH:mm"
+        return formatter
+    }()
+
+    private static func formatSessionHeader(start: Date, count: Int) -> String {
+        let dateString = sessionDateFormatter.string(from: start)
+        let noun = count == 1 ? "change" : "changes"
+        return "\(dateString) (\(count) \(noun))"
     }
 }
 
@@ -229,31 +407,57 @@ extension ChangeType {
 
 // MARK: - Preview
 
-#Preview("Change Log with Entries") {
-    ReportsChangeLog(entries: [
-        ChangeLogEntry(
-            id: UUID(),
-            timestamp: .now.addingTimeInterval(-3600),
-            changeType: .genreUpdate,
-            trackID: "1",
-            artist: "Metallica",
-            trackName: "Enter Sandman",
-            albumName: "Metallica",
-            oldGenre: "Rock",
-            newGenre: "Metal"
-        ),
-        ChangeLogEntry(
-            id: UUID(),
-            timestamp: .now.addingTimeInterval(-7200),
-            changeType: .yearUpdate,
-            trackID: "2",
-            artist: "Daft Punk",
-            trackName: "Around the World",
-            albumName: "Homework",
-            oldYear: nil,
-            newYear: 1997
-        ),
-    ])
+#Preview("Change Log with Sessions") {
+    ReportsChangeLog(
+        entries: [
+            ChangeLogEntry(
+                id: UUID(),
+                timestamp: .now.addingTimeInterval(-10),
+                changeType: .genreUpdate,
+                trackID: "1",
+                artist: "Metallica",
+                trackName: "Enter Sandman",
+                albumName: "Metallica",
+                oldGenre: "Rock",
+                newGenre: "Metal"
+            ),
+            ChangeLogEntry(
+                id: UUID(),
+                timestamp: .now.addingTimeInterval(-20),
+                changeType: .yearUpdate,
+                trackID: "2",
+                artist: "Metallica",
+                trackName: "Sad but True",
+                albumName: "Metallica",
+                oldYear: nil,
+                newYear: 1991
+            ),
+            ChangeLogEntry(
+                id: UUID(),
+                timestamp: .now.addingTimeInterval(-3600),
+                changeType: .genreUpdate,
+                trackID: "3",
+                artist: "Daft Punk",
+                trackName: "Around the World",
+                albumName: "Homework",
+                oldGenre: "Pop",
+                newGenre: "Electronic"
+            ),
+            ChangeLogEntry(
+                id: UUID(),
+                timestamp: .now.addingTimeInterval(-3620),
+                changeType: .yearUpdate,
+                trackID: "4",
+                artist: "Daft Punk",
+                trackName: "Da Funk",
+                albumName: "Homework",
+                oldYear: nil,
+                newYear: 1997
+            ),
+        ],
+        onUndoEntry: { _ in },
+        onUndoSession: { _ in }
+    )
     .frame(width: 700, height: 400)
 }
 
