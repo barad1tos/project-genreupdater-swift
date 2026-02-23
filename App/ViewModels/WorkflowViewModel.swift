@@ -56,6 +56,18 @@ enum WorkflowPhase: Sendable {
     case error(String)
 }
 
+// MARK: - Track Processing Status
+
+/// Per-track processing status for streaming progress rows.
+enum TrackProcessingStatus: Sendable {
+    case queued
+    case analyzing
+    case writing
+    case done
+    case failed(String)
+    case skipped
+}
+
 // MARK: - Workflow View Model
 
 /// Unified ViewModel driving genre/year updates for any track selection mode.
@@ -74,25 +86,20 @@ final class WorkflowViewModel {
     var smartFilterType: SmartFilterType = .missingGenres
     var updateGenre: Bool = true
     var updateYear: Bool = true
-    var previewOnly: Bool = false
+    var previewOnly: Bool = true
     var minConfidence: Double = 0.6
 
-    // MARK: - Phase State
+    // MARK: - State
 
     var phase: WorkflowPhase = .configure
-
-    // MARK: - Processing State
-
     var progress: ProgressUpdate?
     var processedCount: Int = 0
     var totalCount: Int = 0
-
-    // MARK: - Preview State
-
+    var trackStatuses: [String: TrackProcessingStatus] = [:]
+    var currentTrackID: String?
+    var scopeTrackCount: Int = 0
+    var scopeArtistCount: Int = 0
     var proposedChanges: [ProposedChange] = []
-
-    // MARK: - Result State
-
     var result: BatchUpdateResult?
     var completedEntries: [ChangeLogEntry] = []
     var dryRunReport: DryRunReport?
@@ -122,17 +129,22 @@ final class WorkflowViewModel {
         return false
     }
 
+    /// Track IDs with their error messages from the most recent run.
+    var failedTracks: [(id: String, error: String)] {
+        trackStatuses.compactMap { trackID, status in
+            if case let .failed(message) = status {
+                return (id: trackID, error: message)
+            }
+            return nil
+        }
+    }
+
     // MARK: - Dependencies
 
     private let updateCoordinator: UpdateCoordinator
     private let batchProcessor: BatchProcessor
     private let changePreviewPipeline: ChangePreviewPipeline
-
-    // MARK: - Task Management
-
     private var processingTask: Task<Void, Never>?
-
-    // MARK: - Initialization
 
     init(
         updateCoordinator: UpdateCoordinator,
@@ -156,6 +168,7 @@ final class WorkflowViewModel {
 
         let workingTracks = applySmartFilter(to: tracks)
         totalCount = workingTracks.count
+        computeScopePreview(tracks: workingTracks)
 
         if mode == .fullLibrary {
             startBatchProcessing(tracks: workingTracks)
@@ -164,11 +177,23 @@ final class WorkflowViewModel {
         }
     }
 
+    // MARK: - Scope Preview
+
+    /// Compute track and artist counts for the current mode/filter selection.
+    func computeScopePreview(tracks: [Track]) {
+        let filtered = applySmartFilter(to: tracks)
+        scopeTrackCount = filtered.count
+        let uniqueArtists = Set(filtered.map(\.artist))
+        scopeArtistCount = uniqueArtists.count
+    }
+
     // MARK: - Dry Run (Selected + Smart Filter modes)
 
     private func startDryRun(tracks: [Track]) {
         phase = .scanning
         processedCount = 0
+        trackStatuses = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, TrackProcessingStatus.queued) })
+        currentTrackID = nil
 
         processingTask = Task {
             do {
@@ -185,6 +210,9 @@ final class WorkflowViewModel {
                 for (index, track) in tracks.enumerated() {
                     try Task.checkCancellation()
 
+                    currentTrackID = track.id
+                    trackStatuses[track.id] = .analyzing
+
                     progress = ProgressUpdate(
                         phase: .analyzing,
                         current: index + 1,
@@ -200,6 +228,8 @@ final class WorkflowViewModel {
                         dryRun: true
                     )
                     allChanges.append(contentsOf: changes)
+
+                    trackStatuses[track.id] = .done
                 }
 
                 let filtered = changePreviewPipeline.filter(
@@ -212,12 +242,15 @@ final class WorkflowViewModel {
                     dryRunReport = DryRunReport(proposedChanges: filtered)
                 }
 
+                currentTrackID = nil
                 phase = .review
                 progress = nil
             } catch is CancellationError {
+                currentTrackID = nil
                 phase = .configure
                 progress = nil
             } catch {
+                currentTrackID = nil
                 phase = .error(error.localizedDescription)
                 progress = nil
             }
@@ -230,6 +263,8 @@ final class WorkflowViewModel {
         phase = .scanning
         processedCount = 0
         failedCount = 0
+        trackStatuses = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, TrackProcessingStatus.queued) })
+        currentTrackID = nil
 
         let options = UpdateOptions(
             updateGenre: updateGenre,
@@ -237,6 +272,8 @@ final class WorkflowViewModel {
             minConfidence: confidencePercentage,
             autoAccept: true
         )
+
+        let tracksByIndex = tracks
 
         processingTask = Task {
             do {
@@ -252,23 +289,63 @@ final class WorkflowViewModel {
                     },
                     progressHandler: { [weak self] update in
                         Task { @MainActor in
-                            self?.progress = update
-                            self?.processedCount = update.current
+                            self?.handleBatchProgress(update, tracksByIndex: tracksByIndex)
                         }
                     }
                 )
 
+                finalizeBatchStatuses(for: tracksByIndex)
                 completedEntries = entries
+                currentTrackID = nil
                 phase = .done
                 progress = nil
             } catch is CancellationError {
+                currentTrackID = nil
                 phase = .configure
                 progress = nil
             } catch let batchError as BatchProcessorError {
+                currentTrackID = nil
                 handleBatchError(batchError)
             } catch {
+                currentTrackID = nil
                 phase = .error(error.localizedDescription)
                 progress = nil
+            }
+        }
+    }
+
+    /// Update per-track status from batch progress callbacks.
+    private func handleBatchProgress(_ update: ProgressUpdate, tracksByIndex: [Track]) {
+        progress = update
+        processedCount = update.current
+
+        if update.current <= tracksByIndex.count {
+            let currentTrack = tracksByIndex[update.current - 1]
+            currentTrackID = currentTrack.id
+            trackStatuses[currentTrack.id] = .writing
+
+            // Mark previous track as done if it was still writing
+            if update.current > 1 {
+                let previousTrack = tracksByIndex[update.current - 2]
+                if case .writing = trackStatuses[previousTrack.id] {
+                    trackStatuses[previousTrack.id] = .done
+                }
+            }
+        }
+
+        // On completion, mark the last writing track as done
+        if update.phase == .complete, let lastTrack = tracksByIndex.last {
+            if case .writing = trackStatuses[lastTrack.id] {
+                trackStatuses[lastTrack.id] = .done
+            }
+        }
+    }
+
+    /// Mark any remaining queued tracks as skipped after batch completes.
+    private func finalizeBatchStatuses(for tracks: [Track]) {
+        for track in tracks {
+            if case .queued = trackStatuses[track.id] {
+                trackStatuses[track.id] = .skipped
             }
         }
     }
@@ -364,12 +441,18 @@ final class WorkflowViewModel {
         processedCount = 0
         totalCount = 0
         failedCount = 0
-        previewOnly = false
+        previewOnly = true
+        trackStatuses = [:]
+        currentTrackID = nil
+        scopeTrackCount = 0
+        scopeArtistCount = 0
     }
+}
 
-    // MARK: - Smart Filter
+// MARK: - Smart Filter + Error Handling
 
-    private func applySmartFilter(to tracks: [Track]) -> [Track] {
+extension WorkflowViewModel {
+    func applySmartFilter(to tracks: [Track]) -> [Track] {
         guard mode == .smartFilter else { return tracks }
         switch smartFilterType {
         case .missingGenres:
@@ -381,9 +464,7 @@ final class WorkflowViewModel {
         }
     }
 
-    // MARK: - Error Handling
-
-    private func handleBatchError(_ error: BatchProcessorError) {
+    func handleBatchError(_ error: BatchProcessorError) {
         switch error {
         case let .cancelled(processedCount, _):
             self.processedCount = processedCount

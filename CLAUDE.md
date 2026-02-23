@@ -245,8 +245,9 @@ The app runs in sandbox with these entitlements:
 | 5: Workflows | ✅ Done | ChangePreviewPipeline, CheckpointManager, UndoCoordinator, BatchProcessor, UpdateCoordinator, LibrarySyncService |
 | 5.1: Dashboard Hotfix | ✅ Done | ShimmerPlaceholder quickAction shape, Motion.curveCrossfade, Motion.curveLayout, DashboardViewModel shimmer timing, DashboardView ZStack crossfade + stagger, token consistency sweep |
 | 6: Views + Polish | ✅ Done | 20 files, ~3,100 LOC — UpdateView, BatchView, ReportsView, SettingsView (4 tabs incl. Appearance), SubscriptionView, FeatureGatedView, SharedUI components (ConfidenceBadge, ProgressRing, EmptyStateView, TierBadge, PaywallOverlay, TrackRow, TrackDetailView, ReportsChangeLog, ReportsCharts), ViewModels (UpdateViewModel, BatchViewModel), AppDependencies wiring |
-| 6.1: Card Lift Interaction | 🔄 Active | CardLiftState, CardLiftOverlay, NeonGlowBorder, DoubleClickDetector, ArtistCardContent, AlbumCardContent, BrowseViewModel card lift, BrowseView overlay integration |
-| 7: Launch | 🔄 Active | Testing (418+316 tests), CSVExporter, DryRunReport, GenreMappings, Keyboard Shortcuts, Accessibility, Integration Tests, UI Tests, Entitlements CI, Coverage enforcement |
+| 6.1: Card Lift Interaction | ✅ Done | CardLiftState, CardLiftOverlay, NeonGlowBorder, DoubleClickDetector, ArtistCardContent, AlbumCardContent, BrowseViewModel card lift, BrowseView overlay integration |
+| 7: Update & Reports Polish | 🔄 Active | TrackProcessingStatus, per-track status tracking, scope preview, dry-run default, WorkflowViewModel @State persistence |
+| 8: Launch | 🔄 Active | Testing (418+316 tests), CSVExporter, DryRunReport, GenreMappings, Keyboard Shortcuts, Accessibility, Integration Tests, UI Tests, Entitlements CI, Coverage enforcement |
 
 ## Development Workflow
 
