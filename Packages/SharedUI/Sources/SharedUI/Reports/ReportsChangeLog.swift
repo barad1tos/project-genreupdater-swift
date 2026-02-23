@@ -45,7 +45,7 @@ public struct ReportsChangeLog: View {
     // MARK: - Filter Bar
 
     private var filterBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.sm) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
 
@@ -123,7 +123,7 @@ public struct ReportsChangeLog: View {
     }
 
     private func changeValueLabel(for entry: ChangeLogEntry) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xxs) {
             Text(oldValueText(for: entry))
                 .foregroundStyle(.secondary)
                 .strikethrough()

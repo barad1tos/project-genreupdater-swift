@@ -202,6 +202,8 @@ public enum Motion {
     public static let curveEmphasis: Animation = .easeInOut(duration: durationEmphasis)
     /// easeInOut 500ms — shimmer-to-content crossfade transition.
     public static let curveCrossfade: Animation = .easeInOut(duration: durationCrossfade)
+    /// easeInOut 250ms — layout column visibility changes.
+    public static let curveLayout: Animation = .easeInOut(duration: 0.25)
 }
 
 extension View {

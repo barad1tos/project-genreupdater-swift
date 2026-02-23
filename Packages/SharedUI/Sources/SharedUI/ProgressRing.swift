@@ -25,7 +25,7 @@ public struct ProgressRing: View {
     }
 
     public var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Spacing.sm) {
             ZStack {
                 trackCircle
                 progressArc
@@ -36,7 +36,7 @@ public struct ProgressRing: View {
             if let message {
                 Text(message)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ayu.fgSecondary)
                     .multilineTextAlignment(.center)
             }
         }
@@ -49,7 +49,7 @@ public struct ProgressRing: View {
 
     private var trackCircle: some View {
         Circle()
-            .stroke(.quaternary, lineWidth: lineWidth)
+            .stroke(Ayu.bgTertiary, lineWidth: lineWidth)
     }
 
     private var progressArc: some View {
@@ -60,14 +60,14 @@ public struct ProgressRing: View {
                 style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
             )
             .rotationEffect(.degrees(-90))
-            .animation(.easeInOut(duration: 0.4), value: clampedProgress)
+            .animation(Motion.curveEmphasis, value: clampedProgress)
     }
 
     private var percentageLabel: some View {
         Text("\(Int(clampedProgress * 100))%")
             .font(.system(.title3, design: .rounded))
             .bold()
-            .foregroundStyle(.primary)
+            .foregroundStyle(Ayu.fgPrimary)
             .contentTransition(.numericText())
     }
 
@@ -102,7 +102,7 @@ public struct ProgressRing: View {
 // MARK: - Preview
 
 #Preview("Progress Ring States") {
-    VStack(spacing: 24) {
+    VStack(spacing: Spacing.xl) {
         ProgressRing(progress: 0.0, message: "Not started")
         ProgressRing(progress: 0.45, message: "Processing tracks...")
         ProgressRing(progress: 1.0, lineWidth: 12, message: "Complete")

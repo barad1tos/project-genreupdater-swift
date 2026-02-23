@@ -1,5 +1,4 @@
-// SharedUI — Shared SwiftUI components, charts, and report views
-// Placeholder for Phase 1. Real content added in Phase 6.
+// SharedUI — Shared SwiftUI components, themes, and design tokens.
 
 import Core
 import SwiftUI

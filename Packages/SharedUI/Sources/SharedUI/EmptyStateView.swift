@@ -37,7 +37,7 @@ public struct EmptyStateView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Spacing.md) {
             Image(systemName: icon)
                 .font(.largeTitle)
                 .imageScale(.large)

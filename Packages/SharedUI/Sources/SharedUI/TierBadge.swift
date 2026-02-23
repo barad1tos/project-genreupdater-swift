@@ -63,7 +63,7 @@ extension Tier {
 // MARK: - Preview
 
 #Preview("All Tiers") {
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.sm) {
         TierBadge(tier: .free)
         TierBadge(tier: .weekPass)
         TierBadge(tier: .pro)

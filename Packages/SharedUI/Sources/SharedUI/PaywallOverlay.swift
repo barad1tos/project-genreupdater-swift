@@ -56,7 +56,7 @@ public struct PaywallOverlay: View {
     }
 
     public var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.lg) {
             lockIcon
             titleSection
             tierComparison
@@ -79,7 +79,7 @@ public struct PaywallOverlay: View {
     }
 
     private var titleSection: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Spacing.xs) {
             Text("Unlock \(lockedFeature.displayName)")
                 .font(.title2)
                 .bold()
@@ -92,7 +92,7 @@ public struct PaywallOverlay: View {
     }
 
     private var tierComparison: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: Spacing.md) {
             TierComparisonColumn(
                 label: "Current",
                 tier: currentTier
@@ -110,7 +110,7 @@ public struct PaywallOverlay: View {
     }
 
     private var purchaseButtons: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Spacing.sm) {
             if shouldShowWeekPass {
                 Button {
                     onPurchaseWeekPass?()

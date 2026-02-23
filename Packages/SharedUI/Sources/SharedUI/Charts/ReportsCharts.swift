@@ -74,7 +74,7 @@ public struct ReportsCharts: View {
 
     public var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
+            VStack(spacing: Spacing.xl) {
                 summaryCards
                 genreDistributionChart
                 changesOverTimeChart
@@ -86,7 +86,7 @@ public struct ReportsCharts: View {
     // MARK: - Summary Cards
 
     private var summaryCards: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: Spacing.md) {
             SummaryCard(
                 title: "Total Processed",
                 value: data.totalProcessed,
@@ -122,7 +122,7 @@ public struct ReportsCharts: View {
             )
             .frame(height: 200)
         } else {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text("Genre Distribution")
                     .font(.headline)
 
@@ -154,7 +154,7 @@ public struct ReportsCharts: View {
             )
             .frame(height: 200)
         } else {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text("Changes Over Time")
                     .font(.headline)
 
@@ -221,7 +221,7 @@ struct SummaryCard: View {
     let tint: Color
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Spacing.xs) {
             Image(systemName: icon)
                 .font(.title2)
                 .foregroundStyle(tint)

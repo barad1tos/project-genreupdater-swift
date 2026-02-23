@@ -55,7 +55,7 @@ public struct ConfidenceBadge: View {
 // MARK: - Preview
 
 #Preview("Confidence Levels") {
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.sm) {
         ConfidenceBadge(confidence: 0.95)
         ConfidenceBadge(confidence: 0.65)
         ConfidenceBadge(confidence: 0.30)

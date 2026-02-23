@@ -18,7 +18,7 @@ public struct TrackRow: View {
                 .font(.body)
                 .lineLimit(1)
 
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xxs) {
                 Text(track.artist)
                     .font(.caption)
                     .foregroundStyle(.secondary)
