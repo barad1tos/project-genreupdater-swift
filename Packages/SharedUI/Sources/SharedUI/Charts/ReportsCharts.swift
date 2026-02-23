@@ -1,4 +1,4 @@
-// ReportsCharts.swift — Swift Charts for genre distribution and changes over time.
+// ReportsCharts.swift — Swift Charts for genre distribution, year histogram, and changes over time.
 
 import Charts
 import Core
@@ -15,6 +15,7 @@ public struct ChartSummaryData: Sendable {
     public let genresUpdated: Int
     public let yearsUpdated: Int
     public let genreDistribution: [GenreCount]
+    public let yearDistribution: [YearCount]
     public let changesOverTime: [DayCount]
 
     public init(
@@ -22,12 +23,14 @@ public struct ChartSummaryData: Sendable {
         genresUpdated: Int,
         yearsUpdated: Int,
         genreDistribution: [GenreCount],
+        yearDistribution: [YearCount] = [],
         changesOverTime: [DayCount]
     ) {
         self.totalProcessed = totalProcessed
         self.genresUpdated = genresUpdated
         self.yearsUpdated = yearsUpdated
         self.genreDistribution = genreDistribution
+        self.yearDistribution = yearDistribution
         self.changesOverTime = changesOverTime
     }
 
@@ -40,6 +43,19 @@ public struct ChartSummaryData: Sendable {
         public init(genre: String, count: Int) {
             id = genre
             self.genre = genre
+            self.count = count
+        }
+    }
+
+    /// A release year paired with the number of tracks for that year.
+    public struct YearCount: Identifiable, Sendable {
+        public let id: Int
+        public let year: Int
+        public let count: Int
+
+        public init(year: Int, count: Int) {
+            id = year
+            self.year = year
             self.count = count
         }
     }
@@ -61,7 +77,7 @@ public struct ChartSummaryData: Sendable {
 // MARK: - Reports Charts
 
 /// Dashboard-style charts view showing summary cards, genre distribution bar chart,
-/// and a line chart of changes over time.
+/// year distribution histogram, and a line chart of changes over time.
 ///
 /// Pure presentation component. Receives pre-aggregated `ChartSummaryData` and renders
 /// using Swift Charts framework.
@@ -77,6 +93,7 @@ public struct ReportsCharts: View {
             VStack(spacing: Spacing.xl) {
                 summaryCards
                 genreDistributionChart
+                yearDistributionChart
                 changesOverTimeChart
             }
             .padding()
@@ -117,8 +134,8 @@ public struct ReportsCharts: View {
         if data.genreDistribution.isEmpty {
             EmptyStateView(
                 icon: "chart.bar",
-                title: "No Genre Data",
-                description: "Genre distribution will appear after tracks are updated."
+                title: "Genre insights appear after your first update",
+                description: "Update your library to see which genres are most common."
             )
             .frame(height: 200)
         } else {
@@ -142,6 +159,38 @@ public struct ReportsCharts: View {
         }
     }
 
+    // MARK: - Year Distribution Chart
+
+    @ViewBuilder
+    private var yearDistributionChart: some View {
+        if data.yearDistribution.isEmpty {
+            EmptyStateView(
+                icon: "calendar.badge.clock",
+                title: "Year insights appear after your first update",
+                description: "Track release years will be visualized here after updates."
+            )
+            .frame(height: 200)
+        } else {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text("Year Distribution")
+                    .font(.headline)
+
+                Chart(sortedYears) { item in
+                    BarMark(
+                        x: .value("Year", String(item.year)),
+                        y: .value("Tracks", item.count)
+                    )
+                    .foregroundStyle(Ayu.accent.gradient)
+                    .clipShape(.rect(cornerRadius: 4))
+                }
+                .chartYAxisLabel("Tracks")
+                .frame(height: 200)
+            }
+            .padding()
+            .background(Ayu.bgSecondary.opacity(0.5), in: .rect(cornerRadius: Radius.md))
+        }
+    }
+
     // MARK: - Changes Over Time Chart
 
     @ViewBuilder
@@ -149,8 +198,8 @@ public struct ReportsCharts: View {
         if data.changesOverTime.isEmpty {
             EmptyStateView(
                 icon: "chart.line.uptrend.xyaxis",
-                title: "No Timeline Data",
-                description: "Change history will appear as tracks are updated over time."
+                title: "Timeline data builds as you update tracks over time",
+                description: "Each update session adds data points to this chart."
             )
             .frame(height: 200)
         } else {
@@ -203,6 +252,11 @@ public struct ReportsCharts: View {
                 .sorted { $0.count > $1.count }
                 .prefix(15)
         )
+    }
+
+    /// Year distribution sorted by year ascending for chronological display.
+    private var sortedYears: [ChartSummaryData.YearCount] {
+        data.yearDistribution.sorted { $0.year < $1.year }
     }
 
     /// Dynamic chart height based on the number of genres displayed.
@@ -261,6 +315,14 @@ struct SummaryCard: View {
             .init(genre: "Classical", count: 42),
             .init(genre: "R&B", count: 33),
         ],
+        yearDistribution: [
+            .init(year: 1970, count: 12),
+            .init(year: 1980, count: 45),
+            .init(year: 1990, count: 128),
+            .init(year: 2000, count: 267),
+            .init(year: 2010, count: 312),
+            .init(year: 2020, count: 189),
+        ],
         changesOverTime: [
             .init(date: .now.addingTimeInterval(-6 * 86400), count: 45),
             .init(date: .now.addingTimeInterval(-5 * 86400), count: 120),
@@ -271,7 +333,7 @@ struct SummaryCard: View {
             .init(date: .now, count: 94),
         ]
     ))
-    .frame(width: 600, height: 700)
+    .frame(width: 600, height: 900)
 }
 
 #Preview("Reports Charts Empty") {
@@ -282,5 +344,5 @@ struct SummaryCard: View {
         genreDistribution: [],
         changesOverTime: []
     ))
-    .frame(width: 600, height: 500)
+    .frame(width: 600, height: 700)
 }
