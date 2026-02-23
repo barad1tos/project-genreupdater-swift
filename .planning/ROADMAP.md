@@ -106,7 +106,11 @@ Plans:
   1. On first launch (no cache, MusicKit loading), the Dashboard stays in shimmer state until tracks arrive — no flash of "Your Music Library is Empty" before data loads
   2. ShimmerPlaceholder quick-action rows render at full container width — no collapsed or overflowing layout from CGFloat.infinity
   3. Tech debt: stale SharedUI.swift placeholder comment removed, motionAnimation extension either has call sites or is deleted, raw Motion literal in GenreUpdaterApp.swift replaced with token
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 05.1-01-PLAN.md — Fix ShimmerPlaceholder layout, shimmer timing guard, crossfade + stagger transition
+- [ ] 05.1-02-PLAN.md — Token consistency sweep (raw literals to tokens) and Periphery dead code scan
 
 ### Phase 6: Browse Redesign
 **Goal**: Users can navigate 38,000+ tracks efficiently — drill into artist/album hierarchies, select multiple items for batch processing, and search with instant results — without any lag or layout collapse
@@ -155,7 +159,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 5.1 → 6 → 7 → 8
 | 3. SharedUI Component Library | 3/3 | Complete | 2026-02-22 |
 | 4. Navigation Shell | 2/2 | Complete    | 2026-02-22 |
 | 5. Dashboard Redesign | 2/2 | Complete    | 2026-02-23 |
-| 5.1 Dashboard Hotfix | 0/TBD | Not started | - |
+| 5.1 Dashboard Hotfix | 0/2 | Not started | - |
 | 6. Browse Redesign | 0/TBD | Not started | - |
 | 7. Update and Reports Polish | 0/TBD | Not started | - |
 | 8. Animations and Final Polish | 0/TBD | Not started | - |
