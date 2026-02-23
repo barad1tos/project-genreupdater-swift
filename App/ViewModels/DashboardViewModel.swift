@@ -1,79 +1,180 @@
-// DashboardViewModel.swift — Library health calculation.
+// DashboardViewModel.swift — Dashboard loading state machine with cached-first metrics and trends.
 
 import Core
 import Foundation
-import Observation
+import Services
+import SharedUI
+import SwiftUI
+
+// MARK: - Dashboard Loading State
+
+/// Models the Dashboard's data lifecycle from first-launch shimmer through live data display.
+enum DashboardLoadingState: Equatable, Sendable {
+    /// First launch, no cache — show shimmer placeholders.
+    case shimmer
+    /// Showing cached data from a previous scan.
+    case cached(lastUpdated: Date)
+    /// Live scan in progress.
+    case updating
+    /// Showing live data from a completed scan.
+    case live
+    /// Scan failed with an error message.
+    case error(String)
+    /// MusicKit access denied by user.
+    case permissionDenied
+    /// Library has 0 tracks in Music.app.
+    case emptyLibrary
+}
+
+// MARK: - Dashboard Metrics
+
+/// Aggregated library health metrics for display.
+struct DashboardMetrics: Equatable, Sendable {
+    let totalTracks: Int
+    let tracksWithGenre: Int
+    let tracksWithYear: Int
+    let tracksWithBoth: Int
+    let tracksNeedingGenre: Int
+    let tracksNeedingYear: Int
+    let recentlyAdded: Int
+    let genreCoverage: Double
+    let yearCoverage: Double
+    let consistencyCoverage: Double
+
+    static let empty = Self(
+        totalTracks: 0,
+        tracksWithGenre: 0,
+        tracksWithYear: 0,
+        tracksWithBoth: 0,
+        tracksNeedingGenre: 0,
+        tracksNeedingYear: 0,
+        recentlyAdded: 0,
+        genreCoverage: 0,
+        yearCoverage: 0,
+        consistencyCoverage: 0
+    )
+}
+
+// MARK: - Trend Direction
+
+/// Directional trend indicator for metric cards.
+enum TrendDirection: Sendable {
+    case up
+    case down
+    case flat
+
+    var icon: String {
+        switch self {
+        case .up: "arrow.up.right"
+        case .down: "arrow.down.right"
+        case .flat: "arrow.right"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .up: Ayu.success
+        case .down: Ayu.error
+        case .flat: Ayu.fgSecondary
+        }
+    }
+}
 
 // MARK: - Dashboard View Model
 
-/// Computes library health metrics from a track collection.
+/// Two-phase cached-first loading ViewModel with trend calculations.
 ///
-/// Calculates fill percentages (genre, year), unique genre count,
-/// and tracks needing attention. Metrics are computed synchronously
-/// on refresh since the data is already in-memory.
+/// On launch, loads cached metrics from `PersistedMetricsSnapshot` for
+/// instant display, then refreshes from live MusicKit data. Computes
+/// trend direction by comparing current metrics to previous scan values.
 @Observable @MainActor
 final class DashboardViewModel {
-    // MARK: - Metrics
+    // MARK: - Published State
 
-    private(set) var totalTracks: Int = 0
-    private(set) var genreFillPercent: Double = 0
-    private(set) var yearFillPercent: Double = 0
-    private(set) var uniqueGenres: Int = 0
-    private(set) var uniqueArtists: Int = 0
-    private(set) var tracksNeedingGenre: Int = 0
-    private(set) var tracksNeedingYear: Int = 0
-    private(set) var recentlyAdded: Int = 0
-    private(set) var isLoading: Bool = false
+    private(set) var loadingState: DashboardLoadingState = .shimmer
+    private(set) var metrics: DashboardMetrics = .empty
+    private(set) var previousMetrics: DashboardMetrics?
 
-    // MARK: - Top Genres
+    // MARK: - Cached-First Loading
 
-    private(set) var topGenres: [(name: String, count: Int)] = []
-
-    // MARK: - Refresh
-
-    /// Recompute all dashboard metrics from the given track array.
+    /// Phase 1: Load cached metrics snapshot for instant display.
     ///
-    /// This is intentionally synchronous — tracks are already loaded
-    /// in memory by the parent view. Computation is O(n) over the
-    /// track array with a single pass for most metrics.
-    func refresh(tracks: [Track]) {
-        isLoading = true
-        defer { isLoading = false }
-
-        let total = tracks.count
-        totalTracks = total
-
-        guard total > 0 else {
-            resetMetrics()
+    /// If no snapshot exists (first launch), sets shimmer state.
+    /// Otherwise builds metrics from the snapshot and loads previous
+    /// scan values for trend calculation.
+    func loadCachedMetrics(from snapshot: PersistedMetricsSnapshot?) {
+        guard let snapshot else {
+            loadingState = .shimmer
             return
         }
 
-        // Single-pass accumulation
+        metrics = DashboardMetrics(
+            totalTracks: snapshot.totalTracks,
+            tracksWithGenre: snapshot.tracksWithGenre,
+            tracksWithYear: snapshot.tracksWithYear,
+            tracksWithBoth: snapshot.tracksWithBoth,
+            tracksNeedingGenre: snapshot.tracksNeedingGenre,
+            tracksNeedingYear: snapshot.tracksNeedingYear,
+            recentlyAdded: snapshot.recentlyAdded,
+            genreCoverage: snapshot.genreCoverage,
+            yearCoverage: snapshot.yearCoverage,
+            consistencyCoverage: snapshot.consistencyCoverage
+        )
+
+        // Build previous metrics from snapshot's stored baseline
+        if snapshot.previousTotalTracks > 0 {
+            previousMetrics = DashboardMetrics(
+                totalTracks: snapshot.previousTotalTracks,
+                tracksWithGenre: 0,
+                tracksWithYear: 0,
+                tracksWithBoth: 0,
+                tracksNeedingGenre: snapshot.previousTracksNeedingGenre,
+                tracksNeedingYear: snapshot.previousTracksNeedingYear,
+                recentlyAdded: snapshot.previousRecentlyAdded,
+                genreCoverage: 0,
+                yearCoverage: 0,
+                consistencyCoverage: 0
+            )
+        }
+
+        loadingState = .cached(lastUpdated: snapshot.timestamp)
+    }
+
+    /// Phase 2: Refresh metrics from live MusicKit track data.
+    ///
+    /// Computes all metrics in a single O(n) pass. Saves current metrics
+    /// as previous for trend calculation if they contain real data.
+    func refreshFromLive(tracks: [Track]) {
+        guard !tracks.isEmpty else {
+            loadingState = .emptyLibrary
+            return
+        }
+
+        // Save current as previous if it has real data
+        if metrics.totalTracks > 0 {
+            previousMetrics = metrics
+        }
+
+        let total = tracks.count
         var genreCount = 0
         var yearCount = 0
-        var genreSet = Set<String>()
-        var artistSet = Set<String>()
-        var genreFrequency: [String: Int] = [:]
+        var bothCount = 0
         var recentCount = 0
-        let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: .now)
+        let sevenDaysAgo = Calendar.current.date(
+            byAdding: .day,
+            value: -7,
+            to: .now
+        )
 
+        // Single-pass accumulation
         for track in tracks {
-            // Genre metrics
-            if let genre = track.genre, !genre.isEmpty {
-                genreCount += 1
-                genreSet.insert(genre)
-                genreFrequency[genre, default: 0] += 1
-            }
+            let hasGenre = track.genre.map { !$0.isEmpty } ?? false
+            let hasYear = track.year != nil
 
-            // Year metrics
-            if track.year != nil {
-                yearCount += 1
-            }
+            if hasGenre { genreCount += 1 }
+            if hasYear { yearCount += 1 }
+            if hasGenre, hasYear { bothCount += 1 }
 
-            // Artist count
-            artistSet.insert(track.effectiveArtist)
-
-            // Recently added (last 7 days)
             if let dateAdded = track.dateAdded,
                let cutoff = sevenDaysAgo,
                dateAdded >= cutoff {
@@ -81,31 +182,86 @@ final class DashboardViewModel {
             }
         }
 
-        genreFillPercent = Double(genreCount) / Double(total)
-        yearFillPercent = Double(yearCount) / Double(total)
-        uniqueGenres = genreSet.count
-        uniqueArtists = artistSet.count
-        tracksNeedingGenre = total - genreCount
-        tracksNeedingYear = total - yearCount
-        recentlyAdded = recentCount
+        metrics = DashboardMetrics(
+            totalTracks: total,
+            tracksWithGenre: genreCount,
+            tracksWithYear: yearCount,
+            tracksWithBoth: bothCount,
+            tracksNeedingGenre: total - genreCount,
+            tracksNeedingYear: total - yearCount,
+            recentlyAdded: recentCount,
+            genreCoverage: Double(genreCount) / Double(total),
+            yearCoverage: Double(yearCount) / Double(total),
+            consistencyCoverage: Double(bothCount) / Double(total)
+        )
 
-        // Top 5 genres sorted by frequency
-        topGenres = genreFrequency
-            .sorted { $0.value > $1.value }
-            .prefix(5)
-            .map { (name: $0.key, count: $0.value) }
+        loadingState = .live
+    }
+
+    /// Set the permission denied state.
+    func setPermissionDenied() {
+        loadingState = .permissionDenied
+    }
+
+    /// Set the error state with a message.
+    func setError(_ message: String) {
+        loadingState = .error(message)
+    }
+
+    // MARK: - Trend Calculations
+
+    /// Genre trend: fewer tracks needing genre is good (down).
+    var genreTrend: TrendDirection? {
+        guard let previous = previousMetrics else { return nil }
+        return trendForDecreasing(
+            current: metrics.tracksNeedingGenre,
+            previous: previous.tracksNeedingGenre
+        )
+    }
+
+    /// Year trend: fewer tracks needing year is good (down).
+    var yearTrend: TrendDirection? {
+        guard let previous = previousMetrics else { return nil }
+        return trendForDecreasing(
+            current: metrics.tracksNeedingYear,
+            previous: previous.tracksNeedingYear
+        )
+    }
+
+    /// Recently added trend: more is neutral/positive (up).
+    var recentTrend: TrendDirection? {
+        guard let previous = previousMetrics else { return nil }
+        let current = metrics.recentlyAdded
+        let prev = previous.recentlyAdded
+        if current > prev { return .up }
+        if current < prev { return .down }
+        return .flat
+    }
+
+    /// Delta for genre trend (positive = more needing, negative = fewer needing).
+    var genreTrendDelta: Int? {
+        guard let previous = previousMetrics else { return nil }
+        return metrics.tracksNeedingGenre - previous.tracksNeedingGenre
+    }
+
+    /// Delta for year trend.
+    var yearTrendDelta: Int? {
+        guard let previous = previousMetrics else { return nil }
+        return metrics.tracksNeedingYear - previous.tracksNeedingYear
+    }
+
+    /// Delta for recently added trend.
+    var recentTrendDelta: Int? {
+        guard let previous = previousMetrics else { return nil }
+        return metrics.recentlyAdded - previous.recentlyAdded
     }
 
     // MARK: - Private
 
-    private func resetMetrics() {
-        genreFillPercent = 0
-        yearFillPercent = 0
-        uniqueGenres = 0
-        uniqueArtists = 0
-        tracksNeedingGenre = 0
-        tracksNeedingYear = 0
-        recentlyAdded = 0
-        topGenres = []
+    /// Trend for metrics where decrease is good (fewer tracks needing attention).
+    private func trendForDecreasing(current: Int, previous: Int) -> TrendDirection {
+        if current < previous { return .down }
+        if current > previous { return .up }
+        return .flat
     }
 }

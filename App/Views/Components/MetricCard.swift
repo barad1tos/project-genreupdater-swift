@@ -3,31 +3,6 @@
 import SharedUI
 import SwiftUI
 
-// MARK: - Trend Direction
-
-/// Optional trend indicator for metric cards.
-enum TrendDirection: Sendable {
-    case up
-    case down
-    case flat
-
-    var icon: String {
-        switch self {
-        case .up: "arrow.up.right"
-        case .down: "arrow.down.right"
-        case .flat: "arrow.right"
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .up: Ayu.success
-        case .down: Ayu.error
-        case .flat: Ayu.fgSecondary
-        }
-    }
-}
-
 // MARK: - MetricCard
 
 /// Compact stat card showing an icon, primary value, title, and optional subtitle with trend.
