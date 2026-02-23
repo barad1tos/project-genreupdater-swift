@@ -1,347 +1,442 @@
-// BrowseView.swift — Drill-down artist/album/track browser.
+// BrowseView.swift -- Inline-expand artist/album browser with sticky sections, search, and card lift.
 //
-// Navigation hierarchy:
-// 1. Artist list (grouped by first letter, sorted A-Z)
-// 2. Album list for selected artist (sorted by year descending)
-// 3. Track list for selected album (uses SharedUI TrackRow)
+// Hierarchy:
+// 1. Artist list grouped by first letter with sticky section headers
+// 2. Expanded albums as indented sub-rows (inline, multiple artists open)
+// 3. Album detail in NavigationSplitView third column (via selectedAlbum)
+// 4. Card lift overlay: double-click lifts artist/album detail card from row position
 
+import AppKit
 import Core
 import SharedUI
 import SwiftUI
 
-// MARK: - Navigation Destinations
-
-/// Type-safe navigation destinations for the browse drill-down.
-private enum BrowseDestination: Hashable {
-    case artist(String)
-    case album(name: String, artist: String)
-}
-
-// MARK: - Artist Summary
-
-/// Pre-computed summary for a single artist, used in the artist list.
-private struct ArtistSummary: Identifiable, Sendable {
-    let name: String
-    let trackCount: Int
-    let primaryGenre: String?
-    let healthRatio: Double
-
-    var id: String {
-        name
-    }
-}
-
-// MARK: - Album Summary
-
-/// Pre-computed summary for a single album, used in the album list.
-private struct AlbumSummary: Identifiable, Sendable {
-    let name: String
-    let artist: String
-    let year: Int?
-    let trackCount: Int
-    let primaryGenre: String?
-
-    var id: String {
-        "\(artist)|\(name)"
-    }
-}
-
-// MARK: - Letter Section
-
-/// A group of artists sharing the same first letter for section headers.
-private struct LetterSection: Identifiable {
-    let letter: String
-    let artists: [ArtistSummary]
-
-    var id: String {
-        letter
-    }
-}
-
 // MARK: - Browse View
 
-/// Drill-down browser for navigating Artist -> Album -> Track.
+/// Inline-expand artist/album browser for the NavigationSplitView content column.
 ///
-/// Uses `NavigationStack` with path-based navigation for a clean
-/// push/pop experience. Artist data is grouped by first letter with
-/// section headers. Search filters artists by name.
+/// Clicking an artist row expands its albums as indented sub-rows. Multiple artists
+/// can be open simultaneously. Clicking an album sets `selectedAlbum` on the ViewModel
+/// which drives the detail column. Double-clicking lifts a card overlay with rich detail.
+/// Search shows grouped results across all entity types.
 struct BrowseView: View {
-    let tracks: [Track]
-    @Binding var selectedTrack: Track?
+    @Bindable var viewModel: BrowseViewModel
 
-    @State private var searchText = ""
-    @State private var debouncedSearchText = ""
-    @State private var navigationPath = NavigationPath()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @State private var isSectionBarVisible = false
+    @State private var rowFrames: [String: CGRect] = [:]
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
-            artistListContent
-                .navigationDestination(for: BrowseDestination.self) { destination in
-                    switch destination {
-                    case let .artist(artistName):
-                        albumListView(for: artistName)
-                    case let .album(albumName, artistName):
-                        trackListView(album: albumName, artist: artistName)
-                    }
+        GeometryReader { geometry in
+            ZStack {
+                mainContent
+                    .opacity(viewModel.cardLiftState != nil ? 0.4 : 1.0)
+                    .animation(
+                        reduceMotion ? nil : Motion.cardLiftSpring,
+                        value: viewModel.cardLiftState != nil
+                    )
+
+                if let liftState = viewModel.cardLiftState {
+                    CardLiftOverlay(
+                        state: liftState,
+                        containerSize: geometry.size,
+                        onDismiss: { viewModel.dismissCardLift() },
+                        content: { cardContent(for: liftState) }
+                    )
                 }
+            }
         }
-        .searchable(text: $searchText, prompt: "Search artists...")
-        .task(id: searchText) {
+        .task(id: viewModel.searchText) {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            debouncedSearchText = searchText
+            await viewModel.updateSearchResults()
+        }
+        .onAppear { viewModel.reduceMotion = reduceMotion }
+        .onChange(of: reduceMotion) { _, newValue in
+            viewModel.reduceMotion = newValue
+        }
+    }
+
+    // MARK: - Main Content
+
+    private var mainContent: some View {
+        VStack(spacing: 0) {
+            BrowseToolbar(viewModel: viewModel)
+
+            if viewModel.tracks.isEmpty {
+                emptyLibraryState
+            } else if viewModel.searchText.isEmpty {
+                browseContent
+            } else {
+                searchResultsContent
+            }
+        }
+    }
+
+    // MARK: - Browse Content
+
+    private var browseContent: some View {
+        ScrollViewReader { proxy in
+            HStack(spacing: 0) {
+                artistList(proxy: proxy)
+
+                SectionIndexBar(
+                    letters: viewModel.sections.map(\.letter),
+                    onLetterSelected: { letter in
+                        withAnimation {
+                            proxy.scrollTo(letter, anchor: .top)
+                        }
+                    }
+                )
+                .opacity(isSectionBarVisible ? 1 : 0)
+                .animation(Motion.curveFast, value: isSectionBarVisible)
+            }
+            .onHover { hovering in
+                isSectionBarVisible = hovering
+            }
         }
     }
 
     // MARK: - Artist List
 
-    @ViewBuilder
-    private var artistListContent: some View {
-        let sections = filteredSections
-        if sections.isEmpty {
-            emptyState
-        } else {
-            List(sections) { section in
-                Section(section.letter) {
-                    ForEach(section.artists) { artist in
-                        Button {
-                            navigationPath.append(
-                                BrowseDestination.artist(artist.name)
-                            )
-                        } label: {
-                            ArtistRow(
-                                name: artist.name,
-                                trackCount: artist.trackCount,
-                                primaryGenre: artist.primaryGenre,
-                                healthRatio: artist.healthRatio
-                            )
+    private func artistList(proxy _: ScrollViewProxy) -> some View {
+        Group {
+            if viewModel.sections.isEmpty {
+                filterEmptyState
+            } else {
+                List {
+                    ForEach(viewModel.sections) { section in
+                        Section {
+                            ForEach(section.artists) { artist in
+                                artistRow(artist)
+                            }
+                        } header: {
+                            Text(section.letter)
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(Ayu.fgMuted)
+                                .padding(.leading, Spacing.xs)
+                                .id(section.letter)
                         }
-                        .buttonStyle(.plain)
+                    }
+                }
+                .listStyle(.inset(alternatesRowBackgrounds: true))
+            }
+        }
+    }
+
+    // MARK: - Artist Row with Expand/Collapse
+
+    @ViewBuilder
+    private func artistRow(_ artist: ArtistGroup) -> some View {
+        artistRowContent(artist)
+
+        // Expanded album sub-rows (instant, no animation per CONTEXT.md)
+        if viewModel.expandedArtists.contains(artist.canonicalName) {
+            if artist.variants.count > 1 {
+                ForEach(artist.variants, id: \.self) { variant in
+                    Text(variant)
+                        .font(AppFont.caption)
+                        .foregroundStyle(Ayu.fgSecondary)
+                        .padding(.leading, Spacing.xl)
+                        .padding(.vertical, 2)
+                }
+            }
+
+            let albums = viewModel.albumsForArtist(artist.canonicalName)
+            ForEach(albums) { album in
+                albumSubRow(
+                    album,
+                    artistName: artist.canonicalName,
+                    allAlbumIDs: albums.map(\.id)
+                )
+            }
+        }
+    }
+
+    private func artistRowContent(_ artist: ArtistGroup) -> some View {
+        ArtistListRow(
+            name: artist.canonicalName,
+            albumCount: artist.albumCount,
+            trackCount: artist.totalTrackCount,
+            isSelected: viewModel.selectedItems.contains(artist.id),
+            primaryGenre: artist.primaryGenre,
+            healthRatio: artist.healthRatio,
+            variantCount: artist.variants.count,
+            lastModified: artist.lastModified,
+            showCheckbox: viewModel.hasSelection,
+            onCheckboxToggle: { viewModel.handleCheckboxToggle(artist.id) }
+        )
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .preference(
+                        key: RowFrameKey.self,
+                        value: [artist.id: geometry.frame(in: .global)]
+                    )
+            }
+        }
+        .onPreferenceChange(RowFrameKey.self) { frames in
+            rowFrames.merge(frames) { _, new in new }
+        }
+        .contentShape(.rect)
+        .overlay {
+            DoubleClickDetector {
+                let flags = NSApp.currentEvent?.modifierFlags ?? []
+                guard !flags.contains(.command),
+                      !flags.contains(.shift) else { return }
+                let frame = rowFrames[artist.id] ?? .zero
+                viewModel.liftCard(
+                    sourceID: artist.id,
+                    contentType: .artist(name: artist.canonicalName),
+                    sourceFrame: frame
+                )
+            }
+        }
+        .onTapGesture {
+            let flags = NSApp.currentEvent?.modifierFlags ?? []
+            if flags.contains(.command) || flags.contains(.shift) {
+                viewModel.handleRowClick(
+                    itemID: artist.id,
+                    allVisibleIDs: viewModel.sections.flatMap { $0.artists.map(\.id) }
+                )
+            } else {
+                viewModel.toggleExpanded(artist.canonicalName)
+            }
+        }
+    }
+
+    // MARK: - Album Sub-Row
+
+    private func albumSubRow(
+        _ album: AlbumSummary,
+        artistName: String,
+        allAlbumIDs: [String]
+    ) -> some View {
+        let albumID = AlbumIdentifier(
+            albumName: album.name,
+            artistName: artistName
+        )
+
+        return AlbumListRow(
+            title: album.name,
+            genre: album.primaryGenre,
+            year: album.year,
+            trackCount: album.trackCount,
+            healthRatio: album.healthRatio,
+            isSelected: viewModel.selectedAlbum == albumID,
+            showCheckbox: viewModel.hasSelection,
+            onCheckboxToggle: { viewModel.handleCheckboxToggle(album.id) }
+        )
+        .padding(.leading, Spacing.lg)
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .preference(
+                        key: RowFrameKey.self,
+                        value: [album.id: geometry.frame(in: .global)]
+                    )
+            }
+        }
+        .onPreferenceChange(RowFrameKey.self) { frames in
+            rowFrames.merge(frames) { _, new in new }
+        }
+        .contentShape(.rect)
+        .overlay {
+            DoubleClickDetector {
+                let flags = NSApp.currentEvent?.modifierFlags ?? []
+                guard !flags.contains(.command),
+                      !flags.contains(.shift) else { return }
+                let frame = rowFrames[album.id] ?? .zero
+                viewModel.liftCard(
+                    sourceID: album.id,
+                    contentType: .album(
+                        name: album.name,
+                        artistName: artistName
+                    ),
+                    sourceFrame: frame
+                )
+            }
+        }
+        .onTapGesture {
+            let flags = NSApp.currentEvent?.modifierFlags ?? []
+            if flags.contains(.command) || flags.contains(.shift) {
+                viewModel.handleRowClick(
+                    itemID: album.id,
+                    allVisibleIDs: allAlbumIDs
+                )
+            } else {
+                viewModel.selectedAlbum = albumID
+            }
+        }
+    }
+
+    // MARK: - Card Content
+
+    @ViewBuilder
+    private func cardContent(for state: CardLiftState) -> some View {
+        switch state.contentType {
+        case let .artist(name):
+            if let artist = viewModel.artistGroupForCardLift(name) {
+                ArtistCardContent(
+                    artist: artist,
+                    albums: viewModel.albumsForArtist(name),
+                    tracks: viewModel.tracksForArtist(name),
+                    onAlbumDoubleTap: { album in
+                        viewModel.cascadeToAlbum(
+                            album: album,
+                            sourceFrame: .zero
+                        )
+                    }
+                )
+            }
+        case let .album(name, artistName):
+            let albumID = AlbumIdentifier(
+                albumName: name,
+                artistName: artistName
+            )
+            AlbumCardContent(
+                album: viewModel.albumSummary(for: albumID)
+                    ?? AlbumSummary(
+                        name: name,
+                        artist: artistName,
+                        year: nil,
+                        trackCount: 0,
+                        primaryGenre: nil,
+                        healthRatio: 0
+                    ),
+                tracks: viewModel.tracksForAlbum(albumID)
+            )
+        }
+    }
+}
+
+// MARK: - Search and Empty States
+
+extension BrowseView {
+    @ViewBuilder
+    var searchResultsContent: some View {
+        if let results = viewModel.searchResults, !results.isEmpty {
+            List {
+                if !results.artists.isEmpty {
+                    Section("Artists") {
+                        ForEach(results.artists) { artist in
+                            ArtistListRow(
+                                name: artist.canonicalName,
+                                albumCount: artist.albumCount,
+                                trackCount: artist.totalTrackCount,
+                                primaryGenre: artist.primaryGenre,
+                                healthRatio: artist.healthRatio,
+                                variantCount: artist.variants.count
+                            )
+                            .contentShape(.rect)
+                            .onTapGesture {
+                                handleSearchArtistTap(artist)
+                            }
+                        }
+                    }
+                }
+                if !results.albums.isEmpty {
+                    Section("Albums") {
+                        ForEach(results.albums) { album in
+                            AlbumListRow(
+                                title: album.name,
+                                genre: album.primaryGenre,
+                                year: album.year,
+                                trackCount: album.trackCount,
+                                healthRatio: album.healthRatio
+                            )
+                            .contentShape(.rect)
+                            .onTapGesture {
+                                handleSearchAlbumTap(album)
+                            }
+                        }
+                    }
+                }
+                if !results.tracks.isEmpty {
+                    Section("Tracks (\(results.tracks.count))") {
+                        ForEach(results.tracks) { track in
+                            TrackRow(track: track)
+                        }
                     }
                 }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
-            .navigationTitle("Artists")
-            .navigationSubtitle(artistSubtitle(for: sections))
-        }
-    }
-
-    private var emptyState: some View {
-        ContentUnavailableView(
-            debouncedSearchText.isEmpty ? "No Artists" : "No Results",
-            systemImage: debouncedSearchText.isEmpty
-                ? "person.2" : "magnifyingglass",
-            description: Text(
-                debouncedSearchText.isEmpty
-                    ? "Your library appears empty."
-                    : "No artists match '\(debouncedSearchText)'"
-            )
-        )
-        .navigationTitle("Artists")
-    }
-
-    // MARK: - Album List (per Artist)
-
-    private func albumListView(for artistName: String) -> some View {
-        let albums = albumSummaries(for: artistName)
-        return Group {
-            if albums.isEmpty {
-                ContentUnavailableView(
-                    "No Albums",
-                    systemImage: "square.stack",
-                    description: Text("No albums found for this artist.")
-                )
-            } else {
-                List(albums) { album in
-                    Button {
-                        navigationPath.append(
-                            BrowseDestination.album(
-                                name: album.name,
-                                artist: artistName
-                            )
-                        )
-                    } label: {
-                        AlbumCard(
-                            name: album.name,
-                            artist: album.artist,
-                            year: album.year,
-                            trackCount: album.trackCount,
-                            primaryGenre: album.primaryGenre
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
+        } else if viewModel.searchResults != nil {
+            EmptyStateView(
+                icon: "magnifyingglass",
+                title: "No Results",
+                description: "No matches for '\(viewModel.searchText)'",
+                actionTitle: "Clear Search"
+            ) {
+                viewModel.searchText = ""
             }
         }
-        .navigationTitle(artistName)
-        .navigationSubtitle("\(albums.count) album\(albums.count == 1 ? "" : "s")")
     }
 
-    // MARK: - Track List (per Album)
-
-    private func trackListView(album: String, artist: String) -> some View {
-        let albumTracks = tracksForAlbum(name: album, artist: artist)
-        return Group {
-            if albumTracks.isEmpty {
-                ContentUnavailableView(
-                    "No Tracks",
-                    systemImage: "music.note",
-                    description: Text("No tracks found for this album.")
-                )
-            } else {
-                List(albumTracks, selection: $selectedTrack) { track in
-                    TrackRow(track: track)
-                        .tag(track)
-                }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
-            }
-        }
-        .navigationTitle(album.isEmpty ? "Unknown Album" : album)
-        .navigationSubtitle(
-            "\(albumTracks.count) track\(albumTracks.count == 1 ? "" : "s")"
+    var emptyLibraryState: some View {
+        EmptyStateView(
+            icon: "music.note.list",
+            title: "No Artists",
+            description: "Your library appears empty. Grant Music access in System Settings."
         )
     }
 
-    // MARK: - Data Computation
-
-    /// All artist summaries computed from the track array.
-    private var allArtistSummaries: [ArtistSummary] {
-        let grouped = Dictionary(grouping: tracks) { $0.effectiveArtist }
-        return grouped.map { artistName, artistTracks in
-            ArtistSummary(
-                name: artistName,
-                trackCount: artistTracks.count,
-                primaryGenre: mostCommonGenre(in: artistTracks),
-                healthRatio: metadataHealthRatio(for: artistTracks)
-            )
-        }
-        .sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+    var filterEmptyState: some View {
+        EmptyStateView(
+            icon: "line.3.horizontal.decrease.circle",
+            title: "No Matches",
+            description: "No artists match the active filters.",
+            actionTitle: "Clear Filters"
+        ) {
+            viewModel.activeFilters.removeAll()
+            viewModel.applyFilters()
         }
     }
 
-    /// Artist summaries grouped into letter sections, filtered by search.
-    private var filteredSections: [LetterSection] {
-        let artists: [ArtistSummary]
-        if debouncedSearchText.isEmpty {
-            artists = allArtistSummaries
-        } else {
-            let query = debouncedSearchText
-            artists = allArtistSummaries.filter {
-                $0.name.localizedStandardContains(query)
-            }
-        }
-
-        let grouped = Dictionary(grouping: artists) { artist -> String in
-            sectionLetter(for: artist.name)
-        }
-
-        return grouped.keys.sorted().map { letter in
-            LetterSection(letter: letter, artists: grouped[letter] ?? [])
-        }
+    func handleSearchArtistTap(_ artist: ArtistGroup) {
+        viewModel.searchText = ""
+        viewModel.expandedArtists.insert(artist.canonicalName)
     }
 
-    /// Album summaries for a specific artist, sorted by year descending.
-    private func albumSummaries(for artistName: String) -> [AlbumSummary] {
-        let artistTracks = tracks.filter {
-            $0.effectiveArtist == artistName
-        }
-        let grouped = Dictionary(grouping: artistTracks) { $0.album }
-
-        return grouped.map { albumName, albumTracks in
-            let year = albumTracks.compactMap(\.year).first
-                ?? albumTracks.compactMap(\.releaseYear).first
-            return AlbumSummary(
-                name: albumName,
-                artist: artistName,
-                year: year,
-                trackCount: albumTracks.count,
-                primaryGenre: mostCommonGenre(in: albumTracks)
-            )
-        }
-        .sorted { lhs, rhs in
-            // Year descending, nil years sort last
-            switch (lhs.year, rhs.year) {
-            case let (left?, right?): left > right
-            case (nil, _?): false
-            case (_?, nil): true
-            case (nil, nil):
-                lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-                    == .orderedAscending
-            }
-        }
+    func handleSearchAlbumTap(_ album: AlbumSummary) {
+        viewModel.searchText = ""
+        viewModel.expandedArtists.insert(album.artist)
+        viewModel.selectedAlbum = AlbumIdentifier(
+            albumName: album.name,
+            artistName: album.artist
+        )
     }
+}
 
-    /// Tracks for a specific album+artist, sorted by original position.
-    private func tracksForAlbum(name: String, artist: String) -> [Track] {
-        tracks
-            .filter { $0.effectiveArtist == artist && $0.album == name }
-            .sorted { lhs, rhs in
-                let lhsPos = lhs.originalPosition ?? Int.max
-                let rhsPos = rhs.originalPosition ?? Int.max
-                return lhsPos < rhsPos
-            }
-    }
+// MARK: - Row Frame Preference Key
 
-    // MARK: - Helpers
+private struct RowFrameKey: PreferenceKey {
+    // Safety: only written/read on main thread via SwiftUI preference system.
+    nonisolated(unsafe) static var defaultValue: [String: CGRect] = [:]
 
-    /// Returns the most common genre among the given tracks.
-    private func mostCommonGenre(in trackList: [Track]) -> String? {
-        var frequency: [String: Int] = [:]
-        for track in trackList {
-            if let genre = track.genre, !genre.isEmpty {
-                frequency[genre, default: 0] += 1
-            }
-        }
-        return frequency.max(by: { $0.value < $1.value })?.key
-    }
-
-    /// Fraction of tracks that have both genre and year set.
-    private func metadataHealthRatio(for trackList: [Track]) -> Double {
-        guard !trackList.isEmpty else { return 0 }
-        let complete = trackList.filter { track in
-            if let genre = track.genre, !genre.isEmpty, track.year != nil {
-                return true
-            }
-            return false
-        }
-        return Double(complete.count) / Double(trackList.count)
-    }
-
-    /// Extracts the section letter for alphabetical grouping.
-    private func sectionLetter(for name: String) -> String {
-        guard let first = name.first else { return "#" }
-        let upper = String(first).uppercased()
-        return upper.first?.isLetter == true ? upper : "#"
-    }
-
-    private func artistSubtitle(for sections: [LetterSection]) -> String {
-        let totalArtists = sections.reduce(0) { $0 + $1.artists.count }
-        return "\(totalArtists) artist\(totalArtists == 1 ? "" : "s")"
+    static func reduce(
+        value: inout [String: CGRect],
+        nextValue: () -> [String: CGRect]
+    ) {
+        value.merge(nextValue()) { _, new in new }
     }
 }
 
 // MARK: - Preview
 
 #Preview("Browse View") {
-    @Previewable @State var selectedTrack: Track?
-
-    BrowseView(
-        tracks: BrowsePreviewData.sampleTracks,
-        selectedTrack: $selectedTrack
-    )
-    .frame(width: 600, height: 700)
+    BrowseView(viewModel: {
+        let viewModel = BrowseViewModel()
+        viewModel.tracks = BrowsePreviewData.sampleTracks
+        return viewModel
+    }())
+        .frame(width: 600, height: 700)
 }
 
-#Preview("Browse View — Empty") {
-    @Previewable @State var selectedTrack: Track?
-
-    BrowseView(
-        tracks: [],
-        selectedTrack: $selectedTrack
-    )
-    .frame(width: 600, height: 400)
+#Preview("Browse View -- Empty") {
+    BrowseView(viewModel: BrowseViewModel())
+        .frame(width: 600, height: 400)
 }
 
 // MARK: - Preview Data
