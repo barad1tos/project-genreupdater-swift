@@ -13,6 +13,10 @@ import SwiftUI
 public struct ConfidenceBadge: View {
     let confidence: Double
 
+    @State private var hasAppeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionScale) private var motionScale
+
     /// Creates a confidence badge.
     ///
     /// - Parameter confidence: Value between 0.0 and 1.0 representing confidence level.
@@ -28,6 +32,17 @@ public struct ConfidenceBadge: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(badgeColor, in: .capsule)
+            .scaleEffect(hasAppeared ? 1.0 : 0.5)
+            .opacity(hasAppeared ? 1.0 : 0)
+            .onAppear {
+                if reduceMotion {
+                    hasAppeared = true
+                    return
+                }
+                withAnimation(Motion.scaled(Motion.springBounce, by: motionScale)) {
+                    hasAppeared = true
+                }
+            }
             .accessibilityLabel(
                 "\(Int(clampedConfidence * 100)) percent confidence"
             )

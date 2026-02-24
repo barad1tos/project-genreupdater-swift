@@ -18,6 +18,9 @@ struct QuickActionButton: View {
     let action: () -> Void
 
     @State private var isHovered = false
+    @State private var hasAppeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionScale) private var motionScale
 
     var body: some View {
         Button(action: action) {
@@ -55,6 +58,16 @@ struct QuickActionButton: View {
             )
         }
         .buttonStyle(.plain)
+        .scaleEffect(hasAppeared ? 1.0 : 0.9)
+        .onAppear {
+            if reduceMotion {
+                hasAppeared = true
+                return
+            }
+            withAnimation(Motion.scaled(Motion.springBounce, by: motionScale)) {
+                hasAppeared = true
+            }
+        }
         .onHover { hovering in
             withAnimation(Motion.curveFast) {
                 isHovered = hovering
