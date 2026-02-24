@@ -171,9 +171,6 @@ extension View {
 ///
 /// Use `Motion.*` instead of raw literals in `.animation()` calls.
 /// Pair with `.motionAnimation(_:value:reduceMotion:)` to respect macOS "Reduce Motion".
-///
-/// - Note: HeroGauge uses static fill on appear (Phase 8 will add draw-in animation).
-///   Do not convert gauge animations to Motion tokens.
 public enum Motion {
     // MARK: Durations
 
@@ -220,6 +217,40 @@ public enum Motion {
         dampingFraction: 1.0,
         blendDuration: 0
     )
+
+    // MARK: Phase 8 Additions
+
+    /// easeOut 800ms — HeroGauge arc draw-in (signature wow moment).
+    public static let curveGaugeFill: Animation = .easeOut(duration: 0.8)
+
+    /// Spring with slight overshoot — organic element appearances (chart bars, gauge arcs).
+    public static let springOrganic: Animation = .spring(
+        response: 0.5,
+        dampingFraction: 0.7,
+        blendDuration: 0.1
+    )
+
+    /// Bouncy spring — QuickAction scale bounce, ConfidenceBadge pop-in.
+    public static let springBounce: Animation = .spring(
+        response: 0.35,
+        dampingFraction: 0.6,
+        blendDuration: 0
+    )
+
+    // MARK: Scaling
+
+    /// Returns the animation with its speed adjusted by the given scale factor.
+    ///
+    /// A scale of 0.5 doubles animation speed (halving durations).
+    /// Used with the `motionScale` environment value for the "Fast Animations" toggle.
+    public static func scaled(_ animation: Animation, by scale: Double) -> Animation {
+        animation.speed(1.0 / max(scale, 0.01))
+    }
+}
+
+extension EnvironmentValues {
+    // Multiplier for animation durations. Default 1.0; set to 0.5 for "Fast Animations".
+    @Entry public var motionScale: Double = 1.0
 }
 
 extension View {
