@@ -175,7 +175,13 @@ Plans:
   2. Dashboard metric values animate from cached to live numbers using .contentTransition(.numericText()) when the background scan completes
   3. All list rows (Browse artists, Update track rows, Reports change log) show a hover highlight that appears and disappears without lag
   4. Interactive buttons and action items show a visible press state (scale or opacity) on mouse-down across all screens
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 08-01-PLAN.md — Motion tokens (curveGaugeFill, springOrganic, springBounce), MotionScale environment, ShakeModifier, Fast Animations toggle
+- [ ] 08-02-PLAN.md — Screen transitions (crossfade + upward drift) and theme crossfade animation
+- [ ] 08-03-PLAN.md — Dashboard entrance animations (HeroGauge arc fill, QuickAction bounce, ConfidenceBadge pop-in)
+- [ ] 08-04-PLAN.md — Chart animations with hover tooltips, list transitions, and press scale audit (0.97)
 
 ## Progress
 
@@ -193,4 +199,4 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 5.1 → 6 → 6.1 →
 | 6. Browse Redesign | 4/4 | Complete | 2026-02-23 |
 | 6.1 Card Lift Interaction | 1/2 | In Progress | - |
 | 7. Update and Reports Polish | 0/4 | Complete    | 2026-02-23 |
-| 8. Animations and Final Polish | 0/TBD | Not started | - |
+| 8. Animations and Final Polish | 0/4 | Not started | - |
