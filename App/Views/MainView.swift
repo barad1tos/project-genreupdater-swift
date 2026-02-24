@@ -63,6 +63,8 @@ extension FocusedValues {
 struct MainView: View {
     @Environment(AppDependencies.self) private var dependencies
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionScale) private var motionScale
     @State private var selectedCategory: NavigationCategory? = .dashboard
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     @State private var tracks: [Track] = []
@@ -71,6 +73,7 @@ struct MainView: View {
     @State private var showUpdateSheet = false
     @State private var metricsSnapshot: PersistedMetricsSnapshot?
     @State private var workflowViewModel: WorkflowViewModel?
+    @State private var hasNavigated = false
     @AppStorage("sidebarCompact") private var isSidebarCompact = false
 
     var body: some View {
@@ -78,9 +81,20 @@ struct MainView: View {
             sidebar
         } content: {
             contentView
+                .id(selectedCategory)
                 .navigationTitle(selectedCategory?.rawValue ?? "Dashboard")
-                .contentTransition(.opacity)
-                .animation(Motion.curveFast, value: selectedCategory)
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .offset(y: 6)),
+                        removal: .opacity
+                    )
+                )
+                .animation(
+                    hasNavigated && !reduceMotion
+                        ? Motion.scaled(.curveSmooth, by: motionScale)
+                        : .none,
+                    value: selectedCategory
+                )
         } detail: {
             trackDetail
         }
@@ -93,7 +107,10 @@ struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: .navigateToUpdate)) { _ in
             selectedCategory = .update
         }
-        .onChange(of: selectedCategory) { updateColumnVisibility() }
+        .onChange(of: selectedCategory) {
+            if !hasNavigated { hasNavigated = true }
+            updateColumnVisibility()
+        }
         .onChange(of: browseViewModel.selectedAlbum) { updateColumnVisibility() }
         .sheet(isPresented: $showUpdateSheet) {
             updateSheet
