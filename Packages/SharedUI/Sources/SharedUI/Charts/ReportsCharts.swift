@@ -80,9 +80,18 @@ public struct ChartSummaryData: Sendable {
 /// year distribution histogram, and a line chart of changes over time.
 ///
 /// Pure presentation component. Receives pre-aggregated `ChartSummaryData` and renders
-/// using Swift Charts framework.
+/// using Swift Charts framework. Chart bars animate from zero on first render using
+/// `springOrganic`, and hovering a bar shows a tooltip with the exact count.
 public struct ReportsCharts: View {
     public let data: ChartSummaryData
+
+    @State private var genreChartAnimated = false
+    @State private var yearChartAnimated = false
+    @State private var hoveredGenre: String?
+    @State private var hoveredYear: String?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionScale) private var motionScale
 
     public init(data: ChartSummaryData) {
         self.data = data
@@ -145,14 +154,51 @@ public struct ReportsCharts: View {
 
                 Chart(topGenres) { item in
                     BarMark(
-                        x: .value("Count", item.count),
+                        x: .value("Count", genreChartAnimated ? item.count : 0),
                         y: .value("Genre", item.genre)
                     )
                     .foregroundStyle(Ayu.purple.gradient)
                     .clipShape(.rect(cornerRadius: 4))
+                    .opacity(hoveredGenre == nil || hoveredGenre == item.genre ? 1.0 : 0.3)
+                    .annotation(position: .trailing, spacing: 4) {
+                        if hoveredGenre == item.genre {
+                            Text("\(item.count)")
+                                .font(AppFont.caption)
+                                .foregroundStyle(Ayu.fgPrimary)
+                                .padding(.horizontal, Spacing.xs)
+                                .padding(.vertical, Spacing.xxs)
+                                .background(Ayu.bgSecondary, in: .capsule)
+                                .ayuShadow(Shadow.medium)
+                        }
+                    }
+                }
+                .chartOverlay { proxy in
+                    GeometryReader { _ in
+                        Rectangle()
+                            .fill(.clear)
+                            .contentShape(.rect)
+                            .onContinuousHover { phase in
+                                switch phase {
+                                case let .active(location):
+                                    hoveredGenre = proxy.value(atY: location.y) as String?
+                                case .ended:
+                                    hoveredGenre = nil
+                                }
+                            }
+                    }
                 }
                 .chartXAxisLabel("Tracks Updated")
                 .frame(height: genreChartHeight)
+                .onAppear {
+                    guard !genreChartAnimated else { return }
+                    if reduceMotion {
+                        genreChartAnimated = true
+                        return
+                    }
+                    withAnimation(Motion.scaled(Motion.springOrganic, by: motionScale)) {
+                        genreChartAnimated = true
+                    }
+                }
             }
             .padding()
             .background(Ayu.bgSecondary.opacity(0.5), in: .rect(cornerRadius: Radius.md))
@@ -178,13 +224,50 @@ public struct ReportsCharts: View {
                 Chart(sortedYears) { item in
                     BarMark(
                         x: .value("Year", String(item.year)),
-                        y: .value("Tracks", item.count)
+                        y: .value("Tracks", yearChartAnimated ? item.count : 0)
                     )
                     .foregroundStyle(Ayu.accent.gradient)
                     .clipShape(.rect(cornerRadius: 4))
+                    .opacity(hoveredYear == nil || hoveredYear == String(item.year) ? 1.0 : 0.3)
+                    .annotation(position: .top, spacing: 4) {
+                        if hoveredYear == String(item.year) {
+                            Text("\(item.count)")
+                                .font(AppFont.caption)
+                                .foregroundStyle(Ayu.fgPrimary)
+                                .padding(.horizontal, Spacing.xs)
+                                .padding(.vertical, Spacing.xxs)
+                                .background(Ayu.bgSecondary, in: .capsule)
+                                .ayuShadow(Shadow.medium)
+                        }
+                    }
+                }
+                .chartOverlay { proxy in
+                    GeometryReader { _ in
+                        Rectangle()
+                            .fill(.clear)
+                            .contentShape(.rect)
+                            .onContinuousHover { phase in
+                                switch phase {
+                                case let .active(location):
+                                    hoveredYear = proxy.value(atX: location.x) as String?
+                                case .ended:
+                                    hoveredYear = nil
+                                }
+                            }
+                    }
                 }
                 .chartYAxisLabel("Tracks")
                 .frame(height: 200)
+                .onAppear {
+                    guard !yearChartAnimated else { return }
+                    if reduceMotion {
+                        yearChartAnimated = true
+                        return
+                    }
+                    withAnimation(Motion.scaled(Motion.springOrganic, by: motionScale)) {
+                        yearChartAnimated = true
+                    }
+                }
             }
             .padding()
             .background(Ayu.bgSecondary.opacity(0.5), in: .rect(cornerRadius: Radius.md))

@@ -26,6 +26,7 @@ struct GenreUpdaterApp: App {
                 .environment(\.motionScale, fastAnimations ? 0.5 : 1.0)
                 .optionalModelContainer(dependencies.modelContainer)
                 .preferredColorScheme(appearanceMode.colorScheme)
+                .animation(Motion.curveDefault, value: appearanceMode)
                 .onChange(of: appearanceMode) { _, newMode in
                     applyAppKitAppearance(newMode)
                 }
@@ -69,6 +70,7 @@ struct GenreUpdaterApp: App {
                 .environment(dependencies)
                 .environment(\.motionScale, fastAnimations ? 0.5 : 1.0)
                 .preferredColorScheme(appearanceMode.colorScheme)
+                .animation(Motion.curveDefault, value: appearanceMode)
                 .frame(minWidth: 520, idealWidth: 520, maxWidth: 520, minHeight: 400)
         }
     }

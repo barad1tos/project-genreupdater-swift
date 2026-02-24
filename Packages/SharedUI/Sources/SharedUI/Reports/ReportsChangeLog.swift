@@ -121,6 +121,7 @@ public struct ReportsChangeLog: View {
                     Section {
                         ForEach(group.entries) { entry in
                             changeLogRow(entry: entry)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                             Divider()
                                 .padding(.leading, Spacing.md)
                         }
