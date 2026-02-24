@@ -178,7 +178,7 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 08-01-PLAN.md — Motion tokens (curveGaugeFill, springOrganic, springBounce), MotionScale environment, ShakeModifier, Fast Animations toggle
+- [x] 08-01-PLAN.md — Motion tokens (curveGaugeFill, springOrganic, springBounce), MotionScale environment, ShakeModifier, Fast Animations toggle
 - [ ] 08-02-PLAN.md — Screen transitions (crossfade + upward drift) and theme crossfade animation
 - [ ] 08-03-PLAN.md — Dashboard entrance animations (HeroGauge arc fill, QuickAction bounce, ConfidenceBadge pop-in)
 - [ ] 08-04-PLAN.md — Chart animations with hover tooltips, list transitions, and press scale audit (0.97)

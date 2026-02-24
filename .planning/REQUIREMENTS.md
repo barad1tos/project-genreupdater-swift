@@ -12,7 +12,7 @@ Requirements for the UI/UX redesign milestone. Each maps to roadmap phases.
 - [x] **DSYS-01**: User can switch between dark and light themes (auto-detect system preference with manual override via Settings)
 - [x] **DSYS-02**: All UI components use extended design tokens including Shadow and Motion enums alongside existing Spacing/Radius/AppFont
 - [x] **DSYS-03**: All interactive elements show hover, press, and focus states
-- [ ] **DSYS-04**: View transitions between screens are smooth with no jarring cuts
+- [x] **DSYS-04**: View transitions between screens are smooth with no jarring cuts
 - [x] **DSYS-05**: Ayu/Ayu Mirage color palette is preserved and extended; light-mode contrast meets WCAG AA (≥4.5:1)
 
 ### Navigation
@@ -96,7 +96,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DSYS-01 | Phase 2 | Complete |
 | DSYS-02 | Phase 1 | Complete |
 | DSYS-03 | Phase 3 | Complete |
-| DSYS-04 | Phase 8 | Pending |
+| DSYS-04 | Phase 8 | Complete |
 | DSYS-05 | Phase 1 | Complete |
 | NAV-01 | Phase 4 | Complete |
 | NAV-02 | Phase 4 | Complete |

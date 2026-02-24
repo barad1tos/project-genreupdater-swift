@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** The app must feel fast, intuitive, and satisfying to use on a 38K+ track library — users should never feel lost, never see empty states, and always understand what the app can do for their music collection.
-**Current focus:** Phase 7 — Update and Reports Polish
+**Current focus:** Phase 8 — Animations and Final Polish
 
 ## Current Position
 
-Phase: 7 (Update and Reports Polish)
-Plan: 4 of 4 in current phase
-Status: Phase complete
-Last activity: 2026-02-23 — Completed 07-04-PLAN.md
+Phase: 8 (Animations and Final Polish)
+Plan: 1 of 4 in current phase
+Status: In progress
+Last activity: 2026-02-24 — Completed 08-01-PLAN.md
 
-Progress: [██████████] 100%
+Progress: [███░░░░░░░] 25%
 
 ## Performance Metrics
 
@@ -45,6 +45,7 @@ Progress: [██████████] 100%
 | Phase 07 P03 | 6min | 2 tasks | 2 files |
 | Phase 07 P02 | 9min | 2 tasks | 5 files |
 | Phase 07 P04 | 10min | 2 tasks | 3 files |
+| Phase 08 P01 | 10min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,9 @@ Recent decisions affecting current work:
 - [Phase 07]: onScrollPhaseChange (macOS 15+) for user scroll detection in streaming section
 - [Phase 07]: NotificationCenter for Reports-to-Update navigation (consistent with updateSelectedTracks pattern)
 - [Phase 07]: Notification.Name extensions centralized in GenreUpdaterApp.swift
+- [Phase 08]: @Entry macro for MotionScale environment (SwiftFormat auto-converted from manual EnvironmentKey)
+- [Phase 08]: sin(shakeCount * pi * 6) for 3 oscillations per trigger increment with 6pt max offset
+- [Phase 08]: TokenStatus nested inside APIAndCacheTab to stay under 500-line SwiftLint limit
 
 ### Pending Todos
 
@@ -130,6 +134,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-23
-Stopped at: Completed 07-04-PLAN.md (Phase 07 complete)
-Resume file: .planning/phases/07-update-reports-polish/07-04-SUMMARY.md
+Last session: 2026-02-24
+Stopped at: Completed 08-01-PLAN.md
+Resume file: .planning/phases/08-animations-final-polish/08-01-SUMMARY.md
