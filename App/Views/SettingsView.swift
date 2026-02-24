@@ -106,7 +106,6 @@ private struct GeneralTab: View {
                         TierBadge(tier: gate.currentTier)
                     }
                 }
-
                 NavigationLink("Manage Subscription") {
                     SubscriptionView()
                 }
@@ -124,10 +123,29 @@ private struct GeneralTab: View {
 // MARK: - API & Cache Tab
 
 private struct APIAndCacheTab: View {
-    private enum DiscogsKeychain {
-        static let service = "GenreUpdater-Discogs"
-        static let account = "pat"
+    private static let discogsService = "GenreUpdater-Discogs"
+    private static let discogsAccount = "pat"
+
+    private enum TokenStatus {
+        case unknown, saved, missing, error
+        var symbolName: String {
+            switch self {
+            case .unknown: "questionmark.circle"
+            case .saved: "checkmark.circle.fill"
+            case .missing: "xmark.circle"
+            case .error: "exclamationmark.triangle.fill"
+            }
+        }
+        var color: Color {
+            switch self {
+            case .unknown: .secondary
+            case .saved: Ayu.success
+            case .missing: Ayu.warning
+            case .error: Ayu.error
+            }
+        }
     }
+
     @Environment(AppDependencies.self) private var dependencies
     @AppStorage("contactEmail") private var contactEmail = ""
     @State private var tokenInput = ""
@@ -153,14 +171,12 @@ private struct APIAndCacheTab: View {
             Section {
                 SecureField("Discogs Personal Access Token", text: $tokenInput)
                     .textFieldStyle(.roundedBorder)
-
                 HStack(spacing: Spacing.sm) {
                     Button("Save Token") { saveToken() }
                         .disabled(tokenInput.isEmpty)
                     Button("Delete Token", role: .destructive) { deleteToken() }
                     Button("Test Token") { testToken() }
                 }
-
                 HStack(spacing: 6) {
                     Image(systemName: tokenStatus.symbolName)
                         .foregroundStyle(tokenStatus.color)
@@ -184,7 +200,6 @@ private struct APIAndCacheTab: View {
                     Text("No cache data available")
                         .foregroundStyle(.secondary)
                 }
-
                 HStack {
                     Button("Refresh") { loadCacheStatistics() }
                         .disabled(isLoadingStatistics)
@@ -204,8 +219,8 @@ private struct APIAndCacheTab: View {
     private func loadTokenStatus() {
         do {
             if let existing = try keychain.retrieve(
-                service: DiscogsKeychain.service,
-                account: DiscogsKeychain.account
+                service: Self.discogsService,
+                account: Self.discogsAccount
             ), !existing.isEmpty {
                 tokenStatus = .saved
                 statusMessage = "Token saved (\(existing.prefix(4))...)"
@@ -223,8 +238,8 @@ private struct APIAndCacheTab: View {
         do {
             try keychain.save(
                 token: tokenInput,
-                service: DiscogsKeychain.service,
-                account: DiscogsKeychain.account
+                service: Self.discogsService,
+                account: Self.discogsAccount
             )
             tokenInput = ""
             tokenStatus = .saved
@@ -238,8 +253,8 @@ private struct APIAndCacheTab: View {
     private func deleteToken() {
         do {
             try keychain.delete(
-                service: DiscogsKeychain.service,
-                account: DiscogsKeychain.account
+                service: Self.discogsService,
+                account: Self.discogsAccount
             )
             tokenInput = ""
             tokenStatus = .missing
@@ -253,8 +268,8 @@ private struct APIAndCacheTab: View {
     private func testToken() {
         do {
             if let token = try keychain.retrieve(
-                service: DiscogsKeychain.service,
-                account: DiscogsKeychain.account
+                service: Self.discogsService,
+                account: Self.discogsAccount
             ), !token.isEmpty {
                 tokenStatus = .saved
                 statusMessage = "Token is present (\(token.count) characters)"
@@ -271,8 +286,7 @@ private struct APIAndCacheTab: View {
     private func loadCacheStatistics() {
         isLoadingStatistics = true
         Task {
-            let statistics = await dependencies.cacheService?.getCacheStatistics()
-            cacheStatistics = statistics
+            cacheStatistics = await dependencies.cacheService?.getCacheStatistics()
             isLoadingStatistics = false
         }
     }
@@ -284,28 +298,6 @@ private struct APIAndCacheTab: View {
             cacheStatistics = nil
             isClearingCache = false
             loadCacheStatistics()
-        }
-    }
-}
-
-private enum TokenStatus {
-    case unknown, saved, missing, error
-
-    var symbolName: String {
-        switch self {
-        case .unknown: "questionmark.circle"
-        case .saved: "checkmark.circle.fill"
-        case .missing: "xmark.circle"
-        case .error: "exclamationmark.triangle.fill"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .unknown: .secondary
-        case .saved: Ayu.success
-        case .missing: Ayu.warning
-        case .error: Ayu.error
         }
     }
 }
@@ -362,7 +354,6 @@ private struct AdvancedTab: View {
                     dependencies.config.cleaning.albumSuffixesToRemove.remove(atOffsets: offsets)
                     saveConfig()
                 }
-
                 HStack {
                     TextField("New suffix", text: $newAlbumSuffix)
                         .textFieldStyle(.roundedBorder)
@@ -440,7 +431,7 @@ private struct AdvancedTab: View {
 
     private func resetConfiguration() {
         dependencies.config = AppConfiguration()
-        try? dependencies.config.save()
+        saveConfig()
     }
 }
 
@@ -449,6 +440,7 @@ private struct AdvancedTab: View {
 private struct AppearanceTab: View {
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("sidebarCompact") private var isSidebarCompact = false
+    @AppStorage("fastAnimations") private var fastAnimations = false
 
     var body: some View {
         Form {
@@ -475,6 +467,14 @@ private struct AppearanceTab: View {
                 Toggle("Compact sidebar", isOn: $isSidebarCompact)
 
                 Text(isSidebarCompact ? "Icons only" : "Icons and labels")
+                    .foregroundStyle(Ayu.fgSecondary)
+                    .font(AppFont.caption)
+            }
+
+            Section("Motion") {
+                Toggle("Fast animations", isOn: $fastAnimations)
+
+                Text("Halves all animation durations for snappier interaction.")
                     .foregroundStyle(Ayu.fgSecondary)
                     .font(AppFont.caption)
             }

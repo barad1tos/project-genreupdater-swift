@@ -16,12 +16,14 @@ import SwiftUI
 struct GenreUpdaterApp: App {
     @State private var dependencies = AppDependencies()
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
+    @AppStorage("fastAnimations") private var fastAnimations = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(dependencies)
+                .environment(\.motionScale, fastAnimations ? 0.5 : 1.0)
                 .optionalModelContainer(dependencies.modelContainer)
                 .preferredColorScheme(appearanceMode.colorScheme)
                 .onChange(of: appearanceMode) { _, newMode in
@@ -65,6 +67,7 @@ struct GenreUpdaterApp: App {
         Settings {
             SettingsView()
                 .environment(dependencies)
+                .environment(\.motionScale, fastAnimations ? 0.5 : 1.0)
                 .preferredColorScheme(appearanceMode.colorScheme)
                 .frame(minWidth: 520, idealWidth: 520, maxWidth: 520, minHeight: 400)
         }
