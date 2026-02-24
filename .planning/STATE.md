@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-23)
 ## Current Position
 
 Phase: 8 (Animations and Final Polish)
-Plan: 3 of 4 in current phase
-Status: In progress
-Last activity: 2026-02-24 — Completed 08-03-PLAN.md
+Plan: 4 of 4 in current phase
+Status: Complete
+Last activity: 2026-02-24 — Completed 08-04-PLAN.md
 
-Progress: [███████░░░] 75%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Progress: [███████░░░] 75%
 | Phase 08 P01 | 10min | 2 tasks | 4 files |
 | Phase 08 P02 | 4min | 2 tasks | 3 files |
 | Phase 08 P03 | 12min | 2 tasks | 5 files |
+| Phase 08 P04 | 21min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -123,6 +124,8 @@ Recent decisions affecting current work:
 - [Phase 08]: Theme crossfade not gated on reduceMotion since purely opacity/color per CONTEXT.md
 - [Phase 08]: animateEntrance parameter on HeroGauge for DashboardView-controlled arc animation
 - [Phase 08]: markFirstLoadComplete() separated from transitionToLive() for correct onChange timing with @Observable
+- [Phase 08]: Unified press scale 0.97 for all interactive elements (0.98 -> 0.97, per CONTEXT.md locked decision)
+- [Phase 08]: numericText(countsDown: false) on StatCard/MetricCard for upward digit animation direction
 - [Phase 08]: DashboardView stagger uses Motion.curveAppear (scaled) instead of raw .easeOut literals
 
 ### Pending Todos
@@ -143,5 +146,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 08-03-PLAN.md
-Resume file: .planning/phases/08-animations-final-polish/08-03-SUMMARY.md
+Stopped at: Completed 08-04-PLAN.md (Phase 8 complete)
+Resume file: .planning/phases/08-animations-final-polish/08-04-SUMMARY.md

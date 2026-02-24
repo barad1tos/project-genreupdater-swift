@@ -181,7 +181,7 @@ Plans:
 - [x] 08-01-PLAN.md — Motion tokens (curveGaugeFill, springOrganic, springBounce), MotionScale environment, ShakeModifier, Fast Animations toggle
 - [x] 08-02-PLAN.md — Screen transitions (crossfade + upward drift) and theme crossfade animation
 - [x] 08-03-PLAN.md — Dashboard entrance animations (HeroGauge arc fill, QuickAction bounce, ConfidenceBadge pop-in)
-- [ ] 08-04-PLAN.md — Chart animations with hover tooltips, list transitions, and press scale audit (0.97)
+- [x] 08-04-PLAN.md — Chart animations with hover tooltips, list transitions, and press scale audit (0.97)
 
 ## Progress
 
@@ -199,4 +199,4 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 5.1 → 6 → 6.1 →
 | 6. Browse Redesign | 4/4 | Complete | 2026-02-23 |
 | 6.1 Card Lift Interaction | 1/2 | In Progress | - |
 | 7. Update and Reports Polish | 0/4 | Complete    | 2026-02-23 |
-| 8. Animations and Final Polish | 3/4 | In Progress | - |
+| 8. Animations and Final Polish | 4/4 | Complete | 2026-02-24 |
