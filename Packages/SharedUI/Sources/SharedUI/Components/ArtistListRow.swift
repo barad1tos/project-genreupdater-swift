@@ -6,7 +6,7 @@ import SwiftUI
 
 /// A list row displaying an artist name with album and track count badges.
 ///
-/// Shows a leading accent bar on hover/selected, 0.98x press scale, and
+/// Shows a leading accent bar on hover/selected, 0.97x press scale, and
 /// SF Mono count badges for column-aligned numeric display.
 public struct ArtistListRow: View {
     private let name: String
@@ -50,7 +50,7 @@ public struct ArtistListRow: View {
                 .fill(rowBackgroundColor)
         }
         .contentShape(.rect)
-        .scaleEffect(isPressed ? 0.98 : 1.0)
+        .scaleEffect(isPressed ? 0.97 : 1.0)
         .animation(Motion.curveFast, value: isPressed)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)

@@ -39,6 +39,7 @@ public struct StatCard: View {
             Text(value)
                 .font(AppFont.metric)
                 .foregroundStyle(Ayu.fgPrimary)
+                .contentTransition(.numericText(countsDown: false))
 
             progressBar
         }
@@ -55,7 +56,7 @@ public struct StatCard: View {
         }
         .ayuShadow(isHovered ? Shadow.elevated : Shadow.subtle)
         .contentShape(.rect)
-        .scaleEffect(isPressed ? 0.98 : 1.0)
+        .scaleEffect(isPressed ? 0.97 : 1.0)
         .animation(Motion.curveFast, value: isPressed)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)

@@ -56,7 +56,7 @@ public struct FilterChip: View {
             }
         }
         .contentShape(.rect)
-        .scaleEffect(isPressed ? 0.98 : 1.0)
+        .scaleEffect(isPressed ? 0.97 : 1.0)
         .animation(Motion.curveFast, value: isPressed)
         .animation(Motion.curveFast, value: isActive)
         .simultaneousGesture(

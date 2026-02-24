@@ -7,7 +7,7 @@ import SwiftUI
 /// A list row displaying an album title with optional genre badge and year.
 ///
 /// Shares the same interaction trio as ArtistListRow: leading accent bar on
-/// hover/selected, 0.98x press scale, and `.contentShape(.rect)` scroll fix.
+/// hover/selected, 0.97x press scale, and `.contentShape(.rect)` scroll fix.
 public struct AlbumListRow: View {
     private let title: String
     private let genre: String?
@@ -57,7 +57,7 @@ public struct AlbumListRow: View {
                 .fill(rowBackgroundColor)
         }
         .contentShape(.rect)
-        .scaleEffect(isPressed ? 0.98 : 1.0)
+        .scaleEffect(isPressed ? 0.97 : 1.0)
         .animation(Motion.curveFast, value: isPressed)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)

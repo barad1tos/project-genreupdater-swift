@@ -8,7 +8,7 @@ import SwiftUI
 /// Compact stat card showing a metric value, trend arrow, and hover-revealed trend delta.
 ///
 /// Follows the StatCard hover/press interaction pattern: shadow elevation + accent border
-/// glow + 0.98 scale on press. Trend arrow shows direction by default; hovering reveals
+/// glow + 0.97 scale on press. Trend arrow shows direction by default; hovering reveals
 /// the delta number (e.g. "+12 since last scan").
 struct MetricCard: View {
     let label: String
@@ -41,7 +41,7 @@ struct MetricCard: View {
         }
         .ayuShadow(isHovered ? Shadow.elevated : Shadow.subtle)
         .contentShape(.rect)
-        .scaleEffect(isPressed ? 0.98 : 1.0)
+        .scaleEffect(isPressed ? 0.97 : 1.0)
         .animation(Motion.curveFast, value: isPressed)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
@@ -95,7 +95,7 @@ struct MetricCard: View {
         Text(value)
             .font(AppFont.metricSmall)
             .foregroundStyle(Ayu.fgPrimary)
-            .contentTransition(.numericText())
+            .contentTransition(.numericText(countsDown: false))
     }
 
     private var footerRow: some View {
