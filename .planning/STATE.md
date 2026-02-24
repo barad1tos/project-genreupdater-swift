@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-23)
 ## Current Position
 
 Phase: 8 (Animations and Final Polish)
-Plan: 1 of 4 in current phase
+Plan: 2 of 4 in current phase
 Status: In progress
-Last activity: 2026-02-24 — Completed 08-01-PLAN.md
+Last activity: 2026-02-24 — Completed 08-02-PLAN.md
 
-Progress: [███░░░░░░░] 25%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 07 P02 | 9min | 2 tasks | 5 files |
 | Phase 07 P04 | 10min | 2 tasks | 3 files |
 | Phase 08 P01 | 10min | 2 tasks | 4 files |
+| Phase 08 P02 | 4min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,9 @@ Recent decisions affecting current work:
 - [Phase 08]: @Entry macro for MotionScale environment (SwiftFormat auto-converted from manual EnvironmentKey)
 - [Phase 08]: sin(shakeCount * pi * 6) for 3 oscillations per trigger increment with 6pt max offset
 - [Phase 08]: TokenStatus nested inside APIAndCacheTab to stay under 500-line SwiftLint limit
+- [Phase 08]: .id(selectedCategory) forces view identity change enabling .transition() for screen transitions
+- [Phase 08]: Asymmetric transition: opacity+6pt upward drift insertion, opacity-only removal (no downward drift)
+- [Phase 08]: Theme crossfade not gated on reduceMotion since purely opacity/color per CONTEXT.md
 
 ### Pending Todos
 
@@ -135,5 +139,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 08-01-PLAN.md
-Resume file: .planning/phases/08-animations-final-polish/08-01-SUMMARY.md
+Stopped at: Completed 08-02-PLAN.md
+Resume file: .planning/phases/08-animations-final-polish/08-02-SUMMARY.md

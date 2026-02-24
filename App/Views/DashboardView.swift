@@ -17,7 +17,9 @@ struct DashboardView: View {
     @State private var showGauge = false
     @State private var showMetrics = false
     @State private var showActions = false
+    @State private var animateGaugeEntrance = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionScale) private var motionScale
 
     let tracks: [Track]
     let metricsSnapshot: PersistedMetricsSnapshot?
@@ -63,14 +65,21 @@ struct DashboardView: View {
         }
         .onChange(of: viewModel.showLiveContent) { _, isVisible in
             guard isVisible else { return }
-            if reduceMotion || !viewModel.isFirstLoad {
+            // Capture first-load flag before clearing it
+            let isFirstLoad = viewModel.isFirstLoad
+            viewModel.markFirstLoadComplete()
+
+            if reduceMotion || !isFirstLoad {
                 showGauge = true
                 showMetrics = true
                 showActions = true
             } else {
-                withAnimation(.easeOut(duration: 0.5)) { showGauge = true }
-                withAnimation(.easeOut(duration: 0.5).delay(0.05)) { showMetrics = true }
-                withAnimation(.easeOut(duration: 0.5).delay(0.10)) { showActions = true }
+                // First data load: stagger the entrance cascade
+                animateGaugeEntrance = true
+                let stagger = Motion.scaled(Motion.curveAppear, by: motionScale)
+                withAnimation(stagger) { showGauge = true }
+                withAnimation(stagger.delay(0.05)) { showMetrics = true }
+                withAnimation(stagger.delay(0.10)) { showActions = true }
             }
         }
     }
@@ -139,7 +148,8 @@ struct DashboardView: View {
                     tagged: viewModel.metrics.tracksWithBoth,
                     total: viewModel.metrics.totalTracks
                 )
-            )
+            ),
+            animateEntrance: animateGaugeEntrance
         )
         .frame(width: 300, height: 180)
         .frame(maxWidth: .infinity)

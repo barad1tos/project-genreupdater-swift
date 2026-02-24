@@ -78,11 +78,14 @@ public struct HeroGauge: View {
     private let trackCount: Int
     private let onArcTapped: ((GaugeLayer) -> Void)?
     private let detailedCounts: DetailedCounts?
+    private let animateEntrance: Bool
 
     @State private var animatedGenre: Double = 0
     @State private var animatedYear: Double = 0
     @State private var animatedConsistency: Double = 0
     @State private var hoveredLayer: GaugeLayer?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionScale) private var motionScale
 
     private let arcLineWidth: CGFloat = 16
     private let arcGap: CGFloat = 2
@@ -107,13 +110,18 @@ public struct HeroGauge: View {
         }
     }
 
+    /// Creates a HeroGauge with coverage values and optional entrance animation.
+    ///
+    /// - Parameter animateEntrance: When true, arcs draw in from zero with a staggered
+    ///   0.8s easeOut animation on first appearance. Respects Reduce Motion and Fast Animations.
     public init(
         genreCoverage: Double,
         yearCoverage: Double,
         consistencyCoverage: Double,
         trackCount: Int,
         onArcTapped: ((GaugeLayer) -> Void)? = nil,
-        detailedCounts: DetailedCounts? = nil
+        detailedCounts: DetailedCounts? = nil,
+        animateEntrance: Bool = false
     ) {
         self.genreCoverage = genreCoverage
         self.yearCoverage = yearCoverage
@@ -121,6 +129,7 @@ public struct HeroGauge: View {
         self.trackCount = trackCount
         self.onArcTapped = onArcTapped
         self.detailedCounts = detailedCounts
+        self.animateEntrance = animateEntrance
     }
 
     public var body: some View {
@@ -160,9 +169,26 @@ public struct HeroGauge: View {
             }
         }
         .onAppear {
-            animatedGenre = genreCoverage
-            animatedYear = yearCoverage
-            animatedConsistency = consistencyCoverage
+            if animateEntrance, !reduceMotion {
+                // Start from zero, then animate each arc with stagger
+                animatedGenre = 0
+                animatedYear = 0
+                animatedConsistency = 0
+                let gaugeFill = Motion.scaled(Motion.curveGaugeFill, by: motionScale)
+                withAnimation(gaugeFill) {
+                    animatedGenre = genreCoverage
+                }
+                withAnimation(gaugeFill.delay(0.1)) {
+                    animatedYear = yearCoverage
+                }
+                withAnimation(gaugeFill.delay(0.2)) {
+                    animatedConsistency = consistencyCoverage
+                }
+            } else {
+                animatedGenre = genreCoverage
+                animatedYear = yearCoverage
+                animatedConsistency = consistencyCoverage
+            }
         }
         .onChange(of: genreCoverage) { _, newValue in
             animatedGenre = newValue

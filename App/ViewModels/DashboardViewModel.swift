@@ -269,8 +269,20 @@ final class DashboardViewModel {
     // MARK: - Transition Helpers
 
     /// Transition from shimmer to live state.
+    ///
+    /// Does NOT clear `isFirstLoad` here -- DashboardView reads the flag
+    /// during its stagger cascade and clears it afterwards. Clearing it
+    /// in the same transaction as `loadingState` change would prevent
+    /// the onChange handler from seeing the true value.
     private func transitionToLive() {
         loadingState = .live
+    }
+
+    /// Mark the initial data load as complete.
+    ///
+    /// Called by DashboardView after the entrance stagger has been evaluated,
+    /// so `isFirstLoad` is still `true` when `.onChange(of: showLiveContent)` fires.
+    func markFirstLoadComplete() {
         isFirstLoad = false
     }
 

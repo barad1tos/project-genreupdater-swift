@@ -33,6 +33,8 @@ GenreUpdater/
 │   │       └── Workflow/          # UpdateCoordinator, BatchProcessor, UndoCoordinator, CheckpointManager, LibrarySyncService, ChangePreviewPipeline
 │   └── SharedUI/                  # Reusable SwiftUI components
 │       ├── Theme/                 # DesignTokens (Spacing, Radius, AppFont, Shadow, Motion), AyuColors, AppearanceMode
+│       ├── Charts/                # ReportsCharts (Swift Charts with animated bars + hover tooltips)
+│       ├── Reports/               # ReportsChangeLog (session-grouped change log with hover undo)
 │       └── Components/            # ShimmerPlaceholder, FilterChip, StatCard, ArtistListRow, AlbumListRow, SectionIndexBar, HeroGauge, SidebarView, SidebarItemView, SidebarSectionHeader, CardLift/ (CardLiftState, CardLiftOverlay, NeonGlowBorder, DoubleClickDetector)
 ├── Tests/
 │   ├── GenreUpdaterTests/         # App-level unit tests
