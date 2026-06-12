@@ -75,6 +75,8 @@ public actor APIOrchestrator {
     private let appleMusic: any ExternalAPIService
     private let reachability: NetworkReachabilityMonitor?
     private let cache: (any CacheService)?
+    private let pendingVerificationService: (any PendingVerificationService)?
+    private let maxVerificationAttempts: Int
     private let timeout: Duration
     private let negativeResultTTL: TimeInterval
     private let maxConcurrentSourceCalls: Int
@@ -100,6 +102,8 @@ public actor APIOrchestrator {
         appleMusic: any ExternalAPIService,
         reachability: NetworkReachabilityMonitor? = nil,
         cache: (any CacheService)? = nil,
+        pendingVerificationService: (any PendingVerificationService)? = nil,
+        maxVerificationAttempts: Int = FallbackConfig().maxVerificationAttempts,
         timeout: Duration = .seconds(15),
         negativeResultTTL: TimeInterval = CachingConfig().negativeResultTTL,
         maxConcurrentSourceCalls: Int = 3,
@@ -112,6 +116,8 @@ public actor APIOrchestrator {
         self.appleMusic = appleMusic
         self.reachability = reachability
         self.cache = cache
+        self.pendingVerificationService = pendingVerificationService
+        self.maxVerificationAttempts = max(0, maxVerificationAttempts)
         self.timeout = timeout
         self.negativeResultTTL = max(0, negativeResultTTL)
         self.maxConcurrentSourceCalls = max(1, maxConcurrentSourceCalls)
@@ -164,8 +170,15 @@ public actor APIOrchestrator {
         )
 
         let results = await fetchSourceResults(sources: sources, query: query)
-
-        return Self.aggregateResults(results, orderedSources: orderedSources)
+        let result = Self.aggregateResults(results, orderedSources: orderedSources)
+        await PendingVerificationSync.synchronize(
+            service: pendingVerificationService,
+            albumKey: (artist, album),
+            currentLibraryYear: currentLibraryYear,
+            maxVerificationAttempts: maxVerificationAttempts,
+            result: result
+        )
+        return result
     }
 
     // MARK: - Private

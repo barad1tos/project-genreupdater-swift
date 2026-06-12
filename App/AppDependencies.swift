@@ -93,6 +93,7 @@ final class AppDependencies {
     private(set) var subscriptionService: SubscriptionService?
     private(set) var featureGate: FeatureGate?
     private(set) var apiOrchestrator: APIOrchestrator?
+    private(set) var pendingVerificationService: FilePendingVerificationService?
     private(set) var cacheService: GRDBCacheService?
     private(set) var trackStore: SwiftDataTrackStore?
     private(set) var changeLogStore: SwiftDataChangeLogStore?
@@ -211,8 +212,14 @@ final class AppDependencies {
 
     func applyRuntimeConfiguration() {
         let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
-        let configuredAPIOrchestrator = Self.makeAPIOrchestrator(configuration: config, cache: cacheService)
+        let configuredPendingVerificationService = FilePendingVerificationService(configuration: config)
+        let configuredAPIOrchestrator = Self.makeAPIOrchestrator(
+            configuration: config,
+            cache: cacheService,
+            pendingVerificationService: configuredPendingVerificationService
+        )
         yearDeterminator = configuredYearDeterminator
+        pendingVerificationService = configuredPendingVerificationService
         apiOrchestrator = configuredAPIOrchestrator
 
         let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: config)
@@ -299,7 +306,8 @@ final class AppDependencies {
 
     private static func makeAPIOrchestrator(
         configuration: AppConfiguration,
-        cache: (any CacheService)?
+        cache: (any CacheService)?,
+        pendingVerificationService: (any PendingVerificationService)?
     ) -> APIOrchestrator {
         let apiAuth = configuration.yearRetrieval.apiAuth
         let contactEmail = APIAuthReferenceResolver.resolve(
@@ -332,6 +340,8 @@ final class AppDependencies {
             discogs: discogsClient,
             appleMusic: AppleMusicSearchClient(),
             cache: cache,
+            pendingVerificationService: pendingVerificationService,
+            maxVerificationAttempts: configuration.yearRetrieval.fallback.maxVerificationAttempts,
             negativeResultTTL: configuration.caching.negativeResultTTL,
             maxConcurrentSourceCalls: configuration.yearRetrieval.rateLimits.concurrentAPICalls,
             maxAPIRetries: configuration.runtime.maxRetries,
@@ -375,7 +385,14 @@ final class AppDependencies {
         let yearDeterm = Self.makeYearDeterminator(configuration: config)
         yearDeterminator = yearDeterm
 
-        apiOrchestrator = Self.makeAPIOrchestrator(configuration: config, cache: cacheService)
+        let pendingVerification = FilePendingVerificationService(configuration: config)
+        pendingVerificationService = pendingVerification
+
+        apiOrchestrator = Self.makeAPIOrchestrator(
+            configuration: config,
+            cache: cacheService,
+            pendingVerificationService: pendingVerification
+        )
     }
 
     /// Step 8: Wire workflow services that depend on persistence, algorithms, and the script bridge.
