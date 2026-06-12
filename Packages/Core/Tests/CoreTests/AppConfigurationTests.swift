@@ -49,6 +49,7 @@ struct AppConfigurationTests {
         #expect(config.logging.pendingVerificationFile == "csv/pending_year_verification.csv")
         #expect(config.albumTypeDetection.variousArtistsNames.contains("Різні виконавці"))
         #expect(config.experimental.batchUpdatesEnabled == false)
+        #expect(config.development.testArtists.isEmpty)
         #expect(config.development.debugMode == false)
     }
 
@@ -56,7 +57,9 @@ struct AppConfigurationTests {
 
     @Test("Encode to JSON and decode back preserves key fields")
     func jsonRoundTrip() throws {
-        let original = AppConfiguration()
+        var original = AppConfiguration()
+        original.development.testArtists = ["Amon Amarth", "DK Energetyk"]
+
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let data = try encoder.encode(original)
@@ -74,6 +77,7 @@ struct AppConfigurationTests {
         #expect(decoded.reporting.problematicAlbumsPath == original.reporting.problematicAlbumsPath)
         #expect(decoded.artistRenamer.mappings == original.artistRenamer.mappings)
         #expect(decoded.albumTypeDetection.soundtrackPatterns == original.albumTypeDetection.soundtrackPatterns)
+        #expect(decoded.development.testArtists == original.development.testArtists)
         #expect(decoded.development.debugMode == original.development.debugMode)
     }
 
