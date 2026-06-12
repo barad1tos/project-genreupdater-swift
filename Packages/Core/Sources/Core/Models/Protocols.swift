@@ -308,6 +308,7 @@ public protocol PendingVerificationService: Actor {
     func getAttemptCount(artist: String, album: String) async -> Int
     func isVerificationNeeded(artist: String, album: String) async -> Bool
     func getAllPendingAlbums() async -> [PendingAlbumEntry]
+    func generateProblematicAlbumsReport(minAttempts: Int, reportURL: URL?) async throws -> Int
     func shouldAutoVerify() async -> Bool
     func updateVerificationTimestamp() async throws
 }
