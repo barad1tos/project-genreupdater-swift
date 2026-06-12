@@ -7,6 +7,8 @@
 
 import Foundation
 
+private let veryHighScoreThreshold = 75
+
 // MARK: - YearScorer
 
 /// Scores release candidates and resolves the best year from scored results.
@@ -203,11 +205,19 @@ public struct YearScorer: Sendable {
             existingYearBoosted: existingYearBoosted
         )
 
+        let hasScoreConflict = checkScoreConflict(
+            finalYear: finalYear,
+            finalScore: finalScore,
+            sortedYears: sortedYears,
+            calendarYear: calendarYear
+        )
+
         // Step 6: Determine definitiveness
         let isDefinitive = checkDefinitiveness(
             finalScore: finalScore,
             finalYear: finalYear,
-            calendarYear: calendarYear
+            calendarYear: calendarYear,
+            hasScoreConflict: hasScoreConflict
         )
 
         let confidence = min(100, max(0, finalScore))
@@ -293,15 +303,42 @@ public struct YearScorer: Sendable {
         return (year, score)
     }
 
-    /// Python parity: definitiveness = score >= threshold AND year not in future.
-    /// No gap-to-runner-up requirement.
+    private func checkScoreConflict(
+        finalYear: Int,
+        finalScore: Int,
+        sortedYears: [(key: Int, value: Int)],
+        calendarYear: Int
+    ) -> Bool {
+        guard sortedYears.count > 1 else {
+            return false
+        }
+        guard let competingYear = sortedYears.first(where: { $0.key != finalYear }) else {
+            return false
+        }
+        guard finalScore - competingYear.value < yearLogic.definitiveScoreDiff else {
+            return false
+        }
+
+        let finalYearIsFuture = finalYear > calendarYear
+        let competingYearIsFuture = competingYear.key > calendarYear
+        if !finalYearIsFuture, competingYearIsFuture {
+            return false
+        }
+
+        return true
+    }
+
+    /// Python parity: definitiveness requires the configured score threshold,
+    /// a non-future year, and either a very high score or no close-score conflict.
     private func checkDefinitiveness(
         finalScore: Int,
         finalYear: Int,
-        calendarYear: Int
+        calendarYear: Int,
+        hasScoreConflict: Bool
     ) -> Bool {
         finalScore >= yearLogic.definitiveScoreThreshold
             && finalYear <= calendarYear
+            && (finalScore >= veryHighScoreThreshold || !hasScoreConflict)
     }
 }
 

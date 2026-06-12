@@ -63,6 +63,13 @@ struct GeneralTab: View {
                 Text("Definitive score threshold: \(dependencies.config.yearRetrieval.logic.definitiveScoreThreshold)")
                 Slider(value: definitiveBinding, in: 0 ... 100, step: 5)
             }
+
+            Stepper(value: configBinding(dependencies, \.yearRetrieval.logic.definitiveScoreDiff), in: 0 ... 100) {
+                LabeledContent(
+                    "Definitive score gap",
+                    value: "\(dependencies.config.yearRetrieval.logic.definitiveScoreDiff)"
+                )
+            }
         }
     }
 

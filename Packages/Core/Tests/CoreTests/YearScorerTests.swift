@@ -458,7 +458,7 @@ struct YearScorerResolutionTests {
             makeScoredRelease(year: 2005, score: 50),
         ]
         let result = scorer.resolveScores(scored)
-        // 90 >= threshold(80), gap = 40 >= diff(20), year <= current
+        // 90 >= threshold(50), gap = 40 >= diff(15), year <= current
         #expect(result.isDefinitive == true)
     }
 
@@ -472,15 +472,29 @@ struct YearScorerResolutionTests {
         #expect(result.isDefinitive == false)
     }
 
-    @Test("Definitive when score meets threshold (no gap requirement)")
-    func definitiveNoGapCheck() {
+    @Test("Definitive when very high score overrides score conflict")
+    func definitiveWhenVeryHighScoreOverridesScoreConflict() {
         let scored = [
             makeScoredRelease(year: 2000, score: 85),
             makeScoredRelease(year: 2001, score: 80),
         ]
         let result = scorer.resolveScores(scored)
-        // Python parity: only checks score >= threshold, no gap-to-runner-up
+        // Python parity: very high scores remain definitive despite close scores.
         #expect(result.isDefinitive == true)
+    }
+
+    @Test("Not definitive when configured score gap is too small")
+    func notDefinitiveWhenConfiguredScoreGapIsTooSmall() {
+        var yearLogic = YearLogicConfig()
+        yearLogic.definitiveScoreThreshold = 50
+        yearLogic.definitiveScoreDiff = 20
+        let scorer = YearScorer(yearLogic: yearLogic)
+        let scored = [
+            makeScoredRelease(year: 2000, score: 70),
+            makeScoredRelease(year: 2001, score: 55),
+        ]
+        let result = scorer.resolveScores(scored)
+        #expect(result.isDefinitive == false)
     }
 
     @Test("Year scores map included in result")
