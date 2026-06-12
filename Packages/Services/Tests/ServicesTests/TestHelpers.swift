@@ -137,15 +137,21 @@ struct MockAPIService: ExternalAPIService {
     let yearResult: YearResult
     let shouldThrow: Bool
     let delay: Duration
+    let artistActivityPeriod: (start: Int?, end: Int?)
+    let artistStartYear: Int?
 
     init(
         yearResult: YearResult = YearResult(),
         shouldThrow: Bool = false,
-        delay: Duration = .zero
+        delay: Duration = .zero,
+        artistActivityPeriod: (start: Int?, end: Int?) = (nil, nil),
+        artistStartYear: Int? = nil
     ) {
         self.yearResult = yearResult
         self.shouldThrow = shouldThrow
         self.delay = delay
+        self.artistActivityPeriod = artistActivityPeriod
+        self.artistStartYear = artistStartYear
     }
 
     func getAlbumYear(
@@ -166,13 +172,19 @@ struct MockAPIService: ExternalAPIService {
     func getArtistActivityPeriod(
         normalizedArtist _: String
     ) async throws -> (start: Int?, end: Int?) {
-        (nil, nil)
+        if shouldThrow {
+            throw MockAPIError.intentional
+        }
+        return artistActivityPeriod
     }
 
     func getArtistStartYear(
         normalizedArtist _: String
     ) async throws -> Int? {
-        nil
+        if shouldThrow {
+            throw MockAPIError.intentional
+        }
+        return artistStartYear
     }
 
     func initialize(force _: Bool) async throws {}

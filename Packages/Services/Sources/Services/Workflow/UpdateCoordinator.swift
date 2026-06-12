@@ -49,7 +49,7 @@ public actor UpdateCoordinator {
     private let undoCoordinator: UndoCoordinator
     private let idMapper: (any TrackIDMapping)?
     private let genreDeterminator: GenreDeterminator
-    private var yearDeterminator: YearDeterminator
+    var yearDeterminator: YearDeterminator
     private var runtimeConfiguration: UpdateRuntimeConfiguration
     private let log = Logger(subsystem: "com.genreupdater", category: "UpdateCoordinator")
 
@@ -273,6 +273,14 @@ public actor UpdateCoordinator {
             return nil
         }
         guard Double(yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence else {
+            return nil
+        }
+
+        if await shouldPreserveExistingYearForArtistStart(
+            track: track,
+            proposedYear: year,
+            yearResult: yearResult
+        ) {
             return nil
         }
 

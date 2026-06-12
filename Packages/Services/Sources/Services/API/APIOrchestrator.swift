@@ -70,11 +70,11 @@ public struct APISourcePriorityConfiguration: Sendable {
 }
 
 public actor APIOrchestrator {
-    private let musicBrainz: any ExternalAPIService
+    let musicBrainz: any ExternalAPIService
     private let discogs: any ExternalAPIService
-    private let appleMusic: any ExternalAPIService
+    let appleMusic: any ExternalAPIService
     private let reachability: NetworkReachabilityMonitor?
-    private let cache: (any CacheService)?
+    let cache: (any CacheService)?
     private let pendingVerificationService: (any PendingVerificationService)?
     private let maxVerificationAttempts: Int
     private let timeout: Duration

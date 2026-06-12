@@ -18,9 +18,19 @@ import OSLog
 /// - Note: Artist activity period and start year are not exposed by MusicKit,
 ///   so those methods always return `nil`.
 public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
+    private static let itunesBaseURL = "https://itunes.apple.com"
+
+    private let session: URLSession
+    private let countryCode: String
     private let log = AppLogger.api
 
-    public init() {}
+    public init(
+        session: URLSession = .shared,
+        countryCode: String = "US"
+    ) {
+        self.session = session
+        self.countryCode = countryCode
+    }
 
     // MARK: - ExternalAPIService
 
@@ -102,11 +112,40 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
 
     /// MusicKit does not expose artist career start year.
     ///
-    /// Always returns `nil`.
+    /// Uses the public iTunes Search API as a parity fallback with the Python
+    /// implementation, taking the earliest matching album release year.
     public func getArtistStartYear(
         normalizedArtist: String
     ) async throws -> Int? {
-        nil
+        guard let url = Self.buildArtistAlbumsSearchURL(
+            artist: normalizedArtist,
+            countryCode: countryCode
+        ) else {
+            log.warning("Failed to build iTunes artist albums URL for \(normalizedArtist, privacy: .private)")
+            return nil
+        }
+
+        let (data, response) = try await session.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            log.warning("iTunes artist albums search returned a non-HTTP response")
+            return nil
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            log.warning("iTunes artist albums search returned HTTP \(httpResponse.statusCode, privacy: .public)")
+            return nil
+        }
+
+        let decoded = try JSONDecoder().decode(
+            ITunesArtistAlbumsResponse.self,
+            from: data
+        )
+        let artist = normalizeForMatching(normalizedArtist)
+        let years = decoded.results.compactMap { result in
+            Self.releaseYear(from: result, normalizedArtist: artist)
+        }
+
+        return years.min()
     }
 
     /// No initialization required — MusicKit manages its own state.
@@ -128,4 +167,49 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
     private func requestAuthorization() async -> MusicAuthorization.Status {
         await MusicAuthorization.request()
     }
+
+    static func buildArtistAlbumsSearchURL(
+        artist: String,
+        countryCode: String
+    ) -> URL? {
+        var components = URLComponents(string: "\(itunesBaseURL)/search")
+        components?.queryItems = [
+            URLQueryItem(name: "term", value: artist),
+            URLQueryItem(name: "country", value: countryCode),
+            URLQueryItem(name: "entity", value: "album"),
+            URLQueryItem(name: "limit", value: "200"),
+        ]
+        return components?.url
+    }
+
+    private static func releaseYear(
+        from result: ITunesAlbumResult,
+        normalizedArtist: String
+    ) -> Int? {
+        let resultArtist = normalizeForMatching(result.artistName ?? "")
+        guard !resultArtist.isEmpty,
+              resultArtist.contains(normalizedArtist) || normalizedArtist.contains(resultArtist)
+        else {
+            return nil
+        }
+
+        guard let releaseDate = result.releaseDate?.trimmingCharacters(in: .whitespacesAndNewlines),
+              releaseDate.count >= 4
+        else {
+            return nil
+        }
+
+        let yearPrefix = releaseDate.prefix(4)
+        guard yearPrefix.allSatisfy(\.isNumber) else { return nil }
+        return Int(yearPrefix)
+    }
+}
+
+private struct ITunesArtistAlbumsResponse: Decodable {
+    let results: [ITunesAlbumResult]
+}
+
+private struct ITunesAlbumResult: Decodable {
+    let artistName: String?
+    let releaseDate: String?
 }
