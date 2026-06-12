@@ -149,6 +149,10 @@ struct APIAndCacheTab: View {
                 LabeledContent("Runtime cache TTL", value: "\(dependencies.config.runtime.cacheTTLSeconds / 60)m")
             }
 
+            Stepper(value: configBinding(dependencies, \.runtime.maxGenericEntries), in: 1000 ... 100_000, step: 1000) {
+                LabeledContent("Generic cache limit", value: "\(dependencies.config.runtime.maxGenericEntries)")
+            }
+
             Stepper(value: configBinding(dependencies, \.processing.cacheTTLDays), in: 1 ... 36500) {
                 LabeledContent("API result cache", value: apiResultCacheTTLDisplay)
             }

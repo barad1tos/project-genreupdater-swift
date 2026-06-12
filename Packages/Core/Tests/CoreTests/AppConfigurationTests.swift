@@ -17,6 +17,7 @@ struct AppConfigurationTests {
         #expect(config.pythonSettings.preventBytecode)
         #expect(config.runtime.cacheTTLSeconds == 1800)
         #expect(config.runtime.incrementalIntervalMinutes == 1)
+        #expect(config.runtime.maxGenericEntries == 10000)
         #expect(config.applescript.concurrency == 2)
         #expect(config.applescript.rateLimit.enabled)
         #expect(config.applescript.rateLimit.requestsPerWindow == 10)
