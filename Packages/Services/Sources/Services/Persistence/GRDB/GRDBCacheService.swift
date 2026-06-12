@@ -22,6 +22,8 @@ public actor GRDBCacheService: CacheService {
     private let apiResultTTL: TimeInterval
     private let defaultGenericTTL: TimeInterval?
     private let maxGenericEntries: Int
+    private let cleanupInterval: TimeInterval
+    private var lastGenericCleanupAt = Date.now
 
     /// Default TTL for album year cache entries (30 days).
     public static let defaultAlbumYearTTL: TimeInterval = 30 * 24 * 3600
@@ -32,40 +34,41 @@ public actor GRDBCacheService: CacheService {
     /// Default maximum generic cache entries.
     public static let defaultMaxGenericEntries = 10000
 
+    /// Default interval for opportunistic expired-entry cleanup.
+    public static let defaultCleanupInterval: TimeInterval = 5 * 60
+
     /// Create a cache service backed by a database file (uses DatabasePool).
-    ///
-    /// - Parameter databasePath: Path to the SQLite database file.
-    ///   Created automatically if it doesn't exist.
     public init(
         databasePath: String,
         defaultGenericTTL: TimeInterval? = nil,
         apiResultTTL: TimeInterval = GRDBCacheService.defaultAPIResultTTL,
         albumYearTTL: TimeInterval = GRDBCacheService.defaultAlbumYearTTL,
-        maxGenericEntries: Int = GRDBCacheService.defaultMaxGenericEntries
+        maxGenericEntries: Int = GRDBCacheService.defaultMaxGenericEntries,
+        cleanupInterval: TimeInterval = GRDBCacheService.defaultCleanupInterval
     ) throws {
         dbWriter = try DatabasePool(path: databasePath)
         self.defaultGenericTTL = Self.normalizedTTL(defaultGenericTTL)
         self.apiResultTTL = Self.normalizedTTL(apiResultTTL) ?? Self.defaultAPIResultTTL
         self.albumYearTTL = Self.normalizedTTL(albumYearTTL) ?? Self.defaultAlbumYearTTL
         self.maxGenericEntries = max(1, maxGenericEntries)
+        self.cleanupInterval = max(0, cleanupInterval)
     }
 
     /// Create a cache service with an existing DatabaseWriter (for testing).
-    ///
-    /// Pass `DatabaseQueue()` for in-memory tests (DatabasePool requires WAL
-    /// which doesn't support `:memory:`).
     init(
         dbWriter: any DatabaseWriter,
         defaultGenericTTL: TimeInterval? = nil,
         apiResultTTL: TimeInterval = GRDBCacheService.defaultAPIResultTTL,
         albumYearTTL: TimeInterval = GRDBCacheService.defaultAlbumYearTTL,
-        maxGenericEntries: Int = GRDBCacheService.defaultMaxGenericEntries
+        maxGenericEntries: Int = GRDBCacheService.defaultMaxGenericEntries,
+        cleanupInterval: TimeInterval = GRDBCacheService.defaultCleanupInterval
     ) {
         self.dbWriter = dbWriter
         self.defaultGenericTTL = Self.normalizedTTL(defaultGenericTTL)
         self.apiResultTTL = Self.normalizedTTL(apiResultTTL) ?? Self.defaultAPIResultTTL
         self.albumYearTTL = Self.normalizedTTL(albumYearTTL) ?? Self.defaultAlbumYearTTL
         self.maxGenericEntries = max(1, maxGenericEntries)
+        self.cleanupInterval = max(0, cleanupInterval)
     }
 
     // MARK: - Initialization
@@ -110,6 +113,8 @@ public actor GRDBCacheService: CacheService {
         do {
             let data = try JSONEncoder().encode(value)
             let resolvedTTL = ttl ?? defaultGenericTTL
+            let now = Date.now
+            let shouldCleanup = shouldRunGenericCleanup(at: now)
             try await dbWriter.write { database in
                 let row = GenericCacheRow(
                     key: key,
@@ -118,11 +123,22 @@ public actor GRDBCacheService: CacheService {
                     timestamp: .now
                 )
                 try row.save(database)
+                if shouldCleanup {
+                    try Self.deleteExpiredGenericRows(in: database)
+                }
                 try Self.enforceGenericCacheLimit(in: database, maxGenericEntries: maxGenericEntries)
+            }
+            if shouldCleanup {
+                lastGenericCleanupAt = now
             }
         } catch {
             log.error("Cache set failed for key=\(key, privacy: .public): \(error, privacy: .public)")
         }
+    }
+
+    private func shouldRunGenericCleanup(at now: Date) -> Bool {
+        guard cleanupInterval > 0 else { return false }
+        return now.timeIntervalSince(lastGenericCleanupAt) >= cleanupInterval
     }
 
     public func invalidate(key: String) async {
@@ -373,7 +389,8 @@ extension GRDBCacheService {
         defaultGenericTTL: TimeInterval? = nil,
         apiResultTTL: TimeInterval = GRDBCacheService.defaultAPIResultTTL,
         albumYearTTL: TimeInterval = GRDBCacheService.defaultAlbumYearTTL,
-        maxGenericEntries: Int = GRDBCacheService.defaultMaxGenericEntries
+        maxGenericEntries: Int = GRDBCacheService.defaultMaxGenericEntries,
+        cleanupInterval: TimeInterval = GRDBCacheService.defaultCleanupInterval
     ) throws -> GRDBCacheService {
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -391,7 +408,8 @@ extension GRDBCacheService {
             defaultGenericTTL: defaultGenericTTL,
             apiResultTTL: apiResultTTL,
             albumYearTTL: albumYearTTL,
-            maxGenericEntries: maxGenericEntries
+            maxGenericEntries: maxGenericEntries,
+            cleanupInterval: cleanupInterval
         )
     }
 
@@ -400,7 +418,8 @@ extension GRDBCacheService {
         defaultGenericTTL: TimeInterval? = nil,
         apiResultTTL: TimeInterval = GRDBCacheService.defaultAPIResultTTL,
         albumYearTTL: TimeInterval = GRDBCacheService.defaultAlbumYearTTL,
-        maxGenericEntries: Int = GRDBCacheService.defaultMaxGenericEntries
+        maxGenericEntries: Int = GRDBCacheService.defaultMaxGenericEntries,
+        cleanupInterval: TimeInterval = GRDBCacheService.defaultCleanupInterval
     ) throws -> GRDBCacheService {
         let dbQueue = try DatabaseQueue()
         return GRDBCacheService(
@@ -408,7 +427,8 @@ extension GRDBCacheService {
             defaultGenericTTL: defaultGenericTTL,
             apiResultTTL: apiResultTTL,
             albumYearTTL: albumYearTTL,
-            maxGenericEntries: maxGenericEntries
+            maxGenericEntries: maxGenericEntries,
+            cleanupInterval: cleanupInterval
         )
     }
 }
@@ -436,6 +456,15 @@ extension GRDBCacheService {
             """,
             arguments: [overflowCount]
         )
+    }
+
+    fileprivate static func deleteExpiredGenericRows(in database: Database) throws {
+        try database.execute(sql: """
+        DELETE FROM generic_cache
+        WHERE ttl IS NOT NULL
+          AND (CAST(strftime('%s', timestamp) AS REAL) + ttl)
+            < CAST(strftime('%s', 'now') AS REAL)
+        """)
     }
 }
 

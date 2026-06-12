@@ -35,6 +35,7 @@ struct AppConfigurationTests {
         #expect(config.yearRetrieval.reissueDetection.reissueKeywords == ["reissue", "remaster", "remastered"])
         #expect(config.genreUpdate.batchSize == 50)
         #expect(config.caching.defaultTTLSeconds == 900)
+        #expect(config.caching.cleanupIntervalSeconds == 300)
         #expect(config.caching.cleanupErrorRetryDelay == 60)
         #expect(config.caching.librarySnapshot.cacheFile == "cache/library_snapshot.json")
         #expect(config.processing.batchSize == 25)

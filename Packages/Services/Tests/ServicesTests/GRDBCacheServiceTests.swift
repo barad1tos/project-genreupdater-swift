@@ -342,6 +342,20 @@ struct GRDBCacheServiceTests {
         #expect(stats.expiredCount == 1)
     }
 
+    @Test("Generic cache cleanup removes expired entries after configured interval")
+    func genericCacheCleanupUsesConfiguredInterval() async throws {
+        let service = try GRDBCacheService.createInMemory(cleanupInterval: 0.001)
+        try await service.initialize()
+
+        await service.set(key: "expired", value: "old", ttl: -1)
+        try await Task.sleep(for: .milliseconds(2))
+        await service.set(key: "valid", value: "new", ttl: 3600)
+
+        let stats = await service.getCacheStatistics()
+        #expect(stats.genericCacheCount == 1)
+        #expect(stats.expiredCount == 0)
+    }
+
     // MARK: - syncToDisk
 
     @Test("syncToDisk completes without error")

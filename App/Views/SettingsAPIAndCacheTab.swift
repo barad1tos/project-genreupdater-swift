@@ -165,6 +165,10 @@ struct APIAndCacheTab: View {
                 LabeledContent("Generic cache limit", value: "\(dependencies.config.runtime.maxGenericEntries)")
             }
 
+            Stepper(value: configBinding(dependencies, \.caching.cleanupIntervalSeconds), in: 0 ... 86400, step: 60) {
+                LabeledContent("Expired entry cleanup", value: cleanupIntervalDisplay)
+            }
+
             Stepper(value: configBinding(dependencies, \.processing.cacheTTLDays), in: 1 ... 36500) {
                 LabeledContent("API result cache", value: apiResultCacheTTLDisplay)
             }
@@ -206,6 +210,19 @@ struct APIAndCacheTab: View {
 
         let hours = Int(seconds / 3600)
         return "\(max(1, hours))h"
+    }
+
+    private var cleanupIntervalDisplay: String {
+        let seconds = dependencies.config.caching.cleanupIntervalSeconds
+        guard seconds > 0 else { return "Off" }
+
+        let days = seconds / 86400
+        if days >= 1 { return "\(days)d" }
+
+        let hours = seconds / 3600
+        if hours >= 1 { return "\(hours)h" }
+
+        return "\(max(1, seconds / 60))m"
     }
 
     private func loadTokenStatus() {

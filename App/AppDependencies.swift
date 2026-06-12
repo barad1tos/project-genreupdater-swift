@@ -253,7 +253,8 @@ final class AppDependencies {
         let cache = try GRDBCacheService.createDefault(
             defaultGenericTTL: Self.defaultGenericCacheTTL(configuration: config),
             apiResultTTL: Self.apiResultCacheTTL(configuration: config),
-            maxGenericEntries: config.runtime.maxGenericEntries
+            maxGenericEntries: config.runtime.maxGenericEntries,
+            cleanupInterval: TimeInterval(config.caching.cleanupIntervalSeconds)
         )
         try await cache.initialize()
         cacheService = cache
