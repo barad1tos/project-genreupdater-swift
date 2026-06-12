@@ -8,6 +8,7 @@ public enum UndoCoordinatorError: Error, LocalizedError {
     case revertFailed(trackID: String, reason: String)
     case noChangesToRevert
     case partialRevertFailure(succeeded: Int, failed: Int, errorDescriptions: [String])
+    case invalidBackupCSV(reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -17,7 +18,26 @@ public enum UndoCoordinatorError: Error, LocalizedError {
             "No changes available to revert"
         case let .partialRevertFailure(succeeded, failed, _):
             "Partial revert: \(succeeded) succeeded, \(failed) failed"
+        case let .invalidBackupCSV(reason):
+            "Invalid backup CSV: \(reason)"
         }
+    }
+}
+
+/// Summary of a backup CSV year revert operation.
+public struct YearBackupRevertResult: Sendable, Equatable {
+    public let parsedCount: Int
+    public let updatedCount: Int
+    public let missingCount: Int
+
+    public init(
+        parsedCount: Int,
+        updatedCount: Int,
+        missingCount: Int
+    ) {
+        self.parsedCount = parsedCount
+        self.updatedCount = updatedCount
+        self.missingCount = missingCount
     }
 }
 
@@ -162,6 +182,27 @@ public actor UndoCoordinator {
         try await revertBatch(entries)
     }
 
+    /// Restore years from a Python-compatible backup track list CSV.
+    public func revertYearsFromBackupCSV(
+        _ csv: String,
+        artist: String,
+        album: String? = nil,
+        currentTracks: [Track]
+    ) async throws -> YearBackupRevertResult {
+        let targets = try YearBackupCSVParser.parse(
+            csv,
+            artist: artist,
+            album: album
+        )
+        guard !targets.isEmpty else {
+            throw UndoCoordinatorError.noChangesToRevert
+        }
+        return try await revertYearBackupTargets(
+            targets,
+            currentTracks: currentTracks
+        )
+    }
+
     // MARK: History
 
     /// Get change history, optionally limited to most recent N entries.
@@ -187,6 +228,65 @@ public actor UndoCoordinator {
     private func resolveWriteID(for trackID: String) async -> String {
         guard let idMapper else { return trackID }
         return await idMapper.appleScriptID(forMusicKitID: trackID) ?? trackID
+    }
+
+    // MARK: Backup CSV Revert
+
+    private func revertYearBackupTargets(
+        _ targets: [YearBackupRevertTarget],
+        currentTracks: [Track]
+    ) async throws -> YearBackupRevertResult {
+        let matcher = YearBackupTrackMatcher(currentTracks: currentTracks)
+        var updatedCount = 0
+        var missingCount = 0
+        var errorDescriptions: [String] = []
+
+        for target in targets {
+            guard let track = matcher.findTrack(for: target) else {
+                missingCount += 1
+                continue
+            }
+
+            do {
+                let writeID = await resolveWriteID(for: track.id)
+                try await scriptBridge.updateTrackProperty(
+                    trackID: writeID,
+                    property: "year",
+                    value: String(target.year)
+                )
+
+                var entry = ChangeLogEntry(
+                    changeType: .yearRevert,
+                    trackID: track.id,
+                    artist: track.artist,
+                    trackName: track.name,
+                    albumName: track.album
+                )
+                entry.oldYear = track.year
+                entry.newYear = target.year
+                await recordChange(entry)
+                updatedCount += 1
+            } catch {
+                errorDescriptions.append(error.localizedDescription)
+                log.error(
+                    "Failed to restore backup year for track \(track.id, privacy: .private): \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+
+        if !errorDescriptions.isEmpty {
+            throw UndoCoordinatorError.partialRevertFailure(
+                succeeded: updatedCount,
+                failed: errorDescriptions.count,
+                errorDescriptions: errorDescriptions
+            )
+        }
+
+        return YearBackupRevertResult(
+            parsedCount: targets.count,
+            updatedCount: updatedCount,
+            missingCount: missingCount
+        )
     }
 
     // MARK: Persistence

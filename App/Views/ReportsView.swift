@@ -25,8 +25,9 @@ struct ReportsView: View {
 
     @Environment(AppDependencies.self) private var dependencies
 
-    @State private var exportError: String?
-    @State private var showingExportError = false
+    @State private var backupImportRequest: BackupCSVImportRequest?
+    @State private var reportAlert: ReportsAlert?
+    @State private var isImportingBackupCSV = false
 
     var body: some View {
         let entries = persistedEntries.map { $0.toChangeLogEntry() }
@@ -46,10 +47,25 @@ struct ReportsView: View {
             }
         }
         .navigationTitle("Reports")
-        .alert("Export Failed", isPresented: $showingExportError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(exportError ?? "An unknown error occurred.")
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                importBackupCSVButton
+                exportCSVButton(entries: entries)
+            }
+        }
+        .sheet(item: $backupImportRequest) { _ in
+            BackupCSVImportSheet(isImporting: isImportingBackupCSV) { artist, album in
+                Task {
+                    await importBackupCSV(artist: artist, album: album)
+                }
+            }
+        }
+        .alert(item: $reportAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("OK"))
+            )
         }
     }
 
@@ -77,14 +93,19 @@ struct ReportsView: View {
             }
             .frame(minHeight: 250)
         }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                exportCSVButton(entries: entries)
-            }
-        }
     }
 
     // MARK: - Export Button
+
+    private var importBackupCSVButton: some View {
+        Button {
+            backupImportRequest = BackupCSVImportRequest()
+        } label: {
+            Label("Import Revert CSV", systemImage: "arrow.uturn.backward")
+        }
+        .disabled(isImportingBackupCSV)
+        .help("Import a backup CSV and restore years")
+    }
 
     @ViewBuilder
     private func exportCSVButton(
@@ -129,9 +150,76 @@ struct ReportsView: View {
         do {
             try csv.write(to: url, atomically: true, encoding: .utf8)
         } catch {
-            exportError = error.localizedDescription
-            showingExportError = true
+            reportAlert = ReportsAlert(
+                title: "Export Failed",
+                message: error.localizedDescription
+            )
         }
+    }
+
+    // MARK: - Backup CSV Import
+
+    @MainActor
+    private func importBackupCSV(
+        artist: String,
+        album: String?
+    ) async {
+        guard let url = chooseBackupCSVURL() else { return }
+
+        isImportingBackupCSV = true
+        defer { isImportingBackupCSV = false }
+
+        do {
+            guard let musicReader = dependencies.musicReader,
+                  let undoCoordinator = dependencies.undoCoordinator else {
+                throw BackupCSVImportError.servicesUnavailable
+            }
+
+            let csv = try String(contentsOf: url, encoding: .utf8)
+            let tracks = try await musicReader.fetchAllTracks(
+                artist: artist,
+                ignoreTestFilter: true
+            )
+            let result = try await undoCoordinator.revertYearsFromBackupCSV(
+                csv,
+                artist: artist,
+                album: album,
+                currentTracks: tracks
+            )
+
+            reportAlert = ReportsAlert(
+                title: "Revert Complete",
+                message: backupImportMessage(for: result)
+            )
+        } catch {
+            reportAlert = ReportsAlert(
+                title: "Import Failed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func chooseBackupCSVURL() -> URL? {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.title = "Import Revert CSV"
+        panel.prompt = "Import"
+
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+
+    private func backupImportMessage(for result: YearBackupRevertResult) -> String {
+        var parts = [
+            "Updated \(result.updatedCount) of \(result.parsedCount) CSV rows.",
+        ]
+        if result.missingCount > 0 {
+            parts.append("\(result.missingCount) tracks were not found in Music.app.")
+        }
+        return parts.joined(separator: " ")
     }
 
     // MARK: - Data Aggregation
@@ -201,5 +289,77 @@ struct ReportsView: View {
 
         return dayCounts.map { ChartSummaryData.DayCount(date: $0.key, count: $0.value) }
             .sorted { $0.date < $1.date }
+    }
+}
+
+private struct BackupCSVImportRequest: Identifiable {
+    let id = UUID()
+}
+
+private struct ReportsAlert: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+
+private enum BackupCSVImportError: LocalizedError {
+    case servicesUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .servicesUnavailable:
+            "Music library services are not ready yet"
+        }
+    }
+}
+
+private struct BackupCSVImportSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let isImporting: Bool
+    let onImport: (String, String?) -> Void
+
+    @State private var artist = ""
+    @State private var album = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Import Revert CSV")
+                .font(.title3.weight(.semibold))
+
+            VStack(alignment: .leading, spacing: 10) {
+                TextField("Artist", text: $artist)
+                TextField("Album (optional)", text: $album)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) {
+                    dismiss()
+                }
+                Button {
+                    submit()
+                } label: {
+                    Label("Choose CSV", systemImage: "folder")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isImporting || normalizedArtist.isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 420)
+    }
+
+    private var normalizedArtist: String {
+        artist.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var normalizedAlbum: String? {
+        album.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    private func submit() {
+        onImport(normalizedArtist, normalizedAlbum)
+        dismiss()
     }
 }

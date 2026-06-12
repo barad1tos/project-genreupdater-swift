@@ -90,10 +90,16 @@ public actor MusicLibraryReader {
     // MARK: - Fetch Operations
 
     /// Fetch all tracks from the user's library.
-    public func fetchAllTracks(artist: String? = nil) async throws -> [Core.Track] {
+    public func fetchAllTracks(
+        artist: String? = nil,
+        ignoreTestFilter: Bool = false
+    ) async throws -> [Core.Track] {
         guard isAuthorized else {
             try await requestAuthorization()
-            return try await fetchAllTracks(artist: artist)
+            return try await fetchAllTracks(
+                artist: artist,
+                ignoreTestFilter: ignoreTestFilter
+            )
         }
 
         let signpostState = AppSignpost.libraryLoad.beginInterval("fetchAllTracks")
@@ -112,10 +118,12 @@ public actor MusicLibraryReader {
                 songToTrack(song)
             }
 
-            tracks = Self.filterByTestArtists(
-                tracks,
-                testArtists: testArtists
-            )
+            if !ignoreTestFilter {
+                tracks = Self.filterByTestArtists(
+                    tracks,
+                    testArtists: testArtists
+                )
+            }
 
             log
                 .info(
