@@ -108,21 +108,30 @@ public actor UpdateCoordinator {
         }
 
         var proposedChanges: [ProposedChange] = []
+        var workingTrack = track
+
+        if let change = Self.determineArtistRenameChange(
+            track: workingTrack,
+            mappings: runtimeConfiguration.artistRenameMappings
+        ) {
+            proposedChanges.append(change)
+            workingTrack = change.track
+        }
 
         // Genre determination (local — uses existing track genres)
         let canUpdateGenre = runtimeConfiguration.shouldOverrideExistingGenres
-            || (track.genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            || (workingTrack.genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         if options.updateGenre, canUpdateGenre {
-            let artistTracks = albumTracks.isEmpty ? [track] : albumTracks
+            let artistTracks = albumTracks.isEmpty ? [workingTrack] : albumTracks
             let genreResult = genreDeterminator.determineDominantGenre(
                 artistTracks: artistTracks,
                 genreMappings: runtimeConfiguration.genreMappings
             )
-            if let newGenre = genreResult.genre, newGenre != track.genre {
+            if let newGenre = genreResult.genre, newGenre != workingTrack.genre {
                 proposedChanges.append(ProposedChange(
-                    track: track,
+                    track: workingTrack,
                     changeType: .genreUpdate,
-                    oldValue: track.genre,
+                    oldValue: workingTrack.genre,
                     newValue: newGenre,
                     confidence: 80, // Genre from library consensus
                     source: "Library"
@@ -133,7 +142,7 @@ public actor UpdateCoordinator {
         // Year determination (API-backed)
         if options.updateYear, runtimeConfiguration.isYearLookupEnabled {
             if let change = try await determineYearChange(
-                track: track,
+                track: workingTrack,
                 albumTracks: albumTracks
             ) {
                 proposedChanges.append(change)
@@ -141,7 +150,7 @@ public actor UpdateCoordinator {
         }
 
         proposedChanges.append(contentsOf: Self.determineCleaningChanges(
-            track: track,
+            track: workingTrack,
             options: options,
             cleaning: runtimeConfiguration.cleaning
         ))

@@ -335,7 +335,7 @@ public struct ReportsChangeLog: View {
         case .albumCleaning:
             entry.oldAlbumName ?? "none"
         case .artistRename:
-            entry.artist
+            entry.oldArtist ?? "none"
         }
     }
 
@@ -350,7 +350,7 @@ public struct ReportsChangeLog: View {
         case .albumCleaning:
             entry.newAlbumName ?? "none"
         case .artistRename:
-            entry.artist
+            entry.newArtist ?? "none"
         }
     }
 

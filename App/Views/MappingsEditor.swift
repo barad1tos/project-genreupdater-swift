@@ -1,16 +1,14 @@
-// GenreMappingsEditor.swift — Editable list of user-defined genre mappings.
+// MappingsEditor.swift - Editable list of user-defined metadata mappings.
 
 import SharedUI
 import SwiftUI
 
-// MARK: - Genre Mappings Editor
+// MARK: - Mappings Editor
 
-/// Editable list of user-defined genre mappings (source genre -> target genre).
-///
-/// Each row shows a source-to-target pair with a remove button.
-/// A bottom row provides text fields and an add button for new mappings.
-/// Designed to be embedded as a `Section` inside a `Form`.
-struct GenreMappingsEditor: View {
+struct MappingsEditor: View {
+    let title: String
+    let emptyMessage: String
+    let footerText: String
     @Binding var mappings: [String: String]
     @Binding var newSource: String
     @Binding var newTarget: String
@@ -25,7 +23,7 @@ struct GenreMappingsEditor: View {
     var body: some View {
         Section {
             if sortedKeys.isEmpty {
-                Text("No genre mappings configured")
+                Text(emptyMessage)
                     .foregroundStyle(.secondary)
                     .font(.callout)
             }
@@ -38,15 +36,11 @@ struct GenreMappingsEditor: View {
 
             addMappingRow
         } header: {
-            Text("Genre Mappings")
+            Text(title)
         } footer: {
-            Text(
-                "After genre determination, if the result matches a "
-                    + "\"From\" value (case-insensitive), it is replaced "
-                    + "with the \"To\" value."
-            )
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
+            Text(footerText)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
     }
 

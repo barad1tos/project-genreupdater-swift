@@ -97,7 +97,7 @@ public actor UndoCoordinator {
         case .albumCleaning:
             entry.oldAlbumName.map { ("album", $0) }
         case .artistRename:
-            nil
+            entry.oldArtist.map { ("artist", $0) }
         }
 
         guard let oldValue else {

@@ -72,7 +72,7 @@ public enum CSVExporter {
         case .albumCleaning:
             ("Album Name", entry.oldAlbumName ?? "", entry.newAlbumName ?? "")
         case .artistRename:
-            ("Artist", entry.artist, "")
+            ("Artist", entry.oldArtist ?? "", entry.newArtist ?? "")
         }
     }
 

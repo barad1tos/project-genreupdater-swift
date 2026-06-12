@@ -40,6 +40,7 @@ public struct UpdateOptions: Sendable {
 /// Runtime configuration applied by update workflows.
 public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     public let genreMappings: [String: String]
+    public let artistRenameMappings: [String: String]
     public let isYearLookupEnabled: Bool
     public let minimumYearUpdateConfidence: Double
     public let minimumConfidenceToCache: Int
@@ -49,6 +50,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
 
     public init(
         genreMappings: [String: String] = [:],
+        artistRenameMappings: [String: String] = [:],
         isYearLookupEnabled: Bool = AppConfiguration().yearRetrieval.enabled,
         minimumYearUpdateConfidence: Double = AppConfiguration().yearRetrieval.logic.minConfidenceForNewYear,
         minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache,
@@ -57,6 +59,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         shouldOverrideExistingGenres: Bool = AppConfiguration().genreUpdate.overrideExisting
     ) {
         self.genreMappings = genreMappings
+        self.artistRenameMappings = Self.normalizedMappings(artistRenameMappings)
         self.isYearLookupEnabled = isYearLookupEnabled
         self.minimumYearUpdateConfidence = minimumYearUpdateConfidence
         self.minimumConfidenceToCache = minimumConfidenceToCache
@@ -74,6 +77,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
 
         self.init(
             genreMappings: configuration.cleaning.genreMappings,
+            artistRenameMappings: configuration.artistRenamer.mappings,
             isYearLookupEnabled: configuration.yearRetrieval.enabled,
             minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
             minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
@@ -81,6 +85,19 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             cleaning: cleaning,
             shouldOverrideExistingGenres: configuration.genreUpdate.overrideExisting
         )
+    }
+
+    private static func normalizedMappings(_ mappings: [String: String]) -> [String: String] {
+        var normalized: [String: String] = [:]
+
+        for (source, target) in mappings {
+            let key = normalizeForMatching(source)
+            let value = target.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty, !value.isEmpty else { continue }
+            normalized[key] = value
+        }
+
+        return normalized
     }
 
     private static func mergeTrackCleaningExceptions(

@@ -44,6 +44,23 @@ private func makeYearEntry(
     return entry
 }
 
+private func makeArtistRenameEntry(
+    trackID: String = "T1",
+    oldArtist: String = "Old Artist",
+    newArtist: String = "New Artist"
+) -> ChangeLogEntry {
+    var entry = ChangeLogEntry(
+        changeType: .artistRename,
+        trackID: trackID,
+        artist: newArtist,
+        trackName: "Track",
+        albumName: "Album"
+    )
+    entry.oldArtist = oldArtist
+    entry.newArtist = newArtist
+    return entry
+}
+
 // MARK: - Tests
 
 @Suite("UndoCoordinator — record and revert changes")
@@ -95,6 +112,22 @@ struct UndoCoordinatorTests {
         #expect(written.count == 1)
         #expect(written[0].property == "year")
         #expect(written[0].value == "1984")
+    }
+
+    @Test("Revert single artist rename writes old artist")
+    func revertSingleArtistRename() async throws {
+        let bridge = MockAppleScriptClient()
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+
+        let entry = makeArtistRenameEntry(trackID: "T1", oldArtist: "Old Artist", newArtist: "New Artist")
+        await coordinator.recordChange(entry)
+        try await coordinator.revertChange(entry)
+
+        let written = await bridge.writtenProperties
+        #expect(written.count == 1)
+        #expect(written[0].trackID == "T1")
+        #expect(written[0].property == "artist")
+        #expect(written[0].value == "Old Artist")
     }
 
     @Test("Batch revert processes all entries")

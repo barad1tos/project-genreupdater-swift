@@ -36,6 +36,10 @@ public final class PersistedChangeLogEntry {
     public var oldAlbumName: String?
     public var newAlbumName: String?
 
+    // Artist rename changes
+    public var oldArtist: String?
+    public var newArtist: String?
+
     /// Relationship to PersistedTrack (set in H3)
     public var track: PersistedTrack?
 
@@ -54,7 +58,9 @@ public final class PersistedChangeLogEntry {
         oldTrackName: String? = nil,
         newTrackName: String? = nil,
         oldAlbumName: String? = nil,
-        newAlbumName: String? = nil
+        newAlbumName: String? = nil,
+        oldArtist: String? = nil,
+        newArtist: String? = nil
     ) {
         self.entryID = entryID
         self.timestamp = timestamp
@@ -71,6 +77,8 @@ public final class PersistedChangeLogEntry {
         self.newTrackName = newTrackName
         self.oldAlbumName = oldAlbumName
         self.newAlbumName = newAlbumName
+        self.oldArtist = oldArtist
+        self.newArtist = newArtist
     }
 }
 
@@ -93,7 +101,9 @@ extension PersistedChangeLogEntry {
             oldTrackName: entry.oldTrackName,
             newTrackName: entry.newTrackName,
             oldAlbumName: entry.oldAlbumName,
-            newAlbumName: entry.newAlbumName
+            newAlbumName: entry.newAlbumName,
+            oldArtist: entry.oldArtist,
+            newArtist: entry.newArtist
         )
     }
 
@@ -114,7 +124,9 @@ extension PersistedChangeLogEntry {
             oldTrackName: oldTrackName,
             newTrackName: newTrackName,
             oldAlbumName: oldAlbumName,
-            newAlbumName: newAlbumName
+            newAlbumName: newAlbumName,
+            oldArtist: oldArtist,
+            newArtist: newArtist
         )
     }
 }

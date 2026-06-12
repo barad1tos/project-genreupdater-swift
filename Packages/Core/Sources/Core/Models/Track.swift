@@ -157,6 +157,10 @@ public struct ChangeLogEntry: Sendable, Codable, Identifiable, Equatable {
     public var oldAlbumName: String?
     public var newAlbumName: String?
 
+    // Artist rename changes
+    public var oldArtist: String?
+    public var newArtist: String?
+
     public init(
         changeType: ChangeType,
         trackID: String,
@@ -189,7 +193,9 @@ public struct ChangeLogEntry: Sendable, Codable, Identifiable, Equatable {
         oldTrackName: String? = nil,
         newTrackName: String? = nil,
         oldAlbumName: String? = nil,
-        newAlbumName: String? = nil
+        newAlbumName: String? = nil,
+        oldArtist: String? = nil,
+        newArtist: String? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -206,6 +212,8 @@ public struct ChangeLogEntry: Sendable, Codable, Identifiable, Equatable {
         self.newTrackName = newTrackName
         self.oldAlbumName = oldAlbumName
         self.newAlbumName = newAlbumName
+        self.oldArtist = oldArtist
+        self.newArtist = newArtist
     }
 }
 

@@ -41,6 +41,7 @@ struct AppConfigurationTests {
         #expect(config.cleaning.remasterKeywords.count == 9)
         #expect(config.exceptions.trackCleaning.isEmpty)
         #expect(config.artistRenamer.configPath == "artist-renames.yaml")
+        #expect(config.artistRenamer.mappings.isEmpty)
         #expect(config.databaseVerification.autoVerifyDays == 7)
         #expect(config.databaseVerification.batchSize == 10)
         #expect(config.pendingVerification.autoVerifyDays == 14)
@@ -71,6 +72,7 @@ struct AppConfigurationTests {
         #expect(decoded.cleaning.remasterKeywords == original.cleaning.remasterKeywords)
         #expect(decoded.databaseVerification.batchSize == original.databaseVerification.batchSize)
         #expect(decoded.reporting.problematicAlbumsPath == original.reporting.problematicAlbumsPath)
+        #expect(decoded.artistRenamer.mappings == original.artistRenamer.mappings)
         #expect(decoded.albumTypeDetection.soundtrackPatterns == original.albumTypeDetection.soundtrackPatterns)
         #expect(decoded.development.debugMode == original.development.debugMode)
     }
@@ -98,6 +100,12 @@ struct AppConfigurationTests {
                 "album": "Xenospheres"
               }
             ]
+          },
+          "artistRenamer": {
+            "config_path": "legacy-renames.yaml",
+            "mappings": {
+              "DK Energetyk": "ДК Енергетик"
+            }
           }
         }
         """
@@ -122,6 +130,8 @@ struct AppConfigurationTests {
         #expect(decoded.cleaning.trackCleaningExceptions == [
             TrackCleaningException(artist: "Rabbit Junk", album: "Xenospheres"),
         ])
+        #expect(decoded.artistRenamer.configPath == "legacy-renames.yaml")
+        #expect(decoded.artistRenamer.mappings == ["DK Energetyk": "ДК Енергетик"])
         #expect(decoded.databaseVerification.autoVerifyDays == 7)
         #expect(decoded.reporting.changeDisplayMode == .compact)
     }

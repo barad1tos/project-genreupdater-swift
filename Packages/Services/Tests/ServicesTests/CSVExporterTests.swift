@@ -19,7 +19,9 @@ struct CSVExporterTests {
         oldTrackName: String? = nil,
         newTrackName: String? = nil,
         oldAlbumName: String? = nil,
-        newAlbumName: String? = nil
+        newAlbumName: String? = nil,
+        oldArtist: String? = nil,
+        newArtist: String? = nil
     ) -> ChangeLogEntry {
         var entry = ChangeLogEntry(
             id: UUID(),
@@ -38,6 +40,8 @@ struct CSVExporterTests {
         entry.newTrackName = newTrackName
         entry.oldAlbumName = oldAlbumName
         entry.newAlbumName = newAlbumName
+        entry.oldArtist = oldArtist
+        entry.newArtist = newArtist
         return entry
     }
 
@@ -122,11 +126,14 @@ struct CSVExporterTests {
     func artistRename() {
         let entry = makeEntry(
             changeType: .artistRename,
-            artist: "Iron Maiden"
+            artist: "New Artist",
+            oldArtist: "Old Artist",
+            newArtist: "New Artist"
         )
         let csv = CSVExporter.export(changes: [entry])
         #expect(csv.contains("Artist"))
-        #expect(csv.contains("Iron Maiden"))
+        #expect(csv.contains("Old Artist"))
+        #expect(csv.contains("New Artist"))
     }
 
     @Test("Fields with commas are quoted")

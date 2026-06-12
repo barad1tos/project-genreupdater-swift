@@ -14,6 +14,8 @@ struct AdvancedTab: View {
     @State private var newAlbumSuffix = ""
     @State private var newMappingSource = ""
     @State private var newMappingTarget = ""
+    @State private var newArtistRenameSource = ""
+    @State private var newArtistRenameTarget = ""
     @State private var newExceptionArtist = ""
     @State private var newExceptionAlbum = ""
     @State private var showResetConfirmation = false
@@ -24,6 +26,7 @@ struct AdvancedTab: View {
     var body: some View {
         Form {
             genreMappingsSection
+            artistRenamerSection
             editionKeywordsSection
             albumSuffixesSection
             AlbumTypeDetectionSection(dependencies: dependencies)
@@ -46,19 +49,37 @@ struct AdvancedTab: View {
     }
 
     private var genreMappingsSection: some View {
-        Section("Genre Mappings") {
-            GenreMappingsEditor(
-                mappings: Binding(
-                    get: { dependencies.config.cleaning.genreMappings },
-                    set: { newValue in
-                        dependencies.config.cleaning.genreMappings = newValue
-                        saveConfig()
-                    }
-                ),
-                newSource: $newMappingSource,
-                newTarget: $newMappingTarget
-            )
-        }
+        MappingsEditor(
+            title: "Genre Mappings",
+            emptyMessage: "No genre mappings configured",
+            footerText: "After genre determination, matching From values are replaced with To values.",
+            mappings: Binding(
+                get: { dependencies.config.cleaning.genreMappings },
+                set: { newValue in
+                    dependencies.config.cleaning.genreMappings = newValue
+                    saveConfig()
+                }
+            ),
+            newSource: $newMappingSource,
+            newTarget: $newMappingTarget
+        )
+    }
+
+    private var artistRenamerSection: some View {
+        MappingsEditor(
+            title: "Artist Renames",
+            emptyMessage: "No artist rename mappings configured",
+            footerText: "Matching track artists are renamed before metadata changes are previewed or applied.",
+            mappings: Binding(
+                get: { dependencies.config.artistRenamer.mappings },
+                set: { newValue in
+                    dependencies.config.artistRenamer.mappings = newValue
+                    saveConfig()
+                }
+            ),
+            newSource: $newArtistRenameSource,
+            newTarget: $newArtistRenameTarget
+        )
     }
 
     private var editionKeywordsSection: some View {

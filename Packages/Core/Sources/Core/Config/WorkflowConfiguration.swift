@@ -125,10 +125,30 @@ public struct ExceptionsConfig: Sendable, Codable {
 
 // MARK: - Artist Renamer Configuration
 
-public struct ArtistRenamerConfig: Sendable, Codable {
+public struct ArtistRenamerConfig: Sendable, Codable, Equatable {
     public var configPath: String = "artist-renames.yaml"
+    public var mappings: [String: String] = [:]
+
+    private enum CodingKeys: String, CodingKey {
+        case configPath, mappings
+        case legacyConfigPath = "config_path"
+    }
 
     public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        configPath = try container.decodeIfPresent(String.self, forKey: .configPath)
+            ?? container.decodeIfPresent(String.self, forKey: .legacyConfigPath)
+            ?? "artist-renames.yaml"
+        mappings = try container.decodeIfPresent([String: String].self, forKey: .mappings) ?? [:]
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(configPath, forKey: .configPath)
+        try container.encode(mappings, forKey: .mappings)
+    }
 }
 
 // MARK: - Verification Configuration

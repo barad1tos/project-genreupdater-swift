@@ -24,7 +24,8 @@ extension UpdateCoordinator {
             entry.oldAlbumName = change.oldValue
             entry.newAlbumName = change.newValue
         case .artistRename:
-            break
+            entry.oldArtist = change.oldValue
+            entry.newArtist = change.newValue
         }
 
         return entry
