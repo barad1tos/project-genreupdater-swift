@@ -148,6 +148,17 @@ struct GeneralTab: View {
 
     private var musicAppScriptingSection: some View {
         Section("Music App Scripting") {
+            Stepper(
+                value: configBinding(dependencies, \.applescript.batchProcessing.idsBatchSize),
+                in: 1 ... 5000,
+                step: 50
+            ) {
+                LabeledContent(
+                    "ID fetch batch size",
+                    value: "\(dependencies.config.applescript.batchProcessing.idsBatchSize)"
+                )
+            }
+
             Stepper(value: timeoutSecondsBinding(\.defaultTimeout), in: 60 ... 7200, step: 60) {
                 LabeledContent(
                     "Default timeout",
@@ -159,6 +170,13 @@ struct GeneralTab: View {
                 LabeledContent(
                     "Full library fetch",
                     value: timeoutDisplay(dependencies.config.applescript.timeouts.fullLibraryFetch)
+                )
+            }
+
+            Stepper(value: timeoutSecondsBinding(\.idsBatchFetch), in: 30 ... 1800, step: 30) {
+                LabeledContent(
+                    "ID batch fetch timeout",
+                    value: timeoutDisplay(dependencies.config.applescript.timeouts.idsBatchFetch)
                 )
             }
 
