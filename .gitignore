@@ -24,6 +24,7 @@ Packages/*/Package.resolved
 # IDE
 .idea/
 *.xcuserstate
+buildServer.json
 
 # Build artifacts
 build/

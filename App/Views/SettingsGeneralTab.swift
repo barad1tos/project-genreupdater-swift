@@ -1,6 +1,7 @@
 // SettingsGeneralTab.swift — general workflow and subscription settings.
 
 import Core
+import Foundation
 import SharedUI
 import SwiftUI
 
@@ -29,7 +30,7 @@ struct GeneralTab: View {
             fallbackSection
             yearValidationSection
             workflowSection
-            musicAppScriptingSection
+            MusicAppScriptingSection(dependencies: dependencies)
             genreUpdatesSection
             subscriptionSection
         }
@@ -185,49 +186,6 @@ struct GeneralTab: View {
         }
     }
 
-    private var musicAppScriptingSection: some View {
-        Section("Music App Scripting") {
-            Stepper(
-                value: configBinding(dependencies, \.applescript.batchProcessing.idsBatchSize),
-                in: 1 ... 5000,
-                step: 50
-            ) {
-                LabeledContent(
-                    "ID fetch batch size",
-                    value: "\(dependencies.config.applescript.batchProcessing.idsBatchSize)"
-                )
-            }
-
-            Stepper(value: timeoutSecondsBinding(\.defaultTimeout), in: 60 ... 7200, step: 60) {
-                LabeledContent(
-                    "Default timeout",
-                    value: timeoutDisplay(dependencies.config.applescript.timeouts.defaultTimeout)
-                )
-            }
-
-            Stepper(value: timeoutSecondsBinding(\.fullLibraryFetch), in: 300 ... 7200, step: 300) {
-                LabeledContent(
-                    "Full library fetch",
-                    value: timeoutDisplay(dependencies.config.applescript.timeouts.fullLibraryFetch)
-                )
-            }
-
-            Stepper(value: timeoutSecondsBinding(\.idsBatchFetch), in: 30 ... 1800, step: 30) {
-                LabeledContent(
-                    "ID batch fetch timeout",
-                    value: timeoutDisplay(dependencies.config.applescript.timeouts.idsBatchFetch)
-                )
-            }
-
-            Stepper(value: timeoutSecondsBinding(\.batchUpdate), in: 60 ... 7200, step: 60) {
-                LabeledContent(
-                    "Batch update timeout",
-                    value: timeoutDisplay(dependencies.config.applescript.timeouts.batchUpdate)
-                )
-            }
-        }
-    }
-
     private var genreUpdatesSection: some View {
         Section("Genre Updates") {
             Stepper(value: configBinding(dependencies, \.genreUpdate.batchSize), in: 1 ... 500) {
@@ -268,6 +226,165 @@ struct GeneralTab: View {
         }
     }
 
+    private func saveConfig() {
+        saveConfiguration(dependencies)
+    }
+}
+
+private struct MusicAppScriptingSection: View {
+    let dependencies: AppDependencies
+
+    var body: some View {
+        Section("Music App Scripting") {
+            AppleScriptBatchFetchSettings(dependencies: dependencies)
+            AppleScriptRateLimitSettings(dependencies: dependencies)
+            AppleScriptRetrySettings(dependencies: dependencies)
+            AppleScriptTimeoutSettings(dependencies: dependencies)
+        }
+    }
+}
+
+private struct AppleScriptBatchFetchSettings: View {
+    let dependencies: AppDependencies
+
+    var body: some View {
+        Stepper(
+            value: configBinding(dependencies, \.applescript.batchProcessing.idsBatchSize),
+            in: 1 ... 5000,
+            step: 50
+        ) {
+            LabeledContent(
+                "ID fetch batch size",
+                value: "\(dependencies.config.applescript.batchProcessing.idsBatchSize)"
+            )
+        }
+    }
+}
+
+private struct AppleScriptRateLimitSettings: View {
+    let dependencies: AppDependencies
+
+    var body: some View {
+        Toggle("Rate limit AppleScript calls", isOn: configBinding(dependencies, \.applescript.rateLimit.enabled))
+
+        Group {
+            Stepper(value: configBinding(dependencies, \.applescript.rateLimit.requestsPerWindow), in: 1 ... 60) {
+                LabeledContent(
+                    "Requests per window",
+                    value: "\(dependencies.config.applescript.rateLimit.requestsPerWindow)"
+                )
+            }
+
+            Stepper(
+                value: configBinding(dependencies, \.applescript.rateLimit.windowSizeSeconds),
+                in: 0.1 ... 60,
+                step: 0.1
+            ) {
+                LabeledContent(
+                    "Window size",
+                    value: String(format: "%.1fs", dependencies.config.applescript.rateLimit.windowSizeSeconds)
+                )
+            }
+        }
+        .disabled(!dependencies.config.applescript.rateLimit.enabled)
+    }
+}
+
+private struct AppleScriptRetrySettings: View {
+    let dependencies: AppDependencies
+
+    var body: some View {
+        Stepper(value: configBinding(dependencies, \.applescript.retry.maxRetries), in: 0 ... 10) {
+            LabeledContent("Retry attempts", value: "\(dependencies.config.applescript.retry.maxRetries)")
+        }
+
+        Group {
+            Stepper(
+                value: configBinding(dependencies, \.applescript.retry.baseDelaySeconds),
+                in: 0 ... 30,
+                step: 0.5
+            ) {
+                LabeledContent(
+                    "Retry base delay",
+                    value: String(format: "%.1fs", dependencies.config.applescript.retry.baseDelaySeconds)
+                )
+            }
+
+            Stepper(
+                value: configBinding(dependencies, \.applescript.retry.maxDelaySeconds),
+                in: 0 ... 120,
+                step: 0.5
+            ) {
+                LabeledContent(
+                    "Retry max delay",
+                    value: String(format: "%.1fs", dependencies.config.applescript.retry.maxDelaySeconds)
+                )
+            }
+
+            VStack(alignment: .leading) {
+                Text("Retry jitter: \(Int(dependencies.config.applescript.retry.jitterRange * 100))%")
+                Slider(
+                    value: configBinding(dependencies, \.applescript.retry.jitterRange),
+                    in: 0 ... 1,
+                    step: 0.05
+                )
+            }
+
+            Stepper(
+                value: configBinding(dependencies, \.applescript.retry.operationTimeoutSeconds),
+                in: 0 ... 600,
+                step: 5
+            ) {
+                LabeledContent(
+                    "Retry operation timeout",
+                    value: String(format: "%.0fs", dependencies.config.applescript.retry.operationTimeoutSeconds)
+                )
+            }
+        }
+        .disabled(dependencies.config.applescript.retry.maxRetries == 0)
+    }
+}
+
+private struct AppleScriptTimeoutSettings: View {
+    let dependencies: AppDependencies
+
+    var body: some View {
+        Stepper(value: timeoutSecondsBinding(\.defaultTimeout), in: 60 ... 7200, step: 60) {
+            LabeledContent(
+                "Default timeout",
+                value: timeoutDisplay(dependencies.config.applescript.timeouts.defaultTimeout)
+            )
+        }
+
+        Stepper(value: timeoutSecondsBinding(\.fullLibraryFetch), in: 300 ... 7200, step: 300) {
+            LabeledContent(
+                "Full library fetch",
+                value: timeoutDisplay(dependencies.config.applescript.timeouts.fullLibraryFetch)
+            )
+        }
+
+        Stepper(value: timeoutSecondsBinding(\.singleArtistFetch), in: 60 ... 3600, step: 60) {
+            LabeledContent(
+                "Single artist fetch",
+                value: timeoutDisplay(dependencies.config.applescript.timeouts.singleArtistFetch)
+            )
+        }
+
+        Stepper(value: timeoutSecondsBinding(\.idsBatchFetch), in: 30 ... 1800, step: 30) {
+            LabeledContent(
+                "ID batch fetch timeout",
+                value: timeoutDisplay(dependencies.config.applescript.timeouts.idsBatchFetch)
+            )
+        }
+
+        Stepper(value: timeoutSecondsBinding(\.batchUpdate), in: 60 ... 7200, step: 60) {
+            LabeledContent(
+                "Batch update timeout",
+                value: timeoutDisplay(dependencies.config.applescript.timeouts.batchUpdate)
+            )
+        }
+    }
+
     private func timeoutSecondsBinding(_ keyPath: WritableKeyPath<AppleScriptTimeouts, Duration>) -> Binding<Int> {
         Binding(
             get: {
@@ -275,7 +392,7 @@ struct GeneralTab: View {
             },
             set: { newValue in
                 dependencies.config.applescript.timeouts[keyPath: keyPath] = .seconds(max(1, newValue))
-                saveConfig()
+                saveConfiguration(dependencies)
             }
         )
     }
@@ -289,9 +406,5 @@ struct GeneralTab: View {
             return "\(seconds / 60)m"
         }
         return "\(seconds)s"
-    }
-
-    private func saveConfig() {
-        saveConfiguration(dependencies)
     }
 }

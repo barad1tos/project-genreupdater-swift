@@ -65,14 +65,17 @@ private struct UnsafeSendable<T>: @unchecked Sendable {
 public actor AppleScriptBridge: AppleScriptClient {
     private let installer: ScriptInstaller
     private var config: AppleScriptConfig
+    private var rateLimiter: TokenBucketRateLimiter?
 
     public init(installer: ScriptInstaller, config: AppleScriptConfig = .init()) {
         self.installer = installer
         self.config = config
+        self.rateLimiter = Self.makeRateLimiter(configuration: config.rateLimit)
     }
 
     public func updateConfiguration(_ config: AppleScriptConfig) {
         self.config = config
+        rateLimiter = Self.makeRateLimiter(configuration: config.rateLimit)
     }
 
     public func initialize() async throws {
@@ -99,37 +102,19 @@ public actor AppleScriptBridge: AppleScriptClient {
         let runScriptSignpost = AppSignpost.appleScriptWrite.beginInterval("runScript")
         defer { AppSignpost.appleScriptWrite.endInterval("runScript", runScriptSignpost) }
 
-        // Sanitize arguments
         let sanitizedArgs = try InputSanitizer.sanitizeArguments(arguments)
+        let effectiveTimeout = timeout ?? config.timeouts.defaultTimeout
+        let retryConfiguration = config.retry
 
         log.info("Executing script: \(name, privacy: .public) with \(sanitizedArgs.count, privacy: .public) arguments")
 
-        let task = try NSUserAppleScriptTask(url: scriptURL)
-
-        // Build Apple Event with arguments
-        let event = try buildAppleEvent(arguments: sanitizedArgs)
-        let effectiveTimeout = timeout ?? config.timeouts.defaultTimeout
-
-        // Execute with timeout
-        // NSUserAppleScriptTask/NSAppleEventDescriptor are not Sendable but safe here —
-        // the actor serializes all calls, and only one TaskGroup child uses them.
-        let wrappedTask = UnsafeSendable(value: task)
-        let wrappedEvent = UnsafeSendable(value: event)
-        return try await withThrowingTaskGroup(of: String?.self) { group in
-            group.addTask {
-                let descriptor = try await wrappedTask.value.execute(withAppleEvent: wrappedEvent.value)
-                return descriptor.stringValue
-            }
-
-            group.addTask {
-                try await Task.sleep(for: effectiveTimeout)
-                throw AppleScriptBridgeError.timeout(scriptName: name, duration: effectiveTimeout)
-            }
-
-            // Return first completed result, cancel the other
-            let result = try await group.next()
-            group.cancelAll()
-            return result.flatMap(\.self)
+        return try await retryAppleScriptOperation(scriptName: name, retry: retryConfiguration) {
+            try await self.executeScriptAttempt(
+                name: name,
+                scriptURL: scriptURL,
+                arguments: sanitizedArgs,
+                timeout: effectiveTimeout
+            )
         }
     }
 
@@ -256,6 +241,135 @@ public actor AppleScriptBridge: AppleScriptClient {
     private func parseTrackOutput(_ output: String) -> [Core.Track] {
         output.split(separator: Core.Track.recordSeparator)
             .compactMap { Core.Track.fromAppleScriptOutput(String($0)) }
+    }
+}
+
+extension AppleScriptBridge {
+    func executeScriptAttempt(
+        name: String,
+        scriptURL: URL,
+        arguments: [String],
+        timeout: Duration
+    ) async throws -> String? {
+        if let rateLimiter {
+            let waitTime = await rateLimiter.acquire()
+            if waitTime > .zero {
+                log.debug("AppleScript rate limited, waited \(waitTime, privacy: .public)")
+            }
+        }
+
+        let task = try NSUserAppleScriptTask(url: scriptURL)
+        let event = try buildAppleEvent(arguments: arguments)
+
+        let wrappedTask = UnsafeSendable(value: task)
+        let wrappedEvent = UnsafeSendable(value: event)
+        return try await withThrowingTaskGroup(of: String?.self) { group in
+            group.addTask {
+                let descriptor = try await wrappedTask.value.execute(withAppleEvent: wrappedEvent.value)
+                return descriptor.stringValue
+            }
+
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw AppleScriptBridgeError.timeout(scriptName: name, duration: timeout)
+            }
+
+            let result = try await group.next()
+            group.cancelAll()
+            return result.flatMap(\.self)
+        }
+    }
+
+    func retryAppleScriptOperation<T>(
+        scriptName: String,
+        retry: AppleScriptRetry,
+        operation: () async throws -> T
+    ) async throws -> T {
+        let clock = ContinuousClock()
+        let startedAt = clock.now
+        let maxRetries = max(0, retry.maxRetries)
+        var delaySeconds = max(0, retry.baseDelaySeconds)
+
+        for attempt in 0 ... maxRetries {
+            if Self.hasExceededTotalTimeout(startedAt: startedAt, retry: retry, clock: clock) {
+                throw AppleScriptBridgeError.timeout(
+                    scriptName: scriptName,
+                    duration: Self.duration(seconds: retry.operationTimeoutSeconds)
+                )
+            }
+
+            do {
+                return try await operation()
+            } catch {
+                guard attempt < maxRetries, Self.isRetryableAppleScriptError(error) else {
+                    throw error
+                }
+
+                let delay = Self.retryDelaySeconds(
+                    afterFailureAt: attempt,
+                    baseDelaySeconds: delaySeconds,
+                    jitterRange: retry.jitterRange
+                )
+                if delay > 0 {
+                    try await Task.sleep(for: Self.duration(seconds: delay))
+                }
+                delaySeconds = min(max(0, retry.maxDelaySeconds), max(0, delaySeconds * 2))
+            }
+        }
+
+        throw AppleScriptBridgeError.executionFailed(
+            scriptName: scriptName,
+            detail: "Retry loop exited without a result"
+        )
+    }
+
+    static func isRetryableAppleScriptError(_ error: any Error) -> Bool {
+        guard let bridgeError = error as? AppleScriptBridgeError else {
+            return isTransientError(error)
+        }
+
+        switch bridgeError {
+        case .executionFailed, .musicAppNotRunning, .timeout:
+            return true
+        case .parseError, .scriptNotFound, .scriptsNotInstalled:
+            return false
+        }
+    }
+
+    static func retryDelaySeconds(
+        afterFailureAt attempt: Int,
+        baseDelaySeconds: Double,
+        jitterRange: Double
+    ) -> Double {
+        let baseDelay = max(0, baseDelaySeconds)
+        let clampedJitter = min(max(0, jitterRange), 1)
+        let jitterSeed = Double((attempt * 31 + 17) % 100) / 100
+        let jitterOffset = (jitterSeed - 0.5) * 2 * baseDelay * clampedJitter
+        return max(0, baseDelay + jitterOffset)
+    }
+
+    static func makeRateLimiter(configuration: AppleScriptRateLimit) -> TokenBucketRateLimiter? {
+        guard configuration.enabled else { return nil }
+
+        let requestCount = max(1, configuration.requestsPerWindow)
+        let refillMilliseconds = max(1, Int((configuration.windowSizeSeconds / Double(requestCount)) * 1000))
+        return TokenBucketRateLimiter(
+            maxTokens: requestCount,
+            refillInterval: .milliseconds(refillMilliseconds)
+        )
+    }
+
+    private static func hasExceededTotalTimeout(
+        startedAt: ContinuousClock.Instant,
+        retry: AppleScriptRetry,
+        clock: ContinuousClock
+    ) -> Bool {
+        guard retry.operationTimeoutSeconds > 0 else { return false }
+        return startedAt.duration(to: clock.now) > duration(seconds: retry.operationTimeoutSeconds)
+    }
+
+    private static func duration(seconds: Double) -> Duration {
+        .milliseconds(max(0, Int(seconds * 1000)))
     }
 }
 
