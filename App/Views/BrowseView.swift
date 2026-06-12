@@ -159,13 +159,7 @@ struct BrowseView: View {
             name: artist.canonicalName,
             albumCount: artist.albumCount,
             trackCount: artist.totalTrackCount,
-            isSelected: viewModel.selectedItems.contains(artist.id),
-            primaryGenre: artist.primaryGenre,
-            healthRatio: artist.healthRatio,
-            variantCount: artist.variants.count,
-            lastModified: artist.lastModified,
-            showCheckbox: viewModel.hasSelection,
-            onCheckboxToggle: { viewModel.handleCheckboxToggle(artist.id) }
+            isSelected: viewModel.selectedItems.contains(artist.id)
         )
         .background {
             GeometryReader { geometry in
@@ -222,11 +216,7 @@ struct BrowseView: View {
             title: album.name,
             genre: album.primaryGenre,
             year: album.year,
-            trackCount: album.trackCount,
-            healthRatio: album.healthRatio,
-            isSelected: viewModel.selectedAlbum == albumID,
-            showCheckbox: viewModel.hasSelection,
-            onCheckboxToggle: { viewModel.handleCheckboxToggle(album.id) }
+            isSelected: viewModel.selectedAlbum == albumID
         )
         .padding(.leading, Spacing.lg)
         .background {
@@ -324,10 +314,7 @@ extension BrowseView {
                             ArtistListRow(
                                 name: artist.canonicalName,
                                 albumCount: artist.albumCount,
-                                trackCount: artist.totalTrackCount,
-                                primaryGenre: artist.primaryGenre,
-                                healthRatio: artist.healthRatio,
-                                variantCount: artist.variants.count
+                                trackCount: artist.totalTrackCount
                             )
                             .contentShape(.rect)
                             .onTapGesture {
@@ -342,9 +329,7 @@ extension BrowseView {
                             AlbumListRow(
                                 title: album.name,
                                 genre: album.primaryGenre,
-                                year: album.year,
-                                trackCount: album.trackCount,
-                                healthRatio: album.healthRatio
+                                year: album.year
                             )
                             .contentShape(.rect)
                             .onTapGesture {
