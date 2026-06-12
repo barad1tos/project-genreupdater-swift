@@ -218,9 +218,11 @@ final class AppDependencies {
         let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: config)
         let appleScriptConfiguration = config.applescript
         let librarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: config)
-        Task { [updateCoordinator, applescriptBridge, librarySyncService] in
+        let batchProcessingConfiguration = BatchProcessingConfiguration(configuration: config)
+        Task { [updateCoordinator, applescriptBridge, librarySyncService, batchProcessor] in
             await applescriptBridge?.updateConfiguration(appleScriptConfiguration)
             await librarySyncService?.updateRuntimeConfiguration(librarySyncRuntimeConfiguration)
+            await batchProcessor?.updateProcessingConfiguration(batchProcessingConfiguration)
             await updateCoordinator?.updateRuntimeConfiguration(
                 runtimeConfiguration,
                 yearDeterminator: configuredYearDeterminator,
@@ -378,7 +380,8 @@ final class AppDependencies {
 
         batchProcessor = BatchProcessor(
             checkpointManager: checkpoint,
-            featureGate: gate
+            featureGate: gate,
+            processingConfiguration: BatchProcessingConfiguration(configuration: config)
         )
 
         librarySyncService = LibrarySyncService(

@@ -15,7 +15,6 @@ private actor Accumulator<T: Sendable> {
     func getAll() -> [T] {
         items
     }
-
 }
 
 private actor Counter {
@@ -71,6 +70,63 @@ struct BatchProcessorTests {
         // 5 tracks + 1 completion
         #expect(updates.count == 6)
         #expect(updates.last?.phase == .complete)
+    }
+
+    @Test("Batch configuration clamps to experimental max batch size")
+    func batchConfigurationClampsToExperimentalMaxBatchSize() {
+        var appConfiguration = AppConfiguration()
+        appConfiguration.processing.batchSize = 25
+        appConfiguration.processing.delayBetweenBatches = 0.25
+        appConfiguration.experimental.batchUpdatesEnabled = true
+        appConfiguration.experimental.maxBatchSize = 4
+
+        let configuration = BatchProcessingConfiguration(configuration: appConfiguration)
+
+        #expect(configuration.batchSize == 4)
+        #expect(configuration.delayBetweenBatchesMilliseconds == 250)
+        #expect(configuration.shouldDelayAfterBatch(processedCount: 4, isLastTrack: false))
+        #expect(!configuration.shouldDelayAfterBatch(processedCount: 5, isLastTrack: false))
+        #expect(!configuration.shouldDelayAfterBatch(processedCount: 4, isLastTrack: true))
+
+        let disabledConfiguration = BatchProcessingConfiguration(
+            batchSize: 1,
+            delayBetweenBatches: 0.25,
+            adaptiveDelay: false
+        )
+        #expect(!disabledConfiguration.shouldDelayAfterBatch(processedCount: 1, isLastTrack: false))
+    }
+
+    @Test("Runtime batch processing configuration applies delay between batches")
+    func runtimeBatchProcessingConfigurationAppliesDelayBetweenBatches() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let checkpoint = CheckpointManager(directory: dir)
+        let gate = await FeatureGate(fixedTier: .weekPass)
+        let processor = BatchProcessor(
+            checkpointManager: checkpoint,
+            featureGate: gate,
+            checkpointInterval: 100,
+            processingConfiguration: BatchProcessingConfiguration(
+                batchSize: 10,
+                delayBetweenBatches: 0
+            )
+        )
+        await processor.updateProcessingConfiguration(BatchProcessingConfiguration(
+            batchSize: 1,
+            delayBetweenBatches: 0.03
+        ))
+
+        let clock = ContinuousClock()
+        let start = clock.now
+        _ = try await processor.process(
+            tracks: makeTracks(count: 2),
+            operation: { _ in [] },
+            progressHandler: { _ in }
+        )
+        let elapsed = start.duration(to: clock.now)
+
+        #expect(elapsed >= .milliseconds(20))
     }
 
     @Test("Feature gate denies free tier")

@@ -45,6 +45,48 @@ private struct CheckpointSnapshot {
     let changes: [ChangeLogEntry]
 }
 
+// MARK: - Batch Processing Configuration
+
+public struct BatchProcessingConfiguration: Sendable, Equatable {
+    public let batchSize: Int
+    public let delayBetweenBatchesMilliseconds: Int
+    public let adaptiveDelay: Bool
+
+    public init(
+        batchSize: Int = AppConfiguration().processing.batchSize,
+        delayBetweenBatches: Double = AppConfiguration().processing.delayBetweenBatches,
+        adaptiveDelay: Bool = AppConfiguration().processing.adaptiveDelay,
+        maxBatchSize: Int? = nil
+    ) {
+        let configuredBatchSize = max(1, batchSize)
+        self.batchSize = maxBatchSize.map { max(1, min(configuredBatchSize, $0)) } ?? configuredBatchSize
+        delayBetweenBatchesMilliseconds = max(0, Int((delayBetweenBatches * 1000).rounded()))
+        self.adaptiveDelay = adaptiveDelay
+    }
+
+    public init(configuration: AppConfiguration) {
+        self.init(
+            batchSize: configuration.processing.batchSize,
+            delayBetweenBatches: configuration.processing.delayBetweenBatches,
+            adaptiveDelay: configuration.processing.adaptiveDelay,
+            maxBatchSize: configuration.experimental.batchUpdatesEnabled
+                ? configuration.experimental.maxBatchSize
+                : nil
+        )
+    }
+
+    var delayBetweenBatches: Duration {
+        .milliseconds(delayBetweenBatchesMilliseconds)
+    }
+
+    func shouldDelayAfterBatch(processedCount: Int, isLastTrack: Bool) -> Bool {
+        adaptiveDelay
+            && !isLastTrack
+            && delayBetweenBatchesMilliseconds > 0
+            && processedCount.isMultiple(of: batchSize)
+    }
+}
+
 // MARK: - Batch Processor
 
 /// Processes tracks in configurable batches with pause/resume/cancel and progress streaming.
@@ -63,6 +105,7 @@ public actor BatchProcessor {
     private let checkpointManager: CheckpointManager
     private let featureGate: FeatureGate
     private let checkpointInterval: Int
+    private var processingConfiguration: BatchProcessingConfiguration
     private var currentState: State = .idle
     private var pauseRequested = false
     private var cancelRequested = false
@@ -74,11 +117,17 @@ public actor BatchProcessor {
     public init(
         checkpointManager: CheckpointManager,
         featureGate: FeatureGate,
-        checkpointInterval: Int = 50
+        checkpointInterval: Int = 50,
+        processingConfiguration: BatchProcessingConfiguration = BatchProcessingConfiguration()
     ) {
         self.checkpointManager = checkpointManager
         self.featureGate = featureGate
         self.checkpointInterval = checkpointInterval
+        self.processingConfiguration = processingConfiguration
+    }
+
+    public func updateProcessingConfiguration(_ processingConfiguration: BatchProcessingConfiguration) {
+        self.processingConfiguration = processingConfiguration
     }
 
     /// Current processing state.
@@ -145,9 +194,14 @@ public actor BatchProcessor {
                 totalCount: tracks.count,
                 lastIndex: index
             )
+            let processedCount = index - resume.startIndex + 1
             try await checkpointIfNeeded(
-                processed: index - resume.startIndex + 1,
+                processed: processedCount,
                 snapshot: currentSnapshot
+            )
+            try await delayBetweenConfiguredBatches(
+                processedCount: processedCount,
+                isLastTrack: index == tracks.count - 1
             )
         }
 
@@ -275,6 +329,18 @@ public actor BatchProcessor {
             total: totalCount,
             message: eta.map { "ETA: \($0)" }
         ))
+    }
+
+    private func delayBetweenConfiguredBatches(
+        processedCount: Int,
+        isLastTrack: Bool
+    ) async throws {
+        guard processingConfiguration.shouldDelayAfterBatch(
+            processedCount: processedCount,
+            isLastTrack: isLastTrack
+        ) else { return }
+
+        try await Task.sleep(for: processingConfiguration.delayBetweenBatches)
     }
 
     private func checkpointIfNeeded(
