@@ -135,6 +135,7 @@ actor MockCacheService: CacheService {
 /// to simulate network failures and slow responses.
 struct MockAPIService: ExternalAPIService {
     let yearResult: YearResult
+    let releaseCandidates: [ReleaseCandidate]
     let shouldThrow: Bool
     let delay: Duration
     let artistActivityPeriod: (start: Int?, end: Int?)
@@ -142,12 +143,14 @@ struct MockAPIService: ExternalAPIService {
 
     init(
         yearResult: YearResult = YearResult(),
+        releaseCandidates: [ReleaseCandidate] = [],
         shouldThrow: Bool = false,
         delay: Duration = .zero,
         artistActivityPeriod: (start: Int?, end: Int?) = (nil, nil),
         artistStartYear: Int? = nil
     ) {
         self.yearResult = yearResult
+        self.releaseCandidates = releaseCandidates
         self.shouldThrow = shouldThrow
         self.delay = delay
         self.artistActivityPeriod = artistActivityPeriod
@@ -160,13 +163,24 @@ struct MockAPIService: ExternalAPIService {
         currentLibraryYear _: Int?,
         earliestTrackAddedYear _: Int?
     ) async throws -> YearResult {
-        if delay > .zero {
-            try await Task.sleep(for: delay)
-        }
+        try await waitIfNeeded()
         if shouldThrow {
             throw MockAPIError.intentional
         }
         return yearResult
+    }
+
+    func getReleaseCandidates(
+        artist _: String,
+        album _: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> [ReleaseCandidate] {
+        try await waitIfNeeded()
+        if shouldThrow {
+            throw MockAPIError.intentional
+        }
+        return releaseCandidates
     }
 
     func getArtistActivityPeriod(
@@ -189,6 +203,12 @@ struct MockAPIService: ExternalAPIService {
 
     func initialize(force _: Bool) async throws {}
     func close() async {}
+
+    private func waitIfNeeded() async throws {
+        if delay > .zero {
+            try await Task.sleep(for: delay)
+        }
+    }
 }
 
 // MARK: - MockAPIError

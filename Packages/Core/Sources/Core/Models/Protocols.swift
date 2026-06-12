@@ -225,6 +225,18 @@ public protocol ExternalAPIService: Sendable {
         earliestTrackAddedYear: Int?
     ) async throws -> YearResult
 
+    /// Return raw release candidates for album year scoring.
+    ///
+    /// Clients that cannot provide candidate lists may use the default empty
+    /// implementation. Production API clients should override this so
+    /// `YearDeterminator` can apply the same scoring pipeline used by Python.
+    func getReleaseCandidates(
+        artist: String,
+        album: String,
+        currentLibraryYear: Int?,
+        earliestTrackAddedYear: Int?
+    ) async throws -> [ReleaseCandidate]
+
     /// Retrieve the period of activity for an artist.
     func getArtistActivityPeriod(normalizedArtist: String) async throws -> (start: Int?, end: Int?)
 
@@ -239,6 +251,15 @@ public protocol ExternalAPIService: Sendable {
 }
 
 extension ExternalAPIService {
+    public func getReleaseCandidates(
+        artist _: String,
+        album _: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> [ReleaseCandidate] {
+        []
+    }
+
     public func initialize(force: Bool = false) async throws {
         try await initialize(force: force)
     }

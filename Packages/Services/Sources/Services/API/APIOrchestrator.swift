@@ -71,17 +71,17 @@ public struct APISourcePriorityConfiguration: Sendable {
 
 public actor APIOrchestrator {
     let musicBrainz: any ExternalAPIService
-    private let discogs: any ExternalAPIService
+    let discogs: any ExternalAPIService
     let appleMusic: any ExternalAPIService
-    private let reachability: NetworkReachabilityMonitor?
+    let reachability: NetworkReachabilityMonitor?
     let cache: (any CacheService)?
     private let pendingVerificationService: (any PendingVerificationService)?
     private let maxVerificationAttempts: Int
-    private let timeout: Duration
+    let timeout: Duration
     private let negativeResultTTL: TimeInterval
     private let maxConcurrentSourceCalls: Int
-    private let apiRetryConfiguration: APIRetryConfiguration
-    private let sourcePriorityConfiguration: APISourcePriorityConfiguration
+    let apiRetryConfiguration: APIRetryConfiguration
+    let sourcePriorityConfiguration: APISourcePriorityConfiguration
     private let log = AppLogger.api
 
     /// Creates an orchestrator with three API sources and a per-source timeout.
@@ -460,7 +460,7 @@ private func fetchWithTimeout(
 // MARK: - SourceQuery
 
 /// Bundles query parameters for a single source fetch.
-private struct APIRetryConfiguration {
+struct APIRetryConfiguration {
     let maxAttempts: Int
     let initialDelay: Duration
 
