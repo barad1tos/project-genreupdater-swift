@@ -1,0 +1,14 @@
+schemaVersion: 1
+enabledWorkflows:
+  - session-management
+  - project-discovery
+  - macos
+  - swift-package
+  - utilities
+sessionDefaults:
+  projectPath: GenreUpdater.xcodeproj
+  scheme: GenreUpdater
+  configuration: Debug
+  platform: macOS
+  arch: arm64
+  preferXcodebuild: true
