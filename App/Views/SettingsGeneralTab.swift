@@ -149,6 +149,16 @@ struct GeneralTab: View {
             }
 
             Toggle("Override existing genres", isOn: configBinding(dependencies, \.genreUpdate.overrideExisting))
+
+            Toggle("Experimental batch updates", isOn: configBinding(dependencies, \.experimental.batchUpdatesEnabled))
+
+            Stepper(value: configBinding(dependencies, \.experimental.maxBatchSize), in: 1 ... 50) {
+                LabeledContent(
+                    "Experimental max batch",
+                    value: "\(dependencies.config.experimental.maxBatchSize)"
+                )
+            }
+            .disabled(!dependencies.config.experimental.batchUpdatesEnabled)
         }
     }
 
