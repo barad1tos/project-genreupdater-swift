@@ -80,10 +80,27 @@ struct GeneralTab: View {
 
             Toggle("Adaptive delay", isOn: configBinding(dependencies, \.processing.adaptiveDelay))
 
+            Stepper(value: configBinding(dependencies, \.processing.pendingVerificationIntervalDays), in: 0 ... 365) {
+                LabeledContent(
+                    "Pending verification",
+                    value: "\(dependencies.config.processing.pendingVerificationIntervalDays)d"
+                )
+            }
+
+            Toggle("Skip prereleases", isOn: configBinding(dependencies, \.processing.skipPrerelease))
+
             Picker("Prerelease handling", selection: configBinding(dependencies, \.processing.prereleaseHandling)) {
                 ForEach(PrereleaseHandling.allCases, id: \.self) { mode in
                     Text(mode.displayName).tag(mode)
                 }
+            }
+
+            Stepper(value: configBinding(dependencies, \.processing.futureYearThreshold), in: 0 ... 10) {
+                LabeledContent("Future year threshold", value: "\(dependencies.config.processing.futureYearThreshold)y")
+            }
+
+            Stepper(value: configBinding(dependencies, \.processing.prereleaseRecheckDays), in: 0 ... 365) {
+                LabeledContent("Prerelease recheck", value: "\(dependencies.config.processing.prereleaseRecheckDays)d")
             }
         }
     }
