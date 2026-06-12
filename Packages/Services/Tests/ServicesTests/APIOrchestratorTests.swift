@@ -131,6 +131,40 @@ struct APIOrchestratorTests {
         #expect(result.year == 2000)
     }
 
+    @Test("Limits concurrent source calls")
+    func limitsConcurrentSourceCalls() async {
+        let probe = APIConcurrencyProbe()
+        let orchestrator = APIOrchestrator(
+            musicBrainz: RecordingAPIService(
+                probe: probe,
+                yearResult: YearResult(year: 2000, confidence: 60, yearScores: [2000: 60]),
+                delay: .milliseconds(50)
+            ),
+            discogs: RecordingAPIService(
+                probe: probe,
+                yearResult: YearResult(year: 2001, confidence: 60, yearScores: [2001: 60]),
+                delay: .milliseconds(50)
+            ),
+            appleMusic: RecordingAPIService(
+                probe: probe,
+                yearResult: YearResult(year: 2002, confidence: 60, yearScores: [2002: 60]),
+                delay: .milliseconds(50)
+            ),
+            timeout: .seconds(1),
+            maxConcurrentSourceCalls: 1
+        )
+
+        _ = await orchestrator.getAlbumYear(
+            artist: "Test",
+            album: "Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        let maxActive = await probe.maxActive()
+        #expect(maxActive == 1)
+    }
+
     @Test("Best year selected by highest combined score across sources")
     func bestYearSelectedByHighestCombinedScore() async {
         // MB returns 1984 (80), DC returns 1985 (60), AM returns 1984 (70)
@@ -179,4 +213,55 @@ struct APIOrchestratorTests {
         #expect(result.yearScores[1984] == 150)
         #expect(result.yearScores[1985] == 60)
     }
+}
+
+private actor APIConcurrencyProbe {
+    private var activeCount = 0
+    private var maxActiveCount = 0
+
+    func begin() {
+        activeCount += 1
+        maxActiveCount = max(maxActiveCount, activeCount)
+    }
+
+    func end() {
+        activeCount -= 1
+    }
+
+    func maxActive() -> Int {
+        maxActiveCount
+    }
+}
+
+private struct RecordingAPIService: ExternalAPIService {
+    let probe: APIConcurrencyProbe
+    let yearResult: YearResult
+    let delay: Duration
+
+    func getAlbumYear(
+        artist _: String,
+        album _: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> YearResult {
+        await probe.begin()
+        try await Task.sleep(for: delay)
+        await probe.end()
+        return yearResult
+    }
+
+    func getArtistActivityPeriod(
+        normalizedArtist _: String
+    ) async throws -> (start: Int?, end: Int?) {
+        (nil, nil)
+    }
+
+    func getArtistStartYear(
+        normalizedArtist _: String
+    ) async throws -> Int? {
+        nil
+    }
+
+    func initialize(force _: Bool) async throws {}
+    func close() async {}
 }

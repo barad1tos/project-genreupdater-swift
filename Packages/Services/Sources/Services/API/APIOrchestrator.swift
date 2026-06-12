@@ -31,6 +31,7 @@ public actor APIOrchestrator {
     private let appleMusic: any ExternalAPIService
     private let reachability: NetworkReachabilityMonitor?
     private let timeout: Duration
+    private let maxConcurrentSourceCalls: Int
     private let log = AppLogger.api
 
     /// Creates an orchestrator with three API sources and a per-source timeout.
@@ -41,18 +42,21 @@ public actor APIOrchestrator {
     ///   - appleMusic: Apple Music catalog search client.
     ///   - reachability: Optional network monitor. When offline, API calls are skipped.
     ///   - timeout: Maximum time to wait for each source. Defaults to 15 seconds.
+    ///   - maxConcurrentSourceCalls: Maximum API sources queried at once. Values below 1 are clamped.
     public init(
         musicBrainz: any ExternalAPIService,
         discogs: any ExternalAPIService,
         appleMusic: any ExternalAPIService,
         reachability: NetworkReachabilityMonitor? = nil,
-        timeout: Duration = .seconds(15)
+        timeout: Duration = .seconds(15),
+        maxConcurrentSourceCalls: Int = 3
     ) {
         self.musicBrainz = musicBrainz
         self.discogs = discogs
         self.appleMusic = appleMusic
         self.reachability = reachability
         self.timeout = timeout
+        self.maxConcurrentSourceCalls = max(1, maxConcurrentSourceCalls)
     }
 
     /// Query all three sources in parallel and aggregate results by year score.
@@ -98,7 +102,12 @@ public actor APIOrchestrator {
             of: YearResult.self,
             returning: [YearResult].self
         ) { group in
-            for (sourceName, service) in sources {
+            var nextSourceIndex = 0
+            let initialSourceCount = min(maxConcurrentSourceCalls, sources.count)
+
+            while nextSourceIndex < initialSourceCount {
+                let (sourceName, service) = sources[nextSourceIndex]
+                nextSourceIndex += 1
                 group.addTask { [log] in
                     await Self.fetchWithTimeout(
                         source: sourceName,
@@ -110,8 +119,21 @@ public actor APIOrchestrator {
             }
 
             var collected: [YearResult] = []
-            for await result in group {
+            while let result = await group.next() {
                 collected.append(result)
+
+                if nextSourceIndex < sources.count {
+                    let (sourceName, service) = sources[nextSourceIndex]
+                    nextSourceIndex += 1
+                    group.addTask { [log] in
+                        await Self.fetchWithTimeout(
+                            source: sourceName,
+                            service: service,
+                            query: query,
+                            log: log
+                        )
+                    }
+                }
             }
             return collected
         }

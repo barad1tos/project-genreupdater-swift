@@ -175,13 +175,19 @@ final class AppDependencies {
 
     func applyRuntimeConfiguration() {
         let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
+        let configuredAPIOrchestrator = Self.makeAPIOrchestrator(
+            configuration: config,
+            contactEmail: Self.contactEmail()
+        )
         yearDeterminator = configuredYearDeterminator
+        apiOrchestrator = configuredAPIOrchestrator
 
         let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: config)
         Task { [updateCoordinator] in
             await updateCoordinator?.updateRuntimeConfiguration(
                 runtimeConfiguration,
-                yearDeterminator: configuredYearDeterminator
+                yearDeterminator: configuredYearDeterminator,
+                apiOrchestrator: configuredAPIOrchestrator
             )
         }
     }
@@ -226,6 +232,62 @@ final class AppDependencies {
         )
     }
 
+    private static func makeAPIOrchestrator(
+        configuration: AppConfiguration,
+        contactEmail: String
+    ) -> APIOrchestrator {
+        let musicBrainzClient = MusicBrainzClient(
+            contactEmail: contactEmail,
+            rateLimiter: makeMusicBrainzRateLimiter(configuration: configuration)
+        )
+        let discogsRateLimiter = makeDiscogsRateLimiter(configuration: configuration)
+        let discogsClient = (try? DiscogsClient.fromKeychain(
+            contactEmail: contactEmail,
+            rateLimiter: discogsRateLimiter
+        )) ?? DiscogsClient(
+            contactEmail: contactEmail,
+            rateLimiter: discogsRateLimiter
+        )
+
+        return APIOrchestrator(
+            musicBrainz: musicBrainzClient,
+            discogs: discogsClient,
+            appleMusic: AppleMusicSearchClient(),
+            maxConcurrentSourceCalls: configuration.yearRetrieval.rateLimits.concurrentAPICalls
+        )
+    }
+
+    private static func makeMusicBrainzRateLimiter(configuration: AppConfiguration) -> TokenBucketRateLimiter {
+        makeRateLimiter(
+            requests: configuration.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond,
+            perSeconds: 1
+        )
+    }
+
+    private static func makeDiscogsRateLimiter(configuration: AppConfiguration) -> TokenBucketRateLimiter {
+        makeRateLimiter(
+            requests: Double(configuration.yearRetrieval.rateLimits.discogsRequestsPerMinute),
+            perSeconds: 60
+        )
+    }
+
+    private static func makeRateLimiter(
+        requests: Double,
+        perSeconds windowSizeSeconds: Double
+    ) -> TokenBucketRateLimiter {
+        let sanitizedRequests = max(1, requests)
+        let refillMilliseconds = max(1, Int((windowSizeSeconds / sanitizedRequests) * 1000))
+
+        return TokenBucketRateLimiter(
+            maxTokens: Int(sanitizedRequests.rounded(.up)),
+            refillInterval: .milliseconds(refillMilliseconds)
+        )
+    }
+
+    private static func contactEmail() -> String {
+        UserDefaults.standard.string(forKey: "contactEmail") ?? ""
+    }
+
     /// Steps 6-7: Create core algorithm instances and API orchestrator.
     private func initializeAlgorithmsAndAPI() {
         let genreDeterm = GenreDeterminator()
@@ -234,17 +296,10 @@ final class AppDependencies {
         let yearDeterm = Self.makeYearDeterminator(configuration: config)
         yearDeterminator = yearDeterm
 
-        let contactEmail = UserDefaults.standard.string(forKey: "contactEmail") ?? ""
-
-        // DiscogsClient gracefully handles missing Keychain token (nil token = unauthenticated).
-        let discogsClient = (try? DiscogsClient.fromKeychain(contactEmail: contactEmail))
-            ?? DiscogsClient(contactEmail: contactEmail)
-        let orchestrator = APIOrchestrator(
-            musicBrainz: MusicBrainzClient(contactEmail: contactEmail),
-            discogs: discogsClient,
-            appleMusic: AppleMusicSearchClient()
+        apiOrchestrator = Self.makeAPIOrchestrator(
+            configuration: config,
+            contactEmail: Self.contactEmail()
         )
-        apiOrchestrator = orchestrator
     }
 
     /// Step 8: Wire workflow services that depend on persistence, algorithms, and the script bridge.

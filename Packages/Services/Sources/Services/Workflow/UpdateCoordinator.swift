@@ -89,7 +89,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
 /// Coordinates all services to update track metadata in Music.app.
 /// Supports single-track updates, batch processing, and dry-run previews.
 public actor UpdateCoordinator {
-    private let apiOrchestrator: APIOrchestrator
+    private var apiOrchestrator: APIOrchestrator
     private let scriptBridge: any AppleScriptClient
     private let trackStore: any TrackStateStore
     private let cache: any CacheService
@@ -124,10 +124,14 @@ public actor UpdateCoordinator {
 
     public func updateRuntimeConfiguration(
         _ runtimeConfiguration: UpdateRuntimeConfiguration,
-        yearDeterminator: YearDeterminator
+        yearDeterminator: YearDeterminator,
+        apiOrchestrator: APIOrchestrator? = nil
     ) {
         self.runtimeConfiguration = runtimeConfiguration
         self.yearDeterminator = yearDeterminator
+        if let apiOrchestrator {
+            self.apiOrchestrator = apiOrchestrator
+        }
     }
 
     // MARK: Single Track

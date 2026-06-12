@@ -53,7 +53,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         self.session = session
         self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
             maxTokens: 60,
-            refillInterval: .seconds(60)
+            refillInterval: .seconds(1)
         )
     }
 
