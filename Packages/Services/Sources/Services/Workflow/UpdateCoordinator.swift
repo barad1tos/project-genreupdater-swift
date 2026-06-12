@@ -25,7 +25,7 @@ public enum UpdateCoordinatorError: Error, LocalizedError {
 }
 
 extension AlbumTypeDetectionConfig {
-    fileprivate func classifyAlbum(_ albumName: String) -> AlbumTypeInfo {
+    func classifyAlbum(_ albumName: String) -> AlbumTypeInfo {
         detectAlbumType(
             albumName,
             specialPatterns: Set(specialPatterns),
@@ -45,12 +45,12 @@ public actor UpdateCoordinator {
     var apiOrchestrator: APIOrchestrator
     private let scriptBridge: any AppleScriptClient
     private let trackStore: any TrackStateStore
-    private let cache: any CacheService
+    let cache: any CacheService
     private let undoCoordinator: UndoCoordinator
     private let idMapper: (any TrackIDMapping)?
     private let genreDeterminator: GenreDeterminator
     var yearDeterminator: YearDeterminator
-    private var runtimeConfiguration: UpdateRuntimeConfiguration
+    var runtimeConfiguration: UpdateRuntimeConfiguration
     private let log = Logger(subsystem: "com.genreupdater", category: "UpdateCoordinator")
 
     public init(
@@ -233,127 +233,6 @@ public actor UpdateCoordinator {
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions
         )
-    }
-
-    // MARK: Year Determination
-
-    private func determineYearChange(
-        track: Track,
-        albumTracks: [Track]
-    ) async throws -> ProposedChange? {
-        let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(track.album)
-        guard albumTypeInfo.strategy != .markAndSkip else { return nil }
-
-        // Step 1: Check cache
-        let cached = await cache.getAlbumYear(
-            artist: track.artist,
-            album: track.album
-        )
-        if let cached, Double(cached.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence {
-            return yearChangeFromCached(track: track, entry: cached)
-        }
-
-        // Step 2: Resolve from local album context when it is strong enough.
-        if let localChange = yearChangeFromLocalDetermination(
-            track: track,
-            albumTracks: albumTracks
-        ) {
-            return localChange
-        }
-
-        // Step 3: Fetch from APIs
-        let yearResult = await apiOrchestrator.getAlbumYear(
-            artist: track.artist,
-            album: track.album,
-            currentLibraryYear: track.year,
-            earliestTrackAddedYear: earliestAddedYear(albumTracks)
-        )
-
-        guard let year = yearResult.year, year != track.year else {
-            return nil
-        }
-        guard Double(yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence else {
-            return nil
-        }
-
-        if await shouldPreserveExistingYearForArtistStart(
-            track: track,
-            proposedYear: year,
-            yearResult: yearResult
-        ) {
-            return nil
-        }
-
-        // Step 4: Cache the result if it meets the configured persistence threshold.
-        if yearResult.confidence >= runtimeConfiguration.minimumConfidenceToCache {
-            await cache.storeAlbumYear(
-                artist: track.artist,
-                album: track.album,
-                year: year,
-                confidence: yearResult.confidence
-            )
-        }
-
-        return ProposedChange(
-            track: track,
-            changeType: .yearUpdate,
-            oldValue: track.year.map(String.init),
-            newValue: String(year),
-            confidence: yearResult.confidence,
-            source: yearResult.isDefinitive ? "Definitive" : "API"
-        )
-    }
-
-    private func yearChangeFromCached(
-        track: Track,
-        entry: AlbumCacheEntry
-    ) -> ProposedChange? {
-        guard let year = entry.year, year != track.year else { return nil }
-        return ProposedChange(
-            track: track,
-            changeType: .yearUpdate,
-            oldValue: track.year.map(String.init),
-            newValue: String(year),
-            confidence: entry.confidence,
-            source: "Cache"
-        )
-    }
-
-    private func yearChangeFromLocalDetermination(
-        track: Track,
-        albumTracks: [Track]
-    ) -> ProposedChange? {
-        guard !albumTracks.isEmpty else { return nil }
-
-        let determination = yearDeterminator.determineYear(
-            candidates: [],
-            track: track,
-            albumTracks: albumTracks
-        )
-        let yearResult = determination.yearResult
-
-        guard Double(yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence,
-              let year = yearResult.year,
-              year != track.year
-        else {
-            return nil
-        }
-
-        return ProposedChange(
-            track: track,
-            changeType: .yearUpdate,
-            oldValue: track.year.map(String.init),
-            newValue: String(year),
-            confidence: yearResult.confidence,
-            source: determination.source.rawValue.capitalized
-        )
-    }
-
-    func earliestAddedYear(_ tracks: [Track]) -> Int? {
-        tracks
-            .compactMap(\.dateAdded)
-            .min()
-            .map { Calendar.current.component(.year, from: $0) }
     }
 
     // MARK: Apply Change
