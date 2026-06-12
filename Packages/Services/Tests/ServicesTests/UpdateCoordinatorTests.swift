@@ -141,6 +141,69 @@ struct UpdateCoordinatorTests {
         #expect(genreChange?.newValue == "Electronic")
     }
 
+    @Test("Configured album type patterns skip year updates")
+    func configuredAlbumTypePatternsSkipYearUpdates() async throws {
+        var albumTypeDetection = AlbumTypeDetectionConfig()
+        albumTypeDetection.specialPatterns = ["archive"]
+        albumTypeDetection.compilationPatterns = []
+        albumTypeDetection.reissuePatterns = []
+
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            minimumYearUpdateConfidence: 30,
+            albumTypeDetection: albumTypeDetection
+        )
+        let fixture = await makeCoordinator(
+            year: 2024,
+            confidence: 95,
+            runtimeConfiguration: runtimeConfiguration
+        )
+
+        let track = makeEditableTrack(album: "Studio Archive", year: 1999)
+        let changes = try await fixture.coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(changes.isEmpty)
+    }
+
+    @Test("Runtime album type configuration update applies to subsequent year updates")
+    func runtimeAlbumTypeConfigurationUpdateAppliesToSubsequentYearUpdates() async throws {
+        let fixture = await makeCoordinator(
+            year: 2024,
+            confidence: 95,
+            runtimeConfiguration: UpdateRuntimeConfiguration(minimumYearUpdateConfidence: 30)
+        )
+        let track = makeEditableTrack(album: "Session Archive", year: 1999)
+
+        let beforeUpdate = try await fixture.coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+        #expect(beforeUpdate.first { $0.changeType == .yearUpdate }?.newValue == "2024")
+
+        var albumTypeDetection = AlbumTypeDetectionConfig()
+        albumTypeDetection.specialPatterns = ["archive"]
+        albumTypeDetection.compilationPatterns = []
+        albumTypeDetection.reissuePatterns = []
+        await fixture.coordinator.updateRuntimeConfiguration(
+            UpdateRuntimeConfiguration(
+                minimumYearUpdateConfidence: 30,
+                albumTypeDetection: albumTypeDetection
+            ),
+            yearDeterminator: YearDeterminator()
+        )
+
+        let afterUpdate = try await fixture.coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+        #expect(afterUpdate.allSatisfy { $0.changeType != .yearUpdate })
+    }
+
     @Test("Write mode applies changes to Music.app")
     func writeAppliesChanges() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)

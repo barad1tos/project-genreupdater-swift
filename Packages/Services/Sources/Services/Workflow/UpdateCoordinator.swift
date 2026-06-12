@@ -62,22 +62,37 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     public let genreMappings: [String: String]
     public let minimumYearUpdateConfidence: Double
     public let minimumConfidenceToCache: Int
+    public let albumTypeDetection: AlbumTypeDetectionConfig
 
     public init(
         genreMappings: [String: String] = [:],
         minimumYearUpdateConfidence: Double = AppConfiguration().yearRetrieval.logic.minConfidenceForNewYear,
-        minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache
+        minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache,
+        albumTypeDetection: AlbumTypeDetectionConfig = AlbumTypeDetectionConfig()
     ) {
         self.genreMappings = genreMappings
         self.minimumYearUpdateConfidence = minimumYearUpdateConfidence
         self.minimumConfidenceToCache = minimumConfidenceToCache
+        self.albumTypeDetection = albumTypeDetection
     }
 
     public init(configuration: AppConfiguration) {
         self.init(
             genreMappings: configuration.cleaning.genreMappings,
             minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
-            minimumConfidenceToCache: configuration.processing.minConfidenceToCache
+            minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
+            albumTypeDetection: configuration.albumTypeDetection
+        )
+    }
+}
+
+extension AlbumTypeDetectionConfig {
+    fileprivate func classifyAlbum(_ albumName: String) -> AlbumTypeInfo {
+        detectAlbumType(
+            albumName,
+            specialPatterns: Set(specialPatterns),
+            compilationPatterns: Set(compilationPatterns),
+            reissuePatterns: Set(reissuePatterns)
         )
     }
 }
@@ -271,6 +286,9 @@ public actor UpdateCoordinator {
         track: Track,
         albumTracks: [Track]
     ) async throws -> ProposedChange? {
+        let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(track.album)
+        guard albumTypeInfo.strategy != .markAndSkip else { return nil }
+
         // Step 1: Check cache
         let cached = await cache.getAlbumYear(
             artist: track.artist,

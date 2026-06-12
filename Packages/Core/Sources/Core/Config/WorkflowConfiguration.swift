@@ -131,7 +131,7 @@ public struct PendingVerificationConfig: Sendable, Codable {
 
 // MARK: - Album Type Detection Configuration
 
-public struct AlbumTypeDetectionConfig: Sendable, Codable {
+public struct AlbumTypeDetectionConfig: Sendable, Codable, Equatable {
     public var specialPatterns: [String] = ["b-sides", "demo", "demos"]
     public var compilationPatterns: [String] = ["greatest hits", "best of", "compilation"]
     public var reissuePatterns: [String] = ["remaster", "remastered", "anniversary"]
