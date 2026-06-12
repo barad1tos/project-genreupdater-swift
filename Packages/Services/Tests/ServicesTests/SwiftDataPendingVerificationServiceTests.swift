@@ -1,10 +1,16 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Core
 @testable import Services
 
-@Suite("FilePendingVerificationService - persistent pending albums")
-struct FilePendingVerificationServiceTests {
+private struct LegacyPendingVerificationTestStore: Codable {
+    var entries: [PendingAlbumEntry]
+    var lastAutoVerification: Date?
+}
+
+@Suite("SwiftDataPendingVerificationService - persistent pending albums")
+struct SwiftDataPendingVerificationServiceTests {
     private let day: TimeInterval = 86400
 
     private func makeTempDirectory() throws -> URL {
@@ -15,13 +21,16 @@ struct FilePendingVerificationServiceTests {
     }
 
     private func makeService(
+        container: ModelContainer,
         directory: URL,
         date: Date,
         verificationIntervalDays: Int = 30,
-        autoVerifyDays: Int = 14
-    ) -> FilePendingVerificationService {
-        FilePendingVerificationService(
-            storageURL: directory.appendingPathComponent("pending.json"),
+        autoVerifyDays: Int = 14,
+        legacyStorageURL: URL? = nil
+    ) -> SwiftDataPendingVerificationService {
+        SwiftDataPendingVerificationService(
+            modelContainer: container,
+            legacyStorageURL: legacyStorageURL,
             problematicReportURL: directory.appendingPathComponent("problematic.csv"),
             verificationIntervalDays: verificationIntervalDays,
             autoVerifyDays: autoVerifyDays,
@@ -29,13 +38,19 @@ struct FilePendingVerificationServiceTests {
         )
     }
 
-    @Test("Marking an album persists attempts, metadata, and recheck interval")
+    @Test("Marking an album persists attempts, metadata, and recheck interval in SwiftData")
     func markForVerificationPersistsAndIncrementsAttempts() async throws {
         let directory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
         let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-        let service = makeService(directory: directory, date: baseDate, verificationIntervalDays: 30)
+        let service = makeService(
+            container: container,
+            directory: directory,
+            date: baseDate,
+            verificationIntervalDays: 30
+        )
         await service.markForVerification(
             artist: "  Massive Attack  ",
             album: "  Mezzanine  ",
@@ -63,6 +78,7 @@ struct FilePendingVerificationServiceTests {
         #expect(await !(service.isVerificationNeeded(artist: "Massive Attack", album: "Mezzanine")))
 
         let reloaded = makeService(
+            container: container,
             directory: directory,
             date: baseDate.addingTimeInterval(8 * day),
             verificationIntervalDays: 30
@@ -73,19 +89,38 @@ struct FilePendingVerificationServiceTests {
         #expect(await reloaded.isVerificationNeeded(artist: "Massive Attack", album: "Mezzanine"))
     }
 
-    @Test("Removing an album deletes it from persisted pending state")
+    @Test("Marking an album does not create a pending JSON file")
+    func markForVerificationDoesNotCreateJSONStore() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
+        let legacyURL = directory.appendingPathComponent("pending.json")
+
+        let service = makeService(
+            container: container,
+            directory: directory,
+            date: Date(timeIntervalSince1970: 1_700_000_000),
+            legacyStorageURL: legacyURL
+        )
+        await service.markForVerification(artist: "Portishead", album: "Dummy", reason: "missing_year")
+
+        #expect(!FileManager.default.fileExists(atPath: legacyURL.path))
+    }
+
+    @Test("Removing an album deletes it from SwiftData pending state")
     func removeFromPendingDeletesPersistedEntry() async throws {
         let directory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
         let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-        let service = makeService(directory: directory, date: baseDate)
+        let service = makeService(container: container, directory: directory, date: baseDate)
         await service.markForVerification(artist: "Portishead", album: "Dummy", reason: "missing_year")
         #expect(await service.getEntry(artist: "Portishead", album: "Dummy") != nil)
 
         await service.removeFromPending(artist: "Portishead", album: "Dummy")
 
-        let reloaded = makeService(directory: directory, date: baseDate)
+        let reloaded = makeService(container: container, directory: directory, date: baseDate)
         #expect(await reloaded.getEntry(artist: "Portishead", album: "Dummy") == nil)
         #expect(await reloaded.getAttemptCount(artist: "Portishead", album: "Dummy") == 0)
     }
@@ -94,15 +129,17 @@ struct FilePendingVerificationServiceTests {
     func autoVerifyTimestampPersists() async throws {
         let directory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
         let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-        let initial = makeService(directory: directory, date: baseDate, autoVerifyDays: 14)
+        let initial = makeService(container: container, directory: directory, date: baseDate, autoVerifyDays: 14)
         #expect(await initial.shouldAutoVerify())
 
         try await initial.updateVerificationTimestamp()
         #expect(await !(initial.shouldAutoVerify()))
 
         let beforeInterval = makeService(
+            container: container,
             directory: directory,
             date: baseDate.addingTimeInterval(13 * day),
             autoVerifyDays: 14
@@ -110,6 +147,7 @@ struct FilePendingVerificationServiceTests {
         #expect(await !(beforeInterval.shouldAutoVerify()))
 
         let afterInterval = makeService(
+            container: container,
             directory: directory,
             date: baseDate.addingTimeInterval(15 * day),
             autoVerifyDays: 14
@@ -117,14 +155,60 @@ struct FilePendingVerificationServiceTests {
         #expect(await afterInterval.shouldAutoVerify())
     }
 
+    @Test("Legacy JSON imports into SwiftData once")
+    func legacyJSONImportsIntoSwiftData() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
+        let legacyURL = directory.appendingPathComponent("pending.json")
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let entry = PendingAlbumEntry(
+            id: "legacy-entry",
+            artist: "Low",
+            album: "HEY WHAT",
+            reason: "missing_year",
+            attemptCount: 2,
+            lastAttempt: baseDate,
+            recheckInterval: 7 * day,
+            metadata: ["source": "legacy"]
+        )
+        let envelope = LegacyPendingVerificationTestStore(
+            entries: [entry],
+            lastAutoVerification: baseDate
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(envelope).write(to: legacyURL, options: .atomic)
+
+        let service = makeService(
+            container: container,
+            directory: directory,
+            date: baseDate.addingTimeInterval(day),
+            autoVerifyDays: 14,
+            legacyStorageURL: legacyURL
+        )
+        try await service.initialize()
+
+        let imported = try #require(await service.getEntry(artist: "Low", album: "HEY WHAT"))
+        #expect(imported.attemptCount == 2)
+        #expect(imported.metadata["source"] == "legacy")
+        #expect(await !(service.shouldAutoVerify()))
+    }
+
     @Test("Problematic albums report writes Python-compatible CSV columns")
     func problematicAlbumsReportWritesCSV() async throws {
         let directory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
         let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
         let reportURL = directory.appendingPathComponent("exports/problematic.csv")
 
-        let service = makeService(directory: directory, date: baseDate, verificationIntervalDays: 30)
+        let service = makeService(
+            container: container,
+            directory: directory,
+            date: baseDate,
+            verificationIntervalDays: 30
+        )
         await service.markForVerification(artist: "Bjork, Solo", album: "Debut", reason: "missing_year")
         await service.markForVerification(artist: "Bjork, Solo", album: "Debut", reason: "missing_year")
         await service.markForVerification(artist: "Bjork, Solo", album: "Debut", reason: "missing_year")

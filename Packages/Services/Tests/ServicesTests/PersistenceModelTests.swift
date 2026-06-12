@@ -4,7 +4,6 @@
 import Foundation
 import SwiftData
 import Testing
-
 @testable import Core
 @testable import Services
 
@@ -283,6 +282,97 @@ struct PersistedChangeLogEntryTests {
 
         #expect(roundTripped.changeType == changeType)
         #expect(persisted.changeTypeRaw == changeType.rawValue)
+    }
+}
+
+// MARK: - PersistedPendingAlbumEntry Tests
+
+@Suite("PersistedPendingAlbumEntry — domain model mapping")
+struct PersistedPendingAlbumEntryTests {
+    private let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+
+    @Test("init(from:) maps all fields from PendingAlbumEntry")
+    func initFromEntryMapsAllFields() {
+        let entry = PendingAlbumEntry(
+            id: "pending-1",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            reason: "missing_year",
+            attemptCount: 2,
+            lastAttempt: fixedDate,
+            recheckInterval: 604_800,
+            metadata: ["source": "musicbrainz"]
+        )
+
+        let persisted = PersistedPendingAlbumEntry(from: entry)
+
+        #expect(persisted.entryID == "pending-1")
+        #expect(persisted.artist == "Massive Attack")
+        #expect(persisted.album == "Mezzanine")
+        #expect(persisted.reason == "missing_year")
+        #expect(persisted.attemptCount == 2)
+        #expect(persisted.lastAttempt == fixedDate)
+        #expect(persisted.recheckInterval == 604_800)
+        #expect(persisted.metadataData != nil)
+    }
+
+    @Test("toPendingAlbumEntry() converts back to matching domain entry")
+    func toPendingAlbumEntryConvertsBack() {
+        let entry = PendingAlbumEntry(
+            id: "pending-1",
+            artist: "Low",
+            album: "HEY WHAT",
+            reason: "low_confidence",
+            attemptCount: 3,
+            lastAttempt: fixedDate,
+            recheckInterval: 1_209_600,
+            metadata: ["confidence": "42"]
+        )
+
+        let result = PersistedPendingAlbumEntry(from: entry).toPendingAlbumEntry()
+
+        #expect(result.id == entry.id)
+        #expect(result.artist == "Low")
+        #expect(result.album == "HEY WHAT")
+        #expect(result.reason == "low_confidence")
+        #expect(result.attemptCount == 3)
+        #expect(result.lastAttempt == fixedDate)
+        #expect(result.recheckInterval == 1_209_600)
+        #expect(result.metadata["confidence"] == "42")
+    }
+
+    @Test("update(from:) replaces mutable fields")
+    func updateFromEntryReplacesFields() {
+        let persisted = PersistedPendingAlbumEntry(from: PendingAlbumEntry(
+            id: "pending-1",
+            artist: "Old",
+            album: "Old Album",
+            reason: "old_reason",
+            attemptCount: 1,
+            lastAttempt: fixedDate,
+            recheckInterval: 604_800,
+            metadata: [:]
+        ))
+        let updated = PendingAlbumEntry(
+            id: "pending-1",
+            artist: "New",
+            album: "New Album",
+            reason: "new_reason",
+            attemptCount: 4,
+            lastAttempt: fixedDate.addingTimeInterval(60),
+            recheckInterval: 86400,
+            metadata: ["source": "discogs"]
+        )
+
+        persisted.update(from: updated)
+        let result = persisted.toPendingAlbumEntry()
+
+        #expect(result.artist == "New")
+        #expect(result.album == "New Album")
+        #expect(result.reason == "new_reason")
+        #expect(result.attemptCount == 4)
+        #expect(result.recheckInterval == 86400)
+        #expect(result.metadata["source"] == "discogs")
     }
 }
 

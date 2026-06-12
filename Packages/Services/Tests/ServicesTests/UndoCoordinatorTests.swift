@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Core
 @testable import Services
@@ -233,18 +234,21 @@ struct UndoCoordinatorTests {
 
 // MARK: - Persistence Tests
 
-@Suite("UndoCoordinator — JSON persistence")
+@Suite("UndoCoordinator — SwiftData persistence")
 struct UndoCoordinatorPersistenceTests {
     @Test("History survives round-trip through new coordinator instance")
-    func persistenceRoundTrip() async {
+    func persistenceRoundTrip() async throws {
         let directory = makeTempDirectory()
         let bridge = MockAppleScriptClient()
+        let container = try ModelContainerFactory.createInMemory()
+        let store1 = SwiftDataChangeLogStore(modelContainer: container)
 
-        let coordinator1 = UndoCoordinator(scriptBridge: bridge, directory: directory)
+        let coordinator1 = UndoCoordinator(scriptBridge: bridge, changeLogStore: store1, directory: directory)
         await coordinator1.recordChange(makeGenreEntry(trackID: "T1"))
         await coordinator1.recordChange(makeYearEntry(trackID: "T2"))
 
-        let coordinator2 = UndoCoordinator(scriptBridge: bridge, directory: directory)
+        let store2 = SwiftDataChangeLogStore(modelContainer: container)
+        let coordinator2 = UndoCoordinator(scriptBridge: bridge, changeLogStore: store2, directory: directory)
         let history = await coordinator2.getHistory()
         #expect(history.count == 2)
 
@@ -266,14 +270,40 @@ struct UndoCoordinatorPersistenceTests {
         #expect(history.isEmpty)
     }
 
-    @Test("clearHistory deletes the history file")
-    func clearHistoryDeletesFile() async {
+    @Test("Legacy JSON imports into SwiftData when store is empty")
+    func legacyJSONImportsIntoSwiftData() async throws {
+        let directory = makeTempDirectory()
+        let historyURL = directory.appendingPathComponent("undo-history.json")
+        let bridge = MockAppleScriptClient()
+        let container = try ModelContainerFactory.createInMemory()
+        let store = SwiftDataChangeLogStore(modelContainer: container)
+        let legacyEntries = [
+            makeGenreEntry(trackID: "T1"),
+            makeYearEntry(trackID: "T2"),
+        ]
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(legacyEntries).write(to: historyURL, options: .atomic)
+
+        let coordinator = UndoCoordinator(scriptBridge: bridge, changeLogStore: store, directory: directory)
+        let history = await coordinator.getHistory()
+        let stored = try await store.loadAll()
+
+        #expect(history.count == 2)
+        #expect(stored.count == 2)
+    }
+
+    @Test("clearHistory deletes the legacy history file")
+    func clearHistoryDeletesLegacyFile() async {
         let directory = makeTempDirectory()
         let historyURL = directory.appendingPathComponent("undo-history.json")
         let bridge = MockAppleScriptClient()
 
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? Data("[]".utf8).write(to: historyURL)
         let coordinator = UndoCoordinator(scriptBridge: bridge, directory: directory)
-        await coordinator.recordChange(makeGenreEntry())
         #expect(FileManager.default.fileExists(atPath: historyURL.path))
 
         await coordinator.clearHistory()

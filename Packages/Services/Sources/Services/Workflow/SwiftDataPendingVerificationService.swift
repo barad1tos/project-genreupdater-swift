@@ -1,11 +1,12 @@
-// FilePendingVerificationService.swift -- Persistent pending year verification queue.
+// SwiftDataPendingVerificationService.swift -- SwiftData-backed pending year verification queue.
 
 import Core
 import CryptoKit
 import Foundation
 import OSLog
+import SwiftData
 
-private struct PendingVerificationStore: Codable {
+private struct LegacyPendingVerificationStore: Codable {
     var entries: [PendingAlbumEntry]
     var lastAutoVerification: Date?
 }
@@ -17,8 +18,15 @@ private struct ProblematicAlbumReportRow {
     let lastAttempt: Date
 }
 
-public actor FilePendingVerificationService: Core.PendingVerificationService {
-    private let storageURL: URL
+/// Stores pending album verification state in SwiftData.
+///
+/// The legacy JSON path is only read as a migration source. New runtime state
+/// is persisted through the shared SwiftData container.
+public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerificationService {
+    nonisolated public let modelExecutor: any ModelExecutor
+    nonisolated public let modelContainer: ModelContainer
+
+    private let legacyStorageURL: URL?
     private let defaultReportURL: URL
     private let verificationInterval: TimeInterval
     private let autoVerificationInterval: TimeInterval
@@ -26,30 +34,20 @@ public actor FilePendingVerificationService: Core.PendingVerificationService {
     private let fileManager: FileManager
     private let log = Logger(subsystem: "com.genreupdater", category: "PendingVerification")
 
-    private var pendingAlbums: [String: PendingAlbumEntry] = [:]
-    private var lastAutoVerification: Date?
-    private var hasLoaded = false
-
-    private let encoder: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return encoder
-    }()
-
-    private let decoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
-    }()
+    private var hasInitialized = false
 
     public init(
+        modelContainer: ModelContainer,
         configuration: AppConfiguration,
         baseDirectory: URL? = nil,
         currentDate: @escaping @Sendable () -> Date = { Date() }
     ) {
+        let modelContext = ModelContext(modelContainer)
+        self.modelExecutor = DefaultSerialModelExecutor(modelContext: modelContext)
+        self.modelContainer = modelContainer
+
         let logsDirectory = baseDirectory ?? Self.resolvedURL(path: configuration.paths.logsBaseDirectory)
-        self.storageURL = Self.resolvedURL(
+        self.legacyStorageURL = Self.resolvedURL(
             path: configuration.logging.pendingVerificationFile,
             relativeTo: logsDirectory
         )
@@ -66,13 +64,18 @@ public actor FilePendingVerificationService: Core.PendingVerificationService {
     }
 
     public init(
-        storageURL: URL,
+        modelContainer: ModelContainer,
+        legacyStorageURL: URL? = nil,
         problematicReportURL: URL,
         verificationIntervalDays: Int = 30,
         autoVerifyDays: Int = 14,
         currentDate: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.storageURL = storageURL
+        let modelContext = ModelContext(modelContainer)
+        self.modelExecutor = DefaultSerialModelExecutor(modelContext: modelContext)
+        self.modelContainer = modelContainer
+
+        self.legacyStorageURL = legacyStorageURL
         self.defaultReportURL = problematicReportURL
         self.verificationInterval = TimeInterval(max(0, verificationIntervalDays)) * 86400
         self.autoVerificationInterval = TimeInterval(max(0, autoVerifyDays)) * 86400
@@ -81,7 +84,8 @@ public actor FilePendingVerificationService: Core.PendingVerificationService {
     }
 
     public func initialize() async throws {
-        try loadFromDisk()
+        try migrateLegacyStoreIfNeeded()
+        hasInitialized = true
     }
 
     public func markForVerification(
@@ -91,10 +95,10 @@ public actor FilePendingVerificationService: Core.PendingVerificationService {
         metadata: [String: String]? = nil,
         recheckDays: Int? = nil
     ) async {
-        loadIfNeeded()
+        ensureInitialized()
 
         let key = albumKey(artist: artist, album: album)
-        let existing = pendingAlbums[key]
+        let existing = (try? fetchEntry(id: key))?.toPendingAlbumEntry()
         let interval = recheckDays.map { TimeInterval(max(0, $0)) * 86400 } ?? verificationInterval
         var mergedMetadata = existing?.metadata ?? [:]
         if let metadata {
@@ -104,7 +108,7 @@ public actor FilePendingVerificationService: Core.PendingVerificationService {
             mergedMetadata["recheck_days"] = String(max(0, recheckDays))
         }
 
-        pendingAlbums[key] = PendingAlbumEntry(
+        let entry = PendingAlbumEntry(
             id: key,
             artist: artist.trimmingCharacters(in: .whitespacesAndNewlines),
             album: album.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -114,31 +118,41 @@ public actor FilePendingVerificationService: Core.PendingVerificationService {
             recheckInterval: interval,
             metadata: mergedMetadata
         )
-        persistAfterMutation()
+
+        do {
+            try upsert(entry)
+            try modelContext.save()
+        } catch {
+            log.warning("Failed to persist pending verification entry: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     public func removeFromPending(artist: String, album: String) async {
-        loadIfNeeded()
+        ensureInitialized()
 
-        let key = albumKey(artist: artist, album: album)
-        guard pendingAlbums.removeValue(forKey: key) != nil else { return }
-        persistAfterMutation()
+        do {
+            guard let entry = try fetchEntry(id: albumKey(artist: artist, album: album)) else { return }
+            modelContext.delete(entry)
+            try modelContext.save()
+        } catch {
+            log.warning("Failed to remove pending verification entry: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     public func getEntry(artist: String, album: String) async -> PendingAlbumEntry? {
-        loadIfNeeded()
-        return pendingAlbums[albumKey(artist: artist, album: album)]
+        ensureInitialized()
+        return (try? fetchEntry(id: albumKey(artist: artist, album: album)))?.toPendingAlbumEntry()
     }
 
     public func getAttemptCount(artist: String, album: String) async -> Int {
-        loadIfNeeded()
-        return pendingAlbums[albumKey(artist: artist, album: album)]?.attemptCount ?? 0
+        ensureInitialized()
+        return (try? fetchEntry(id: albumKey(artist: artist, album: album)))?.attemptCount ?? 0
     }
 
     public func isVerificationNeeded(artist: String, album: String) async -> Bool {
-        loadIfNeeded()
+        ensureInitialized()
 
-        guard let entry = pendingAlbums[albumKey(artist: artist, album: album)] else {
+        guard let entry = (try? fetchEntry(id: albumKey(artist: artist, album: album)))?.toPendingAlbumEntry() else {
             return false
         }
         guard entry.recheckInterval > 0 else {
@@ -148,13 +162,19 @@ public actor FilePendingVerificationService: Core.PendingVerificationService {
     }
 
     public func getAllPendingAlbums() async -> [PendingAlbumEntry] {
-        loadIfNeeded()
-        return pendingAlbums.values.sorted {
-            let artistOrder = $0.artist.localizedCaseInsensitiveCompare($1.artist)
-            if artistOrder != .orderedSame {
-                return artistOrder == .orderedAscending
-            }
-            return $0.album.localizedCaseInsensitiveCompare($1.album) == .orderedAscending
+        ensureInitialized()
+
+        do {
+            let descriptor = FetchDescriptor<PersistedPendingAlbumEntry>(
+                sortBy: [
+                    SortDescriptor(\.artist),
+                    SortDescriptor(\.album),
+                ]
+            )
+            return try modelContext.fetch(descriptor).map { $0.toPendingAlbumEntry() }
+        } catch {
+            log.warning("Failed to load pending verification entries: \(error.localizedDescription, privacy: .public)")
+            return []
         }
     }
 
@@ -163,11 +183,13 @@ public actor FilePendingVerificationService: Core.PendingVerificationService {
         minAttempts: Int = 3,
         reportURL: URL? = nil
     ) async throws -> Int {
-        loadIfNeeded()
+        ensureInitialized()
 
+        let descriptor = FetchDescriptor<PersistedPendingAlbumEntry>()
+        let entries = try modelContext.fetch(descriptor).map { $0.toPendingAlbumEntry() }
         let threshold = max(1, minAttempts)
         let now = currentDate()
-        let rows = pendingAlbums.values.compactMap { entry -> ProblematicAlbumReportRow? in
+        let rows = entries.compactMap { entry -> ProblematicAlbumReportRow? in
             let attempts = totalAttempts(for: entry, now: now)
             guard attempts >= threshold else { return nil }
             let interval = max(1, entry.recheckInterval)
@@ -193,80 +215,117 @@ public actor FilePendingVerificationService: Core.PendingVerificationService {
     }
 
     public func shouldAutoVerify() async -> Bool {
-        loadIfNeeded()
+        ensureInitialized()
 
         guard autoVerificationInterval > 0 else { return false }
-        guard let lastAutoVerification else { return true }
+        guard let lastAutoVerification = (try? fetchMetadata())?.lastAutoVerification else {
+            return true
+        }
         return currentDate() >= lastAutoVerification.addingTimeInterval(autoVerificationInterval)
     }
 
     public func updateVerificationTimestamp() async throws {
-        loadIfNeeded()
+        ensureInitialized()
 
-        lastAutoVerification = currentDate()
-        try saveToDisk()
+        let metadata = try getOrCreateMetadata()
+        metadata.lastAutoVerification = currentDate()
+        try modelContext.save()
     }
+}
 
-    private func loadIfNeeded() {
-        guard !hasLoaded else { return }
+extension SwiftDataPendingVerificationService {
+    private func ensureInitialized() {
+        guard !hasInitialized else { return }
         do {
-            try loadFromDisk()
-        } catch {
-            pendingAlbums = [:]
-            lastAutoVerification = nil
-            hasLoaded = true
-            log.warning("Failed to load pending verification storage: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    private func loadFromDisk() throws {
-        guard fileManager.fileExists(atPath: storageURL.path) else {
-            pendingAlbums = [:]
-            lastAutoVerification = nil
-            hasLoaded = true
-            return
-        }
-
-        let data = try Data(contentsOf: storageURL)
-        let envelope: PendingVerificationStore = if let decodedEnvelope = try? decoder.decode(
-            PendingVerificationStore.self,
-            from: data
-        ) {
-            decodedEnvelope
-        } else {
-            try PendingVerificationStore(
-                entries: decoder.decode([PendingAlbumEntry].self, from: data),
-                lastAutoVerification: nil
-            )
-        }
-
-        pendingAlbums = [:]
-        for entry in envelope.entries {
-            pendingAlbums[entry.id] = entry
-        }
-        lastAutoVerification = envelope.lastAutoVerification
-        hasLoaded = true
-    }
-
-    private func persistAfterMutation() {
-        do {
-            try saveToDisk()
+            try migrateLegacyStoreIfNeeded()
         } catch {
             log
                 .warning(
-                    "Failed to persist pending verification storage: \(error.localizedDescription, privacy: .public)"
+                    "Failed to migrate pending verification storage: \(error.localizedDescription, privacy: .public)"
                 )
+        }
+        hasInitialized = true
+    }
+
+    private func migrateLegacyStoreIfNeeded() throws {
+        guard let legacyStorageURL else { return }
+
+        let existingEntries = try modelContext.fetchCount(FetchDescriptor<PersistedPendingAlbumEntry>())
+        let existingMetadata = try fetchMetadata()
+        guard existingEntries == 0, existingMetadata?.lastAutoVerification == nil else {
+            return
+        }
+        guard fileManager.fileExists(atPath: legacyStorageURL.path) else {
+            return
+        }
+
+        let envelope = try decodeLegacyStore(from: legacyStorageURL)
+        for entry in envelope.entries {
+            try upsert(normalizedEntry(entry))
+        }
+
+        if let lastAutoVerification = envelope.lastAutoVerification {
+            let metadata = try getOrCreateMetadata()
+            metadata.lastAutoVerification = lastAutoVerification
+        }
+
+        try modelContext.save()
+        log.info("Migrated \(envelope.entries.count, privacy: .public) pending verification entrie(s) to SwiftData")
+    }
+
+    private func decodeLegacyStore(from url: URL) throws -> LegacyPendingVerificationStore {
+        let data = try Data(contentsOf: url)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let decodedEnvelope = try? decoder.decode(LegacyPendingVerificationStore.self, from: data) {
+            return decodedEnvelope
+        }
+        return try LegacyPendingVerificationStore(
+            entries: decoder.decode([PendingAlbumEntry].self, from: data),
+            lastAutoVerification: nil
+        )
+    }
+
+    private func fetchEntry(id: String) throws -> PersistedPendingAlbumEntry? {
+        let descriptor = FetchDescriptor<PersistedPendingAlbumEntry>(
+            predicate: #Predicate { $0.entryID == id }
+        )
+        return try modelContext.fetch(descriptor).first
+    }
+
+    private func fetchMetadata() throws -> PersistedPendingVerificationMetadata? {
+        let descriptor = FetchDescriptor<PersistedPendingVerificationMetadata>()
+        return try modelContext.fetch(descriptor).first
+    }
+
+    private func getOrCreateMetadata() throws -> PersistedPendingVerificationMetadata {
+        if let existing = try fetchMetadata() {
+            return existing
+        }
+        let metadata = PersistedPendingVerificationMetadata()
+        modelContext.insert(metadata)
+        return metadata
+    }
+
+    private func upsert(_ entry: PendingAlbumEntry) throws {
+        if let existing = try fetchEntry(id: entry.id) {
+            existing.update(from: entry)
+        } else {
+            modelContext.insert(PersistedPendingAlbumEntry(from: entry))
         }
     }
 
-    private func saveToDisk() throws {
-        try ensureDirectoryExists(for: storageURL)
-        let envelope = PendingVerificationStore(
-            entries: Array(pendingAlbums.values).sorted { $0.id < $1.id },
-            lastAutoVerification: lastAutoVerification
+    private func normalizedEntry(_ entry: PendingAlbumEntry) -> PendingAlbumEntry {
+        PendingAlbumEntry(
+            id: albumKey(artist: entry.artist, album: entry.album),
+            artist: entry.artist,
+            album: entry.album,
+            reason: entry.reason,
+            attemptCount: entry.attemptCount,
+            lastAttempt: entry.lastAttempt,
+            recheckInterval: entry.recheckInterval,
+            metadata: entry.metadata
         )
-        let data = try encoder.encode(envelope)
-        try data.write(to: storageURL, options: .atomic)
     }
 
     private func ensureDirectoryExists(for url: URL) throws {

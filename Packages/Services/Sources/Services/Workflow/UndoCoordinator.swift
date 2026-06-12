@@ -46,8 +46,8 @@ public struct YearBackupRevertResult: Sendable, Equatable {
 /// Reverts metadata changes by writing back old values via AppleScript.
 ///
 /// Records every change made by `UpdateCoordinator`, enabling individual,
-/// batch, and selective undo operations. History persists to JSON in
-/// Application Support, surviving app relaunches.
+/// batch, and selective undo operations. History persists to SwiftData,
+/// surviving app relaunches.
 ///
 /// Undo is a FREE feature — no tier gating required.
 public actor UndoCoordinator {
@@ -55,16 +55,10 @@ public actor UndoCoordinator {
     private let idMapper: (any TrackIDMapping)?
     private let changeLogStore: (any ChangeLogStore)?
     private var history: [ChangeLogEntry]
-    private let historyURL: URL
+    private let legacyHistoryURL: URL
     private let fileManager: FileManager
     private let log = Logger(subsystem: "com.genreupdater", category: "UndoCoordinator")
-
-    private let encoder: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return encoder
-    }()
+    private var hasLoadedHistory = false
 
     public init(
         scriptBridge: any AppleScriptClient,
@@ -78,16 +72,21 @@ public actor UndoCoordinator {
         self.fileManager = .default
         let base = directory ?? Self.defaultDirectory()
         let historyURL = base.appendingPathComponent("undo-history.json")
-        self.historyURL = historyURL
-        self.history = Self.loadPersistedHistory(from: historyURL)
+        self.legacyHistoryURL = historyURL
+        self.history = []
+    }
+
+    public func initialize() async {
+        await loadHistoryIfNeeded()
     }
 
     // MARK: Record
 
     /// Log a change after a successful write to Music.app.
     public func recordChange(_ entry: ChangeLogEntry) async {
+        await loadHistoryIfNeeded()
+
         history.append(entry)
-        try? saveHistory()
         try? await changeLogStore?.saveEntry(entry)
         log
             .info(
@@ -97,8 +96,9 @@ public actor UndoCoordinator {
 
     /// Record multiple changes at once (e.g. after batch processing).
     public func recordChanges(_ entries: [ChangeLogEntry]) async {
+        await loadHistoryIfNeeded()
+
         history.append(contentsOf: entries)
-        try? saveHistory()
         try? await changeLogStore?.saveEntries(entries)
         log.info("Recorded \(entries.count, privacy: .public) change(s)")
     }
@@ -107,6 +107,8 @@ public actor UndoCoordinator {
 
     /// Revert a single change by writing the old value back to Music.app.
     public func revertChange(_ entry: ChangeLogEntry) async throws {
+        await loadHistoryIfNeeded()
+
         let oldValue: (property: String, value: String)? = switch entry.changeType {
         case .genreUpdate:
             entry.oldGenre.map { ("genre", $0) }
@@ -206,7 +208,9 @@ public actor UndoCoordinator {
     // MARK: History
 
     /// Get change history, optionally limited to most recent N entries.
-    public func getHistory(limit: Int? = nil) -> [ChangeLogEntry] {
+    public func getHistory(limit: Int? = nil) async -> [ChangeLogEntry] {
+        await loadHistoryIfNeeded()
+
         let sorted = history.sorted { $0.timestamp > $1.timestamp }
         if let limit {
             return Array(sorted.prefix(limit))
@@ -216,9 +220,11 @@ public actor UndoCoordinator {
 
     /// Clear all history from memory and disk.
     public func clearHistory() async {
+        await loadHistoryIfNeeded()
+
         let count = history.count
         history.removeAll()
-        try? fileManager.removeItem(at: historyURL)
+        try? fileManager.removeItem(at: legacyHistoryURL)
         try? await changeLogStore?.deleteAll()
         log.info("Cleared \(count, privacy: .public) history entries")
     }
@@ -292,15 +298,39 @@ public actor UndoCoordinator {
     // MARK: Persistence
 
     private func removeFromHistory(_ entry: ChangeLogEntry) async {
+        await loadHistoryIfNeeded()
+
         history.removeAll { $0.id == entry.id }
-        try? saveHistory()
         try? await changeLogStore?.delete(entryID: entry.id)
     }
 
-    private func saveHistory() throws {
-        try ensureDirectoryExists()
-        let data = try encoder.encode(history)
-        try data.write(to: historyURL, options: .atomic)
+    private func loadHistoryIfNeeded() async {
+        guard !hasLoadedHistory else { return }
+
+        do {
+            history = try await loadHistoryFromStoreOrLegacy()
+        } catch {
+            history = Self.loadPersistedHistory(from: legacyHistoryURL)
+            log.warning("Failed to load SwiftData undo history: \(error.localizedDescription, privacy: .public)")
+        }
+        hasLoadedHistory = true
+    }
+
+    private func loadHistoryFromStoreOrLegacy() async throws -> [ChangeLogEntry] {
+        guard let changeLogStore else {
+            return Self.loadPersistedHistory(from: legacyHistoryURL)
+        }
+
+        let storedHistory = try await changeLogStore.loadAll()
+        guard storedHistory.isEmpty else {
+            return storedHistory
+        }
+
+        let legacyHistory = Self.loadPersistedHistory(from: legacyHistoryURL)
+        if !legacyHistory.isEmpty {
+            try await changeLogStore.saveEntries(legacyHistory)
+        }
+        return legacyHistory
     }
 
     private static func loadPersistedHistory(from url: URL) -> [ChangeLogEntry] {
@@ -308,13 +338,6 @@ public actor UndoCoordinator {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return (try? decoder.decode([ChangeLogEntry].self, from: data)) ?? []
-    }
-
-    private func ensureDirectoryExists() throws {
-        let directory = historyURL.deletingLastPathComponent()
-        if !fileManager.fileExists(atPath: directory.path) {
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
     }
 
     private static func defaultDirectory() -> URL {

@@ -16,6 +16,8 @@ public enum ModelContainerFactory {
             PersistedTrack.self,
             PersistedChangeLogEntry.self,
             PersistedMetricsSnapshot.self,
+            PersistedPendingAlbumEntry.self,
+            PersistedPendingVerificationMetadata.self,
         ])
         let config = ModelConfiguration(
             "GenreUpdater",
@@ -33,6 +35,8 @@ public enum ModelContainerFactory {
             PersistedTrack.self,
             PersistedChangeLogEntry.self,
             PersistedMetricsSnapshot.self,
+            PersistedPendingAlbumEntry.self,
+            PersistedPendingVerificationMetadata.self,
         ])
         let config = ModelConfiguration(
             schema: schema,

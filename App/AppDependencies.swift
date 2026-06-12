@@ -20,6 +20,17 @@ import SwiftUI
 
 private let log = AppLogger.make(category: "dependencies")
 
+private enum AppDependencyInitializationError: LocalizedError {
+    case missingModelContainer
+
+    var errorDescription: String? {
+        switch self {
+        case .missingModelContainer:
+            "SwiftData model container is unavailable"
+        }
+    }
+}
+
 private enum APIAuthReferenceResolver {
     static func resolve(
         _ reference: String,
@@ -93,7 +104,7 @@ final class AppDependencies {
     private(set) var subscriptionService: SubscriptionService?
     private(set) var featureGate: FeatureGate?
     private(set) var apiOrchestrator: APIOrchestrator?
-    private(set) var pendingVerificationService: FilePendingVerificationService?
+    private(set) var pendingVerificationService: (any PendingVerificationService)?
     private(set) var cacheService: GRDBCacheService?
     private(set) var trackStore: SwiftDataTrackStore?
     private(set) var changeLogStore: SwiftDataChangeLogStore?
@@ -172,8 +183,8 @@ final class AppDependencies {
 
             // Steps 5-8: Persistence, algorithms, API, and workflow services
             try await initializePersistence()
-            initializeAlgorithmsAndAPI()
-            initializeWorkflowServices(bridge: bridge, gate: gate)
+            try await initializeAlgorithmsAndAPI()
+            await initializeWorkflowServices(bridge: bridge, gate: gate)
 
             log.info("All services initialized successfully")
             appState = .ready
@@ -212,7 +223,9 @@ final class AppDependencies {
 
     func applyRuntimeConfiguration() {
         let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
-        let configuredPendingVerificationService = FilePendingVerificationService(configuration: config)
+        let configuredPendingVerificationService = modelContainer.map {
+            SwiftDataPendingVerificationService(modelContainer: $0, configuration: config)
+        }
         let configuredAPIOrchestrator = Self.makeAPIOrchestrator(
             configuration: config,
             cache: cacheService,
@@ -227,6 +240,7 @@ final class AppDependencies {
         let librarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: config)
         let batchProcessingConfiguration = BatchProcessingConfiguration(configuration: config)
         Task { [updateCoordinator, applescriptBridge, librarySyncService, batchProcessor, musicReader] in
+            try? await configuredPendingVerificationService?.initialize()
             await applescriptBridge?.updateConfiguration(appleScriptConfiguration)
             await musicReader?.updateTestArtists(config.development.testArtists)
             await librarySyncService?.updateRuntimeConfiguration(librarySyncRuntimeConfiguration)
@@ -379,14 +393,19 @@ final class AppDependencies {
     }
 
     /// Steps 6-7: Create core algorithm instances and API orchestrator.
-    private func initializeAlgorithmsAndAPI() {
+    private func initializeAlgorithmsAndAPI() async throws {
         let genreDeterm = GenreDeterminator()
         genreDeterminator = genreDeterm
 
         let yearDeterm = Self.makeYearDeterminator(configuration: config)
         yearDeterminator = yearDeterm
 
-        let pendingVerification = FilePendingVerificationService(configuration: config)
+        guard let container = modelContainer else {
+            throw AppDependencyInitializationError.missingModelContainer
+        }
+
+        let pendingVerification = SwiftDataPendingVerificationService(modelContainer: container, configuration: config)
+        try await pendingVerification.initialize()
         pendingVerificationService = pendingVerification
 
         apiOrchestrator = Self.makeAPIOrchestrator(
@@ -397,7 +416,7 @@ final class AppDependencies {
     }
 
     /// Step 8: Wire workflow services that depend on persistence, algorithms, and the script bridge.
-    private func initializeWorkflowServices(bridge: AppleScriptBridge, gate: FeatureGate) {
+    private func initializeWorkflowServices(bridge: AppleScriptBridge, gate: FeatureGate) async {
         let checkpoint = CheckpointManager()
         checkpointManager = checkpoint
 
@@ -416,6 +435,7 @@ final class AppDependencies {
             scriptBridge: bridge,
             changeLogStore: logStore
         )
+        await undo.initialize()
         undoCoordinator = undo
 
         updateCoordinator = UpdateCoordinator(
