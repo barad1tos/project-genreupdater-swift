@@ -50,9 +50,51 @@ public enum AppleScriptBridgeError: Error, LocalizedError {
 // MARK: - Sendable Wrapper
 
 // Safety: NSUserAppleScriptTask and NSAppleEventDescriptor are not Sendable
-// but are safe here — actor serialization ensures only one task executes at a time.
+// but each wrapped value is confined to one bounded AppleScript execution.
 private struct UnsafeSendable<T>: @unchecked Sendable {
     let value: T
+}
+
+private actor AppleScriptConcurrencyGate {
+    private var availablePermits: Int
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) {
+        availablePermits = AppleScriptBridge.normalizedConcurrencyLimit(limit)
+    }
+
+    func withPermit<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
+        await acquire()
+        do {
+            try Task.checkCancellation()
+        } catch {
+            release()
+            throw error
+        }
+        defer { release() }
+        return try await operation()
+    }
+
+    private func acquire() async {
+        guard availablePermits <= 0 else {
+            availablePermits -= 1
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    private func release() {
+        guard !waiters.isEmpty else {
+            availablePermits += 1
+            return
+        }
+
+        let nextWaiter = waiters.removeFirst()
+        nextWaiter.resume()
+    }
 }
 
 // MARK: - AppleScript Bridge Actor
@@ -60,22 +102,25 @@ private struct UnsafeSendable<T>: @unchecked Sendable {
 /// Actor that manages all AppleScript interactions with Music.app.
 ///
 /// Uses NSUserAppleScriptTask for sandbox-compatible script execution.
-/// The actor ensures serialized access to Music.app, preventing race conditions
-/// that occur when multiple AppleScript calls run concurrently.
+/// The actor applies configured retry, rate, and concurrency limits before
+/// reaching Music.app.
 public actor AppleScriptBridge: AppleScriptClient {
     private let installer: ScriptInstaller
     private var config: AppleScriptConfig
     private var rateLimiter: TokenBucketRateLimiter?
+    private var concurrencyGate: AppleScriptConcurrencyGate
 
     public init(installer: ScriptInstaller, config: AppleScriptConfig = .init()) {
         self.installer = installer
         self.config = config
         self.rateLimiter = Self.makeRateLimiter(configuration: config.rateLimit)
+        self.concurrencyGate = AppleScriptConcurrencyGate(limit: config.concurrency)
     }
 
     public func updateConfiguration(_ config: AppleScriptConfig) {
         self.config = config
         rateLimiter = Self.makeRateLimiter(configuration: config.rateLimit)
+        concurrencyGate = AppleScriptConcurrencyGate(limit: config.concurrency)
     }
 
     public func initialize() async throws {
@@ -263,21 +308,28 @@ extension AppleScriptBridge {
 
         let wrappedTask = UnsafeSendable(value: task)
         let wrappedEvent = UnsafeSendable(value: event)
-        return try await withThrowingTaskGroup(of: String?.self) { group in
-            group.addTask {
-                let descriptor = try await wrappedTask.value.execute(withAppleEvent: wrappedEvent.value)
-                return descriptor.stringValue
-            }
+        let gate = concurrencyGate
+        return try await gate.withPermit {
+            try await withThrowingTaskGroup(of: String?.self) { group in
+                group.addTask {
+                    let descriptor = try await wrappedTask.value.execute(withAppleEvent: wrappedEvent.value)
+                    return descriptor.stringValue
+                }
 
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw AppleScriptBridgeError.timeout(scriptName: name, duration: timeout)
-            }
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    throw AppleScriptBridgeError.timeout(scriptName: name, duration: timeout)
+                }
 
-            let result = try await group.next()
-            group.cancelAll()
-            return result.flatMap(\.self)
+                let result = try await group.next()
+                group.cancelAll()
+                return result.flatMap(\.self)
+            }
         }
+    }
+
+    static func normalizedConcurrencyLimit(_ limit: Int) -> Int {
+        max(1, limit)
     }
 
     func retryAppleScriptOperation<T>(

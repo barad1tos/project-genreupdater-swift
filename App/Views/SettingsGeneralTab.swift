@@ -236,10 +236,24 @@ private struct MusicAppScriptingSection: View {
 
     var body: some View {
         Section("Music App Scripting") {
+            AppleScriptConcurrencySettings(dependencies: dependencies)
             AppleScriptBatchFetchSettings(dependencies: dependencies)
             AppleScriptRateLimitSettings(dependencies: dependencies)
             AppleScriptRetrySettings(dependencies: dependencies)
             AppleScriptTimeoutSettings(dependencies: dependencies)
+        }
+    }
+}
+
+private struct AppleScriptConcurrencySettings: View {
+    let dependencies: AppDependencies
+
+    var body: some View {
+        Stepper(value: configBinding(dependencies, \.applescript.concurrency), in: 1 ... 10) {
+            LabeledContent(
+                "Concurrent AppleScript calls",
+                value: "\(dependencies.config.applescript.concurrency)"
+            )
         }
     }
 }

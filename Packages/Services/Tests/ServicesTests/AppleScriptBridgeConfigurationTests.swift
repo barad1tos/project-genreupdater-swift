@@ -5,6 +5,13 @@ import Testing
 
 @Suite("AppleScriptBridge - retry and rate configuration")
 struct AppleScriptBridgeConfigurationTests {
+    @Test("Concurrency limit clamps to at least one")
+    func concurrencyLimitClampsToAtLeastOne() {
+        #expect(AppleScriptBridge.normalizedConcurrencyLimit(2) == 2)
+        #expect(AppleScriptBridge.normalizedConcurrencyLimit(0) == 1)
+        #expect(AppleScriptBridge.normalizedConcurrencyLimit(-4) == 1)
+    }
+
     @Test("Retry classifier retries transient AppleScript failures")
     func retryClassifierRetriesTransientAppleScriptFailures() {
         let timeout = AppleScriptBridgeError.timeout(scriptName: "fetch_tracks", duration: .seconds(1))
