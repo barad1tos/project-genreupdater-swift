@@ -59,6 +59,43 @@ struct GRDBCacheServiceTests {
         #expect(result == nil)
     }
 
+    @Test("Generic cache uses configured default TTL when none is provided")
+    func genericCacheUsesConfiguredDefaultTTL() async throws {
+        let service = try GRDBCacheService.createInMemory(defaultGenericTTL: 0.001)
+        try await service.initialize()
+
+        await service.set(key: "default_ttl", value: "short", ttl: nil)
+        try await Task.sleep(for: .milliseconds(20))
+
+        let result: String? = await service.get(key: "default_ttl")
+        #expect(result == nil)
+    }
+
+    @Test("Generic cache explicit TTL overrides configured default")
+    func genericCacheExplicitTTLOverridesDefault() async throws {
+        let service = try GRDBCacheService.createInMemory(defaultGenericTTL: 0.001)
+        try await service.initialize()
+
+        await service.set(key: "explicit_ttl", value: "long", ttl: 3600)
+        try await Task.sleep(for: .milliseconds(20))
+
+        let result: String? = await service.get(key: "explicit_ttl")
+        #expect(result == "long")
+    }
+
+    @Test("Generic cache enforces configured entry limit")
+    func genericCacheEntryLimit() async throws {
+        let service = try GRDBCacheService.createInMemory(maxGenericEntries: 2)
+        try await service.initialize()
+
+        await service.set(key: "a", value: 1, ttl: 3600)
+        await service.set(key: "b", value: 2, ttl: 3600)
+        await service.set(key: "c", value: 3, ttl: 3600)
+
+        let stats = await service.getCacheStatistics()
+        #expect(stats.genericCacheCount == 2)
+    }
+
     @Test("Generic cache clear removes all entries")
     func genericCacheClear() async throws {
         let service = try await makeService()
@@ -182,6 +219,27 @@ struct GRDBCacheServiceTests {
         // Should be retrievable since it was just set with default TTL
         let cached = await service.getCachedAPIResult(artist: "Test", album: "Album", source: "musicbrainz")
         #expect(cached != nil)
+    }
+
+    @Test("API result default TTL is configurable")
+    func apiResultConfigurableDefaultTTL() async throws {
+        let service = try GRDBCacheService.createInMemory(apiResultTTL: 0.001)
+        try await service.initialize()
+
+        let result = CachedAPIResult(
+            artist: "Test",
+            album: "Album",
+            year: 2020,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: nil
+        )
+
+        await service.setCachedAPIResult(result)
+        try await Task.sleep(for: .milliseconds(20))
+
+        let cached = await service.getCachedAPIResult(artist: "Test", album: "Album", source: "musicbrainz")
+        #expect(cached == nil)
     }
 
     @Test("API result returns nil for wrong source")

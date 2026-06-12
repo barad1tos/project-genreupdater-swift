@@ -250,9 +250,34 @@ final class AppDependencies {
         let logStore = SwiftDataChangeLogStore(modelContainer: container)
         changeLogStore = logStore
 
-        let cache = try GRDBCacheService.createDefault()
+        let cache = try GRDBCacheService.createDefault(
+            defaultGenericTTL: Self.defaultGenericCacheTTL(configuration: config),
+            apiResultTTL: Self.apiResultCacheTTL(configuration: config),
+            maxGenericEntries: config.runtime.maxGenericEntries
+        )
         try await cache.initialize()
         cacheService = cache
+    }
+
+    private static func defaultGenericCacheTTL(configuration: AppConfiguration) -> TimeInterval {
+        let candidates = [
+            configuration.caching.defaultTTLSeconds,
+            configuration.runtime.cacheTTLSeconds,
+        ]
+
+        for seconds in candidates where seconds > 0 {
+            return TimeInterval(seconds)
+        }
+
+        return 5 * 60
+    }
+
+    private static func apiResultCacheTTL(configuration: AppConfiguration) -> TimeInterval {
+        guard configuration.processing.cacheTTLDays > 0 else {
+            return GRDBCacheService.defaultAPIResultTTL
+        }
+
+        return TimeInterval(configuration.processing.cacheTTLDays) * 24 * 60 * 60
     }
 
     private static func makeYearDeterminator(configuration: AppConfiguration) -> YearDeterminator {

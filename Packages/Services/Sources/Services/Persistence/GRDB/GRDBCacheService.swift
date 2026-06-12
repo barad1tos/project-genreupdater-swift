@@ -13,32 +13,59 @@ import OSLog
 ///
 /// TTL defaults:
 /// - Album years: 30 days
-/// - API responses: 15 minutes
-/// - Generic cache: caller-specified or no expiry
+/// - API responses: caller-configured, 15 minutes by default
+/// - Generic cache: caller-specified or configured default
 public actor GRDBCacheService: CacheService {
     private let dbWriter: any DatabaseWriter
     private let log = AppLogger.cache
+    private let albumYearTTL: TimeInterval
+    private let apiResultTTL: TimeInterval
+    private let defaultGenericTTL: TimeInterval?
+    private let maxGenericEntries: Int
 
     /// Default TTL for album year cache entries (30 days).
-    static let albumYearTTL: TimeInterval = 30 * 24 * 3600
+    public static let defaultAlbumYearTTL: TimeInterval = 30 * 24 * 3600
 
     /// Default TTL for API response cache entries (15 minutes).
-    static let apiResultTTL: TimeInterval = 15 * 60
+    public static let defaultAPIResultTTL: TimeInterval = 15 * 60
+
+    /// Default maximum generic cache entries.
+    public static let defaultMaxGenericEntries = 10000
 
     /// Create a cache service backed by a database file (uses DatabasePool).
     ///
     /// - Parameter databasePath: Path to the SQLite database file.
     ///   Created automatically if it doesn't exist.
-    public init(databasePath: String) throws {
+    public init(
+        databasePath: String,
+        defaultGenericTTL: TimeInterval? = nil,
+        apiResultTTL: TimeInterval = GRDBCacheService.defaultAPIResultTTL,
+        albumYearTTL: TimeInterval = GRDBCacheService.defaultAlbumYearTTL,
+        maxGenericEntries: Int = GRDBCacheService.defaultMaxGenericEntries
+    ) throws {
         dbWriter = try DatabasePool(path: databasePath)
+        self.defaultGenericTTL = Self.normalizedTTL(defaultGenericTTL)
+        self.apiResultTTL = Self.normalizedTTL(apiResultTTL) ?? Self.defaultAPIResultTTL
+        self.albumYearTTL = Self.normalizedTTL(albumYearTTL) ?? Self.defaultAlbumYearTTL
+        self.maxGenericEntries = max(1, maxGenericEntries)
     }
 
     /// Create a cache service with an existing DatabaseWriter (for testing).
     ///
     /// Pass `DatabaseQueue()` for in-memory tests (DatabasePool requires WAL
     /// which doesn't support `:memory:`).
-    init(dbWriter: any DatabaseWriter) {
+    init(
+        dbWriter: any DatabaseWriter,
+        defaultGenericTTL: TimeInterval? = nil,
+        apiResultTTL: TimeInterval = GRDBCacheService.defaultAPIResultTTL,
+        albumYearTTL: TimeInterval = GRDBCacheService.defaultAlbumYearTTL,
+        maxGenericEntries: Int = GRDBCacheService.defaultMaxGenericEntries
+    ) {
         self.dbWriter = dbWriter
+        self.defaultGenericTTL = Self.normalizedTTL(defaultGenericTTL)
+        self.apiResultTTL = Self.normalizedTTL(apiResultTTL) ?? Self.defaultAPIResultTTL
+        self.albumYearTTL = Self.normalizedTTL(albumYearTTL) ?? Self.defaultAlbumYearTTL
+        self.maxGenericEntries = max(1, maxGenericEntries)
     }
 
     // MARK: - Initialization
@@ -82,14 +109,16 @@ public actor GRDBCacheService: CacheService {
     public func set(key: String, value: some Codable & Sendable, ttl: TimeInterval?) async {
         do {
             let data = try JSONEncoder().encode(value)
+            let resolvedTTL = ttl ?? defaultGenericTTL
             try await dbWriter.write { database in
                 let row = GenericCacheRow(
                     key: key,
                     value: data,
-                    ttl: ttl,
+                    ttl: resolvedTTL,
                     timestamp: .now
                 )
                 try row.save(database)
+                try Self.enforceGenericCacheLimit(in: database, maxGenericEntries: maxGenericEntries)
             }
         } catch {
             log.error("Cache set failed for key=\(key, privacy: .public): \(error, privacy: .public)")
@@ -136,7 +165,7 @@ public actor GRDBCacheService: CacheService {
                 guard let row else { return nil }
 
                 let age = Date.now.timeIntervalSince(row.timestamp)
-                if age > GRDBCacheService.albumYearTTL {
+                if age > albumYearTTL {
                     return nil
                 }
 
@@ -216,7 +245,7 @@ public actor GRDBCacheService: CacheService {
                     year: result.year,
                     source: result.source,
                     timestamp: result.timestamp,
-                    ttl: GRDBCacheService.apiResultTTL,
+                    ttl: apiResultTTL,
                     metadata: result.metadata
                 )
             } else {
@@ -340,7 +369,12 @@ public enum GRDBCacheServiceError: Error {
 
 extension GRDBCacheService {
     /// Create a cache service with the default Application Support path.
-    public static func createDefault() throws -> GRDBCacheService {
+    public static func createDefault(
+        defaultGenericTTL: TimeInterval? = nil,
+        apiResultTTL: TimeInterval = GRDBCacheService.defaultAPIResultTTL,
+        albumYearTTL: TimeInterval = GRDBCacheService.defaultAlbumYearTTL,
+        maxGenericEntries: Int = GRDBCacheService.defaultMaxGenericEntries
+    ) throws -> GRDBCacheService {
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -352,13 +386,56 @@ extension GRDBCacheService {
         try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
         let dbPath = cacheDir.appendingPathComponent("api_cache.db").path
-        return try GRDBCacheService(databasePath: dbPath)
+        return try GRDBCacheService(
+            databasePath: dbPath,
+            defaultGenericTTL: defaultGenericTTL,
+            apiResultTTL: apiResultTTL,
+            albumYearTTL: albumYearTTL,
+            maxGenericEntries: maxGenericEntries
+        )
     }
 
     /// Create an in-memory cache service (for testing).
-    public static func createInMemory() throws -> GRDBCacheService {
+    public static func createInMemory(
+        defaultGenericTTL: TimeInterval? = nil,
+        apiResultTTL: TimeInterval = GRDBCacheService.defaultAPIResultTTL,
+        albumYearTTL: TimeInterval = GRDBCacheService.defaultAlbumYearTTL,
+        maxGenericEntries: Int = GRDBCacheService.defaultMaxGenericEntries
+    ) throws -> GRDBCacheService {
         let dbQueue = try DatabaseQueue()
-        return GRDBCacheService(dbWriter: dbQueue)
+        return GRDBCacheService(
+            dbWriter: dbQueue,
+            defaultGenericTTL: defaultGenericTTL,
+            apiResultTTL: apiResultTTL,
+            albumYearTTL: albumYearTTL,
+            maxGenericEntries: maxGenericEntries
+        )
+    }
+}
+
+// MARK: - Configuration Helpers
+
+extension GRDBCacheService {
+    fileprivate static func normalizedTTL(_ ttl: TimeInterval?) -> TimeInterval? {
+        guard let ttl, ttl > 0 else { return nil }
+        return ttl
+    }
+
+    fileprivate static func enforceGenericCacheLimit(in database: Database, maxGenericEntries: Int) throws {
+        let overflowCount = try GenericCacheRow.fetchCount(database) - maxGenericEntries
+        guard overflowCount > 0 else { return }
+
+        try database.execute(
+            sql: """
+            DELETE FROM generic_cache
+            WHERE key IN (
+                SELECT key FROM generic_cache
+                ORDER BY timestamp ASC
+                LIMIT ?
+            )
+            """,
+            arguments: [overflowCount]
+        )
     }
 }
 
