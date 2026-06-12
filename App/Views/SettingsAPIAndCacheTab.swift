@@ -149,7 +149,7 @@ struct APIAndCacheTab: View {
                 LabeledContent("Runtime cache TTL", value: "\(dependencies.config.runtime.cacheTTLSeconds / 60)m")
             }
 
-            Stepper(value: configBinding(dependencies, \.processing.cacheTTLDays), in: 0 ... 36500) {
+            Stepper(value: configBinding(dependencies, \.processing.cacheTTLDays), in: 1 ... 36500) {
                 LabeledContent("API result cache", value: apiResultCacheTTLDisplay)
             }
 
@@ -172,7 +172,7 @@ struct APIAndCacheTab: View {
 
     private var apiResultCacheTTLDisplay: String {
         let days = dependencies.config.processing.cacheTTLDays
-        guard days > 0 else { return "Off" }
+        guard days > 0 else { return "Default" }
 
         if days >= 365, days.isMultiple(of: 365) {
             return "\(days / 365)y"
