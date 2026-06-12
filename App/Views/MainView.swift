@@ -118,6 +118,9 @@ struct MainView: View {
         .onChange(of: dependencies.config.yearRetrieval.logic.minConfidenceForNewYear) {
             applyWorkflowDefaults()
         }
+        .onChange(of: dependencies.config.processing.releaseYearRestoreThreshold) {
+            applyWorkflowDefaults()
+        }
         .sheet(isPresented: $showUpdateSheet) {
             updateSheet
         }
@@ -279,7 +282,8 @@ struct MainView: View {
             defaultUpdateGenre: configuredUpdateSelection.updateGenre,
             defaultUpdateYear: configuredUpdateSelection.updateYear,
             defaultPreviewOnly: configuredPreviewOnly,
-            defaultMinConfidence: configuredMinConfidence
+            defaultMinConfidence: configuredMinConfidence,
+            defaultReleaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
         )
     }
 
@@ -308,7 +312,8 @@ struct MainView: View {
             updateGenre: configuredUpdateSelection.updateGenre,
             updateYear: configuredUpdateSelection.updateYear,
             previewOnly: configuredPreviewOnly,
-            minConfidence: configuredMinConfidence
+            minConfidence: configuredMinConfidence,
+            releaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
         )
     }
 

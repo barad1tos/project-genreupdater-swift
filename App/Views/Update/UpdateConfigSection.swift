@@ -15,7 +15,9 @@ struct UpdateConfigSection: View {
             VStack(spacing: Spacing.xl) {
                 modeSelector
                 scopePreviewCard
-                if viewModel.mode != .pendingVerification {
+                if viewModel.mode == .releaseYearRestore {
+                    releaseYearRestoreSection
+                } else if viewModel.mode != .pendingVerification {
                     optionsCard
                     confidenceSection
                 }
@@ -25,6 +27,9 @@ struct UpdateConfigSection: View {
         }
         .onAppear { viewModel.computeScopePreview(tracks: tracks) }
         .onChange(of: viewModel.mode) { _, _ in
+            viewModel.computeScopePreview(tracks: tracks)
+        }
+        .onChange(of: viewModel.releaseYearRestoreThreshold) { _, _ in
             viewModel.computeScopePreview(tracks: tracks)
         }
     }
@@ -186,6 +191,25 @@ struct UpdateConfigSection: View {
         .disabled(viewModel.isProcessing)
     }
 
+    // MARK: - Release Year Restore
+
+    private var releaseYearRestoreSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Stepper(value: $viewModel.releaseYearRestoreThreshold, in: 0 ... 100) {
+                LabeledContent(
+                    "Restore when gap exceeds",
+                    value: "\(viewModel.releaseYearRestoreThreshold)y"
+                )
+            }
+            Text("Writes Music.app year from the track release year field.")
+                .font(AppFont.caption)
+                .foregroundStyle(Ayu.fgSecondary)
+        }
+        .padding(Spacing.md)
+        .background(Ayu.bgSecondary, in: .rect(cornerRadius: Radius.sm))
+        .disabled(viewModel.isProcessing)
+    }
+
     // MARK: - Start Button
 
     private var startButton: some View {
@@ -210,6 +234,8 @@ struct UpdateConfigSection: View {
             "Start Processing"
         case .pendingVerification:
             "Verify Pending"
+        case .releaseYearRestore:
+            "Restore Years"
         case .selectedTracks, .smartFilter:
             "Start Preview"
         }

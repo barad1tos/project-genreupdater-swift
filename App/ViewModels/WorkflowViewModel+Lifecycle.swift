@@ -15,12 +15,14 @@ extension WorkflowViewModel {
         updateGenre: Bool,
         updateYear: Bool,
         previewOnly: Bool,
-        minConfidence: Double
+        minConfidence: Double,
+        releaseYearRestoreThreshold: Int
     ) {
         defaultUpdateGenre = updateGenre
         defaultUpdateYear = updateYear
         defaultPreviewOnly = previewOnly
         defaultMinConfidence = minConfidence
+        defaultReleaseYearRestoreThreshold = releaseYearRestoreThreshold
 
         guard canStart else { return }
         applyDefaultConfiguration()
@@ -45,6 +47,7 @@ extension WorkflowViewModel {
         pendingAlbumCount = 0
         pendingDueAlbumCount = 0
         pendingSkippedAlbumCount = 0
+        releaseYearRestoreThreshold = defaultReleaseYearRestoreThreshold
     }
 
     private func applyDefaultConfiguration() {
@@ -54,5 +57,19 @@ extension WorkflowViewModel {
         cleanAlbumNames = false
         previewOnly = defaultPreviewOnly
         minConfidence = defaultMinConfidence
+        releaseYearRestoreThreshold = defaultReleaseYearRestoreThreshold
+    }
+
+    func toggleChange(at index: Int) {
+        guard proposedChanges.indices.contains(index) else { return }
+        changePreviewPipeline.toggle(&proposedChanges[index])
+    }
+
+    func acceptAll() {
+        changePreviewPipeline.acceptAll(&proposedChanges)
+    }
+
+    func rejectAll() {
+        changePreviewPipeline.rejectAll(&proposedChanges)
     }
 }

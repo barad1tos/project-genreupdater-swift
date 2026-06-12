@@ -41,6 +41,11 @@ extension WorkflowViewModel {
             applySmartFilter(to: tracks)
         case .pendingVerification:
             []
+        case .releaseYearRestore:
+            Self.tracksNeedingReleaseYearRestore(
+                tracks,
+                threshold: releaseYearRestoreThreshold
+            )
         case .selectedTracks, .fullLibrary:
             tracks
         }

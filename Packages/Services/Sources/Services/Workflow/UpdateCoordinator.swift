@@ -389,7 +389,7 @@ public actor UpdateCoordinator {
         try? await trackStore.updateTrackProcessingState(
             id: change.track.id,
             genreUpdated: change.changeType == .genreUpdate ? true : nil,
-            yearUpdated: change.changeType == .yearUpdate ? true : nil
+            yearUpdated: change.changeType == .yearUpdate || change.changeType == .yearRevert ? true : nil
         )
 
         log

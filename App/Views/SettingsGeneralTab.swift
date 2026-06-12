@@ -183,6 +183,13 @@ struct GeneralTab: View {
             Stepper(value: configBinding(dependencies, \.processing.prereleaseRecheckDays), in: 0 ... 365) {
                 LabeledContent("Prerelease recheck", value: "\(dependencies.config.processing.prereleaseRecheckDays)d")
             }
+
+            Stepper(value: configBinding(dependencies, \.processing.releaseYearRestoreThreshold), in: 0 ... 100) {
+                LabeledContent(
+                    "Release-year restore gap",
+                    value: "\(dependencies.config.processing.releaseYearRestoreThreshold)y"
+                )
+            }
         }
     }
 

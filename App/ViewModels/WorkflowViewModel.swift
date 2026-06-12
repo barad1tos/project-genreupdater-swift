@@ -13,6 +13,7 @@ enum WorkflowMode: String, CaseIterable, Identifiable {
     case fullLibrary = "Full Library"
     case smartFilter = "Smart Filter"
     case pendingVerification = "Pending"
+    case releaseYearRestore = "Restore Years"
 
     var id: String {
         rawValue
@@ -24,6 +25,7 @@ enum WorkflowMode: String, CaseIterable, Identifiable {
         case .fullLibrary: "music.note.list"
         case .smartFilter: "sparkle.magnifyingglass"
         case .pendingVerification: "clock.arrow.circlepath"
+        case .releaseYearRestore: "arrow.uturn.backward.circle"
         }
     }
 
@@ -92,6 +94,7 @@ final class WorkflowViewModel {
     var cleanAlbumNames = false
     var previewOnly: Bool
     var minConfidence: Double
+    var releaseYearRestoreThreshold: Int
 
     // MARK: - State
 
@@ -150,12 +153,13 @@ final class WorkflowViewModel {
 
     let updateCoordinator: UpdateCoordinator
     let batchProcessor: BatchProcessor
-    private let changePreviewPipeline: ChangePreviewPipeline
+    let changePreviewPipeline: ChangePreviewPipeline
     let pendingVerificationService: (any PendingVerificationService)?
     var defaultUpdateGenre: Bool
     var defaultUpdateYear: Bool
     var defaultPreviewOnly: Bool
     var defaultMinConfidence: Double
+    var defaultReleaseYearRestoreThreshold: Int
     var processingTask: Task<Void, Never>?
 
     init(
@@ -166,7 +170,8 @@ final class WorkflowViewModel {
         defaultUpdateGenre: Bool = true,
         defaultUpdateYear: Bool = true,
         defaultPreviewOnly: Bool = true,
-        defaultMinConfidence: Double = 0.6
+        defaultMinConfidence: Double = 0.6,
+        defaultReleaseYearRestoreThreshold: Int = 5
     ) {
         self.updateCoordinator = updateCoordinator
         self.batchProcessor = batchProcessor
@@ -176,10 +181,12 @@ final class WorkflowViewModel {
         self.defaultUpdateYear = defaultUpdateYear
         self.defaultPreviewOnly = defaultPreviewOnly
         self.defaultMinConfidence = defaultMinConfidence
+        self.defaultReleaseYearRestoreThreshold = defaultReleaseYearRestoreThreshold
         updateGenre = defaultUpdateGenre
         updateYear = defaultUpdateYear
         previewOnly = defaultPreviewOnly
         minConfidence = defaultMinConfidence
+        releaseYearRestoreThreshold = defaultReleaseYearRestoreThreshold
     }
 
     // MARK: - Start Workflow
@@ -194,6 +201,11 @@ final class WorkflowViewModel {
 
         if mode == .pendingVerification {
             startPendingVerification(tracks: tracks)
+            return
+        }
+
+        if mode == .releaseYearRestore {
+            startReleaseYearRestore(tracks: tracks)
             return
         }
 
@@ -445,20 +457,5 @@ final class WorkflowViewModel {
         guard mode == .fullLibrary else { return }
         await batchProcessor.resume()
         phase = .scanning
-    }
-
-    // MARK: - Change Selection
-
-    func toggleChange(at index: Int) {
-        guard proposedChanges.indices.contains(index) else { return }
-        changePreviewPipeline.toggle(&proposedChanges[index])
-    }
-
-    func acceptAll() {
-        changePreviewPipeline.acceptAll(&proposedChanges)
-    }
-
-    func rejectAll() {
-        changePreviewPipeline.rejectAll(&proposedChanges)
     }
 }
