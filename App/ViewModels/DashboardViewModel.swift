@@ -9,7 +9,7 @@ import SwiftUI
 // MARK: - Dashboard Loading State
 
 /// Models the Dashboard's data lifecycle from first-launch shimmer through live data display.
-enum DashboardLoadingState: Equatable, Sendable {
+enum DashboardLoadingState: Equatable {
     /// First launch, no cache — show shimmer placeholders.
     case shimmer
     /// Showing cached data from a previous scan.
@@ -29,7 +29,7 @@ enum DashboardLoadingState: Equatable, Sendable {
 // MARK: - Dashboard Metrics
 
 /// Aggregated library health metrics for display.
-struct DashboardMetrics: Equatable, Sendable {
+struct DashboardMetrics: Equatable {
     let totalTracks: Int
     let tracksWithGenre: Int
     let tracksWithYear: Int
@@ -58,7 +58,7 @@ struct DashboardMetrics: Equatable, Sendable {
 // MARK: - Trend Direction
 
 /// Directional trend indicator for metric cards.
-enum TrendDirection: Sendable {
+enum TrendDirection {
     case up
     case down
     case flat

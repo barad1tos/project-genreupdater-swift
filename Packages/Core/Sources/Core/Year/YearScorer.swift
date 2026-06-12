@@ -469,11 +469,13 @@ extension YearScorer {
     ) -> Int {
         guard let country = candidateCountry, let artistCountry else { return 0 }
 
-        if country.uppercased() == artistCountry.uppercased() {
+        let normalizedCountry = country.uppercased()
+        if normalizedCountry == artistCountry.uppercased() {
             return config.countryArtistMatchBonus
         }
 
-        if yearLogic.majorMarketCodes.contains(country.uppercased()) {
+        let normalizedMajorMarkets = Set(yearLogic.majorMarketCodes.map { $0.uppercased() })
+        if normalizedMajorMarkets.contains(normalizedCountry) {
             return config.countryMajorMarketBonus
         }
 

@@ -8,7 +8,7 @@ import Foundation
 /// Top-level response from MusicBrainz release-group search endpoint.
 ///
 /// Maps to: `GET /ws/2/release-group?query=...&fmt=json`
-struct MBReleaseGroupSearchResponse: Codable, Sendable {
+struct MBReleaseGroupSearchResponse: Codable {
     let releaseGroups: [MBReleaseGroup]
 
     private enum CodingKeys: String, CodingKey {
@@ -20,7 +20,7 @@ struct MBReleaseGroupSearchResponse: Codable, Sendable {
 ///
 /// Contains the primary type, first release date, and associated tags/genres
 /// used for genre determination and year extraction.
-struct MBReleaseGroup: Codable, Sendable {
+struct MBReleaseGroup: Codable {
     let id: String
     let title: String
     let primaryType: String?
@@ -51,13 +51,13 @@ struct MBReleaseGroup: Codable, Sendable {
 }
 
 /// A community-submitted tag on a MusicBrainz entity.
-struct MBTag: Codable, Sendable {
+struct MBTag: Codable {
     let name: String
     let count: Int
 }
 
 /// A curated genre classification on a MusicBrainz entity.
-struct MBGenre: Codable, Sendable {
+struct MBGenre: Codable {
     let name: String
     let count: Int
 }
@@ -67,7 +67,7 @@ struct MBGenre: Codable, Sendable {
 /// Top-level response from MusicBrainz artist search endpoint.
 ///
 /// Maps to: `GET /ws/2/artist?query=...&fmt=json`
-struct MBArtistSearchResponse: Codable, Sendable {
+struct MBArtistSearchResponse: Codable {
     let artists: [MBArtist]
 }
 
@@ -75,7 +75,7 @@ struct MBArtistSearchResponse: Codable, Sendable {
 ///
 /// Contains identifying information and life-span data used
 /// for artist matching and disambiguation.
-struct MBArtist: Codable, Sendable {
+struct MBArtist: Codable {
     let id: String
     let name: String
     let lifeSpan: MBLifeSpan?
@@ -92,7 +92,7 @@ struct MBArtist: Codable, Sendable {
 /// The active period of a MusicBrainz artist.
 ///
 /// Dates may be full ("YYYY-MM-DD"), partial ("YYYY"), or nil.
-struct MBLifeSpan: Codable, Sendable {
+struct MBLifeSpan: Codable {
     let begin: String?
     let end: String?
     let ended: Bool?

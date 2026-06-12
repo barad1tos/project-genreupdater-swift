@@ -9,7 +9,7 @@ import SwiftUI
 
 // MARK: - Data Models
 
-struct ArtistGroup: Identifiable, Sendable {
+struct ArtistGroup: Identifiable {
     let canonicalName: String
     let variants: [String]
     let albumCount: Int
@@ -23,7 +23,7 @@ struct ArtistGroup: Identifiable, Sendable {
     }
 }
 
-struct AlbumSummary: Identifiable, Sendable {
+struct AlbumSummary: Identifiable {
     let name: String
     let artist: String
     let year: Int?
@@ -45,7 +45,7 @@ struct LetterSection: Identifiable {
     }
 }
 
-struct AlbumIdentifier: Hashable, Sendable {
+struct AlbumIdentifier: Hashable {
     let albumName: String
     let artistName: String
 }
@@ -87,7 +87,7 @@ enum BrowseSortOrder: String, CaseIterable {
 
 // MARK: - Search Results
 
-struct BrowseSearchResults: Sendable {
+struct BrowseSearchResults {
     let artists: [ArtistGroup]
     let albums: [AlbumSummary]
     let tracks: [Track]

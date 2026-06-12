@@ -7,7 +7,6 @@ import Testing
 
 @Suite("YearScorer — Multi-Factor Release Scoring")
 struct YearScorerScoringTests {
-
     let scorer = YearScorer()
 
     // MARK: - Base Score
@@ -16,7 +15,7 @@ struct YearScorerScoringTests {
     func baseScore() {
         let candidate = makeCandidate(artist: "Test", album: "Test", year: 2000)
         let result = scorer.scoreRelease(candidate, queryArtist: "Test", queryAlbum: "Test")
-        #expect(result.breakdown.base == 50)
+        #expect(result.breakdown.base == scorer.config.baseScore)
     }
 
     // MARK: - Artist Match
@@ -25,7 +24,7 @@ struct YearScorerScoringTests {
     func artistExactMatch() {
         let candidate = makeCandidate(artist: "Radiohead", album: "Test", year: 2000)
         let result = scorer.scoreRelease(candidate, queryArtist: "Radiohead", queryAlbum: "Test")
-        #expect(result.breakdown.artistMatch == 30)
+        #expect(result.breakdown.artistMatch == scorer.config.artistExactMatchBonus)
     }
 
     @Test("Fuzzy artist match gives bonus")
@@ -33,7 +32,7 @@ struct YearScorerScoringTests {
         let candidate = makeCandidate(artist: "The Beatles", album: "Test", year: 2000)
         let result = scorer.scoreRelease(candidate, queryArtist: "Beatles", queryAlbum: "Test")
         // After normalization: "beatles" == "beatles" → exact match bonus
-        #expect(result.breakdown.artistMatch == 30)
+        #expect(result.breakdown.artistMatch == scorer.config.artistExactMatchBonus)
     }
 
     @Test("Artist substring gives penalty")
@@ -57,8 +56,8 @@ struct YearScorerScoringTests {
     func albumPerfectMatch() {
         let candidate = makeCandidate(artist: "X", album: "OK Computer", year: 2000)
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "OK Computer")
-        // Python parity: albumExactMatchBonus(25) + perfectMatchBonus(40) when artist also matches
-        #expect(result.breakdown.albumMatch == 65)
+        // Python parity: albumExactMatchBonus + perfectMatchBonus when artist also matches.
+        #expect(result.breakdown.albumMatch == scorer.config.albumExactMatchBonus + scorer.config.perfectMatchBonus)
     }
 
     @Test("Album variant treated as substring match for scoring")
@@ -67,14 +66,14 @@ struct YearScorerScoringTests {
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "OK Computer")
         // Python parity: normalized strings differ ("okcomputer" vs "okcomputerremastered"),
         // "okcomputer" is substring of "okcomputerremastered" → albumSubstringPenalty
-        #expect(result.breakdown.albumMatch == -15)
+        #expect(result.breakdown.albumMatch == scorer.config.albumSubstringPenalty)
     }
 
     @Test("Unrelated album gives penalty")
     func albumUnrelated() {
         let candidate = makeCandidate(artist: "X", album: "The Bends", year: 2000)
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "Kid A")
-        #expect(result.breakdown.albumMatch == -50)
+        #expect(result.breakdown.albumMatch == scorer.config.albumUnrelatedPenalty)
     }
 
     // MARK: - Release Type
@@ -83,21 +82,21 @@ struct YearScorerScoringTests {
     func releaseTypeAlbum() {
         let candidate = makeCandidate(artist: "X", album: "X", year: 2000, releaseType: .album)
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
-        #expect(result.breakdown.releaseType == 10)
+        #expect(result.breakdown.releaseType == scorer.config.typeAlbumBonus)
     }
 
     @Test("EP type gets penalty")
     func releaseTypeEP() {
         let candidate = makeCandidate(artist: "X", album: "X", year: 2000, releaseType: .ep)
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
-        #expect(result.breakdown.releaseType == -5)
+        #expect(result.breakdown.releaseType == scorer.config.typeEPSinglePenalty)
     }
 
     @Test("Compilation type gets heavier penalty")
     func releaseTypeCompilation() {
         let candidate = makeCandidate(artist: "X", album: "X", year: 2000, releaseType: .compilation)
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
-        #expect(result.breakdown.releaseType == -15)
+        #expect(result.breakdown.releaseType == scorer.config.typeCompilationLivePenalty)
     }
 
     // MARK: - Release Status
@@ -113,7 +112,7 @@ struct YearScorerScoringTests {
     func statusBootleg() {
         let candidate = makeCandidate(artist: "X", album: "X", year: 2000, status: .bootleg)
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
-        #expect(result.breakdown.releaseStatus == -30)
+        #expect(result.breakdown.releaseStatus == scorer.config.statusBootlegPenalty)
     }
 
     // MARK: - Reissue Penalty
@@ -122,7 +121,7 @@ struct YearScorerScoringTests {
     func reissuePenalty() {
         let candidate = makeCandidate(artist: "X", album: "X", year: 2020, isReissue: true)
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
-        #expect(result.breakdown.reissuePenalty == -20)
+        #expect(result.breakdown.reissuePenalty == scorer.config.reissuePenalty)
     }
 
     @Test("Non-reissue gets no penalty")
@@ -163,8 +162,8 @@ struct YearScorerScoringTests {
             queryAlbum: "X",
             currentYear: 2000
         )
-        // diff=20, 1-year grace: penalty = -5 × 19 = -95, capped at -50
-        #expect(result.breakdown.yearDiff == -50)
+        // diff=20, 1-year grace: penalty = -5 × 19, capped at the configured max.
+        #expect(result.breakdown.yearDiff == scorer.config.yearDiffMaxPenalty)
     }
 
     @Test("Year diff uses MB release group first year as reference")
@@ -179,8 +178,8 @@ struct YearScorerScoringTests {
             queryAlbum: "X",
             currentYear: 2015
         )
-        // Uses mbReleaseGroupFirstYear (2000), diff=20, capped at -50
-        #expect(result.breakdown.yearDiff == -50)
+        // Uses mbReleaseGroupFirstYear (2000), diff=20, capped at the configured max.
+        #expect(result.breakdown.yearDiff == scorer.config.yearDiffMaxPenalty)
     }
 
     // MARK: - Artist Period
@@ -194,7 +193,7 @@ struct YearScorerScoringTests {
             queryAlbum: "X",
             artistActivityPeriod: (start: 2000, end: 2020)
         )
-        #expect(result.breakdown.artistPeriod == -30)
+        #expect(result.breakdown.artistPeriod == scorer.config.yearBeforeStartPenalty)
     }
 
     @Test("Year after artist end gets penalty")
@@ -206,7 +205,7 @@ struct YearScorerScoringTests {
             queryAlbum: "X",
             artistActivityPeriod: (start: 2000, end: 2020)
         )
-        #expect(result.breakdown.artistPeriod == -15)
+        #expect(result.breakdown.artistPeriod == scorer.config.yearAfterEndPenalty)
     }
 
     @Test("Year near artist start gets bonus")
@@ -218,7 +217,7 @@ struct YearScorerScoringTests {
             queryAlbum: "X",
             artistActivityPeriod: (start: 2000, end: 2020)
         )
-        #expect(result.breakdown.artistPeriod == 10)
+        #expect(result.breakdown.artistPeriod == scorer.config.yearNearStartBonus)
     }
 
     // MARK: - Country
@@ -232,7 +231,7 @@ struct YearScorerScoringTests {
             queryAlbum: "X",
             artistCountry: "GB"
         )
-        #expect(result.breakdown.country == 5)
+        #expect(result.breakdown.country == scorer.config.countryArtistMatchBonus)
     }
 
     @Test("Major market country gives smaller bonus")
@@ -244,7 +243,7 @@ struct YearScorerScoringTests {
             queryAlbum: "X",
             artistCountry: "JP"
         )
-        #expect(result.breakdown.country == 3)
+        #expect(result.breakdown.country == scorer.config.countryMajorMarketBonus)
     }
 
     @Test("Unknown country gives no bonus")
@@ -264,7 +263,7 @@ struct YearScorerScoringTests {
             artist: "X", album: "X", year: 2000, source: .musicBrainz
         )
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
-        #expect(result.breakdown.sourceReliability == 10)
+        #expect(result.breakdown.sourceReliability == scorer.config.sourceMBBonus)
     }
 
     @Test("Discogs source gives moderate bonus")
@@ -273,7 +272,7 @@ struct YearScorerScoringTests {
             artist: "X", album: "X", year: 2000, source: .discogs
         )
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
-        #expect(result.breakdown.sourceReliability == 5)
+        #expect(result.breakdown.sourceReliability == scorer.config.sourceDiscogsBonus)
     }
 
     // MARK: - Release Group Match
@@ -286,7 +285,7 @@ struct YearScorerScoringTests {
             mbReleaseGroupFirstYear: 1997
         )
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
-        #expect(result.breakdown.releaseGroupMatch == 20)
+        #expect(result.breakdown.releaseGroupMatch == scorer.config.mbReleaseGroupMatchBonus)
     }
 
     @Test("MB release group with different first year gives no bonus")
@@ -324,7 +323,7 @@ struct YearScorerScoringTests {
             artistActivityPeriod: (start: 1992, end: nil),
             artistCountry: "GB"
         )
-        // base(50) + artist(30) + album(40) + RG(20) + type(10) + status(10) + country(5) + source(10) = 175
+        // Strong exact matches should remain comfortably above the definitive threshold.
         #expect(result.totalScore >= 150)
     }
 
@@ -379,7 +378,6 @@ struct YearScorerScoringTests {
 
 @Suite("YearScorer — Score Resolution")
 struct YearScorerResolutionTests {
-
     let scorer = YearScorer()
 
     @Test("Empty scored list returns empty result")
@@ -467,10 +465,10 @@ struct YearScorerResolutionTests {
     @Test("Not definitive when score too low")
     func notDefinitiveLowScore() {
         let scored = [
-            makeScoredRelease(year: 2000, score: 60),
+            makeScoredRelease(year: 2000, score: 40),
         ]
         let result = scorer.resolveScores(scored)
-        // 60 < threshold(80)
+        // 40 < default threshold(50)
         #expect(result.isDefinitive == false)
     }
 

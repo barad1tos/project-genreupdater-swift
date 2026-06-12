@@ -10,7 +10,7 @@ import GRDB
 /// GRDB row type for the `api_results` table.
 ///
 /// Maps to/from `Core.CachedAPIResult` domain type.
-struct CachedAPIRow: Codable, FetchableRecord, PersistableRecord, Sendable {
+struct CachedAPIRow: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "api_results"
 
     var artist: String
@@ -64,7 +64,7 @@ struct CachedAPIRow: Codable, FetchableRecord, PersistableRecord, Sendable {
 /// GRDB row type for the `album_years` table.
 ///
 /// Maps to/from `Core.AlbumCacheEntry` domain type.
-struct AlbumYearRow: Codable, FetchableRecord, PersistableRecord, Sendable {
+struct AlbumYearRow: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "album_years"
 
     var artist: String
@@ -97,7 +97,7 @@ struct AlbumYearRow: Codable, FetchableRecord, PersistableRecord, Sendable {
 /// GRDB row type for the `generic_cache` table.
 ///
 /// Stores arbitrary Codable values as JSON blobs with optional TTL.
-struct GenericCacheRow: Codable, FetchableRecord, PersistableRecord, Sendable {
+struct GenericCacheRow: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "generic_cache"
 
     var key: String

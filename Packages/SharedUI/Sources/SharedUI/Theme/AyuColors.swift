@@ -167,7 +167,7 @@ extension Color {
 
     /// Fallback for asset catalog colors — returns adaptive equivalent.
     func fallback(light: Color, dark: Color) -> Color {
-        Color.adaptive(light: light, dark: dark)
+        Self.adaptive(light: light, dark: dark)
     }
 }
 

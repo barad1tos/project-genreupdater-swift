@@ -17,7 +17,7 @@ struct CoreSmokeTests {
         let config = AppConfiguration()
         #expect(config.applescript.concurrency == 2)
         #expect(config.yearRetrieval.enabled)
-        #expect(config.processing.batchSize == 50)
+        #expect(config.processing.batchSize == 25)
     }
 
     @Test("TrackKind normalizes subscription status")

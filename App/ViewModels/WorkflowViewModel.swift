@@ -8,7 +8,7 @@ import Services
 // MARK: - Workflow Mode
 
 /// Determines which tracks the workflow operates on.
-enum WorkflowMode: String, CaseIterable, Identifiable, Sendable {
+enum WorkflowMode: String, CaseIterable, Identifiable {
     case selectedTracks = "Selected Tracks"
     case fullLibrary = "Full Library"
     case smartFilter = "Smart Filter"
@@ -33,7 +33,7 @@ enum WorkflowMode: String, CaseIterable, Identifiable, Sendable {
 // MARK: - Smart Filter Type
 
 /// Preset filters for the Smart Filter mode.
-enum SmartFilterType: String, CaseIterable, Identifiable, Sendable {
+enum SmartFilterType: String, CaseIterable, Identifiable {
     case missingGenres = "Missing Genres"
     case missingYears = "Missing Years"
     case lowConfidence = "Low Confidence"
@@ -46,7 +46,7 @@ enum SmartFilterType: String, CaseIterable, Identifiable, Sendable {
 // MARK: - Workflow Phase
 
 /// Distinct stages of the unified update workflow.
-enum WorkflowPhase: Sendable {
+enum WorkflowPhase {
     case configure
     case scanning
     case review
@@ -59,7 +59,7 @@ enum WorkflowPhase: Sendable {
 // MARK: - Track Processing Status
 
 /// Per-track processing status for streaming progress rows.
-enum TrackProcessingStatus: Sendable {
+enum TrackProcessingStatus {
     case queued
     case analyzing
     case writing

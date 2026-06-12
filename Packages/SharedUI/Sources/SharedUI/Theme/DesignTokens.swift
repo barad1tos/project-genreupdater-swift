@@ -249,7 +249,7 @@ public enum Motion {
 }
 
 extension EnvironmentValues {
-    // Multiplier for animation durations. Default 1.0; set to 0.5 for "Fast Animations".
+    /// Multiplier for animation durations. Default 1.0; set to 0.5 for "Fast Animations".
     @Entry public var motionScale: Double = 1.0
 }
 

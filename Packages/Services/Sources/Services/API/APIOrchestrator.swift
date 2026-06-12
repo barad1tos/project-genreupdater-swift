@@ -209,7 +209,7 @@ public actor APIOrchestrator {
 // MARK: - SourceQuery
 
 /// Bundles query parameters for a single source fetch.
-private struct SourceQuery: Sendable {
+private struct SourceQuery {
     let artist: String
     let album: String
     let currentLibraryYear: Int?

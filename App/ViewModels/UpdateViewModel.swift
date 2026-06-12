@@ -6,7 +6,7 @@ import Services
 // MARK: - Update Phase
 
 /// Distinct stages of the update workflow visible to the user.
-enum UpdatePhase: Sendable {
+enum UpdatePhase {
     case configuring
     case processing
     case preview

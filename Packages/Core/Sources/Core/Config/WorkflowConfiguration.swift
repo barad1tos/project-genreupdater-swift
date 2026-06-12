@@ -1,0 +1,155 @@
+// WorkflowConfiguration.swift — metadata, verification, and workflow configuration.
+
+import Foundation
+
+// MARK: - Genre Update Configuration
+
+public struct GenreUpdateConfig: Sendable, Codable {
+    public var batchSize: Int = 50
+    public var concurrentLimit: Int = 5
+    public var overrideExisting: Bool = false
+
+    public init() {}
+}
+
+// MARK: - Processing Configuration
+
+public struct ProcessingConfig: Sendable, Codable {
+    public var batchSize: Int = 25
+    public var delayBetweenBatches: Double = 20
+    public var adaptiveDelay: Bool = true
+    public var cacheTTLDays: Int = 36500
+    public var pendingVerificationIntervalDays: Int = 30
+    public var skipPrerelease: Bool = true
+    public var futureYearThreshold: Int = 1
+    public var prereleaseRecheckDays: Int = 30
+    public var prereleaseHandling: PrereleaseHandling = .processEditable
+    public var incrementalIntervalMinutes: Int = 1
+    public var minConfidenceToCache: Int = 50
+    public var suspiciousAlbumMinLen: Int = 3
+    public var suspiciousManyYears: Int = 3
+
+    private enum CodingKeys: String, CodingKey {
+        case batchSize, delayBetweenBatches, adaptiveDelay, cacheTTLDays, pendingVerificationIntervalDays
+        case skipPrerelease, futureYearThreshold, prereleaseRecheckDays, prereleaseHandling
+        case incrementalIntervalMinutes, minConfidenceToCache, suspiciousAlbumMinLen, suspiciousManyYears
+    }
+
+    public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        batchSize = try container.decodeIfPresent(Int.self, forKey: .batchSize) ?? 25
+        delayBetweenBatches = try container.decodeIfPresent(Double.self, forKey: .delayBetweenBatches) ?? 20
+        adaptiveDelay = try container.decodeIfPresent(Bool.self, forKey: .adaptiveDelay) ?? true
+        cacheTTLDays = try container.decodeIfPresent(Int.self, forKey: .cacheTTLDays) ?? 36500
+        pendingVerificationIntervalDays = try container.decodeIfPresent(
+            Int.self,
+            forKey: .pendingVerificationIntervalDays
+        ) ?? 30
+        skipPrerelease = try container.decodeIfPresent(Bool.self, forKey: .skipPrerelease) ?? true
+        futureYearThreshold = try container.decodeIfPresent(Int.self, forKey: .futureYearThreshold) ?? 1
+        prereleaseRecheckDays = try container.decodeIfPresent(Int.self, forKey: .prereleaseRecheckDays) ?? 30
+        prereleaseHandling = try container
+            .decodeIfPresent(PrereleaseHandling.self, forKey: .prereleaseHandling) ?? .processEditable
+        incrementalIntervalMinutes = try container.decodeIfPresent(Int.self, forKey: .incrementalIntervalMinutes) ?? 1
+        minConfidenceToCache = try container.decodeIfPresent(Int.self, forKey: .minConfidenceToCache) ?? 50
+        suspiciousAlbumMinLen = try container.decodeIfPresent(Int.self, forKey: .suspiciousAlbumMinLen) ?? 3
+        suspiciousManyYears = try container.decodeIfPresent(Int.self, forKey: .suspiciousManyYears) ?? 3
+    }
+}
+
+public enum PrereleaseHandling: String, Sendable, Codable, CaseIterable {
+    case processEditable = "process_editable"
+    case skipAll = "skip_all"
+    case markOnly = "mark_only"
+}
+
+// MARK: - Cleaning Configuration
+
+public struct CleaningConfig: Sendable, Codable {
+    // swiftlint:disable:next inclusive_language
+    public var remasterKeywords: [String] = [
+        "remaster", "remastered", "reissue", "expanded edition", "soundtrack",
+        "original motion picture", "original score", "motion picture", "film score",
+    ]
+    public var albumSuffixesToRemove: [String] = [
+        "Remaster", "Remastered", "The 12 Singles", "The 12\" Singles",
+    ]
+    public var trackCleaningExceptions: [TrackCleaningException] = []
+
+    /// User-defined genre mappings applied after genre determination.
+    ///
+    /// Keys are source genres, values are replacement genres.
+    /// Lookup is case-insensitive but the mapped value preserves its original case.
+    /// Example: `{"Electronica": "Electronic", "Hip Hop": "Hip-Hop"}`
+    public var genreMappings: [String: String] = [:]
+
+    public init() {}
+}
+
+public struct TrackCleaningException: Sendable, Codable {
+    public let artist: String
+    public let album: String
+
+    public init(artist: String, album: String) {
+        self.artist = artist
+        self.album = album
+    }
+}
+
+// MARK: - Exceptions Configuration
+
+public struct ExceptionsConfig: Sendable, Codable {
+    public var trackCleaning: [TrackCleaningException] = []
+
+    public init() {}
+}
+
+// MARK: - Artist Renamer Configuration
+
+public struct ArtistRenamerConfig: Sendable, Codable {
+    public var configPath: String = "artist-renames.yaml"
+
+    public init() {}
+}
+
+// MARK: - Verification Configuration
+
+public struct DatabaseVerificationConfig: Sendable, Codable {
+    public var autoVerifyDays: Int = 7
+    public var batchSize: Int = 10
+
+    public init() {}
+}
+
+public struct PendingVerificationConfig: Sendable, Codable {
+    public var autoVerifyDays: Int = 14
+
+    public init() {}
+}
+
+// MARK: - Album Type Detection Configuration
+
+public struct AlbumTypeDetectionConfig: Sendable, Codable {
+    public var specialPatterns: [String] = ["b-sides", "demo", "demos"]
+    public var compilationPatterns: [String] = ["greatest hits", "best of", "compilation"]
+    public var reissuePatterns: [String] = ["remaster", "remastered", "anniversary"]
+    public var soundtrackPatterns: [String] = [
+        "soundtrack", "original score", "OST", "motion picture", "film score",
+    ]
+    public var variousArtistsNames: [String] = [
+        "Various Artists", "Various", "VA", "Різні виконавці",
+    ]
+
+    public init() {}
+}
+
+// MARK: - Experimental Configuration
+
+public struct ExperimentalConfig: Sendable, Codable {
+    public var batchUpdatesEnabled: Bool = false
+    public var maxBatchSize: Int = 5
+
+    public init() {}
+}

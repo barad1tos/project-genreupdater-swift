@@ -3,11 +3,10 @@ import Testing
 
 @Suite("MetadataUtils")
 struct MetadataUtilsTests {
-
     // MARK: - isRemaster
 
     @Test("Detects remaster in text")
-    func remasterDetection() {
+    func editionKeywordDetection() {
         #expect(isRemaster("Album (Remastered 2021)"))
         #expect(isRemaster("Song - Remaster"))
         #expect(!isRemaster("Normal Album"))
@@ -15,7 +14,7 @@ struct MetadataUtilsTests {
     }
 
     @Test("Custom remaster keywords")
-    func customRemasterKeywords() {
+    func customEditionKeywords() {
         #expect(isRemaster("Album (Deluxe)", keywords: ["deluxe", "expanded"]))
         #expect(!isRemaster("Album (Deluxe)", keywords: ["remaster"]))
     }
@@ -69,7 +68,7 @@ struct MetadataUtilsTests {
 
     @Test("Empty name returns empty")
     func emptyName() {
-        #expect(removeParenthesesWithKeywords("", keywords: ["remaster"]) == "")
+        #expect(removeParenthesesWithKeywords("", keywords: ["remaster"]).isEmpty)
     }
 
     @Test("Empty keywords returns original")
@@ -169,7 +168,7 @@ struct MetadataUtilsTests {
         let (_, album) = cleanNames(
             artist: "Artist",
             trackName: "Song",
-            albumName: "Album (Deluxe Edition)",
+            albumName: "Album Remaster",
             config: config
         )
         #expect(album == "Album")

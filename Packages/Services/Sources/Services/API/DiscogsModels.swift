@@ -8,7 +8,7 @@ import Foundation
 /// Top-level response from `/database/search`.
 ///
 /// Maps to: `GET /database/search?q=...&type=release`
-struct DiscogsSearchResponse: Codable, Sendable {
+struct DiscogsSearchResponse: Codable {
     let results: [DiscogsSearchResult]
     let pagination: DiscogsPagination?
 }
@@ -18,7 +18,7 @@ struct DiscogsSearchResponse: Codable, Sendable {
 /// Note: `year` arrives as a String from the search API (e.g., "1994"),
 /// unlike master release endpoints which return an Int. Use `releaseYear`
 /// for the parsed integer value.
-struct DiscogsSearchResult: Codable, Sendable {
+struct DiscogsSearchResult: Codable {
     let id: Int
     let title: String
     let year: String?
@@ -49,7 +49,7 @@ struct DiscogsSearchResult: Codable, Sendable {
 ///
 /// Included in paginated responses to indicate the current page,
 /// total page count, items per page, and total item count.
-struct DiscogsPagination: Codable, Sendable {
+struct DiscogsPagination: Codable {
     let page: Int
     let pages: Int
     let perPage: Int
@@ -68,7 +68,7 @@ struct DiscogsPagination: Codable, Sendable {
 /// The master release represents the canonical version of a recording,
 /// aggregating all pressings and editions. Contains genre/style arrays
 /// and the definitive release year as an Int (unlike search results).
-struct DiscogsMasterRelease: Codable, Sendable { // swiftlint:disable:this inclusive_language
+struct DiscogsMasterRelease: Codable { // swiftlint:disable:this inclusive_language
     let id: Int
     let title: String
     let year: Int?
@@ -81,7 +81,7 @@ struct DiscogsMasterRelease: Codable, Sendable { // swiftlint:disable:this inclu
 ///
 /// Lightweight representation containing only the artist ID and name,
 /// without the full profile or membership data.
-struct DiscogsArtistRef: Codable, Sendable {
+struct DiscogsArtistRef: Codable {
     let id: Int
     let name: String
 }

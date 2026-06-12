@@ -1,0 +1,299 @@
+// SettingsAdvancedTab.swift — cleanup lists, verification controls, and JSON configuration.
+
+import AppKit
+import Core
+import SharedUI
+import SwiftUI
+
+// MARK: - Advanced Tab
+
+struct AdvancedTab: View {
+    @Environment(AppDependencies.self) private var dependencies
+    // swiftlint:disable:next inclusive_language
+    @State private var newRemasterKeyword = ""
+    @State private var newAlbumSuffix = ""
+    @State private var newMappingSource = ""
+    @State private var newMappingTarget = ""
+    @State private var showResetConfirmation = false
+    @State private var configurationJSON = ""
+    @State private var jsonEditorState: JSONEditorState = .idle
+    @State private var jsonStatusMessage = "Loaded from current configuration"
+
+    var body: some View {
+        Form {
+            genreMappingsSection
+            editionKeywordsSection
+            albumSuffixesSection
+            debugSection
+            yearPenaltySection
+            verificationSection
+            advancedJSONSection
+            resetSection
+        }
+        .formStyle(.grouped)
+        .padding()
+        .onAppear {
+            if configurationJSON.isEmpty {
+                reloadJSON()
+            }
+        }
+    }
+
+    private var genreMappingsSection: some View {
+        Section("Genre Mappings") {
+            GenreMappingsEditor(
+                mappings: Binding(
+                    get: { dependencies.config.cleaning.genreMappings },
+                    set: { newValue in
+                        dependencies.config.cleaning.genreMappings = newValue
+                        saveConfig()
+                    }
+                ),
+                newSource: $newMappingSource,
+                newTarget: $newMappingTarget
+            )
+        }
+    }
+
+    private var editionKeywordsSection: some View {
+        Section("Remaster Keywords") {
+            ForEach(dependencies.config.cleaning.remasterKeywords, id: \.self) { keyword in
+                Text(keyword)
+            }
+            .onDelete { offsets in
+                dependencies.config.cleaning.remasterKeywords.remove(atOffsets: offsets)
+                saveConfig()
+            }
+
+            HStack {
+                TextField("New keyword", text: $newRemasterKeyword)
+                    .textFieldStyle(.roundedBorder)
+                Button("Add") { addRemasterKeyword() }
+                    .disabled(newRemasterKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+    }
+
+    private var albumSuffixesSection: some View {
+        Section("Album Suffixes to Remove") {
+            ForEach(dependencies.config.cleaning.albumSuffixesToRemove, id: \.self) { suffix in
+                Text(suffix)
+            }
+            .onDelete { offsets in
+                dependencies.config.cleaning.albumSuffixesToRemove.remove(atOffsets: offsets)
+                saveConfig()
+            }
+
+            HStack {
+                TextField("New suffix", text: $newAlbumSuffix)
+                    .textFieldStyle(.roundedBorder)
+                Button("Add") { addAlbumSuffix() }
+                    .disabled(newAlbumSuffix.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+    }
+
+    private var debugSection: some View {
+        Section("Debug") {
+            Toggle("Debug mode", isOn: configBinding(dependencies, \.development.debugMode))
+            Toggle("Analytics", isOn: configBinding(dependencies, \.analytics.enabled))
+
+            Picker("Change display", selection: configBinding(dependencies, \.reporting.changeDisplayMode)) {
+                ForEach(ChangeDisplayMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+        }
+    }
+
+    private var yearPenaltySection: some View {
+        Section("Year Difference Penalty") {
+            let penaltyScaleBinding = Binding<Double>(
+                get: { Double(abs(dependencies.config.yearRetrieval.scoring.yearDiffPenaltyScale)) },
+                set: { newValue in
+                    dependencies.config.yearRetrieval.scoring.yearDiffPenaltyScale = -Int(newValue)
+                    saveConfig()
+                }
+            )
+
+            VStack(alignment: .leading) {
+                Text(
+                    "Penalty per year difference: \(abs(dependencies.config.yearRetrieval.scoring.yearDiffPenaltyScale))"
+                )
+                Slider(value: penaltyScaleBinding, in: 0 ... 20, step: 1)
+            }
+        }
+    }
+
+    private var verificationSection: some View {
+        Section("Verification") {
+            Stepper(value: configBinding(dependencies, \.databaseVerification.autoVerifyDays), in: 1 ... 90) {
+                LabeledContent(
+                    "Database verify interval",
+                    value: "\(dependencies.config.databaseVerification.autoVerifyDays)d"
+                )
+            }
+
+            Stepper(value: configBinding(dependencies, \.databaseVerification.batchSize), in: 1 ... 100) {
+                LabeledContent(
+                    "Verification batch size",
+                    value: "\(dependencies.config.databaseVerification.batchSize)"
+                )
+            }
+
+            Stepper(value: configBinding(dependencies, \.pendingVerification.autoVerifyDays), in: 1 ... 90) {
+                LabeledContent(
+                    "Pending verify interval",
+                    value: "\(dependencies.config.pendingVerification.autoVerifyDays)d"
+                )
+            }
+        }
+    }
+
+    private var advancedJSONSection: some View {
+        Section("Advanced JSON") {
+            TextEditor(text: $configurationJSON)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 220)
+
+            HStack {
+                Button { reloadJSON() } label: {
+                    Label("Reload", systemImage: "arrow.clockwise")
+                }
+
+                Button { formatJSON() } label: {
+                    Label("Format", systemImage: "text.alignleft")
+                }
+
+                Button { copyJSON() } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+
+                Spacer()
+
+                Button { applyJSON() } label: {
+                    Label("Apply", systemImage: "checkmark")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Ayu.accent)
+            }
+
+            HStack(spacing: 6) {
+                Image(systemName: jsonEditorState.symbolName)
+                    .foregroundStyle(jsonEditorState.color)
+                Text(jsonStatusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var resetSection: some View {
+        Section("Reset") {
+            Button("Reset Configuration to Defaults", role: .destructive) {
+                showResetConfirmation = true
+            }
+            .confirmationDialog(
+                "Reset all settings to defaults?",
+                isPresented: $showResetConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Reset", role: .destructive) { resetConfiguration() }
+                Button("Cancel", role: .cancel) {}
+            }
+        }
+    }
+
+    // swiftlint:disable:next inclusive_language
+    private func addRemasterKeyword() {
+        let trimmed = newRemasterKeyword.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        dependencies.config.cleaning.remasterKeywords.append(trimmed)
+        newRemasterKeyword = ""
+        saveConfig()
+    }
+
+    private func addAlbumSuffix() {
+        let trimmed = newAlbumSuffix.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        dependencies.config.cleaning.albumSuffixesToRemove.append(trimmed)
+        newAlbumSuffix = ""
+        saveConfig()
+    }
+
+    private func saveConfig() {
+        saveConfiguration(dependencies)
+        reloadJSON()
+    }
+
+    private func resetConfiguration() {
+        dependencies.config = AppConfiguration()
+        saveConfig()
+    }
+
+    private func reloadJSON() {
+        do {
+            configurationJSON = try Self.encodeConfiguration(dependencies.config)
+            jsonEditorState = .valid
+            jsonStatusMessage = "Loaded from current configuration"
+        } catch {
+            jsonEditorState = .invalid
+            jsonStatusMessage = "Encode failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func formatJSON() {
+        do {
+            let decoded = try Self.decodeConfiguration(configurationJSON)
+            configurationJSON = try Self.encodeConfiguration(decoded)
+            jsonEditorState = .valid
+            jsonStatusMessage = "JSON is valid"
+        } catch {
+            jsonEditorState = .invalid
+            jsonStatusMessage = "Invalid JSON: \(error.localizedDescription)"
+        }
+    }
+
+    private func copyJSON() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(configurationJSON, forType: .string)
+        jsonEditorState = .copied
+        jsonStatusMessage = "Copied"
+    }
+
+    private func applyJSON() {
+        do {
+            let decoded = try Self.decodeConfiguration(configurationJSON)
+            dependencies.config = decoded
+            try dependencies.config.save()
+            configurationJSON = try Self.encodeConfiguration(decoded)
+            jsonEditorState = .saved
+            jsonStatusMessage = "Saved"
+        } catch {
+            jsonEditorState = .invalid
+            jsonStatusMessage = "Apply failed: \(error.localizedDescription)"
+        }
+    }
+
+    private static func decodeConfiguration(_ jsonString: String) throws -> AppConfiguration {
+        try JSONDecoder().decode(AppConfiguration.self, from: Data(jsonString.utf8))
+    }
+
+    private static func encodeConfiguration(_ config: AppConfiguration) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(config)
+        guard let jsonString = String(bytes: data, encoding: .utf8) else {
+            throw JSONEncodingError.nonUTF8
+        }
+        return jsonString
+    }
+}
+
+private enum JSONEncodingError: LocalizedError {
+    case nonUTF8
+
+    var errorDescription: String? {
+        "Encoded configuration is not UTF-8."
+    }
+}

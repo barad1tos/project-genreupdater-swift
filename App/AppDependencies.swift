@@ -23,7 +23,7 @@ private let log = AppLogger.make(category: "dependencies")
 // MARK: - App State
 
 /// Represents the current state of the application.
-enum AppState: Sendable {
+enum AppState {
     case loading
     case needsOnboarding
     case ready
