@@ -84,10 +84,10 @@ final class WorkflowViewModel {
 
     var mode: WorkflowMode = .selectedTracks
     var smartFilterType: SmartFilterType = .missingGenres
-    var updateGenre: Bool = true
-    var updateYear: Bool = true
-    var previewOnly: Bool = true
-    var minConfidence: Double = 0.6
+    var updateGenre: Bool
+    var updateYear: Bool
+    var previewOnly: Bool
+    var minConfidence: Double
 
     // MARK: - State
 
@@ -144,16 +144,32 @@ final class WorkflowViewModel {
     private let updateCoordinator: UpdateCoordinator
     private let batchProcessor: BatchProcessor
     private let changePreviewPipeline: ChangePreviewPipeline
+    private var defaultUpdateGenre: Bool
+    private var defaultUpdateYear: Bool
+    private var defaultPreviewOnly: Bool
+    private var defaultMinConfidence: Double
     private var processingTask: Task<Void, Never>?
 
     init(
         updateCoordinator: UpdateCoordinator,
         batchProcessor: BatchProcessor,
-        changePreviewPipeline: ChangePreviewPipeline
+        changePreviewPipeline: ChangePreviewPipeline,
+        defaultUpdateGenre: Bool = true,
+        defaultUpdateYear: Bool = true,
+        defaultPreviewOnly: Bool = true,
+        defaultMinConfidence: Double = 0.6
     ) {
         self.updateCoordinator = updateCoordinator
         self.batchProcessor = batchProcessor
         self.changePreviewPipeline = changePreviewPipeline
+        self.defaultUpdateGenre = defaultUpdateGenre
+        self.defaultUpdateYear = defaultUpdateYear
+        self.defaultPreviewOnly = defaultPreviewOnly
+        self.defaultMinConfidence = defaultMinConfidence
+        updateGenre = defaultUpdateGenre
+        updateYear = defaultUpdateYear
+        previewOnly = defaultPreviewOnly
+        minConfidence = defaultMinConfidence
     }
 
     // MARK: - Start Workflow
@@ -419,15 +435,32 @@ final class WorkflowViewModel {
     func rejectAll() {
         changePreviewPipeline.rejectAll(&proposedChanges)
     }
+}
 
-    // MARK: - Lifecycle
+// MARK: - Lifecycle
 
+extension WorkflowViewModel {
     func cancel() {
         processingTask?.cancel()
         processingTask = nil
         if mode == .fullLibrary {
             Task { await batchProcessor.cancel() }
         }
+    }
+
+    func updateDefaults(
+        updateGenre: Bool,
+        updateYear: Bool,
+        previewOnly: Bool,
+        minConfidence: Double
+    ) {
+        defaultUpdateGenre = updateGenre
+        defaultUpdateYear = updateYear
+        defaultPreviewOnly = previewOnly
+        defaultMinConfidence = minConfidence
+
+        guard canStart else { return }
+        applyDefaultConfiguration()
     }
 
     func reset() {
@@ -441,37 +474,17 @@ final class WorkflowViewModel {
         processedCount = 0
         totalCount = 0
         failedCount = 0
-        previewOnly = true
+        applyDefaultConfiguration()
         trackStatuses = [:]
         currentTrackID = nil
         scopeTrackCount = 0
         scopeArtistCount = 0
     }
-}
 
-// MARK: - Smart Filter + Error Handling
-
-extension WorkflowViewModel {
-    func applySmartFilter(to tracks: [Track]) -> [Track] {
-        guard mode == .smartFilter else { return tracks }
-        switch smartFilterType {
-        case .missingGenres:
-            return tracks.filter { $0.genre == nil || $0.genre?.isEmpty == true }
-        case .missingYears:
-            return tracks.filter { $0.year == nil }
-        case .lowConfidence:
-            return tracks
-        }
-    }
-
-    func handleBatchError(_ error: BatchProcessorError) {
-        switch error {
-        case let .cancelled(processedCount, _):
-            self.processedCount = processedCount
-            phase = .configure
-        case .featureNotAvailable, .alreadyRunning, .notRunning:
-            phase = .error(error.localizedDescription)
-        }
-        progress = nil
+    private func applyDefaultConfiguration() {
+        updateGenre = defaultUpdateGenre
+        updateYear = defaultUpdateYear
+        previewOnly = defaultPreviewOnly
+        minConfidence = defaultMinConfidence
     }
 }

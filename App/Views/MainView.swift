@@ -75,6 +75,7 @@ struct MainView: View {
     @State private var workflowViewModel: WorkflowViewModel?
     @State private var hasNavigated = false
     @AppStorage("sidebarCompact") private var isSidebarCompact = false
+    @AppStorage("defaultUpdateBehavior") private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -91,7 +92,7 @@ struct MainView: View {
                 )
                 .animation(
                     hasNavigated && !reduceMotion
-                        ? Motion.scaled(.curveSmooth, by: motionScale)
+                        ? Motion.scaled(Motion.curveSmooth, by: motionScale)
                         : .none,
                     value: selectedCategory
                 )
@@ -112,6 +113,11 @@ struct MainView: View {
             updateColumnVisibility()
         }
         .onChange(of: browseViewModel.selectedAlbum) { updateColumnVisibility() }
+        .onChange(of: defaultUpdateBehavior) { applyWorkflowDefaults() }
+        .onChange(of: dependencies.config.runtime.dryRun) { applyWorkflowDefaults() }
+        .onChange(of: dependencies.config.yearRetrieval.logic.minConfidenceForNewYear) {
+            applyWorkflowDefaults()
+        }
         .sheet(isPresented: $showUpdateSheet) {
             updateSheet
         }
@@ -215,7 +221,11 @@ struct MainView: View {
            let pipeline = dependencies.changePreviewPipeline {
             let viewModel = UpdateViewModel(
                 updateCoordinator: coordinator,
-                changePreviewPipeline: pipeline
+                changePreviewPipeline: pipeline,
+                defaultUpdateGenre: configuredUpdateSelection.updateGenre,
+                defaultUpdateYear: configuredUpdateSelection.updateYear,
+                defaultPreviewOnly: configuredPreviewOnly,
+                defaultMinConfidence: configuredMinConfidence
             )
             UpdateView(viewModel: viewModel, tracks: tracks)
         }
@@ -264,7 +274,40 @@ struct MainView: View {
         workflowViewModel = WorkflowViewModel(
             updateCoordinator: coordinator,
             batchProcessor: processor,
-            changePreviewPipeline: pipeline
+            changePreviewPipeline: pipeline,
+            defaultUpdateGenre: configuredUpdateSelection.updateGenre,
+            defaultUpdateYear: configuredUpdateSelection.updateYear,
+            defaultPreviewOnly: configuredPreviewOnly,
+            defaultMinConfidence: configuredMinConfidence
+        )
+    }
+
+    private var configuredUpdateSelection: (updateGenre: Bool, updateYear: Bool) {
+        switch UpdateBehavior(rawValue: defaultUpdateBehavior) ?? .both {
+        case .genreOnly:
+            (true, false)
+        case .yearOnly:
+            (false, true)
+        case .both:
+            (true, true)
+        }
+    }
+
+    private var configuredPreviewOnly: Bool {
+        dependencies.config.runtime.dryRun
+    }
+
+    private var configuredMinConfidence: Double {
+        let configuredValue = dependencies.config.yearRetrieval.logic.minConfidenceForNewYear / 100
+        return min(max(configuredValue, 0.3), 1.0)
+    }
+
+    private func applyWorkflowDefaults() {
+        workflowViewModel?.updateDefaults(
+            updateGenre: configuredUpdateSelection.updateGenre,
+            updateYear: configuredUpdateSelection.updateYear,
+            previewOnly: configuredPreviewOnly,
+            minConfidence: configuredMinConfidence
         )
     }
 

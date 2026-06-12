@@ -27,16 +27,16 @@ final class UpdateViewModel {
     // MARK: - Configuration State
 
     var phase: UpdatePhase = .configuring
-    var updateGenre: Bool = true
-    var updateYear: Bool = true
+    var updateGenre: Bool
+    var updateYear: Bool
 
     /// When true, analysis results are shown as a read-only summary
     /// without offering the option to apply changes.
-    var previewOnly: Bool = false
+    var previewOnly: Bool
 
     /// Confidence threshold as a slider value (0.0 to 1.0).
     /// Converted to an integer percentage (0-100) when passed to Services.
-    var minConfidence: Double = 0.6
+    var minConfidence: Double
 
     // MARK: - Processing State
 
@@ -66,6 +66,10 @@ final class UpdateViewModel {
 
     private let updateCoordinator: UpdateCoordinator
     private let changePreviewPipeline: ChangePreviewPipeline
+    private let defaultUpdateGenre: Bool
+    private let defaultUpdateYear: Bool
+    private let defaultPreviewOnly: Bool
+    private let defaultMinConfidence: Double
 
     // MARK: - Task Management
 
@@ -75,10 +79,22 @@ final class UpdateViewModel {
 
     init(
         updateCoordinator: UpdateCoordinator,
-        changePreviewPipeline: ChangePreviewPipeline
+        changePreviewPipeline: ChangePreviewPipeline,
+        defaultUpdateGenre: Bool = true,
+        defaultUpdateYear: Bool = true,
+        defaultPreviewOnly: Bool = false,
+        defaultMinConfidence: Double = 0.6
     ) {
         self.updateCoordinator = updateCoordinator
         self.changePreviewPipeline = changePreviewPipeline
+        self.defaultUpdateGenre = defaultUpdateGenre
+        self.defaultUpdateYear = defaultUpdateYear
+        self.defaultPreviewOnly = defaultPreviewOnly
+        self.defaultMinConfidence = defaultMinConfidence
+        updateGenre = defaultUpdateGenre
+        updateYear = defaultUpdateYear
+        previewOnly = defaultPreviewOnly
+        minConfidence = defaultMinConfidence
     }
 
     // MARK: - Dry Run
@@ -228,7 +244,10 @@ final class UpdateViewModel {
         proposedChanges = []
         result = nil
         dryRunReport = nil
-        previewOnly = false
+        updateGenre = defaultUpdateGenre
+        updateYear = defaultUpdateYear
+        previewOnly = defaultPreviewOnly
+        minConfidence = defaultMinConfidence
         errorMessage = nil
     }
 }
