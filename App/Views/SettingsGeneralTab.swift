@@ -26,6 +26,7 @@ struct GeneralTab: View {
             }
 
             confidenceSection
+            yearValidationSection
             workflowSection
             musicAppScriptingSection
             genreUpdatesSection
@@ -61,6 +62,31 @@ struct GeneralTab: View {
             VStack(alignment: .leading) {
                 Text("Definitive score threshold: \(dependencies.config.yearRetrieval.logic.definitiveScoreThreshold)")
                 Slider(value: definitiveBinding, in: 0 ... 100, step: 5)
+            }
+        }
+    }
+
+    private var yearValidationSection: some View {
+        Section("Year Validation") {
+            Stepper(value: configBinding(dependencies, \.yearRetrieval.logic.minValidYear), in: 1000 ... 2100) {
+                LabeledContent(
+                    "Minimum valid year",
+                    value: "\(dependencies.config.yearRetrieval.logic.minValidYear)"
+                )
+            }
+
+            Stepper(value: configBinding(dependencies, \.yearRetrieval.logic.absurdYearThreshold), in: 1000 ... 2100) {
+                LabeledContent(
+                    "Absurd year threshold",
+                    value: "\(dependencies.config.yearRetrieval.logic.absurdYearThreshold)"
+                )
+            }
+
+            Stepper(value: configBinding(dependencies, \.yearRetrieval.logic.suspicionThresholdYears), in: 0 ... 100) {
+                LabeledContent(
+                    "Suspicion gap",
+                    value: "\(dependencies.config.yearRetrieval.logic.suspicionThresholdYears)y"
+                )
             }
         }
     }
