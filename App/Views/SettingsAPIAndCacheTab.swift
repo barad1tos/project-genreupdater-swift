@@ -26,6 +26,7 @@ struct APIAndCacheTab: View {
         Form {
             contactSection
             yearLookupSection
+            ScriptAPIPrioritySection(dependencies: dependencies)
             discogsSection
             cacheStatisticsSection
             cacheBehaviorSection
@@ -251,6 +252,137 @@ struct APIAndCacheTab: View {
     }
 }
 
+// MARK: - Script API Priority Section
+
+private struct ScriptAPIPrioritySection: View {
+    let dependencies: AppDependencies
+
+    var body: some View {
+        Section("Script API Priority") {
+            ForEach(scriptPriorityRows) { row in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(row.title)
+                        .font(.subheadline.weight(.semibold))
+
+                    HStack(spacing: 8) {
+                        Picker("First", selection: scriptPriorityBinding(row.key, slot: .first)) {
+                            scriptAPIPickerOptions
+                        }
+                        .frame(maxWidth: 160)
+
+                        Picker("Second", selection: scriptPriorityBinding(row.key, slot: .second)) {
+                            scriptAPIPickerOptions
+                        }
+                        .frame(maxWidth: 160)
+
+                        Picker("Fallback", selection: scriptPriorityBinding(row.key, slot: .fallback)) {
+                            scriptAPIPickerOptions
+                        }
+                        .frame(maxWidth: 160)
+                    }
+                    .pickerStyle(.menu)
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private var scriptAPIPickerOptions: some View {
+        ForEach(PreferredAPI.allCases, id: \.self) { api in
+            Text(api.displayName).tag(api)
+        }
+    }
+
+    private var scriptPriorityRows: [ScriptPriorityRow] {
+        [
+            ScriptPriorityRow(key: "default", title: "Default"),
+            ScriptPriorityRow(key: "cyrillic", title: "Cyrillic"),
+            ScriptPriorityRow(key: "japanese", title: "Japanese"),
+            ScriptPriorityRow(key: "korean", title: "Korean"),
+            ScriptPriorityRow(key: "chinese", title: "Chinese"),
+        ]
+    }
+
+    private func scriptPriorityBinding(_ key: String, slot: ScriptPrioritySlot) -> Binding<PreferredAPI> {
+        Binding(
+            get: { scriptPriorityOrder(for: key)[slot.index] },
+            set: { newValue in
+                updateScriptPriority(key, slot: slot, api: newValue)
+            }
+        )
+    }
+
+    private func updateScriptPriority(_ key: String, slot: ScriptPrioritySlot, api: PreferredAPI) {
+        var order = scriptPriorityOrder(for: key)
+        order.removeAll { $0 == api }
+        order.insert(api, at: min(slot.index, order.count))
+
+        dependencies.config.yearRetrieval.scriptAPIPriorities[key] = ScriptAPIPriority(
+            primary: order.prefix(2).map { apiConfigurationValue(for: $0) },
+            fallback: order.dropFirst(2).prefix(1).map { apiConfigurationValue(for: $0) }
+        )
+        saveConfiguration(dependencies)
+    }
+
+    private func scriptPriorityOrder(for key: String) -> [PreferredAPI] {
+        let priority = scriptPriority(for: key)
+        let configuredOrder = (priority.primary + priority.fallback).compactMap { preferredAPI(from: $0) }
+        return uniqued(configuredOrder + [.musicbrainz, .discogs, .itunes]).prefix(3).map(\.self)
+    }
+
+    private func scriptPriority(for key: String) -> ScriptAPIPriority {
+        if let priority = dependencies.config.yearRetrieval.scriptAPIPriorities[key] {
+            return priority
+        }
+        if key != "default", let defaultPriority = dependencies.config.yearRetrieval.scriptAPIPriorities["default"] {
+            return defaultPriority
+        }
+        return ScriptAPIPriority(primary: ["musicbrainz", "discogs"], fallback: ["itunes"])
+    }
+
+    private func preferredAPI(from configurationValue: String) -> PreferredAPI? {
+        switch configurationValue.lowercased().replacingOccurrences(of: "_", with: "") {
+        case "musicbrainz", "mb": .musicbrainz
+        case "discogs": .discogs
+        case "itunes", "applemusic", "apple": .itunes
+        default: nil
+        }
+    }
+
+    private func apiConfigurationValue(for api: PreferredAPI) -> String {
+        api.rawValue
+    }
+
+    private func uniqued(_ apis: [PreferredAPI]) -> [PreferredAPI] {
+        var seen: Set<PreferredAPI> = []
+        return apis.filter { api in
+            seen.insert(api).inserted
+        }
+    }
+}
+
+private enum ScriptPrioritySlot {
+    case first
+    case second
+    case fallback
+
+    var index: Int {
+        switch self {
+        case .first: 0
+        case .second: 1
+        case .fallback: 2
+        }
+    }
+}
+
+private struct ScriptPriorityRow: Identifiable {
+    let key: String
+    let title: String
+
+    var id: String {
+        key
+    }
+}
 private enum TokenStatus {
     case unknown, saved, missing, error
 

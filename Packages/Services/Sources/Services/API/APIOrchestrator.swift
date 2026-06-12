@@ -46,7 +46,7 @@ public struct APISourcePriorityConfiguration: Sendable {
 
     func orderedSources(artist: String, album: String) -> [APISource] {
         let queryScript = dominantScript(of: "\(artist) \(album)")
-        let scriptOrder = scriptPriorities[queryScript.rawValue]
+        let scriptOrder = (scriptPriorities[queryScript.rawValue] ?? scriptPriorities["default"])
             .map { Self.sources(from: $0.primary + $0.fallback) } ?? []
         return Self.uniqued(scriptOrder + defaultOrder)
     }
