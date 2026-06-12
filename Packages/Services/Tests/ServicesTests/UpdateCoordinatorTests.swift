@@ -402,3 +402,48 @@ struct UpdateCoordinatorTests {
         #expect(changes.isEmpty)
     }
 }
+
+extension UpdateCoordinatorTests {
+    @Test("Existing genres are preserved when override is disabled")
+    func existingGenresArePreservedWhenOverrideIsDisabled() async throws {
+        let fixture = await makeCoordinator()
+        let sourceDate = Date(timeIntervalSince1970: 1_234_567_890)
+        let track = makeEditableTrack(genre: "Rock")
+        let albumTracks = [
+            makeEditableTrack(id: "T1", genre: "Electronic", dateAdded: sourceDate),
+            makeEditableTrack(id: "T2", genre: "Electronic", dateAdded: sourceDate.addingTimeInterval(60)),
+        ]
+
+        let changes = try await fixture.coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: true, updateYear: false),
+            dryRun: true
+        )
+
+        #expect(changes.allSatisfy { $0.changeType != .genreUpdate })
+    }
+
+    @Test("Existing genres update when override is enabled")
+    func existingGenresUpdateWhenOverrideIsEnabled() async throws {
+        let runtimeConfiguration = UpdateRuntimeConfiguration(shouldOverrideExistingGenres: true)
+        let fixture = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
+        let sourceDate = Date(timeIntervalSince1970: 1_234_567_890)
+        let track = makeEditableTrack(genre: "Rock")
+        let albumTracks = [
+            makeEditableTrack(id: "T1", genre: "Electronic", dateAdded: sourceDate),
+            makeEditableTrack(id: "T2", genre: "Electronic", dateAdded: sourceDate.addingTimeInterval(60)),
+        ]
+
+        let changes = try await fixture.coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: true, updateYear: false),
+            dryRun: true
+        )
+
+        let genreChange = changes.first { $0.changeType == .genreUpdate }
+        #expect(genreChange?.oldValue == "Rock")
+        #expect(genreChange?.newValue == "Electronic")
+    }
+}

@@ -63,17 +63,20 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     public let minimumYearUpdateConfidence: Double
     public let minimumConfidenceToCache: Int
     public let albumTypeDetection: AlbumTypeDetectionConfig
+    public let shouldOverrideExistingGenres: Bool
 
     public init(
         genreMappings: [String: String] = [:],
         minimumYearUpdateConfidence: Double = AppConfiguration().yearRetrieval.logic.minConfidenceForNewYear,
         minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache,
-        albumTypeDetection: AlbumTypeDetectionConfig = AlbumTypeDetectionConfig()
+        albumTypeDetection: AlbumTypeDetectionConfig = AlbumTypeDetectionConfig(),
+        shouldOverrideExistingGenres: Bool = AppConfiguration().genreUpdate.overrideExisting
     ) {
         self.genreMappings = genreMappings
         self.minimumYearUpdateConfidence = minimumYearUpdateConfidence
         self.minimumConfidenceToCache = minimumConfidenceToCache
         self.albumTypeDetection = albumTypeDetection
+        self.shouldOverrideExistingGenres = shouldOverrideExistingGenres
     }
 
     public init(configuration: AppConfiguration) {
@@ -81,7 +84,8 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             genreMappings: configuration.cleaning.genreMappings,
             minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
             minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
-            albumTypeDetection: configuration.albumTypeDetection
+            albumTypeDetection: configuration.albumTypeDetection,
+            shouldOverrideExistingGenres: configuration.genreUpdate.overrideExisting
         )
     }
 }
@@ -172,7 +176,9 @@ public actor UpdateCoordinator {
         var proposedChanges: [ProposedChange] = []
 
         // Genre determination (local — uses existing track genres)
-        if options.updateGenre {
+        let canUpdateGenre = runtimeConfiguration.shouldOverrideExistingGenres
+            || (track.genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        if options.updateGenre, canUpdateGenre {
             let artistTracks = albumTracks.isEmpty ? [track] : albumTracks
             let genreResult = genreDeterminator.determineDominantGenre(
                 artistTracks: artistTracks,
