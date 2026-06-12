@@ -182,11 +182,29 @@ struct APIAndCacheTab: View {
             }
 
             Toggle("Library snapshot cache", isOn: configBinding(dependencies, \.caching.librarySnapshot.enabled))
+
             Toggle("Delta snapshots", isOn: configBinding(dependencies, \.caching.librarySnapshot.deltaEnabled))
+                .disabled(!isLibrarySnapshotEnabled)
+
+            TextField("Snapshot file", text: configBinding(dependencies, \.caching.librarySnapshot.cacheFile))
+                .textFieldStyle(.roundedBorder)
+                .disabled(!isLibrarySnapshotEnabled)
 
             Stepper(value: configBinding(dependencies, \.caching.librarySnapshot.maxAgeHours), in: 1 ... 168) {
                 LabeledContent("Snapshot max age", value: "\(dependencies.config.caching.librarySnapshot.maxAgeHours)h")
             }
+            .disabled(!isLibrarySnapshotEnabled)
+
+            Toggle("Compress snapshots", isOn: configBinding(dependencies, \.caching.librarySnapshot.compress))
+                .disabled(!isLibrarySnapshotEnabled)
+
+            Stepper(value: configBinding(dependencies, \.caching.librarySnapshot.compressLevel), in: 1 ... 9) {
+                LabeledContent(
+                    "Compression level",
+                    value: "\(dependencies.config.caching.librarySnapshot.compressLevel)"
+                )
+            }
+            .disabled(!isLibrarySnapshotCompressionEnabled)
         }
     }
 
@@ -223,6 +241,14 @@ struct APIAndCacheTab: View {
         if hours >= 1 { return "\(hours)h" }
 
         return "\(max(1, seconds / 60))m"
+    }
+
+    private var isLibrarySnapshotEnabled: Bool {
+        dependencies.config.caching.librarySnapshot.enabled
+    }
+
+    private var isLibrarySnapshotCompressionEnabled: Bool {
+        isLibrarySnapshotEnabled && dependencies.config.caching.librarySnapshot.compress
     }
 
     private func loadTokenStatus() {

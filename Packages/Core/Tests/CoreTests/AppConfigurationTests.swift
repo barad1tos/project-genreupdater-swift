@@ -37,7 +37,12 @@ struct AppConfigurationTests {
         #expect(config.caching.defaultTTLSeconds == 900)
         #expect(config.caching.cleanupIntervalSeconds == 300)
         #expect(config.caching.cleanupErrorRetryDelay == 60)
+        #expect(config.caching.librarySnapshot.enabled)
+        #expect(config.caching.librarySnapshot.deltaEnabled)
         #expect(config.caching.librarySnapshot.cacheFile == "cache/library_snapshot.json")
+        #expect(config.caching.librarySnapshot.maxAgeHours == 24)
+        #expect(config.caching.librarySnapshot.compress)
+        #expect(config.caching.librarySnapshot.compressLevel == 6)
         #expect(config.processing.batchSize == 25)
         #expect(config.processing.delayBetweenBatches == 20)
         #expect(config.processing.cacheTTLDays == 36500)
@@ -78,6 +83,10 @@ struct AppConfigurationTests {
         #expect(decoded.yearRetrieval.apiAuth.musicBrainzAppName == original.yearRetrieval.apiAuth.musicBrainzAppName)
         #expect(decoded.genreUpdate.batchSize == original.genreUpdate.batchSize)
         #expect(decoded.caching.defaultTTLSeconds == original.caching.defaultTTLSeconds)
+        #expect(decoded.caching.librarySnapshot.cacheFile == original.caching.librarySnapshot.cacheFile)
+        #expect(decoded.caching.librarySnapshot.maxAgeHours == original.caching.librarySnapshot.maxAgeHours)
+        #expect(decoded.caching.librarySnapshot.compress == original.caching.librarySnapshot.compress)
+        #expect(decoded.caching.librarySnapshot.compressLevel == original.caching.librarySnapshot.compressLevel)
         #expect(decoded.processing.batchSize == original.processing.batchSize)
         #expect(decoded.analytics.maxEvents == original.analytics.maxEvents)
         #expect(decoded.cleaning.remasterKeywords == original.cleaning.remasterKeywords)
@@ -133,7 +142,9 @@ struct AppConfigurationTests {
         #expect(decoded.yearRetrieval.reissueDetection.reissueKeywords.count == 3)
         #expect(decoded.caching.defaultTTLSeconds == 120)
         #expect(decoded.caching.cleanupErrorRetryDelay == 60)
+        #expect(decoded.caching.librarySnapshot.cacheFile == "cache/library_snapshot.json")
         #expect(decoded.caching.librarySnapshot.compress)
+        #expect(decoded.caching.librarySnapshot.compressLevel == 6)
         #expect(decoded.processing.batchSize == 12)
         #expect(decoded.processing.prereleaseHandling == .processEditable)
         #expect(decoded.analytics.maxEvents == 42)
@@ -148,6 +159,43 @@ struct AppConfigurationTests {
         #expect(decoded.artistRenamer.mappings == ["DK Energetyk": "ДК Енергетик"])
         #expect(decoded.databaseVerification.autoVerifyDays == 7)
         #expect(decoded.reporting.changeDisplayMode == .compact)
+    }
+
+    @Test("Decoding Python-style cache keys preserves snapshot settings")
+    func pythonStyleSnapshotCacheKeysDecode() throws {
+        let jsonString = """
+        {
+          "caching": {
+            "default_ttl_seconds": 180,
+            "album_cache_sync_interval": 240,
+            "cleanup_error_retry_delay": 30,
+            "cleanup_interval_seconds": 120,
+            "negative_result_ttl": 86400,
+            "library_snapshot": {
+              "enabled": false,
+              "delta_enabled": false,
+              "cache_file": "cache/custom_snapshot.json",
+              "max_age_hours": 12,
+              "compress": false,
+              "compress_level": 3
+            }
+          }
+        }
+        """
+        let json = Data(jsonString.utf8)
+        let decoded = try JSONDecoder().decode(AppConfiguration.self, from: json)
+
+        #expect(decoded.caching.defaultTTLSeconds == 180)
+        #expect(decoded.caching.albumCacheSyncInterval == 240)
+        #expect(decoded.caching.cleanupErrorRetryDelay == 30)
+        #expect(decoded.caching.cleanupIntervalSeconds == 120)
+        #expect(decoded.caching.negativeResultTTL == 86400)
+        #expect(!decoded.caching.librarySnapshot.enabled)
+        #expect(!decoded.caching.librarySnapshot.deltaEnabled)
+        #expect(decoded.caching.librarySnapshot.cacheFile == "cache/custom_snapshot.json")
+        #expect(decoded.caching.librarySnapshot.maxAgeHours == 12)
+        #expect(!decoded.caching.librarySnapshot.compress)
+        #expect(decoded.caching.librarySnapshot.compressLevel == 3)
     }
 
     // MARK: - AppleScriptTimeouts Custom Codable

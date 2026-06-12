@@ -46,17 +46,38 @@ public struct CachingConfig: Sendable, Codable {
         case negativeResultTTL, librarySnapshot
     }
 
+    private enum DecodingKeys: String, CodingKey {
+        case defaultTTLSeconds, albumCacheSyncInterval, cleanupErrorRetryDelay, cleanupIntervalSeconds
+        case negativeResultTTL, librarySnapshot
+        case legacyDefaultTTLSeconds = "default_ttl_seconds"
+        case legacyAlbumCacheSyncInterval = "album_cache_sync_interval"
+        case legacyCleanupErrorRetryDelay = "cleanup_error_retry_delay"
+        case legacyCleanupIntervalSeconds = "cleanup_interval_seconds"
+        case legacyNegativeResultTTL = "negative_result_ttl"
+        case legacyLibrarySnapshot = "library_snapshot"
+    }
+
     public init() {}
 
     public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        defaultTTLSeconds = try container.decodeIfPresent(Int.self, forKey: .defaultTTLSeconds) ?? 900
-        albumCacheSyncInterval = try container.decodeIfPresent(Int.self, forKey: .albumCacheSyncInterval) ?? 300
-        cleanupErrorRetryDelay = try container.decodeIfPresent(Int.self, forKey: .cleanupErrorRetryDelay) ?? 60
-        cleanupIntervalSeconds = try container.decodeIfPresent(Int.self, forKey: .cleanupIntervalSeconds) ?? 300
-        negativeResultTTL = try container.decodeIfPresent(Double.self, forKey: .negativeResultTTL) ?? 2_592_000
-        librarySnapshot = try container
-            .decodeIfPresent(LibrarySnapshotConfig.self, forKey: .librarySnapshot) ?? LibrarySnapshotConfig()
+        let container = try decoder.container(keyedBy: DecodingKeys.self)
+        defaultTTLSeconds = try container.decodeIfPresent(Int.self, forKey: .defaultTTLSeconds)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyDefaultTTLSeconds) ?? 900
+        albumCacheSyncInterval = try container.decodeIfPresent(Int.self, forKey: .albumCacheSyncInterval)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyAlbumCacheSyncInterval) ?? 300
+        cleanupErrorRetryDelay = try container.decodeIfPresent(Int.self, forKey: .cleanupErrorRetryDelay)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyCleanupErrorRetryDelay) ?? 60
+        cleanupIntervalSeconds = try container.decodeIfPresent(Int.self, forKey: .cleanupIntervalSeconds)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyCleanupIntervalSeconds) ?? 300
+        negativeResultTTL = try container.decodeIfPresent(Double.self, forKey: .negativeResultTTL)
+            ?? container.decodeIfPresent(Double.self, forKey: .legacyNegativeResultTTL) ?? 2_592_000
+        if let configuredSnapshot = try container
+            .decodeIfPresent(LibrarySnapshotConfig.self, forKey: .librarySnapshot) {
+            librarySnapshot = configuredSnapshot
+        } else {
+            librarySnapshot = try container.decodeIfPresent(LibrarySnapshotConfig.self, forKey: .legacyLibrarySnapshot)
+                ?? LibrarySnapshotConfig()
+        }
     }
 }
 
@@ -72,16 +93,28 @@ public struct LibrarySnapshotConfig: Sendable, Codable {
         case enabled, deltaEnabled, cacheFile, maxAgeHours, compress, compressLevel
     }
 
+    private enum DecodingKeys: String, CodingKey {
+        case enabled, deltaEnabled, cacheFile, maxAgeHours, compress, compressLevel
+        case legacyDeltaEnabled = "delta_enabled"
+        case legacyCacheFile = "cache_file"
+        case legacyMaxAgeHours = "max_age_hours"
+        case legacyCompressLevel = "compress_level"
+    }
+
     public init() {}
 
     public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let container = try decoder.container(keyedBy: DecodingKeys.self)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
-        deltaEnabled = try container.decodeIfPresent(Bool.self, forKey: .deltaEnabled) ?? true
-        cacheFile = try container.decodeIfPresent(String.self, forKey: .cacheFile) ?? "cache/library_snapshot.json"
-        maxAgeHours = try container.decodeIfPresent(Int.self, forKey: .maxAgeHours) ?? 24
+        deltaEnabled = try container.decodeIfPresent(Bool.self, forKey: .deltaEnabled)
+            ?? container.decodeIfPresent(Bool.self, forKey: .legacyDeltaEnabled) ?? true
+        cacheFile = try container.decodeIfPresent(String.self, forKey: .cacheFile)
+            ?? container.decodeIfPresent(String.self, forKey: .legacyCacheFile) ?? "cache/library_snapshot.json"
+        maxAgeHours = try container.decodeIfPresent(Int.self, forKey: .maxAgeHours)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyMaxAgeHours) ?? 24
         compress = try container.decodeIfPresent(Bool.self, forKey: .compress) ?? true
-        compressLevel = try container.decodeIfPresent(Int.self, forKey: .compressLevel) ?? 6
+        compressLevel = try container.decodeIfPresent(Int.self, forKey: .compressLevel)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyCompressLevel) ?? 6
     }
 }
 
