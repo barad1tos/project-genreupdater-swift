@@ -21,6 +21,7 @@ private actor ProgressAccumulator {
 
 private func makeEditableTrack(
     id: String = "T1",
+    name: String = "Come Together",
     artist: String = "Beatles",
     album: String = "Abbey Road",
     genre: String? = "Rock",
@@ -29,7 +30,7 @@ private func makeEditableTrack(
 ) -> Track {
     Track(
         id: id,
-        name: "Come Together",
+        name: name,
         artist: artist,
         album: album,
         genre: genre,

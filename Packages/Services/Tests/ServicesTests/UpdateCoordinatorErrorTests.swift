@@ -98,6 +98,8 @@ struct UpdateOptionsTests {
         let options = UpdateOptions()
         #expect(options.updateGenre == true)
         #expect(options.updateYear == true)
+        #expect(options.cleanTrackNames == false)
+        #expect(options.cleanAlbumNames == false)
         #expect(options.minConfidence == 60)
         #expect(options.autoAccept == false)
     }
@@ -107,10 +109,14 @@ struct UpdateOptionsTests {
         let options = UpdateOptions(
             updateGenre: false,
             updateYear: true,
+            cleanTrackNames: true,
+            cleanAlbumNames: true,
             minConfidence: 90,
             autoAccept: true
         )
         #expect(options.updateGenre == false)
+        #expect(options.cleanTrackNames == true)
+        #expect(options.cleanAlbumNames == true)
         #expect(options.minConfidence == 90)
         #expect(options.autoAccept == true)
     }

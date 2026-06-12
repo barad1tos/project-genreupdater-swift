@@ -67,7 +67,7 @@ public enum PrereleaseHandling: String, Sendable, Codable, CaseIterable {
 
 // MARK: - Cleaning Configuration
 
-public struct CleaningConfig: Sendable, Codable {
+public struct CleaningConfig: Sendable, Codable, Equatable {
     // swiftlint:disable:next inclusive_language
     public var remasterKeywords: [String] = [
         "remaster", "remastered", "reissue", "expanded edition", "soundtrack",
@@ -88,7 +88,7 @@ public struct CleaningConfig: Sendable, Codable {
     public init() {}
 }
 
-public struct TrackCleaningException: Sendable, Codable {
+public struct TrackCleaningException: Sendable, Codable, Equatable {
     public let artist: String
     public let album: String
 

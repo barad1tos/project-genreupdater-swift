@@ -77,6 +77,8 @@ struct UpdateView: View {
             Section("Update Options") {
                 Toggle("Update Genre", isOn: $viewModel.updateGenre)
                 Toggle("Update Year", isOn: $viewModel.updateYear)
+                Toggle("Clean Track Names", isOn: $viewModel.cleanTrackNames)
+                Toggle("Clean Album Names", isOn: $viewModel.cleanAlbumNames)
             }
 
             Section {
@@ -127,7 +129,7 @@ struct UpdateView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(!viewModel.updateGenre && !viewModel.updateYear)
+                .disabled(!viewModel.hasEnabledOperation)
                 .padding()
             }
             .background(.bar)

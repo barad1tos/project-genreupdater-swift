@@ -86,6 +86,8 @@ final class WorkflowViewModel {
     var smartFilterType: SmartFilterType = .missingGenres
     var updateGenre: Bool
     var updateYear: Bool
+    var cleanTrackNames = false
+    var cleanAlbumNames = false
     var previewOnly: Bool
     var minConfidence: Double
 
@@ -216,6 +218,8 @@ final class WorkflowViewModel {
                 let options = UpdateOptions(
                     updateGenre: updateGenre,
                     updateYear: updateYear,
+                    cleanTrackNames: cleanTrackNames,
+                    cleanAlbumNames: cleanAlbumNames,
                     minConfidence: confidencePercentage,
                     autoAccept: false
                 )
@@ -285,6 +289,8 @@ final class WorkflowViewModel {
         let options = UpdateOptions(
             updateGenre: updateGenre,
             updateYear: updateYear,
+            cleanTrackNames: cleanTrackNames,
+            cleanAlbumNames: cleanAlbumNames,
             minConfidence: confidencePercentage,
             autoAccept: true
         )
@@ -381,6 +387,8 @@ final class WorkflowViewModel {
                 let options = UpdateOptions(
                     updateGenre: updateGenre,
                     updateYear: updateYear,
+                    cleanTrackNames: cleanTrackNames,
+                    cleanAlbumNames: cleanAlbumNames,
                     minConfidence: confidencePercentage,
                     autoAccept: true
                 )
@@ -484,6 +492,8 @@ extension WorkflowViewModel {
     private func applyDefaultConfiguration() {
         updateGenre = defaultUpdateGenre
         updateYear = defaultUpdateYear
+        cleanTrackNames = false
+        cleanAlbumNames = false
         previewOnly = defaultPreviewOnly
         minConfidence = defaultMinConfidence
     }

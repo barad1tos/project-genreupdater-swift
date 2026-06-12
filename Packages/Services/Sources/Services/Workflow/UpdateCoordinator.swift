@@ -24,76 +24,6 @@ public enum UpdateCoordinatorError: Error, LocalizedError {
     }
 }
 
-/// Result of a multi-track update, exposing both successes and failures.
-public struct BatchUpdateResult: Sendable {
-    public let entries: [ChangeLogEntry]
-    public let failedTrackIDs: [String]
-    public let errorDescriptions: [String]
-
-    public var hasPartialFailures: Bool {
-        !failedTrackIDs.isEmpty && !entries.isEmpty
-    }
-}
-
-// MARK: - Update Options
-
-/// Configuration for an update operation.
-public struct UpdateOptions: Sendable {
-    public let updateGenre: Bool
-    public let updateYear: Bool
-    public let minConfidence: Int
-    public let autoAccept: Bool
-
-    public init(
-        updateGenre: Bool = true,
-        updateYear: Bool = true,
-        minConfidence: Int = 60,
-        autoAccept: Bool = false
-    ) {
-        self.updateGenre = updateGenre
-        self.updateYear = updateYear
-        self.minConfidence = minConfidence
-        self.autoAccept = autoAccept
-    }
-}
-
-/// Runtime configuration applied by update workflows.
-public struct UpdateRuntimeConfiguration: Sendable, Equatable {
-    public let genreMappings: [String: String]
-    public let isYearLookupEnabled: Bool
-    public let minimumYearUpdateConfidence: Double
-    public let minimumConfidenceToCache: Int
-    public let albumTypeDetection: AlbumTypeDetectionConfig
-    public let shouldOverrideExistingGenres: Bool
-
-    public init(
-        genreMappings: [String: String] = [:],
-        isYearLookupEnabled: Bool = AppConfiguration().yearRetrieval.enabled,
-        minimumYearUpdateConfidence: Double = AppConfiguration().yearRetrieval.logic.minConfidenceForNewYear,
-        minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache,
-        albumTypeDetection: AlbumTypeDetectionConfig = AlbumTypeDetectionConfig(),
-        shouldOverrideExistingGenres: Bool = AppConfiguration().genreUpdate.overrideExisting
-    ) {
-        self.genreMappings = genreMappings
-        self.isYearLookupEnabled = isYearLookupEnabled
-        self.minimumYearUpdateConfidence = minimumYearUpdateConfidence
-        self.minimumConfidenceToCache = minimumConfidenceToCache
-        self.albumTypeDetection = albumTypeDetection
-        self.shouldOverrideExistingGenres = shouldOverrideExistingGenres
-    }
-
-    public init(configuration: AppConfiguration) {
-        self.init(
-            genreMappings: configuration.cleaning.genreMappings,
-            isYearLookupEnabled: configuration.yearRetrieval.enabled,
-            minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
-            minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
-            albumTypeDetection: configuration.albumTypeDetection,
-            shouldOverrideExistingGenres: configuration.genreUpdate.overrideExisting
-        )
-    }
-}
-
 extension AlbumTypeDetectionConfig {
     fileprivate func classifyAlbum(_ albumName: String) -> AlbumTypeInfo {
         detectAlbumType(
@@ -209,6 +139,12 @@ public actor UpdateCoordinator {
                 proposedChanges.append(change)
             }
         }
+
+        proposedChanges.append(contentsOf: Self.determineCleaningChanges(
+            track: track,
+            options: options,
+            cleaning: runtimeConfiguration.cleaning
+        ))
 
         // Filter by confidence
         let pipeline = ChangePreviewPipeline()
@@ -437,7 +373,7 @@ public actor UpdateCoordinator {
         }
 
         // Record for undo
-        let logEntry = changeToLogEntry(change)
+        let logEntry = Self.changeToLogEntry(change)
         await undoCoordinator.recordChange(logEntry)
 
         // Update track processing state
@@ -451,36 +387,5 @@ public actor UpdateCoordinator {
             .info(
                 "Applied \(change.changeType.rawValue, privacy: .public) to track \(change.track.id, privacy: .private)"
             )
-    }
-
-    // MARK: Helpers
-
-    private func changeToLogEntry(_ change: ProposedChange) -> ChangeLogEntry {
-        var entry = ChangeLogEntry(
-            changeType: change.changeType,
-            trackID: change.track.id,
-            artist: change.track.artist,
-            trackName: change.track.name,
-            albumName: change.track.album
-        )
-
-        switch change.changeType {
-        case .genreUpdate:
-            entry.oldGenre = change.oldValue
-            entry.newGenre = change.newValue
-        case .yearUpdate, .yearRevert:
-            entry.oldYear = change.oldValue.flatMap(Int.init)
-            entry.newYear = change.newValue.flatMap(Int.init)
-        case .trackCleaning:
-            entry.oldTrackName = change.oldValue
-            entry.newTrackName = change.newValue
-        case .albumCleaning:
-            entry.oldAlbumName = change.oldValue
-            entry.newAlbumName = change.newValue
-        case .artistRename:
-            break
-        }
-
-        return entry
     }
 }

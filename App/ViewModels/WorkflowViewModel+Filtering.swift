@@ -6,6 +6,10 @@ import Services
 // MARK: - Smart Filter + Error Handling
 
 extension WorkflowViewModel {
+    var hasEnabledOperation: Bool {
+        updateGenre || updateYear || cleanTrackNames || cleanAlbumNames
+    }
+
     func applySmartFilter(to tracks: [Track]) -> [Track] {
         guard mode == .smartFilter else { return tracks }
         switch smartFilterType {

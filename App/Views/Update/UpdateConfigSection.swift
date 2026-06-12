@@ -120,6 +120,8 @@ struct UpdateConfigSection: View {
             VStack(spacing: Spacing.sm) {
                 Toggle("Update Genre", isOn: $viewModel.updateGenre)
                 Toggle("Update Year", isOn: $viewModel.updateYear)
+                Toggle("Clean Track Names", isOn: $viewModel.cleanTrackNames)
+                Toggle("Clean Album Names", isOn: $viewModel.cleanAlbumNames)
 
                 Divider()
 
@@ -180,6 +182,6 @@ struct UpdateConfigSection: View {
         .buttonStyle(.borderedProminent)
         .tint(Ayu.accent)
         .controlSize(.large)
-        .disabled(!viewModel.canStart || (!viewModel.updateGenre && !viewModel.updateYear))
+        .disabled(!viewModel.canStart || !viewModel.hasEnabledOperation)
     }
 }

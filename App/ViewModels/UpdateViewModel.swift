@@ -29,6 +29,8 @@ final class UpdateViewModel {
     var phase: UpdatePhase = .configuring
     var updateGenre: Bool
     var updateYear: Bool
+    var cleanTrackNames = false
+    var cleanAlbumNames = false
 
     /// When true, analysis results are shown as a read-only summary
     /// without offering the option to apply changes.
@@ -56,6 +58,10 @@ final class UpdateViewModel {
 
     var acceptedCount: Int {
         proposedChanges.filter(\.isAccepted).count
+    }
+
+    var hasEnabledOperation: Bool {
+        updateGenre || updateYear || cleanTrackNames || cleanAlbumNames
     }
 
     var confidencePercentage: Int {
@@ -115,6 +121,8 @@ final class UpdateViewModel {
                 let options = UpdateOptions(
                     updateGenre: updateGenre,
                     updateYear: updateYear,
+                    cleanTrackNames: cleanTrackNames,
+                    cleanAlbumNames: cleanAlbumNames,
                     minConfidence: confidencePercentage,
                     autoAccept: false
                 )
@@ -185,6 +193,8 @@ final class UpdateViewModel {
                 let options = UpdateOptions(
                     updateGenre: updateGenre,
                     updateYear: updateYear,
+                    cleanTrackNames: cleanTrackNames,
+                    cleanAlbumNames: cleanAlbumNames,
                     minConfidence: confidencePercentage,
                     autoAccept: true
                 )
@@ -246,6 +256,8 @@ final class UpdateViewModel {
         dryRunReport = nil
         updateGenre = defaultUpdateGenre
         updateYear = defaultUpdateYear
+        cleanTrackNames = false
+        cleanAlbumNames = false
         previewOnly = defaultPreviewOnly
         minConfidence = defaultMinConfidence
         errorMessage = nil
