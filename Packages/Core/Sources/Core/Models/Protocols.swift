@@ -192,6 +192,10 @@ public protocol TrackStateStore: Actor {
     /// Persist a batch of tracks (insert or update).
     func saveTracks(_ tracks: [Track]) async throws
 
+    /// Remove persisted tracks by their Music.app persistent IDs.
+    @discardableResult
+    func deleteTrackIDs(_ ids: [String]) async throws -> Int
+
     /// Retrieve a single track by its Music.app persistent ID.
     func getTrack(byID id: String) async throws -> Track?
 

@@ -16,7 +16,6 @@ struct AdvancedTab: View {
     @State private var newMappingTarget = ""
     @State private var newArtistRenameSource = ""
     @State private var newArtistRenameTarget = ""
-    @State private var newTestArtist = ""
     @State private var newExceptionArtist = ""
     @State private var newExceptionAlbum = ""
     @State private var showResetConfirmation = false
@@ -31,13 +30,13 @@ struct AdvancedTab: View {
             editionKeywordsSection
             albumSuffixesSection
             AlbumTypeDetectionSection(dependencies: dependencies)
-            testArtistsSection
+            SettingsTestArtistsSection(dependencies: dependencies)
             cleaningExceptionsSection
             debugSection
             yearPenaltySection
             CountryScoringSection(dependencies: dependencies)
             ScoringWeightsSection(dependencies: dependencies)
-            verificationSection
+            SettingsAdvancedVerificationSection(dependencies: dependencies)
             advancedJSONSection
             resetSection
         }
@@ -166,31 +165,6 @@ struct AdvancedTab: View {
                     )
                     Slider(value: maxPenaltyBinding, in: 0 ... 100, step: 5)
                 }
-            }
-        }
-    }
-
-    private var verificationSection: some View {
-        Section("Verification") {
-            Stepper(value: configBinding(dependencies, \.databaseVerification.autoVerifyDays), in: 1 ... 90) {
-                LabeledContent(
-                    "Database verify interval",
-                    value: "\(dependencies.config.databaseVerification.autoVerifyDays)d"
-                )
-            }
-
-            Stepper(value: configBinding(dependencies, \.databaseVerification.batchSize), in: 1 ... 100) {
-                LabeledContent(
-                    "Verification batch size",
-                    value: "\(dependencies.config.databaseVerification.batchSize)"
-                )
-            }
-
-            Stepper(value: configBinding(dependencies, \.pendingVerification.autoVerifyDays), in: 1 ... 90) {
-                LabeledContent(
-                    "Pending verify interval",
-                    value: "\(dependencies.config.pendingVerification.autoVerifyDays)d"
-                )
             }
         }
     }
@@ -401,61 +375,6 @@ extension AdvancedTab {
         ))
         newExceptionArtist = ""
         newExceptionAlbum = ""
-        saveConfig()
-    }
-}
-
-extension AdvancedTab {
-    private var testArtistsSection: some View {
-        Section {
-            if dependencies.config.development.testArtists.isEmpty {
-                Text("No test artists configured")
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
-            }
-
-            ForEach(dependencies.config.development.testArtists, id: \.self) { artist in
-                Text(artist)
-            }
-            .onDelete { offsets in
-                dependencies.config.development.testArtists.remove(atOffsets: offsets)
-                saveConfig()
-            }
-
-            HStack {
-                TextField("Artist", text: $newTestArtist)
-                    .textFieldStyle(.roundedBorder)
-                Button("Add") { addTestArtist() }
-                    .disabled(trimmedTestArtist.isEmpty)
-            }
-        } header: {
-            Text("Test Artists")
-        } footer: {
-            Text("When configured, library refreshes are limited to these artists for safer test-mode runs.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-        }
-    }
-
-    private var trimmedTestArtist: String {
-        newTestArtist.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func addTestArtist() {
-        let artist = trimmedTestArtist
-        guard !artist.isEmpty else { return }
-
-        let alreadyExists = dependencies.config.development.testArtists.contains { existing in
-            existing.trimmingCharacters(in: .whitespacesAndNewlines)
-                .localizedCaseInsensitiveCompare(artist) == .orderedSame
-        }
-        guard !alreadyExists else {
-            newTestArtist = ""
-            return
-        }
-
-        dependencies.config.development.testArtists.append(artist)
-        newTestArtist = ""
         saveConfig()
     }
 }

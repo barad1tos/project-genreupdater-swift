@@ -63,6 +63,13 @@ actor MockTrackStore: TrackStateStore {
         tracks = newTracks
     }
 
+    func deleteTrackIDs(_ ids: [String]) async throws -> Int {
+        let idsToDelete = Set(ids)
+        let originalCount = tracks.count
+        tracks.removeAll { idsToDelete.contains($0.id) }
+        return originalCount - tracks.count
+    }
+
     func getTrack(byID id: String) async throws -> Track? {
         tracks.first { $0.id == id }
     }

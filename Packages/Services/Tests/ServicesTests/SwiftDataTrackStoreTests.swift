@@ -80,6 +80,25 @@ struct SwiftDataTrackStoreTests {
         #expect(try await store.trackCount() == 3)
     }
 
+    @Test("deleteTrackIDs removes persisted tracks")
+    func deleteTrackIDs() async throws {
+        let store = try makeStore()
+        try await store.initialize()
+
+        try await store.saveTracks([
+            sampleTrack(id: "1"),
+            sampleTrack(id: "2"),
+            sampleTrack(id: "3"),
+        ])
+
+        let deletedCount = try await store.deleteTrackIDs(["2", "missing"])
+        let remainingTracks = try await store.loadAllTracks()
+        let remainingIDs = remainingTracks.map(\.id).sorted()
+
+        #expect(deletedCount == 1)
+        #expect(remainingIDs == ["1", "3"])
+    }
+
     // MARK: - Upsert
 
     @Test("saveTracks updates existing tracks")

@@ -226,8 +226,9 @@ final class AppDependencies {
         let appleScriptConfiguration = config.applescript
         let librarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: config)
         let batchProcessingConfiguration = BatchProcessingConfiguration(configuration: config)
-        Task { [updateCoordinator, applescriptBridge, librarySyncService, batchProcessor] in
+        Task { [updateCoordinator, applescriptBridge, librarySyncService, batchProcessor, musicReader] in
             await applescriptBridge?.updateConfiguration(appleScriptConfiguration)
+            await musicReader?.updateTestArtists(config.development.testArtists)
             await librarySyncService?.updateRuntimeConfiguration(librarySyncRuntimeConfiguration)
             await batchProcessor?.updateProcessingConfiguration(batchProcessingConfiguration)
             await updateCoordinator?.updateRuntimeConfiguration(

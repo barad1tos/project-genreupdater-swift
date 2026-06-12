@@ -41,6 +41,27 @@ public struct SyncResult: Sendable {
     }
 }
 
+/// Result of validating the persisted track database against Music.app.
+public struct DatabaseVerificationResult: Sendable, Equatable {
+    public let verifiedTrackCount: Int
+    public let removedTrackIDs: [String]
+    public let skippedDueToRecentVerification: Bool
+
+    public var removedCount: Int {
+        removedTrackIDs.count
+    }
+
+    public init(
+        verifiedTrackCount: Int,
+        removedTrackIDs: [String],
+        skippedDueToRecentVerification: Bool = false
+    ) {
+        self.verifiedTrackCount = verifiedTrackCount
+        self.removedTrackIDs = removedTrackIDs
+        self.skippedDueToRecentVerification = skippedDueToRecentVerification
+    }
+}
+
 // MARK: - Library Sync Service
 
 /// Runtime settings used while reading library state through AppleScript.
@@ -48,22 +69,38 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
     public let idsBatchSize: Int
     public let fullLibraryFetchTimeout: Duration
     public let idsBatchFetchTimeout: Duration
+    public let databaseVerificationBatchSize: Int
+    public let databaseVerificationIntervalDays: Int
+    public let logsBaseDirectory: String
+    public let lastDatabaseVerifyLog: String
 
     public init(
         idsBatchSize: Int = BatchProcessingConfig().idsBatchSize,
         fullLibraryFetchTimeout: Duration = AppleScriptTimeouts().fullLibraryFetch,
-        idsBatchFetchTimeout: Duration = AppleScriptTimeouts().idsBatchFetch
+        idsBatchFetchTimeout: Duration = AppleScriptTimeouts().idsBatchFetch,
+        databaseVerificationBatchSize: Int = DatabaseVerificationConfig().batchSize,
+        databaseVerificationIntervalDays: Int = DatabaseVerificationConfig().autoVerifyDays,
+        logsBaseDirectory: String = PathsConfig().logsBaseDirectory,
+        lastDatabaseVerifyLog: String = LoggingConfig().lastDatabaseVerifyLog
     ) {
         self.idsBatchSize = max(1, idsBatchSize)
         self.fullLibraryFetchTimeout = fullLibraryFetchTimeout
         self.idsBatchFetchTimeout = idsBatchFetchTimeout
+        self.databaseVerificationBatchSize = max(1, databaseVerificationBatchSize)
+        self.databaseVerificationIntervalDays = max(0, databaseVerificationIntervalDays)
+        self.logsBaseDirectory = logsBaseDirectory
+        self.lastDatabaseVerifyLog = lastDatabaseVerifyLog
     }
 
     public init(configuration: AppConfiguration) {
         self.init(
             idsBatchSize: configuration.applescript.batchProcessing.idsBatchSize,
             fullLibraryFetchTimeout: configuration.applescript.timeouts.fullLibraryFetch,
-            idsBatchFetchTimeout: configuration.applescript.timeouts.idsBatchFetch
+            idsBatchFetchTimeout: configuration.applescript.timeouts.idsBatchFetch,
+            databaseVerificationBatchSize: configuration.databaseVerification.batchSize,
+            databaseVerificationIntervalDays: configuration.databaseVerification.autoVerifyDays,
+            logsBaseDirectory: configuration.paths.logsBaseDirectory,
+            lastDatabaseVerifyLog: configuration.logging.lastDatabaseVerifyLog
         )
     }
 }
@@ -158,6 +195,54 @@ public actor LibrarySyncService {
         return result
     }
 
+    public func verifyAndCleanDatabase(force: Bool = false) async throws -> DatabaseVerificationResult {
+        let storedTracks = try await trackStore.loadAllTracks()
+        guard !storedTracks.isEmpty else {
+            return DatabaseVerificationResult(
+                verifiedTrackCount: 0,
+                removedTrackIDs: []
+            )
+        }
+
+        if !force, shouldSkipDatabaseVerification() {
+            return DatabaseVerificationResult(
+                verifiedTrackCount: storedTracks.count,
+                removedTrackIDs: [],
+                skippedDueToRecentVerification: true
+            )
+        }
+
+        let libraryIDs = try await scriptBridge.fetchAllTrackIDs(
+            timeout: runtimeConfiguration.fullLibraryFetchTimeout
+        )
+        let storedIDSet = Set(storedTracks.map(\.id))
+        let libraryIDSet = Set(libraryIDs)
+
+        guard !libraryIDSet.isEmpty else {
+            log.warning("Database verification skipped because Music.app returned no track IDs")
+            try updateDatabaseVerificationTimestamp()
+            return DatabaseVerificationResult(
+                verifiedTrackCount: storedTracks.count,
+                removedTrackIDs: []
+            )
+        }
+
+        let removedIDs = storedIDSet.subtracting(libraryIDSet).sorted()
+        for chunk in removedIDs.chunked(into: runtimeConfiguration.databaseVerificationBatchSize) {
+            try await trackStore.deleteTrackIDs(chunk)
+        }
+
+        try updateDatabaseVerificationTimestamp()
+        log.info(
+            "Database verification complete: \(storedTracks.count, privacy: .public) verified, \(removedIDs.count, privacy: .public) removed"
+        )
+
+        return DatabaseVerificationResult(
+            verifiedTrackCount: storedTracks.count,
+            removedTrackIDs: removedIDs
+        )
+    }
+
     // MARK: Auto Sync
 
     /// Start periodic background sync (Pro only).
@@ -221,5 +306,63 @@ public actor LibrarySyncService {
             || current.name != stored.name
             || current.album != stored.album
             || current.artist != stored.artist
+    }
+
+    private func shouldSkipDatabaseVerification(now: Date = Date()) -> Bool {
+        guard runtimeConfiguration.databaseVerificationIntervalDays > 0 else {
+            return false
+        }
+
+        let timestampURL = databaseVerificationTimestampURL()
+        guard
+            let timestamp = try? String(contentsOf: timestampURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            let lastVerification = Self.iso8601Formatter.date(from: timestamp)
+        else {
+            return false
+        }
+
+        let elapsed = now.timeIntervalSince(lastVerification)
+        let requiredInterval = TimeInterval(runtimeConfiguration.databaseVerificationIntervalDays) * 86400
+        return elapsed < requiredInterval
+    }
+
+    private func updateDatabaseVerificationTimestamp(now: Date = Date()) throws {
+        let timestampURL = databaseVerificationTimestampURL()
+        try FileManager.default.createDirectory(
+            at: timestampURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let timestamp = Self.iso8601Formatter.string(from: now)
+        try timestamp.write(to: timestampURL, atomically: true, encoding: .utf8)
+    }
+
+    private func databaseVerificationTimestampURL() -> URL {
+        let logsDirectory = Self.resolvedURL(path: runtimeConfiguration.logsBaseDirectory)
+        return Self.resolvedURL(
+            path: runtimeConfiguration.lastDatabaseVerifyLog,
+            relativeTo: logsDirectory
+        )
+    }
+
+    private static var iso8601Formatter: ISO8601DateFormatter {
+        ISO8601DateFormatter()
+    }
+
+    private static func resolvedURL(path: String, relativeTo baseURL: URL? = nil) -> URL {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        var expandedPath = path
+            .replacingOccurrences(of: "${HOME}", with: home)
+            .replacingOccurrences(of: "$HOME", with: home)
+        if expandedPath == "~" {
+            expandedPath = home
+        } else if expandedPath.hasPrefix("~/") {
+            expandedPath = home + String(expandedPath.dropFirst())
+        }
+
+        if expandedPath.hasPrefix("/") {
+            return URL(fileURLWithPath: expandedPath)
+        }
+        return (baseURL ?? FileManager.default.temporaryDirectory).appendingPathComponent(expandedPath)
     }
 }

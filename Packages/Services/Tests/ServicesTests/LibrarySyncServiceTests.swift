@@ -62,6 +62,13 @@ actor SyncMockTrackStore: TrackStateStore {
         storedTracks = tracks
     }
 
+    func deleteTrackIDs(_ ids: [String]) async throws -> Int {
+        let idsToDelete = Set(ids)
+        let originalCount = storedTracks.count
+        storedTracks.removeAll { idsToDelete.contains($0.id) }
+        return originalCount - storedTracks.count
+    }
+
     func getTrack(byID id: String) async throws -> Track? {
         storedTracks.first { $0.id == id }
     }

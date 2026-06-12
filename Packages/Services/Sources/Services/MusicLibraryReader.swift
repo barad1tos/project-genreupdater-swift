@@ -50,12 +50,16 @@ public enum MusicLibraryError: Error, LocalizedError {
 /// For write operations (updating genre, year), use `AppleScriptBridge` instead —
 /// MusicKit does not support writing metadata.
 public actor MusicLibraryReader {
-    private let testArtists: [String]
+    private var testArtists: [String]
 
     /// - Parameter testArtists: When non-empty, `fetchAllTracks` returns
     ///   only tracks whose `effectiveArtist` matches one of these names
     ///   (case-insensitive). Pass an empty array to disable filtering.
     public init(testArtists: [String] = []) {
+        self.testArtists = testArtists
+    }
+
+    public func updateTestArtists(_ testArtists: [String]) {
         self.testArtists = testArtists
     }
 

@@ -81,6 +81,32 @@ public actor SwiftDataTrackStore: TrackStateStore {
         log.info("Saved \(tracks.count, privacy: .public) tracks")
     }
 
+    @discardableResult
+    public func deleteTrackIDs(_ ids: [String]) async throws -> Int {
+        let uniqueIDs = Array(Set(ids)).sorted()
+        guard !uniqueIDs.isEmpty else { return 0 }
+
+        var deletedCount = 0
+        let chunks = uniqueIDs.chunked(into: Self.batchChunkSize)
+        for chunk in chunks {
+            for id in chunk {
+                let descriptor = FetchDescriptor<PersistedTrack>(
+                    predicate: #Predicate { $0.trackID == id }
+                )
+                let persistedTracks = try modelContext.fetch(descriptor)
+                for persistedTrack in persistedTracks {
+                    modelContext.delete(persistedTrack)
+                    deletedCount += 1
+                }
+            }
+
+            try modelContext.save()
+        }
+
+        log.info("Deleted \(deletedCount, privacy: .public) persisted tracks")
+        return deletedCount
+    }
+
     public func updateTrackProcessingState(
         id: String,
         genreUpdated: Bool?,
