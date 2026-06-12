@@ -26,6 +26,7 @@ struct GeneralTab: View {
             }
 
             confidenceSection
+            fallbackSection
             yearValidationSection
             workflowSection
             musicAppScriptingSection
@@ -70,6 +71,44 @@ struct GeneralTab: View {
                     value: "\(dependencies.config.yearRetrieval.logic.definitiveScoreDiff)"
                 )
             }
+        }
+    }
+
+    private var fallbackSection: some View {
+        Section("Year Fallback") {
+            Toggle("Use fallback rules", isOn: configBinding(dependencies, \.yearRetrieval.fallback.enabled))
+
+            Group {
+                Stepper(
+                    value: configBinding(dependencies, \.yearRetrieval.fallback.yearDifferenceThreshold),
+                    in: 0 ... 50
+                ) {
+                    LabeledContent(
+                        "Keep existing within",
+                        value: "\(dependencies.config.yearRetrieval.fallback.yearDifferenceThreshold)y"
+                    )
+                }
+
+                VStack(alignment: .leading) {
+                    Text("Trust API score: \(Int(dependencies.config.yearRetrieval.fallback.trustAPIScoreThreshold))%")
+                    Slider(
+                        value: configBinding(dependencies, \.yearRetrieval.fallback.trustAPIScoreThreshold),
+                        in: 0 ... 100,
+                        step: 5
+                    )
+                }
+
+                Stepper(
+                    value: configBinding(dependencies, \.yearRetrieval.fallback.maxVerificationAttempts),
+                    in: 1 ... 20
+                ) {
+                    LabeledContent(
+                        "Max verification attempts",
+                        value: "\(dependencies.config.yearRetrieval.fallback.maxVerificationAttempts)"
+                    )
+                }
+            }
+            .disabled(!dependencies.config.yearRetrieval.fallback.enabled)
         }
     }
 
