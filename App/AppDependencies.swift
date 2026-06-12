@@ -333,6 +333,8 @@ final class AppDependencies {
             cache: cache,
             negativeResultTTL: configuration.caching.negativeResultTTL,
             maxConcurrentSourceCalls: configuration.yearRetrieval.rateLimits.concurrentAPICalls,
+            maxAPIRetries: configuration.runtime.maxRetries,
+            apiRetryDelaySeconds: configuration.runtime.retryDelaySeconds,
             sourcePriorityConfiguration: APISourcePriorityConfiguration(configuration: configuration)
         )
     }

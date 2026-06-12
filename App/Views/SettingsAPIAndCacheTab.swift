@@ -89,6 +89,18 @@ struct APIAndCacheTab: View {
                     value: "\(dependencies.config.yearRetrieval.rateLimits.concurrentAPICalls)"
                 )
             }
+
+            Stepper(value: configBinding(dependencies, \.runtime.maxRetries), in: 0 ... 10) {
+                LabeledContent("API retries", value: "\(dependencies.config.runtime.maxRetries)")
+            }
+
+            Stepper(value: configBinding(dependencies, \.runtime.retryDelaySeconds), in: 0 ... 30, step: 0.5) {
+                LabeledContent(
+                    "API retry delay",
+                    value: dependencies.config.runtime.retryDelaySeconds
+                        .formatted(.number.precision(.fractionLength(1))) + "s"
+                )
+            }
         }
     }
 

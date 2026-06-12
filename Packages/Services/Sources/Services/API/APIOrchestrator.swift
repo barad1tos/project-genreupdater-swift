@@ -12,19 +12,6 @@ import OSLog
 /// Each source is queried concurrently with an independent timeout. Results are
 /// aggregated by year score -- the year with the highest combined confidence
 /// across all sources wins. Sources that fail or time out are silently excluded.
-///
-/// ```swift
-/// let orchestrator = APIOrchestrator(
-///     musicBrainz: MusicBrainzClient(),
-///     discogs: DiscogsClient(token: "..."),
-///     appleMusic: AppleMusicSearchClient(),
-///     timeout: .seconds(15)
-/// )
-/// let result = await orchestrator.getAlbumYear(
-///     artist: "Iron Maiden", album: "Powerslave",
-///     currentLibraryYear: nil, earliestTrackAddedYear: nil
-/// )
-/// ```
 public struct APISourcePriorityConfiguration: Sendable {
     public let preferredSource: APISource
     public let scriptPriorities: [String: ScriptAPIPriority]
@@ -91,6 +78,7 @@ public actor APIOrchestrator {
     private let timeout: Duration
     private let negativeResultTTL: TimeInterval
     private let maxConcurrentSourceCalls: Int
+    private let apiRetryConfiguration: APIRetryConfiguration
     private let sourcePriorityConfiguration: APISourcePriorityConfiguration
     private let log = AppLogger.api
 
@@ -115,6 +103,8 @@ public actor APIOrchestrator {
         timeout: Duration = .seconds(15),
         negativeResultTTL: TimeInterval = CachingConfig().negativeResultTTL,
         maxConcurrentSourceCalls: Int = 3,
+        maxAPIRetries: Int = 0,
+        apiRetryDelaySeconds: Double = 1,
         sourcePriorityConfiguration: APISourcePriorityConfiguration = APISourcePriorityConfiguration()
     ) {
         self.musicBrainz = musicBrainz
@@ -125,6 +115,7 @@ public actor APIOrchestrator {
         self.timeout = timeout
         self.negativeResultTTL = max(0, negativeResultTTL)
         self.maxConcurrentSourceCalls = max(1, maxConcurrentSourceCalls)
+        apiRetryConfiguration = APIRetryConfiguration(maxRetries: maxAPIRetries, delaySeconds: apiRetryDelaySeconds)
         self.sourcePriorityConfiguration = sourcePriorityConfiguration
     }
 
@@ -231,33 +222,34 @@ public actor APIOrchestrator {
         cacheContext: SourceCacheContext
     ) {
         let log = log
-        let (source, service) = sourceEntry
+        let apiRetryConfiguration = apiRetryConfiguration
         group.addTask {
             await Self.cachedOrFetchedResult(
-                source: source,
-                service: service,
+                sourceEntry: sourceEntry,
                 query: query,
                 cacheContext: cacheContext,
+                apiRetryConfiguration: apiRetryConfiguration,
                 log: log
             )
         }
     }
 
     private static func cachedOrFetchedResult(
-        source: APISource,
-        service: any ExternalAPIService,
+        sourceEntry: (source: APISource, service: any ExternalAPIService),
         query: SourceQuery,
         cacheContext: SourceCacheContext,
+        apiRetryConfiguration: APIRetryConfiguration,
         log: Logger
     ) async -> SourceFetchResult {
+        let source = sourceEntry.source
         if let cached = await cachedAPIResult(source: source, query: query, cache: cacheContext.cache) {
             return SourceFetchResult(source: source, result: cached)
         }
 
         let outcome = await fetchWithTimeout(
-            source: source,
-            service: service,
+            sourceEntry: sourceEntry,
             query: query,
+            apiRetryConfiguration: apiRetryConfiguration,
             log: log
         )
 
@@ -340,53 +332,6 @@ public actor APIOrchestrator {
         ))
     }
 
-    private static func fetchWithTimeout(
-        source: APISource,
-        service: any ExternalAPIService,
-        query: SourceQuery,
-        log: Logger
-    ) async -> SourceServiceOutcome {
-        do {
-            let result = try await withThrowingTaskGroup(
-                of: YearResult.self
-            ) { group in
-                group.addTask {
-                    try await service.getAlbumYear(
-                        artist: query.artist,
-                        album: query.album,
-                        currentLibraryYear: query.currentLibraryYear,
-                        earliestTrackAddedYear: query.earliestTrackAddedYear
-                    )
-                }
-
-                group.addTask {
-                    try await Task.sleep(for: query.timeout)
-                    throw OrchestratorTimeoutError()
-                }
-
-                // Race: group.next() returns whichever task finishes first.
-                // If the API call wins, we get the result; if the sleep timer
-                // wins, it throws OrchestratorTimeoutError caught below.
-                guard let result = try await group.next() else {
-                    return YearResult()
-                }
-
-                group.cancelAll()
-                return result
-            }
-            return SourceServiceOutcome(result: result, shouldCacheEmptyResult: result.year == nil)
-        } catch is OrchestratorTimeoutError {
-            log.warning("\(source.rawValue, privacy: .public) timed out after \(query.timeout, privacy: .public)")
-            return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
-        } catch is CancellationError {
-            log.debug("\(source.rawValue, privacy: .public) cancelled")
-            return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
-        } catch {
-            log.error("\(source.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-            return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
-        }
-    }
-
     /// Combines year scores from all source results and selects the best year.
     ///
     /// Merges `yearScores` dictionaries additively. The year with the highest
@@ -446,9 +391,72 @@ public actor APIOrchestrator {
     }
 }
 
+private func fetchWithTimeout(
+    sourceEntry: (source: APISource, service: any ExternalAPIService),
+    query: SourceQuery,
+    apiRetryConfiguration: APIRetryConfiguration,
+    log: Logger
+) async -> SourceServiceOutcome {
+    do {
+        let result = try await withThrowingTaskGroup(of: YearResult.self) { group in
+            group.addTask {
+                try await withRetry(
+                    maxAttempts: apiRetryConfiguration.maxAttempts,
+                    initialDelay: apiRetryConfiguration.initialDelay
+                ) {
+                    try await sourceEntry.service.getAlbumYear(
+                        artist: query.artist,
+                        album: query.album,
+                        currentLibraryYear: query.currentLibraryYear,
+                        earliestTrackAddedYear: query.earliestTrackAddedYear
+                    )
+                }
+            }
+
+            group.addTask {
+                try await Task.sleep(for: query.timeout)
+                throw OrchestratorTimeoutError()
+            }
+
+            guard let result = try await group.next() else {
+                return YearResult()
+            }
+
+            group.cancelAll()
+            return result
+        }
+        return SourceServiceOutcome(result: result, shouldCacheEmptyResult: result.year == nil)
+    } catch is OrchestratorTimeoutError {
+        log
+            .warning(
+                "\(sourceEntry.source.rawValue, privacy: .public) timed out after \(query.timeout, privacy: .public)"
+            )
+        return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
+    } catch is CancellationError {
+        log.debug("\(sourceEntry.source.rawValue, privacy: .public) cancelled")
+        return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
+    } catch {
+        log
+            .error(
+                "\(sourceEntry.source.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)"
+            )
+        return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
+    }
+}
+
 // MARK: - SourceQuery
 
 /// Bundles query parameters for a single source fetch.
+private struct APIRetryConfiguration {
+    let maxAttempts: Int
+    let initialDelay: Duration
+
+    init(maxRetries: Int, delaySeconds: Double) {
+        maxAttempts = max(1, max(0, maxRetries) + 1)
+        initialDelay = .milliseconds(Int64((max(0, delaySeconds) * 1000).rounded()))
+    }
+}
+
 private struct SourceQuery {
     let artist: String
     let album: String

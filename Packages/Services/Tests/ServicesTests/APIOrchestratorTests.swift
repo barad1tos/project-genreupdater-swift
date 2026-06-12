@@ -1,9 +1,6 @@
-import Foundation
 import Testing
 @testable import Core
 @testable import Services
-
-// MARK: - APIOrchestratorTests
 
 @Suite("APIOrchestrator — parallel multi-source year aggregation")
 struct APIOrchestratorTests {
@@ -335,6 +332,42 @@ struct APIOrchestratorTests {
     }
 }
 
+@Suite("APIOrchestrator — API retry configuration")
+struct APIOrchestratorRetryTests {
+    @Test("Retries transient API source failures when configured")
+    func retriesTransientAPISourceFailuresWhenConfigured() async {
+        let callCounter = APICallCounter()
+        let musicBrainz = FlakyAPIService(
+            callCounter: callCounter,
+            yearResult: YearResult(
+                year: 1991,
+                confidence: 90,
+                yearScores: [1991: 90]
+            )
+        )
+        let discogs = MockAPIService(shouldThrow: true)
+        let appleMusic = MockAPIService(shouldThrow: true)
+
+        let orchestrator = APIOrchestrator(
+            musicBrainz: musicBrainz,
+            discogs: discogs,
+            appleMusic: appleMusic,
+            maxAPIRetries: 1,
+            apiRetryDelaySeconds: 0
+        )
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "Nirvana",
+            album: "Nevermind",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == 1991)
+        #expect(await callCounter.count() == 2)
+    }
+}
+
 private actor APIConcurrencyProbe {
     private var activeCount = 0
     private var maxActiveCount = 0
@@ -360,6 +393,11 @@ actor APICallCounter {
         value += 1
     }
 
+    func incrementAndCount() -> Int {
+        value += 1
+        return value
+    }
+
     func count() -> Int {
         value
     }
@@ -376,6 +414,39 @@ struct CountingAPIService: ExternalAPIService {
         earliestTrackAddedYear _: Int?
     ) async throws -> YearResult {
         await callCounter.increment()
+        return yearResult
+    }
+
+    func getArtistActivityPeriod(
+        normalizedArtist _: String
+    ) async throws -> (start: Int?, end: Int?) {
+        (nil, nil)
+    }
+
+    func getArtistStartYear(
+        normalizedArtist _: String
+    ) async throws -> Int? {
+        nil
+    }
+
+    func initialize(force _: Bool) async throws {}
+    func close() async {}
+}
+
+struct FlakyAPIService: ExternalAPIService {
+    let callCounter: APICallCounter
+    let yearResult: YearResult
+
+    func getAlbumYear(
+        artist _: String,
+        album _: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> YearResult {
+        let attempt = await callCounter.incrementAndCount()
+        if attempt == 1 {
+            throw MusicBrainzError.serviceUnavailable
+        }
         return yearResult
     }
 

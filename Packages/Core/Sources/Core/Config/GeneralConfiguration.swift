@@ -24,6 +24,8 @@ public struct RuntimeConfig: Sendable, Codable {
     public var dryRun: Bool = false
     public var cacheTTLSeconds: Int = 1800
     public var incrementalIntervalMinutes: Int = 1
+    public var maxRetries: Int = 3
+    public var retryDelaySeconds: Double = 1
     public var maxGenericEntries: Int = 10000
 
     public init() {}

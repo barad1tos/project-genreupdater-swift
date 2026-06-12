@@ -17,6 +17,8 @@ struct AppConfigurationTests {
         #expect(config.pythonSettings.preventBytecode)
         #expect(config.runtime.cacheTTLSeconds == 1800)
         #expect(config.runtime.incrementalIntervalMinutes == 1)
+        #expect(config.runtime.maxRetries == 3)
+        #expect(config.runtime.retryDelaySeconds == 1)
         #expect(config.runtime.maxGenericEntries == 10000)
         #expect(config.applescript.concurrency == 2)
         #expect(config.applescript.rateLimit.enabled)
@@ -123,6 +125,8 @@ struct AppConfigurationTests {
 
         #expect(decoded.paths.albumYearsCacheFile == "cache/album_years.csv")
         #expect(decoded.runtime.cacheTTLSeconds == 1800)
+        #expect(decoded.runtime.maxRetries == 3)
+        #expect(decoded.runtime.retryDelaySeconds == 1)
         #expect(decoded.yearRetrieval.preferredAPI == .discogs)
         #expect(decoded.yearRetrieval.apiAuth.discogsTokenReference == "${DISCOGS_TOKEN}")
         #expect(decoded.yearRetrieval.reissueDetection.reissueKeywords.count == 3)
