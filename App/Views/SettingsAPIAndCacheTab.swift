@@ -132,6 +132,14 @@ struct APIAndCacheTab: View {
                 LabeledContent("Default TTL", value: "\(dependencies.config.caching.defaultTTLSeconds / 60)m")
             }
 
+            Stepper(
+                value: configBinding(dependencies, \.caching.negativeResultTTL),
+                in: 0 ... 7_776_000,
+                step: 86400
+            ) {
+                LabeledContent("Negative result TTL", value: negativeResultTTLDisplay)
+            }
+
             Toggle("Library snapshot cache", isOn: configBinding(dependencies, \.caching.librarySnapshot.enabled))
             Toggle("Delta snapshots", isOn: configBinding(dependencies, \.caching.librarySnapshot.deltaEnabled))
 
@@ -139,6 +147,17 @@ struct APIAndCacheTab: View {
                 LabeledContent("Snapshot max age", value: "\(dependencies.config.caching.librarySnapshot.maxAgeHours)h")
             }
         }
+    }
+
+    private var negativeResultTTLDisplay: String {
+        let seconds = dependencies.config.caching.negativeResultTTL
+        guard seconds > 0 else { return "Off" }
+
+        let days = Int(seconds / 86400)
+        if days >= 1 { return "\(days)d" }
+
+        let hours = Int(seconds / 3600)
+        return "\(max(1, hours))h"
     }
 
     private func loadTokenStatus() {
