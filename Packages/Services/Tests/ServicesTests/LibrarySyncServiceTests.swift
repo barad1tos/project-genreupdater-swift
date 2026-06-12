@@ -8,6 +8,8 @@ import Testing
 actor SyncMockScriptClient: AppleScriptClient {
     var libraryTrackIDs: [String] = []
     var tracksByID: [String: Track] = [:]
+    private var fetchTracksRequests: [(batchSize: Int, timeout: Duration?)] = []
+    private var fetchAllTrackIDsTimeouts: [Duration?] = []
 
     func initialize() async throws {}
 
@@ -24,14 +26,25 @@ actor SyncMockScriptClient: AppleScriptClient {
         batchSize: Int,
         timeout: Duration?
     ) async throws -> [Track] {
-        trackIDs.compactMap { tracksByID[$0] }
+        fetchTracksRequests.append((batchSize: batchSize, timeout: timeout))
+        return trackIDs.compactMap { tracksByID[$0] }
     }
 
     func fetchAllTrackIDs(timeout: Duration?) async throws -> [String] {
-        libraryTrackIDs
+        fetchAllTrackIDsTimeouts.append(timeout)
+        return libraryTrackIDs
     }
 
     func updateTrackProperty(trackID: String, property: String, value: String) async throws {}
+
+    func lastFetchTracksRequest() -> (batchSize: Int, timeout: Duration?)? {
+        fetchTracksRequests.last
+    }
+
+    func lastFetchAllTrackIDsTimeout() -> Duration? {
+        guard let timeout = fetchAllTrackIDsTimeouts.last else { return nil }
+        return timeout
+    }
 }
 
 // MARK: - Configurable Mock Track Store
@@ -97,6 +110,64 @@ struct LibrarySyncServiceTests {
         #expect(result.newTracks.count == 1)
         #expect(result.newTracks.first?.id == "NEW1")
         #expect(result.removedTrackIDs.isEmpty)
+    }
+
+    @Test("Uses configured AppleScript batch and timeout values")
+    func usesConfiguredAppleScriptBatchAndTimeoutValues() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+
+        let newTrack = Track(id: "NEW1", name: "New Song", artist: "Artist", album: "Album")
+        await bridge.setLibrary(ids: ["NEW1"], tracks: ["NEW1": newTrack])
+        await store.setStored([])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                idsBatchSize: 7,
+                fullLibraryFetchTimeout: .seconds(11),
+                idsBatchFetchTimeout: .seconds(13)
+            )
+        )
+
+        _ = try await service.detectChanges()
+
+        let fetchRequest = await bridge.lastFetchTracksRequest()
+        #expect(await bridge.lastFetchAllTrackIDsTimeout() == .seconds(11))
+        #expect(fetchRequest?.batchSize == 7)
+        #expect(fetchRequest?.timeout == .seconds(13))
+    }
+
+    @Test("Runtime configuration update applies to subsequent sync")
+    func runtimeConfigurationUpdateAppliesToSubsequentSync() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+
+        let newTrack = Track(id: "NEW1", name: "New Song", artist: "Artist", album: "Album")
+        await bridge.setLibrary(ids: ["NEW1"], tracks: ["NEW1": newTrack])
+        await store.setStored([])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+        await service.updateRuntimeConfiguration(LibrarySyncRuntimeConfiguration(
+            idsBatchSize: 3,
+            fullLibraryFetchTimeout: .seconds(17),
+            idsBatchFetchTimeout: .seconds(19)
+        ))
+
+        _ = try await service.detectChanges()
+
+        let fetchRequest = await bridge.lastFetchTracksRequest()
+        #expect(await bridge.lastFetchAllTrackIDsTimeout() == .seconds(17))
+        #expect(fetchRequest?.batchSize == 3)
+        #expect(fetchRequest?.timeout == .seconds(19))
     }
 
     @Test("Detect removed tracks")

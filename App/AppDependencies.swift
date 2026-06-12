@@ -183,7 +183,11 @@ final class AppDependencies {
         apiOrchestrator = configuredAPIOrchestrator
 
         let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: config)
-        Task { [updateCoordinator] in
+        let appleScriptConfiguration = config.applescript
+        let librarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: config)
+        Task { [updateCoordinator, applescriptBridge, librarySyncService] in
+            await applescriptBridge?.updateConfiguration(appleScriptConfiguration)
+            await librarySyncService?.updateRuntimeConfiguration(librarySyncRuntimeConfiguration)
             await updateCoordinator?.updateRuntimeConfiguration(
                 runtimeConfiguration,
                 yearDeterminator: configuredYearDeterminator,
@@ -343,7 +347,8 @@ final class AppDependencies {
         librarySyncService = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate
+            featureGate: gate,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config)
         )
 
         changePreviewPipeline = ChangePreviewPipeline()

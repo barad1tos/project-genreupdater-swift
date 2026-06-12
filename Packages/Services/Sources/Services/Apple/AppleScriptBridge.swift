@@ -64,10 +64,14 @@ private struct UnsafeSendable<T>: @unchecked Sendable {
 /// that occur when multiple AppleScript calls run concurrently.
 public actor AppleScriptBridge: AppleScriptClient {
     private let installer: ScriptInstaller
-    private let config: AppleScriptConfig
+    private var config: AppleScriptConfig
 
     public init(installer: ScriptInstaller, config: AppleScriptConfig = .init()) {
         self.installer = installer
+        self.config = config
+    }
+
+    public func updateConfiguration(_ config: AppleScriptConfig) {
         self.config = config
     }
 
