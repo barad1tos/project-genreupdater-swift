@@ -353,7 +353,7 @@ private actor APIConcurrencyProbe {
     }
 }
 
-private actor APICallCounter {
+actor APICallCounter {
     private var value = 0
 
     func increment() {
@@ -365,7 +365,7 @@ private actor APICallCounter {
     }
 }
 
-private struct CountingAPIService: ExternalAPIService {
+struct CountingAPIService: ExternalAPIService {
     let callCounter: APICallCounter
     let yearResult: YearResult
 

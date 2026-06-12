@@ -331,6 +331,7 @@ final class AppDependencies {
             discogs: discogsClient,
             appleMusic: AppleMusicSearchClient(),
             cache: cache,
+            negativeResultTTL: configuration.caching.negativeResultTTL,
             maxConcurrentSourceCalls: configuration.yearRetrieval.rateLimits.concurrentAPICalls,
             sourcePriorityConfiguration: APISourcePriorityConfiguration(configuration: configuration)
         )

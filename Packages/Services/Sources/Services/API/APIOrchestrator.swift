@@ -89,6 +89,7 @@ public actor APIOrchestrator {
     private let reachability: NetworkReachabilityMonitor?
     private let cache: (any CacheService)?
     private let timeout: Duration
+    private let negativeResultTTL: TimeInterval
     private let maxConcurrentSourceCalls: Int
     private let sourcePriorityConfiguration: APISourcePriorityConfiguration
     private let log = AppLogger.api
@@ -102,6 +103,7 @@ public actor APIOrchestrator {
     ///   - reachability: Optional network monitor. When offline, API calls are skipped.
     ///   - cache: Optional persistent cache for successful source results.
     ///   - timeout: Maximum time to wait for each source. Defaults to 15 seconds.
+    ///   - negativeResultTTL: Cache TTL for successful source responses that found no year.
     ///   - maxConcurrentSourceCalls: Maximum API sources queried at once. Values below 1 are clamped.
     ///   - sourcePriorityConfiguration: Preferred source ordering and tie-break configuration.
     public init(
@@ -111,6 +113,7 @@ public actor APIOrchestrator {
         reachability: NetworkReachabilityMonitor? = nil,
         cache: (any CacheService)? = nil,
         timeout: Duration = .seconds(15),
+        negativeResultTTL: TimeInterval = CachingConfig().negativeResultTTL,
         maxConcurrentSourceCalls: Int = 3,
         sourcePriorityConfiguration: APISourcePriorityConfiguration = APISourcePriorityConfiguration()
     ) {
@@ -120,6 +123,7 @@ public actor APIOrchestrator {
         self.reachability = reachability
         self.cache = cache
         self.timeout = timeout
+        self.negativeResultTTL = max(0, negativeResultTTL)
         self.maxConcurrentSourceCalls = max(1, maxConcurrentSourceCalls)
         self.sourcePriorityConfiguration = sourcePriorityConfiguration
     }
@@ -180,7 +184,12 @@ public actor APIOrchestrator {
         sources: [(source: APISource, service: any ExternalAPIService)],
         query: SourceQuery
     ) async -> [SourceFetchResult] {
-        await withTaskGroup(
+        let cacheContext = SourceCacheContext(
+            cache: cache,
+            negativeResultTTL: negativeResultTTL
+        )
+
+        return await withTaskGroup(
             of: SourceFetchResult.self,
             returning: [SourceFetchResult].self
         ) { group in
@@ -192,7 +201,7 @@ public actor APIOrchestrator {
                     to: &group,
                     sourceEntry: sources[nextSourceIndex],
                     query: query,
-                    cache: cache
+                    cacheContext: cacheContext
                 )
                 nextSourceIndex += 1
             }
@@ -206,7 +215,7 @@ public actor APIOrchestrator {
                         to: &group,
                         sourceEntry: sources[nextSourceIndex],
                         query: query,
-                        cache: cache
+                        cacheContext: cacheContext
                     )
                     nextSourceIndex += 1
                 }
@@ -219,7 +228,7 @@ public actor APIOrchestrator {
         to group: inout TaskGroup<SourceFetchResult>,
         sourceEntry: (source: APISource, service: any ExternalAPIService),
         query: SourceQuery,
-        cache: (any CacheService)?
+        cacheContext: SourceCacheContext
     ) {
         let log = log
         let (source, service) = sourceEntry
@@ -228,7 +237,7 @@ public actor APIOrchestrator {
                 source: source,
                 service: service,
                 query: query,
-                cache: cache,
+                cacheContext: cacheContext,
                 log: log
             )
         }
@@ -238,22 +247,28 @@ public actor APIOrchestrator {
         source: APISource,
         service: any ExternalAPIService,
         query: SourceQuery,
-        cache: (any CacheService)?,
+        cacheContext: SourceCacheContext,
         log: Logger
     ) async -> SourceFetchResult {
-        if let cached = await cachedAPIResult(source: source, query: query, cache: cache) {
+        if let cached = await cachedAPIResult(source: source, query: query, cache: cacheContext.cache) {
             return SourceFetchResult(source: source, result: cached)
         }
 
-        let result = await fetchWithTimeout(
+        let outcome = await fetchWithTimeout(
             source: source,
             service: service,
             query: query,
             log: log
         )
 
-        await cacheAPIResult(result, source: source, query: query, cache: cache)
-        return SourceFetchResult(source: source, result: result)
+        await cacheAPIResult(
+            outcome.result,
+            source: source,
+            query: query,
+            cacheContext: cacheContext,
+            shouldCacheEmptyResult: outcome.shouldCacheEmptyResult,
+        )
+        return SourceFetchResult(source: source, result: outcome.result)
     }
 
     private static func cachedAPIResult(
@@ -265,10 +280,12 @@ public actor APIOrchestrator {
             artist: query.artist,
             album: query.album,
             source: source.rawValue
-        ),
-            let year = cached.year
-        else {
+        ) else {
             return nil
+        }
+
+        guard let year = cached.year else {
+            return YearResult()
         }
 
         let confidence = cached.metadata["confidence"].flatMap(Int.init) ?? 0
@@ -288,21 +305,37 @@ public actor APIOrchestrator {
         _ result: YearResult,
         source: APISource,
         query: SourceQuery,
-        cache: (any CacheService)?
+        cacheContext: SourceCacheContext,
+        shouldCacheEmptyResult: Bool
     ) async {
-        guard let year = result.year else { return }
+        if let year = result.year {
+            await cacheContext.cache?.setCachedAPIResult(CachedAPIResult(
+                artist: query.artist,
+                album: query.album,
+                year: year,
+                source: source.rawValue,
+                timestamp: .now,
+                ttl: nil,
+                metadata: [
+                    "confidence": String(result.confidence),
+                    "rawScore": String(result.rawScore),
+                    "isDefinitive": String(result.isDefinitive),
+                ]
+            ))
+            return
+        }
 
-        await cache?.setCachedAPIResult(CachedAPIResult(
+        guard shouldCacheEmptyResult else { return }
+
+        await cacheContext.cache?.setCachedAPIResult(CachedAPIResult(
             artist: query.artist,
             album: query.album,
-            year: year,
+            year: nil,
             source: source.rawValue,
             timestamp: .now,
-            ttl: nil,
+            ttl: cacheContext.negativeResultTTL,
             metadata: [
-                "confidence": String(result.confidence),
-                "rawScore": String(result.rawScore),
-                "isDefinitive": String(result.isDefinitive),
+                "cacheKind": "negative",
             ]
         ))
     }
@@ -312,9 +345,9 @@ public actor APIOrchestrator {
         service: any ExternalAPIService,
         query: SourceQuery,
         log: Logger
-    ) async -> YearResult {
+    ) async -> SourceServiceOutcome {
         do {
-            return try await withThrowingTaskGroup(
+            let result = try await withThrowingTaskGroup(
                 of: YearResult.self
             ) { group in
                 group.addTask {
@@ -341,15 +374,16 @@ public actor APIOrchestrator {
                 group.cancelAll()
                 return result
             }
+            return SourceServiceOutcome(result: result, shouldCacheEmptyResult: result.year == nil)
         } catch is OrchestratorTimeoutError {
             log.warning("\(source.rawValue, privacy: .public) timed out after \(query.timeout, privacy: .public)")
-            return YearResult()
+            return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
         } catch is CancellationError {
             log.debug("\(source.rawValue, privacy: .public) cancelled")
-            return YearResult()
+            return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
         } catch {
             log.error("\(source.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-            return YearResult()
+            return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
         }
     }
 
@@ -423,9 +457,19 @@ private struct SourceQuery {
     let timeout: Duration
 }
 
+private struct SourceCacheContext {
+    let cache: (any CacheService)?
+    let negativeResultTTL: TimeInterval
+}
+
 private struct SourceFetchResult {
     let source: APISource
     let result: YearResult
+}
+
+private struct SourceServiceOutcome {
+    let result: YearResult
+    let shouldCacheEmptyResult: Bool
 }
 
 // MARK: - OrchestratorTimeoutError
