@@ -61,6 +61,34 @@ struct UpdateCoordinatorCleaningTests {
         #expect(changes.isEmpty)
     }
 
+    @Test("Legacy configuration exceptions suppress metadata cleaning changes")
+    func legacyConfigurationExceptionsSuppressMetadataCleaningChanges() async throws {
+        var configuration = AppConfiguration()
+        configuration.exceptions.trackCleaning = [
+            TrackCleaningException(artist: "Beatles", album: "Album Remastered"),
+        ]
+        let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: configuration)
+        let coordinator = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
+        let track = makeTrack(
+            name: "Song (Remastered 2020)",
+            album: "Album Remastered"
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(
+                updateGenre: false,
+                updateYear: false,
+                cleanTrackNames: true,
+                cleanAlbumNames: true,
+                minConfidence: 0
+            ),
+            dryRun: true
+        )
+
+        #expect(changes.isEmpty)
+    }
+
     private func makeCoordinator(
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
     ) async -> UpdateCoordinator {

@@ -66,14 +66,40 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     }
 
     public init(configuration: AppConfiguration) {
+        var cleaning = configuration.cleaning
+        cleaning.trackCleaningExceptions = Self.mergeTrackCleaningExceptions(
+            cleaning.trackCleaningExceptions,
+            configuration.exceptions.trackCleaning
+        )
+
         self.init(
             genreMappings: configuration.cleaning.genreMappings,
             isYearLookupEnabled: configuration.yearRetrieval.enabled,
             minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
             minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
             albumTypeDetection: configuration.albumTypeDetection,
-            cleaning: configuration.cleaning,
+            cleaning: cleaning,
             shouldOverrideExistingGenres: configuration.genreUpdate.overrideExisting
         )
+    }
+
+    private static func mergeTrackCleaningExceptions(
+        _ canonical: [TrackCleaningException],
+        _ legacy: [TrackCleaningException]
+    ) -> [TrackCleaningException] {
+        var seen: Set<String> = []
+        var merged: [TrackCleaningException] = []
+
+        for exception in canonical + legacy {
+            let key = [
+                exception.artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                exception.album.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            ].joined(separator: "\u{1F}")
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            merged.append(exception)
+        }
+
+        return merged
     }
 }

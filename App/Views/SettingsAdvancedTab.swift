@@ -14,6 +14,8 @@ struct AdvancedTab: View {
     @State private var newAlbumSuffix = ""
     @State private var newMappingSource = ""
     @State private var newMappingTarget = ""
+    @State private var newExceptionArtist = ""
+    @State private var newExceptionAlbum = ""
     @State private var showResetConfirmation = false
     @State private var configurationJSON = ""
     @State private var jsonEditorState: JSONEditorState = .idle
@@ -24,6 +26,7 @@ struct AdvancedTab: View {
             genreMappingsSection
             editionKeywordsSection
             albumSuffixesSection
+            cleaningExceptionsSection
             debugSection
             yearPenaltySection
             verificationSection
@@ -288,6 +291,75 @@ struct AdvancedTab: View {
             throw JSONEncodingError.nonUTF8
         }
         return jsonString
+    }
+}
+
+extension AdvancedTab {
+    private var cleaningExceptionsSection: some View {
+        Section("Cleaning Exceptions") {
+            ForEach(
+                Array(dependencies.config.cleaning.trackCleaningExceptions.enumerated()),
+                id: \.offset
+            ) { _, exception in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(exception.artist)
+                    Text(exception.album)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .onDelete { offsets in
+                dependencies.config.cleaning.trackCleaningExceptions.remove(atOffsets: offsets)
+                saveConfig()
+            }
+
+            HStack {
+                TextField("Artist", text: $newExceptionArtist)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Album", text: $newExceptionAlbum)
+                    .textFieldStyle(.roundedBorder)
+                Button("Add") { addCleaningException() }
+                    .disabled(!canAddCleaningException)
+            }
+        }
+    }
+
+    private var canAddCleaningException: Bool {
+        !trimmedExceptionArtist.isEmpty && !trimmedExceptionAlbum.isEmpty
+    }
+
+    private var trimmedExceptionArtist: String {
+        newExceptionArtist.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedExceptionAlbum: String {
+        newExceptionAlbum.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func addCleaningException() {
+        let artist = trimmedExceptionArtist
+        let album = trimmedExceptionAlbum
+        guard !artist.isEmpty, !album.isEmpty else { return }
+
+        let alreadyExists = dependencies.config.cleaning.trackCleaningExceptions.contains { exception in
+            exception.artist.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare(artist) == .orderedSame
+                && exception.album.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare(album) == .orderedSame
+        }
+        guard !alreadyExists else {
+            newExceptionArtist = ""
+            newExceptionAlbum = ""
+            return
+        }
+
+        dependencies.config.cleaning.trackCleaningExceptions.append(TrackCleaningException(
+            artist: artist,
+            album: album
+        ))
+        newExceptionArtist = ""
+        newExceptionAlbum = ""
+        saveConfig()
     }
 }
 

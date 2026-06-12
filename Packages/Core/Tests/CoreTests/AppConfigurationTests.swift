@@ -90,6 +90,14 @@ struct AppConfigurationTests {
           },
           "analytics": {
             "maxEvents": 42
+          },
+          "exceptions": {
+            "track_cleaning": [
+              {
+                "artist": "Rabbit Junk",
+                "album": "Xenospheres"
+              }
+            ]
           }
         }
         """
@@ -108,6 +116,12 @@ struct AppConfigurationTests {
         #expect(decoded.processing.prereleaseHandling == .processEditable)
         #expect(decoded.analytics.maxEvents == 42)
         #expect(decoded.analytics.enabled == false)
+        #expect(decoded.exceptions.trackCleaning == [
+            TrackCleaningException(artist: "Rabbit Junk", album: "Xenospheres"),
+        ])
+        #expect(decoded.cleaning.trackCleaningExceptions == [
+            TrackCleaningException(artist: "Rabbit Junk", album: "Xenospheres"),
+        ])
         #expect(decoded.databaseVerification.autoVerifyDays == 7)
         #expect(decoded.reporting.changeDisplayMode == .compact)
     }

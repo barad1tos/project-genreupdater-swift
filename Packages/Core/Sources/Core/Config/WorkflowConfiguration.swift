@@ -103,7 +103,24 @@ public struct TrackCleaningException: Sendable, Codable, Equatable {
 public struct ExceptionsConfig: Sendable, Codable {
     public var trackCleaning: [TrackCleaningException] = []
 
+    private enum CodingKeys: String, CodingKey {
+        case trackCleaning
+        case legacyTrackCleaning = "track_cleaning"
+    }
+
     public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        trackCleaning = try container.decodeIfPresent([TrackCleaningException].self, forKey: .trackCleaning)
+            ?? container.decodeIfPresent([TrackCleaningException].self, forKey: .legacyTrackCleaning)
+            ?? []
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(trackCleaning, forKey: .trackCleaning)
+    }
 }
 
 // MARK: - Artist Renamer Configuration

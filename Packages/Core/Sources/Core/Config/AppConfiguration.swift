@@ -67,6 +67,9 @@ public struct AppConfiguration: Sendable, Codable {
         analytics = try container.decodeIfPresent(AnalyticsConfig.self, forKey: .analytics) ?? AnalyticsConfig()
         cleaning = try container.decodeIfPresent(CleaningConfig.self, forKey: .cleaning) ?? CleaningConfig()
         exceptions = try container.decodeIfPresent(ExceptionsConfig.self, forKey: .exceptions) ?? ExceptionsConfig()
+        if cleaning.trackCleaningExceptions.isEmpty, !exceptions.trackCleaning.isEmpty {
+            cleaning.trackCleaningExceptions = exceptions.trackCleaning
+        }
         artistRenamer = try container
             .decodeIfPresent(ArtistRenamerConfig.self, forKey: .artistRenamer) ?? ArtistRenamerConfig()
         databaseVerification = try container.decodeIfPresent(
