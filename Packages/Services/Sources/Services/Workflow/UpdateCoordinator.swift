@@ -60,6 +60,7 @@ public struct UpdateOptions: Sendable {
 /// Runtime configuration applied by update workflows.
 public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     public let genreMappings: [String: String]
+    public let isYearLookupEnabled: Bool
     public let minimumYearUpdateConfidence: Double
     public let minimumConfidenceToCache: Int
     public let albumTypeDetection: AlbumTypeDetectionConfig
@@ -67,12 +68,14 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
 
     public init(
         genreMappings: [String: String] = [:],
+        isYearLookupEnabled: Bool = AppConfiguration().yearRetrieval.enabled,
         minimumYearUpdateConfidence: Double = AppConfiguration().yearRetrieval.logic.minConfidenceForNewYear,
         minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache,
         albumTypeDetection: AlbumTypeDetectionConfig = AlbumTypeDetectionConfig(),
         shouldOverrideExistingGenres: Bool = AppConfiguration().genreUpdate.overrideExisting
     ) {
         self.genreMappings = genreMappings
+        self.isYearLookupEnabled = isYearLookupEnabled
         self.minimumYearUpdateConfidence = minimumYearUpdateConfidence
         self.minimumConfidenceToCache = minimumConfidenceToCache
         self.albumTypeDetection = albumTypeDetection
@@ -82,6 +85,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     public init(configuration: AppConfiguration) {
         self.init(
             genreMappings: configuration.cleaning.genreMappings,
+            isYearLookupEnabled: configuration.yearRetrieval.enabled,
             minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
             minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
             albumTypeDetection: configuration.albumTypeDetection,
@@ -197,7 +201,7 @@ public actor UpdateCoordinator {
         }
 
         // Year determination (API-backed)
-        if options.updateYear {
+        if options.updateYear, runtimeConfiguration.isYearLookupEnabled {
             if let change = try await determineYearChange(
                 track: track,
                 albumTracks: albumTracks

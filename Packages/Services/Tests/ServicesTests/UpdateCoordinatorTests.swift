@@ -404,6 +404,28 @@ struct UpdateCoordinatorTests {
 }
 
 extension UpdateCoordinatorTests {
+    @Test("Year lookup setting disables year changes")
+    func yearLookupSettingDisablesYearChanges() async throws {
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            isYearLookupEnabled: false,
+            minimumYearUpdateConfidence: 30
+        )
+        let fixture = await makeCoordinator(
+            year: 2020,
+            confidence: 95,
+            runtimeConfiguration: runtimeConfiguration
+        )
+
+        let track = makeEditableTrack(year: 1969)
+        let changes = try await fixture.coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(changes.allSatisfy { $0.changeType != .yearUpdate })
+    }
+
     @Test("Existing genres are preserved when override is disabled")
     func existingGenresArePreservedWhenOverrideIsDisabled() async throws {
         let fixture = await makeCoordinator()
