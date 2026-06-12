@@ -118,12 +118,28 @@ struct AdvancedTab: View {
                     saveConfig()
                 }
             )
+            let maxPenaltyBinding = Binding<Double>(
+                get: { Double(abs(dependencies.config.yearRetrieval.scoring.yearDiffMaxPenalty)) },
+                set: { newValue in
+                    dependencies.config.yearRetrieval.scoring.yearDiffMaxPenalty = -Int(newValue)
+                    saveConfig()
+                }
+            )
 
-            VStack(alignment: .leading) {
-                Text(
-                    "Penalty per year difference: \(abs(dependencies.config.yearRetrieval.scoring.yearDiffPenaltyScale))"
-                )
-                Slider(value: penaltyScaleBinding, in: 0 ... 20, step: 1)
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading) {
+                    Text(
+                        "Penalty per year difference: \(abs(dependencies.config.yearRetrieval.scoring.yearDiffPenaltyScale))"
+                    )
+                    Slider(value: penaltyScaleBinding, in: 0 ... 20, step: 1)
+                }
+
+                VStack(alignment: .leading) {
+                    Text(
+                        "Maximum penalty cap: \(abs(dependencies.config.yearRetrieval.scoring.yearDiffMaxPenalty))"
+                    )
+                    Slider(value: maxPenaltyBinding, in: 0 ... 100, step: 5)
+                }
             }
         }
     }
