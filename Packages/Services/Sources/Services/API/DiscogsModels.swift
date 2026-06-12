@@ -29,11 +29,57 @@ struct DiscogsSearchResult: Codable {
     let masterURL: String?
     let genre: [String]?
     let style: [String]?
+    let country: String?
+    let format: [String]?
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, year, type, genre, style
+        case id, title, year, type, genre, style, country, format
         case masterID = "master_id" // swiftlint:disable:this inclusive_language
         case masterURL = "master_url" // swiftlint:disable:this inclusive_language
+    }
+
+    init(
+        id: Int,
+        title: String,
+        year: String?,
+        type: String,
+        masterID: Int?, // swiftlint:disable:this inclusive_language
+        masterURL: String?, // swiftlint:disable:this inclusive_language
+        genre: [String]?,
+        style: [String]?,
+        country: String? = nil,
+        format: [String]? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.year = year
+        self.type = type
+        self.masterID = masterID
+        self.masterURL = masterURL
+        self.genre = genre
+        self.style = style
+        self.country = country
+        self.format = format
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        if let stringYear = try? container.decode(String.self, forKey: .year) {
+            year = stringYear
+        } else if let integerYear = try? container.decode(Int.self, forKey: .year) {
+            year = String(integerYear)
+        } else {
+            year = nil
+        }
+        type = try container.decode(String.self, forKey: .type)
+        masterID = try container.decodeIfPresent(Int.self, forKey: .masterID)
+        masterURL = try container.decodeIfPresent(String.self, forKey: .masterURL)
+        genre = try container.decodeIfPresent([String].self, forKey: .genre)
+        style = try container.decodeIfPresent([String].self, forKey: .style)
+        country = try container.decodeIfPresent(String.self, forKey: .country)
+        format = try container.decodeIfPresent([String].self, forKey: .format)
     }
 
     /// Parses the string `year` field into an integer.

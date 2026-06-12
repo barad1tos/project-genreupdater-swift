@@ -144,6 +144,52 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         )
     }
 
+    public func getReleaseCandidates(
+        artist: String,
+        album: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> [ReleaseCandidate] {
+        guard token != nil else {
+            throw DiscogsError.noToken
+        }
+
+        guard let url = Self.buildSearchURL(
+            artist: artist,
+            album: album,
+            type: nil,
+            perPage: 10
+        ) else {
+            log.warning("Failed to build Discogs candidate search URL for \(artist, privacy: .private)")
+            return []
+        }
+
+        let data = try await fetchWithRateLimit(url: url)
+        let response = try JSONDecoder().decode(
+            DiscogsSearchResponse.self,
+            from: data
+        )
+
+        return response.results.compactMap { result in
+            guard let year = result.releaseYear, year > 0 else {
+                return nil
+            }
+
+            let formats = result.format ?? []
+            return ReleaseCandidate(
+                artist: artist,
+                album: Self.albumTitle(from: result.title, fallback: album),
+                year: year,
+                source: .discogs,
+                releaseType: Self.releaseType(from: formats),
+                status: .official,
+                country: result.country?.lowercased(),
+                isReissue: Self.isReissue(formats: formats),
+                genre: (result.genre ?? result.style)?.first
+            )
+        }
+    }
+
     public func getArtistActivityPeriod(
         normalizedArtist: String
     ) async throws -> (start: Int?, end: Int?) {
@@ -172,15 +218,20 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     /// Query parameters: `artist`, `release_title`, `type=master`, `per_page=5`.
     static func buildSearchURL(
         artist: String,
-        album: String
+        album: String,
+        type: String? = "master",
+        perPage: Int = 5
     ) -> URL? {
         var components = URLComponents(string: "\(baseURL)/database/search")
-        components?.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "artist", value: artist),
             URLQueryItem(name: "release_title", value: album),
-            URLQueryItem(name: "type", value: "master"),
-            URLQueryItem(name: "per_page", value: "5"),
+            URLQueryItem(name: "per_page", value: String(perPage)),
         ]
+        if let type {
+            queryItems.append(URLQueryItem(name: "type", value: type))
+        }
+        components?.queryItems = queryItems
         return components?.url
     }
 
@@ -208,6 +259,32 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     }
 
     // MARK: - Private
+
+    private static func albumTitle(from discogsTitle: String, fallback: String) -> String {
+        let title = discogsTitle.components(separatedBy: " - ").last ?? fallback
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTitle.isEmpty ? fallback : trimmedTitle
+    }
+
+    private static func releaseType(from formats: [String]) -> ReleaseType {
+        if formats.contains(where: { $0.localizedCaseInsensitiveContains("single") }) {
+            return .single
+        }
+        if formats.contains(where: { $0.localizedCaseInsensitiveContains("ep") }) {
+            return .ep
+        }
+        if formats.contains(where: { $0.localizedCaseInsensitiveContains("compilation") }) {
+            return .compilation
+        }
+        return .album
+    }
+
+    private static func isReissue(formats: [String]) -> Bool {
+        formats.contains { format in
+            let lowered = format.lowercased()
+            return lowered.contains("remaster") || lowered.contains("reissue")
+        }
+    }
 
     // Fetches master release details and extracts the year.
     // swiftlint:disable:next inclusive_language

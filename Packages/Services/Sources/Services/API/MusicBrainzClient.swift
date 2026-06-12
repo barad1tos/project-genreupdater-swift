@@ -58,21 +58,9 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         currentLibraryYear _: Int?,
         earliestTrackAddedYear _: Int?
     ) async throws -> YearResult {
-        guard let url = Self.buildReleaseGroupSearchURL(
-            artist: artist,
-            album: album
-        ) else {
-            log.warning("Failed to build release group search URL for \(artist, privacy: .private)")
-            return YearResult()
-        }
+        let releaseGroups = try await searchReleaseGroups(artist: artist, album: album, limit: 5)
 
-        let data = try await fetchWithRateLimit(url: url)
-        let response = try JSONDecoder().decode(
-            MBReleaseGroupSearchResponse.self,
-            from: data
-        )
-
-        guard let bestMatch = response.releaseGroups.first,
+        guard let bestMatch = releaseGroups.first,
               let year = bestMatch.releaseYear
         else {
             log.debug("No release group results for \(artist, privacy: .private) - \(album, privacy: .private)")
@@ -91,6 +79,29 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             confidence: confidence,
             yearScores: [year: confidence]
         )
+    }
+
+    public func getReleaseCandidates(
+        artist: String,
+        album: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> [ReleaseCandidate] {
+        let releaseGroups = try await searchReleaseGroups(artist: artist, album: album, limit: 10)
+        return releaseGroups.compactMap { group in
+            guard let year = group.releaseYear else { return nil }
+            return ReleaseCandidate(
+                artist: artist,
+                album: group.title,
+                year: year,
+                source: .musicBrainz,
+                releaseType: Self.releaseType(from: group.primaryType),
+                status: .official,
+                isReissue: false,
+                mbReleaseGroupID: group.id,
+                mbReleaseGroupFirstYear: year
+            )
+        }
     }
 
     public func getArtistActivityPeriod(
@@ -141,7 +152,8 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     /// Query format: `artist:"<artist>" AND release:"<album>"` with `&fmt=json`.
     static func buildReleaseGroupSearchURL(
         artist: String,
-        album: String
+        album: String,
+        limit: Int = 5
     ) -> URL? {
         var components = URLComponents(string: "\(baseURL)/release-group")
         components?.queryItems = [
@@ -150,7 +162,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
                 value: "artist:\"\(artist)\" AND release:\"\(album)\""
             ),
             URLQueryItem(name: "fmt", value: "json"),
-            URLQueryItem(name: "limit", value: "5"),
+            URLQueryItem(name: "limit", value: String(limit)),
         ]
         return components?.url
     }
@@ -185,6 +197,37 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     }
 
     // MARK: - Private
+
+    private func searchReleaseGroups(
+        artist: String,
+        album: String,
+        limit: Int
+    ) async throws -> [MBReleaseGroup] {
+        guard let url = Self.buildReleaseGroupSearchURL(
+            artist: artist,
+            album: album,
+            limit: limit
+        ) else {
+            log.warning("Failed to build release group search URL for \(artist, privacy: .private)")
+            return []
+        }
+
+        let data = try await fetchWithRateLimit(url: url)
+        return try JSONDecoder().decode(
+            MBReleaseGroupSearchResponse.self,
+            from: data
+        ).releaseGroups
+    }
+
+    private static func releaseType(from primaryType: String?) -> ReleaseType {
+        switch primaryType?.lowercased() {
+        case "single": .single
+        case "ep": .ep
+        case "compilation": .compilation
+        case "live": .live
+        default: .album
+        }
+    }
 
     /// Acquires a rate limit token, then performs the HTTP request.
     ///
