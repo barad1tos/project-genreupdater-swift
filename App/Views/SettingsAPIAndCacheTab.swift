@@ -149,6 +149,10 @@ struct APIAndCacheTab: View {
                 LabeledContent("Runtime cache TTL", value: "\(dependencies.config.runtime.cacheTTLSeconds / 60)m")
             }
 
+            Stepper(value: configBinding(dependencies, \.processing.cacheTTLDays), in: 0 ... 36500) {
+                LabeledContent("API result cache", value: apiResultCacheTTLDisplay)
+            }
+
             Stepper(
                 value: configBinding(dependencies, \.caching.negativeResultTTL),
                 in: 0 ... 7_776_000,
@@ -164,6 +168,17 @@ struct APIAndCacheTab: View {
                 LabeledContent("Snapshot max age", value: "\(dependencies.config.caching.librarySnapshot.maxAgeHours)h")
             }
         }
+    }
+
+    private var apiResultCacheTTLDisplay: String {
+        let days = dependencies.config.processing.cacheTTLDays
+        guard days > 0 else { return "Off" }
+
+        if days >= 365, days.isMultiple(of: 365) {
+            return "\(days / 365)y"
+        }
+
+        return "\(days)d"
     }
 
     private var negativeResultTTLDisplay: String {
