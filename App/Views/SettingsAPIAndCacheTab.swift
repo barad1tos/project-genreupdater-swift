@@ -70,6 +70,18 @@ struct APIAndCacheTab: View {
                 )
             }
 
+            Stepper(
+                value: configBinding(dependencies, \.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond),
+                in: 0.1 ... 5,
+                step: 0.1
+            ) {
+                LabeledContent(
+                    "MusicBrainz requests per second",
+                    value: dependencies.config.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond
+                        .formatted(.number.precision(.fractionLength(1)))
+                )
+            }
+
             Stepper(value: configBinding(dependencies, \.yearRetrieval.rateLimits.concurrentAPICalls), in: 1 ... 10) {
                 LabeledContent(
                     "Concurrent API calls",
