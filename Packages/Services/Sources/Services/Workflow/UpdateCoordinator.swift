@@ -42,7 +42,7 @@ extension AlbumTypeDetectionConfig {
 /// Coordinates all services to update track metadata in Music.app.
 /// Supports single-track updates, batch processing, and dry-run previews.
 public actor UpdateCoordinator {
-    private var apiOrchestrator: APIOrchestrator
+    var apiOrchestrator: APIOrchestrator
     private let scriptBridge: any AppleScriptClient
     private let trackStore: any TrackStateStore
     private let cache: any CacheService
@@ -341,7 +341,7 @@ public actor UpdateCoordinator {
         )
     }
 
-    private func earliestAddedYear(_ tracks: [Track]) -> Int? {
+    func earliestAddedYear(_ tracks: [Track]) -> Int? {
         tracks
             .compactMap(\.dateAdded)
             .min()
@@ -350,7 +350,7 @@ public actor UpdateCoordinator {
 
     // MARK: Apply Change
 
-    private func applyChange(_ change: ProposedChange) async throws {
+    func applyChange(_ change: ProposedChange) async throws {
         guard let newValue = change.newValue else { return }
 
         let property = switch change.changeType {

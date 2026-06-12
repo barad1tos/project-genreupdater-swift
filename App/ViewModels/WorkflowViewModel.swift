@@ -12,6 +12,7 @@ enum WorkflowMode: String, CaseIterable, Identifiable {
     case selectedTracks = "Selected Tracks"
     case fullLibrary = "Full Library"
     case smartFilter = "Smart Filter"
+    case pendingVerification = "Pending"
 
     var id: String {
         rawValue
@@ -22,6 +23,7 @@ enum WorkflowMode: String, CaseIterable, Identifiable {
         case .selectedTracks: "hand.tap"
         case .fullLibrary: "music.note.list"
         case .smartFilter: "sparkle.magnifyingglass"
+        case .pendingVerification: "clock.arrow.circlepath"
         }
     }
 
@@ -101,6 +103,9 @@ final class WorkflowViewModel {
     var currentTrackID: String?
     var scopeTrackCount: Int = 0
     var scopeArtistCount: Int = 0
+    var pendingAlbumCount: Int = 0
+    var pendingDueAlbumCount: Int = 0
+    var pendingSkippedAlbumCount: Int = 0
     var proposedChanges: [ProposedChange] = []
     var result: BatchUpdateResult?
     var completedEntries: [ChangeLogEntry] = []
@@ -143,19 +148,21 @@ final class WorkflowViewModel {
 
     // MARK: - Dependencies
 
-    private let updateCoordinator: UpdateCoordinator
-    private let batchProcessor: BatchProcessor
+    let updateCoordinator: UpdateCoordinator
+    let batchProcessor: BatchProcessor
     private let changePreviewPipeline: ChangePreviewPipeline
-    private var defaultUpdateGenre: Bool
-    private var defaultUpdateYear: Bool
-    private var defaultPreviewOnly: Bool
-    private var defaultMinConfidence: Double
-    private var processingTask: Task<Void, Never>?
+    let pendingVerificationService: (any PendingVerificationService)?
+    var defaultUpdateGenre: Bool
+    var defaultUpdateYear: Bool
+    var defaultPreviewOnly: Bool
+    var defaultMinConfidence: Double
+    var processingTask: Task<Void, Never>?
 
     init(
         updateCoordinator: UpdateCoordinator,
         batchProcessor: BatchProcessor,
         changePreviewPipeline: ChangePreviewPipeline,
+        pendingVerificationService: (any PendingVerificationService)? = nil,
         defaultUpdateGenre: Bool = true,
         defaultUpdateYear: Bool = true,
         defaultPreviewOnly: Bool = true,
@@ -164,6 +171,7 @@ final class WorkflowViewModel {
         self.updateCoordinator = updateCoordinator
         self.batchProcessor = batchProcessor
         self.changePreviewPipeline = changePreviewPipeline
+        self.pendingVerificationService = pendingVerificationService
         self.defaultUpdateGenre = defaultUpdateGenre
         self.defaultUpdateYear = defaultUpdateYear
         self.defaultPreviewOnly = defaultPreviewOnly
@@ -184,7 +192,12 @@ final class WorkflowViewModel {
     func start(tracks: [Track]) {
         guard canStart else { return }
 
-        let workingTracks = applySmartFilter(to: tracks)
+        if mode == .pendingVerification {
+            startPendingVerification(tracks: tracks)
+            return
+        }
+
+        let workingTracks = tracksForCurrentMode(tracks)
         totalCount = workingTracks.count
         computeScopePreview(tracks: workingTracks)
 
@@ -199,10 +212,14 @@ final class WorkflowViewModel {
 
     /// Compute track and artist counts for the current mode/filter selection.
     func computeScopePreview(tracks: [Track]) {
-        let filtered = applySmartFilter(to: tracks)
+        let filtered = tracksForCurrentMode(tracks)
         scopeTrackCount = filtered.count
         let uniqueArtists = Set(filtered.map(\.artist))
         scopeArtistCount = uniqueArtists.count
+
+        if mode == .pendingVerification {
+            refreshPendingScope(tracks: tracks)
+        }
     }
 
     // MARK: - Dry Run (Selected + Smart Filter modes)
@@ -226,6 +243,7 @@ final class WorkflowViewModel {
 
                 var allChanges: [ProposedChange] = []
                 let total = tracks.count
+                let albumGroups = Self.groupTracksByAlbum(tracks)
 
                 for (index, track) in tracks.enumerated() {
                     try Task.checkCancellation()
@@ -243,7 +261,7 @@ final class WorkflowViewModel {
 
                     let changes = try await updateCoordinator.updateTrack(
                         track,
-                        albumTracks: [],
+                        albumTracks: albumGroups[Self.albumKey(for: track)] ?? [],
                         options: options,
                         dryRun: true
                     )
@@ -442,59 +460,5 @@ final class WorkflowViewModel {
 
     func rejectAll() {
         changePreviewPipeline.rejectAll(&proposedChanges)
-    }
-}
-
-// MARK: - Lifecycle
-
-extension WorkflowViewModel {
-    func cancel() {
-        processingTask?.cancel()
-        processingTask = nil
-        if mode == .fullLibrary {
-            Task { await batchProcessor.cancel() }
-        }
-    }
-
-    func updateDefaults(
-        updateGenre: Bool,
-        updateYear: Bool,
-        previewOnly: Bool,
-        minConfidence: Double
-    ) {
-        defaultUpdateGenre = updateGenre
-        defaultUpdateYear = updateYear
-        defaultPreviewOnly = previewOnly
-        defaultMinConfidence = minConfidence
-
-        guard canStart else { return }
-        applyDefaultConfiguration()
-    }
-
-    func reset() {
-        cancel()
-        phase = .configure
-        progress = nil
-        proposedChanges = []
-        result = nil
-        completedEntries = []
-        dryRunReport = nil
-        processedCount = 0
-        totalCount = 0
-        failedCount = 0
-        applyDefaultConfiguration()
-        trackStatuses = [:]
-        currentTrackID = nil
-        scopeTrackCount = 0
-        scopeArtistCount = 0
-    }
-
-    private func applyDefaultConfiguration() {
-        updateGenre = defaultUpdateGenre
-        updateYear = defaultUpdateYear
-        cleanTrackNames = false
-        cleanAlbumNames = false
-        previewOnly = defaultPreviewOnly
-        minConfidence = defaultMinConfidence
     }
 }

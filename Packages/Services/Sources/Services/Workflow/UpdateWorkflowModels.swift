@@ -6,8 +6,28 @@ public struct BatchUpdateResult: Sendable {
     public let failedTrackIDs: [String]
     public let errorDescriptions: [String]
 
+    public init(
+        entries: [ChangeLogEntry],
+        failedTrackIDs: [String],
+        errorDescriptions: [String]
+    ) {
+        self.entries = entries
+        self.failedTrackIDs = failedTrackIDs
+        self.errorDescriptions = errorDescriptions
+    }
+
     public var hasPartialFailures: Bool {
         !failedTrackIDs.isEmpty && !entries.isEmpty
+    }
+}
+
+/// Result of resolving and applying a pending album verification.
+public struct PendingAlbumVerificationResult: Sendable {
+    public let entries: [ChangeLogEntry]
+    public let resolvedYear: Int?
+
+    public var didResolveYear: Bool {
+        resolvedYear != nil
     }
 }
 

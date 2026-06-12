@@ -15,8 +15,10 @@ struct UpdateConfigSection: View {
             VStack(spacing: Spacing.xl) {
                 modeSelector
                 scopePreviewCard
-                optionsCard
-                confidenceSection
+                if viewModel.mode != .pendingVerification {
+                    optionsCard
+                    confidenceSection
+                }
                 startButton
             }
             .padding(Spacing.xl)
@@ -86,6 +88,23 @@ struct UpdateConfigSection: View {
                     value: lastDate.formatted(.relative(presentation: .named)),
                     label: "last scan"
                 )
+            }
+
+            if viewModel.mode == .pendingVerification {
+                Divider()
+                    .frame(height: 32)
+                scopeMetric(
+                    value: viewModel.pendingDueAlbumCount.formatted(),
+                    label: "due"
+                )
+                if viewModel.pendingSkippedAlbumCount > 0 {
+                    Divider()
+                        .frame(height: 32)
+                    scopeMetric(
+                        value: viewModel.pendingSkippedAlbumCount.formatted(),
+                        label: "waiting"
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -174,7 +193,7 @@ struct UpdateConfigSection: View {
             viewModel.start(tracks: tracks)
         } label: {
             Label(
-                viewModel.mode == .fullLibrary ? "Start Processing" : "Start Preview",
+                startButtonTitle,
                 systemImage: "play.fill"
             )
             .frame(maxWidth: .infinity)
@@ -183,5 +202,16 @@ struct UpdateConfigSection: View {
         .tint(Ayu.accent)
         .controlSize(.large)
         .disabled(!viewModel.canStart || !viewModel.hasEnabledOperation)
+    }
+
+    private var startButtonTitle: String {
+        switch viewModel.mode {
+        case .fullLibrary:
+            "Start Processing"
+        case .pendingVerification:
+            "Verify Pending"
+        case .selectedTracks, .smartFilter:
+            "Start Preview"
+        }
     }
 }

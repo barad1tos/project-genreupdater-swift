@@ -275,6 +275,7 @@ struct MainView: View {
             updateCoordinator: coordinator,
             batchProcessor: processor,
             changePreviewPipeline: pipeline,
+            pendingVerificationService: dependencies.pendingVerificationService,
             defaultUpdateGenre: configuredUpdateSelection.updateGenre,
             defaultUpdateYear: configuredUpdateSelection.updateYear,
             defaultPreviewOnly: configuredPreviewOnly,

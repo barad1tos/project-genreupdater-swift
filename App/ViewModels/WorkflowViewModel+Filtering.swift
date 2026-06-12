@@ -7,7 +7,8 @@ import Services
 
 extension WorkflowViewModel {
     var hasEnabledOperation: Bool {
-        updateGenre || updateYear || cleanTrackNames || cleanAlbumNames
+        if mode == .pendingVerification { return true }
+        return updateGenre || updateYear || cleanTrackNames || cleanAlbumNames
     }
 
     func applySmartFilter(to tracks: [Track]) -> [Track] {
