@@ -80,6 +80,13 @@ struct GeneralTab: View {
 
             Toggle("Adaptive delay", isOn: configBinding(dependencies, \.processing.adaptiveDelay))
 
+            Stepper(value: configBinding(dependencies, \.runtime.incrementalIntervalMinutes), in: 1 ... 1440) {
+                LabeledContent(
+                    "Incremental interval",
+                    value: "\(dependencies.config.runtime.incrementalIntervalMinutes)m"
+                )
+            }
+
             Stepper(value: configBinding(dependencies, \.processing.pendingVerificationIntervalDays), in: 0 ... 365) {
                 LabeledContent(
                     "Pending verification",

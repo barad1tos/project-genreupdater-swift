@@ -132,6 +132,10 @@ struct APIAndCacheTab: View {
                 LabeledContent("Default TTL", value: "\(dependencies.config.caching.defaultTTLSeconds / 60)m")
             }
 
+            Stepper(value: configBinding(dependencies, \.runtime.cacheTTLSeconds), in: 60 ... 86400, step: 60) {
+                LabeledContent("Runtime cache TTL", value: "\(dependencies.config.runtime.cacheTTLSeconds / 60)m")
+            }
+
             Stepper(
                 value: configBinding(dependencies, \.caching.negativeResultTTL),
                 in: 0 ... 7_776_000,
