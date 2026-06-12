@@ -41,6 +41,12 @@ private func executeAppleScript(_ source: String) throws -> String? {
 
     if let errorInfo {
         let message = errorInfo[NSAppleScript.errorMessage] as? String ?? "Unknown AppleScript error"
+        if message.localizedCaseInsensitiveContains("Not authorized to send Apple events to Music") {
+            throw XCTSkip(
+                "Apple Events permission for Music.app is not granted — skipping AppleScript integration tests."
+            )
+        }
+
         throw AppleScriptTestError.executionFailed(message)
     }
 
@@ -99,7 +105,7 @@ final class AppleScriptIntegrationTests: XCTestCase {
             "Music.app should report a player state (playing, paused, or stopped)"
         )
 
-        let validStates: Set<String> = ["playing", "paused", "stopped", "fast forwarding", "rewinding"]
+        let validStates = Set(["playing", "paused", "stopped", "fast forwarding", "rewinding"])
         if let state = result {
             XCTAssertTrue(
                 validStates.contains(state),

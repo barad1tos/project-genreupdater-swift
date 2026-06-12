@@ -97,6 +97,10 @@ targets:
       - package: Core
       - package: Services
       - package: SharedUI
+    settings:
+      base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Genre Updater.app/Contents/MacOS/Genre Updater"
 
   GenreUpdaterUITests:
     type: bundle.ui-testing
@@ -121,4 +125,32 @@ targets:
       - package: Services
     settings:
       base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
         PRODUCT_BUNDLE_IDENTIFIER: com.genreupdater.integration-tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Genre Updater.app/Contents/MacOS/Genre Updater"
+
+schemes:
+  GenreUpdater:
+    build:
+      targets:
+        GenreUpdater: all
+    run:
+      config: Debug
+    test:
+      targets:
+        - name: GenreUpdaterTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
+  IntegrationTests:
+    build:
+      targets:
+        GenreUpdater: all
+        IntegrationTests: [test]
+    test:
+      targets:
+        - name: IntegrationTests

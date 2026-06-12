@@ -156,7 +156,7 @@ final class MusicLibraryIntegrationTests: XCTestCase {
     }
 
     func testFilterByTestArtistsUsesEffectiveArtist() {
-        let track = Track(
+        let track = Core.Track(
             id: "100",
             name: "Come Together",
             artist: "John Lennon",
@@ -178,10 +178,10 @@ final class MusicLibraryIntegrationTests: XCTestCase {
 
 // MARK: - Test Helpers
 
-private func makeSampleTracks() -> [Track] {
+private func makeSampleTracks() -> [Core.Track] {
     [
-        Track(id: "1", name: "Hey Jude", artist: "The Beatles", album: "Past Masters"),
-        Track(id: "2", name: "Bohemian Rhapsody", artist: "Queen", album: "A Night at the Opera"),
-        Track(id: "3", name: "Comfortably Numb", artist: "Pink Floyd", album: "The Wall"),
+        Core.Track(id: "1", name: "Hey Jude", artist: "The Beatles", album: "Past Masters"),
+        Core.Track(id: "2", name: "Bohemian Rhapsody", artist: "Queen", album: "A Night at the Opera"),
+        Core.Track(id: "3", name: "Comfortably Numb", artist: "Pink Floyd", album: "The Wall"),
     ]
 }
