@@ -27,6 +27,7 @@ struct GeneralTab: View {
 
             confidenceSection
             workflowSection
+            musicAppScriptingSection
             genreUpdatesSection
             subscriptionSection
         }
@@ -112,6 +113,31 @@ struct GeneralTab: View {
         }
     }
 
+    private var musicAppScriptingSection: some View {
+        Section("Music App Scripting") {
+            Stepper(value: timeoutSecondsBinding(\.defaultTimeout), in: 60 ... 7200, step: 60) {
+                LabeledContent(
+                    "Default timeout",
+                    value: timeoutDisplay(dependencies.config.applescript.timeouts.defaultTimeout)
+                )
+            }
+
+            Stepper(value: timeoutSecondsBinding(\.fullLibraryFetch), in: 300 ... 7200, step: 300) {
+                LabeledContent(
+                    "Full library fetch",
+                    value: timeoutDisplay(dependencies.config.applescript.timeouts.fullLibraryFetch)
+                )
+            }
+
+            Stepper(value: timeoutSecondsBinding(\.batchUpdate), in: 60 ... 7200, step: 60) {
+                LabeledContent(
+                    "Batch update timeout",
+                    value: timeoutDisplay(dependencies.config.applescript.timeouts.batchUpdate)
+                )
+            }
+        }
+    }
+
     private var genreUpdatesSection: some View {
         Section("Genre Updates") {
             Stepper(value: configBinding(dependencies, \.genreUpdate.batchSize), in: 1 ... 500) {
@@ -140,6 +166,29 @@ struct GeneralTab: View {
                 SubscriptionView()
             }
         }
+    }
+
+    private func timeoutSecondsBinding(_ keyPath: WritableKeyPath<AppleScriptTimeouts, Duration>) -> Binding<Int> {
+        Binding(
+            get: {
+                max(1, Int(dependencies.config.applescript.timeouts[keyPath: keyPath].timeInterval))
+            },
+            set: { newValue in
+                dependencies.config.applescript.timeouts[keyPath: keyPath] = .seconds(max(1, newValue))
+                saveConfig()
+            }
+        )
+    }
+
+    private func timeoutDisplay(_ duration: Duration) -> String {
+        let seconds = max(1, Int(duration.timeInterval))
+        if seconds >= 3600, seconds.isMultiple(of: 3600) {
+            return "\(seconds / 3600)h"
+        }
+        if seconds >= 60, seconds.isMultiple(of: 60) {
+            return "\(seconds / 60)m"
+        }
+        return "\(seconds)s"
     }
 
     private func saveConfig() {
