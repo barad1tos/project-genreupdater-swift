@@ -161,6 +161,29 @@ struct AppConfigurationTests {
         #expect(decoded.reporting.changeDisplayMode == .compact)
     }
 
+    @Test("iTunes search configuration decodes from JSON")
+    func iTunesSearchConfigurationDecodes() throws {
+        let json = """
+        {
+          "yearRetrieval": {
+            "itunesSearch": {
+              "countryCode": "UA",
+              "entity": "album",
+              "limit": 150,
+              "lookupFallbackEnabled": false
+            }
+          }
+        }
+        """
+
+        let config = try JSONDecoder().decode(AppConfiguration.self, from: Data(json.utf8))
+
+        #expect(config.yearRetrieval.itunesSearch.countryCode == "UA")
+        #expect(config.yearRetrieval.itunesSearch.entity == "album")
+        #expect(config.yearRetrieval.itunesSearch.limit == 150)
+        #expect(config.yearRetrieval.itunesSearch.lookupFallbackEnabled == false)
+    }
+
     @Test("Decoding Python-style cache keys preserves snapshot settings")
     func pythonStyleSnapshotCacheKeysDecode() throws {
         let jsonString = """

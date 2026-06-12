@@ -14,13 +14,14 @@ public struct YearRetrievalConfig: Sendable, Codable {
     public var reissueDetection = ReissueDetectionConfig()
     public var scoring = ScoringConfig()
     public var fallback = FallbackConfig()
+    public var itunesSearch = ITunesSearchConfig()
 
     /// API priority per script type (e.g., "latin" -> prefer musicbrainz).
     public var scriptAPIPriorities: [String: ScriptAPIPriority] = [:]
 
     private enum CodingKeys: String, CodingKey {
         case enabled, preferredAPI, apiAuth, rateLimits, logic, reissueDetection, scoring, fallback
-        case scriptAPIPriorities
+        case itunesSearch, scriptAPIPriorities
     }
 
     public init() {}
@@ -36,6 +37,8 @@ public struct YearRetrievalConfig: Sendable, Codable {
             .decodeIfPresent(ReissueDetectionConfig.self, forKey: .reissueDetection) ?? ReissueDetectionConfig()
         scoring = try container.decodeIfPresent(ScoringConfig.self, forKey: .scoring) ?? ScoringConfig()
         fallback = try container.decodeIfPresent(FallbackConfig.self, forKey: .fallback) ?? FallbackConfig()
+        itunesSearch = try container.decodeIfPresent(ITunesSearchConfig.self, forKey: .itunesSearch)
+            ?? ITunesSearchConfig()
         scriptAPIPriorities = try container.decodeIfPresent(
             [String: ScriptAPIPriority].self,
             forKey: .scriptAPIPriorities
@@ -136,6 +139,24 @@ public struct FallbackConfig: Sendable, Codable {
     public var maxVerificationAttempts: Int = 3
 
     public init() {}
+}
+
+public struct ITunesSearchConfig: Sendable, Codable, Equatable {
+    public var countryCode: String = "US"
+    public var entity: String = "album"
+    public var limit: Int = 200
+    public var lookupFallbackEnabled: Bool = true
+
+    public init() {}
+
+    public var normalizedCountryCode: String {
+        let trimmed = countryCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "US" : trimmed.uppercased()
+    }
+
+    public var clampedLimit: Int {
+        min(max(limit, 1), 200)
+    }
 }
 
 public struct ScriptAPIPriority: Sendable, Codable {

@@ -353,7 +353,7 @@ final class AppDependencies {
         return APIOrchestrator(
             musicBrainz: musicBrainzClient,
             discogs: discogsClient,
-            appleMusic: AppleMusicSearchClient(),
+            appleMusic: makeAppleMusicSearchClient(configuration: configuration),
             cache: cache,
             pendingVerificationService: pendingVerificationService,
             maxVerificationAttempts: configuration.yearRetrieval.fallback.maxVerificationAttempts,

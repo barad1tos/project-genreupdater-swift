@@ -26,6 +26,7 @@ struct APIAndCacheTab: View {
         Form {
             contactSection
             yearLookupSection
+            ITunesSearchSection(dependencies: dependencies)
             ScriptAPIPrioritySection(dependencies: dependencies)
             discogsSection
             cacheStatisticsSection

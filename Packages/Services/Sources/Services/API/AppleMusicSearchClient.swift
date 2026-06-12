@@ -22,14 +22,22 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
 
     private let session: URLSession
     private let countryCode: String
+    private let entity: String
+    private let limit: Int
     private let log = AppLogger.api
 
     public init(
         session: URLSession = .shared,
-        countryCode: String = "US"
+        countryCode: String = "US",
+        entity: String = "album",
+        limit: Int = 200,
+        lookupFallbackEnabled: Bool = true
     ) {
         self.session = session
         self.countryCode = countryCode
+        self.entity = entity
+        self.limit = min(max(limit, 1), 200)
+        _ = lookupFallbackEnabled
     }
 
     // MARK: - ExternalAPIService
@@ -119,7 +127,9 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
     ) async throws -> Int? {
         guard let url = Self.buildArtistAlbumsSearchURL(
             artist: normalizedArtist,
-            countryCode: countryCode
+            countryCode: countryCode,
+            entity: entity,
+            limit: limit
         ) else {
             log.warning("Failed to build iTunes artist albums URL for \(normalizedArtist, privacy: .private)")
             return nil
@@ -170,14 +180,18 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
 
     static func buildArtistAlbumsSearchURL(
         artist: String,
-        countryCode: String
+        countryCode: String,
+        entity: String = "album",
+        limit: Int = 200
     ) -> URL? {
+        let searchEntity = entity.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clampedLimit = min(max(limit, 1), 200)
         var components = URLComponents(string: "\(itunesBaseURL)/search")
         components?.queryItems = [
             URLQueryItem(name: "term", value: artist),
             URLQueryItem(name: "country", value: countryCode),
-            URLQueryItem(name: "entity", value: "album"),
-            URLQueryItem(name: "limit", value: "200"),
+            URLQueryItem(name: "entity", value: searchEntity.isEmpty ? "album" : searchEntity),
+            URLQueryItem(name: "limit", value: String(clampedLimit)),
         ]
         return components?.url
     }
