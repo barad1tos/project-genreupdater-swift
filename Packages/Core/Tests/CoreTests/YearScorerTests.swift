@@ -374,6 +374,23 @@ struct YearScorerScoringTests {
     }
 }
 
+@Suite("YearScorer — Country Parity")
+struct YearScorerCountryParityTests {
+    let scorer = YearScorer()
+
+    @Test("UK country alias matches GB artist region")
+    func countryAliasMatch() {
+        let candidate = makeCandidate(artist: "X", album: "X", year: 2000, country: "UK")
+        let result = scorer.scoreRelease(
+            candidate,
+            queryArtist: "X",
+            queryAlbum: "X",
+            artistCountry: "GB"
+        )
+        #expect(result.breakdown.country == scorer.config.countryArtistMatchBonus)
+    }
+}
+
 // MARK: - Score Resolution Tests
 
 @Suite("YearScorer — Score Resolution")

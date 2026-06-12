@@ -506,17 +506,25 @@ extension YearScorer {
     ) -> Int {
         guard let country = candidateCountry, let artistCountry else { return 0 }
 
-        let normalizedCountry = country.uppercased()
-        if normalizedCountry == artistCountry.uppercased() {
+        let normalizedCountry = normalizeCountryCode(country)
+        if normalizedCountry == normalizeCountryCode(artistCountry) {
             return config.countryArtistMatchBonus
         }
 
-        let normalizedMajorMarkets = Set(yearLogic.majorMarketCodes.map { $0.uppercased() })
+        let normalizedMajorMarkets = Set(yearLogic.majorMarketCodes.map(normalizeCountryCode))
         if normalizedMajorMarkets.contains(normalizedCountry) {
             return config.countryMajorMarketBonus
         }
 
         return 0
+    }
+
+    private func normalizeCountryCode(_ code: String) -> String {
+        let normalizedCode = code.uppercased()
+        if normalizedCode == "UK" {
+            return "GB"
+        }
+        return normalizedCode
     }
 
     private func scoreSourceReliability(_ source: APISource) -> Int {
