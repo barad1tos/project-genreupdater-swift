@@ -154,7 +154,7 @@ public struct PendingAlbumEntry: Sendable, Codable, Identifiable {
 ///
 /// Implementors should be actors to guarantee thread-safe access.
 /// Replaces CacheServiceProtocol from Python (220 LOC → ~40 LOC).
-public protocol CacheService: Actor {
+public protocol CacheService: Actor, Sendable {
     func initialize() async throws
 
     // Generic key-value cache

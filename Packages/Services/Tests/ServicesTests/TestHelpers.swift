@@ -86,6 +86,7 @@ actor MockTrackStore: TrackStateStore {
 
 actor MockCacheService: CacheService {
     var albumYears: [String: AlbumCacheEntry] = [:]
+    var apiResults: [String: CachedAPIResult] = [:]
 
     func initialize() async throws {}
     func get<T: Codable & Sendable>(key _: String) async -> T? {
@@ -110,10 +111,12 @@ actor MockCacheService: CacheService {
     }
 
     func invalidateAlbum(artist _: String, album _: String) async {}
-    func getCachedAPIResult(artist _: String, album _: String, source _: String) async -> CachedAPIResult? {
-        nil
+    func getCachedAPIResult(artist: String, album: String, source: String) async -> CachedAPIResult? {
+        apiResults["\(artist)-\(album)-\(source)"]
     }
-    func setCachedAPIResult(_: CachedAPIResult) async {}
+    func setCachedAPIResult(_ result: CachedAPIResult) async {
+        apiResults["\(result.artist)-\(result.album)-\(result.source)"] = result
+    }
     func syncToDisk() async throws {}
 }
 

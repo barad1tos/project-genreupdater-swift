@@ -87,6 +87,7 @@ public actor APIOrchestrator {
     private let discogs: any ExternalAPIService
     private let appleMusic: any ExternalAPIService
     private let reachability: NetworkReachabilityMonitor?
+    private let cache: (any CacheService)?
     private let timeout: Duration
     private let maxConcurrentSourceCalls: Int
     private let sourcePriorityConfiguration: APISourcePriorityConfiguration
@@ -99,6 +100,7 @@ public actor APIOrchestrator {
     ///   - discogs: Discogs API client.
     ///   - appleMusic: Apple Music catalog search client.
     ///   - reachability: Optional network monitor. When offline, API calls are skipped.
+    ///   - cache: Optional persistent cache for successful source results.
     ///   - timeout: Maximum time to wait for each source. Defaults to 15 seconds.
     ///   - maxConcurrentSourceCalls: Maximum API sources queried at once. Values below 1 are clamped.
     ///   - sourcePriorityConfiguration: Preferred source ordering and tie-break configuration.
@@ -107,6 +109,7 @@ public actor APIOrchestrator {
         discogs: any ExternalAPIService,
         appleMusic: any ExternalAPIService,
         reachability: NetworkReachabilityMonitor? = nil,
+        cache: (any CacheService)? = nil,
         timeout: Duration = .seconds(15),
         maxConcurrentSourceCalls: Int = 3,
         sourcePriorityConfiguration: APISourcePriorityConfiguration = APISourcePriorityConfiguration()
@@ -115,6 +118,7 @@ public actor APIOrchestrator {
         self.discogs = discogs
         self.appleMusic = appleMusic
         self.reachability = reachability
+        self.cache = cache
         self.timeout = timeout
         self.maxConcurrentSourceCalls = max(1, maxConcurrentSourceCalls)
         self.sourcePriorityConfiguration = sourcePriorityConfiguration
@@ -187,7 +191,8 @@ public actor APIOrchestrator {
                 addSourceTask(
                     to: &group,
                     sourceEntry: sources[nextSourceIndex],
-                    query: query
+                    query: query,
+                    cache: cache
                 )
                 nextSourceIndex += 1
             }
@@ -200,7 +205,8 @@ public actor APIOrchestrator {
                     addSourceTask(
                         to: &group,
                         sourceEntry: sources[nextSourceIndex],
-                        query: query
+                        query: query,
+                        cache: cache
                     )
                     nextSourceIndex += 1
                 }
@@ -212,21 +218,93 @@ public actor APIOrchestrator {
     private func addSourceTask(
         to group: inout TaskGroup<SourceFetchResult>,
         sourceEntry: (source: APISource, service: any ExternalAPIService),
-        query: SourceQuery
+        query: SourceQuery,
+        cache: (any CacheService)?
     ) {
         let log = log
         let (source, service) = sourceEntry
         group.addTask {
-            await SourceFetchResult(
+            await Self.cachedOrFetchedResult(
                 source: source,
-                result: Self.fetchWithTimeout(
-                    source: source,
-                    service: service,
-                    query: query,
-                    log: log
-                )
+                service: service,
+                query: query,
+                cache: cache,
+                log: log
             )
         }
+    }
+
+    private static func cachedOrFetchedResult(
+        source: APISource,
+        service: any ExternalAPIService,
+        query: SourceQuery,
+        cache: (any CacheService)?,
+        log: Logger
+    ) async -> SourceFetchResult {
+        if let cached = await cachedAPIResult(source: source, query: query, cache: cache) {
+            return SourceFetchResult(source: source, result: cached)
+        }
+
+        let result = await fetchWithTimeout(
+            source: source,
+            service: service,
+            query: query,
+            log: log
+        )
+
+        await cacheAPIResult(result, source: source, query: query, cache: cache)
+        return SourceFetchResult(source: source, result: result)
+    }
+
+    private static func cachedAPIResult(
+        source: APISource,
+        query: SourceQuery,
+        cache: (any CacheService)?
+    ) async -> YearResult? {
+        guard let cached = await cache?.getCachedAPIResult(
+            artist: query.artist,
+            album: query.album,
+            source: source.rawValue
+        ),
+            let year = cached.year
+        else {
+            return nil
+        }
+
+        let confidence = cached.metadata["confidence"].flatMap(Int.init) ?? 0
+        let rawScore = cached.metadata["rawScore"].flatMap(Int.init) ?? confidence
+        let isDefinitive = cached.metadata["isDefinitive"].flatMap(Bool.init) ?? false
+
+        return YearResult(
+            year: year,
+            isDefinitive: isDefinitive,
+            confidence: confidence,
+            rawScore: rawScore,
+            yearScores: [year: confidence]
+        )
+    }
+
+    private static func cacheAPIResult(
+        _ result: YearResult,
+        source: APISource,
+        query: SourceQuery,
+        cache: (any CacheService)?
+    ) async {
+        guard let year = result.year else { return }
+
+        await cache?.setCachedAPIResult(CachedAPIResult(
+            artist: query.artist,
+            album: query.album,
+            year: year,
+            source: source.rawValue,
+            timestamp: .now,
+            ttl: nil,
+            metadata: [
+                "confidence": String(result.confidence),
+                "rawScore": String(result.rawScore),
+                "isDefinitive": String(result.isDefinitive),
+            ]
+        ))
     }
 
     private static func fetchWithTimeout(

@@ -211,7 +211,7 @@ final class AppDependencies {
 
     func applyRuntimeConfiguration() {
         let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
-        let configuredAPIOrchestrator = Self.makeAPIOrchestrator(configuration: config)
+        let configuredAPIOrchestrator = Self.makeAPIOrchestrator(configuration: config, cache: cacheService)
         yearDeterminator = configuredYearDeterminator
         apiOrchestrator = configuredAPIOrchestrator
 
@@ -296,7 +296,10 @@ final class AppDependencies {
         )
     }
 
-    private static func makeAPIOrchestrator(configuration: AppConfiguration) -> APIOrchestrator {
+    private static func makeAPIOrchestrator(
+        configuration: AppConfiguration,
+        cache: (any CacheService)?
+    ) -> APIOrchestrator {
         let apiAuth = configuration.yearRetrieval.apiAuth
         let contactEmail = APIAuthReferenceResolver.resolve(
             apiAuth.contactEmailReference,
@@ -327,6 +330,7 @@ final class AppDependencies {
             musicBrainz: musicBrainzClient,
             discogs: discogsClient,
             appleMusic: AppleMusicSearchClient(),
+            cache: cache,
             maxConcurrentSourceCalls: configuration.yearRetrieval.rateLimits.concurrentAPICalls,
             sourcePriorityConfiguration: APISourcePriorityConfiguration(configuration: configuration)
         )
@@ -367,7 +371,7 @@ final class AppDependencies {
         let yearDeterm = Self.makeYearDeterminator(configuration: config)
         yearDeterminator = yearDeterm
 
-        apiOrchestrator = Self.makeAPIOrchestrator(configuration: config)
+        apiOrchestrator = Self.makeAPIOrchestrator(configuration: config, cache: cacheService)
     }
 
     /// Step 8: Wire workflow services that depend on persistence, algorithms, and the script bridge.

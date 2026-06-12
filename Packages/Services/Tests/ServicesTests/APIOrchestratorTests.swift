@@ -266,6 +266,73 @@ struct APIOrchestratorTests {
         #expect(result.yearScores[1984] == 150)
         #expect(result.yearScores[1985] == 60)
     }
+
+    @Test("Cache hit skips matching source request")
+    func cacheHitSkipsMatchingSourceRequest() async {
+        let cache = MockCacheService()
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            year: 1984,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: 3600,
+            metadata: [
+                "confidence": "88",
+                "rawScore": "88",
+                "isDefinitive": "false",
+            ]
+        ))
+
+        let callCounter = APICallCounter()
+        let orchestrator = APIOrchestrator(
+            musicBrainz: CountingAPIService(
+                callCounter: callCounter,
+                yearResult: YearResult(year: 1999, confidence: 99, yearScores: [1999: 99])
+            ),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService(),
+            cache: cache
+        )
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == 1984)
+        #expect(await callCounter.count() == 0)
+    }
+
+    @Test("Successful source result is written to cache")
+    func successfulSourceResultIsWrittenToCache() async {
+        let cache = MockCacheService()
+        let orchestrator = APIOrchestrator(
+            musicBrainz: MockAPIService(
+                yearResult: YearResult(year: 1986, confidence: 77, yearScores: [1986: 77])
+            ),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService(),
+            cache: cache
+        )
+
+        _ = await orchestrator.getAlbumYear(
+            artist: "Metallica",
+            album: "Master of Puppets",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        let cached = await cache.getCachedAPIResult(
+            artist: "Metallica",
+            album: "Master of Puppets",
+            source: "musicbrainz"
+        )
+        #expect(cached?.year == 1986)
+        #expect(cached?.metadata["confidence"] == "77")
+    }
 }
 
 private actor APIConcurrencyProbe {
@@ -284,6 +351,48 @@ private actor APIConcurrencyProbe {
     func maxActive() -> Int {
         maxActiveCount
     }
+}
+
+private actor APICallCounter {
+    private var value = 0
+
+    func increment() {
+        value += 1
+    }
+
+    func count() -> Int {
+        value
+    }
+}
+
+private struct CountingAPIService: ExternalAPIService {
+    let callCounter: APICallCounter
+    let yearResult: YearResult
+
+    func getAlbumYear(
+        artist _: String,
+        album _: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> YearResult {
+        await callCounter.increment()
+        return yearResult
+    }
+
+    func getArtistActivityPeriod(
+        normalizedArtist _: String
+    ) async throws -> (start: Int?, end: Int?) {
+        (nil, nil)
+    }
+
+    func getArtistStartYear(
+        normalizedArtist _: String
+    ) async throws -> Int? {
+        nil
+    }
+
+    func initialize(force _: Bool) async throws {}
+    func close() async {}
 }
 
 private struct RecordingAPIService: ExternalAPIService {
