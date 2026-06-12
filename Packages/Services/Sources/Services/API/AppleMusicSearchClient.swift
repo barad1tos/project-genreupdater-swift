@@ -24,6 +24,7 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
     private let countryCode: String
     private let entity: String
     private let limit: Int
+    private let lookupFallbackEnabled: Bool
     private let log = AppLogger.api
 
     public init(
@@ -37,7 +38,7 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
         self.countryCode = countryCode
         self.entity = entity
         self.limit = min(max(limit, 1), 200)
-        _ = lookupFallbackEnabled
+        self.lookupFallbackEnabled = lookupFallbackEnabled
     }
 
     // MARK: - ExternalAPIService
@@ -109,6 +110,43 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
         )
     }
 
+    /// Return iTunes Search API album candidates for parity year scoring.
+    public func getReleaseCandidates(
+        artist: String,
+        album: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> [ReleaseCandidate] {
+        guard let searchURL = Self.buildITunesSearchURL(
+            term: "\(artist) \(album)",
+            countryCode: countryCode,
+            entity: entity,
+            limit: limit
+        ) else {
+            return []
+        }
+
+        let searchResults = try await fetchITunesResults(from: searchURL)
+        let directCandidates = Self.candidates(
+            from: searchResults,
+            artist: artist,
+            album: album
+        )
+        if !directCandidates.isEmpty || !lookupFallbackEnabled {
+            return directCandidates
+        }
+
+        guard let artistID = try await findArtistID(artist: artist) else {
+            return []
+        }
+        let lookupResults = try await lookupArtistAlbums(artistID: artistID)
+        return Self.candidates(
+            from: lookupResults,
+            artist: artist,
+            album: album
+        )
+    }
+
     /// MusicKit does not expose structured artist activity periods.
     ///
     /// Always returns `(nil, nil)`.
@@ -135,23 +173,9 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
             return nil
         }
 
-        let (data, response) = try await session.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            log.warning("iTunes artist albums search returned a non-HTTP response")
-            return nil
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            log.warning("iTunes artist albums search returned HTTP \(httpResponse.statusCode, privacy: .public)")
-            return nil
-        }
-
-        let decoded = try JSONDecoder().decode(
-            ITunesArtistAlbumsResponse.self,
-            from: data
-        )
+        let results = try await fetchITunesResults(from: url)
         let artist = normalizeForMatching(normalizedArtist)
-        let years = decoded.results.compactMap { result in
+        let years = results.compactMap { result in
             Self.releaseYear(from: result, normalizedArtist: artist)
         }
 
@@ -196,6 +220,96 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
         return components?.url
     }
 
+    static func buildITunesSearchURL(
+        term: String,
+        countryCode: String,
+        entity: String,
+        limit: Int
+    ) -> URL? {
+        buildArtistAlbumsSearchURL(
+            artist: term,
+            countryCode: countryCode,
+            entity: entity,
+            limit: limit
+        )
+    }
+
+    private func fetchITunesResults(from url: URL) async throws -> [ITunesAlbumResult] {
+        let (data, response) = try await session.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            log.warning("iTunes request returned a non-HTTP response")
+            return []
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            log.warning("iTunes request returned HTTP \(httpResponse.statusCode, privacy: .public)")
+            return []
+        }
+
+        return try JSONDecoder().decode(
+            ITunesArtistAlbumsResponse.self,
+            from: data
+        ).results
+    }
+
+    private func findArtistID(artist: String) async throws -> Int? {
+        guard let url = Self.buildITunesSearchURL(
+            term: artist,
+            countryCode: countryCode,
+            entity: "musicArtist",
+            limit: 5
+        ) else {
+            return nil
+        }
+
+        let results = try await fetchITunesResults(from: url)
+        let normalizedArtist = normalizeForMatching(artist)
+        return results.first {
+            normalizeForMatching($0.artistName ?? "") == normalizedArtist
+        }?.artistID
+    }
+
+    private func lookupArtistAlbums(artistID: Int) async throws -> [ITunesAlbumResult] {
+        var components = URLComponents(string: "\(Self.itunesBaseURL)/lookup")
+        components?.queryItems = [
+            URLQueryItem(name: "id", value: String(artistID)),
+            URLQueryItem(name: "entity", value: "album"),
+            URLQueryItem(name: "limit", value: String(limit)),
+        ]
+        guard let url = components?.url else { return [] }
+        return try await fetchITunesResults(from: url)
+    }
+
+    private static func candidates(
+        from results: [ITunesAlbumResult],
+        artist: String,
+        album: String
+    ) -> [ReleaseCandidate] {
+        let normalizedArtist = normalizeForMatching(artist)
+        let normalizedAlbum = normalizeForMatching(album)
+
+        return results.compactMap { result in
+            let resultArtist = normalizeForMatching(result.artistName ?? "")
+            let resultAlbum = normalizeForMatching(result.collectionName ?? "")
+            guard resultArtist == normalizedArtist,
+                  resultAlbum == normalizedAlbum,
+                  let year = year(from: result)
+            else {
+                return nil
+            }
+
+            return ReleaseCandidate(
+                artist: result.artistName ?? artist,
+                album: result.collectionName ?? album,
+                year: year,
+                source: .itunes,
+                releaseType: .album,
+                status: .official,
+                country: result.country?.lowercased()
+            )
+        }
+    }
+
     private static func releaseYear(
         from result: ITunesAlbumResult,
         normalizedArtist: String
@@ -207,12 +321,12 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
             return nil
         }
 
-        guard let releaseDate = result.releaseDate?.trimmingCharacters(in: .whitespacesAndNewlines),
-              releaseDate.count >= 4
-        else {
-            return nil
-        }
+        return year(from: result)
+    }
 
+    private static func year(from result: ITunesAlbumResult) -> Int? {
+        guard let releaseDate = result.releaseDate?.trimmingCharacters(in: .whitespacesAndNewlines),
+              releaseDate.count >= 4 else { return nil }
         let yearPrefix = releaseDate.prefix(4)
         guard yearPrefix.allSatisfy(\.isNumber) else { return nil }
         return Int(yearPrefix)
@@ -225,5 +339,16 @@ private struct ITunesArtistAlbumsResponse: Decodable {
 
 private struct ITunesAlbumResult: Decodable {
     let artistName: String?
+    let collectionName: String?
     let releaseDate: String?
+    let artistID: Int?
+    let country: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case artistName
+        case collectionName
+        case releaseDate
+        case artistID = "artistId"
+        case country
+    }
 }
