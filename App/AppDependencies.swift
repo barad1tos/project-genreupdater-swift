@@ -257,7 +257,8 @@ final class AppDependencies {
             musicBrainz: musicBrainzClient,
             discogs: discogsClient,
             appleMusic: AppleMusicSearchClient(),
-            maxConcurrentSourceCalls: configuration.yearRetrieval.rateLimits.concurrentAPICalls
+            maxConcurrentSourceCalls: configuration.yearRetrieval.rateLimits.concurrentAPICalls,
+            sourcePriorityConfiguration: APISourcePriorityConfiguration(configuration: configuration)
         )
     }
 

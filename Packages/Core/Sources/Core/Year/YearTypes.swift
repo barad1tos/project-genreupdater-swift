@@ -6,7 +6,7 @@ import Foundation
 // MARK: - Enums
 
 /// API data source for release metadata.
-public enum APISource: String, Sendable, Codable, CaseIterable {
+public enum APISource: String, Sendable, Codable, CaseIterable, Hashable {
     case musicBrainz = "musicbrainz"
     case discogs
     case itunes

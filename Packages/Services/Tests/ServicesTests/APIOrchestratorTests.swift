@@ -165,6 +165,59 @@ struct APIOrchestratorTests {
         #expect(maxActive == 1)
     }
 
+    @Test("Preferred API breaks tied source scores")
+    func preferredAPIBreaksTiedSourceScores() async {
+        let orchestrator = APIOrchestrator(
+            musicBrainz: MockAPIService(
+                yearResult: YearResult(year: 2000, confidence: 60, yearScores: [2000: 60])
+            ),
+            discogs: MockAPIService(
+                yearResult: YearResult(year: 2001, confidence: 60, yearScores: [2001: 60])
+            ),
+            appleMusic: MockAPIService(),
+            sourcePriorityConfiguration: APISourcePriorityConfiguration(preferredAPI: .discogs)
+        )
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "Test",
+            album: "Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == 2001)
+        #expect(result.confidence == 60)
+    }
+
+    @Test("Script API priority overrides preferred API")
+    func scriptAPIPriorityOverridesPreferredAPI() async {
+        let orchestrator = APIOrchestrator(
+            musicBrainz: MockAPIService(
+                yearResult: YearResult(year: 2000, confidence: 60, yearScores: [2000: 60])
+            ),
+            discogs: MockAPIService(
+                yearResult: YearResult(year: 2001, confidence: 60, yearScores: [2001: 60])
+            ),
+            appleMusic: MockAPIService(),
+            sourcePriorityConfiguration: APISourcePriorityConfiguration(
+                preferredAPI: .musicbrainz,
+                scriptPriorities: [
+                    "cyrillic": ScriptAPIPriority(primary: ["discogs"], fallback: ["musicbrainz"]),
+                ]
+            )
+        )
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "МУР",
+            album: "Альбом",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == 2001)
+        #expect(result.confidence == 60)
+    }
+
     @Test("Best year selected by highest combined score across sources")
     func bestYearSelectedByHighestCombinedScore() async {
         // MB returns 1984 (80), DC returns 1985 (60), AM returns 1984 (70)

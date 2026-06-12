@@ -25,6 +25,63 @@ import OSLog
 ///     currentLibraryYear: nil, earliestTrackAddedYear: nil
 /// )
 /// ```
+public struct APISourcePriorityConfiguration: Sendable {
+    public let preferredSource: APISource
+    public let scriptPriorities: [String: ScriptAPIPriority]
+
+    public init(
+        preferredAPI: PreferredAPI = .musicbrainz,
+        scriptPriorities: [String: ScriptAPIPriority] = [:]
+    ) {
+        self.preferredSource = Self.source(for: preferredAPI)
+        self.scriptPriorities = scriptPriorities
+    }
+
+    public init(configuration: AppConfiguration) {
+        self.init(
+            preferredAPI: configuration.yearRetrieval.preferredAPI,
+            scriptPriorities: configuration.yearRetrieval.scriptAPIPriorities
+        )
+    }
+
+    func orderedSources(artist: String, album: String) -> [APISource] {
+        let queryScript = dominantScript(of: "\(artist) \(album)")
+        let scriptOrder = scriptPriorities[queryScript.rawValue]
+            .map { Self.sources(from: $0.primary + $0.fallback) } ?? []
+        return Self.uniqued(scriptOrder + defaultOrder)
+    }
+
+    private var defaultOrder: [APISource] {
+        Self.uniqued([preferredSource, .musicBrainz, .discogs, .itunes])
+    }
+
+    private static func source(for preferredAPI: PreferredAPI) -> APISource {
+        switch preferredAPI {
+        case .musicbrainz: .musicBrainz
+        case .discogs: .discogs
+        case .itunes: .itunes
+        }
+    }
+
+    private static func sources(from values: [String]) -> [APISource] {
+        values.compactMap { value in
+            switch value.lowercased().replacingOccurrences(of: "_", with: "") {
+            case "musicbrainz", "mb": .musicBrainz
+            case "discogs": .discogs
+            case "itunes", "applemusic", "apple": .itunes
+            default: nil
+            }
+        }
+    }
+
+    private static func uniqued(_ sources: [APISource]) -> [APISource] {
+        var seen: Set<APISource> = []
+        return sources.filter { source in
+            seen.insert(source).inserted
+        }
+    }
+}
+
 public actor APIOrchestrator {
     private let musicBrainz: any ExternalAPIService
     private let discogs: any ExternalAPIService
@@ -32,6 +89,7 @@ public actor APIOrchestrator {
     private let reachability: NetworkReachabilityMonitor?
     private let timeout: Duration
     private let maxConcurrentSourceCalls: Int
+    private let sourcePriorityConfiguration: APISourcePriorityConfiguration
     private let log = AppLogger.api
 
     /// Creates an orchestrator with three API sources and a per-source timeout.
@@ -43,13 +101,15 @@ public actor APIOrchestrator {
     ///   - reachability: Optional network monitor. When offline, API calls are skipped.
     ///   - timeout: Maximum time to wait for each source. Defaults to 15 seconds.
     ///   - maxConcurrentSourceCalls: Maximum API sources queried at once. Values below 1 are clamped.
+    ///   - sourcePriorityConfiguration: Preferred source ordering and tie-break configuration.
     public init(
         musicBrainz: any ExternalAPIService,
         discogs: any ExternalAPIService,
         appleMusic: any ExternalAPIService,
         reachability: NetworkReachabilityMonitor? = nil,
         timeout: Duration = .seconds(15),
-        maxConcurrentSourceCalls: Int = 3
+        maxConcurrentSourceCalls: Int = 3,
+        sourcePriorityConfiguration: APISourcePriorityConfiguration = APISourcePriorityConfiguration()
     ) {
         self.musicBrainz = musicBrainz
         self.discogs = discogs
@@ -57,9 +117,10 @@ public actor APIOrchestrator {
         self.reachability = reachability
         self.timeout = timeout
         self.maxConcurrentSourceCalls = max(1, maxConcurrentSourceCalls)
+        self.sourcePriorityConfiguration = sourcePriorityConfiguration
     }
 
-    /// Query all three sources in parallel and aggregate results by year score.
+    /// Query configured sources and aggregate results by year score.
     ///
     /// Each source runs independently with its own timeout. If a source fails
     /// or exceeds the timeout, the orchestrator continues with remaining results.
@@ -85,11 +146,16 @@ public actor APIOrchestrator {
         let signpostState = AppSignpost.apiCall.beginInterval("orchestrateAlbumYear")
         defer { AppSignpost.apiCall.endInterval("orchestrateAlbumYear", signpostState) }
 
-        let sources: [(name: String, service: any ExternalAPIService)] = [
-            ("musicbrainz", musicBrainz),
-            ("discogs", discogs),
-            ("applemusic", appleMusic),
+        let serviceBySource: [APISource: any ExternalAPIService] = [
+            .musicBrainz: musicBrainz,
+            .discogs: discogs,
+            .itunes: appleMusic,
         ]
+        let orderedSources = sourcePriorityConfiguration.orderedSources(artist: artist, album: album)
+        let sources = orderedSources.compactMap { source -> (source: APISource, service: any ExternalAPIService)? in
+            guard let service = serviceBySource[source] else { return nil }
+            return (source, service)
+        }
         let query = SourceQuery(
             artist: artist,
             album: album,
@@ -98,58 +164,73 @@ public actor APIOrchestrator {
             timeout: timeout
         )
 
-        let results = await withTaskGroup(
-            of: YearResult.self,
-            returning: [YearResult].self
+        let results = await fetchSourceResults(sources: sources, query: query)
+
+        return Self.aggregateResults(results, orderedSources: orderedSources)
+    }
+
+    // MARK: - Private
+
+    /// Fetches source results with bounded concurrency while preserving configured source order.
+    private func fetchSourceResults(
+        sources: [(source: APISource, service: any ExternalAPIService)],
+        query: SourceQuery
+    ) async -> [SourceFetchResult] {
+        await withTaskGroup(
+            of: SourceFetchResult.self,
+            returning: [SourceFetchResult].self
         ) { group in
             var nextSourceIndex = 0
             let initialSourceCount = min(maxConcurrentSourceCalls, sources.count)
 
             while nextSourceIndex < initialSourceCount {
-                let (sourceName, service) = sources[nextSourceIndex]
+                addSourceTask(
+                    to: &group,
+                    sourceEntry: sources[nextSourceIndex],
+                    query: query
+                )
                 nextSourceIndex += 1
-                group.addTask { [log] in
-                    await Self.fetchWithTimeout(
-                        source: sourceName,
-                        service: service,
-                        query: query,
-                        log: log
-                    )
-                }
             }
 
-            var collected: [YearResult] = []
+            var collected: [SourceFetchResult] = []
             while let result = await group.next() {
                 collected.append(result)
 
                 if nextSourceIndex < sources.count {
-                    let (sourceName, service) = sources[nextSourceIndex]
+                    addSourceTask(
+                        to: &group,
+                        sourceEntry: sources[nextSourceIndex],
+                        query: query
+                    )
                     nextSourceIndex += 1
-                    group.addTask { [log] in
-                        await Self.fetchWithTimeout(
-                            source: sourceName,
-                            service: service,
-                            query: query,
-                            log: log
-                        )
-                    }
                 }
             }
             return collected
         }
-
-        return Self.aggregateResults(results)
     }
 
-    // MARK: - Private
+    private func addSourceTask(
+        to group: inout TaskGroup<SourceFetchResult>,
+        sourceEntry: (source: APISource, service: any ExternalAPIService),
+        query: SourceQuery
+    ) {
+        let log = log
+        let (source, service) = sourceEntry
+        group.addTask {
+            await SourceFetchResult(
+                source: source,
+                result: Self.fetchWithTimeout(
+                    source: source,
+                    service: service,
+                    query: query,
+                    log: log
+                )
+            )
+        }
+    }
 
-    /// Fetches a year result from a single source with a timeout race.
-    ///
-    /// Spawns two child tasks: the actual API call and a sleep timer.
-    /// Whichever finishes first wins. If the timer fires first, the API
-    /// call is cancelled and an empty result is returned.
     private static func fetchWithTimeout(
-        source: String,
+        source: APISource,
         service: any ExternalAPIService,
         query: SourceQuery,
         log: Logger
@@ -183,13 +264,13 @@ public actor APIOrchestrator {
                 return result
             }
         } catch is OrchestratorTimeoutError {
-            log.warning("\(source, privacy: .public) timed out after \(query.timeout, privacy: .public)")
+            log.warning("\(source.rawValue, privacy: .public) timed out after \(query.timeout, privacy: .public)")
             return YearResult()
         } catch is CancellationError {
-            log.debug("\(source, privacy: .public) cancelled")
+            log.debug("\(source.rawValue, privacy: .public) cancelled")
             return YearResult()
         } catch {
-            log.error("\(source, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            log.error("\(source.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             return YearResult()
         }
     }
@@ -200,23 +281,37 @@ public actor APIOrchestrator {
     /// combined score wins. `isDefinitive` is true when 2+ sources agree on
     /// the same year. Final confidence is capped at 100.
     private static func aggregateResults(
-        _ results: [YearResult]
+        _ results: [SourceFetchResult],
+        orderedSources: [APISource]
     ) -> YearResult {
         var combinedScores: [Int: Int] = [:]
 
-        for result in results {
+        for result in results.map(\.result) {
             for (year, score) in result.yearScores {
                 combinedScores[year, default: 0] += score
             }
         }
 
-        guard let (bestYear, bestScore) = combinedScores.max(
-            by: { $0.value < $1.value }
-        ) else {
+        guard let bestScore = combinedScores.values.max() else {
             return YearResult()
         }
 
-        let agreeingSourceCount = results.count(where: { $0.year == bestYear })
+        let sourceRank = Dictionary(uniqueKeysWithValues: orderedSources.enumerated().map { ($0.element, $0.offset) })
+        let bestYear = combinedScores
+            .filter { $0.value == bestScore }
+            .keys
+            .min { lhs, rhs in
+                let lhsRank = bestSourceRank(for: lhs, in: results, sourceRank: sourceRank)
+                let rhsRank = bestSourceRank(for: rhs, in: results, sourceRank: sourceRank)
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return lhs < rhs
+            }
+
+        guard let bestYear else {
+            return YearResult()
+        }
+
+        let agreeingSourceCount = results.count(where: { $0.result.year == bestYear })
         let isDefinitive = agreeingSourceCount >= 2
 
         return YearResult(
@@ -225,6 +320,17 @@ public actor APIOrchestrator {
             confidence: min(bestScore, 100),
             yearScores: combinedScores
         )
+    }
+
+    private static func bestSourceRank(
+        for year: Int,
+        in results: [SourceFetchResult],
+        sourceRank: [APISource: Int]
+    ) -> Int {
+        results
+            .filter { $0.result.year == year || $0.result.yearScores[year] != nil }
+            .compactMap { sourceRank[$0.source] }
+            .min() ?? Int.max
     }
 }
 
@@ -237,6 +343,11 @@ private struct SourceQuery {
     let currentLibraryYear: Int?
     let earliestTrackAddedYear: Int?
     let timeout: Duration
+}
+
+private struct SourceFetchResult {
+    let source: APISource
+    let result: YearResult
 }
 
 // MARK: - OrchestratorTimeoutError
