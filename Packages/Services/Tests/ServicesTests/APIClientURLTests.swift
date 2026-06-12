@@ -50,6 +50,18 @@ struct MusicBrainzURLTests {
         let request = client.makeRequest(for: url)
         #expect(request.value(forHTTPHeaderField: "User-Agent")?.contains("GenreUpdater") == true)
         #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
+
+        let configuredClient = MusicBrainzClient(
+            appName: "MusicGenreUpdater/2.0",
+            contactEmail: "dev@example.com"
+        )
+        let configuredRequest = configuredClient.makeRequest(for: url)
+        let configuredUserAgent = configuredRequest.value(forHTTPHeaderField: "User-Agent")
+        #expect(configuredUserAgent?.contains("MusicGenreUpdater/2.0") == true)
+        #expect(configuredUserAgent?.contains("dev@example.com") == true)
+
+        let fallbackRequest = MusicBrainzClient(appName: "  ").makeRequest(for: url)
+        #expect(fallbackRequest.value(forHTTPHeaderField: "User-Agent")?.contains("GenreUpdater/1.0") == true)
     }
 
     @Test("getArtistActivityPeriod returns (nil, nil) stub")

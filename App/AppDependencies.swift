@@ -20,6 +20,42 @@ import SwiftUI
 
 private let log = AppLogger.make(category: "dependencies")
 
+private enum APIAuthReferenceResolver {
+    static func resolve(
+        _ reference: String,
+        fallbackUserDefaultsKey: String? = nil
+    ) -> String {
+        let trimmedReference = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedReference.isEmpty else { return "" }
+
+        if let placeholderName = placeholderName(from: trimmedReference) {
+            return value(forKey: placeholderName)
+                ?? fallbackUserDefaultsKey.flatMap(value(forKey:))
+                ?? ""
+        }
+
+        return value(forKey: trimmedReference) ?? trimmedReference
+    }
+
+    private static func placeholderName(from reference: String) -> String? {
+        guard reference.hasPrefix("${"), reference.hasSuffix("}") else { return nil }
+        return String(reference.dropFirst(2).dropLast())
+    }
+
+    private static func value(forKey key: String) -> String? {
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return nil }
+
+        return ProcessInfo.processInfo.environment[trimmedKey].flatMap(nonEmpty)
+            ?? UserDefaults.standard.string(forKey: trimmedKey).flatMap(nonEmpty)
+    }
+
+    private static func nonEmpty(_ value: String) -> String? {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? nil : trimmedValue
+    }
+}
+
 // MARK: - App State
 
 /// Represents the current state of the application.
@@ -175,10 +211,7 @@ final class AppDependencies {
 
     func applyRuntimeConfiguration() {
         let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
-        let configuredAPIOrchestrator = Self.makeAPIOrchestrator(
-            configuration: config,
-            contactEmail: Self.contactEmail()
-        )
+        let configuredAPIOrchestrator = Self.makeAPIOrchestrator(configuration: config)
         yearDeterminator = configuredYearDeterminator
         apiOrchestrator = configuredAPIOrchestrator
 
@@ -236,22 +269,32 @@ final class AppDependencies {
         )
     }
 
-    private static func makeAPIOrchestrator(
-        configuration: AppConfiguration,
-        contactEmail: String
-    ) -> APIOrchestrator {
+    private static func makeAPIOrchestrator(configuration: AppConfiguration) -> APIOrchestrator {
+        let apiAuth = configuration.yearRetrieval.apiAuth
+        let contactEmail = APIAuthReferenceResolver.resolve(
+            apiAuth.contactEmailReference,
+            fallbackUserDefaultsKey: "contactEmail"
+        )
         let musicBrainzClient = MusicBrainzClient(
+            appName: apiAuth.musicBrainzAppName,
             contactEmail: contactEmail,
             rateLimiter: makeMusicBrainzRateLimiter(configuration: configuration)
         )
         let discogsRateLimiter = makeDiscogsRateLimiter(configuration: configuration)
-        let discogsClient = (try? DiscogsClient.fromKeychain(
-            contactEmail: contactEmail,
-            rateLimiter: discogsRateLimiter
-        )) ?? DiscogsClient(
-            contactEmail: contactEmail,
-            rateLimiter: discogsRateLimiter
-        )
+        let configuredDiscogsToken = APIAuthReferenceResolver.resolve(apiAuth.discogsTokenReference)
+        let discogsClient = configuredDiscogsToken.isEmpty
+            ? ((try? DiscogsClient.fromKeychain(
+                contactEmail: contactEmail,
+                rateLimiter: discogsRateLimiter
+            )) ?? DiscogsClient(
+                contactEmail: contactEmail,
+                rateLimiter: discogsRateLimiter
+            ))
+            : DiscogsClient(
+                token: configuredDiscogsToken,
+                contactEmail: contactEmail,
+                rateLimiter: discogsRateLimiter
+            )
 
         return APIOrchestrator(
             musicBrainz: musicBrainzClient,
@@ -289,10 +332,6 @@ final class AppDependencies {
         )
     }
 
-    private static func contactEmail() -> String {
-        UserDefaults.standard.string(forKey: "contactEmail") ?? ""
-    }
-
     /// Steps 6-7: Create core algorithm instances and API orchestrator.
     private func initializeAlgorithmsAndAPI() {
         let genreDeterm = GenreDeterminator()
@@ -301,10 +340,7 @@ final class AppDependencies {
         let yearDeterm = Self.makeYearDeterminator(configuration: config)
         yearDeterminator = yearDeterm
 
-        apiOrchestrator = Self.makeAPIOrchestrator(
-            configuration: config,
-            contactEmail: Self.contactEmail()
-        )
+        apiOrchestrator = Self.makeAPIOrchestrator(configuration: config)
     }
 
     /// Step 8: Wire workflow services that depend on persistence, algorithms, and the script bridge.

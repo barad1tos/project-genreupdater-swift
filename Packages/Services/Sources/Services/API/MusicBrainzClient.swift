@@ -31,14 +31,17 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     ///   - session: URL session for network requests. Defaults to `.shared`.
     ///   - rateLimiter: Rate limiter for throttling. Defaults to 1 req/sec.
     public init(
+        appName: String = "GenreUpdater/1.0",
         contactEmail: String = "",
         session: URLSession = .shared,
         rateLimiter: TokenBucketRateLimiter? = nil
     ) {
+        let trimmedAppName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveAppName = trimmedAppName.isEmpty ? "GenreUpdater/1.0" : trimmedAppName
         if contactEmail.isEmpty {
-            self.userAgent = "GenreUpdater/1.0 (https://github.com/barad1tos/project-genreupdater-swift)"
+            self.userAgent = "\(effectiveAppName) (https://github.com/barad1tos/project-genreupdater-swift)"
         } else {
-            self.userAgent = "GenreUpdater/1.0 (\(contactEmail); https://github.com/barad1tos/project-genreupdater-swift)"
+            self.userAgent = "\(effectiveAppName) (\(contactEmail); https://github.com/barad1tos/project-genreupdater-swift)"
         }
         self.session = session
         self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
