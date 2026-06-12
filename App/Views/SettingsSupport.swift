@@ -67,6 +67,7 @@ func configBinding<Value>(
 @MainActor
 func saveConfiguration(_ dependencies: AppDependencies) {
     try? dependencies.config.save()
+    dependencies.applyRuntimeConfiguration()
 }
 
 // MARK: - Display Names

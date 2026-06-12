@@ -173,6 +173,19 @@ final class AppDependencies {
         }
     }
 
+    func applyRuntimeConfiguration() {
+        let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
+        yearDeterminator = configuredYearDeterminator
+
+        let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: config)
+        Task { [updateCoordinator] in
+            await updateCoordinator?.updateRuntimeConfiguration(
+                runtimeConfiguration,
+                yearDeterminator: configuredYearDeterminator
+            )
+        }
+    }
+
     // MARK: - Initialization Helpers
 
     /// Step 5: Set up SwiftData and GRDB persistence layers.
@@ -197,12 +210,28 @@ final class AppDependencies {
         cacheService = cache
     }
 
+    private static func makeYearDeterminator(configuration: AppConfiguration) -> YearDeterminator {
+        let yearRetrieval = configuration.yearRetrieval
+        return YearDeterminator(
+            scorer: YearScorer(
+                config: yearRetrieval.scoring,
+                yearLogic: yearRetrieval.logic
+            ),
+            validator: YearValidator(config: yearRetrieval.logic),
+            fallback: YearFallbackStrategy(
+                config: yearRetrieval.fallback,
+                yearLogic: yearRetrieval.logic
+            ),
+            processingConfig: configuration.processing
+        )
+    }
+
     /// Steps 6-7: Create core algorithm instances and API orchestrator.
     private func initializeAlgorithmsAndAPI() {
         let genreDeterm = GenreDeterminator()
         genreDeterminator = genreDeterm
 
-        let yearDeterm = YearDeterminator()
+        let yearDeterm = Self.makeYearDeterminator(configuration: config)
         yearDeterminator = yearDeterm
 
         let contactEmail = UserDefaults.standard.string(forKey: "contactEmail") ?? ""
@@ -228,7 +257,7 @@ final class AppDependencies {
               let cache = cacheService,
               let orchestrator = apiOrchestrator,
               let genreDeterm = genreDeterminator,
-              yearDeterminator != nil
+              let yearDeterm = yearDeterminator
         else {
             log.error("Cannot initialize workflow services — prerequisite services are nil")
             return
@@ -246,7 +275,9 @@ final class AppDependencies {
             trackStore: store,
             cache: cache,
             undoCoordinator: undo,
-            genreDeterminator: genreDeterm
+            genreDeterminator: genreDeterm,
+            yearDeterminator: yearDeterm,
+            runtimeConfiguration: UpdateRuntimeConfiguration(configuration: config)
         )
 
         batchProcessor = BatchProcessor(

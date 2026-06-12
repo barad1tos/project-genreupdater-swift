@@ -266,6 +266,7 @@ struct AdvancedTab: View {
             let decoded = try Self.decodeConfiguration(configurationJSON)
             dependencies.config = decoded
             try dependencies.config.save()
+            dependencies.applyRuntimeConfiguration()
             configurationJSON = try Self.encodeConfiguration(decoded)
             jsonEditorState = .saved
             jsonStatusMessage = "Saved"

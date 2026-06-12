@@ -57,6 +57,31 @@ public struct UpdateOptions: Sendable {
     }
 }
 
+/// Runtime configuration applied by update workflows.
+public struct UpdateRuntimeConfiguration: Sendable, Equatable {
+    public let genreMappings: [String: String]
+    public let minimumYearUpdateConfidence: Double
+    public let minimumConfidenceToCache: Int
+
+    public init(
+        genreMappings: [String: String] = [:],
+        minimumYearUpdateConfidence: Double = AppConfiguration().yearRetrieval.logic.minConfidenceForNewYear,
+        minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache
+    ) {
+        self.genreMappings = genreMappings
+        self.minimumYearUpdateConfidence = minimumYearUpdateConfidence
+        self.minimumConfidenceToCache = minimumConfidenceToCache
+    }
+
+    public init(configuration: AppConfiguration) {
+        self.init(
+            genreMappings: configuration.cleaning.genreMappings,
+            minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
+            minimumConfidenceToCache: configuration.processing.minConfidenceToCache
+        )
+    }
+}
+
 // MARK: - Update Coordinator
 
 /// Central orchestrator: read → determine → preview → write → log.
@@ -71,6 +96,8 @@ public actor UpdateCoordinator {
     private let undoCoordinator: UndoCoordinator
     private let idMapper: (any TrackIDMapping)?
     private let genreDeterminator: GenreDeterminator
+    private var yearDeterminator: YearDeterminator
+    private var runtimeConfiguration: UpdateRuntimeConfiguration
     private let log = Logger(subsystem: "com.genreupdater", category: "UpdateCoordinator")
 
     public init(
@@ -80,7 +107,9 @@ public actor UpdateCoordinator {
         cache: any CacheService,
         undoCoordinator: UndoCoordinator,
         idMapper: (any TrackIDMapping)? = nil,
-        genreDeterminator: GenreDeterminator
+        genreDeterminator: GenreDeterminator,
+        yearDeterminator: YearDeterminator = YearDeterminator(),
+        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
     ) {
         self.apiOrchestrator = apiOrchestrator
         self.scriptBridge = scriptBridge
@@ -89,6 +118,16 @@ public actor UpdateCoordinator {
         self.undoCoordinator = undoCoordinator
         self.idMapper = idMapper
         self.genreDeterminator = genreDeterminator
+        self.yearDeterminator = yearDeterminator
+        self.runtimeConfiguration = runtimeConfiguration
+    }
+
+    public func updateRuntimeConfiguration(
+        _ runtimeConfiguration: UpdateRuntimeConfiguration,
+        yearDeterminator: YearDeterminator
+    ) {
+        self.runtimeConfiguration = runtimeConfiguration
+        self.yearDeterminator = yearDeterminator
     }
 
     // MARK: Single Track
@@ -116,7 +155,10 @@ public actor UpdateCoordinator {
         // Genre determination (local — uses existing track genres)
         if options.updateGenre {
             let artistTracks = albumTracks.isEmpty ? [track] : albumTracks
-            let genreResult = genreDeterminator.determineDominantGenre(artistTracks: artistTracks)
+            let genreResult = genreDeterminator.determineDominantGenre(
+                artistTracks: artistTracks,
+                genreMappings: runtimeConfiguration.genreMappings
+            )
             if let newGenre = genreResult.genre, newGenre != track.genre {
                 proposedChanges.append(ProposedChange(
                     track: track,
@@ -230,11 +272,19 @@ public actor UpdateCoordinator {
             artist: track.artist,
             album: track.album
         )
-        if let cached, cached.confidence >= 60 {
+        if let cached, Double(cached.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence {
             return yearChangeFromCached(track: track, entry: cached)
         }
 
-        // Step 2: Fetch from APIs
+        // Step 2: Resolve from local album context when it is strong enough.
+        if let localChange = yearChangeFromLocalDetermination(
+            track: track,
+            albumTracks: albumTracks
+        ) {
+            return localChange
+        }
+
+        // Step 3: Fetch from APIs
         let yearResult = await apiOrchestrator.getAlbumYear(
             artist: track.artist,
             album: track.album,
@@ -245,14 +295,19 @@ public actor UpdateCoordinator {
         guard let year = yearResult.year, year != track.year else {
             return nil
         }
+        guard Double(yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence else {
+            return nil
+        }
 
-        // Step 3: Cache the result
-        await cache.storeAlbumYear(
-            artist: track.artist,
-            album: track.album,
-            year: year,
-            confidence: yearResult.confidence
-        )
+        // Step 4: Cache the result if it meets the configured persistence threshold.
+        if yearResult.confidence >= runtimeConfiguration.minimumConfidenceToCache {
+            await cache.storeAlbumYear(
+                artist: track.artist,
+                album: track.album,
+                year: year,
+                confidence: yearResult.confidence
+            )
+        }
 
         return ProposedChange(
             track: track,
@@ -276,6 +331,36 @@ public actor UpdateCoordinator {
             newValue: String(year),
             confidence: entry.confidence,
             source: "Cache"
+        )
+    }
+
+    private func yearChangeFromLocalDetermination(
+        track: Track,
+        albumTracks: [Track]
+    ) -> ProposedChange? {
+        guard !albumTracks.isEmpty else { return nil }
+
+        let determination = yearDeterminator.determineYear(
+            candidates: [],
+            track: track,
+            albumTracks: albumTracks
+        )
+        let yearResult = determination.yearResult
+
+        guard Double(yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence,
+              let year = yearResult.year,
+              year != track.year
+        else {
+            return nil
+        }
+
+        return ProposedChange(
+            track: track,
+            changeType: .yearUpdate,
+            oldValue: track.year.map(String.init),
+            newValue: String(year),
+            confidence: yearResult.confidence,
+            source: determination.source.rawValue.capitalized
         )
     }
 
