@@ -61,21 +61,21 @@ extension FocusedValues {
 // MARK: - Main View
 
 struct MainView: View {
-    @Environment(AppDependencies.self) private var dependencies
-    @Environment(\.modelContext) private var modelContext
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.motionScale) private var motionScale
-    @State private var selectedCategory: NavigationCategory? = .dashboard
-    @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
-    @State private var tracks: [Track] = []
-    @State private var isLoading = false
-    @State private var browseViewModel = BrowseViewModel()
-    @State private var showUpdateSheet = false
-    @State private var metricsSnapshot: PersistedMetricsSnapshot?
-    @State private var workflowViewModel: WorkflowViewModel?
-    @State private var hasNavigated = false
-    @AppStorage("sidebarCompact") private var isSidebarCompact = false
-    @AppStorage("defaultUpdateBehavior") private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
+    @Environment(AppDependencies.self) var dependencies
+    @Environment(\.modelContext) var modelContext
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.motionScale) var motionScale
+    @State var selectedCategory: NavigationCategory? = .dashboard
+    @State var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
+    @State var tracks: [Track] = []
+    @State var isLoading = false
+    @State var browseViewModel = BrowseViewModel()
+    @State var showUpdateSheet = false
+    @State var metricsSnapshot: PersistedMetricsSnapshot?
+    @State var workflowViewModel: WorkflowViewModel?
+    @State var hasNavigated = false
+    @AppStorage("sidebarCompact") var isSidebarCompact = false
+    @AppStorage("defaultUpdateBehavior") var defaultUpdateBehavior = UpdateBehavior.both.rawValue
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -236,160 +236,5 @@ struct MainView: View {
             )
             UpdateView(viewModel: viewModel, tracks: tracks)
         }
-    }
-
-    // MARK: - Column Visibility
-
-    private func updateColumnVisibility() {
-        let needsDetail = selectedCategory == .browse && browseViewModel.selectedAlbum != nil
-        let target: NavigationSplitViewVisibility = needsDetail ? .all : .doubleColumn
-        if columnVisibility != target {
-            withAnimation(Motion.curveLayout) {
-                columnVisibility = target
-            }
-        }
-    }
-
-    // MARK: - Data
-
-    private func loadTracks() async {
-        loadCachedSnapshot()
-        ensureWorkflowViewModel()
-
-        guard let reader = dependencies.musicReader else { return }
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            try await reader.requestAuthorization()
-            tracks = try await reader.fetchAllTracks()
-            await dependencies.refreshTrackIDMapping(musicKitTracks: tracks)
-            browseViewModel.tracks = tracks
-            saveMetricsSnapshot(from: tracks)
-        } catch {
-            tracks = []
-        }
-    }
-
-    /// Lazily create the WorkflowViewModel when dependencies are available.
-    private func ensureWorkflowViewModel() {
-        guard workflowViewModel == nil,
-              let coordinator = dependencies.updateCoordinator,
-              let pipeline = dependencies.changePreviewPipeline,
-              let processor = dependencies.batchProcessor
-        else { return }
-
-        workflowViewModel = WorkflowViewModel(
-            updateCoordinator: coordinator,
-            batchProcessor: processor,
-            changePreviewPipeline: pipeline,
-            pendingVerificationService: dependencies.pendingVerificationService,
-            featureGate: dependencies.featureGate,
-            recordProcessedTracks: { count in
-                dependencies.subscriptionService?.incrementFreeTracksUsed(by: count)
-            },
-            defaultUpdateGenre: configuredUpdateSelection.updateGenre,
-            defaultUpdateYear: configuredUpdateSelection.updateYear,
-            defaultPreviewOnly: configuredPreviewOnly,
-            defaultMinConfidence: configuredMinConfidence,
-            defaultReleaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
-        )
-    }
-
-    private var configuredUpdateSelection: (updateGenre: Bool, updateYear: Bool) {
-        switch UpdateBehavior(rawValue: defaultUpdateBehavior) ?? .both {
-        case .genreOnly:
-            (true, false)
-        case .yearOnly:
-            (false, true)
-        case .both:
-            (true, true)
-        }
-    }
-
-    private var configuredPreviewOnly: Bool {
-        dependencies.config.runtime.dryRun
-    }
-
-    private var configuredMinConfidence: Double {
-        let configuredValue = dependencies.config.yearRetrieval.logic.minConfidenceForNewYear / 100
-        return min(max(configuredValue, 0.3), 1.0)
-    }
-
-    private func applyWorkflowDefaults() {
-        workflowViewModel?.updateDefaults(
-            updateGenre: configuredUpdateSelection.updateGenre,
-            updateYear: configuredUpdateSelection.updateYear,
-            previewOnly: configuredPreviewOnly,
-            minConfidence: configuredMinConfidence,
-            releaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
-        )
-    }
-
-    // MARK: - Metrics Snapshot
-
-    private func loadCachedSnapshot() {
-        let descriptor = FetchDescriptor<PersistedMetricsSnapshot>()
-        metricsSnapshot = try? modelContext.fetch(descriptor).first
-    }
-
-    private func saveMetricsSnapshot(from loadedTracks: [Track]) {
-        guard !loadedTracks.isEmpty else { return }
-
-        let total = loadedTracks.count
-        var genreCount = 0
-        var yearCount = 0
-        var bothCount = 0
-        var recentCount = 0
-        let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: .now)
-
-        for track in loadedTracks {
-            let hasGenre = track.genre.map { !$0.isEmpty } ?? false
-            let hasYear = track.year != nil
-
-            if hasGenre { genreCount += 1 }
-            if hasYear { yearCount += 1 }
-            if hasGenre, hasYear { bothCount += 1 }
-
-            if let dateAdded = track.dateAdded,
-               let cutoff = sevenDaysAgo,
-               dateAdded >= cutoff {
-                recentCount += 1
-            }
-        }
-
-        let descriptor = FetchDescriptor<PersistedMetricsSnapshot>()
-        let existing = try? modelContext.fetch(descriptor).first
-
-        if let snapshot = existing {
-            // Shift current values to previous before updating
-            snapshot.previousTotalTracks = snapshot.totalTracks
-            snapshot.previousTracksNeedingGenre = snapshot.tracksNeedingGenre
-            snapshot.previousTracksNeedingYear = snapshot.tracksNeedingYear
-            snapshot.previousRecentlyAdded = snapshot.recentlyAdded
-
-            snapshot.totalTracks = total
-            snapshot.tracksWithGenre = genreCount
-            snapshot.tracksWithYear = yearCount
-            snapshot.tracksWithBoth = bothCount
-            snapshot.tracksNeedingGenre = total - genreCount
-            snapshot.tracksNeedingYear = total - yearCount
-            snapshot.recentlyAdded = recentCount
-            snapshot.timestamp = .now
-        } else {
-            let snapshot = PersistedMetricsSnapshot(
-                totalTracks: total,
-                tracksWithGenre: genreCount,
-                tracksWithYear: yearCount,
-                tracksWithBoth: bothCount,
-                tracksNeedingGenre: total - genreCount,
-                tracksNeedingYear: total - yearCount,
-                recentlyAdded: recentCount
-            )
-            modelContext.insert(snapshot)
-        }
-
-        try? modelContext.save()
-        metricsSnapshot = try? modelContext.fetch(descriptor).first
     }
 }

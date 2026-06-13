@@ -114,6 +114,7 @@ final class WorkflowViewModel {
     var completedEntries: [ChangeLogEntry] = []
     var dryRunReport: DryRunReport?
     var failedCount: Int = 0
+    var maintenancePreflightResult: MaintenancePreflightResult?
 
     // MARK: - Computed Properties
 
@@ -157,6 +158,7 @@ final class WorkflowViewModel {
     let pendingVerificationService: (any PendingVerificationService)?
     let featureGate: FeatureGate?
     let recordProcessedTracks: (Int) -> Void
+    let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
     var defaultUpdateGenre: Bool
     var defaultUpdateYear: Bool
     var defaultPreviewOnly: Bool
@@ -171,6 +173,7 @@ final class WorkflowViewModel {
         pendingVerificationService: (any PendingVerificationService)? = nil,
         featureGate: FeatureGate? = nil,
         recordProcessedTracks: @escaping (Int) -> Void = { _ in },
+        runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
         defaultUpdateGenre: Bool = true,
         defaultUpdateYear: Bool = true,
         defaultPreviewOnly: Bool = true,
@@ -183,6 +186,7 @@ final class WorkflowViewModel {
         self.pendingVerificationService = pendingVerificationService
         self.featureGate = featureGate
         self.recordProcessedTracks = recordProcessedTracks
+        self.runMaintenancePreflight = runMaintenancePreflight
         self.defaultUpdateGenre = defaultUpdateGenre
         self.defaultUpdateYear = defaultUpdateYear
         self.defaultPreviewOnly = defaultPreviewOnly
@@ -221,11 +225,7 @@ final class WorkflowViewModel {
 
         guard requireTrackCapacityForCurrentMode(tracks: workingTracks) else { return }
 
-        if mode == .fullLibrary {
-            startBatchProcessing(tracks: workingTracks)
-        } else {
-            startDryRun(tracks: workingTracks)
-        }
+        startUpdateAfterMaintenancePreflight(tracks: workingTracks)
     }
 
     // MARK: - Scope Preview
@@ -455,5 +455,34 @@ final class WorkflowViewModel {
         guard mode == .fullLibrary else { return }
         await batchProcessor.resume()
         phase = .scanning
+    }
+}
+
+extension WorkflowViewModel {
+    private func startUpdateAfterMaintenancePreflight(tracks: [Track]) {
+        phase = .scanning
+        processedCount = 0
+        progress = ProgressUpdate(
+            phase: .fetching,
+            current: 0,
+            total: tracks.count,
+            message: "Checking library state"
+        )
+
+        processingTask = Task { [runMaintenancePreflight] in
+            let preflightResult = await runMaintenancePreflight?()
+            if Task.isCancelled {
+                phase = .configure
+                progress = nil
+                return
+            }
+            maintenancePreflightResult = preflightResult
+
+            if mode == .fullLibrary {
+                startBatchProcessing(tracks: tracks)
+            } else {
+                startDryRun(tracks: tracks)
+            }
+        }
     }
 }

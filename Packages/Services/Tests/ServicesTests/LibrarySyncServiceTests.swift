@@ -59,7 +59,13 @@ actor SyncMockTrackStore: TrackStateStore {
     }
 
     func saveTracks(_ tracks: [Track]) async throws {
-        storedTracks = tracks
+        for track in tracks {
+            if let index = storedTracks.firstIndex(where: { $0.id == track.id }) {
+                storedTracks[index] = track
+            } else {
+                storedTracks.append(track)
+            }
+        }
     }
 
     func deleteTrackIDs(_ ids: [String]) async throws -> Int {
@@ -313,6 +319,48 @@ struct LibrarySyncServiceTests {
 
         let result = try await service.detectChanges()
         #expect(!result.hasChanges)
+    }
+
+    @Test("Synchronize now applies new modified and removed tracks to store")
+    func synchronizeNowAppliesDetectedChanges() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let modifiedDate = Date()
+
+        let newTrack = Track(id: "NEW", name: "New Song", artist: "Artist", album: "Album")
+        let modifiedTrack = Track(
+            id: "MOD",
+            name: "Updated Song",
+            artist: "Artist",
+            album: "Album",
+            lastModified: modifiedDate,
+            releaseYear: 2024
+        )
+
+        await bridge.setLibrary(ids: ["NEW", "MOD"], tracks: [
+            "NEW": newTrack,
+            "MOD": modifiedTrack,
+        ])
+        await store.setStored([
+            Track(id: "MOD", name: "Old Song", artist: "Artist", album: "Album", lastModified: modifiedDate),
+            Track(id: "REMOVED", name: "Removed Song", artist: "Artist", album: "Album"),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        let result = try await service.synchronizeNow()
+        let storedTracks = await store.storedTracks
+
+        #expect(result.newTracks.map(\.id) == ["NEW"])
+        #expect(result.modifiedTracks.map(\.id) == ["MOD"])
+        #expect(result.removedTrackIDs == ["REMOVED"])
+        #expect(storedTracks.map(\.id).sorted() == ["MOD", "NEW"])
+        #expect(storedTracks.first { $0.id == "MOD" }?.name == "Updated Song")
     }
 }
 

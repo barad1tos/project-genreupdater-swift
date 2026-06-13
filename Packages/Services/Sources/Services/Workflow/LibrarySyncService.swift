@@ -243,6 +243,14 @@ public actor LibrarySyncService {
         )
     }
 
+    /// Detect and persist Music.app library changes in the local store.
+    @discardableResult
+    public func synchronizeNow() async throws -> SyncResult {
+        let result = try await detectChanges()
+        try await applyDetectedChanges(result)
+        return result
+    }
+
     // MARK: Auto Sync
 
     /// Start periodic background sync (Pro only).
@@ -267,11 +275,11 @@ public actor LibrarySyncService {
                 }
                 guard let self else { break }
                 do {
-                    let result = try await self.detectChanges()
+                    let result = try await self.synchronizeNow()
                     if result.hasChanges {
                         self.log
                             .info(
-                                "Auto-sync found changes: \(result.newTracks.count, privacy: .public) new, \(result.modifiedTracks.count, privacy: .public) modified"
+                                "Auto-sync applied changes: \(result.newTracks.count, privacy: .public) new, \(result.modifiedTracks.count, privacy: .public) modified, \(result.removedTrackIDs.count, privacy: .public) removed"
                             )
                     }
                 } catch {
@@ -307,6 +315,17 @@ public actor LibrarySyncService {
         }
 
         return TrackFingerprint.hash(current) != TrackFingerprint.hash(stored)
+    }
+
+    private func applyDetectedChanges(_ result: SyncResult) async throws {
+        let refreshedTracks = result.newTracks + result.modifiedTracks
+        if !refreshedTracks.isEmpty {
+            try await trackStore.saveTracks(refreshedTracks)
+        }
+
+        if !result.removedTrackIDs.isEmpty {
+            _ = try await trackStore.deleteTrackIDs(result.removedTrackIDs)
+        }
     }
 
     private func shouldSkipDatabaseVerification(now: Date = Date()) -> Bool {

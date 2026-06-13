@@ -13,6 +13,7 @@
 // - SwiftUI handles view lifecycle automatically
 
 import Core
+import Foundation
 import OSLog
 import Services
 import SwiftData
@@ -95,6 +96,7 @@ final class AppDependencies {
 
     private(set) var appState: AppState = .loading
     var config: AppConfiguration
+    var isAutoSyncRunning = false
 
     // MARK: - Services (lazy, initialized in initialize())
 
@@ -118,6 +120,10 @@ final class AppDependencies {
     private(set) var trackIDMapper: TrackIDMapper?
     private(set) var checkpointManager: CheckpointManager?
     private(set) var librarySyncService: LibrarySyncService?
+    private(set) var librarySnapshotService: (any LibrarySnapshotService)?
+    private(set) var analyticsService: CachedAnalyticsService?
+    private(set) var maintenanceCoordinator: MaintenanceCoordinator?
+    var maintenancePreflightResult: MaintenancePreflightResult?
     private(set) var changePreviewPipeline: ChangePreviewPipeline?
 
     // MARK: - Init
@@ -237,44 +243,39 @@ final class AppDependencies {
         yearDeterminator = configuredYearDeterminator
         pendingVerificationService = configuredPendingVerificationService
         apiOrchestrator = configuredAPIOrchestrator
+        if let librarySyncService {
+            maintenanceCoordinator = MaintenanceCoordinator(
+                databaseVerificationService: librarySyncService,
+                pendingVerificationService: configuredPendingVerificationService
+            )
+        }
+        if let cacheService {
+            librarySnapshotService = CachedLibrarySnapshotService(
+                cache: cacheService,
+                configuration: config.caching.librarySnapshot
+            )
+            analyticsService = CachedAnalyticsService(
+                cache: cacheService,
+                configuration: config.analytics
+            )
+        }
 
         let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: config)
         let appleScriptConfiguration = config.applescript
         let librarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: config)
         let batchProcessingConfiguration = BatchProcessingConfiguration(configuration: config)
-        Task { [updateCoordinator, applescriptBridge, librarySyncService, batchProcessor, musicReader] in
+        Task {
             try? await configuredPendingVerificationService?.initialize()
             await applescriptBridge?.updateConfiguration(appleScriptConfiguration)
             await musicReader?.updateTestArtists(config.development.testArtists)
             await librarySyncService?.updateRuntimeConfiguration(librarySyncRuntimeConfiguration)
             await batchProcessor?.updateProcessingConfiguration(batchProcessingConfiguration)
+            await analyticsService?.updateConfiguration(config.analytics)
             await updateCoordinator?.updateRuntimeConfiguration(
                 runtimeConfiguration,
                 yearDeterminator: configuredYearDeterminator,
                 apiOrchestrator: configuredAPIOrchestrator
             )
-        }
-    }
-
-    func refreshTrackIDMapping(musicKitTracks: [Track]) async {
-        guard let mapper = trackIDMapper,
-              let bridge = applescriptBridge
-        else { return }
-
-        do {
-            let mappedCount = try await mapper.refreshMapping(
-                musicKitTracks: musicKitTracks,
-                appleScriptClient: bridge,
-                batchSize: config.applescript.batchProcessing.idsBatchSize,
-                allTrackIDsTimeout: config.applescript.timeouts.fullLibraryFetch,
-                tracksByIDsTimeout: config.applescript.timeouts.idsBatchFetch
-            )
-            log
-                .info(
-                    "Track ID mapping refreshed: \(mappedCount, privacy: .public)/\(musicKitTracks.count, privacy: .public)"
-                )
-        } catch {
-            log.error("Track ID mapping refresh failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -305,6 +306,14 @@ final class AppDependencies {
         )
         try await cache.initialize()
         cacheService = cache
+        librarySnapshotService = CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: config.caching.librarySnapshot
+        )
+        analyticsService = CachedAnalyticsService(
+            cache: cache,
+            configuration: config.analytics
+        )
     }
 
     private static func defaultGenericCacheTTL(configuration: AppConfiguration) -> TimeInterval {
@@ -417,11 +426,17 @@ final class AppDependencies {
             processingConfiguration: BatchProcessingConfiguration(configuration: config)
         )
 
-        librarySyncService = LibrarySyncService(
+        let syncService = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
             featureGate: gate,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config)
+        )
+        librarySyncService = syncService
+
+        maintenanceCoordinator = MaintenanceCoordinator(
+            databaseVerificationService: syncService,
+            pendingVerificationService: pendingVerificationService
         )
 
         changePreviewPipeline = ChangePreviewPipeline()

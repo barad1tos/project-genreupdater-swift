@@ -11,7 +11,7 @@ struct APIAndCacheTab: View {
     private static let discogsService = "GenreUpdater-Discogs"
     private static let discogsAccount = "pat"
 
-    @Environment(AppDependencies.self) private var dependencies
+    @Environment(AppDependencies.self) var dependencies
     @AppStorage("contactEmail") private var contactEmail = ""
     @State private var tokenInput = ""
     @State private var tokenStatus: TokenStatus = .unknown
@@ -19,6 +19,9 @@ struct APIAndCacheTab: View {
     @State private var cacheStatistics: CacheStatistics?
     @State private var isLoadingStatistics = false
     @State private var isClearingCache = false
+    @State var isSyncingLibrary = false
+    @State var isUpdatingAutoSync = false
+    @State var librarySyncStatus = ""
 
     private let keychain = KeychainHelper()
 
@@ -30,6 +33,7 @@ struct APIAndCacheTab: View {
             ScriptAPIPrioritySection(dependencies: dependencies)
             discogsSection
             cacheStatisticsSection
+            librarySyncSection
             cacheBehaviorSection
         }
         .formStyle(.grouped)
@@ -37,6 +41,7 @@ struct APIAndCacheTab: View {
         .task {
             loadTokenStatus()
             loadCacheStatistics()
+            await dependencies.refreshAutoSyncStatus()
         }
     }
 
@@ -187,25 +192,10 @@ struct APIAndCacheTab: View {
             Toggle("Delta snapshots", isOn: configBinding(dependencies, \.caching.librarySnapshot.deltaEnabled))
                 .disabled(!isLibrarySnapshotEnabled)
 
-            TextField("Snapshot file", text: configBinding(dependencies, \.caching.librarySnapshot.cacheFile))
-                .textFieldStyle(.roundedBorder)
-                .disabled(!isLibrarySnapshotEnabled)
-
             Stepper(value: configBinding(dependencies, \.caching.librarySnapshot.maxAgeHours), in: 1 ... 168) {
                 LabeledContent("Snapshot max age", value: "\(dependencies.config.caching.librarySnapshot.maxAgeHours)h")
             }
             .disabled(!isLibrarySnapshotEnabled)
-
-            Toggle("Compress snapshots", isOn: configBinding(dependencies, \.caching.librarySnapshot.compress))
-                .disabled(!isLibrarySnapshotEnabled)
-
-            Stepper(value: configBinding(dependencies, \.caching.librarySnapshot.compressLevel), in: 1 ... 9) {
-                LabeledContent(
-                    "Compression level",
-                    value: "\(dependencies.config.caching.librarySnapshot.compressLevel)"
-                )
-            }
-            .disabled(!isLibrarySnapshotCompressionEnabled)
         }
     }
 
@@ -246,10 +236,6 @@ struct APIAndCacheTab: View {
 
     private var isLibrarySnapshotEnabled: Bool {
         dependencies.config.caching.librarySnapshot.enabled
-    }
-
-    private var isLibrarySnapshotCompressionEnabled: Bool {
-        isLibrarySnapshotEnabled && dependencies.config.caching.librarySnapshot.compress
     }
 
     private func loadTokenStatus() {

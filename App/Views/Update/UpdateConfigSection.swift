@@ -1,6 +1,7 @@
 // UpdateConfigSection.swift -- Mode picker, scope preview, options, confidence, dry-run toggle.
 
 import Core
+import Services
 import SharedUI
 import SwiftUI
 
@@ -15,6 +16,7 @@ struct UpdateConfigSection: View {
             VStack(spacing: Spacing.xl) {
                 modeSelector
                 scopePreviewCard
+                maintenanceStatusCard
                 if viewModel.mode == .releaseYearRestore {
                     releaseYearRestoreSection
                 } else if viewModel.mode != .pendingVerification {
@@ -133,6 +135,84 @@ struct UpdateConfigSection: View {
         tracks.compactMap(\.dateAdded).max()
     }
 
+    // MARK: - Maintenance Status
+
+    @ViewBuilder
+    private var maintenanceStatusCard: some View {
+        if let result = viewModel.maintenancePreflightResult,
+           result.hasVisibleMaintenanceStatus,
+           viewModel.mode != .releaseYearRestore {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                if let databaseVerification = result.databaseVerification,
+                   databaseVerification.removedCount > 0 {
+                    maintenanceStatusRow(
+                        icon: "checkmark.circle.fill",
+                        title: "Database cleaned",
+                        detail: "\(databaseVerification.removedCount) stale tracks removed from the local database.",
+                        tint: Ayu.success
+                    )
+                }
+
+                if let error = result.databaseVerificationError {
+                    maintenanceStatusRow(
+                        icon: "exclamationmark.triangle.fill",
+                        title: "Database check skipped",
+                        detail: error,
+                        tint: Ayu.warning
+                    )
+                }
+
+                if result.isPendingVerificationDue,
+                   viewModel.mode != .pendingVerification {
+                    HStack(spacing: Spacing.md) {
+                        maintenanceStatusRow(
+                            icon: "clock.badge.exclamationmark.fill",
+                            title: "Pending verification due",
+                            detail: "Review queued albums before writing release years.",
+                            tint: Ayu.warning
+                        )
+
+                        Spacer(minLength: Spacing.md)
+
+                        Button {
+                            viewModel.mode = .pendingVerification
+                            viewModel.computeScopePreview(tracks: tracks)
+                        } label: {
+                            Label("Review", systemImage: "arrow.right.circle")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+            }
+            .padding(Spacing.md)
+            .background(Ayu.bgSecondary, in: .rect(cornerRadius: Radius.sm))
+        }
+    }
+
+    private func maintenanceStatusRow(
+        icon: String,
+        title: String,
+        detail: String,
+        tint: Color
+    ) -> some View {
+        HStack(alignment: .top, spacing: Spacing.sm) {
+            Image(systemName: icon)
+                .foregroundStyle(tint)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(AppFont.subheadline)
+                    .foregroundStyle(Ayu.fgPrimary)
+                Text(detail)
+                    .font(AppFont.caption)
+                    .foregroundStyle(Ayu.fgSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     // MARK: - Options Card
 
     private var optionsCard: some View {
@@ -239,5 +319,13 @@ struct UpdateConfigSection: View {
         case .selectedTracks, .smartFilter:
             "Start Preview"
         }
+    }
+}
+
+extension MaintenancePreflightResult {
+    fileprivate var hasVisibleMaintenanceStatus: Bool {
+        if isPendingVerificationDue { return true }
+        if databaseVerificationError != nil { return true }
+        return (databaseVerification?.removedCount ?? 0) > 0
     }
 }

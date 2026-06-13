@@ -154,13 +154,6 @@ struct GeneralTab: View {
 
             Toggle("Adaptive delay", isOn: configBinding(dependencies, \.processing.adaptiveDelay))
 
-            Stepper(value: configBinding(dependencies, \.runtime.incrementalIntervalMinutes), in: 1 ... 1440) {
-                LabeledContent(
-                    "Incremental interval",
-                    value: "\(dependencies.config.runtime.incrementalIntervalMinutes)m"
-                )
-            }
-
             Stepper(value: configBinding(dependencies, \.processing.pendingVerificationIntervalDays), in: 0 ... 365) {
                 LabeledContent(
                     "Pending verification",
@@ -195,14 +188,6 @@ struct GeneralTab: View {
 
     private var genreUpdatesSection: some View {
         Section("Genre Updates") {
-            Stepper(value: configBinding(dependencies, \.genreUpdate.batchSize), in: 1 ... 500) {
-                LabeledContent("Batch size", value: "\(dependencies.config.genreUpdate.batchSize)")
-            }
-
-            Stepper(value: configBinding(dependencies, \.genreUpdate.concurrentLimit), in: 1 ... 20) {
-                LabeledContent("Concurrent limit", value: "\(dependencies.config.genreUpdate.concurrentLimit)")
-            }
-
             Toggle("Override existing genres", isOn: configBinding(dependencies, \.genreUpdate.overrideExisting))
 
             Toggle("Experimental batch updates", isOn: configBinding(dependencies, \.experimental.batchUpdatesEnabled))
