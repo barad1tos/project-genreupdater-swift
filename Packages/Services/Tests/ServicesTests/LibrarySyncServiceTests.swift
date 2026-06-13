@@ -229,6 +229,45 @@ struct LibrarySyncServiceTests {
         #expect(result.modifiedTracks.first?.id == "T1")
     }
 
+    @Test("Detect modified tracks by fingerprint when lastModified is unchanged")
+    func detectModifiedTracksWithSameLastModifiedAndMetadataChange() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let modifiedDate = Date()
+
+        await bridge.setLibrary(ids: ["T1"], tracks: [
+            "T1": Track(
+                id: "T1",
+                name: "Track",
+                artist: "A",
+                album: "B",
+                lastModified: modifiedDate,
+                releaseYear: 2001
+            ),
+        ])
+        await store.setStored([
+            Track(
+                id: "T1",
+                name: "Track",
+                artist: "A",
+                album: "B",
+                lastModified: modifiedDate,
+                releaseYear: 1998
+            ),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        let result = try await service.detectChanges()
+        #expect(result.modifiedTracks.count == 1)
+        #expect(result.modifiedTracks.first?.id == "T1")
+    }
+
     @Test("Auto-sync denied for non-Pro tier")
     func autoSyncDeniedForFreeTier() async {
         let bridge = SyncMockScriptClient()

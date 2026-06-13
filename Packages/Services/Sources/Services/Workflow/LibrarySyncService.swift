@@ -298,14 +298,15 @@ public actor LibrarySyncService {
 
     private func hasTrackChanged(current: Track, stored: Track) -> Bool {
         if let currentMod = current.lastModified, let storedMod = stored.lastModified {
-            return currentMod > storedMod
+            if currentMod > storedMod {
+                return true
+            }
+            if currentMod < storedMod {
+                return false
+            }
         }
-        // If no lastModified, compare core fields
-        return current.genre != stored.genre
-            || current.year != stored.year
-            || current.name != stored.name
-            || current.album != stored.album
-            || current.artist != stored.artist
+
+        return TrackFingerprint.hash(current) != TrackFingerprint.hash(stored)
     }
 
     private func shouldSkipDatabaseVerification(now: Date = Date()) -> Bool {
