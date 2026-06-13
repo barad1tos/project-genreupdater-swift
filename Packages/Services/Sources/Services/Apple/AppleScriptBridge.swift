@@ -332,7 +332,7 @@ extension AppleScriptBridge {
         max(1, limit)
     }
 
-    func retryAppleScriptOperation<T>(
+    func retryAppleScriptOperation<T: Sendable>(
         scriptName: String,
         retry: AppleScriptRetry,
         operation: () async throws -> T

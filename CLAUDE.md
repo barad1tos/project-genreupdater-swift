@@ -233,6 +233,7 @@ The app runs in sandbox with these entitlements:
 - **Periphery false positives**: Always use `--retain-public` (phased dev) and `--retain-codable-properties` (GRDB/SwiftData models).
 - **Periphery inline ignore**: `// periphery:ignore` does NOT work for "assign-only property" warnings — use global flags instead.
 - **Periphery ignore on referenced symbols**: `// periphery:ignore` is superfluous for protocol methods with conforming implementations — use `_ paramName` in implementations instead.
+- **CI Swift toolchain drift**: GitHub `macos-15` currently uses an older Swift than local Xcode 26.5; local `just ci` can miss Swift 6.1 type-check and strict-concurrency diagnostics. Prefer CI-compatible explicit types and `Sendable` bounds in Services helpers.
 - **macOS CI runners lack GNU coreutils**: `timeout` command unavailable — use bash background process + kill pattern.
 - **swift test hangs on CI**: SwiftData prevents clean exit on headless runners — ci.yml uses background process with 120s kill timeout.
 
