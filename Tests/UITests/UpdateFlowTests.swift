@@ -11,106 +11,99 @@ final class UpdateFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launch()
     }
 
-    override func tearDownWithError() throws {
-        app = nil
+    @MainActor
+    private func launchedApp() -> XCUIApplication {
+        if let app {
+            return app
+        }
+
+        app = XCUIApplication()
+        app.launchArguments = [
+            "-sidebarBadgesEnabled", "NO",
+            "-sidebarCompact", "NO"
+        ]
+        app.launch()
+        return app
     }
 
     // MARK: - Helpers
 
-    /// Waits for the main view to appear with the Library category selected.
-    private func waitForLibraryView() throws {
+    /// Waits for the dashboard shell, skipping if onboarding or environment
+    /// setup prevents reaching the main app.
+    @MainActor
+    private func waitForMainView() throws {
+        let app = launchedApp()
         let mainWindow = app.windows.firstMatch
         XCTAssertTrue(mainWindow.waitForExistence(timeout: 10))
 
-        let libraryLabel = mainWindow.staticTexts["Library"]
+        let dashboardLabel = mainWindow.staticTexts["Dashboard"]
+        let libraryHealthLabel = mainWindow.staticTexts["Library Health"]
+        let mainViewVisible = dashboardLabel.waitForExistence(timeout: 10)
+            || libraryHealthLabel.waitForExistence(timeout: 5)
+
         try XCTSkipUnless(
-            libraryLabel.waitForExistence(timeout: 10),
+            mainViewVisible,
             "Main view not reached (app may require onboarding or Music.app access)"
         )
     }
 
-    /// Returns true if the library has loaded tracks (not showing empty state).
-    private var hasLoadedTracks: Bool {
+    /// Selects the Update destination from the sidebar.
+    @MainActor
+    private func selectUpdateView() throws {
+        let app = launchedApp()
         let mainWindow = app.windows.firstMatch
-        let noTracksText = mainWindow.staticTexts["No Tracks"]
-        // If "No Tracks" is visible, the library is empty
-        return !noTracksText.exists
-    }
+        let updateButton = mainWindow.buttons["Update"]
+        if updateButton.waitForExistence(timeout: 3) {
+            updateButton.click()
+            return
+        }
 
-    // MARK: - Toolbar Controls
-
-    func testUpdateTracksButtonExists() throws {
-        try waitForLibraryView()
-
-        let mainWindow = app.windows.firstMatch
-        let updateButton = mainWindow.buttons["Update Tracks"]
+        let updateLabel = mainWindow.staticTexts["Update"]
         XCTAssertTrue(
-            updateButton.waitForExistence(timeout: 5),
-            "Update Tracks toolbar button should exist"
+            updateLabel.waitForExistence(timeout: 5),
+            "Sidebar should expose the Update destination"
         )
+        updateLabel.click()
     }
 
-    func testRefreshButtonExists() throws {
-        try waitForLibraryView()
+    // MARK: - Sidebar Destination
 
+    @MainActor
+    func testUpdateDestinationExists() throws {
+        try waitForMainView()
+
+        let app = launchedApp()
         let mainWindow = app.windows.firstMatch
-        let refreshButton = mainWindow.buttons["Refresh library"]
         XCTAssertTrue(
-            refreshButton.waitForExistence(timeout: 5),
-            "Refresh library toolbar button should exist"
+            mainWindow.staticTexts["Update"].exists || mainWindow.buttons["Update"].exists,
+            "Sidebar should expose the Update destination"
         )
     }
 
-    // MARK: - Update Sheet
+    // MARK: - Update Screen
 
-    func testUpdateSheetAppears() throws {
-        try waitForLibraryView()
+    @MainActor
+    func testUpdateScreenAppears() throws {
+        try waitForMainView()
+        try selectUpdateView()
 
-        // The Update Tracks button is disabled when there are no tracks.
-        // Skip if the library is empty (no Music.app access in CI).
+        let app = launchedApp()
         let mainWindow = app.windows.firstMatch
-        let updateButton = mainWindow.buttons["Update Tracks"]
-        XCTAssertTrue(updateButton.waitForExistence(timeout: 5))
-
-        try XCTSkipUnless(
-            updateButton.isEnabled,
-            "Update button is disabled (no tracks loaded — Music.app access may be required)"
-        )
-
-        updateButton.click()
-
-        // The sheet should present with "Update Tracks" navigation title
-        // and configuration options
-        let sheetTitle = app.staticTexts["Update Tracks"]
+        let updateTitle = mainWindow.staticTexts["Update"]
         XCTAssertTrue(
-            sheetTitle.waitForExistence(timeout: 5),
-            "Update sheet should appear with 'Update Tracks' title"
+            updateTitle.waitForExistence(timeout: 5),
+            "Update screen should appear after selecting Update"
         )
     }
 
-    func testUpdateSheetHasConfigurationOptions() throws {
-        try waitForLibraryView()
+    @MainActor
+    func testUpdateScreenHasConfigurationOptions() throws {
+        try waitForMainView()
+        try selectUpdateView()
 
-        let mainWindow = app.windows.firstMatch
-        let updateButton = mainWindow.buttons["Update Tracks"]
-        XCTAssertTrue(updateButton.waitForExistence(timeout: 5))
-
-        try XCTSkipUnless(
-            updateButton.isEnabled,
-            "Update button is disabled (no tracks loaded)"
-        )
-
-        updateButton.click()
-
-        // Wait for sheet to appear
-        let sheetTitle = app.staticTexts["Update Tracks"]
-        XCTAssertTrue(sheetTitle.waitForExistence(timeout: 5))
-
-        // Verify configuration toggles exist
+        let app = launchedApp()
         let updateGenreToggle = app.checkBoxes["Update Genre"]
         let updateYearToggle = app.checkBoxes["Update Year"]
 
@@ -124,25 +117,12 @@ final class UpdateFlowTests: XCTestCase {
         XCTAssertTrue(yearExists, "Update Year toggle should exist in the sheet")
     }
 
+    @MainActor
     func testDryRunToggleExists() throws {
-        try waitForLibraryView()
+        try waitForMainView()
+        try selectUpdateView()
 
-        let mainWindow = app.windows.firstMatch
-        let updateButton = mainWindow.buttons["Update Tracks"]
-        XCTAssertTrue(updateButton.waitForExistence(timeout: 5))
-
-        try XCTSkipUnless(
-            updateButton.isEnabled,
-            "Update button is disabled (no tracks loaded)"
-        )
-
-        updateButton.click()
-
-        // Wait for sheet to appear
-        let sheetTitle = app.staticTexts["Update Tracks"]
-        XCTAssertTrue(sheetTitle.waitForExistence(timeout: 5))
-
-        // The dry-run toggle label reads "Preview only (dry run)"
+        let app = launchedApp()
         let dryRunCheckbox = app.checkBoxes["Preview only (dry run)"]
         let dryRunLabel = app.staticTexts["Preview only (dry run)"]
 
@@ -153,50 +133,16 @@ final class UpdateFlowTests: XCTestCase {
         )
     }
 
-    func testUpdateSheetCancelButton() throws {
-        try waitForLibraryView()
-
-        let mainWindow = app.windows.firstMatch
-        let updateButton = mainWindow.buttons["Update Tracks"]
-        XCTAssertTrue(updateButton.waitForExistence(timeout: 5))
-
-        try XCTSkipUnless(
-            updateButton.isEnabled,
-            "Update button is disabled (no tracks loaded)"
-        )
-
-        updateButton.click()
-
-        let sheetTitle = app.staticTexts["Update Tracks"]
-        XCTAssertTrue(sheetTitle.waitForExistence(timeout: 5))
-
-        // Cancel button should dismiss the sheet
-        let cancelButton = app.buttons["Cancel"]
-        XCTAssertTrue(
-            cancelButton.waitForExistence(timeout: 3),
-            "Cancel button should exist in the update sheet"
-        )
-
-        cancelButton.click()
-
-        // After cancel, the sheet title should no longer be visible
-        // (or the update button should be accessible again on the main window)
-        XCTAssertTrue(
-            updateButton.waitForExistence(timeout: 5),
-            "Main toolbar should be accessible after dismissing the sheet"
-        )
-    }
-
     // MARK: - Menu Command
 
+    @MainActor
     func testUpdateMenuCommandExists() throws {
-        try waitForLibraryView()
+        try waitForMainView()
 
-        // Check the menu bar has an "Update" menu with "Update Selected Tracks"
+        let app = launchedApp()
         let menuBar = app.menuBars.firstMatch
         let updateMenu = menuBar.menuBarItems["Update"]
 
-        // The Update menu should exist (added in GenreUpdaterApp.swift)
         XCTAssertTrue(
             updateMenu.exists,
             "Update menu should exist in the menu bar"
@@ -210,7 +156,6 @@ final class UpdateFlowTests: XCTestCase {
             "Update Selected Tracks menu item should exist"
         )
 
-        // Press Escape to dismiss the menu
         app.typeKey(.escape, modifierFlags: [])
     }
 }

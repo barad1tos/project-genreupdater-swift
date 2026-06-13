@@ -11,22 +11,35 @@ final class OnboardingFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launch()
     }
 
-    override func tearDownWithError() throws {
-        app = nil
+    @MainActor
+    private func launchedApp() -> XCUIApplication {
+        if let app {
+            return app
+        }
+
+        app = XCUIApplication()
+        app.launchArguments = [
+            "-sidebarBadgesEnabled", "NO",
+            "-sidebarCompact", "NO"
+        ]
+        app.launch()
+        return app
     }
 
     // MARK: - Launch
 
+    @MainActor
     func testAppLaunches() {
+        let app = launchedApp()
         let mainWindow = app.windows.firstMatch
         XCTAssertTrue(mainWindow.exists, "Main window should exist after launch")
     }
 
+    @MainActor
     func testMainWindowHasMinimumSize() {
+        let app = launchedApp()
         let mainWindow = app.windows.firstMatch
         XCTAssertTrue(mainWindow.waitForExistence(timeout: 5))
 
@@ -37,7 +50,9 @@ final class OnboardingFlowTests: XCTestCase {
 
     // MARK: - Initial View State
 
+    @MainActor
     func testInitialViewAppears() {
+        let app = launchedApp()
         // The app shows either onboarding or the main view depending on state.
         // Both contain recognizable UI elements within the window.
         let mainWindow = app.windows.firstMatch
@@ -46,16 +61,18 @@ final class OnboardingFlowTests: XCTestCase {
         // At minimum, one of these states should be visible:
         // - Loading indicator ("Initializing...")
         // - Onboarding welcome ("Welcome to Genre Updater")
-        // - Main sidebar ("Library" label)
+        // - Main sidebar/dashboard ("Dashboard" or "Library Health" label)
         // - Error view ("Something went wrong")
         let loadingText = mainWindow.staticTexts["Initializing..."]
         let welcomeText = mainWindow.staticTexts["Welcome to Genre Updater"]
-        let libraryLabel = mainWindow.staticTexts["Library"]
+        let dashboardLabel = mainWindow.staticTexts["Dashboard"]
+        let libraryHealthLabel = mainWindow.staticTexts["Library Health"]
         let errorText = mainWindow.staticTexts["Something went wrong"]
 
         let anyStateVisible = loadingText.waitForExistence(timeout: 3)
             || welcomeText.exists
-            || libraryLabel.exists
+            || dashboardLabel.exists
+            || libraryHealthLabel.exists
             || errorText.exists
 
         XCTAssertTrue(anyStateVisible, "App should display a recognizable initial state")
@@ -63,7 +80,9 @@ final class OnboardingFlowTests: XCTestCase {
 
     // MARK: - Onboarding (if shown)
 
+    @MainActor
     func testOnboardingGetStartedButtonExists() throws {
+        let app = launchedApp()
         let mainWindow = app.windows.firstMatch
         XCTAssertTrue(mainWindow.waitForExistence(timeout: 10))
 
@@ -80,7 +99,9 @@ final class OnboardingFlowTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testOnboardingStepIndicatorVisible() throws {
+        let app = launchedApp()
         let mainWindow = app.windows.firstMatch
         XCTAssertTrue(mainWindow.waitForExistence(timeout: 10))
 

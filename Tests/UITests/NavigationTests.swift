@@ -10,74 +10,106 @@ final class NavigationTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launch()
     }
 
-    override func tearDownWithError() throws {
-        app = nil
+    @MainActor
+    private func launchedApp() -> XCUIApplication {
+        if let app {
+            return app
+        }
+
+        app = XCUIApplication()
+        app.launchArguments = [
+            "-sidebarBadgesEnabled", "NO",
+            "-sidebarCompact", "NO"
+        ]
+        app.launch()
+        return app
     }
 
     // MARK: - Helpers
 
-    /// Waits for the main view sidebar to appear, skipping if the app is stuck
-    /// in onboarding or an error state.
+    /// Waits for the current dashboard shell, skipping if onboarding or
+    /// environment setup prevents reaching the main app.
+    @MainActor
     private func waitForMainView() throws {
+        let app = launchedApp()
         let mainWindow = app.windows.firstMatch
         XCTAssertTrue(mainWindow.waitForExistence(timeout: 10))
 
-        let libraryLabel = mainWindow.staticTexts["Library"]
+        let dashboardLabel = mainWindow.staticTexts["Dashboard"]
+        let libraryHealthLabel = mainWindow.staticTexts["Library Health"]
+        let mainViewVisible = dashboardLabel.waitForExistence(timeout: 10)
+            || libraryHealthLabel.waitForExistence(timeout: 5)
+
         try XCTSkipUnless(
-            libraryLabel.waitForExistence(timeout: 10),
+            mainViewVisible,
             "Main view not reached (app may require onboarding or Music.app access)"
         )
     }
 
     /// Clicks a sidebar item by its label text.
+    @MainActor
     private func selectSidebarItem(_ label: String) {
+        let app = launchedApp()
         let mainWindow = app.windows.firstMatch
+        let sidebarButton = mainWindow.buttons[label]
+        if sidebarButton.waitForExistence(timeout: 3) {
+            sidebarButton.click()
+            return
+        }
+
         let sidebarItem = mainWindow.staticTexts[label]
         if sidebarItem.waitForExistence(timeout: 3) {
             sidebarItem.click()
         }
     }
 
+    /// Returns true when a sidebar destination is exposed as either a button
+    /// or the visible text nested inside that button.
+    @MainActor
+    private func sidebarElementExists(_ label: String) -> Bool {
+        let app = launchedApp()
+        let mainWindow = app.windows.firstMatch
+        return mainWindow.buttons[label].exists || mainWindow.staticTexts[label].exists
+    }
+
     // MARK: - Sidebar Items Exist
 
-    func testSidebarBrowseSectionExists() throws {
+    @MainActor
+    func testPrimarySidebarDestinationsExist() throws {
         try waitForMainView()
-        let mainWindow = app.windows.firstMatch
 
-        let browseItems = ["Library", "By Artist", "By Album"]
-        for item in browseItems {
+        let destinations = ["Dashboard", "Browse", "Reports", "Update"]
+        for item in destinations {
             XCTAssertTrue(
-                mainWindow.staticTexts[item].exists,
-                "Sidebar should contain '\(item)' in Browse section"
+                sidebarElementExists(item),
+                "Sidebar should contain '\(item)'"
             )
         }
     }
 
-    func testSidebarActionsSectionExists() throws {
+    @MainActor
+    func testSettingsFooterExists() throws {
         try waitForMainView()
+        let app = launchedApp()
         let mainWindow = app.windows.firstMatch
 
-        let actionItems = ["Genre Update", "Year Update", "Batch", "Reports"]
-        for item in actionItems {
-            XCTAssertTrue(
-                mainWindow.staticTexts[item].exists,
-                "Sidebar should contain '\(item)' in Actions section"
-            )
-        }
+        XCTAssertTrue(
+            mainWindow.buttons["Settings"].exists || mainWindow.staticTexts["Settings"].exists,
+            "Sidebar should expose the Settings footer in expanded mode"
+        )
     }
 
     // MARK: - Navigation Transitions
 
+    @MainActor
     func testNavigateToReports() throws {
         try waitForMainView()
 
         selectSidebarItem("Reports")
+        let app = launchedApp()
 
-        // Reports view has a navigation title "Reports" and an "Export CSV" toolbar button
         let mainWindow = app.windows.firstMatch
         let reportsTitle = mainWindow.staticTexts["Reports"]
         XCTAssertTrue(
@@ -86,62 +118,52 @@ final class NavigationTests: XCTestCase {
         )
     }
 
-    func testNavigateToPlaylists() throws {
+    @MainActor
+    func testNavigateToBrowse() throws {
         try waitForMainView()
 
-        selectSidebarItem("Playlists")
+        selectSidebarItem("Browse")
+        let app = launchedApp()
 
-        // Playlists shows a ContentUnavailableView with "Playlists" title
         let mainWindow = app.windows.firstMatch
-        let playlistsTitle = mainWindow.staticTexts["Playlists"]
+        let browseTitle = mainWindow.staticTexts["Browse"]
         XCTAssertTrue(
-            playlistsTitle.waitForExistence(timeout: 5),
-            "Playlists unavailable view should appear"
-        )
-
-        // The stub message mentions MusicKit
-        let stubMessage = mainWindow.staticTexts.matching(
-            NSPredicate(format: "value CONTAINS[c] %@", "not yet available")
-        )
-        XCTAssertGreaterThan(
-            stubMessage.count, 0,
-            "Playlists stub should explain feature is not yet available"
+            browseTitle.waitForExistence(timeout: 5),
+            "Browse view should appear after selecting Browse"
         )
     }
 
-    func testNavigateToBatch() throws {
+    @MainActor
+    func testNavigateToUpdate() throws {
         try waitForMainView()
 
-        selectSidebarItem("Batch")
+        selectSidebarItem("Update")
+        let app = launchedApp()
 
-        // Batch view has title "Batch Processing"
         let mainWindow = app.windows.firstMatch
-        let batchTitle = mainWindow.staticTexts["Batch Processing"]
+        let updateTitle = mainWindow.staticTexts["Update"]
         XCTAssertTrue(
-            batchTitle.waitForExistence(timeout: 5),
-            "Batch Processing view should appear after selecting Batch"
+            updateTitle.waitForExistence(timeout: 5),
+            "Update view should appear after selecting Update"
         )
     }
 
-    func testNavigateBackToLibrary() throws {
+    @MainActor
+    func testNavigateBackToDashboard() throws {
         try waitForMainView()
 
-        // Navigate away first
         selectSidebarItem("Reports")
+        let app = launchedApp()
         _ = app.windows.firstMatch.staticTexts["Reports"].waitForExistence(timeout: 3)
 
-        // Navigate back to Library
-        selectSidebarItem("Library")
+        selectSidebarItem("Dashboard")
 
-        // Library view shows a track count or "No Tracks" empty state
         let mainWindow = app.windows.firstMatch
-        let noTracksText = mainWindow.staticTexts["No Tracks"]
-        let trackCountPredicate = NSPredicate(format: "value CONTAINS[c] %@", "tracks")
-        let trackCountLabel = mainWindow.staticTexts.matching(trackCountPredicate)
+        let libraryHealthLabel = mainWindow.staticTexts["Library Health"]
 
-        let libraryVisible = noTracksText.waitForExistence(timeout: 5)
-            || !trackCountLabel.allElementsBoundByIndex.isEmpty
-
-        XCTAssertTrue(libraryVisible, "Library view should show tracks or empty state")
+        XCTAssertTrue(
+            libraryHealthLabel.waitForExistence(timeout: 5),
+            "Dashboard view should show library health after returning from Reports"
+        )
     }
 }
