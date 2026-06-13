@@ -45,3 +45,6 @@ build/
 # Obsidian symlinks (point to vault, not tracked in git)
 docs/plans 2
 docs/tasks 2
+
+# Local tool caches
+/tools
