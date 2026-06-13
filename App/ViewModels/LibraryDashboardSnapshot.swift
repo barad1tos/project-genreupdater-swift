@@ -177,10 +177,6 @@ struct LibraryDashboardSnapshot: Equatable {
         isLoading: Bool,
         loadError: LibraryLoadError?
     ) -> LibraryScanState {
-        if isLoading {
-            return .loading
-        }
-
         if let loadError {
             switch loadError {
             case .permissionDenied:
@@ -188,6 +184,10 @@ struct LibraryDashboardSnapshot: Equatable {
             case let .failed(message):
                 return .failed(message)
             }
+        }
+
+        if isLoading {
+            return .loading
         }
 
         if tracks.isEmpty {
@@ -273,6 +273,15 @@ struct LibraryDashboardSnapshot: Equatable {
         scanState: LibraryScanState,
         writeState: LibraryWriteState
     ) -> String {
+        switch scanState {
+        case .permissionDenied:
+            return "Grant access"
+        case .failed:
+            return "Retry scan"
+        default:
+            break
+        }
+
         if case .writing = writeState {
             return "Writing updates"
         }

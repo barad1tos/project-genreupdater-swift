@@ -24,7 +24,29 @@ struct DashboardView: View {
     let tracks: [Track]
     let metricsSnapshot: PersistedMetricsSnapshot?
     let isLoadingTracks: Bool
+    let loadError: LibraryLoadError?
+    let lastScanDate: Date?
+    let isDryRun: Bool
+    let workflowState: WorkflowDashboardState
+    let onScanNow: () -> Void
+    let onReviewChanges: () -> Void
     let onNavigate: (NavigationCategory) -> Void
+
+    private var snapshotRefreshKey: DashboardSnapshotRefreshKey {
+        DashboardSnapshotRefreshKey(
+            trackCount: tracks.count,
+            trackContentFingerprint: .make(from: tracks),
+            isLoadingTracks: isLoadingTracks,
+            loadErrorKey: loadError?.dashboardRefreshKey,
+            lastScanDate: lastScanDate,
+            isDryRun: isDryRun,
+            proposedChangeCount: workflowState.proposedChangeCount,
+            acceptedChangeCount: workflowState.acceptedChangeCount,
+            failedWriteCount: workflowState.failedWriteCount,
+            isProcessing: workflowState.isProcessing,
+            phaseLabel: workflowState.phaseLabel
+        )
+    }
 
     var body: some View {
         ScrollView {
@@ -60,8 +82,20 @@ struct DashboardView: View {
         .onAppear {
             viewModel.loadCachedMetrics(from: metricsSnapshot)
         }
-        .task(id: tracks.count) {
-            viewModel.refreshFromLive(tracks: tracks, isLoadingTracks: isLoadingTracks)
+        .task(id: snapshotRefreshKey) {
+            viewModel.refreshFromLive(
+                tracks: tracks,
+                isLoadingTracks: isLoadingTracks,
+                loadError: loadError
+            )
+            viewModel.refreshSnapshot(
+                tracks: tracks,
+                lastScanDate: lastScanDate,
+                isLoadingTracks: isLoadingTracks,
+                loadError: loadError,
+                isDryRun: isDryRun,
+                workflowState: workflowState
+            )
         }
         .onChange(of: viewModel.showLiveContent) { _, isVisible in
             guard isVisible else { return }
@@ -314,11 +348,68 @@ struct DashboardView: View {
             Text(message)
         } actions: {
             Button("Retry") {
-                viewModel.loadCachedMetrics(from: metricsSnapshot)
+                onScanNow()
             }
             .buttonStyle(.borderedProminent)
             .tint(Ayu.accent)
         }
+    }
+}
+
+private struct DashboardSnapshotRefreshKey: Equatable {
+    let trackCount: Int
+    let trackContentFingerprint: DashboardTrackContentFingerprint
+    let isLoadingTracks: Bool
+    let loadErrorKey: String?
+    let lastScanDate: Date?
+    let isDryRun: Bool
+    let proposedChangeCount: Int
+    let acceptedChangeCount: Int
+    let failedWriteCount: Int
+    let isProcessing: Bool
+    let phaseLabel: String
+}
+
+extension LibraryLoadError {
+    fileprivate var dashboardRefreshKey: String {
+        switch self {
+        case .permissionDenied:
+            "permissionDenied"
+        case let .failed(message):
+            "failed:\(message)"
+        }
+    }
+}
+
+struct DashboardTrackContentFingerprint: Equatable {
+    let value: UInt64
+
+    static func make(from tracks: [Track]) -> Self {
+        var value: UInt64 = 14_695_981_039_346_656_037
+
+        for track in tracks {
+            combine(track.id, into: &value)
+            combine(track.genre?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "", into: &value)
+            combine(track.year.map(String.init) ?? "", into: &value)
+            combine(
+                track.dateAdded.map { String(Int64($0.timeIntervalSinceReferenceDate * 1_000_000)) } ?? "",
+                into: &value
+            )
+            combine(track.trackStatus ?? "", into: &value)
+            combine(track.canEdit ? "1" : "0", into: &value)
+        }
+
+        return Self(value: value)
+    }
+
+    private static func combine(_ string: String, into value: inout UInt64) {
+        for byte in string.utf8 {
+            value ^= UInt64(byte)
+            value &*= 1_099_511_628_211
+        }
+
+        value ^= 0xFF
+        value &*= 1_099_511_628_211
     }
 }
 
@@ -329,6 +420,12 @@ struct DashboardView: View {
         tracks: PreviewData.sampleTracks,
         metricsSnapshot: nil,
         isLoadingTracks: false,
+        loadError: nil,
+        lastScanDate: .now,
+        isDryRun: true,
+        workflowState: .empty,
+        onScanNow: {},
+        onReviewChanges: {},
         onNavigate: { _ in }
     )
     .frame(width: 700, height: 800)
@@ -339,6 +436,12 @@ struct DashboardView: View {
         tracks: [],
         metricsSnapshot: nil,
         isLoadingTracks: true,
+        loadError: nil,
+        lastScanDate: nil,
+        isDryRun: true,
+        workflowState: .empty,
+        onScanNow: {},
+        onReviewChanges: {},
         onNavigate: { _ in }
     )
     .frame(width: 700, height: 800)

@@ -17,7 +17,8 @@ extension MainView {
         }
     }
 
-    func loadTracks() async {
+    func loadTracks(forceRefresh: Bool = false) async {
+        libraryLoadError = nil
         loadCachedSnapshot()
         ensureWorkflowViewModel()
 
@@ -27,9 +28,10 @@ extension MainView {
 
         do {
             let loadStart = ContinuousClock.now
-            if let cachedTracks = await dependencies.loadLibrarySnapshot() {
+            if !forceRefresh, let cachedTracks = await dependencies.loadLibrarySnapshot() {
                 tracks = cachedTracks
                 browseViewModel.tracks = cachedTracks
+                lastLibraryScanDate = .now
                 saveMetricsSnapshot(from: cachedTracks)
                 await recordLibraryLoad(source: "snapshot", count: cachedTracks.count, startedAt: loadStart)
                 return
@@ -40,11 +42,14 @@ extension MainView {
             await dependencies.refreshTrackIDMapping(musicKitTracks: tracks)
             await dependencies.persistLoadedLibraryTracks(tracks)
             browseViewModel.tracks = tracks
+            lastLibraryScanDate = .now
             saveMetricsSnapshot(from: tracks)
             await recordLibraryLoad(source: "music", count: tracks.count, startedAt: loadStart)
         } catch {
             await dependencies.analyticsService?.trackError("library.load", error: error)
+            libraryLoadError = libraryLoadError(from: error)
             tracks = []
+            browseViewModel.tracks = []
         }
     }
 
@@ -121,7 +126,7 @@ extension MainView {
         let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: .now)
 
         for track in loadedTracks {
-            let hasGenre = track.genre.map { !$0.isEmpty } ?? false
+            let hasGenre = hasPresentDashboardGenre(track.genre)
             let hasYear = track.year != nil
 
             if hasGenre { genreCount += 1 }
@@ -183,4 +188,22 @@ extension MainView {
             ]
         )
     }
+
+    private func libraryLoadError(from error: Error) -> LibraryLoadError {
+        guard let musicLibraryError = error as? MusicLibraryError else {
+            return .failed(error.localizedDescription)
+        }
+
+        switch musicLibraryError {
+        case .authorizationDenied, .authorizationRestricted:
+            return .permissionDenied
+        case .fetchFailed, .musicAppNotAvailable:
+            return .failed(error.localizedDescription)
+        }
+    }
+}
+
+func hasPresentDashboardGenre(_ genre: String?) -> Bool {
+    guard let genre else { return false }
+    return !genre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 }

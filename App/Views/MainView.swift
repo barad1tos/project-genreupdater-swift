@@ -72,6 +72,8 @@ struct MainView: View {
     @State var browseViewModel = BrowseViewModel()
     @State var showUpdateSheet = false
     @State var metricsSnapshot: PersistedMetricsSnapshot?
+    @State var libraryLoadError: LibraryLoadError?
+    @State var lastLibraryScanDate: Date?
     @State var workflowViewModel: WorkflowViewModel?
     @State var hasNavigated = false
     @AppStorage("sidebarCompact") var isSidebarCompact = false
@@ -159,10 +161,21 @@ struct MainView: View {
                 DashboardView(
                     tracks: tracks,
                     metricsSnapshot: metricsSnapshot,
-                    isLoadingTracks: isLoading
-                ) { category in
-                    selectedCategory = category
-                }
+                    isLoadingTracks: isLoading,
+                    loadError: libraryLoadError,
+                    lastScanDate: lastLibraryScanDate,
+                    isDryRun: dependencies.config.runtime.dryRun,
+                    workflowState: workflowViewModel?.dashboardState ?? .empty,
+                    onScanNow: {
+                        Task { await loadTracks(forceRefresh: true) }
+                    },
+                    onReviewChanges: {
+                        selectedCategory = .update
+                    },
+                    onNavigate: { category in
+                        selectedCategory = category
+                    }
+                )
             }
 
         case .browse:
