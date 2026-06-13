@@ -105,12 +105,20 @@ private final class APIReleaseCandidateMockURLProtocol: URLProtocol {
     }
 
     override func startLoading() {
-        let response = HTTPURLResponse(
-            url: request.url ?? URL(string: "https://example.invalid")!,
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        guard let response = HTTPURLResponse(
+            url: url,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]
-        )!
+        ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Self.responseData)
         client?.urlProtocolDidFinishLoading(self)

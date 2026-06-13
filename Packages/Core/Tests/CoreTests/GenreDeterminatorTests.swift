@@ -1,12 +1,11 @@
-import Testing
 import Foundation
+import Testing
 @testable import Core
 
 // MARK: - GenreDeterminator Tests
 
 @Suite("GenreDeterminator — Dominant Genre from Earliest Album")
 struct GenreDeterminatorTests {
-
     let determinator = GenreDeterminator()
 
     // MARK: - Helpers
@@ -226,20 +225,50 @@ struct GenreDeterminatorTests {
     func realisticScenario() {
         let tracks = [
             // Please Please Me (1963 album, added 2015)
-            makeTrack(id: "1", name: "I Saw Her Standing There", artist: "The Beatles",
-                      album: "Please Please Me", genre: "Pop", dateAdded: date(2015, 3, 20)),
-            makeTrack(id: "2", name: "Love Me Do", artist: "The Beatles",
-                      album: "Please Please Me", genre: "Pop", dateAdded: date(2015, 3, 20)),
+            makeTrack(
+                id: "1",
+                name: "I Saw Her Standing There",
+                artist: "The Beatles",
+                album: "Please Please Me",
+                genre: "Pop",
+                dateAdded: date(2015, 3, 20)
+            ),
+            makeTrack(
+                id: "2",
+                name: "Love Me Do",
+                artist: "The Beatles",
+                album: "Please Please Me",
+                genre: "Pop",
+                dateAdded: date(2015, 3, 20)
+            ),
 
             // Abbey Road (1969 album, added 2016)
-            makeTrack(id: "3", name: "Come Together", artist: "The Beatles",
-                      album: "Abbey Road", genre: "Rock", dateAdded: date(2016, 8, 1)),
-            makeTrack(id: "4", name: "Here Comes the Sun", artist: "The Beatles",
-                      album: "Abbey Road", genre: "Rock", dateAdded: date(2016, 8, 5)),
+            makeTrack(
+                id: "3",
+                name: "Come Together",
+                artist: "The Beatles",
+                album: "Abbey Road",
+                genre: "Rock",
+                dateAdded: date(2016, 8, 1)
+            ),
+            makeTrack(
+                id: "4",
+                name: "Here Comes the Sun",
+                artist: "The Beatles",
+                album: "Abbey Road",
+                genre: "Rock",
+                dateAdded: date(2016, 8, 5)
+            ),
 
             // Let It Be (1970 album, added 2017)
-            makeTrack(id: "5", name: "Let It Be", artist: "The Beatles",
-                      album: "Let It Be", genre: "Rock", dateAdded: date(2017, 1, 10)),
+            makeTrack(
+                id: "5",
+                name: "Let It Be",
+                artist: "The Beatles",
+                album: "Let It Be",
+                genre: "Rock",
+                dateAdded: date(2017, 1, 10)
+            ),
         ]
         let result = determinator.determineDominantGenre(artistTracks: tracks)
         // Earliest album by dateAdded: Please Please Me (2015-03-20)
@@ -252,7 +281,7 @@ struct GenreDeterminatorTests {
     @Test("Large track array completes quickly")
     func largeArrayPerformance() {
         var tracks: [Track] = []
-        for i in 0..<10_000 {
+        for i in 0 ..< 10000 {
             let albumIndex = i / 10
             tracks.append(makeTrack(
                 id: "\(i)",
@@ -299,7 +328,6 @@ struct GenreDeterminatorTests {
 
 @Suite("GenreDeterminator — Custom Genre Mappings")
 struct GenreMappingTests {
-
     let determinator = GenreDeterminator()
 
     private func date(_ year: Int, _ month: Int, _ day: Int) -> Date {

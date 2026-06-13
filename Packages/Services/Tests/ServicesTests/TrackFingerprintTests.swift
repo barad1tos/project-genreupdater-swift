@@ -21,7 +21,10 @@ struct TrackFingerprintTests {
             albumArtist: "Artist"
         )
 
-        #expect(TrackFingerprint.hash(track) == TrackFingerprint.hash(track))
+        let firstHash = TrackFingerprint.hash(track)
+        let secondHash = TrackFingerprint.hash(track)
+
+        #expect(firstHash == secondHash)
     }
 
     @Test("processing metadata changes fingerprint")

@@ -5,7 +5,6 @@ import Testing
 
 @Suite("Year Scoring Parity — Python reference fixtures")
 struct YearScoringParityTests {
-
     let scorer: YearScorer
 
     init() throws {
@@ -15,56 +14,23 @@ struct YearScoringParityTests {
 
     // MARK: - Individual Scoring
 
-    @Test("Individual release scoring matches Python",
-          arguments: try! loadScoringFixtures().filter { !$0.isRanking })
-    func individualScoring(fixture: ScoringFixtureCase) throws {
-        let release = try #require(fixture.release, "Missing release in \(fixture.id)")
-        let expected = try #require(fixture.expected, "Missing expected in \(fixture.id)")
-        let candidate = release.toCandidate()
-        let query = fixture.query
+    @Test("Individual release scoring matches Python")
+    func individualScoring() throws {
+        let fixtures: [ScoringFixtureCase] = try loadScoringFixtures().filter { !$0.isRanking }
 
-        let activityPeriod: (start: Int?, end: Int?)? = {
-            if query.artistPeriodStart != nil || query.artistPeriodEnd != nil {
-                return (start: query.artistPeriodStart, end: query.artistPeriodEnd)
-            }
-            return nil
-        }()
+        for fixture in fixtures {
+            let release = try #require(fixture.release, "Missing release in \(fixture.id)")
+            let expected = try #require(fixture.expected, "Missing expected in \(fixture.id)")
+            let candidate = release.toCandidate()
+            let query = fixture.query
 
-        let result = scorer.scoreRelease(
-            candidate,
-            queryArtist: query.artist,
-            queryAlbum: query.album,
-            artistActivityPeriod: activityPeriod,
-            artistCountry: query.artistRegion
-        )
+            let activityPeriod: (start: Int?, end: Int?)? = {
+                if query.artistPeriodStart != nil || query.artistPeriodEnd != nil {
+                    return (start: query.artistPeriodStart, end: query.artistPeriodEnd)
+                }
+                return nil
+            }()
 
-        #expect(
-            result.totalScore == expected.totalScore,
-            "[\(fixture.id)] totalScore: got \(result.totalScore), expected \(expected.totalScore)"
-        )
-    }
-
-    // MARK: - Ranking
-
-    @Test("Candidate ranking order matches Python",
-          arguments: try! loadScoringFixtures().filter(\.isRanking))
-    func rankingOrder(fixture: ScoringFixtureCase) throws {
-        let candidates = try #require(fixture.candidates, "Missing candidates in \(fixture.id)")
-        let expectedRanking = try #require(
-            fixture.expectedRanking, "Missing expectedRanking in \(fixture.id)"
-        )
-        let query = fixture.query
-
-        let activityPeriod: (start: Int?, end: Int?)? = {
-            if query.artistPeriodStart != nil || query.artistPeriodEnd != nil {
-                return (start: query.artistPeriodStart, end: query.artistPeriodEnd)
-            }
-            return nil
-        }()
-
-        var scored: [(id: String, score: Int)] = []
-        for candidateFixture in candidates {
-            let candidate = candidateFixture.release.toCandidate()
             let result = scorer.scoreRelease(
                 candidate,
                 queryArtist: query.artist,
@@ -72,18 +38,57 @@ struct YearScoringParityTests {
                 artistActivityPeriod: activityPeriod,
                 artistCountry: query.artistRegion
             )
-            scored.append((id: candidateFixture.release.source, score: result.totalScore))
+
+            #expect(
+                result.totalScore == expected.totalScore,
+                "[\(fixture.id)] totalScore: got \(result.totalScore), expected \(expected.totalScore)"
+            )
         }
+    }
 
-        // Sort descending by score (same as Python)
-        let actualRanking = scored
-            .sorted { $0.score > $1.score }
-            .map(\.id)
+    // MARK: - Ranking
 
-        #expect(
-            actualRanking == expectedRanking,
-            "[\(fixture.id)] ranking mismatch"
-        )
+    @Test("Candidate ranking order matches Python")
+    func rankingOrder() throws {
+        let fixtures: [ScoringFixtureCase] = try loadScoringFixtures().filter(\.isRanking)
+
+        for fixture in fixtures {
+            let candidates = try #require(fixture.candidates, "Missing candidates in \(fixture.id)")
+            let expectedRanking = try #require(
+                fixture.expectedRanking, "Missing expectedRanking in \(fixture.id)"
+            )
+            let query = fixture.query
+
+            let activityPeriod: (start: Int?, end: Int?)? = {
+                if query.artistPeriodStart != nil || query.artistPeriodEnd != nil {
+                    return (start: query.artistPeriodStart, end: query.artistPeriodEnd)
+                }
+                return nil
+            }()
+
+            var scored: [(id: String, score: Int)] = []
+            for candidateFixture in candidates {
+                let candidate = candidateFixture.release.toCandidate()
+                let result = scorer.scoreRelease(
+                    candidate,
+                    queryArtist: query.artist,
+                    queryAlbum: query.album,
+                    artistActivityPeriod: activityPeriod,
+                    artistCountry: query.artistRegion
+                )
+                scored.append((id: candidateFixture.release.source, score: result.totalScore))
+            }
+
+            // Sort descending by score (same as Python)
+            let actualRanking = scored
+                .sorted { $0.score > $1.score }
+                .map(\.id)
+
+            #expect(
+                actualRanking == expectedRanking,
+                "[\(fixture.id)] ranking mismatch"
+            )
+        }
     }
 }
 

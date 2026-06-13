@@ -3,7 +3,6 @@ import Testing
 
 @Suite("AlbumType")
 struct AlbumTypeTests {
-
     // MARK: - Album Type Detection
 
     @Test("Normal album → .normal")
@@ -60,7 +59,7 @@ struct AlbumTypeTests {
     }
 
     @Test("Remastered → .reissue with markAndUpdate")
-    func remasteredReissue() {
+    func reissueFromUpdatedEditionKeyword() {
         let info = detectAlbumType("Album (Remastered)")
         #expect(info.albumType == .reissue)
         #expect(info.strategy == .markAndUpdate)

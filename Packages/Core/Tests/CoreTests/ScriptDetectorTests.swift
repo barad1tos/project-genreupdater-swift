@@ -3,7 +3,6 @@ import Testing
 
 @Suite("ScriptDetector")
 struct ScriptDetectorTests {
-
     // MARK: - Individual Script Detection
 
     @Test("Detects Arabic script")

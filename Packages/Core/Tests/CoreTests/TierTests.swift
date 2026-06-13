@@ -12,8 +12,13 @@ struct TierTests {
 
     @Test("Equal tiers are not less-than")
     func equality() {
-        #expect(!(Tier.free < Tier.free))
-        #expect(!(Tier.pro < Tier.pro))
+        let free = Tier.free
+        let sameFree = Tier.free
+        let pro = Tier.pro
+        let samePro = Tier.pro
+
+        #expect(!(free < sameFree))
+        #expect(!(pro < samePro))
     }
 
     @Test("Tier conforms to CaseIterable with 3 cases")

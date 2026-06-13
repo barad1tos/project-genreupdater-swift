@@ -6,7 +6,6 @@ import Testing
 
 @Suite("YearValidator — Year Validation & Cross-Track Analysis")
 struct YearValidatorTests {
-
     let validator = YearValidator()
 
     // MARK: - validate(year:)
@@ -264,7 +263,6 @@ struct YearValidatorTests {
 // MARK: - Year Parity & Suspicious Year Tests
 
 extension YearValidatorTests {
-
     // MARK: - checkYearParity
 
     @Test("Parity detected when top two years are tied")
@@ -287,7 +285,7 @@ extension YearValidatorTests {
 
     @Test("No parity with single year")
     func noParitySingleYear() {
-        let counts: [Int: Int] = [2000: 5]
+        let counts = [2000: 5]
         #expect(!validator.checkYearParity(yearCounts: counts))
     }
 
@@ -306,14 +304,12 @@ extension YearValidatorTests {
 
     // MARK: - isYearSuspiciouslyOld
 
-    // swiftlint:disable force_unwrapping
-
     @Test("Year is suspiciously old vs dateAdded")
-    func suspiciouslyOld() {
+    func suspiciouslyOld() throws {
         // Year 2001, tracks added in 2025 → gap=24 > threshold=10
-        let date2025 = Calendar.current.date(
+        let date2025 = try #require(Calendar.current.date(
             from: DateComponents(year: 2025, month: 6, day: 1)
-        )!
+        ))
         let tracks = [
             Track(
                 id: "1", name: "A", artist: "X", album: "Y",
@@ -324,11 +320,11 @@ extension YearValidatorTests {
     }
 
     @Test("Year is NOT suspiciously old when gap within threshold")
-    func notSuspiciouslyOld() {
+    func notSuspiciouslyOld() throws {
         // Year 2015, tracks added in 2020 → gap=5 <= threshold=10
-        let date2020 = Calendar.current.date(
+        let date2020 = try #require(Calendar.current.date(
             from: DateComponents(year: 2020, month: 6, day: 1)
-        )!
+        ))
         let tracks = [
             Track(
                 id: "1", name: "A", artist: "X", album: "Y",
@@ -347,10 +343,10 @@ extension YearValidatorTests {
     }
 
     @Test("Suspiciously old year returns nil from getDominantYear")
-    func suspiciousOldMarksDominant() {
-        let date2025 = Calendar.current.date(
+    func suspiciousOldMarksDominant() throws {
+        let date2025 = try #require(Calendar.current.date(
             from: DateComponents(year: 2025, month: 6, day: 1)
-        )!
+        ))
         let tracks = [
             Track(
                 id: "1", name: "A", artist: "X", album: "Y",
@@ -369,13 +365,13 @@ extension YearValidatorTests {
     // MARK: - getEarliestTrackAddedYear
 
     @Test("Earliest track added year found")
-    func earliestAdded() {
-        let date2020 = Calendar.current.date(
+    func earliestAdded() throws {
+        let date2020 = try #require(Calendar.current.date(
             from: DateComponents(year: 2020, month: 3, day: 1)
-        )!
-        let date2023 = Calendar.current.date(
+        ))
+        let date2023 = try #require(Calendar.current.date(
             from: DateComponents(year: 2023, month: 6, day: 1)
-        )!
+        ))
         let tracks = [
             Track(
                 id: "1", name: "A", artist: "X", album: "Y",
@@ -396,8 +392,6 @@ extension YearValidatorTests {
         ]
         #expect(validator.getEarliestTrackAddedYear(tracks: tracks) == nil)
     }
-
-    // swiftlint:enable force_unwrapping
 
     // MARK: - checkReleaseYearInconsistency
 

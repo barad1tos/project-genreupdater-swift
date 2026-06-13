@@ -5,23 +5,25 @@ import Testing
 
 @Suite("Genre Parity — Python reference fixtures")
 struct GenreParityTests {
-
     let determinator = GenreDeterminator()
 
-    @Test("Genre determination matches Python for all fixture cases",
-          arguments: try! loadGenreFixtures())
-    func genreParity(fixture: GenreFixtureCase) {
-        let tracks = fixture.tracks.map { $0.toTrack() }
-        let result = determinator.determineDominantGenre(artistTracks: tracks)
+    @Test("Genre determination matches Python for all fixture cases")
+    func genreParity() throws {
+        let fixtures: [GenreFixtureCase] = try loadGenreFixtures()
 
-        #expect(
-            result.genre == fixture.expected.genre,
-            "[\(fixture.id)] genre: got \(String(describing: result.genre)), expected \(String(describing: fixture.expected.genre))"
-        )
-        #expect(
-            result.sourceAlbum == fixture.expected.sourceAlbum,
-            "[\(fixture.id)] sourceAlbum: got \(String(describing: result.sourceAlbum)), expected \(String(describing: fixture.expected.sourceAlbum))"
-        )
+        for fixture in fixtures {
+            let tracks = fixture.tracks.map { $0.toTrack() }
+            let result = determinator.determineDominantGenre(artistTracks: tracks)
+
+            #expect(
+                result.genre == fixture.expected.genre,
+                "[\(fixture.id)] genre: got \(String(describing: result.genre)), expected \(String(describing: fixture.expected.genre))"
+            )
+            #expect(
+                result.sourceAlbum == fixture.expected.sourceAlbum,
+                "[\(fixture.id)] sourceAlbum: got \(String(describing: result.sourceAlbum)), expected \(String(describing: fixture.expected.sourceAlbum))"
+            )
+        }
     }
 }
 

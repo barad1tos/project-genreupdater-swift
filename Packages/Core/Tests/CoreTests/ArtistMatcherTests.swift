@@ -3,7 +3,6 @@ import Testing
 
 @Suite("ArtistMatcher")
 struct ArtistMatcherTests {
-
     // MARK: - Extract Main Artist
 
     @Test("Solo artist passes through")
@@ -44,8 +43,8 @@ struct ArtistMatcherTests {
 
     @Test("Empty string returns empty")
     func mainArtistEmpty() {
-        #expect(extractMainArtist("") == "")
-        #expect(extractMainArtist("   ") == "")
+        #expect(extractMainArtist("").isEmpty)
+        #expect(extractMainArtist("   ").isEmpty)
     }
 
     // MARK: - Split Collaborators
@@ -102,7 +101,7 @@ struct ArtistMatcherTests {
 
     @Test("Empty returns empty")
     func stripTheEmpty() {
-        #expect(stripThePrefix("") == "")
+        #expect(stripThePrefix("").isEmpty)
     }
 
     // MARK: - Featured Artist Extraction

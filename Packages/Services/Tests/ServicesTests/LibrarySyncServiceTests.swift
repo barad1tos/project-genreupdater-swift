@@ -247,14 +247,7 @@ struct LibrarySyncServiceTests {
             ),
         ])
         await store.setStored([
-            Track(
-                id: "T1",
-                name: "Track",
-                artist: "A",
-                album: "B",
-                lastModified: modifiedDate,
-                releaseYear: 1998
-            ),
+            Track(id: "T1", name: "Track", artist: "A", album: "B", lastModified: modifiedDate, releaseYear: 1998),
         ])
 
         let service = LibrarySyncService(

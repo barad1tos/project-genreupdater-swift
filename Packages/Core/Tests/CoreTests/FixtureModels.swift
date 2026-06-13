@@ -21,7 +21,7 @@ enum FixtureLoader {
 
         var description: String {
             switch self {
-            case .fileNotFound(let name):
+            case let .fileNotFound(name):
                 "Fixture file not found: \(name).json"
             }
         }
@@ -30,7 +30,7 @@ enum FixtureLoader {
 
 // MARK: - Shared
 
-struct TrackFixture: Codable, Sendable {
+struct TrackFixture: Codable {
     let id: String
     let name: String
     let artist: String
@@ -58,30 +58,30 @@ struct TrackFixture: Codable, Sendable {
     }
 
     private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        f.timeZone = TimeZone(identifier: "UTC")
-        return f
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        return formatter
     }()
 }
 
 // MARK: - Genre Fixtures
 
-struct GenreFixtureCase: Codable, Sendable {
+struct GenreFixtureCase: Codable {
     let id: String
     let description: String
     let tracks: [TrackFixture]
     let expected: GenreExpected
 }
 
-struct GenreExpected: Codable, Sendable {
+struct GenreExpected: Codable {
     let genre: String?
     let sourceAlbum: String?
 }
 
 // MARK: - Scoring Fixtures
 
-struct ReleaseFixture: Codable, Sendable {
+struct ReleaseFixture: Codable {
     let artist: String
     let album: String
     let year: Int
@@ -111,7 +111,7 @@ struct ReleaseFixture: Codable, Sendable {
     }
 }
 
-struct QueryFixture: Codable, Sendable {
+struct QueryFixture: Codable {
     let artist: String
     let album: String
     let artistRegion: String?
@@ -119,16 +119,16 @@ struct QueryFixture: Codable, Sendable {
     let artistPeriodEnd: Int?
 }
 
-struct ScoringExpected: Codable, Sendable {
+struct ScoringExpected: Codable {
     let totalScore: Int
 }
 
-struct CandidateFixture: Codable, Sendable {
+struct CandidateFixture: Codable {
     let release: ReleaseFixture
     let totalScore: Int
 }
 
-struct ScoringFixtureCase: Codable, Sendable {
+struct ScoringFixtureCase: Codable {
     let id: String
     let description: String
     let type: String?
@@ -138,12 +138,14 @@ struct ScoringFixtureCase: Codable, Sendable {
     let candidates: [CandidateFixture]?
     let expectedRanking: [String]?
 
-    var isRanking: Bool { type == "ranking" }
+    var isRanking: Bool {
+        type == "ranking"
+    }
 }
 
 // MARK: - Resolution Fixtures
 
-struct ResolutionFixtureCase: Codable, Sendable {
+struct ResolutionFixtureCase: Codable {
     let id: String
     let description: String
     let yearScores: [String: [Int]]
@@ -156,7 +158,7 @@ struct ResolutionFixtureCase: Codable, Sendable {
     }
 }
 
-struct ResolutionExpected: Codable, Sendable {
+struct ResolutionExpected: Codable {
     let year: Int?
     let isDefinitive: Bool
     let confidence: Int
@@ -164,14 +166,14 @@ struct ResolutionExpected: Codable, Sendable {
 
 // MARK: - Validation Fixtures
 
-struct ValidationFixtureCase: Codable, Sendable {
+struct ValidationFixtureCase: Codable {
     let id: String
     let description: String
     let tracks: [TrackFixture]
     let expected: ValidationExpected
 }
 
-struct ValidationExpected: Codable, Sendable {
+struct ValidationExpected: Codable {
     let dominantYear: Int?
     let mostCommonYear: Int?
     let consensusReleaseYear: Int?
@@ -179,14 +181,14 @@ struct ValidationExpected: Codable, Sendable {
 
 // MARK: - Fallback Fixtures
 
-struct FallbackFixtureCase: Codable, Sendable {
+struct FallbackFixtureCase: Codable {
     let id: String
     let description: String
     let context: FallbackContextFixture
     let expected: FallbackExpected
 }
 
-struct FallbackContextFixture: Codable, Sendable {
+struct FallbackContextFixture: Codable {
     let bestYear: Int?
     let bestScore: Int
     let isDefinitive: Bool
@@ -195,7 +197,7 @@ struct FallbackContextFixture: Codable, Sendable {
     let verificationAttempts: Int
 }
 
-struct FallbackExpected: Codable, Sendable {
+struct FallbackExpected: Codable {
     let decision: String
 }
 
@@ -214,8 +216,10 @@ enum FixtureHelpers {
         let years = tracks.compactMap(\.year).filter { $0 > 0 }
         guard !years.isEmpty else { return nil }
         var counts: [Int: Int] = [:]
-        for year in years { counts[year, default: 0] += 1 }
-        let maxCount = counts.values.max()!
+        for year in years {
+            counts[year, default: 0] += 1
+        }
+        guard let maxCount = counts.values.max() else { return nil }
         return years.first { counts[$0] == maxCount }
     }
 

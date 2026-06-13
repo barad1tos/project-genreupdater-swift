@@ -6,7 +6,6 @@ import Testing
 
 @Suite("YearFallbackStrategy — Decision Tree")
 struct YearFallbackStrategyTests {
-
     let strategy = YearFallbackStrategy()
 
     // MARK: - Helpers
@@ -297,7 +296,6 @@ struct YearFallbackStrategyTests {
 // MARK: - Custom Config
 
 extension YearFallbackStrategyTests {
-
     @Test("Custom trust threshold changes escalation behavior")
     func customTrustThreshold() {
         var fallbackConfig = FallbackConfig()
@@ -345,7 +343,6 @@ extension YearFallbackStrategyTests {
 // MARK: - Priority Order
 
 extension YearFallbackStrategyTests {
-
     @Test("Definitive overrides all other rules")
     func definitiveOverridesAll() {
         // Definitive + existing + low confidence

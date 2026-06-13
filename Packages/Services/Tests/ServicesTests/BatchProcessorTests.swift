@@ -5,15 +5,20 @@ import Testing
 
 // MARK: - Thread-Safe Accumulator
 
-private actor Accumulator<T: Sendable> {
-    var items: [T] = []
+private final class Accumulator<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [T] = []
 
     func append(_ item: T) {
+        lock.lock()
+        defer { lock.unlock() }
         items.append(item)
     }
 
     func getAll() -> [T] {
-        items
+        lock.lock()
+        defer { lock.unlock() }
+        return items
     }
 }
 
@@ -61,12 +66,11 @@ struct BatchProcessorTests {
             tracks: tracks,
             operation: { _ in [] },
             progressHandler: { update in
-                Task { await accumulator.append(update) }
+                accumulator.append(update)
             }
         )
 
-        try await Task.sleep(for: .milliseconds(50))
-        let updates = await accumulator.getAll()
+        let updates = accumulator.getAll()
         // 5 tracks + 1 completion
         #expect(updates.count == 6)
         #expect(updates.last?.phase == .complete)

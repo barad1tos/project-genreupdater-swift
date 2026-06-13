@@ -1,6 +1,5 @@
 import OSLog
 import Testing
-
 @testable import Core
 
 @Suite("AppLogger — logger factory and pre-built loggers")

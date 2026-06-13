@@ -41,11 +41,12 @@ struct ProgressUpdateTests {
 
     @Test("Equatable conformance works")
     func equatable() {
-        let a = ProgressUpdate(phase: .analyzing, current: 5, total: 10, message: "test")
-        let b = ProgressUpdate(phase: .analyzing, current: 5, total: 10, message: "test")
-        let c = ProgressUpdate(phase: .analyzing, current: 6, total: 10, message: "test")
-        #expect(a == b)
-        #expect(a != c)
+        let first = ProgressUpdate(phase: .analyzing, current: 5, total: 10, message: "test")
+        let second = ProgressUpdate(phase: .analyzing, current: 5, total: 10, message: "test")
+        let different = ProgressUpdate(phase: .analyzing, current: 6, total: 10, message: "test")
+
+        #expect(first == second)
+        #expect(first != different)
     }
 
     @Test("ProcessingPhase has all expected cases")

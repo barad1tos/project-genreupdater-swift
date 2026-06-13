@@ -3,7 +3,7 @@ import Testing
 @testable import Core
 
 @Suite("AppConfiguration — defaults, Codable, nested configs")
-struct AppConfigurationTests {
+struct AppConfigurationTests { // swiftlint:disable:this type_body_length
     // MARK: - Default Values
 
     @Test("Default init creates valid Python parity configuration surface")

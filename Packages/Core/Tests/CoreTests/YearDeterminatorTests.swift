@@ -2,11 +2,12 @@ import Foundation
 import Testing
 @testable import Core
 
+// swiftlint:disable file_length
+
 // MARK: - YearDeterminator Tests
 
 @Suite("YearDeterminator — Orchestration")
-struct YearDeterminatorTests {
-
+struct YearDeterminatorTests { // swiftlint:disable:this type_body_length
     let determinator = YearDeterminator()
 
     // MARK: - Helpers
@@ -90,12 +91,27 @@ struct YearDeterminatorTests {
     func consensusYear() {
         let track = makeTrack(year: 2000)
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X", album: "Y",
-                  releaseYear: 2005),
-            Track(id: "2", name: "B", artist: "X", album: "Y",
-                  releaseYear: 2005),
-            Track(id: "3", name: "C", artist: "X", album: "Y",
-                  releaseYear: 2005),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "Y",
+                releaseYear: 2005
+            ),
+            Track(
+                id: "2",
+                name: "B",
+                artist: "X",
+                album: "Y",
+                releaseYear: 2005
+            ),
+            Track(
+                id: "3",
+                name: "C",
+                artist: "X",
+                album: "Y",
+                releaseYear: 2005
+            ),
         ]
         let candidates = [makeCandidate(year: 2003)]
 
@@ -114,10 +130,20 @@ struct YearDeterminatorTests {
     func noConsensus() {
         let track = makeTrack(year: 2000)
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X", album: "Y",
-                  releaseYear: 2005),
-            Track(id: "2", name: "B", artist: "X", album: "Y",
-                  releaseYear: 2006),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "Y",
+                releaseYear: 2005
+            ),
+            Track(
+                id: "2",
+                name: "B",
+                artist: "X",
+                album: "Y",
+                releaseYear: 2006
+            ),
         ]
         let candidates = [
             makeCandidate(artist: "X", album: "Y", year: 2005),
@@ -139,16 +165,41 @@ struct YearDeterminatorTests {
     func dominantYear() {
         let track = makeTrack()
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X", album: "Y",
-                  year: 2005),
-            Track(id: "2", name: "B", artist: "X", album: "Y",
-                  year: 2005),
-            Track(id: "3", name: "C", artist: "X", album: "Y",
-                  year: 2005),
-            Track(id: "4", name: "D", artist: "X", album: "Y",
-                  year: 2005),
-            Track(id: "5", name: "E", artist: "X", album: "Y",
-                  year: 2006),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "Y",
+                year: 2005
+            ),
+            Track(
+                id: "2",
+                name: "B",
+                artist: "X",
+                album: "Y",
+                year: 2005
+            ),
+            Track(
+                id: "3",
+                name: "C",
+                artist: "X",
+                album: "Y",
+                year: 2005
+            ),
+            Track(
+                id: "4",
+                name: "D",
+                artist: "X",
+                album: "Y",
+                year: 2005
+            ),
+            Track(
+                id: "5",
+                name: "E",
+                artist: "X",
+                album: "Y",
+                year: 2006
+            ),
         ]
         let candidates = [makeCandidate(year: 2003)]
 
@@ -166,16 +217,41 @@ struct YearDeterminatorTests {
         let track = makeTrack()
         // 60% confidence (3 out of 5) — below 80% threshold
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X", album: "Y",
-                  year: 2005),
-            Track(id: "2", name: "B", artist: "X", album: "Y",
-                  year: 2005),
-            Track(id: "3", name: "C", artist: "X", album: "Y",
-                  year: 2005),
-            Track(id: "4", name: "D", artist: "X", album: "Y",
-                  year: 2006),
-            Track(id: "5", name: "E", artist: "X", album: "Y",
-                  year: 2007),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "Y",
+                year: 2005
+            ),
+            Track(
+                id: "2",
+                name: "B",
+                artist: "X",
+                album: "Y",
+                year: 2005
+            ),
+            Track(
+                id: "3",
+                name: "C",
+                artist: "X",
+                album: "Y",
+                year: 2005
+            ),
+            Track(
+                id: "4",
+                name: "D",
+                artist: "X",
+                album: "Y",
+                year: 2006
+            ),
+            Track(
+                id: "5",
+                name: "E",
+                artist: "X",
+                album: "Y",
+                year: 2007
+            ),
         ]
         let candidates = [
             makeCandidate(
@@ -317,7 +393,7 @@ struct YearDeterminatorTests {
         } else {
             // May also hit other rules first; verify no crash
             #expect(result.yearResult.year != nil
-                    || result.fallbackDecision != nil)
+                || result.fallbackDecision != nil)
         }
     }
 
@@ -350,12 +426,27 @@ struct YearDeterminatorTests {
     func suspiciousAlbumDetected() {
         let track = makeTrack(album: "EP")
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X",
-                  album: "EP", year: 2000),
-            Track(id: "2", name: "B", artist: "X",
-                  album: "EP", year: 2005),
-            Track(id: "3", name: "C", artist: "X",
-                  album: "EP", year: 2010),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "EP",
+                year: 2000
+            ),
+            Track(
+                id: "2",
+                name: "B",
+                artist: "X",
+                album: "EP",
+                year: 2005
+            ),
+            Track(
+                id: "3",
+                name: "C",
+                artist: "X",
+                album: "EP",
+                year: 2010
+            ),
         ]
         let reason = determinator.preFlightCheck(
             track: track,
@@ -369,12 +460,27 @@ struct YearDeterminatorTests {
     func longAlbumNotSuspicious() {
         let track = makeTrack(album: "Great Album Title")
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X",
-                  album: "Great Album Title", year: 2000),
-            Track(id: "2", name: "B", artist: "X",
-                  album: "Great Album Title", year: 2005),
-            Track(id: "3", name: "C", artist: "X",
-                  album: "Great Album Title", year: 2010),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "Great Album Title",
+                year: 2000
+            ),
+            Track(
+                id: "2",
+                name: "B",
+                artist: "X",
+                album: "Great Album Title",
+                year: 2005
+            ),
+            Track(
+                id: "3",
+                name: "C",
+                artist: "X",
+                album: "Great Album Title",
+                year: 2010
+            ),
         ]
         let reason = determinator.checkSuspiciousAlbum(
             track: track,
@@ -387,10 +493,20 @@ struct YearDeterminatorTests {
     func fewYearsNotSuspicious() {
         let track = makeTrack(album: "EP")
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X",
-                  album: "EP", year: 2000),
-            Track(id: "2", name: "B", artist: "X",
-                  album: "EP", year: 2000),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "EP",
+                year: 2000
+            ),
+            Track(
+                id: "2",
+                name: "B",
+                artist: "X",
+                album: "EP",
+                year: 2000
+            ),
         ]
         let reason = determinator.checkSuspiciousAlbum(
             track: track,
@@ -404,12 +520,27 @@ struct YearDeterminatorTests {
         // len("ABC") == 3 == suspiciousAlbumMinLen
         let track = makeTrack(album: "ABC")
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X",
-                  album: "ABC", year: 2000),
-            Track(id: "2", name: "B", artist: "X",
-                  album: "ABC", year: 2001),
-            Track(id: "3", name: "C", artist: "X",
-                  album: "ABC", year: 2002),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "ABC",
+                year: 2000
+            ),
+            Track(
+                id: "2",
+                name: "B",
+                artist: "X",
+                album: "ABC",
+                year: 2001
+            ),
+            Track(
+                id: "3",
+                name: "C",
+                artist: "X",
+                album: "ABC",
+                year: 2002
+            ),
         ]
         let reason = determinator.checkSuspiciousAlbum(
             track: track,
@@ -425,10 +556,14 @@ struct YearDeterminatorTests {
         let currentYear = Calendar.current.component(
             .year, from: Date()
         )
-        let track = makeTrack(album: "New Album")
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X",
-                  album: "New Album", year: currentYear + 5),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "New Album",
+                year: currentYear + 5
+            ),
         ]
         let reason = determinator.checkFutureYears(
             albumTracks: albumTracks,
@@ -443,10 +578,14 @@ struct YearDeterminatorTests {
         let currentYear = Calendar.current.component(
             .year, from: Date()
         )
-        let track = makeTrack(album: "New Album")
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X",
-                  album: "New Album", year: currentYear + 1),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "New Album",
+                year: currentYear + 1
+            ),
         ]
         let reason = determinator.checkFutureYears(
             albumTracks: albumTracks,
@@ -458,8 +597,13 @@ struct YearDeterminatorTests {
     @Test("No future years passes")
     func noFutureYearsPasses() {
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X",
-                  album: "Album", year: 2020),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "Album",
+                year: 2020
+            ),
         ]
         let reason = determinator.checkFutureYears(
             albumTracks: albumTracks
@@ -473,8 +617,13 @@ struct YearDeterminatorTests {
             .year, from: Date()
         )
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X",
-                  album: "Album", year: currentYear + 3),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "Album",
+                year: currentYear + 3
+            ),
         ]
         // threshold=5 → year+3 is within threshold
         let reason = determinator.checkFutureYears(
@@ -491,9 +640,13 @@ struct YearDeterminatorTests {
         )
         let track = makeTrack(album: "Future Album")
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X",
-                  album: "Future Album",
-                  year: currentYear + 10),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "Future Album",
+                year: currentYear + 10
+            ),
         ]
         let reason = determinator.preFlightCheck(
             track: track,
@@ -541,10 +694,20 @@ struct YearDeterminatorTests {
     func absurdConsensusSkipped() {
         let track = makeTrack()
         let albumTracks = [
-            Track(id: "1", name: "A", artist: "X", album: "Y",
-                  releaseYear: 1850),
-            Track(id: "2", name: "B", artist: "X", album: "Y",
-                  releaseYear: 1850),
+            Track(
+                id: "1",
+                name: "A",
+                artist: "X",
+                album: "Y",
+                releaseYear: 1850
+            ),
+            Track(
+                id: "2",
+                name: "B",
+                artist: "X",
+                album: "Y",
+                releaseYear: 1850
+            ),
         ]
         let candidates = [
             makeCandidate(artist: "X", album: "Y", year: 2000),

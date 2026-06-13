@@ -6,42 +6,44 @@ import Testing
 
 @Suite("Year Fallback Parity — Python reference fixtures")
 struct YearFallbackParityTests {
-
     let strategy = YearFallbackStrategy()
 
-    @Test("Fallback decision matches Python",
-          arguments: try! loadFallbackFixtures())
-    func fallbackDecision(fixture: FallbackFixtureCase) {
-        let ctx = fixture.context
-        let dummyTrack = Track(
-            id: "test",
-            name: "Test",
-            artist: "Test Artist",
-            album: "Test Album",
-            // Use distant past to avoid triggering "fresh album" rule
-            dateAdded: Date.distantPast
-        )
-        let albumTypeInfo = mapAlbumType(ctx.albumType)
+    @Test("Fallback decision matches Python")
+    func fallbackDecision() throws {
+        let fixtures: [FallbackFixtureCase] = try loadFallbackFixtures()
 
-        let context = FallbackContext(
-            scoredReleases: [],
-            existingYear: ctx.existingYear,
-            track: dummyTrack,
-            albumTracks: [dummyTrack],
-            isDefinitive: ctx.isDefinitive,
-            bestScore: ctx.bestScore,
-            bestYear: ctx.bestYear,
-            albumTypeInfo: albumTypeInfo,
-            verificationAttempts: ctx.verificationAttempts
-        )
+        for fixture in fixtures {
+            let contextFixture = fixture.context
+            let dummyTrack = Track(
+                id: "test",
+                name: "Test",
+                artist: "Test Artist",
+                album: "Test Album",
+                // Use distant past to avoid triggering "fresh album" rule
+                dateAdded: Date.distantPast
+            )
+            let albumTypeInfo = mapAlbumType(contextFixture.albumType)
 
-        let decision = strategy.decide(context)
-        let decisionStr = FixtureHelpers.decisionType(decision)
+            let context = FallbackContext(
+                scoredReleases: [],
+                existingYear: contextFixture.existingYear,
+                track: dummyTrack,
+                albumTracks: [dummyTrack],
+                isDefinitive: contextFixture.isDefinitive,
+                bestScore: contextFixture.bestScore,
+                bestYear: contextFixture.bestYear,
+                albumTypeInfo: albumTypeInfo,
+                verificationAttempts: contextFixture.verificationAttempts
+            )
 
-        #expect(
-            decisionStr == fixture.expected.decision,
-            "[\(fixture.id)] decision: got \(decisionStr), expected \(fixture.expected.decision)"
-        )
+            let decision = strategy.decide(context)
+            let decisionStr = FixtureHelpers.decisionType(decision)
+
+            #expect(
+                decisionStr == fixture.expected.decision,
+                "[\(fixture.id)] decision: got \(decisionStr), expected \(fixture.expected.decision)"
+            )
+        }
     }
 }
 

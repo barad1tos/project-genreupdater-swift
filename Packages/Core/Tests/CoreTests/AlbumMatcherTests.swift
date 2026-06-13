@@ -3,7 +3,6 @@ import Testing
 
 @Suite("AlbumMatcher")
 struct AlbumMatcherTests {
-
     // MARK: - Levenshtein Distance
 
     @Test("Identical strings → 0")
@@ -91,7 +90,7 @@ struct AlbumMatcherTests {
     // MARK: - Album Variant Detection
 
     @Test("Remastered variant detected")
-    func variantRemastered() {
+    func variantFromUpdatedEditionKeyword() {
         #expect(isAlbumVariant("Dark Side of the Moon", "Dark Side of the Moon (Remastered)"))
     }
 

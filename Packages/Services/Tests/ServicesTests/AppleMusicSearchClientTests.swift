@@ -89,7 +89,7 @@ struct AppleMusicSearchClientTests {
     }
 
     @Test("getReleaseCandidates returns matching iTunes album candidates")
-    func releaseCandidatesUseITunesSearchResults() async throws {
+    func releaseCandidatesUseITunesSearchResults() async throws { // swiftlint:disable:this function_body_length
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AppleMusicSearchMockURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -164,7 +164,7 @@ struct AppleMusicSearchClientTests {
     }
 
     @Test("getReleaseCandidates uses iTunes lookup fallback when search is empty")
-    func releaseCandidatesUseLookupFallback() async throws {
+    func releaseCandidatesUseLookupFallback() async throws { // swiftlint:disable:this function_body_length
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AppleMusicSearchMockURLProtocol.self]
         let session = URLSession(configuration: configuration)

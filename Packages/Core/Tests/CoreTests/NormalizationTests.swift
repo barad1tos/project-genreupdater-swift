@@ -3,7 +3,6 @@ import Testing
 
 @Suite("Normalization")
 struct NormalizationTests {
-
     // MARK: - normalizeForMatching
 
     @Test("Strips whitespace and lowercases")
@@ -15,9 +14,9 @@ struct NormalizationTests {
 
     @Test("Empty and whitespace-only strings return empty")
     func emptyStrings() {
-        #expect(normalizeForMatching("") == "")
-        #expect(normalizeForMatching("   ") == "")
-        #expect(normalizeForMatching("\t\n") == "")
+        #expect(normalizeForMatching("").isEmpty)
+        #expect(normalizeForMatching("   ").isEmpty)
+        #expect(normalizeForMatching("\t\n").isEmpty)
     }
 
     @Test("Preserves diacritics (no stripping)")

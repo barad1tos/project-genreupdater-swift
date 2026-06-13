@@ -8,7 +8,6 @@
 // - Track Codable round-trip throughput
 
 import XCTest
-
 @testable import Core
 
 final class CorePerformanceTests: XCTestCase {
