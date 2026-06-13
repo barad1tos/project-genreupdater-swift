@@ -155,6 +155,8 @@ All interactive list rows (ArtistListRow, AlbumListRow) share a consistent trio:
 
 ## Build & Test
 
+Before pushing branches that trigger GitHub Actions, run `just ci` locally when feasible. macOS Actions minutes are expensive; if the full local gate cannot run, record the skipped checks and do not push until the remaining risk is explicitly accepted.
+
 ```bash
 # Local CI — full pipeline (mirrors .github/workflows/ci.yml)
 # Requires: brew install just
