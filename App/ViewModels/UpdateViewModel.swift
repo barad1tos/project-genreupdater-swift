@@ -72,6 +72,8 @@ final class UpdateViewModel {
 
     private let updateCoordinator: UpdateCoordinator
     private let changePreviewPipeline: ChangePreviewPipeline
+    private let featureGate: FeatureGate?
+    private let recordProcessedTracks: (Int) -> Void
     private let defaultUpdateGenre: Bool
     private let defaultUpdateYear: Bool
     private let defaultPreviewOnly: Bool
@@ -86,6 +88,8 @@ final class UpdateViewModel {
     init(
         updateCoordinator: UpdateCoordinator,
         changePreviewPipeline: ChangePreviewPipeline,
+        featureGate: FeatureGate? = nil,
+        recordProcessedTracks: @escaping (Int) -> Void = { _ in },
         defaultUpdateGenre: Bool = true,
         defaultUpdateYear: Bool = true,
         defaultPreviewOnly: Bool = false,
@@ -93,6 +97,8 @@ final class UpdateViewModel {
     ) {
         self.updateCoordinator = updateCoordinator
         self.changePreviewPipeline = changePreviewPipeline
+        self.featureGate = featureGate
+        self.recordProcessedTracks = recordProcessedTracks
         self.defaultUpdateGenre = defaultUpdateGenre
         self.defaultUpdateYear = defaultUpdateYear
         self.defaultPreviewOnly = defaultPreviewOnly
@@ -113,6 +119,14 @@ final class UpdateViewModel {
     ///
     /// - Parameter tracks: The tracks to analyze for potential metadata updates.
     func startDryRun(tracks: [Track]) {
+        do {
+            _ = try featureGate?.requireTrackCapacity(for: tracks)
+        } catch {
+            errorMessage = error.localizedDescription
+            phase = .configuring
+            return
+        }
+
         phase = .processing
         errorMessage = nil
 
@@ -189,19 +203,8 @@ final class UpdateViewModel {
 
         processingTask = Task {
             do {
-                let tracks = accepted.map(\.track)
-                let options = UpdateOptions(
-                    updateGenre: updateGenre,
-                    updateYear: updateYear,
-                    cleanTrackNames: cleanTrackNames,
-                    cleanAlbumNames: cleanAlbumNames,
-                    minConfidence: confidencePercentage,
-                    autoAccept: true
-                )
-
-                let batchResult = try await updateCoordinator.updateTracks(
-                    tracks,
-                    options: options,
+                let batchResult = try await updateCoordinator.applyAcceptedChanges(
+                    accepted,
                     progressHandler: { [weak self] update in
                         Task { @MainActor in
                             self?.progress = update
@@ -210,6 +213,7 @@ final class UpdateViewModel {
                 )
 
                 result = batchResult
+                recordAppliedTrackUsage(from: batchResult)
                 phase = .done
                 progress = nil
             } catch {
@@ -218,6 +222,12 @@ final class UpdateViewModel {
                 progress = nil
             }
         }
+    }
+
+    private func recordAppliedTrackUsage(from result: BatchUpdateResult) {
+        let appliedTrackCount = Set(result.entries.map(\.trackID)).count
+        guard appliedTrackCount > 0 else { return }
+        recordProcessedTracks(appliedTrackCount)
     }
 
     // MARK: - Change Selection

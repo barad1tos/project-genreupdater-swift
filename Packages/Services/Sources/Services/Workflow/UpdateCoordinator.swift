@@ -235,10 +235,69 @@ public actor UpdateCoordinator {
         )
     }
 
+    /// Apply reviewed proposals exactly as accepted by the user.
+    ///
+    /// This preserves per-change review decisions: rejected proposals are not
+    /// recalculated or reintroduced during the write phase.
+    public func applyAcceptedChanges(
+        _ changes: [ProposedChange],
+        progressHandler: @Sendable (ProgressUpdate) -> Void = { _ in }
+    ) async throws -> BatchUpdateResult {
+        let accepted = changes.filter(\.isAccepted)
+        guard !accepted.isEmpty else {
+            throw UpdateCoordinatorError.noChangesProduced
+        }
+
+        var entries: [ChangeLogEntry] = []
+        var failedTrackIDs: [String] = []
+        var errorDescriptions: [String] = []
+
+        for (index, change) in accepted.enumerated() {
+            do {
+                if let entry = try await applyChange(change) {
+                    entries.append(entry)
+                }
+            } catch {
+                failedTrackIDs.append(change.track.id)
+                errorDescriptions.append(error.localizedDescription)
+                log
+                    .warning(
+                        "Failed to apply reviewed change for track \(change.track.id, privacy: .private): \(error.localizedDescription, privacy: .public)"
+                    )
+            }
+
+            progressHandler(ProgressUpdate(
+                phase: .updating,
+                current: index + 1,
+                total: accepted.count
+            ))
+        }
+
+        progressHandler(ProgressUpdate(
+            phase: .complete,
+            current: accepted.count,
+            total: accepted.count
+        ))
+
+        if !errorDescriptions.isEmpty, entries.isEmpty {
+            throw UpdateCoordinatorError.allTracksFailed(
+                count: errorDescriptions.count,
+                errorDescriptions: errorDescriptions
+            )
+        }
+
+        return BatchUpdateResult(
+            entries: entries,
+            failedTrackIDs: failedTrackIDs,
+            errorDescriptions: errorDescriptions
+        )
+    }
+
     // MARK: Apply Change
 
-    func applyChange(_ change: ProposedChange) async throws {
-        guard let newValue = change.newValue else { return }
+    @discardableResult
+    func applyChange(_ change: ProposedChange) async throws -> ChangeLogEntry? {
+        guard let newValue = change.newValue else { return nil }
 
         let property = switch change.changeType {
         case .genreUpdate: "genre"
@@ -283,5 +342,6 @@ public actor UpdateCoordinator {
             .info(
                 "Applied \(change.changeType.rawValue, privacy: .public) to track \(change.track.id, privacy: .private)"
             )
+        return logEntry
     }
 }

@@ -33,4 +33,23 @@ extension WorkflowViewModel {
         }
         progress = nil
     }
+
+    func requireTrackCapacityForCurrentMode(tracks: [Track]) -> Bool {
+        guard mode != .fullLibrary else { return true }
+
+        do {
+            _ = try featureGate?.requireTrackCapacity(for: tracks)
+            return true
+        } catch {
+            phase = .error(error.localizedDescription)
+            progress = nil
+            return false
+        }
+    }
+
+    func recordAppliedTrackUsage(from result: BatchUpdateResult) {
+        let appliedTrackCount = Set(result.entries.map(\.trackID)).count
+        guard appliedTrackCount > 0 else { return }
+        recordProcessedTracks(appliedTrackCount)
+    }
 }

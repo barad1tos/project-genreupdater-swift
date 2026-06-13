@@ -31,7 +31,7 @@ private enum AppDependencyInitializationError: LocalizedError {
     }
 }
 
-private enum APIAuthReferenceResolver {
+enum APIAuthReferenceResolver {
     static func resolve(
         _ reference: String,
         fallbackUserDefaultsKey: String? = nil
@@ -103,6 +103,7 @@ final class AppDependencies {
     private(set) var applescriptBridge: AppleScriptBridge?
     private(set) var subscriptionService: SubscriptionService?
     private(set) var featureGate: FeatureGate?
+    private(set) var networkReachabilityMonitor: NetworkReachabilityMonitor?
     private(set) var apiOrchestrator: APIOrchestrator?
     private(set) var pendingVerificationService: (any PendingVerificationService)?
     private(set) var cacheService: GRDBCacheService?
@@ -114,6 +115,7 @@ final class AppDependencies {
     private(set) var updateCoordinator: UpdateCoordinator?
     private(set) var batchProcessor: BatchProcessor?
     private(set) var undoCoordinator: UndoCoordinator?
+    private(set) var trackIDMapper: TrackIDMapper?
     private(set) var checkpointManager: CheckpointManager?
     private(set) var librarySyncService: LibrarySyncService?
     private(set) var changePreviewPipeline: ChangePreviewPipeline?
@@ -229,7 +231,8 @@ final class AppDependencies {
         let configuredAPIOrchestrator = Self.makeAPIOrchestrator(
             configuration: config,
             cache: cacheService,
-            pendingVerificationService: configuredPendingVerificationService
+            pendingVerificationService: configuredPendingVerificationService,
+            reachability: networkReachabilityMonitor
         )
         yearDeterminator = configuredYearDeterminator
         pendingVerificationService = configuredPendingVerificationService
@@ -250,6 +253,28 @@ final class AppDependencies {
                 yearDeterminator: configuredYearDeterminator,
                 apiOrchestrator: configuredAPIOrchestrator
             )
+        }
+    }
+
+    func refreshTrackIDMapping(musicKitTracks: [Track]) async {
+        guard let mapper = trackIDMapper,
+              let bridge = applescriptBridge
+        else { return }
+
+        do {
+            let mappedCount = try await mapper.refreshMapping(
+                musicKitTracks: musicKitTracks,
+                appleScriptClient: bridge,
+                batchSize: config.applescript.batchProcessing.idsBatchSize,
+                allTrackIDsTimeout: config.applescript.timeouts.fullLibraryFetch,
+                tracksByIDsTimeout: config.applescript.timeouts.idsBatchFetch
+            )
+            log
+                .info(
+                    "Track ID mapping refreshed: \(mappedCount, privacy: .public)/\(musicKitTracks.count, privacy: .public)"
+                )
+        } catch {
+            log.error("Track ID mapping refresh failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -319,79 +344,6 @@ final class AppDependencies {
         )
     }
 
-    private static func makeAPIOrchestrator(
-        configuration: AppConfiguration,
-        cache: (any CacheService)?,
-        pendingVerificationService: (any PendingVerificationService)?
-    ) -> APIOrchestrator {
-        let apiAuth = configuration.yearRetrieval.apiAuth
-        let contactEmail = APIAuthReferenceResolver.resolve(
-            apiAuth.contactEmailReference,
-            fallbackUserDefaultsKey: "contactEmail"
-        )
-        let musicBrainzClient = MusicBrainzClient(
-            appName: apiAuth.musicBrainzAppName,
-            contactEmail: contactEmail,
-            rateLimiter: makeMusicBrainzRateLimiter(configuration: configuration)
-        )
-        let discogsRateLimiter = makeDiscogsRateLimiter(configuration: configuration)
-        let configuredDiscogsToken = APIAuthReferenceResolver.resolve(apiAuth.discogsTokenReference)
-        let discogsClient = configuredDiscogsToken.isEmpty
-            ? ((try? DiscogsClient.fromKeychain(
-                contactEmail: contactEmail,
-                rateLimiter: discogsRateLimiter
-            )) ?? DiscogsClient(
-                contactEmail: contactEmail,
-                rateLimiter: discogsRateLimiter
-            ))
-            : DiscogsClient(
-                token: configuredDiscogsToken,
-                contactEmail: contactEmail,
-                rateLimiter: discogsRateLimiter
-            )
-
-        return APIOrchestrator(
-            musicBrainz: musicBrainzClient,
-            discogs: discogsClient,
-            appleMusic: makeAppleMusicSearchClient(configuration: configuration),
-            cache: cache,
-            pendingVerificationService: pendingVerificationService,
-            maxVerificationAttempts: configuration.yearRetrieval.fallback.maxVerificationAttempts,
-            negativeResultTTL: configuration.caching.negativeResultTTL,
-            maxConcurrentSourceCalls: configuration.yearRetrieval.rateLimits.concurrentAPICalls,
-            maxAPIRetries: configuration.runtime.maxRetries,
-            apiRetryDelaySeconds: configuration.runtime.retryDelaySeconds,
-            sourcePriorityConfiguration: APISourcePriorityConfiguration(configuration: configuration)
-        )
-    }
-
-    private static func makeMusicBrainzRateLimiter(configuration: AppConfiguration) -> TokenBucketRateLimiter {
-        makeRateLimiter(
-            requests: configuration.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond,
-            perSeconds: 1
-        )
-    }
-
-    private static func makeDiscogsRateLimiter(configuration: AppConfiguration) -> TokenBucketRateLimiter {
-        makeRateLimiter(
-            requests: Double(configuration.yearRetrieval.rateLimits.discogsRequestsPerMinute),
-            perSeconds: 60
-        )
-    }
-
-    private static func makeRateLimiter(
-        requests: Double,
-        perSeconds windowSizeSeconds: Double
-    ) -> TokenBucketRateLimiter {
-        let sanitizedRequests = max(1, requests)
-        let refillMilliseconds = max(1, Int((windowSizeSeconds / sanitizedRequests) * 1000))
-
-        return TokenBucketRateLimiter(
-            maxTokens: Int(sanitizedRequests.rounded(.up)),
-            refillInterval: .milliseconds(refillMilliseconds)
-        )
-    }
-
     /// Steps 6-7: Create core algorithm instances and API orchestrator.
     private func initializeAlgorithmsAndAPI() async throws {
         let genreDeterm = GenreDeterminator()
@@ -408,10 +360,15 @@ final class AppDependencies {
         try await pendingVerification.initialize()
         pendingVerificationService = pendingVerification
 
+        let reachability = NetworkReachabilityMonitor()
+        await reachability.start()
+        networkReachabilityMonitor = reachability
+
         apiOrchestrator = Self.makeAPIOrchestrator(
             configuration: config,
             cache: cacheService,
-            pendingVerificationService: pendingVerification
+            pendingVerificationService: pendingVerification,
+            reachability: reachability
         )
     }
 
@@ -431,8 +388,12 @@ final class AppDependencies {
             return
         }
 
+        let mapper = TrackIDMapper()
+        trackIDMapper = mapper
+
         let undo = UndoCoordinator(
             scriptBridge: bridge,
+            idMapper: mapper,
             changeLogStore: logStore
         )
         await undo.initialize()
@@ -444,6 +405,7 @@ final class AppDependencies {
             trackStore: store,
             cache: cache,
             undoCoordinator: undo,
+            idMapper: mapper,
             genreDeterminator: genreDeterm,
             yearDeterminator: yearDeterm,
             runtimeConfiguration: UpdateRuntimeConfiguration(configuration: config)

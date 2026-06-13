@@ -119,4 +119,31 @@ struct TrackIDMapperTests {
         let hasMapping = await mapper.hasMappingFor(musicKitID: "any")
         #expect(!hasMapping)
     }
+
+    @Test("Refresh from AppleScript client maps MusicKit tracks to fetched AppleScript IDs")
+    func refreshFromAppleScriptClientMapsFetchedTracks() async throws {
+        let mapper = TrackIDMapper()
+        let bridge = MockAppleScriptClient()
+        let musicKitTracks = [
+            makeTrack(id: "MK1", name: "Come Together", artist: "Beatles", album: "Abbey Road"),
+            makeTrack(id: "MK2", name: "Something", artist: "Beatles", album: "Abbey Road"),
+        ]
+        let appleScriptTracks = [
+            makeTrack(id: "AS-HEX-1", name: "Come Together", artist: "Beatles", album: "Abbey Road"),
+            makeTrack(id: "AS-HEX-2", name: "Something", artist: "Beatles", album: "Abbey Road"),
+        ]
+        await bridge.setFetchedTracks(appleScriptTracks)
+
+        let mappedCount = try await mapper.refreshMapping(
+            musicKitTracks: musicKitTracks,
+            appleScriptClient: bridge,
+            batchSize: 50,
+            allTrackIDsTimeout: .seconds(5),
+            tracksByIDsTimeout: .seconds(10)
+        )
+
+        #expect(mappedCount == 2)
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK1") == "AS-HEX-1")
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK2") == "AS-HEX-2")
+    }
 }

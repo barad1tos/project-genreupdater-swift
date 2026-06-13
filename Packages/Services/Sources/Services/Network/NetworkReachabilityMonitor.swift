@@ -15,9 +15,10 @@ public actor NetworkReachabilityMonitor {
     private var _isConnected: Bool = true
     private let log = Logger(subsystem: "com.genreupdater", category: "NetworkReachability")
 
-    public init() {
+    public init(initialIsConnected: Bool = true) {
         self.monitor = NWPathMonitor()
         self.queue = DispatchQueue(label: "com.genreupdater.reachability")
+        self._isConnected = initialIsConnected
     }
 
     public var isConnected: Bool {

@@ -6,6 +6,8 @@ import Foundation
 
 actor MockAppleScriptClient: AppleScriptClient {
     var writtenProperties: [(trackID: String, property: String, value: String)] = []
+    var trackIDsToFetch: [String] = []
+    var tracksByID: [String: Track] = [:]
     var shouldThrow = false
 
     func initialize() async throws {}
@@ -19,15 +21,15 @@ actor MockAppleScriptClient: AppleScriptClient {
     }
 
     func fetchTracksByIDs(
-        _ _: [String],
+        _ trackIDs: [String],
         batchSize _: Int,
         timeout _: Duration?
     ) async throws -> [Track] {
-        []
+        trackIDs.compactMap { tracksByID[$0] }
     }
 
     func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
-        []
+        trackIDsToFetch
     }
 
     func updateTrackProperty(trackID: String, property: String, value: String) async throws {
@@ -39,6 +41,11 @@ actor MockAppleScriptClient: AppleScriptClient {
 
     func setThrowMode(_ shouldFail: Bool) {
         shouldThrow = shouldFail
+    }
+
+    func setFetchedTracks(_ tracks: [Track]) {
+        trackIDsToFetch = tracks.map(\.id)
+        tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
     }
 }
 

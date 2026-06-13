@@ -140,6 +140,28 @@ struct FeatureGateTrackLimitTests {
         }
     }
 
+    @Test("Track limit error describes remaining capacity")
+    func trackLimitErrorDescription() {
+        let error = FeatureGateError.freeTrackLimitReached(limit: 500, used: 499)
+
+        #expect(error.localizedDescription.contains("Free tier track limit reached"))
+        #expect(error.localizedDescription.contains("1 track remaining"))
+    }
+
+    @Test("Track capacity counts unique track IDs")
+    func trackCapacityCountsUniqueTrackIDs() throws {
+        let gate = FeatureGate(fixedTier: .free, freeTracksUsed: 498)
+        let tracks = [
+            Track(id: "T1", name: "Song 1", artist: "Artist", album: "Album"),
+            Track(id: "T1", name: "Song 1", artist: "Artist", album: "Album"),
+            Track(id: "T2", name: "Song 2", artist: "Artist", album: "Album"),
+        ]
+
+        let requiredCapacity = try gate.requireTrackCapacity(for: tracks)
+
+        #expect(requiredCapacity == 2)
+    }
+
     @Test("Free track limit constant is 500")
     func limitConstant() {
         #expect(FeatureGate.freeTrackLimit == 500)

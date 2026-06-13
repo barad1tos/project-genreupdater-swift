@@ -5,6 +5,7 @@
 // - Testing: init(fixedTier:) bypasses StoreKit entirely
 
 import Core
+import Foundation
 import OSLog
 
 private let log = Logger(subsystem: "com.genreupdater", category: "FeatureGate")
@@ -14,6 +15,19 @@ private let log = Logger(subsystem: "com.genreupdater", category: "FeatureGate")
 public enum FeatureGateError: Error, Sendable {
     case featureRequiresTier(feature: AppFeature, required: Tier, current: Tier)
     case freeTrackLimitReached(limit: Int, used: Int)
+}
+
+extension FeatureGateError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case let .featureRequiresTier(feature, required, current):
+            return "\(feature.rawValue) requires \(required) tier. Current tier: \(current)."
+        case let .freeTrackLimitReached(limit, used):
+            let remaining = max(0, limit - used)
+            let trackLabel = remaining == 1 ? "track" : "tracks"
+            return "Free tier track limit reached. \(remaining) \(trackLabel) remaining out of \(limit). Upgrade to process more tracks."
+        }
+    }
 }
 
 // MARK: - FeatureGate
@@ -89,6 +103,14 @@ public final class FeatureGate {
                 used: used
             )
         }
+    }
+
+    /// Require capacity for a track collection, counting duplicate IDs once.
+    @discardableResult
+    public func requireTrackCapacity(for tracks: [Track]) throws -> Int {
+        let uniqueTrackCount = Set(tracks.map(\.id)).count
+        try requireTrackCapacity(count: uniqueTrackCount)
+        return uniqueTrackCount
     }
 
     /// All features accessible at the current tier.

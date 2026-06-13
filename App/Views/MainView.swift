@@ -225,6 +225,10 @@ struct MainView: View {
             let viewModel = UpdateViewModel(
                 updateCoordinator: coordinator,
                 changePreviewPipeline: pipeline,
+                featureGate: dependencies.featureGate,
+                recordProcessedTracks: { count in
+                    dependencies.subscriptionService?.incrementFreeTracksUsed(by: count)
+                },
                 defaultUpdateGenre: configuredUpdateSelection.updateGenre,
                 defaultUpdateYear: configuredUpdateSelection.updateYear,
                 defaultPreviewOnly: configuredPreviewOnly,
@@ -259,6 +263,7 @@ struct MainView: View {
         do {
             try await reader.requestAuthorization()
             tracks = try await reader.fetchAllTracks()
+            await dependencies.refreshTrackIDMapping(musicKitTracks: tracks)
             browseViewModel.tracks = tracks
             saveMetricsSnapshot(from: tracks)
         } catch {
@@ -279,6 +284,10 @@ struct MainView: View {
             batchProcessor: processor,
             changePreviewPipeline: pipeline,
             pendingVerificationService: dependencies.pendingVerificationService,
+            featureGate: dependencies.featureGate,
+            recordProcessedTracks: { count in
+                dependencies.subscriptionService?.incrementFreeTracksUsed(by: count)
+            },
             defaultUpdateGenre: configuredUpdateSelection.updateGenre,
             defaultUpdateYear: configuredUpdateSelection.updateYear,
             defaultPreviewOnly: configuredPreviewOnly,

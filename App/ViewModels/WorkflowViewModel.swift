@@ -155,6 +155,8 @@ final class WorkflowViewModel {
     let batchProcessor: BatchProcessor
     let changePreviewPipeline: ChangePreviewPipeline
     let pendingVerificationService: (any PendingVerificationService)?
+    let featureGate: FeatureGate?
+    let recordProcessedTracks: (Int) -> Void
     var defaultUpdateGenre: Bool
     var defaultUpdateYear: Bool
     var defaultPreviewOnly: Bool
@@ -167,6 +169,8 @@ final class WorkflowViewModel {
         batchProcessor: BatchProcessor,
         changePreviewPipeline: ChangePreviewPipeline,
         pendingVerificationService: (any PendingVerificationService)? = nil,
+        featureGate: FeatureGate? = nil,
+        recordProcessedTracks: @escaping (Int) -> Void = { _ in },
         defaultUpdateGenre: Bool = true,
         defaultUpdateYear: Bool = true,
         defaultPreviewOnly: Bool = true,
@@ -177,6 +181,8 @@ final class WorkflowViewModel {
         self.batchProcessor = batchProcessor
         self.changePreviewPipeline = changePreviewPipeline
         self.pendingVerificationService = pendingVerificationService
+        self.featureGate = featureGate
+        self.recordProcessedTracks = recordProcessedTracks
         self.defaultUpdateGenre = defaultUpdateGenre
         self.defaultUpdateYear = defaultUpdateYear
         self.defaultPreviewOnly = defaultPreviewOnly
@@ -212,6 +218,8 @@ final class WorkflowViewModel {
         let workingTracks = tracksForCurrentMode(tracks)
         totalCount = workingTracks.count
         computeScopePreview(tracks: workingTracks)
+
+        guard requireTrackCapacityForCurrentMode(tracks: workingTracks) else { return }
 
         if mode == .fullLibrary {
             startBatchProcessing(tracks: workingTracks)
@@ -413,19 +421,8 @@ final class WorkflowViewModel {
 
         processingTask = Task {
             do {
-                let tracks = accepted.map(\.track)
-                let options = UpdateOptions(
-                    updateGenre: updateGenre,
-                    updateYear: updateYear,
-                    cleanTrackNames: cleanTrackNames,
-                    cleanAlbumNames: cleanAlbumNames,
-                    minConfidence: confidencePercentage,
-                    autoAccept: true
-                )
-
-                let batchResult = try await updateCoordinator.updateTracks(
-                    tracks,
-                    options: options,
+                let batchResult = try await updateCoordinator.applyAcceptedChanges(
+                    accepted,
                     progressHandler: { [weak self] update in
                         Task { @MainActor in
                             self?.progress = update
@@ -434,6 +431,7 @@ final class WorkflowViewModel {
                 )
 
                 result = batchResult
+                recordAppliedTrackUsage(from: batchResult)
                 phase = .done
                 progress = nil
             } catch {

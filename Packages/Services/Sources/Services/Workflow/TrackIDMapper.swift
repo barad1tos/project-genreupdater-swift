@@ -39,6 +39,29 @@ public actor TrackIDMapper: TrackIDMapping {
             )
     }
 
+    @discardableResult
+    public func refreshMapping(
+        musicKitTracks: [Track],
+        appleScriptClient: any AppleScriptClient,
+        batchSize: Int,
+        allTrackIDsTimeout: Duration?,
+        tracksByIDsTimeout: Duration?
+    ) async throws -> Int {
+        let appleScriptTrackIDs = try await appleScriptClient.fetchAllTrackIDs(
+            timeout: allTrackIDsTimeout
+        )
+        let appleScriptTracks = try await appleScriptClient.fetchTracksByIDs(
+            appleScriptTrackIDs,
+            batchSize: batchSize,
+            timeout: tracksByIDsTimeout
+        )
+        refreshMapping(
+            musicKitTracks: musicKitTracks,
+            appleScriptTracks: appleScriptTracks
+        )
+        return mapping.count
+    }
+
     public func appleScriptID(forMusicKitID musicKitID: String) -> String? {
         mapping[musicKitID]
     }

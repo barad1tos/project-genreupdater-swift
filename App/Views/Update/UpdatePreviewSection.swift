@@ -138,6 +138,14 @@ struct UpdatePreviewSection: View {
             .lineLimit(1)
 
             ConfidenceBadge(confidence: Double(change.confidence) / 100.0)
+
+            if !change.source.isEmpty {
+                Text(change.source)
+                    .font(AppFont.caption)
+                    .foregroundStyle(Ayu.fgSecondary)
+                    .lineLimit(1)
+                    .help("Source: \(change.source)")
+            }
         }
         .padding(.vertical, 2)
     }
