@@ -217,8 +217,9 @@ struct MainView: View {
     @State var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     @State var tracks: [Track] = []
     @State var isLoading = false
+    @State var libraryLoadTask: Task<Void, Never>?
+    @State var libraryLoadRequestID = UUID()
     @State var browseViewModel = BrowseViewModel()
-    @State var showUpdateSheet = false
     @State var metricsSnapshot: PersistedMetricsSnapshot?
     @State var libraryLoadError: LibraryLoadError?
     @State var lastLibraryScanDate: Date?
@@ -232,7 +233,7 @@ struct MainView: View {
         navigationShell
             .toolbar(removing: .sidebarToggle)
             .navigationSplitViewStyle(.balanced)
-            .task { await loadTracks() }
+            .task { startLibraryLoad() }
             .onAppear { updateColumnVisibility() }
             .onReceive(NotificationCenter.default.publisher(for: .updateSelectedTracks)) { _ in
                 selectedCategory = .update
@@ -252,9 +253,6 @@ struct MainView: View {
             }
             .onChange(of: dependencies.config.processing.releaseYearRestoreThreshold) {
                 applyWorkflowDefaults()
-            }
-            .sheet(isPresented: $showUpdateSheet) {
-                updateSheet
             }
             .focusedValue(\.selectedCategory, $selectedCategory)
     }
@@ -378,7 +376,7 @@ struct MainView: View {
                     isDryRun: dependencies.config.runtime.dryRun,
                     workflowState: workflowDashboardState,
                     onScanNow: {
-                        Task { await loadTracks(forceRefresh: true) }
+                        startLibraryLoad(forceRefresh: true)
                     },
                     onReviewChanges: {
                         selectedCategory = .update
@@ -435,28 +433,6 @@ struct MainView: View {
             BrowseDetailView(viewModel: browseViewModel)
         } else {
             Color.clear
-        }
-    }
-
-    // MARK: - Update Sheet (legacy Cmd+U support)
-
-    @ViewBuilder
-    private var updateSheet: some View {
-        if let coordinator = dependencies.updateCoordinator,
-           let pipeline = dependencies.changePreviewPipeline {
-            let viewModel = UpdateViewModel(
-                updateCoordinator: coordinator,
-                changePreviewPipeline: pipeline,
-                featureGate: dependencies.featureGate,
-                recordProcessedTracks: { count in
-                    dependencies.subscriptionService?.incrementFreeTracksUsed(by: count)
-                },
-                defaultUpdateGenre: configuredUpdateSelection.updateGenre,
-                defaultUpdateYear: configuredUpdateSelection.updateYear,
-                defaultPreviewOnly: configuredPreviewOnly,
-                defaultMinConfidence: configuredMinConfidence
-            )
-            UpdateView(viewModel: viewModel, tracks: tracks)
         }
     }
 }

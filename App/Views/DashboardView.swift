@@ -11,9 +11,9 @@ import SwiftUI
 
 /// Snapshot-driven dashboard showing whether the library is safe to update.
 ///
-/// Uses a two-phase cached-first loading pattern: loads persisted metrics snapshot instantly
-/// on appear, then refreshes from live MusicKit data when tracks arrive. First launch shows
-/// full shimmer placeholders; subsequent launches never show "0 tracks".
+/// Uses a two-phase cached-first loading pattern: MainView passes persisted metrics
+/// instantly, then the dashboard refreshes from live MusicKit data when tracks arrive.
+/// First launch shows full shimmer placeholders; subsequent launches never show "0 tracks".
 struct DashboardView: View {
     @State private var viewModel = DashboardViewModel()
     @State private var showHero = false
@@ -1054,6 +1054,8 @@ extension LibraryLoadError {
         switch self {
         case .permissionDenied:
             "permissionDenied"
+        case .restricted:
+            "restricted"
         case let .failed(message):
             "failed:\(message)"
         }

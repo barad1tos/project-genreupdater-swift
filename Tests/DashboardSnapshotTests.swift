@@ -1,6 +1,7 @@
 import Core
 import Foundation
 import Services
+import SwiftData
 import Testing
 @testable import Genre_Updater
 
@@ -11,9 +12,33 @@ struct DashboardSnapshotTests {
     @Test("builds coverage and issue counts from real tracks")
     func buildsCoverageAndIssueCounts() {
         let tracks = [
-            Track(id: "1", name: "Tagged", artist: "A", album: "One", genre: "Rock", year: 2001),
-            Track(id: "2", name: "Missing Genre", artist: "A", album: "One", genre: nil, year: 2001),
-            Track(id: "3", name: "Missing Year", artist: "B", album: "Two", genre: "Pop", year: nil),
+            Track(
+                id: "1",
+                name: "Tagged",
+                artist: "A",
+                album: "One",
+                genre: "Rock",
+                year: 2001,
+                trackStatus: "purchased"
+            ),
+            Track(
+                id: "2",
+                name: "Missing Genre",
+                artist: "A",
+                album: "One",
+                genre: nil,
+                year: 2001,
+                trackStatus: "matched"
+            ),
+            Track(
+                id: "3",
+                name: "Missing Year",
+                artist: "B",
+                album: "Two",
+                genre: "Pop",
+                year: nil,
+                trackStatus: "uploaded"
+            ),
             Track(
                 id: "4",
                 name: "Protected",
@@ -58,6 +83,27 @@ struct DashboardSnapshotTests {
         #expect(snapshot.issues.map(\.severity) == [.warning, .warning, .critical, .info])
         #expect(snapshot.coverageBuckets.map(\.id) == ["genre", "year", "consistency", "editable"])
         #expect(snapshot.coverageBuckets.map(\.ratio) == [0.5, 0.5, 0.25, 0.75])
+    }
+
+    @Test("tracks without editability evidence keep protected-file coverage unknown")
+    func tracksWithoutEditabilityEvidenceKeepProtectedFileCoverageUnknown() {
+        let snapshot = LibraryDashboardSnapshot.make(
+            tracks: [
+                Track(id: "1", name: "MusicKit", artist: "A", album: "One", genre: "Rock", year: 2001),
+            ],
+            lastScanDate: fixedDate,
+            isLoading: false,
+            loadError: nil,
+            isDryRun: true,
+            workflow: .empty
+        )
+
+        #expect(!snapshot.isProtectedFileCountKnown)
+        #expect(snapshot.protectedFileCount == 0)
+        #expect(snapshot.editableCoverageRatio == 0)
+        #expect(snapshot.coverageBuckets.first { $0.id == "editable" }?.title == "Editable files unknown")
+        #expect(snapshot.issues.first { $0.id == "protected-files" }?.title == "Protected files unknown")
+        #expect(snapshot.issues.first { $0.id == "protected-files" }?.severity == .warning)
     }
 
     @Test("does not fake ready updates when workflow has no proposed changes")
@@ -153,7 +199,15 @@ struct DashboardSnapshotTests {
 
     @Test("review actions require ready scan and non-writing state")
     func reviewActionsRequireReadyScanAndNonWritingState() {
-        let readyTrack = Track(id: "1", name: "Song", artist: "A", album: "Album", genre: "Rock", year: 2000)
+        let readyTrack = Track(
+            id: "1",
+            name: "Song",
+            artist: "A",
+            album: "Album",
+            genre: "Rock",
+            year: 2000,
+            trackStatus: "purchased"
+        )
         let ready = LibraryDashboardSnapshot.make(
             tracks: [readyTrack],
             lastScanDate: fixedDate,
@@ -215,8 +269,24 @@ extension DashboardSnapshotTests {
     func viewModelRefreshesDashboardSnapshotFromLoadAndWorkflowState() {
         let viewModel = DashboardViewModel()
         let tracks = [
-            Track(id: "1", name: "Tagged", artist: "A", album: "One", genre: "Rock", year: 2001),
-            Track(id: "2", name: "Missing Year", artist: "B", album: "Two", genre: "Pop", year: nil),
+            Track(
+                id: "1",
+                name: "Tagged",
+                artist: "A",
+                album: "One",
+                genre: "Rock",
+                year: 2001,
+                trackStatus: "purchased"
+            ),
+            Track(
+                id: "2",
+                name: "Missing Year",
+                artist: "B",
+                album: "Two",
+                genre: "Pop",
+                year: nil,
+                trackStatus: "matched"
+            ),
         ]
         let workflow = WorkflowDashboardState(
             proposedChangeCount: 3,
@@ -248,6 +318,37 @@ extension DashboardSnapshotTests {
         viewModel.setPermissionDenied()
         #expect(viewModel.snapshot.scanState == .permissionDenied)
         #expect(viewModel.snapshot.primaryActionTitle == "Grant access")
+    }
+
+    @Test("cached tracks remain visible while live load error drives scan state")
+    @MainActor
+    func cachedTracksRemainVisibleWhileLiveLoadErrorDrivesScanState() {
+        let viewModel = DashboardViewModel()
+        let cachedTracks = [
+            Track(
+                id: "1",
+                name: "Cached",
+                artist: "A",
+                album: "One",
+                genre: "Rock",
+                year: 2001,
+                trackStatus: "purchased"
+            ),
+        ]
+
+        viewModel.refreshSnapshot(
+            tracks: cachedTracks,
+            lastScanDate: fixedDate,
+            isLoadingTracks: false,
+            loadError: .failed("Music access failed"),
+            isDryRun: true,
+            workflowState: .empty
+        )
+
+        #expect(viewModel.snapshot.totalTracks == 1)
+        #expect(viewModel.snapshot.scanState == .failed("Music access failed"))
+        #expect(!viewModel.snapshot.allowsReviewActions)
+        #expect(viewModel.snapshot.primaryActionTitle == "Retry scan")
     }
 
     @Test("cached metrics refresh dashboard snapshot during warm loading")
@@ -373,6 +474,22 @@ extension DashboardSnapshotTests {
         #expect(viewModel.snapshot.scanState == .permissionDenied)
     }
 
+    @Test("restricted access is not treated as grantable permission")
+    @MainActor
+    func restrictedAccessIsNotTreatedAsGrantablePermission() {
+        let viewModel = DashboardViewModel()
+
+        viewModel.refreshFromLive(
+            tracks: [],
+            isLoadingTracks: false,
+            loadError: .restricted
+        )
+
+        #expect(viewModel.loadingState == .error(LibraryLoadError.restricted.message))
+        #expect(viewModel.snapshot.scanState == .failed(LibraryLoadError.restricted.message))
+        #expect(viewModel.snapshot.primaryActionTitle == "Retry scan")
+    }
+
     @Test("retry loading clears stale load errors")
     @MainActor
     func retryLoadingClearsStaleLoadErrors() {
@@ -408,7 +525,15 @@ extension DashboardSnapshotTests {
 
         updatingViewModel.refreshFromLive(
             tracks: [
-                Track(id: "1", name: "Song", artist: "Artist", album: "Album", genre: "Rock", year: 2001),
+                Track(
+                    id: "1",
+                    name: "Song",
+                    artist: "Artist",
+                    album: "Album",
+                    genre: "Rock",
+                    year: 2001,
+                    trackStatus: "purchased"
+                ),
             ],
             isLoadingTracks: false
         )
@@ -429,6 +554,39 @@ extension DashboardSnapshotTests {
         try? await Task.sleep(for: .milliseconds(20))
 
         #expect(viewModel.loadingState == .shimmer)
+    }
+
+    @Test("warm cached loading times out when live refresh stalls")
+    @MainActor
+    func warmCachedLoadingTimesOutWhenLiveRefreshStalls() async {
+        let cachedMetrics = PersistedMetricsSnapshot(
+            totalTracks: 12,
+            tracksWithGenre: 9,
+            tracksWithYear: 10,
+            tracksWithBoth: 8,
+            tracksNeedingGenre: 3,
+            tracksNeedingYear: 2,
+            recentlyAdded: 1,
+            timestamp: fixedDate
+        )
+        let viewModel = DashboardViewModel(loadingTimeoutDuration: .milliseconds(10))
+
+        viewModel.refreshSnapshot(
+            tracks: [],
+            metricsSnapshot: cachedMetrics,
+            lastScanDate: nil,
+            isLoadingTracks: true,
+            loadError: nil,
+            isDryRun: true,
+            workflowState: .empty
+        )
+        #expect(viewModel.loadingState == .cached(lastUpdated: fixedDate))
+
+        try? await Task.sleep(for: .milliseconds(30))
+
+        #expect(viewModel
+            .loadingState == .error("Loading timed out. Please check your Music library access and try again."))
+        #expect(viewModel.snapshot.primaryActionTitle == "Retry scan")
     }
 
     @Test("track content fingerprint changes for same-count dashboard metadata")
@@ -519,6 +677,51 @@ extension DashboardSnapshotTests {
         #expect(!hasPresentDashboardGenre(" \n\t "))
         #expect(hasPresentDashboardGenre(" Rock "))
     }
+
+    @Test("metrics snapshot persistence writes protected count when editability is known")
+    @MainActor
+    func metricsSnapshotPersistenceWritesProtectedCountWhenEditabilityIsKnown() throws {
+        let context = try ModelContext(ModelContainerFactory.createInMemory())
+        let persistedSnapshot = upsertDashboardMetricsSnapshot(
+            from: [
+                Track(
+                    id: "1",
+                    name: "Editable",
+                    artist: "A",
+                    album: "One",
+                    genre: "Rock",
+                    year: 2001,
+                    trackStatus: "purchased"
+                ),
+                Track(
+                    id: "2",
+                    name: "Protected",
+                    artist: "B",
+                    album: "Two",
+                    genre: "Pop",
+                    year: 2002,
+                    trackStatus: "prerelease"
+                ),
+            ],
+            in: context
+        )
+
+        #expect(persistedSnapshot?.protectedFileCount == 1)
+    }
+
+    @Test("metrics snapshot persistence keeps protected count unknown for MusicKit tracks")
+    @MainActor
+    func metricsSnapshotPersistenceKeepsProtectedCountUnknownForMusicKitTracks() throws {
+        let context = try ModelContext(ModelContainerFactory.createInMemory())
+        let persistedSnapshot = upsertDashboardMetricsSnapshot(
+            from: [
+                Track(id: "1", name: "MusicKit", artist: "A", album: "One", genre: "Rock", year: 2001),
+            ],
+            in: context
+        )
+
+        #expect(persistedSnapshot?.protectedFileCount == nil)
+    }
 }
 
 extension DashboardSnapshotTests {
@@ -526,8 +729,24 @@ extension DashboardSnapshotTests {
     func healthScoreReflectsSafety() {
         let healthy = LibraryDashboardSnapshot.make(
             tracks: [
-                Track(id: "1", name: "A", artist: "A", album: "A", genre: "Rock", year: 2001),
-                Track(id: "2", name: "B", artist: "B", album: "B", genre: "Pop", year: 2002),
+                Track(
+                    id: "1",
+                    name: "A",
+                    artist: "A",
+                    album: "A",
+                    genre: "Rock",
+                    year: 2001,
+                    trackStatus: "purchased"
+                ),
+                Track(
+                    id: "2",
+                    name: "B",
+                    artist: "B",
+                    album: "B",
+                    genre: "Pop",
+                    year: 2002,
+                    trackStatus: "matched"
+                ),
             ],
             lastScanDate: fixedDate,
             isLoading: false,
@@ -539,7 +758,7 @@ extension DashboardSnapshotTests {
         let risky = LibraryDashboardSnapshot.make(
             tracks: [
                 Track(id: "1", name: "A", artist: "A", album: "A", genre: nil, year: nil, trackStatus: "prerelease"),
-                Track(id: "2", name: "B", artist: "B", album: "B", genre: nil, year: nil),
+                Track(id: "2", name: "B", artist: "B", album: "B", genre: nil, year: nil, trackStatus: "purchased"),
             ],
             lastScanDate: fixedDate,
             isLoading: false,
@@ -588,7 +807,8 @@ extension DashboardSnapshotTests {
                 artist: "Artist",
                 album: "Album",
                 genre: "Rock",
-                year: 2000 + index
+                year: 2000 + index,
+                trackStatus: "purchased"
             )
         }
 

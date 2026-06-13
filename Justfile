@@ -6,7 +6,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 sources := "App Packages/Core/Sources Packages/Services/Sources Packages/SharedUI/Sources"
 xcodebuild_flags := "-project GenreUpdater.xcodeproj -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath .build/XcodeDerivedData CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO"
 
-# Full CI pipeline (default)
+# Automated non-UI CI pipeline (default)
 ci: build app-build app-test test coverage entitlements lint format periphery
     @echo ""
     @echo "All CI checks passed"

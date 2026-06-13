@@ -89,6 +89,12 @@ enum TrendDirection {
 /// trend direction by comparing current metrics to previous scan values.
 @Observable @MainActor
 final class DashboardViewModel {
+    private let loadingTimeoutDuration: Duration
+
+    init(loadingTimeoutDuration: Duration = .seconds(15)) {
+        self.loadingTimeoutDuration = loadingTimeoutDuration
+    }
+
     // MARK: - Published State
 
     private(set) var loadingState: DashboardLoadingState = .shimmer
@@ -173,8 +179,8 @@ final class DashboardViewModel {
             )
         }
 
-        loadingTimeoutTask?.cancel()
         loadingState = .cached(lastUpdated: snapshot.timestamp)
+        startLoadingTimeout()
     }
 
     /// Phase 2: Refresh metrics from live MusicKit track data.
@@ -320,7 +326,8 @@ final class DashboardViewModel {
         case .error, .permissionDenied:
             if metrics.totalTracks > 0 {
                 loadingState = .updating
-                loadingTimeoutTask?.cancel()
+                shimmerStartTime = Date()
+                startLoadingTimeout()
             } else {
                 loadingState = .shimmer
                 shimmerStartTime = Date()
@@ -348,69 +355,21 @@ final class DashboardViewModel {
         isFirstLoad = false
     }
 
-    /// Start a 15-second loading timeout that shows an error if
-    /// shimmer is still active (MusicKit unresponsive).
+    /// Start a loading timeout that shows an error if
+    /// live Music data remains unavailable.
     private func startLoadingTimeout() {
         loadingTimeoutTask?.cancel()
         loadingTimeoutTask = Task {
             do {
-                try await Task.sleep(for: .seconds(15))
+                try await Task.sleep(for: loadingTimeoutDuration)
             } catch {
                 return
             }
             guard !Task.isCancelled else { return }
-            if loadingState == .shimmer {
+            if shouldFailLoadingTimeout {
                 setError("Loading timed out. Please check your Music library access and try again.")
             }
         }
-    }
-
-    // MARK: - Trend Calculations
-
-    /// Genre trend: fewer tracks needing genre is good (down).
-    var genreTrend: TrendDirection? {
-        guard let previous = previousMetrics else { return nil }
-        return trendForDecreasing(
-            current: metrics.tracksNeedingGenre,
-            previous: previous.tracksNeedingGenre
-        )
-    }
-
-    /// Year trend: fewer tracks needing year is good (down).
-    var yearTrend: TrendDirection? {
-        guard let previous = previousMetrics else { return nil }
-        return trendForDecreasing(
-            current: metrics.tracksNeedingYear,
-            previous: previous.tracksNeedingYear
-        )
-    }
-
-    /// Recently added trend: more is neutral/positive (up).
-    var recentTrend: TrendDirection? {
-        guard let previous = previousMetrics else { return nil }
-        let current = metrics.recentlyAdded
-        let prev = previous.recentlyAdded
-        if current > prev { return .up }
-        if current < prev { return .down }
-        return .flat
-    }
-
-    /// Delta for genre trend (positive = more needing, negative = fewer needing).
-    var genreTrendDelta: Int? {
-        guard let previous = previousMetrics else { return nil }
-        return metrics.tracksNeedingGenre - previous.tracksNeedingGenre
-    }
-
-    /// Delta for year trend.
-    var yearTrendDelta: Int? {
-        guard let previous = previousMetrics else { return nil }
-        return metrics.tracksNeedingYear - previous.tracksNeedingYear
-    }
-
-    /// Delta for recently added trend.
-    var recentTrendDelta: Int? {
-        guard let previous = previousMetrics else { return nil }
-        return metrics.recentlyAdded - previous.recentlyAdded
     }
 
     // MARK: - Private
@@ -419,8 +378,19 @@ final class DashboardViewModel {
         switch loadError {
         case .permissionDenied:
             setPermissionDenied()
+        case .restricted:
+            setError(loadError.message)
         case let .failed(message):
             setError(message)
+        }
+    }
+
+    private var shouldFailLoadingTimeout: Bool {
+        switch loadingState {
+        case .shimmer, .cached, .updating:
+            true
+        case .live, .error, .permissionDenied, .emptyLibrary:
+            false
         }
     }
 
@@ -468,6 +438,56 @@ final class DashboardViewModel {
             yearCoverage: Double(yearCount) / Double(total),
             consistencyCoverage: Double(bothCount) / Double(total)
         )
+    }
+}
+
+// MARK: - Trend Calculations
+
+extension DashboardViewModel {
+    /// Genre trend: fewer tracks needing genre is good (down).
+    var genreTrend: TrendDirection? {
+        guard let previous = previousMetrics else { return nil }
+        return trendForDecreasing(
+            current: metrics.tracksNeedingGenre,
+            previous: previous.tracksNeedingGenre
+        )
+    }
+
+    /// Year trend: fewer tracks needing year is good (down).
+    var yearTrend: TrendDirection? {
+        guard let previous = previousMetrics else { return nil }
+        return trendForDecreasing(
+            current: metrics.tracksNeedingYear,
+            previous: previous.tracksNeedingYear
+        )
+    }
+
+    /// Recently added trend: more is neutral/positive (up).
+    var recentTrend: TrendDirection? {
+        guard let previous = previousMetrics else { return nil }
+        let current = metrics.recentlyAdded
+        let prev = previous.recentlyAdded
+        if current > prev { return .up }
+        if current < prev { return .down }
+        return .flat
+    }
+
+    /// Delta for genre trend (positive = more needing, negative = fewer needing).
+    var genreTrendDelta: Int? {
+        guard let previous = previousMetrics else { return nil }
+        return metrics.tracksNeedingGenre - previous.tracksNeedingGenre
+    }
+
+    /// Delta for year trend.
+    var yearTrendDelta: Int? {
+        guard let previous = previousMetrics else { return nil }
+        return metrics.tracksNeedingYear - previous.tracksNeedingYear
+    }
+
+    /// Delta for recently added trend.
+    var recentTrendDelta: Int? {
+        guard let previous = previousMetrics else { return nil }
+        return metrics.recentlyAdded - previous.recentlyAdded
     }
 
     /// Trend for metrics where decrease is good (fewer tracks needing attention).

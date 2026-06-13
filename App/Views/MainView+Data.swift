@@ -7,6 +7,15 @@ import SwiftData
 import SwiftUI
 
 extension MainView {
+    func startLibraryLoad(forceRefresh: Bool = false) {
+        let requestID = UUID()
+        libraryLoadRequestID = requestID
+        libraryLoadTask?.cancel()
+        libraryLoadTask = Task {
+            await loadTracks(forceRefresh: forceRefresh, requestID: requestID)
+        }
+    }
+
     func updateColumnVisibility() {
         let needsDetail = selectedCategory == .browse && browseViewModel.selectedAlbum != nil
         let target: NavigationSplitViewVisibility = needsDetail ? .all : .doubleColumn
@@ -18,27 +27,44 @@ extension MainView {
     }
 
     func loadTracks(forceRefresh: Bool = false) async {
+        await loadTracks(forceRefresh: forceRefresh, requestID: UUID())
+    }
+
+    private func loadTracks(forceRefresh: Bool, requestID: UUID) async {
+        libraryLoadRequestID = requestID
         libraryLoadError = nil
         loadCachedSnapshot()
         ensureWorkflowViewModel()
 
+        defer {
+            if libraryLoadRequestID == requestID {
+                isLoading = false
+                libraryLoadTask = nil
+            }
+        }
+
         guard let reader = dependencies.musicReader else { return }
         isLoading = true
-        defer { isLoading = false }
 
         let loadStart = ContinuousClock.now
         var hasCachedTracks = false
 
         do {
             if !forceRefresh, let cachedTracks = await dependencies.loadLibrarySnapshot() {
+                try Task.checkCancellation()
+                guard libraryLoadRequestID == requestID else { return }
                 tracks = cachedTracks
                 browseViewModel.tracks = cachedTracks
                 hasCachedTracks = !cachedTracks.isEmpty
                 await recordLibraryLoad(source: "snapshot", count: cachedTracks.count, startedAt: loadStart)
             }
 
+            try Task.checkCancellation()
             try await reader.requestAuthorization()
+            try Task.checkCancellation()
             let liveTracks = try await reader.fetchAllTracks()
+            try Task.checkCancellation()
+            guard libraryLoadRequestID == requestID else { return }
             tracks = liveTracks
             await dependencies.refreshTrackIDMapping(musicKitTracks: liveTracks)
             await dependencies.persistLoadedLibraryTracks(liveTracks)
@@ -46,7 +72,10 @@ extension MainView {
             lastLibraryScanDate = .now
             saveMetricsSnapshot(from: liveTracks)
             await recordLibraryLoad(source: "music", count: liveTracks.count, startedAt: loadStart)
+        } catch is CancellationError {
+            return
         } catch {
+            guard libraryLoadRequestID == requestID else { return }
             await dependencies.analyticsService?.trackError("library.load", error: error)
             libraryLoadError = libraryLoadError(from: error)
             if !hasCachedTracks {
@@ -119,66 +148,7 @@ extension MainView {
     }
 
     func saveMetricsSnapshot(from loadedTracks: [Track]) {
-        guard !loadedTracks.isEmpty else { return }
-
-        let total = loadedTracks.count
-        var genreCount = 0
-        var yearCount = 0
-        var bothCount = 0
-        var protectedCount = 0
-        var recentCount = 0
-        let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: .now)
-
-        for track in loadedTracks {
-            let hasGenre = hasPresentDashboardGenre(track.genre)
-            let hasYear = track.year != nil
-
-            if hasGenre { genreCount += 1 }
-            if hasYear { yearCount += 1 }
-            if hasGenre, hasYear { bothCount += 1 }
-            if !track.canEdit { protectedCount += 1 }
-
-            if let dateAdded = track.dateAdded,
-               let cutoff = sevenDaysAgo,
-               dateAdded >= cutoff {
-                recentCount += 1
-            }
-        }
-
-        let descriptor = FetchDescriptor<PersistedMetricsSnapshot>()
-        let existing = try? modelContext.fetch(descriptor).first
-
-        if let snapshot = existing {
-            snapshot.previousTotalTracks = snapshot.totalTracks
-            snapshot.previousTracksNeedingGenre = snapshot.tracksNeedingGenre
-            snapshot.previousTracksNeedingYear = snapshot.tracksNeedingYear
-            snapshot.previousRecentlyAdded = snapshot.recentlyAdded
-
-            snapshot.totalTracks = total
-            snapshot.tracksWithGenre = genreCount
-            snapshot.tracksWithYear = yearCount
-            snapshot.tracksWithBoth = bothCount
-            snapshot.tracksNeedingGenre = total - genreCount
-            snapshot.tracksNeedingYear = total - yearCount
-            snapshot.protectedFileCount = protectedCount
-            snapshot.recentlyAdded = recentCount
-            snapshot.timestamp = .now
-        } else {
-            let snapshot = PersistedMetricsSnapshot(
-                totalTracks: total,
-                tracksWithGenre: genreCount,
-                tracksWithYear: yearCount,
-                tracksWithBoth: bothCount,
-                tracksNeedingGenre: total - genreCount,
-                tracksNeedingYear: total - yearCount,
-                protectedFileCount: protectedCount,
-                recentlyAdded: recentCount
-            )
-            modelContext.insert(snapshot)
-        }
-
-        try? modelContext.save()
-        metricsSnapshot = try? modelContext.fetch(descriptor).first
+        metricsSnapshot = upsertDashboardMetricsSnapshot(from: loadedTracks, in: modelContext)
     }
 
     private func recordLibraryLoad(
@@ -202,8 +172,10 @@ extension MainView {
         }
 
         switch musicLibraryError {
-        case .authorizationDenied, .authorizationRestricted:
+        case .authorizationDenied:
             return .permissionDenied
+        case .authorizationRestricted:
+            return .restricted
         case .fetchFailed, .musicAppNotAvailable:
             return .failed(error.localizedDescription)
         }
@@ -213,4 +185,105 @@ extension MainView {
 func hasPresentDashboardGenre(_ genre: String?) -> Bool {
     guard let genre else { return false }
     return !genre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+}
+
+struct DashboardMetricsSnapshotValues: Equatable {
+    let totalTracks: Int
+    let tracksWithGenre: Int
+    let tracksWithYear: Int
+    let tracksWithBoth: Int
+    let tracksNeedingGenre: Int
+    let tracksNeedingYear: Int
+    let protectedFileCount: Int?
+    let recentlyAdded: Int
+    let timestamp: Date
+}
+
+func makeDashboardMetricsSnapshotValues(
+    from loadedTracks: [Track],
+    timestamp: Date = .now
+) -> DashboardMetricsSnapshotValues? {
+    guard !loadedTracks.isEmpty else { return nil }
+
+    let total = loadedTracks.count
+    var genreCount = 0
+    var yearCount = 0
+    var bothCount = 0
+    var recentCount = 0
+    let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: timestamp)
+    let editabilitySummary = DashboardEditabilitySummary.make(from: loadedTracks)
+
+    for track in loadedTracks {
+        let hasGenre = hasPresentDashboardGenre(track.genre)
+        let hasYear = track.year != nil
+
+        if hasGenre { genreCount += 1 }
+        if hasYear { yearCount += 1 }
+        if hasGenre, hasYear { bothCount += 1 }
+
+        if let dateAdded = track.dateAdded,
+           let cutoff = sevenDaysAgo,
+           dateAdded >= cutoff {
+            recentCount += 1
+        }
+    }
+
+    return DashboardMetricsSnapshotValues(
+        totalTracks: total,
+        tracksWithGenre: genreCount,
+        tracksWithYear: yearCount,
+        tracksWithBoth: bothCount,
+        tracksNeedingGenre: total - genreCount,
+        tracksNeedingYear: total - yearCount,
+        protectedFileCount: editabilitySummary.isProtectedFileCountKnown
+            ? editabilitySummary.protectedFileCount
+            : nil,
+        recentlyAdded: recentCount,
+        timestamp: timestamp
+    )
+}
+
+func upsertDashboardMetricsSnapshot(
+    from loadedTracks: [Track],
+    in modelContext: ModelContext
+) -> PersistedMetricsSnapshot? {
+    guard let values = makeDashboardMetricsSnapshotValues(from: loadedTracks) else {
+        return nil
+    }
+
+    let descriptor = FetchDescriptor<PersistedMetricsSnapshot>()
+    let existing = try? modelContext.fetch(descriptor).first
+
+    if let snapshot = existing {
+        snapshot.previousTotalTracks = snapshot.totalTracks
+        snapshot.previousTracksNeedingGenre = snapshot.tracksNeedingGenre
+        snapshot.previousTracksNeedingYear = snapshot.tracksNeedingYear
+        snapshot.previousRecentlyAdded = snapshot.recentlyAdded
+
+        snapshot.totalTracks = values.totalTracks
+        snapshot.tracksWithGenre = values.tracksWithGenre
+        snapshot.tracksWithYear = values.tracksWithYear
+        snapshot.tracksWithBoth = values.tracksWithBoth
+        snapshot.tracksNeedingGenre = values.tracksNeedingGenre
+        snapshot.tracksNeedingYear = values.tracksNeedingYear
+        snapshot.protectedFileCount = values.protectedFileCount
+        snapshot.recentlyAdded = values.recentlyAdded
+        snapshot.timestamp = values.timestamp
+    } else {
+        let snapshot = PersistedMetricsSnapshot(
+            totalTracks: values.totalTracks,
+            tracksWithGenre: values.tracksWithGenre,
+            tracksWithYear: values.tracksWithYear,
+            tracksWithBoth: values.tracksWithBoth,
+            tracksNeedingGenre: values.tracksNeedingGenre,
+            tracksNeedingYear: values.tracksNeedingYear,
+            protectedFileCount: values.protectedFileCount,
+            recentlyAdded: values.recentlyAdded,
+            timestamp: values.timestamp
+        )
+        modelContext.insert(snapshot)
+    }
+
+    try? modelContext.save()
+    return try? modelContext.fetch(descriptor).first
 }

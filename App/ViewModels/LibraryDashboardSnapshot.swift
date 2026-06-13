@@ -6,12 +6,15 @@ import Services
 
 enum LibraryLoadError: Equatable {
     case permissionDenied
+    case restricted
     case failed(String)
 
     var message: String {
         switch self {
         case .permissionDenied:
             "Music library permission denied"
+        case .restricted:
+            "Music library access is restricted on this device"
         case let .failed(message):
             message
         }
@@ -233,6 +236,8 @@ struct LibraryDashboardSnapshot: Equatable {
             switch loadError {
             case .permissionDenied:
                 return .permissionDenied
+            case .restricted:
+                return .failed(loadError.message)
             case let .failed(message):
                 return .failed(message)
             }
@@ -481,8 +486,42 @@ private enum DashboardSnapshotContent {
     }
 
     private static func protectedFileSeverity(counts: TrackDashboardCounts) -> DashboardIssueSeverity {
-        guard counts.isProtectedFileCountKnown else { return .warning }
-        return counts.protectedFileCount > 0 ? .critical : .info
+        if counts.protectedFileCount > 0 { return .critical }
+        return counts.isProtectedFileCountKnown ? .info : .warning
+    }
+}
+
+struct DashboardEditabilitySummary: Equatable {
+    let protectedFileCount: Int
+    let isProtectedFileCountKnown: Bool
+
+    static func make(from tracks: [Core.Track]) -> Self {
+        var protectedFileCount = 0
+        var knownEditabilityCount = 0
+
+        for track in tracks {
+            guard hasKnownEditability(track) else {
+                continue
+            }
+
+            knownEditabilityCount += 1
+            if !track.canEdit {
+                protectedFileCount += 1
+            }
+        }
+
+        return Self(
+            protectedFileCount: protectedFileCount,
+            isProtectedFileCountKnown: tracks.isEmpty || knownEditabilityCount == tracks.count
+        )
+    }
+
+    private static func hasKnownEditability(_ track: Core.Track) -> Bool {
+        guard let trackStatus = track.trackStatus?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trackStatus.isEmpty
+        else { return false }
+
+        return normalizeTrackStatus(trackStatus) != nil
     }
 }
 
@@ -509,7 +548,7 @@ private struct TrackDashboardCounts: Equatable {
         var tracksWithGenre = 0
         var tracksWithYear = 0
         var tracksWithBoth = 0
-        var protectedFileCount = 0
+        let editabilitySummary = DashboardEditabilitySummary.make(from: tracks)
 
         for track in tracks {
             let hasGenre = hasPresentGenre(track.genre)
@@ -526,10 +565,6 @@ private struct TrackDashboardCounts: Equatable {
             if hasGenre, hasYear {
                 tracksWithBoth += 1
             }
-
-            if !track.canEdit {
-                protectedFileCount += 1
-            }
         }
 
         return Self(
@@ -539,8 +574,8 @@ private struct TrackDashboardCounts: Equatable {
             tracksWithBoth: tracksWithBoth,
             missingGenreCount: tracks.count - tracksWithGenre,
             missingYearCount: tracks.count - tracksWithYear,
-            protectedFileCount: protectedFileCount,
-            isProtectedFileCountKnown: true
+            protectedFileCount: editabilitySummary.protectedFileCount,
+            isProtectedFileCountKnown: editabilitySummary.isProtectedFileCountKnown
         )
     }
 

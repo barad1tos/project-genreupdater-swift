@@ -1,8 +1,7 @@
 // UpdateFlowTests.swift — XCUITests for the track update workflow.
 //
-// Tests the Update destination, configuration options, and toolbar controls.
-// Some tests require the app to have loaded tracks (Music.app
-// access), so they use XCTSkipUnless to degrade gracefully in CI.
+// Tests the Update destination, configuration options, and menu command.
+// Tests skip when onboarding or app setup prevents reaching the main shell.
 
 import XCTest
 
