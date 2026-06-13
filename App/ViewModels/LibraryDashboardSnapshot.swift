@@ -1,5 +1,8 @@
+// swiftlint:disable file_length
+
 import Core
 import Foundation
+import Services
 
 enum LibraryLoadError: Equatable {
     case permissionDenied
@@ -103,6 +106,29 @@ struct LibraryDashboardSnapshot: Equatable {
         workflow: .empty
     )
 
+    static func make(
+        persistedMetrics: PersistedMetricsSnapshot,
+        isLoading: Bool = false,
+        loadError: LibraryLoadError? = nil,
+        isDryRun: Bool,
+        workflow: WorkflowDashboardState
+    ) -> Self {
+        let counts = TrackDashboardCounts.make(from: persistedMetrics)
+        let scanState = makeScanState(
+            hasLibraryContent: counts.totalTracks > 0,
+            lastScanDate: persistedMetrics.timestamp,
+            isLoading: isLoading,
+            loadError: loadError
+        )
+
+        return make(
+            counts: counts,
+            scanState: scanState,
+            isDryRun: isDryRun,
+            workflow: workflow
+        )
+    }
+
     // swiftlint:disable:next function_parameter_count
     static func make(
         tracks: [Core.Track],
@@ -114,11 +140,26 @@ struct LibraryDashboardSnapshot: Equatable {
     ) -> Self {
         let counts = TrackDashboardCounts.make(from: tracks)
         let scanState = makeScanState(
-            tracks: tracks,
+            hasLibraryContent: !tracks.isEmpty,
             lastScanDate: lastScanDate,
             isLoading: isLoading,
             loadError: loadError
         )
+
+        return make(
+            counts: counts,
+            scanState: scanState,
+            isDryRun: isDryRun,
+            workflow: workflow
+        )
+    }
+
+    private static func make(
+        counts: TrackDashboardCounts,
+        scanState: LibraryScanState,
+        isDryRun: Bool,
+        workflow: WorkflowDashboardState
+    ) -> Self {
         let writeState = makeWriteState(isDryRun: isDryRun, workflow: workflow)
         let readyUpdateCount = workflow.acceptedChangeCount
         let genreCoverageRatio = ratio(counts.tracksWithGenre, of: counts.totalTracks)
@@ -172,7 +213,7 @@ struct LibraryDashboardSnapshot: Equatable {
     }
 
     private static func makeScanState(
-        tracks: [Core.Track],
+        hasLibraryContent: Bool,
         lastScanDate: Date?,
         isLoading: Bool,
         loadError: LibraryLoadError?
@@ -190,7 +231,7 @@ struct LibraryDashboardSnapshot: Equatable {
             return .loading
         }
 
-        if tracks.isEmpty {
+        if !hasLibraryContent {
             return .empty
         }
 
@@ -475,6 +516,18 @@ private struct TrackDashboardCounts: Equatable {
             missingGenreCount: tracks.count - tracksWithGenre,
             missingYearCount: tracks.count - tracksWithYear,
             protectedFileCount: protectedFileCount
+        )
+    }
+
+    static func make(from persistedMetrics: PersistedMetricsSnapshot) -> Self {
+        Self(
+            totalTracks: persistedMetrics.totalTracks,
+            tracksWithGenre: persistedMetrics.tracksWithGenre,
+            tracksWithYear: persistedMetrics.tracksWithYear,
+            tracksWithBoth: persistedMetrics.tracksWithBoth,
+            missingGenreCount: persistedMetrics.tracksNeedingGenre,
+            missingYearCount: persistedMetrics.tracksNeedingYear,
+            protectedFileCount: 0
         )
     }
 

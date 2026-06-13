@@ -1,5 +1,6 @@
 import Core
 import Foundation
+import Services
 import Testing
 @testable import Genre_Updater
 
@@ -130,6 +131,56 @@ extension DashboardSnapshotTests {
         viewModel.setPermissionDenied()
         #expect(viewModel.snapshot.scanState == .permissionDenied)
         #expect(viewModel.snapshot.primaryActionTitle == "Grant access")
+    }
+
+    @Test("cached metrics refresh dashboard snapshot during warm loading")
+    @MainActor
+    func cachedMetricsRefreshDashboardSnapshotDuringWarmLoading() {
+        let cachedMetrics = PersistedMetricsSnapshot(
+            totalTracks: 12,
+            tracksWithGenre: 9,
+            tracksWithYear: 10,
+            tracksWithBoth: 8,
+            tracksNeedingGenre: 3,
+            tracksNeedingYear: 2,
+            recentlyAdded: 1,
+            timestamp: fixedDate
+        )
+        let workflow = WorkflowDashboardState(
+            proposedChangeCount: 4,
+            acceptedChangeCount: 2,
+            failedWriteCount: 0,
+            isProcessing: false,
+            phaseLabel: "Review"
+        )
+        let viewModel = DashboardViewModel()
+        viewModel.refreshSnapshot(
+            tracks: [],
+            metricsSnapshot: cachedMetrics,
+            lastScanDate: nil,
+            isLoadingTracks: true,
+            loadError: nil,
+            isDryRun: false,
+            workflowState: workflow
+        )
+        #expect(viewModel.snapshot.totalTracks == 12)
+        #expect(viewModel.snapshot.scanState == .loading)
+        #expect(viewModel.snapshot.writeState == .ready(count: 2, isDryRun: false))
+        #expect(viewModel.showShimmer == false)
+        #expect(viewModel.loadingState == .cached(lastUpdated: fixedDate))
+        #expect(viewModel.snapshot.primaryActionTitle == "Scanning...")
+
+        viewModel.refreshSnapshot(
+            tracks: [],
+            metricsSnapshot: cachedMetrics,
+            lastScanDate: nil,
+            isLoadingTracks: false,
+            loadError: nil,
+            isDryRun: false,
+            workflowState: workflow
+        )
+        #expect((viewModel.snapshot.totalTracks, viewModel.snapshot.scanState) == (0, .empty))
+        #expect(viewModel.loadingState == .emptyLibrary)
     }
 
     @Test("refresh snapshot keeps load error ahead of loading and write state")

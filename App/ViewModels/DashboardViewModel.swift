@@ -173,6 +173,7 @@ final class DashboardViewModel {
             )
         }
 
+        loadingTimeoutTask?.cancel()
         loadingState = .cached(lastUpdated: snapshot.timestamp)
     }
 
@@ -232,6 +233,7 @@ final class DashboardViewModel {
     // swiftlint:disable:next function_parameter_count
     func refreshSnapshot(
         tracks: [Track],
+        metricsSnapshot: PersistedMetricsSnapshot? = nil,
         lastScanDate: Date?,
         isLoadingTracks: Bool,
         loadError: LibraryLoadError?,
@@ -240,6 +242,27 @@ final class DashboardViewModel {
     ) {
         if let loadError {
             applyLoadError(loadError)
+        }
+
+        if tracks.isEmpty, isLoadingTracks, loadError == nil, let metricsSnapshot {
+            loadCachedMetrics(from: metricsSnapshot)
+            snapshot = LibraryDashboardSnapshot.make(
+                persistedMetrics: metricsSnapshot,
+                isLoading: isLoadingTracks,
+                loadError: loadError,
+                isDryRun: isDryRun,
+                workflow: workflowState
+            )
+            return
+        }
+
+        if tracks.isEmpty, isLoadingTracks, loadError == nil {
+            loadCachedMetrics(from: nil)
+        }
+
+        if tracks.isEmpty, !isLoadingTracks, loadError == nil {
+            loadingTimeoutTask?.cancel()
+            loadingState = .emptyLibrary
         }
 
         snapshot = LibraryDashboardSnapshot.make(

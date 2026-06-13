@@ -80,53 +80,57 @@ struct MainView: View {
     @AppStorage("defaultUpdateBehavior") var defaultUpdateBehavior = UpdateBehavior.both.rawValue
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-        } content: {
-            contentView
-                .id(selectedCategory)
-                .navigationTitle(selectedCategory?.rawValue ?? "Dashboard")
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(with: .offset(y: 6)),
-                        removal: .opacity
-                    )
-                )
-                .animation(
-                    hasNavigated && !reduceMotion
-                        ? Motion.scaled(Motion.curveSmooth, by: motionScale)
-                        : .none,
-                    value: selectedCategory
-                )
-        } detail: {
-            trackDetail
+        navigationShell
+            .toolbar(removing: .sidebarToggle)
+            .navigationSplitViewStyle(.balanced)
+            .task { await loadTracks() }
+            .onAppear { updateColumnVisibility() }
+            .onReceive(NotificationCenter.default.publisher(for: .updateSelectedTracks)) { _ in
+                selectedCategory = .update
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .navigateToUpdate)) { _ in
+                selectedCategory = .update
+            }
+            .onChange(of: selectedCategory) {
+                if !hasNavigated { hasNavigated = true }
+                updateColumnVisibility()
+            }
+            .onChange(of: browseViewModel.selectedAlbum) { updateColumnVisibility() }
+            .onChange(of: defaultUpdateBehavior) { applyWorkflowDefaults() }
+            .onChange(of: dependencies.config.runtime.dryRun) { applyWorkflowDefaults() }
+            .onChange(of: dependencies.config.yearRetrieval.logic.minConfidenceForNewYear) {
+                applyWorkflowDefaults()
+            }
+            .onChange(of: dependencies.config.processing.releaseYearRestoreThreshold) {
+                applyWorkflowDefaults()
+            }
+            .sheet(isPresented: $showUpdateSheet) {
+                updateSheet
+            }
+            .focusedValue(\.selectedCategory, $selectedCategory)
+    }
+
+    @ViewBuilder
+    private var navigationShell: some View {
+        if usesBrowseDetailColumn {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                sidebar
+            } content: {
+                routedContent
+            } detail: {
+                trackDetail
+            }
+        } else {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                sidebar
+            } detail: {
+                routedContent
+            }
         }
-        .toolbar(removing: .sidebarToggle)
-        .navigationSplitViewStyle(.balanced)
-        .task { await loadTracks() }
-        .onReceive(NotificationCenter.default.publisher(for: .updateSelectedTracks)) { _ in
-            selectedCategory = .update
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .navigateToUpdate)) { _ in
-            selectedCategory = .update
-        }
-        .onChange(of: selectedCategory) {
-            if !hasNavigated { hasNavigated = true }
-            updateColumnVisibility()
-        }
-        .onChange(of: browseViewModel.selectedAlbum) { updateColumnVisibility() }
-        .onChange(of: defaultUpdateBehavior) { applyWorkflowDefaults() }
-        .onChange(of: dependencies.config.runtime.dryRun) { applyWorkflowDefaults() }
-        .onChange(of: dependencies.config.yearRetrieval.logic.minConfidenceForNewYear) {
-            applyWorkflowDefaults()
-        }
-        .onChange(of: dependencies.config.processing.releaseYearRestoreThreshold) {
-            applyWorkflowDefaults()
-        }
-        .sheet(isPresented: $showUpdateSheet) {
-            updateSheet
-        }
-        .focusedValue(\.selectedCategory, $selectedCategory)
+    }
+
+    private var usesBrowseDetailColumn: Bool {
+        selectedCategory == .browse && browseViewModel.selectedAlbum != nil
     }
 
     // MARK: - Sidebar
@@ -153,11 +157,29 @@ struct MainView: View {
 
     // MARK: - Content Router
 
+    private var routedContent: some View {
+        contentView
+            .id(selectedCategory)
+            .navigationTitle(selectedCategory?.rawValue ?? "Dashboard")
+            .transition(
+                .asymmetric(
+                    insertion: .opacity.combined(with: .offset(y: 6)),
+                    removal: .opacity
+                )
+            )
+            .animation(
+                hasNavigated && !reduceMotion
+                    ? Motion.scaled(Motion.curveSmooth, by: motionScale)
+                    : .none,
+                value: selectedCategory
+            )
+    }
+
     @ViewBuilder
     private var contentView: some View {
         switch selectedCategory {
         case .dashboard, .none:
-            centeredContent {
+            centeredContent(maxWidth: 1120) {
                 DashboardView(
                     tracks: tracks,
                     metricsSnapshot: metricsSnapshot,
@@ -171,9 +193,6 @@ struct MainView: View {
                     },
                     onReviewChanges: {
                         selectedCategory = .update
-                    },
-                    onNavigate: { category in
-                        selectedCategory = category
                     }
                 )
             }
@@ -196,10 +215,11 @@ struct MainView: View {
     // MARK: - Centered Content Container
 
     private func centeredContent(
+        maxWidth: CGFloat = 800,
         @ViewBuilder content: () -> some View
     ) -> some View {
         content()
-            .frame(maxWidth: 800)
+            .frame(maxWidth: maxWidth)
             .frame(maxWidth: .infinity)
     }
 
@@ -222,7 +242,7 @@ struct MainView: View {
 
     @ViewBuilder
     private var trackDetail: some View {
-        if selectedCategory == .browse {
+        if usesBrowseDetailColumn {
             BrowseDetailView(viewModel: browseViewModel)
         } else {
             Color.clear
