@@ -20,8 +20,8 @@ import Foundation
 /// - Keychain → API keys (secure storage)
 /// - This struct → serialized as JSON in app container (detailed settings)
 ///
-/// For users migrating from the Python CLI, `AppConfiguration.fromLegacyYAML()`
-/// can import their existing config.yaml.
+/// Python CLI configuration values are represented as Codable Swift settings.
+/// Runtime secrets are stored in Keychain rather than imported as encrypted YAML.
 public struct AppConfiguration: Sendable, Codable {
     public var paths = PathsConfig()
     public var pythonSettings = PythonSettingsConfig()
