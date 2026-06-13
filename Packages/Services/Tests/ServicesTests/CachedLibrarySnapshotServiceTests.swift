@@ -47,13 +47,13 @@ struct CachedLibrarySnapshotServiceTests {
         let metadata = LibraryCacheMetadata(
             trackCount: 1,
             snapshotHash: "stale",
-            timestamp: now.addingTimeInterval(-7_200),
-            libraryModificationDate: now.addingTimeInterval(-7_200)
+            timestamp: now.addingTimeInterval(-7200),
+            libraryModificationDate: now.addingTimeInterval(-7200)
         )
 
         try await service.updateSnapshotMetadata(metadata)
 
-        #expect(!(await service.isSnapshotValid()))
+        #expect(await !(service.isSnapshotValid()))
     }
 
     @Test("Second snapshot records delta when enabled")

@@ -78,11 +78,15 @@ extension View {
     public func applyLiquidGlass(
         in shape: some Shape = .rect(cornerRadius: Radius.md)
     ) -> some View {
+        #if compiler(>=6.2)
         if #available(macOS 26, *) {
             self.glassEffect(.regular, in: shape)
         } else {
             self
         }
+        #else
+        self
+        #endif
     }
 
     /// Applies tinted Liquid Glass with the given color.
@@ -91,11 +95,15 @@ extension View {
         _ tint: Color,
         in shape: some Shape = .rect(cornerRadius: Radius.md)
     ) -> some View {
+        #if compiler(>=6.2)
         if #available(macOS 26, *) {
             self.glassEffect(.regular.tint(tint), in: shape)
         } else {
             self
         }
+        #else
+        self
+        #endif
     }
 }
 

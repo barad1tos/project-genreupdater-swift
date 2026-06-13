@@ -94,6 +94,7 @@ private func makeMockSession(json: String) -> URLSession {
 }
 
 private final class APIReleaseCandidateMockURLProtocol: URLProtocol {
+    // Safety: each test configures this static response before constructing its isolated URLSession.
     nonisolated(unsafe) static var responseData = Data()
 
     override static func canInit(with request: URLRequest) -> Bool {

@@ -8,7 +8,7 @@ struct MaintenanceCoordinatorTests {
     @Test("Preflight verifies database without force and reports pending auto-check")
     func preflightRunsDatabaseVerificationAndReportsPendingStatus() async {
         let database = RecordingDatabaseVerificationService()
-        let pending = MaintenanceRecordingPendingVerificationService(shouldAutoVerify: true)
+        let pending = RecordingPendingService(shouldAutoVerify: true)
         let coordinator = MaintenanceCoordinator(
             databaseVerificationService: database,
             pendingVerificationService: pending
@@ -41,7 +41,7 @@ struct MaintenanceCoordinatorTests {
     @Test("Preflight records database verification errors without blocking pending status")
     func preflightRecordsDatabaseErrorAndStillChecksPending() async {
         let database = RecordingDatabaseVerificationService(error: MaintenanceTestError.databaseUnavailable)
-        let pending = MaintenanceRecordingPendingVerificationService(shouldAutoVerify: true)
+        let pending = RecordingPendingService(shouldAutoVerify: true)
         let coordinator = MaintenanceCoordinator(
             databaseVerificationService: database,
             pendingVerificationService: pending
@@ -89,7 +89,7 @@ private actor RecordingDatabaseVerificationService: DatabaseVerificationCleaning
     }
 }
 
-private actor MaintenanceRecordingPendingVerificationService: PendingVerificationService {
+private actor RecordingPendingService: PendingVerificationService {
     private let shouldAutoVerifyValue: Bool
     private var shouldAutoVerifyCalls = 0
 

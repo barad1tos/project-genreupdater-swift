@@ -14,7 +14,7 @@ import SwiftUI
 /// The active item uses `matchedGeometryEffect` for a sliding pill indicator.
 public struct SidebarView: View {
     /// A single sidebar navigation item.
-    public struct Item: Identifiable, Sendable {
+    public struct Item: Identifiable {
         public let id: String
         public let title: String
         public let icon: NSImage

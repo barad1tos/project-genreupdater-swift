@@ -5,6 +5,7 @@ import Testing
 
 // MARK: - Thread-Safe Accumulator
 
+// Safety: all mutable state is protected by `lock`, and snapshots copy while holding it.
 private final class Accumulator<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var items: [T] = []

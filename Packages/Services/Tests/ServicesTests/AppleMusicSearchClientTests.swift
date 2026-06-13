@@ -243,6 +243,7 @@ struct AppleMusicSearchClientTests {
 }
 
 private final class AppleMusicSearchMockURLProtocol: URLProtocol {
+    // Safety: tests install this handler before creating the ephemeral URLSession and clear it after use.
     nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
     override static func canInit(with request: URLRequest) -> Bool {

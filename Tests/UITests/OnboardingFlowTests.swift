@@ -37,7 +37,7 @@ final class OnboardingFlowTests: XCTestCase {
 
     // MARK: - Initial View State
 
-    func testInitialViewAppears() throws {
+    func testInitialViewAppears() {
         // The app shows either onboarding or the main view depending on state.
         // Both contain recognizable UI elements within the window.
         let mainWindow = app.windows.firstMatch
