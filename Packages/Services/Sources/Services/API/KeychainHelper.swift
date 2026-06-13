@@ -40,15 +40,31 @@ public struct KeychainHelper: Sendable {
         // Delete existing item first (upsert pattern)
         try? delete(service: service, account: account)
 
-        let query: [String: Any] = [
+        let protectedQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
+            kSecUseDataProtectionKeychain as String: true,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
         ]
 
-        let status = SecItemAdd(query as CFDictionary, nil)
+        // API tokens must be available to non-interactive batch workflows.
+        // swiftformat:disable wrap
+        // swiftlint:disable:next line_length
+        let status = SecItemAdd(protectedQuery as CFDictionary, nil) // nosemgrep: swift.biometrics-and-auth.missing-user-auth.keychain-without-user-auth
+        // swiftformat:enable wrap
+        if Self.shouldUseLegacyKeychainFallback(status) {
+            let fallbackStatus = SecItemAdd(
+                legacyQuery(service: service, account: account, valueData: data) as CFDictionary,
+                nil
+            )
+            guard fallbackStatus == errSecSuccess else {
+                throw KeychainError.saveFailed(fallbackStatus)
+            }
+            return
+        }
+
         guard status == errSecSuccess else {
             throw KeychainError.saveFailed(status)
         }
@@ -65,25 +81,54 @@ public struct KeychainHelper: Sendable {
         service: String,
         account: String
     ) throws -> String? {
-        let query: [String: Any] = [
+        let protectedQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
+            kSecUseDataProtectionKeychain as String: true,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
 
+        let protectedResult = try retrieveToken(
+            query: protectedQuery,
+            fallbackQuery: legacyQuery(service: service, account: account, shouldReturnData: true)
+        )
+        if protectedResult.status == errSecSuccess || protectedResult.status == errSecItemNotFound {
+            return protectedResult.token
+        }
+
+        throw KeychainError.retrieveFailed(protectedResult.status)
+    }
+
+    private func retrieveToken(
+        query: [String: Any],
+        fallbackQuery: [String: Any],
+        allowFallback: Bool = true
+    ) throws -> (status: OSStatus, token: String?) {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
         switch status {
         case errSecSuccess:
-            guard let data = result as? Data else { return nil }
-            return String(data: data, encoding: .utf8)
+            guard let data = result as? Data else { return (status, nil) }
+            return (status, String(data: data, encoding: .utf8))
+        case errSecItemNotFound where allowFallback:
+            return try retrieveToken(
+                query: fallbackQuery,
+                fallbackQuery: fallbackQuery,
+                allowFallback: false
+            )
         case errSecItemNotFound:
-            return nil
+            return (status, nil)
+        case _ where allowFallback && Self.shouldUseLegacyKeychainFallback(status):
+            return try retrieveToken(
+                query: fallbackQuery,
+                fallbackQuery: fallbackQuery,
+                allowFallback: false
+            )
         default:
-            throw KeychainError.retrieveFailed(status)
+            return (status, nil)
         }
     }
 
@@ -99,16 +144,45 @@ public struct KeychainHelper: Sendable {
         service: String,
         account: String
     ) throws {
-        let query: [String: Any] = [
+        let protectedQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
+            kSecUseDataProtectionKeychain as String: true,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
 
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
+        let status = SecItemDelete(protectedQuery as CFDictionary)
+        let fallbackStatus = SecItemDelete(legacyQuery(service: service, account: account) as CFDictionary)
+        let validStatuses = [errSecSuccess, errSecItemNotFound, errSecNotAvailable, errSecMissingEntitlement]
+
+        guard validStatuses.contains(status), validStatuses.contains(fallbackStatus) else {
             throw KeychainError.deleteFailed(status)
         }
+    }
+
+    private static func shouldUseLegacyKeychainFallback(_ status: OSStatus) -> Bool {
+        status == errSecNotAvailable || status == errSecMissingEntitlement
+    }
+
+    private func legacyQuery(
+        service: String,
+        account: String,
+        valueData: Data? = nil,
+        shouldReturnData: Bool = false
+    ) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        if let valueData {
+            query[kSecValueData as String] = valueData
+        }
+        if shouldReturnData {
+            query[kSecReturnData as String] = true
+            query[kSecMatchLimit as String] = kSecMatchLimitOne
+        }
+        return query
     }
 }
 
