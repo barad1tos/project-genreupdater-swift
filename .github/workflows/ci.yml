@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -46,6 +46,39 @@ jobs:
 
       - name: Build SharedUI
         run: swift build --package-path Packages/SharedUI
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build macOS app
+        run: >
+          xcodebuild build
+          -project GenreUpdater.xcodeproj
+          -scheme GenreUpdater
+          -configuration Debug
+          -destination 'platform=macOS,arch=arm64'
+          -derivedDataPath .build/XcodeDerivedData
+          CODE_SIGN_IDENTITY=-
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGNING_ALLOWED=NO
+          -quiet
+
+      - name: Test macOS app unit target
+        run: >
+          xcodebuild test
+          -project GenreUpdater.xcodeproj
+          -scheme GenreUpdater
+          -configuration Debug
+          -destination 'platform=macOS,arch=arm64'
+          -derivedDataPath .build/XcodeDerivedData
+          CODE_SIGN_IDENTITY=-
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGNING_ALLOWED=NO
+          -quiet
+        timeout-minutes: 10
 
       - name: Unlock Keychain for tests
         run: security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db

@@ -26,30 +26,33 @@ extension MainView {
         isLoading = true
         defer { isLoading = false }
 
+        let loadStart = ContinuousClock.now
+        var hasCachedTracks = false
+
         do {
-            let loadStart = ContinuousClock.now
             if !forceRefresh, let cachedTracks = await dependencies.loadLibrarySnapshot() {
                 tracks = cachedTracks
                 browseViewModel.tracks = cachedTracks
-                lastLibraryScanDate = .now
-                saveMetricsSnapshot(from: cachedTracks)
+                hasCachedTracks = !cachedTracks.isEmpty
                 await recordLibraryLoad(source: "snapshot", count: cachedTracks.count, startedAt: loadStart)
-                return
             }
 
             try await reader.requestAuthorization()
-            tracks = try await reader.fetchAllTracks()
-            await dependencies.refreshTrackIDMapping(musicKitTracks: tracks)
-            await dependencies.persistLoadedLibraryTracks(tracks)
-            browseViewModel.tracks = tracks
+            let liveTracks = try await reader.fetchAllTracks()
+            tracks = liveTracks
+            await dependencies.refreshTrackIDMapping(musicKitTracks: liveTracks)
+            await dependencies.persistLoadedLibraryTracks(liveTracks)
+            browseViewModel.tracks = liveTracks
             lastLibraryScanDate = .now
-            saveMetricsSnapshot(from: tracks)
-            await recordLibraryLoad(source: "music", count: tracks.count, startedAt: loadStart)
+            saveMetricsSnapshot(from: liveTracks)
+            await recordLibraryLoad(source: "music", count: liveTracks.count, startedAt: loadStart)
         } catch {
             await dependencies.analyticsService?.trackError("library.load", error: error)
             libraryLoadError = libraryLoadError(from: error)
-            tracks = []
-            browseViewModel.tracks = []
+            if !hasCachedTracks {
+                tracks = []
+                browseViewModel.tracks = []
+            }
         }
     }
 
@@ -122,6 +125,7 @@ extension MainView {
         var genreCount = 0
         var yearCount = 0
         var bothCount = 0
+        var protectedCount = 0
         var recentCount = 0
         let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: .now)
 
@@ -132,6 +136,7 @@ extension MainView {
             if hasGenre { genreCount += 1 }
             if hasYear { yearCount += 1 }
             if hasGenre, hasYear { bothCount += 1 }
+            if !track.canEdit { protectedCount += 1 }
 
             if let dateAdded = track.dateAdded,
                let cutoff = sevenDaysAgo,
@@ -155,6 +160,7 @@ extension MainView {
             snapshot.tracksWithBoth = bothCount
             snapshot.tracksNeedingGenre = total - genreCount
             snapshot.tracksNeedingYear = total - yearCount
+            snapshot.protectedFileCount = protectedCount
             snapshot.recentlyAdded = recentCount
             snapshot.timestamp = .now
         } else {
@@ -165,6 +171,7 @@ extension MainView {
                 tracksWithBoth: bothCount,
                 tracksNeedingGenre: total - genreCount,
                 tracksNeedingYear: total - yearCount,
+                protectedFileCount: protectedCount,
                 recentlyAdded: recentCount
             )
             modelContext.insert(snapshot)

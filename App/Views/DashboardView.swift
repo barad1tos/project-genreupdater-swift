@@ -128,6 +128,7 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var liveContent: some View {
+        #if compiler(>=6.2)
         if #available(macOS 26, *) {
             GlassEffectContainer(spacing: Spacing.md) {
                 liveStack
@@ -135,6 +136,9 @@ struct DashboardView: View {
         } else {
             liveStack
         }
+        #else
+        liveStack
+        #endif
     }
 
     private var liveStack: some View {
@@ -160,14 +164,14 @@ struct DashboardView: View {
                 genreTrendDelta: viewModel.genreTrendDelta,
                 yearTrend: viewModel.yearTrend,
                 yearTrendDelta: viewModel.yearTrendDelta,
-                isEnabled: !isPrimaryActionDisabled,
+                isEnabled: snapshot.allowsReviewActions,
                 onReviewChanges: performReviewAction
             )
             .opacity(showStatus ? 1 : 0)
 
             DashboardQuickActions(
                 snapshot: snapshot,
-                isDisabled: isPrimaryActionDisabled,
+                isDisabled: !snapshot.allowsReviewActions,
                 onReviewChanges: performReviewAction
             )
             .opacity(showStatus ? 1 : 0)
@@ -254,10 +258,7 @@ struct DashboardView: View {
     }
 
     private func performReviewAction() {
-        if case .loading = snapshot.scanState {
-            return
-        }
-        if case .writing = snapshot.writeState {
+        guard snapshot.allowsReviewActions else {
             return
         }
         onReviewChanges()
@@ -1028,6 +1029,7 @@ private struct DashboardMetricsSnapshotFingerprint: Equatable {
     let tracksWithBoth: Int
     let tracksNeedingGenre: Int
     let tracksNeedingYear: Int
+    let protectedFileCount: Int?
     let recentlyAdded: Int
     let timestamp: Date
 
@@ -1040,6 +1042,7 @@ private struct DashboardMetricsSnapshotFingerprint: Equatable {
             tracksWithBoth: snapshot.tracksWithBoth,
             tracksNeedingGenre: snapshot.tracksNeedingGenre,
             tracksNeedingYear: snapshot.tracksNeedingYear,
+            protectedFileCount: snapshot.protectedFileCount,
             recentlyAdded: snapshot.recentlyAdded,
             timestamp: snapshot.timestamp
         )

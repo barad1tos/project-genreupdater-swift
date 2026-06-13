@@ -47,8 +47,10 @@ struct DashboardSnapshotTests {
         #expect(snapshot.missingGenreCount == 2)
         #expect(snapshot.missingYearCount == 2)
         #expect(snapshot.protectedFileCount == 1)
+        #expect(snapshot.isProtectedFileCountKnown)
         #expect(snapshot.readyUpdateCount == 5)
         #expect(snapshot.consistencyCoverageRatio == 0.25)
+        #expect(snapshot.allowsReviewActions)
         #expect(snapshot.scanState == .ready(lastScanDate: fixedDate))
         #expect(snapshot.writeState == .ready(count: 5, isDryRun: true))
         #expect(snapshot.issues.map(\.title) == ["Missing genres", "Missing years", "Protected files", "Write errors"])
@@ -89,6 +91,121 @@ struct DashboardSnapshotTests {
         #expect(snapshot.totalTracks == 0)
         #expect(snapshot.healthScore == 0)
         #expect(snapshot.primaryStatusText == "Music access failed")
+    }
+
+    @Test("cached metrics keep protected-file coverage unknown when the cache cannot prove it")
+    func cachedMetricsKeepProtectedFileCoverageUnknown() {
+        let cachedMetrics = PersistedMetricsSnapshot(
+            totalTracks: 3,
+            tracksWithGenre: 3,
+            tracksWithYear: 3,
+            tracksWithBoth: 3,
+            tracksNeedingGenre: 0,
+            tracksNeedingYear: 0,
+            recentlyAdded: 0,
+            timestamp: fixedDate
+        )
+
+        let snapshot = LibraryDashboardSnapshot.make(
+            persistedMetrics: cachedMetrics,
+            isLoading: false,
+            loadError: nil,
+            isDryRun: true,
+            workflow: .empty
+        )
+
+        #expect(!snapshot.isProtectedFileCountKnown)
+        #expect(snapshot.protectedFileCount == 0)
+        #expect(snapshot.editableCoverageRatio == 0)
+        #expect(snapshot.coverageBuckets.first { $0.id == "editable" }?.title == "Editable files unknown")
+        #expect(snapshot.issues.first { $0.id == "protected-files" }?.title == "Protected files unknown")
+        #expect(snapshot.issues.first { $0.id == "protected-files" }?.severity == .warning)
+    }
+
+    @Test("cached metrics use persisted protected-file count when present")
+    func cachedMetricsUsePersistedProtectedFileCount() {
+        let cachedMetrics = PersistedMetricsSnapshot(
+            totalTracks: 4,
+            tracksWithGenre: 4,
+            tracksWithYear: 4,
+            tracksWithBoth: 4,
+            tracksNeedingGenre: 0,
+            tracksNeedingYear: 0,
+            protectedFileCount: 1,
+            recentlyAdded: 0,
+            timestamp: fixedDate
+        )
+
+        let snapshot = LibraryDashboardSnapshot.make(
+            persistedMetrics: cachedMetrics,
+            isLoading: false,
+            loadError: nil,
+            isDryRun: true,
+            workflow: .empty
+        )
+
+        #expect(snapshot.isProtectedFileCountKnown)
+        #expect(snapshot.protectedFileCount == 1)
+        #expect(snapshot.editableCoverageRatio == 0.75)
+        #expect(snapshot.coverageBuckets.first { $0.id == "editable" }?.title == "Editable files")
+        #expect(snapshot.issues.first { $0.id == "protected-files" }?.severity == .critical)
+    }
+
+    @Test("review actions require ready scan and non-writing state")
+    func reviewActionsRequireReadyScanAndNonWritingState() {
+        let readyTrack = Track(id: "1", name: "Song", artist: "A", album: "Album", genre: "Rock", year: 2000)
+        let ready = LibraryDashboardSnapshot.make(
+            tracks: [readyTrack],
+            lastScanDate: fixedDate,
+            isLoading: false,
+            loadError: nil,
+            isDryRun: true,
+            workflow: .empty
+        )
+        let loading = LibraryDashboardSnapshot.make(
+            tracks: [],
+            lastScanDate: nil,
+            isLoading: true,
+            loadError: nil,
+            isDryRun: true,
+            workflow: .empty
+        )
+        let failed = LibraryDashboardSnapshot.make(
+            tracks: [readyTrack],
+            lastScanDate: fixedDate,
+            isLoading: false,
+            loadError: .failed("Music access failed"),
+            isDryRun: true,
+            workflow: .empty
+        )
+        let empty = LibraryDashboardSnapshot.make(
+            tracks: [],
+            lastScanDate: nil,
+            isLoading: false,
+            loadError: nil,
+            isDryRun: true,
+            workflow: .empty
+        )
+        let writing = LibraryDashboardSnapshot.make(
+            tracks: [readyTrack],
+            lastScanDate: fixedDate,
+            isLoading: false,
+            loadError: nil,
+            isDryRun: true,
+            workflow: WorkflowDashboardState(
+                proposedChangeCount: 1,
+                acceptedChangeCount: 1,
+                failedWriteCount: 0,
+                isProcessing: true,
+                phaseLabel: "Writing"
+            )
+        )
+
+        #expect(ready.allowsReviewActions)
+        #expect(!loading.allowsReviewActions)
+        #expect(!failed.allowsReviewActions)
+        #expect(!empty.allowsReviewActions)
+        #expect(!writing.allowsReviewActions)
     }
 }
 
@@ -300,6 +417,18 @@ extension DashboardSnapshotTests {
 
         #expect(updatingViewModel.loadingState == .updating)
         #expect(updatingViewModel.snapshot.scanState == .loading)
+    }
+
+    @Test("cancelled loading timeout does not fail a restarted shimmer")
+    @MainActor
+    func cancelledLoadingTimeoutDoesNotFailRestartedShimmer() async {
+        let viewModel = DashboardViewModel()
+
+        viewModel.loadCachedMetrics(from: nil)
+        viewModel.loadCachedMetrics(from: nil)
+        try? await Task.sleep(for: .milliseconds(20))
+
+        #expect(viewModel.loadingState == .shimmer)
     }
 
     @Test("track content fingerprint changes for same-count dashboard metadata")

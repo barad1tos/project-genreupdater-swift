@@ -1,7 +1,7 @@
 // UpdateFlowTests.swift — XCUITests for the track update workflow.
 //
-// Tests the update sheet presentation, configuration options, and toolbar
-// controls. Some tests require the app to have loaded tracks (Music.app
+// Tests the Update destination, configuration options, and toolbar controls.
+// Some tests require the app to have loaded tracks (Music.app
 // access), so they use XCTSkipUnless to degrade gracefully in CI.
 
 import XCTest
@@ -113,8 +113,8 @@ final class UpdateFlowTests: XCTestCase {
         let yearExists = updateYearToggle.exists
             || app.staticTexts["Update Year"].exists
 
-        XCTAssertTrue(genreExists, "Update Genre toggle should exist in the sheet")
-        XCTAssertTrue(yearExists, "Update Year toggle should exist in the sheet")
+        XCTAssertTrue(genreExists, "Update Genre toggle should exist on the Update screen")
+        XCTAssertTrue(yearExists, "Update Year toggle should exist on the Update screen")
     }
 
     @MainActor
@@ -129,7 +129,7 @@ final class UpdateFlowTests: XCTestCase {
         let dryRunExists = dryRunCheckbox.exists || dryRunLabel.exists
         XCTAssertTrue(
             dryRunExists,
-            "Preview only (dry run) toggle should exist in the sheet"
+            "Preview only (dry run) toggle should exist on the Update screen"
         )
     }
 

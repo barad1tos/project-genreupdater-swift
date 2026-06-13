@@ -343,7 +343,7 @@ final class DashboardViewModel {
     /// Mark the initial data load as complete.
     ///
     /// Called by DashboardView after the entrance stagger has been evaluated,
-    /// so `isFirstLoad` is still `true` when `.onChange(of: showLiveContent)` fires.
+    /// so `isFirstLoad` is still `true` when the content visibility transition fires.
     func markFirstLoadComplete() {
         isFirstLoad = false
     }
@@ -353,7 +353,12 @@ final class DashboardViewModel {
     private func startLoadingTimeout() {
         loadingTimeoutTask?.cancel()
         loadingTimeoutTask = Task {
-            try? await Task.sleep(for: .seconds(15))
+            do {
+                try await Task.sleep(for: .seconds(15))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             if loadingState == .shimmer {
                 setError("Loading timed out. Please check your Music library access and try again.")
             }

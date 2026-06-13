@@ -82,6 +82,7 @@ struct LibraryDashboardSnapshot: Equatable {
     let missingGenreCount: Int
     let missingYearCount: Int
     let protectedFileCount: Int
+    let isProtectedFileCountKnown: Bool
     let readyUpdateCount: Int
     let genreCoverageRatio: Double
     let yearCoverageRatio: Double
@@ -96,6 +97,12 @@ struct LibraryDashboardSnapshot: Equatable {
     let issues: [DashboardIssue]
     let coverageBuckets: [DashboardCoverageBucket]
     let recentActivity: [DashboardActivity]
+
+    var allowsReviewActions: Bool {
+        guard case .ready = scanState else { return false }
+        if case .writing = writeState { return false }
+        return true
+    }
 
     static let empty = make(
         tracks: [],
@@ -165,7 +172,9 @@ struct LibraryDashboardSnapshot: Equatable {
         let genreCoverageRatio = ratio(counts.tracksWithGenre, of: counts.totalTracks)
         let yearCoverageRatio = ratio(counts.tracksWithYear, of: counts.totalTracks)
         let consistencyCoverageRatio = ratio(counts.tracksWithBoth, of: counts.totalTracks)
-        let editableCoverageRatio = ratio(counts.totalTracks - counts.protectedFileCount, of: counts.totalTracks)
+        let editableCoverageRatio = counts.isProtectedFileCountKnown
+            ? ratio(counts.totalTracks - counts.protectedFileCount, of: counts.totalTracks)
+            : 0
         let healthScore = makeHealthScore(
             counts: counts,
             genreCoverageRatio: genreCoverageRatio,
@@ -182,6 +191,7 @@ struct LibraryDashboardSnapshot: Equatable {
             missingGenreCount: counts.missingGenreCount,
             missingYearCount: counts.missingYearCount,
             protectedFileCount: counts.protectedFileCount,
+            isProtectedFileCountKnown: counts.isProtectedFileCountKnown,
             readyUpdateCount: readyUpdateCount,
             genreCoverageRatio: genreCoverageRatio,
             yearCoverageRatio: yearCoverageRatio,
@@ -202,7 +212,8 @@ struct LibraryDashboardSnapshot: Equatable {
                 genreCoverageRatio: genreCoverageRatio,
                 yearCoverageRatio: yearCoverageRatio,
                 consistencyCoverageRatio: consistencyCoverageRatio,
-                editableCoverageRatio: editableCoverageRatio
+                editableCoverageRatio: editableCoverageRatio,
+                isProtectedFileCountKnown: counts.isProtectedFileCountKnown
             ),
             recentActivity: DashboardSnapshotContent.makeRecentActivity(
                 totalTracks: counts.totalTracks,
@@ -271,8 +282,10 @@ struct LibraryDashboardSnapshot: Equatable {
             genreCoverageRatio * DashboardHealthPolicy.genreCoverageWeight
                 + yearCoverageRatio * DashboardHealthPolicy.yearCoverageWeight
                 + consistencyCoverageRatio * DashboardHealthPolicy.consistencyCoverageWeight
-        let protectedPenalty = ratio(counts.protectedFileCount, of: counts.totalTracks)
+        let protectedPenalty = counts.isProtectedFileCountKnown
+            ? ratio(counts.protectedFileCount, of: counts.totalTracks)
             * DashboardHealthPolicy.protectedFilePenaltyWeight
+            : 0
         let failedWritePenalty = min(
             ratio(failedWriteCount, of: counts.totalTracks) * DashboardHealthPolicy.failedWritePenaltyWeight,
             DashboardHealthPolicy.failedWritePenaltyCap
@@ -372,9 +385,9 @@ private enum DashboardSnapshotContent {
             ),
             DashboardIssue(
                 id: "protected-files",
-                title: "Protected files",
+                title: counts.isProtectedFileCountKnown ? "Protected files" : "Protected files unknown",
                 count: counts.protectedFileCount,
-                severity: counts.protectedFileCount > 0 ? .critical : .info
+                severity: protectedFileSeverity(counts: counts)
             ),
             DashboardIssue(
                 id: "write-errors",
@@ -389,13 +402,18 @@ private enum DashboardSnapshotContent {
         genreCoverageRatio: Double,
         yearCoverageRatio: Double,
         consistencyCoverageRatio: Double,
-        editableCoverageRatio: Double
+        editableCoverageRatio: Double,
+        isProtectedFileCountKnown: Bool
     ) -> [DashboardCoverageBucket] {
         [
             DashboardCoverageBucket(id: "genre", title: "Genre coverage", ratio: genreCoverageRatio),
             DashboardCoverageBucket(id: "year", title: "Year coverage", ratio: yearCoverageRatio),
             DashboardCoverageBucket(id: "consistency", title: "Consistency", ratio: consistencyCoverageRatio),
-            DashboardCoverageBucket(id: "editable", title: "Editable files", ratio: editableCoverageRatio),
+            DashboardCoverageBucket(
+                id: "editable",
+                title: isProtectedFileCountKnown ? "Editable files" : "Editable files unknown",
+                ratio: editableCoverageRatio
+            ),
         ]
     }
 
@@ -461,6 +479,11 @@ private enum DashboardSnapshotContent {
     private static func missingMetadataSeverity(_ count: Int) -> DashboardIssueSeverity {
         count > 0 ? .warning : .info
     }
+
+    private static func protectedFileSeverity(counts: TrackDashboardCounts) -> DashboardIssueSeverity {
+        guard counts.isProtectedFileCountKnown else { return .warning }
+        return counts.protectedFileCount > 0 ? .critical : .info
+    }
 }
 
 private enum DashboardHealthPolicy {
@@ -480,6 +503,7 @@ private struct TrackDashboardCounts: Equatable {
     let missingGenreCount: Int
     let missingYearCount: Int
     let protectedFileCount: Int
+    let isProtectedFileCountKnown: Bool
 
     static func make(from tracks: [Core.Track]) -> Self {
         var tracksWithGenre = 0
@@ -515,19 +539,22 @@ private struct TrackDashboardCounts: Equatable {
             tracksWithBoth: tracksWithBoth,
             missingGenreCount: tracks.count - tracksWithGenre,
             missingYearCount: tracks.count - tracksWithYear,
-            protectedFileCount: protectedFileCount
+            protectedFileCount: protectedFileCount,
+            isProtectedFileCountKnown: true
         )
     }
 
     static func make(from persistedMetrics: PersistedMetricsSnapshot) -> Self {
-        Self(
+        let protectedFileCount = persistedMetrics.protectedFileCount
+        return Self(
             totalTracks: persistedMetrics.totalTracks,
             tracksWithGenre: persistedMetrics.tracksWithGenre,
             tracksWithYear: persistedMetrics.tracksWithYear,
             tracksWithBoth: persistedMetrics.tracksWithBoth,
             missingGenreCount: persistedMetrics.tracksNeedingGenre,
             missingYearCount: persistedMetrics.tracksNeedingYear,
-            protectedFileCount: 0
+            protectedFileCount: protectedFileCount ?? 0,
+            isProtectedFileCountKnown: protectedFileCount != nil
         )
     }
 
