@@ -226,6 +226,7 @@ struct MainView: View {
     @State var workflowViewModel: WorkflowViewModel?
     @State var updateScopeTracks: [Track]?
     @State var pendingSelectedUpdateScopeConfiguration: SelectedUpdateScopeConfiguration?
+    @State var workflowNoticeMessage: String?
     @State var hasNavigated = false
     @AppStorage("sidebarCompact") var isSidebarCompact = false
     @AppStorage("sidebarBadgesEnabled") var areSidebarBadgesEnabled = false
@@ -420,7 +421,11 @@ struct MainView: View {
     @ViewBuilder
     private var updateContent: some View {
         if let viewModel = workflowViewModel {
-            UpdateWorkflowView(viewModel: viewModel, tracks: updateWorkflowTracks)
+            UpdateWorkflowView(
+                viewModel: viewModel,
+                tracks: updateWorkflowTracks,
+                noticeMessage: $workflowNoticeMessage
+            )
         } else {
             ContentUnavailableView(
                 "Services Unavailable",

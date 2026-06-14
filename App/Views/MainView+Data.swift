@@ -11,6 +11,50 @@ struct SelectedUpdateScopeConfiguration {
     let updateGenre: Bool
     let updateYear: Bool
     let previewOnly: Bool
+
+    init(
+        tracks: [Track],
+        updateGenre: Bool,
+        updateYear: Bool,
+        previewOnly: Bool
+    ) {
+        self.tracks = tracks
+        self.updateGenre = updateGenre
+        self.updateYear = updateYear
+        self.previewOnly = previewOnly
+    }
+
+    init(
+        tracks: [Track],
+        action: BrowseUpdateAction,
+        defaultUpdateGenre: Bool,
+        defaultUpdateYear: Bool,
+        defaultPreviewOnly: Bool
+    ) {
+        switch action {
+        case .genres:
+            self.init(
+                tracks: tracks,
+                updateGenre: true,
+                updateYear: false,
+                previewOnly: defaultPreviewOnly
+            )
+        case .years:
+            self.init(
+                tracks: tracks,
+                updateGenre: false,
+                updateYear: true,
+                previewOnly: defaultPreviewOnly
+            )
+        case .dryRun:
+            self.init(
+                tracks: tracks,
+                updateGenre: defaultUpdateGenre,
+                updateYear: defaultUpdateYear,
+                previewOnly: true
+            )
+        }
+    }
 }
 
 extension MainView {
@@ -153,19 +197,32 @@ extension MainView {
     }
 
     func prepareDefaultUpdate() {
+        ensureWorkflowViewModel()
+        guard workflowViewModel?.canStart ?? true else {
+            workflowNoticeMessage = "Finish or reset the current update before starting a new update scope."
+            selectedCategory = .update
+            return
+        }
+
         updateScopeTracks = nil
         pendingSelectedUpdateScopeConfiguration = nil
         applyWorkflowDefaults()
+        workflowViewModel?.mode = .fullLibrary
+        workflowViewModel?.computeScopePreview(tracks: tracks)
+        workflowNoticeMessage = nil
         selectedCategory = .update
     }
 
     func prepareSelectedTracksUpdate() {
         let selectedTracks = browseViewModel.selectedTracksForUpdate()
+        let updateSelection = configuredUpdateSelection
         configureSelectedUpdateScope(
-            tracks: selectedTracks,
-            updateGenre: configuredUpdateSelection.updateGenre,
-            updateYear: configuredUpdateSelection.updateYear,
-            previewOnly: configuredPreviewOnly
+            SelectedUpdateScopeConfiguration(
+                tracks: selectedTracks,
+                updateGenre: updateSelection.updateGenre,
+                updateYear: updateSelection.updateYear,
+                previewOnly: configuredPreviewOnly
+            )
         )
     }
 
@@ -173,38 +230,23 @@ extension MainView {
         guard let request = BrowseUpdateRequest(notification: notification) else { return }
 
         let selectedTracks = browseViewModel.tracksForUpdate(itemIDs: request.selectedItems)
-        switch request.action {
-        case .genres:
-            configureSelectedUpdateScope(
+        let updateSelection = configuredUpdateSelection
+        configureSelectedUpdateScope(
+            SelectedUpdateScopeConfiguration(
                 tracks: selectedTracks,
-                updateGenre: true,
-                updateYear: false,
-                previewOnly: configuredPreviewOnly
+                action: request.action,
+                defaultUpdateGenre: updateSelection.updateGenre,
+                defaultUpdateYear: updateSelection.updateYear,
+                defaultPreviewOnly: configuredPreviewOnly
             )
-        case .years:
-            configureSelectedUpdateScope(
-                tracks: selectedTracks,
-                updateGenre: false,
-                updateYear: true,
-                previewOnly: configuredPreviewOnly
-            )
-        case .dryRun:
-            configureSelectedUpdateScope(
-                tracks: selectedTracks,
-                updateGenre: configuredUpdateSelection.updateGenre,
-                updateYear: configuredUpdateSelection.updateYear,
-                previewOnly: true
-            )
-        }
+        )
     }
 
     func selectCategory(_ category: NavigationCategory?) {
-        guard category == .update else {
-            selectedCategory = category
-            return
+        selectedCategory = category
+        if category == .update {
+            ensureWorkflowViewModel()
         }
-
-        prepareDefaultUpdate()
     }
 
     var selectedCategoryBinding: Binding<NavigationCategory?> {
@@ -230,37 +272,27 @@ extension MainView {
         )
 
         if workflowViewModel?.mode == .selectedTracks {
-            workflowViewModel?.computeScopePreview(tracks: updateScopeTracks ?? loadedTracks)
+            workflowViewModel?.computeScopePreview(tracks: updateScopeTracks ?? [])
         }
     }
 
-    private func configureSelectedUpdateScope(
-        tracks selectedTracks: [Track],
-        updateGenre: Bool,
-        updateYear: Bool,
-        previewOnly: Bool
-    ) {
-        let configuration = SelectedUpdateScopeConfiguration(
-            tracks: selectedTracks,
-            updateGenre: updateGenre,
-            updateYear: updateYear,
-            previewOnly: previewOnly
-        )
-
+    private func configureSelectedUpdateScope(_ configuration: SelectedUpdateScopeConfiguration) {
         ensureWorkflowViewModel()
         guard let workflowViewModel else {
             pendingSelectedUpdateScopeConfiguration = configuration
-            updateScopeTracks = selectedTracks
+            updateScopeTracks = configuration.tracks
             selectedCategory = .update
             return
         }
 
         guard workflowViewModel.canStart else {
+            workflowNoticeMessage = "Finish or reset the current update before starting a new Browse selection."
             selectedCategory = .update
             return
         }
 
         applySelectedUpdateScope(configuration, to: workflowViewModel)
+        workflowNoticeMessage = nil
         selectedCategory = .update
     }
 

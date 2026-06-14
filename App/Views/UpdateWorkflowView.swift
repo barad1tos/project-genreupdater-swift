@@ -9,9 +9,15 @@ import SwiftUI
 struct UpdateWorkflowView: View {
     @Bindable var viewModel: WorkflowViewModel
     let tracks: [Track]
+    @Binding var noticeMessage: String?
 
     var body: some View {
         VStack(spacing: 0) {
+            if let noticeMessage {
+                noticeBanner(noticeMessage)
+                Divider()
+            }
+
             if showsConfig {
                 UpdateConfigSection(viewModel: viewModel, tracks: tracks)
                 Divider()
@@ -21,6 +27,27 @@ struct UpdateWorkflowView: View {
                 .frame(maxHeight: .infinity)
         }
         .animation(Motion.curveFast, value: "\(viewModel.phase)")
+    }
+
+    private func noticeBanner(_ message: String) -> some View {
+        HStack(spacing: Spacing.sm) {
+            Image(systemName: "info.circle.fill")
+                .foregroundStyle(Ayu.info)
+            Text(message)
+                .font(AppFont.caption)
+                .foregroundStyle(Ayu.fgSecondary)
+            Spacer()
+            Button {
+                noticeMessage = nil
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Ayu.fgMuted)
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xs)
+        .background(Ayu.bgSecondary)
     }
 
     // MARK: - Config Visibility

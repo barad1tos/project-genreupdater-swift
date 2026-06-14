@@ -14,18 +14,22 @@ extension BrowseViewModel {
         let tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
 
         for itemID in itemIDs {
-            if tracksByID[itemID] != nil {
-                selectedTrackIDs.insert(itemID)
-            }
+            guard let selectionItem = BrowseSelectionItem(id: itemID) else { continue }
 
-            if let album = albumIdentifier(from: itemID) {
+            switch selectionItem {
+            case let .track(trackID):
+                if tracksByID[trackID] != nil {
+                    selectedTrackIDs.insert(trackID)
+                }
+            case let .album(albumID):
+                guard let album = albumIdentifier(from: albumID) else { continue }
                 for track in tracksForAlbum(album) {
                     selectedTrackIDs.insert(track.id)
                 }
-            }
-
-            for track in tracksForArtist(itemID) {
-                selectedTrackIDs.insert(track.id)
+            case let .artist(artistID):
+                for track in tracksForArtist(artistID) {
+                    selectedTrackIDs.insert(track.id)
+                }
             }
         }
 

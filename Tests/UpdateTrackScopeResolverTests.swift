@@ -18,6 +18,19 @@ struct UpdateTrackScopeResolverTests {
         #expect(resolved.map(\.id) == ["two"])
     }
 
+    @Test("selected tracks mode without selected scope stays empty")
+    func selectedTracksModeWithoutSelectedScopeStaysEmpty() {
+        let tracks = makeTracks()
+
+        let resolved = UpdateTrackScopeResolver.tracksForWorkflow(
+            libraryTracks: tracks,
+            selectedScopeTracks: nil,
+            mode: .selectedTracks
+        )
+
+        #expect(resolved.isEmpty)
+    }
+
     @Test("full library mode ignores stale selected scope")
     func fullLibraryModeIgnoresStaleSelectedScope() {
         let tracks = makeTracks()

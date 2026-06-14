@@ -140,6 +140,10 @@ final class WorkflowViewModel {
         return false
     }
 
+    var hasRunnableScope: Bool {
+        mode != .selectedTracks || scopeTrackCount > 0
+    }
+
     /// Track IDs with their error messages from the most recent run.
     var failedTracks: [(id: String, error: String)] {
         trackStatuses.compactMap { trackID, status in
@@ -480,11 +484,15 @@ extension WorkflowViewModel {
             }
             maintenancePreflightResult = preflightResult
 
-            if mode == .fullLibrary {
+            if shouldRunBatchProcessing {
                 startBatchProcessing(tracks: tracks)
             } else {
                 startDryRun(tracks: tracks)
             }
         }
+    }
+
+    var shouldRunBatchProcessing: Bool {
+        mode == .fullLibrary && !previewOnly
     }
 }

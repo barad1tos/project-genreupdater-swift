@@ -9,7 +9,7 @@ enum UpdateTrackScopeResolver {
         mode: WorkflowMode
     ) -> [Track] {
         guard mode == .selectedTracks else { return libraryTracks }
-        return selectedScopeTracks ?? libraryTracks
+        return selectedScopeTracks ?? []
     }
 
     static func reconciledSelectedScope(

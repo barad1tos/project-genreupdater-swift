@@ -161,7 +161,8 @@ struct BrowseDetailView: View {
     // MARK: - Track Row
 
     private func trackRow(_ track: Track, number: Int) -> some View {
-        let isSelected = viewModel.selectedItems.contains(track.id)
+        let selectionID = BrowseSelectionItem.trackID(track.id)
+        let isSelected = viewModel.selectedItems.contains(selectionID)
 
         return HStack(spacing: Spacing.xs) {
             Text("\(number)")
@@ -198,7 +199,7 @@ struct BrowseDetailView: View {
         .onTapGesture {
             let flags = NSApp.currentEvent?.modifierFlags ?? []
             if flags.contains(.command) {
-                viewModel.handleCheckboxToggle(track.id)
+                viewModel.handleCheckboxToggle(selectionID)
             }
         }
         .accessibilityElement(children: .combine)

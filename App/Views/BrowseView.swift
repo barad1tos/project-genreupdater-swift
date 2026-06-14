@@ -148,7 +148,7 @@ struct BrowseView: View {
                 albumSubRow(
                     album,
                     artistName: artist.canonicalName,
-                    allAlbumIDs: albums.map(\.id)
+                    allAlbumIDs: albums.map { BrowseSelectionItem.albumID($0.id) }
                 )
             }
         }
@@ -159,7 +159,7 @@ struct BrowseView: View {
             name: artist.canonicalName,
             albumCount: artist.albumCount,
             trackCount: artist.totalTrackCount,
-            isSelected: viewModel.selectedItems.contains(artist.id)
+            isSelected: viewModel.selectedItems.contains(BrowseSelectionItem.artistID(artist.id))
         )
         .background {
             GeometryReader { geometry in
@@ -191,8 +191,10 @@ struct BrowseView: View {
             let flags = NSApp.currentEvent?.modifierFlags ?? []
             if flags.contains(.command) || flags.contains(.shift) {
                 viewModel.handleRowClick(
-                    itemID: artist.id,
-                    allVisibleIDs: viewModel.sections.flatMap { $0.artists.map(\.id) }
+                    itemID: BrowseSelectionItem.artistID(artist.id),
+                    allVisibleIDs: viewModel.sections.flatMap { section in
+                        section.artists.map { BrowseSelectionItem.artistID($0.id) }
+                    }
                 )
             } else {
                 viewModel.toggleExpanded(artist.canonicalName)
@@ -252,7 +254,7 @@ struct BrowseView: View {
             let flags = NSApp.currentEvent?.modifierFlags ?? []
             if flags.contains(.command) || flags.contains(.shift) {
                 viewModel.handleRowClick(
-                    itemID: album.id,
+                    itemID: BrowseSelectionItem.albumID(album.id),
                     allVisibleIDs: allAlbumIDs
                 )
             } else {

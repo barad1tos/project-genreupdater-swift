@@ -187,6 +187,32 @@ struct WorkflowSelectedUpdateScopeTests {
         }
         #expect(viewModel.result == nil)
     }
+
+    @Test("full library preview only avoids batch writes")
+    func fullLibraryPreviewOnlyAvoidsBatchWrites() {
+        let viewModel = makeWorkflowViewModel()
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = true
+
+        #expect(!viewModel.shouldRunBatchProcessing)
+
+        viewModel.previewOnly = false
+
+        #expect(viewModel.shouldRunBatchProcessing)
+    }
+
+    @Test("selected tracks mode requires non-empty scope")
+    func selectedTracksModeRequiresNonEmptyScope() {
+        let viewModel = makeWorkflowViewModel()
+        viewModel.mode = .selectedTracks
+        viewModel.scopeTrackCount = 0
+
+        #expect(!viewModel.hasRunnableScope)
+
+        viewModel.scopeTrackCount = 1
+
+        #expect(viewModel.hasRunnableScope)
+    }
 }
 
 @MainActor
