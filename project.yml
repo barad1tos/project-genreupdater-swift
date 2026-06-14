@@ -146,6 +146,15 @@ schemes:
     archive:
       config: Release
 
+  GenreUpdaterUITests:
+    build:
+      targets:
+        GenreUpdater: all
+        GenreUpdaterUITests: [test]
+    test:
+      targets:
+        - name: GenreUpdaterUITests
+
   IntegrationTests:
     build:
       targets:

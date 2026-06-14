@@ -2,14 +2,41 @@
 
 import SwiftUI
 
+// MARK: - SidebarBadge
+
+/// Compact status badge metadata for a sidebar item.
+public struct SidebarBadge: Sendable, Equatable {
+    public enum Tone: Sendable {
+        case neutral
+        case info
+        case success
+        case warning
+        case critical
+    }
+
+    public let value: String
+    public let tone: Tone
+    public let accessibilityLabel: String
+
+    public init(
+        value: String,
+        tone: Tone = .neutral,
+        accessibilityLabel: String
+    ) {
+        self.value = value
+        self.tone = tone
+        self.accessibilityLabel = accessibilityLabel
+    }
+}
+
 // MARK: - SidebarView
 
-/// Custom VStack-based sidebar with Ayu theming, compact/expanded toggle,
-/// sectioned items with Lucide icons, and a settings footer.
+/// Custom VStack-based sidebar with compact/expanded toggle,
+/// sectioned items with Lucide icons, optional status badges, and a settings footer.
 ///
 /// The sidebar supports two modes:
-/// - **Expanded**: icon + text label, `Ayu.bgSecondary` background
-/// - **Compact**: icon-only with tooltips, transparent background
+/// - **Expanded**: icon + text label with optional trailing badge
+/// - **Compact**: icon-only with tooltips and compact badge markers
 ///
 /// The active item uses `matchedGeometryEffect` for a sliding pill indicator.
 public struct SidebarView: View {
@@ -19,12 +46,20 @@ public struct SidebarView: View {
         public let title: String
         public let icon: NSImage
         public let section: String
+        public let badge: SidebarBadge?
 
-        public init(id: String, title: String, icon: NSImage, section: String) {
+        public init(
+            id: String,
+            title: String,
+            icon: NSImage,
+            section: String,
+            badge: SidebarBadge? = nil
+        ) {
             self.id = id
             self.title = title
             self.icon = icon
             self.section = section
+            self.badge = badge
         }
     }
 
@@ -54,7 +89,7 @@ public struct SidebarView: View {
             Spacer()
             settingsFooter
         }
-        .background(isCompact ? Color.clear : Ayu.bgSecondary)
+        .background(Color.clear)
     }
 
     // MARK: - Toggle Button
@@ -89,6 +124,7 @@ public struct SidebarView: View {
                         SidebarItemView(
                             title: item.title,
                             icon: item.icon,
+                            badge: item.badge,
                             isSelected: selectedItemID == item.id,
                             isCompact: isCompact,
                             namespace: sidebarNamespace

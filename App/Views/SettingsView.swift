@@ -31,6 +31,7 @@ struct SettingsView: View {
 private struct AppearanceTab: View {
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("sidebarCompact") private var isSidebarCompact = false
+    @AppStorage("sidebarBadgesEnabled") private var areSidebarBadgesEnabled = false
     @AppStorage("fastAnimations") private var fastAnimations = false
 
     var body: some View {
@@ -56,10 +57,19 @@ private struct AppearanceTab: View {
 
             Section("Sidebar") {
                 Toggle("Compact sidebar", isOn: $isSidebarCompact)
+                Toggle("Show status badges", isOn: $areSidebarBadgesEnabled)
 
                 Text(isSidebarCompact ? "Icons only" : "Icons and labels")
                     .foregroundStyle(Ayu.fgSecondary)
                     .font(AppFont.caption)
+
+                Text(
+                    areSidebarBadgesEnabled
+                        ? "Dashboard health, track count, issues, and update readiness are shown in navigation."
+                        : "Navigation stays minimal until badges are enabled."
+                )
+                .foregroundStyle(Ayu.fgSecondary)
+                .font(AppFont.caption)
             }
 
             Section("Motion") {

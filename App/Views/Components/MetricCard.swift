@@ -17,6 +17,7 @@ struct MetricCard: View {
     let tint: Color
     var trend: TrendDirection?
     var trendDelta: Int?
+    var isEnabled = true
     let onTap: () -> Void
 
     @State private var isHovered = false
@@ -37,15 +38,19 @@ struct MetricCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: Radius.md)
                 .strokeBorder(Ayu.accent, lineWidth: 1.5)
-                .opacity(isHovered ? 1 : 0)
+                .opacity(isEnabled && isHovered ? 1 : 0)
         }
-        .ayuShadow(isHovered ? Shadow.elevated : Shadow.subtle)
+        .ayuShadow(isEnabled && isHovered ? Shadow.elevated : Shadow.subtle)
         .contentShape(.rect)
-        .scaleEffect(isPressed ? 0.97 : 1.0)
+        .allowsHitTesting(isEnabled)
+        .opacity(isEnabled ? 1 : 0.52)
+        .scaleEffect(isEnabled && isPressed ? 0.97 : 1.0)
         .animation(Motion.curveFast, value: isPressed)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
+                .onChanged { _ in
+                    isPressed = true
+                }
                 .onEnded { _ in
                     isPressed = false
                     onTap()
@@ -53,10 +58,15 @@ struct MetricCard: View {
         )
         .onHover { hovering in
             withAnimation(Motion.curveFast) {
-                isHovered = hovering
+                isHovered = isEnabled && hovering
             }
         }
-        .focusable()
+        .onChange(of: isEnabled) { _, isEnabled in
+            guard !isEnabled else { return }
+            isHovered = false
+            isPressed = false
+        }
+        .focusable(isEnabled)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label): \(value)")
         .accessibilityValue(trendAccessibilityValue)

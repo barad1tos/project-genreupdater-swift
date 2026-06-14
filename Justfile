@@ -4,9 +4,10 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 sources := "App Packages/Core/Sources Packages/Services/Sources Packages/SharedUI/Sources"
+xcodebuild_flags := "-project GenreUpdater.xcodeproj -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath .build/XcodeDerivedData CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO"
 
-# Full CI pipeline (default)
-ci: build test coverage entitlements lint format periphery
+# Automated non-UI CI pipeline (default)
+ci: build app-build app-test test coverage entitlements lint format periphery
     @echo ""
     @echo "All CI checks passed"
 
@@ -92,6 +93,22 @@ coverage:
 # Validate entitlements against whitelist
 entitlements:
     bash scripts/validate-entitlements.sh
+
+# Generate the ignored Xcode project from project.yml
+xcodegen:
+    xcodegen generate
+
+# Build the macOS app target declared in project.yml
+app-build: xcodegen
+    xcodebuild build {{ xcodebuild_flags }} -scheme GenreUpdater -quiet
+
+# Test app unit tests separately from UI tests
+app-test: xcodegen
+    xcodebuild test {{ xcodebuild_flags }} -scheme GenreUpdater -quiet
+
+# Explicit UI smoke gate. Run locally before changing UI test behavior.
+ui-test: xcodegen
+    xcodebuild test {{ xcodebuild_flags }} -scheme GenreUpdaterUITests -quiet
 
 # SwiftLint --strict
 lint:

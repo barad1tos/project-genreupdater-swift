@@ -130,6 +130,8 @@ public actor MusicLibraryReader {
                     "Fetched \(tracks.count, privacy: .public) tracks from MusicKit\(artist.map { " (artist: \($0))" } ?? "", privacy: .private)"
                 )
             return tracks
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             log.error("MusicKit fetch failed: \(error.localizedDescription, privacy: .public)")
             throw MusicLibraryError.fetchFailed(detail: error.localizedDescription)

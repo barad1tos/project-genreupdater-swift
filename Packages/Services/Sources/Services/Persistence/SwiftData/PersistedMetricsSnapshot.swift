@@ -16,6 +16,7 @@ public final class PersistedMetricsSnapshot {
     public var tracksWithBoth: Int
     public var tracksNeedingGenre: Int
     public var tracksNeedingYear: Int
+    public var protectedFileCount: Int?
     public var recentlyAdded: Int
     public var timestamp: Date
 
@@ -32,6 +33,7 @@ public final class PersistedMetricsSnapshot {
         tracksWithBoth: Int,
         tracksNeedingGenre: Int,
         tracksNeedingYear: Int,
+        protectedFileCount: Int? = nil,
         recentlyAdded: Int,
         timestamp: Date = .now,
         previousTotalTracks: Int = 0,
@@ -45,6 +47,7 @@ public final class PersistedMetricsSnapshot {
         self.tracksWithBoth = tracksWithBoth
         self.tracksNeedingGenre = tracksNeedingGenre
         self.tracksNeedingYear = tracksNeedingYear
+        self.protectedFileCount = protectedFileCount
         self.recentlyAdded = recentlyAdded
         self.timestamp = timestamp
         self.previousTotalTracks = previousTotalTracks

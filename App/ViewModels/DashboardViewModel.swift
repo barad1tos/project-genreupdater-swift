@@ -89,10 +89,17 @@ enum TrendDirection {
 /// trend direction by comparing current metrics to previous scan values.
 @Observable @MainActor
 final class DashboardViewModel {
+    private let loadingTimeoutDuration: Duration
+
+    init(loadingTimeoutDuration: Duration = .seconds(15)) {
+        self.loadingTimeoutDuration = loadingTimeoutDuration
+    }
+
     // MARK: - Published State
 
     private(set) var loadingState: DashboardLoadingState = .shimmer
     private(set) var metrics: DashboardMetrics = .empty
+    private(set) var snapshot: LibraryDashboardSnapshot = .empty
     private(set) var previousMetrics: DashboardMetrics?
     private(set) var isFirstLoad = true
 
@@ -173,6 +180,7 @@ final class DashboardViewModel {
         }
 
         loadingState = .cached(lastUpdated: snapshot.timestamp)
+        startLoadingTimeout()
     }
 
     /// Phase 2: Refresh metrics from live MusicKit track data.
@@ -181,9 +189,21 @@ final class DashboardViewModel {
     /// as previous for trend calculation if they contain real data.
     /// The `isLoadingTracks` guard prevents transitioning to `.emptyLibrary`
     /// while MusicKit is still fetching (core bug fix for first-launch flash).
-    func refreshFromLive(tracks: [Track], isLoadingTracks: Bool) {
+    func refreshFromLive(
+        tracks: [Track],
+        isLoadingTracks: Bool,
+        loadError: LibraryLoadError? = nil
+    ) {
+        if let loadError {
+            applyLoadError(loadError)
+            return
+        }
+
         // Core bug fix: don't transition to emptyLibrary while still loading
-        guard !isLoadingTracks || !tracks.isEmpty else { return }
+        guard !isLoadingTracks || !tracks.isEmpty else {
+            transitionStaleErrorToLoading()
+            return
+        }
 
         guard !tracks.isEmpty else {
             loadingState = .emptyLibrary
@@ -196,45 +216,7 @@ final class DashboardViewModel {
             previousMetrics = metrics
         }
 
-        let total = tracks.count
-        var genreCount = 0
-        var yearCount = 0
-        var bothCount = 0
-        var recentCount = 0
-        let sevenDaysAgo = Calendar.current.date(
-            byAdding: .day,
-            value: -7,
-            to: .now
-        )
-
-        // Single-pass accumulation
-        for track in tracks {
-            let hasGenre = track.genre.map { !$0.isEmpty } ?? false
-            let hasYear = track.year != nil
-
-            if hasGenre { genreCount += 1 }
-            if hasYear { yearCount += 1 }
-            if hasGenre, hasYear { bothCount += 1 }
-
-            if let dateAdded = track.dateAdded,
-               let cutoff = sevenDaysAgo,
-               dateAdded >= cutoff {
-                recentCount += 1
-            }
-        }
-
-        metrics = DashboardMetrics(
-            totalTracks: total,
-            tracksWithGenre: genreCount,
-            tracksWithYear: yearCount,
-            tracksWithBoth: bothCount,
-            tracksNeedingGenre: total - genreCount,
-            tracksNeedingYear: total - yearCount,
-            recentlyAdded: recentCount,
-            genreCoverage: Double(genreCount) / Double(total),
-            yearCoverage: Double(yearCount) / Double(total),
-            consistencyCoverage: Double(bothCount) / Double(total)
-        )
+        metrics = makeMetrics(from: tracks)
 
         loadingTimeoutTask?.cancel()
 
@@ -254,16 +236,77 @@ final class DashboardViewModel {
         transitionToLive()
     }
 
+    // swiftlint:disable:next function_parameter_count
+    func refreshSnapshot(
+        tracks: [Track],
+        metricsSnapshot: PersistedMetricsSnapshot? = nil,
+        lastScanDate: Date?,
+        isLoadingTracks: Bool,
+        loadError: LibraryLoadError?,
+        isDryRun: Bool,
+        workflowState: WorkflowDashboardState
+    ) {
+        if let loadError {
+            applyLoadError(loadError)
+        }
+
+        if tracks.isEmpty, isLoadingTracks, loadError == nil, let metricsSnapshot {
+            loadCachedMetrics(from: metricsSnapshot)
+            snapshot = LibraryDashboardSnapshot.make(
+                persistedMetrics: metricsSnapshot,
+                isLoading: isLoadingTracks,
+                loadError: loadError,
+                isDryRun: isDryRun,
+                workflow: workflowState
+            )
+            return
+        }
+
+        if tracks.isEmpty, isLoadingTracks, loadError == nil {
+            loadCachedMetrics(from: nil)
+        }
+
+        if tracks.isEmpty, !isLoadingTracks, loadError == nil {
+            loadingTimeoutTask?.cancel()
+            loadingState = .emptyLibrary
+        }
+
+        snapshot = LibraryDashboardSnapshot.make(
+            tracks: tracks,
+            lastScanDate: lastScanDate,
+            isLoading: isLoadingTracks,
+            loadError: loadError,
+            isDryRun: isDryRun,
+            workflow: workflowState
+        )
+    }
+
     /// Set the permission denied state.
     func setPermissionDenied() {
         loadingTimeoutTask?.cancel()
         loadingState = .permissionDenied
+        snapshot = LibraryDashboardSnapshot.make(
+            tracks: [],
+            lastScanDate: nil,
+            isLoading: false,
+            loadError: .permissionDenied,
+            isDryRun: true,
+            workflow: .empty
+        )
     }
 
     /// Set the error state with a message.
     func setError(_ message: String) {
         loadingTimeoutTask?.cancel()
         loadingState = .error(message)
+        snapshot = LibraryDashboardSnapshot.make(
+            tracks: [],
+            lastScanDate: nil,
+            isLoading: false,
+            loadError: .failed(message),
+            isDryRun: true,
+            workflow: .empty
+        )
     }
 
     // MARK: - Transition Helpers
@@ -278,30 +321,124 @@ final class DashboardViewModel {
         loadingState = .live
     }
 
+    private func transitionStaleErrorToLoading() {
+        switch loadingState {
+        case .error, .permissionDenied:
+            if metrics.totalTracks > 0 {
+                loadingState = .updating
+                shimmerStartTime = Date()
+                startLoadingTimeout()
+            } else {
+                loadingState = .shimmer
+                shimmerStartTime = Date()
+                startLoadingTimeout()
+            }
+
+            snapshot = LibraryDashboardSnapshot.make(
+                tracks: [],
+                lastScanDate: nil,
+                isLoading: true,
+                loadError: nil,
+                isDryRun: true,
+                workflow: .empty
+            )
+        default:
+            break
+        }
+    }
+
     /// Mark the initial data load as complete.
     ///
     /// Called by DashboardView after the entrance stagger has been evaluated,
-    /// so `isFirstLoad` is still `true` when `.onChange(of: showLiveContent)` fires.
+    /// so `isFirstLoad` is still `true` when the content visibility transition fires.
     func markFirstLoadComplete() {
         isFirstLoad = false
     }
 
-    /// Start a 15-second loading timeout that shows an error if
-    /// shimmer is still active (MusicKit unresponsive).
+    /// Start a loading timeout that shows an error if
+    /// live Music data remains unavailable.
     private func startLoadingTimeout() {
         loadingTimeoutTask?.cancel()
         loadingTimeoutTask = Task {
-            try? await Task.sleep(for: .seconds(15))
-            if loadingState == .shimmer {
-                loadingState = .error(
-                    "Loading timed out. Please check your Music library access and try again."
-                )
+            do {
+                try await Task.sleep(for: loadingTimeoutDuration)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            if shouldFailLoadingTimeout {
+                setError("Loading timed out. Please check your Music library access and try again.")
             }
         }
     }
 
-    // MARK: - Trend Calculations
+    // MARK: - Private
 
+    func applyLoadError(_ loadError: LibraryLoadError) {
+        switch loadError {
+        case .permissionDenied:
+            setPermissionDenied()
+        case .restricted:
+            setError(loadError.message)
+        case let .failed(message):
+            setError(message)
+        }
+    }
+
+    private var shouldFailLoadingTimeout: Bool {
+        switch loadingState {
+        case .shimmer, .cached, .updating:
+            true
+        case .live, .error, .permissionDenied, .emptyLibrary:
+            false
+        }
+    }
+
+    private func makeMetrics(from tracks: [Track]) -> DashboardMetrics {
+        let total = tracks.count
+        var genreCount = 0
+        var yearCount = 0
+        var bothCount = 0
+        var recentCount = 0
+        let sevenDaysAgo = Calendar.current.date(
+            byAdding: .day,
+            value: -7,
+            to: .now
+        )
+
+        for track in tracks {
+            let hasGenre = GenreUtilities.hasPresentGenre(track.genre)
+            let hasYear = track.year != nil
+
+            if hasGenre { genreCount += 1 }
+            if hasYear { yearCount += 1 }
+            if hasGenre, hasYear { bothCount += 1 }
+
+            if let dateAdded = track.dateAdded,
+               let cutoff = sevenDaysAgo,
+               dateAdded >= cutoff {
+                recentCount += 1
+            }
+        }
+
+        return DashboardMetrics(
+            totalTracks: total,
+            tracksWithGenre: genreCount,
+            tracksWithYear: yearCount,
+            tracksWithBoth: bothCount,
+            tracksNeedingGenre: total - genreCount,
+            tracksNeedingYear: total - yearCount,
+            recentlyAdded: recentCount,
+            genreCoverage: Double(genreCount) / Double(total),
+            yearCoverage: Double(yearCount) / Double(total),
+            consistencyCoverage: Double(bothCount) / Double(total)
+        )
+    }
+}
+
+// MARK: - Trend Calculations
+
+extension DashboardViewModel {
     /// Genre trend: fewer tracks needing genre is good (down).
     var genreTrend: TrendDirection? {
         guard let previous = previousMetrics else { return nil }
@@ -347,8 +484,6 @@ final class DashboardViewModel {
         guard let previous = previousMetrics else { return nil }
         return metrics.recentlyAdded - previous.recentlyAdded
     }
-
-    // MARK: - Private
 
     /// Trend for metrics where decrease is good (fewer tracks needing attention).
     private func trendForDecreasing(current: Int, previous: Int) -> TrendDirection {
