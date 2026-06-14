@@ -1,4 +1,5 @@
 import Core
+import Foundation
 import Security
 import Services
 import Testing
@@ -20,7 +21,7 @@ struct AppDependenciesAPIClientsTests {
             cache: nil,
             pendingVerificationService: nil,
             reachability: nil,
-            keychainDiscogsClientFactory: { _, _ in
+            keychainDiscogsClientFactory: { _, _, _ in
                 throw expectedError
             },
             keychainErrorHandler: { error in
@@ -47,11 +48,12 @@ struct AppDependenciesAPIClientsTests {
             cache: nil,
             pendingVerificationService: nil,
             reachability: nil,
-            keychainDiscogsClientFactory: { contactEmail, rateLimiter in
+            keychainDiscogsClientFactory: { contactEmail, rateLimiter, baseURL in
                 DiscogsClient(
                     token: "saved-token",
                     contactEmail: contactEmail,
-                    rateLimiter: rateLimiter
+                    rateLimiter: rateLimiter,
+                    baseURL: baseURL
                 )
             },
             discogsCredentialIssueHandler: { issue in
@@ -73,7 +75,7 @@ struct AppDependenciesAPIClientsTests {
             cache: nil,
             pendingVerificationService: nil,
             reachability: nil,
-            keychainDiscogsClientFactory: { _, _ in
+            keychainDiscogsClientFactory: { _, _, _ in
                 throw KeychainError.authenticationFailed(errSecAuthFailed)
             },
             discogsCredentialIssueHandler: { issue in
@@ -82,5 +84,33 @@ struct AppDependenciesAPIClientsTests {
         )
 
         #expect(capturedIssue == nil)
+    }
+
+    @Test("Configured Discogs API host is passed to Keychain client factory")
+    func configuredDiscogsAPIHostIsPassedToKeychainFactory() throws {
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.apiAuth.discogsTokenReference = ""
+        configuration.yearRetrieval.apiAuth.discogsBaseHost = "discogs.example.test"
+        var capturedBaseURL: URL?
+
+        _ = AppDependencies.makeAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            keychainDiscogsClientFactory: { contactEmail, rateLimiter, baseURL in
+                capturedBaseURL = baseURL
+                return DiscogsClient(
+                    token: "saved-token",
+                    contactEmail: contactEmail,
+                    rateLimiter: rateLimiter,
+                    baseURL: baseURL
+                )
+            }
+        )
+
+        let baseURL = try #require(capturedBaseURL)
+        #expect(baseURL.scheme == "https")
+        #expect(baseURL.host == "discogs.example.test")
     }
 }

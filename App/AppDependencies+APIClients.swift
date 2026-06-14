@@ -42,20 +42,25 @@ extension AppDependencies {
         reachability: NetworkReachabilityMonitor?,
         keychainDiscogsClientFactory: (
             _ contactEmail: String,
-            _ rateLimiter: TokenBucketRateLimiter?
-        ) throws -> DiscogsClient = { contactEmail, rateLimiter in
+            _ rateLimiter: TokenBucketRateLimiter?,
+            _ baseURL: URL
+        ) throws -> DiscogsClient = { contactEmail, rateLimiter, baseURL in
             try DiscogsClient.fromKeychain(
                 contactEmail: contactEmail,
-                rateLimiter: rateLimiter
+                rateLimiter: rateLimiter,
+                baseURL: baseURL
             )
         },
         keychainErrorHandler: (any Error) -> Void = { error in
             apiClientLog
                 .error("Failed to load Discogs token from Keychain: \(error.localizedDescription, privacy: .public)")
         },
-        discogsCredentialIssueHandler: (DiscogsCredentialIssue?) -> Void = { _ in }
+        discogsCredentialIssueHandler: (DiscogsCredentialIssue?) -> Void = { _ in
+            // Default factory use has no UI state to update; callers that own state inject a handler.
+        }
     ) -> APIOrchestrator {
         let apiAuth = configuration.yearRetrieval.apiAuth
+        let discogsBaseURL = apiAuth.discogsBaseURL
         let contactEmail = APIAuthReferenceResolver.resolve(
             apiAuth.contactEmailReference,
             fallbackUserDefaultsKey: "contactEmail"
@@ -72,7 +77,8 @@ extension AppDependencies {
             do {
                 discogsClient = try keychainDiscogsClientFactory(
                     contactEmail,
-                    discogsRateLimiter
+                    discogsRateLimiter,
+                    discogsBaseURL
                 )
                 discogsCredentialIssueHandler(nil)
             } catch {
@@ -80,7 +86,8 @@ extension AppDependencies {
                 discogsCredentialIssueHandler(DiscogsCredentialIssue(error: error))
                 discogsClient = DiscogsClient(
                     contactEmail: contactEmail,
-                    rateLimiter: discogsRateLimiter
+                    rateLimiter: discogsRateLimiter,
+                    baseURL: discogsBaseURL
                 )
             }
         } else {
@@ -88,7 +95,8 @@ extension AppDependencies {
             discogsClient = DiscogsClient(
                 token: configuredDiscogsToken,
                 contactEmail: contactEmail,
-                rateLimiter: discogsRateLimiter
+                rateLimiter: discogsRateLimiter,
+                baseURL: discogsBaseURL
             )
         }
 

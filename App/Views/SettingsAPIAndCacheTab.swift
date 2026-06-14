@@ -14,6 +14,7 @@ struct APIAndCacheTab: View {
     @Environment(AppDependencies.self) var dependencies
     @AppStorage("contactEmail") private var contactEmail = ""
     @State private var tokenInput = ""
+    @State var discogsHostInput = APIAuthConfig.defaultDiscogsBaseHost
     @State private var tokenStatus: TokenStatus = .unknown
     @State private var statusMessage = ""
     @State private var cacheStatistics: CacheStatistics?
@@ -40,6 +41,7 @@ struct APIAndCacheTab: View {
         .padding()
         .task {
             loadTokenStatus()
+            loadDiscogsHostInput()
             loadCacheStatistics()
             await dependencies.refreshAutoSyncStatus()
         }
@@ -139,6 +141,8 @@ struct APIAndCacheTab: View {
                         .font(.caption)
                 }
             }
+
+            discogsHostEditor
         } header: {
             Text("Discogs API")
         }

@@ -19,7 +19,8 @@ import OSLog
 /// Discogs does not expose structured artist activity periods,
 /// so `getArtistActivityPeriod` and `getArtistStartYear` return `nil`.
 public struct DiscogsClient: ExternalAPIService, Sendable {
-    private static let baseURL = "https://api.discogs.com"
+    /// Default public Discogs API endpoint used when no custom base URL is provided.
+    public static let defaultBaseURL = APIAuthConfig.defaultDiscogsBaseURL
     /// Keychain service identifier used for Discogs token storage.
     public static let keychainService = "com.genreupdater.discogs"
     /// Keychain account identifier used for Discogs token storage.
@@ -29,6 +30,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     private let session: URLSession
     private let rateLimiter: TokenBucketRateLimiter
     private let token: String?
+    private let baseURL: URL
     private let log = AppLogger.api
 
     /// Creates a Discogs client with an explicit token.
@@ -40,11 +42,13 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     ///   - contactEmail: Contact email included in User-Agent header.
     ///   - session: URL session for network requests. Defaults to `.shared`.
     ///   - rateLimiter: Rate limiter for throttling. Defaults to 60 req/min.
+    ///   - baseURL: Base Discogs API URL. Defaults to the public Discogs API endpoint.
     public init(
         token: String? = nil,
         contactEmail: String = "",
         session: URLSession = .shared,
-        rateLimiter: TokenBucketRateLimiter? = nil
+        rateLimiter: TokenBucketRateLimiter? = nil,
+        baseURL: URL = Self.defaultBaseURL
     ) {
         if contactEmail.isEmpty {
             self.userAgent = "GenreUpdater/1.0"
@@ -53,6 +57,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         }
         self.token = token
         self.session = session
+        self.baseURL = baseURL
         self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
             maxTokens: 60,
             refillInterval: .seconds(1)
@@ -65,12 +70,14 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     ///   - contactEmail: Contact email included in User-Agent header.
     ///   - session: URL session for network requests. Defaults to `.shared`.
     ///   - rateLimiter: Rate limiter for throttling. Defaults to 60 req/min.
+    ///   - baseURL: Base Discogs API URL. Defaults to the public Discogs API endpoint.
     /// - Returns: A configured `DiscogsClient`.
     /// - Throws: `KeychainError` if the Keychain read fails.
     public static func fromKeychain(
         contactEmail: String = "",
         session: URLSession = .shared,
-        rateLimiter: TokenBucketRateLimiter? = nil
+        rateLimiter: TokenBucketRateLimiter? = nil,
+        baseURL: URL = Self.defaultBaseURL
     ) throws -> Self {
         let keychain = KeychainHelper()
         let token = try keychain.retrieve(
@@ -81,7 +88,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             token: token,
             contactEmail: contactEmail,
             session: session,
-            rateLimiter: rateLimiter
+            rateLimiter: rateLimiter,
+            baseURL: baseURL
         )
     }
 
@@ -112,7 +120,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
 
         guard let url = Self.buildSearchURL(
             artist: artist,
-            album: album
+            album: album,
+            baseURL: baseURL
         ) else {
             log.warning("Failed to build Discogs search URL for \(artist, privacy: .private)")
             return YearResult()
@@ -160,7 +169,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             artist: artist,
             album: album,
             type: nil,
-            perPage: 10
+            perPage: 10,
+            baseURL: baseURL
         ) else {
             log.warning("Failed to build Discogs candidate search URL for \(artist, privacy: .private)")
             return []
@@ -193,19 +203,19 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     }
 
     public func getArtistActivityPeriod(
-        normalizedArtist: String
+        normalizedArtist _: String
     ) async throws -> (start: Int?, end: Int?) {
         // Discogs doesn't expose structured artist activity periods
         (nil, nil)
     }
 
     public func getArtistStartYear(
-        normalizedArtist: String
+        normalizedArtist _: String
     ) async throws -> Int? {
         nil
     }
 
-    public func initialize(force: Bool) async throws {
+    public func initialize(force _: Bool) async throws {
         // No initialization needed -- stateless HTTP client
     }
 
@@ -222,9 +232,13 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         artist: String,
         album: String,
         type: String? = "master",
-        perPage: Int = 5
+        perPage: Int = 5,
+        baseURL: URL = Self.defaultBaseURL
     ) -> URL? {
-        var components = URLComponents(string: "\(baseURL)/database/search")
+        let searchURL = baseURL
+            .appendingPathComponent("database")
+            .appendingPathComponent("search")
+        var components = URLComponents(url: searchURL, resolvingAgainstBaseURL: false)
         var queryItems = [
             URLQueryItem(name: "artist", value: artist),
             URLQueryItem(name: "release_title", value: album),
@@ -238,8 +252,13 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     }
 
     /// Builds a URL for fetching a specific master release by ID.
-    static func buildMasterURL(masterID: Int) -> URL? { // swiftlint:disable:this inclusive_language
-        URL(string: "\(baseURL)/masters/\(masterID)")
+    static func buildMasterURL( // swiftlint:disable:this inclusive_language
+        releaseID: Int,
+        baseURL: URL = Self.defaultBaseURL
+    ) -> URL? {
+        baseURL
+            .appendingPathComponent("masters")
+            .appendingPathComponent(String(releaseID))
     }
 
     // MARK: - Request Building
@@ -291,7 +310,10 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     // Fetches master release details and extracts the year.
     // swiftlint:disable:next inclusive_language
     private func fetchMasterYear(releaseID: Int) async throws -> YearResult {
-        guard let url = Self.buildMasterURL(masterID: releaseID) else { // swiftlint:disable:this inclusive_language
+        guard let url = Self.buildMasterURL( // swiftlint:disable:this inclusive_language
+            releaseID: releaseID,
+            baseURL: baseURL
+        ) else {
             return YearResult()
         }
 

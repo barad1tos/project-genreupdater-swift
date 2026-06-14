@@ -24,7 +24,9 @@ public struct YearRetrievalConfig: Sendable, Codable {
         case itunesSearch, scriptAPIPriorities
     }
 
-    public init() {}
+    public init() {
+        // Defaults are set on stored properties; custom decoding below preserves those defaults for omitted keys.
+    }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -57,15 +59,125 @@ public struct APIRateLimits: Sendable, Codable {
     public var musicbrainzRequestsPerSecond: Double = 1.0
     public var concurrentAPICalls: Int = 2
 
-    public init() {}
+    public init() {
+        // Defaults are set on stored properties so callers can build rate-limit config incrementally.
+    }
 }
 
 public struct APIAuthConfig: Sendable, Codable {
+    public static let defaultDiscogsBaseHost = "api.discogs.com"
+    public static let defaultDiscogsBaseURL: URL = {
+        guard let url = makeDiscogsBaseURL(host: defaultDiscogsBaseHost) else {
+            preconditionFailure("Default Discogs API host must be valid")
+        }
+        return url
+    }()
+
     public var discogsTokenReference: String = "${DISCOGS_TOKEN}"
+    public var discogsBaseHost: String = Self.defaultDiscogsBaseHost
     public var musicBrainzAppName: String = "MusicGenreUpdater/2.0"
     public var contactEmailReference: String = "${CONTACT_EMAIL}"
 
-    public init() {}
+    public init() {
+        // Defaults are set on stored properties; custom decoding below accepts legacy and current host keys.
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        discogsTokenReference = try container.decodeIfPresent(
+            String.self,
+            forKey: .discogsTokenReference
+        ) ?? "${DISCOGS_TOKEN}"
+        let configuredDiscogsBaseHost = try container.decodeIfPresent(
+            String.self,
+            forKey: .discogsBaseHost
+        ) ?? container.decodeIfPresent(
+            String.self,
+            forKey: .legacyDiscogsBaseHost
+        ) ?? Self.defaultDiscogsBaseHost
+        discogsBaseHost = Self.normalizedDiscogsBaseHost(configuredDiscogsBaseHost)
+            ?? Self.defaultDiscogsBaseHost
+        musicBrainzAppName = try container.decodeIfPresent(
+            String.self,
+            forKey: .musicBrainzAppName
+        ) ?? "MusicGenreUpdater/2.0"
+        contactEmailReference = try container.decodeIfPresent(
+            String.self,
+            forKey: .contactEmailReference
+        ) ?? "${CONTACT_EMAIL}"
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(discogsTokenReference, forKey: .discogsTokenReference)
+        try container.encode(discogsBaseHost, forKey: .discogsBaseHost)
+        try container.encode(musicBrainzAppName, forKey: .musicBrainzAppName)
+        try container.encode(contactEmailReference, forKey: .contactEmailReference)
+    }
+
+    public var discogsBaseURL: URL {
+        Self.makeDiscogsBaseURL(host: discogsBaseHost) ?? Self.defaultDiscogsBaseURL
+    }
+
+    public static func normalizedDiscogsBaseHost(_ host: String) -> String? {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedHost.isEmpty else { return nil }
+        guard !normalizedHost.contains("://"),
+              !normalizedHost.contains("/"),
+              !normalizedHost.contains("?"),
+              !normalizedHost.contains("#"),
+              !normalizedHost.contains(":")
+        else {
+            return nil
+        }
+        guard !isBlockedLocalHost(normalizedHost),
+              !isPrivateIPv4Literal(normalizedHost)
+        else {
+            return nil
+        }
+        let hostPattern = #"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"#
+        guard normalizedHost.range(of: hostPattern, options: .regularExpression) != nil else {
+            return nil
+        }
+        guard normalizedHost.split(separator: ".").last?.contains(where: \.isLetter) == true else {
+            return nil
+        }
+        return normalizedHost
+    }
+
+    public static func makeDiscogsBaseURL(host: String) -> URL? {
+        guard let normalizedHost = normalizedDiscogsBaseHost(host) else { return nil }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = normalizedHost
+        return components.url
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case discogsTokenReference, discogsBaseHost, musicBrainzAppName, contactEmailReference
+        case legacyDiscogsBaseHost = "discogs_base_host"
+    }
+
+    private static func isBlockedLocalHost(_ host: String) -> Bool {
+        // "localhost.localdomain" is a conventional local hostname alias.
+        host == "localhost" || host == "localhost.localdomain" || host.hasSuffix(".local")
+    }
+
+    private static func isPrivateIPv4Literal(_ host: String) -> Bool {
+        let parts = host.split(separator: ".")
+        guard parts.count == 4 else { return false }
+        let octets = parts.compactMap { UInt8($0) }
+        guard octets.count == 4 else { return false }
+
+        return switch (octets[0], octets[1]) {
+        case (0, _), (10, _), (127, _):
+            true
+        case (100, 64 ... 127), (169, 254), (172, 16 ... 31), (192, 168):
+            true
+        default:
+            false
+        }
+    }
 }
 
 public struct YearLogicConfig: Sendable, Codable {
@@ -79,7 +191,9 @@ public struct YearLogicConfig: Sendable, Codable {
     public var majorMarketCodes: [String] = ["us", "gb", "uk", "de", "jp", "fr", "ca", "au"]
     public var dominantYearMinConfidence: Double = 0.8
 
-    public init() {}
+    public init() {
+        // Defaults mirror the Python scoring thresholds and can be overridden from configuration files.
+    }
 }
 
 public struct ScoringConfig: Sendable, Codable {
@@ -123,13 +237,17 @@ public struct ScoringConfig: Sendable, Codable {
     public var futureYearPenalty: Int = -10
     public var currentYearPenalty: Int = 0
 
-    public init() {}
+    public init() {
+        // Defaults encode the baseline year-scoring weights used when config omits this section.
+    }
 }
 
 public struct ReissueDetectionConfig: Sendable, Codable {
     public var reissueKeywords: [String] = ["reissue", "remaster", "remastered"]
 
-    public init() {}
+    public init() {
+        // Defaults keep common reissue markers available when config omits this section.
+    }
 }
 
 public struct FallbackConfig: Sendable, Codable {
@@ -138,7 +256,9 @@ public struct FallbackConfig: Sendable, Codable {
     public var trustAPIScoreThreshold: Double = 70
     public var maxVerificationAttempts: Int = 3
 
-    public init() {}
+    public init() {
+        // Defaults keep fallback verification enabled with conservative thresholds.
+    }
 }
 
 public struct ITunesSearchConfig: Sendable, Codable, Equatable {
@@ -147,7 +267,9 @@ public struct ITunesSearchConfig: Sendable, Codable, Equatable {
     public var limit: Int = 200
     public var lookupFallbackEnabled: Bool = true
 
-    public init() {}
+    public init() {
+        // Defaults match the public iTunes Search API album lookup limits used by the workflow.
+    }
 
     public var normalizedCountryCode: String {
         let trimmed = countryCode.trimmingCharacters(in: .whitespacesAndNewlines)
