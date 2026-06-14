@@ -551,7 +551,7 @@ private struct TrackDashboardCounts: Equatable {
         let editabilitySummary = DashboardEditabilitySummary.make(from: tracks)
 
         for track in tracks {
-            let hasGenre = hasPresentGenre(track.genre)
+            let hasGenre = GenreUtilities.hasPresentGenre(track.genre)
             let hasYear = track.year != nil
 
             if hasGenre {
@@ -591,10 +591,5 @@ private struct TrackDashboardCounts: Equatable {
             protectedFileCount: protectedFileCount ?? 0,
             isProtectedFileCountKnown: protectedFileCount != nil
         )
-    }
-
-    private static func hasPresentGenre(_ genre: String?) -> Bool {
-        guard let genre else { return false }
-        return !genre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

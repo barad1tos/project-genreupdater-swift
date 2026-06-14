@@ -394,11 +394,6 @@ final class DashboardViewModel {
         }
     }
 
-    private func hasPresentGenre(_ genre: String?) -> Bool {
-        guard let genre else { return false }
-        return !genre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
     private func makeMetrics(from tracks: [Track]) -> DashboardMetrics {
         let total = tracks.count
         var genreCount = 0
@@ -412,7 +407,7 @@ final class DashboardViewModel {
         )
 
         for track in tracks {
-            let hasGenre = hasPresentGenre(track.genre)
+            let hasGenre = GenreUtilities.hasPresentGenre(track.genre)
             let hasYear = track.year != nil
 
             if hasGenre { genreCount += 1 }

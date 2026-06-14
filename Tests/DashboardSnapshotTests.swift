@@ -672,10 +672,10 @@ extension DashboardSnapshotTests {
 
     @Test("persisted metrics genre helper trims whitespace")
     func persistedMetricsGenreHelperTrimsWhitespace() {
-        #expect(!hasPresentDashboardGenre(nil))
-        #expect(!hasPresentDashboardGenre(""))
-        #expect(!hasPresentDashboardGenre(" \n\t "))
-        #expect(hasPresentDashboardGenre(" Rock "))
+        #expect(!GenreUtilities.hasPresentGenre(nil))
+        #expect(!GenreUtilities.hasPresentGenre(""))
+        #expect(!GenreUtilities.hasPresentGenre(" \n\t "))
+        #expect(GenreUtilities.hasPresentGenre(" Rock "))
     }
 
     @Test("metrics snapshot persistence writes protected count when editability is known")

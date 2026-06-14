@@ -42,19 +42,16 @@ struct MetricCard: View {
         }
         .ayuShadow(isEnabled && isHovered ? Shadow.elevated : Shadow.subtle)
         .contentShape(.rect)
+        .allowsHitTesting(isEnabled)
+        .opacity(isEnabled ? 1 : 0.52)
         .scaleEffect(isEnabled && isPressed ? 0.97 : 1.0)
         .animation(Motion.curveFast, value: isPressed)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
-                    guard isEnabled else { return }
                     isPressed = true
                 }
                 .onEnded { _ in
-                    guard isEnabled else {
-                        isPressed = false
-                        return
-                    }
                     isPressed = false
                     onTap()
                 }

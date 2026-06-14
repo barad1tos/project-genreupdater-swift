@@ -182,11 +182,6 @@ extension MainView {
     }
 }
 
-func hasPresentDashboardGenre(_ genre: String?) -> Bool {
-    guard let genre else { return false }
-    return !genre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-}
-
 struct DashboardMetricsSnapshotValues: Equatable {
     let totalTracks: Int
     let tracksWithGenre: Int
@@ -214,7 +209,7 @@ func makeDashboardMetricsSnapshotValues(
     let editabilitySummary = DashboardEditabilitySummary.make(from: loadedTracks)
 
     for track in loadedTracks {
-        let hasGenre = hasPresentDashboardGenre(track.genre)
+        let hasGenre = GenreUtilities.hasPresentGenre(track.genre)
         let hasYear = track.year != nil
 
         if hasGenre { genreCount += 1 }
