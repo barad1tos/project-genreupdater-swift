@@ -244,7 +244,7 @@ final class BrowseViewModel {
                     )
                 }
                 if track.album.localizedStandardContains(query) {
-                    let key = "\(track.effectiveArtist)|\(track.album)"
+                    let key = AlbumSummary.makeID(artist: track.effectiveArtist, name: track.album)
                     matchedAlbumKeys.insert(key)
                 }
                 if track.name.localizedStandardContains(query) {
@@ -265,7 +265,7 @@ final class BrowseViewModel {
 
             // Build album summaries for matched albums
             let albumGrouped = Dictionary(grouping: allTracks) {
-                "\($0.effectiveArtist)|\($0.album)"
+                AlbumSummary.makeID(artist: $0.effectiveArtist, name: $0.album)
             }
             let albums: [AlbumSummary] = matchedAlbumKeys.compactMap { key in
                 guard let albumTracks = albumGrouped[key] else { return nil }

@@ -51,6 +51,24 @@ struct BrowseSelectionTests {
         #expect(viewModel.selectedTracksForUpdate().map(\.id) == ["pipe-1"])
     }
 
+    @Test("album search keeps pipe-separated album identities distinct")
+    func albumSearchKeepsPipeSeparatedAlbumIdentitiesDistinct() async throws {
+        let viewModel = BrowseViewModel()
+        viewModel.tracks = [
+            Track(id: "other-1", name: "Other", artist: "A", album: "B|Live"),
+            Track(id: "pipe-1", name: "Pipe One", artist: "A|B", album: "Live"),
+        ]
+        let intendedAlbumID = AlbumSummary.makeID(artist: "A|B", name: "Live")
+        let collidingAlbumID = AlbumSummary.makeID(artist: "A", name: "B|Live")
+        viewModel.searchText = "Live"
+
+        await viewModel.updateSearchResults()
+
+        let albums = try #require(viewModel.searchResults?.albums)
+        #expect(Set(albums.map(\.id)) == [intendedAlbumID, collidingAlbumID])
+        #expect(albums.count == 2)
+    }
+
     @Test("selected track IDs are preserved as update scope")
     func selectedTrackIDsArePreservedAsUpdateScope() {
         let viewModel = BrowseViewModel()
