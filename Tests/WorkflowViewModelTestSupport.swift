@@ -124,9 +124,13 @@ struct DashboardStateAPIService: ExternalAPIService {
         nil
     }
 
-    func initialize(force _: Bool) async throws {}
+    func initialize(force _: Bool) async throws {
+        // Test double has no external resources to initialize.
+    }
 
-    func close() async {}
+    func close() async {
+        // Test double has no external resources to release.
+    }
 }
 
 actor DashboardStateScriptClient: AppleScriptClient {
