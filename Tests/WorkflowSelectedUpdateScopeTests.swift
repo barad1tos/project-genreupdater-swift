@@ -54,8 +54,9 @@ struct WorkflowSelectedUpdateScopeTests {
 
         viewModel.applyAccepted()
 
-        if case .review = viewModel.phase {} else {
+        guard case .review = viewModel.phase else {
             #expect(Bool(false), "preview-only apply should preserve review phase")
+            return
         }
         #expect(viewModel.result == nil)
     }
@@ -88,8 +89,9 @@ struct WorkflowSelectedUpdateScopeTests {
 
         try await waitForWorkflowToLeaveScanning(viewModel)
 
-        if case .review = viewModel.phase {} else {
+        guard case .review = viewModel.phase else {
             #expect(Bool(false), "preview-only full-library start should enter review instead of writing")
+            return
         }
         #expect(viewModel.dryRunReport != nil)
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
@@ -109,11 +111,11 @@ struct WorkflowSelectedUpdateScopeTests {
             Track(id: "1", name: "One", artist: "Alpha", album: "First", year: 1999),
         ])
 
-        if case let .error(message) = viewModel.phase {
-            #expect(message.contains("batchProcessing"))
-        } else {
+        guard case let .error(message) = viewModel.phase else {
             #expect(Bool(false), "free tier full-library preview should stop at feature gate")
+            return
         }
+        #expect(message.contains("batchProcessing"))
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
@@ -132,8 +134,9 @@ struct WorkflowSelectedUpdateScopeTests {
             Track(id: "2", name: "Two", artist: "Beta", album: "Second"),
         ])
 
-        if case .configure = viewModel.phase {} else {
+        guard case .configure = viewModel.phase else {
             #expect(Bool(false), "full-library setup should reset finished workflow phase")
+            return
         }
         #expect(viewModel.mode == .fullLibrary)
         #expect(viewModel.proposedChanges.isEmpty)

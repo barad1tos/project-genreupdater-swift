@@ -132,7 +132,9 @@ struct DashboardStateAPIService: ExternalAPIService {
 actor DashboardStateScriptClient: AppleScriptClient {
     private var writes: [(trackID: String, property: String, value: String)] = []
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // Test double has no external resources to initialize.
+    }
 
     func runScript(
         name _: String,
@@ -164,13 +166,17 @@ actor DashboardStateScriptClient: AppleScriptClient {
 }
 
 private actor DashboardStateTrackStore: TrackStateStore {
-    func initialize() async throws {}
+    func initialize() async throws {
+        // Test double has no external resources to initialize.
+    }
 
     func loadAllTracks() async throws -> [Track] {
         []
     }
 
-    func saveTracks(_: [Track]) async throws {}
+    func saveTracks(_: [Track]) async throws {
+        // These tests do not assert persisted track state.
+    }
 
     func deleteTrackIDs(_: [String]) async throws -> Int {
         0
@@ -184,7 +190,9 @@ private actor DashboardStateTrackStore: TrackStateStore {
         id _: String,
         genreUpdated _: Bool?,
         yearUpdated _: Bool?
-    ) async throws {}
+    ) async throws {
+        // These tests do not assert processing-state persistence.
+    }
 
     func getUnprocessedTracks() async throws -> [Track] {
         []
@@ -196,31 +204,47 @@ private actor DashboardStateTrackStore: TrackStateStore {
 }
 
 private actor DashboardStateCacheService: CacheService {
-    func initialize() async throws {}
+    func initialize() async throws {
+        // Test double has no external resources to initialize.
+    }
 
     func get<T: Codable & Sendable>(key _: String) async -> T? {
         nil
     }
 
-    func set(key _: String, value _: some Codable & Sendable, ttl _: TimeInterval?) async {}
+    func set(key _: String, value _: some Codable & Sendable, ttl _: TimeInterval?) async {
+        // These tests do not assert generic cache writes.
+    }
 
-    func invalidate(key _: String) async {}
+    func invalidate(key _: String) async {
+        // These tests do not assert generic cache invalidation.
+    }
 
-    func clear() async {}
+    func clear() async {
+        // These tests do not assert cache clearing.
+    }
 
     func getAlbumYear(artist _: String, album _: String) async -> AlbumCacheEntry? {
         nil
     }
 
-    func storeAlbumYear(artist _: String, album _: String, year _: Int, confidence _: Int) async {}
+    func storeAlbumYear(artist _: String, album _: String, year _: Int, confidence _: Int) async {
+        // These tests read album-year results from the API service stub.
+    }
 
-    func invalidateAlbum(artist _: String, album _: String) async {}
+    func invalidateAlbum(artist _: String, album _: String) async {
+        // These tests do not assert album cache invalidation.
+    }
 
     func getCachedAPIResult(artist _: String, album _: String, source _: String) async -> CachedAPIResult? {
         nil
     }
 
-    func setCachedAPIResult(_: CachedAPIResult) async {}
+    func setCachedAPIResult(_: CachedAPIResult) async {
+        // These tests do not assert API-result cache writes.
+    }
 
-    func syncToDisk() async throws {}
+    func syncToDisk() async throws {
+        // Test double has no disk-backed cache to synchronize.
+    }
 }
