@@ -114,9 +114,9 @@ struct BrowseToolbar: View {
 
             Spacer()
 
-            bulkButton(title: "Update Genres", icon: "tag", action: "genres")
-            bulkButton(title: "Update Years", icon: "calendar", action: "years")
-            bulkButton(title: "Dry Run", icon: "eye", action: "dryRun")
+            ForEach(BrowseUpdateAction.allCases, id: \.rawValue) { action in
+                bulkButton(action)
+            }
 
             Button {
                 viewModel.clearSelection()
@@ -144,15 +144,11 @@ struct BrowseToolbar: View {
 
     // MARK: - Helpers
 
-    private func bulkButton(title: String, icon: String, action: String) -> some View {
+    private func bulkButton(_ action: BrowseUpdateAction) -> some View {
         Button {
-            NotificationCenter.default.post(
-                name: .browseAction,
-                object: nil,
-                userInfo: ["action": action, "items": viewModel.selectedItems]
-            )
+            action.post(selectedItems: viewModel.selectedItems)
         } label: {
-            Label(title, systemImage: icon)
+            Label(action.title, systemImage: action.iconName)
                 .font(AppFont.caption)
                 .foregroundStyle(Ayu.accent)
         }

@@ -173,14 +173,20 @@ struct UpdatePreviewSection: View {
             Button("Accept All") { viewModel.acceptAll() }
             Button("Reject All") { viewModel.rejectAll() }
             Spacer()
-            Button {
-                viewModel.applyAccepted()
-            } label: {
-                Text("Apply \(viewModel.acceptedCount) Changes")
+            if viewModel.previewOnly {
+                Label("Dry Run Only", systemImage: "eye")
+                    .font(AppFont.caption)
+                    .foregroundStyle(Ayu.fgSecondary)
+            } else {
+                Button {
+                    viewModel.applyAccepted()
+                } label: {
+                    Text("Apply \(viewModel.acceptedCount) Changes")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Ayu.accent)
+                .disabled(viewModel.acceptedCount == 0)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Ayu.accent)
-            .disabled(viewModel.acceptedCount == 0)
         }
         .padding(Spacing.md)
     }

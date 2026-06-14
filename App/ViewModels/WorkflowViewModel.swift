@@ -414,6 +414,8 @@ final class WorkflowViewModel {
 
     /// Apply only the accepted proposed changes from the review phase.
     func applyAccepted() {
+        guard !previewOnly else { return }
+
         let accepted = proposedChanges.filter(\.isAccepted)
         guard !accepted.isEmpty else { return }
 

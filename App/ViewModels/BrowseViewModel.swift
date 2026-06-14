@@ -32,7 +32,7 @@ struct AlbumSummary: Identifiable {
     let healthRatio: Double
 
     var id: String {
-        "\(artist)|\(name)"
+        Self.makeID(artist: artist, name: name)
     }
 }
 

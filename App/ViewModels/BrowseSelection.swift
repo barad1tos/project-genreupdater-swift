@@ -4,12 +4,16 @@ import Core
 
 extension BrowseViewModel {
     func selectedTracksForUpdate() -> [Track] {
-        guard !selectedItems.isEmpty else { return [] }
+        tracksForUpdate(itemIDs: selectedItems)
+    }
+
+    func tracksForUpdate(itemIDs: Set<String>) -> [Track] {
+        guard !itemIDs.isEmpty else { return [] }
 
         var selectedTrackIDs: Set<String> = []
         let tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
 
-        for itemID in selectedItems {
+        for itemID in itemIDs {
             if tracksByID[itemID] != nil {
                 selectedTrackIDs.insert(itemID)
             }
@@ -29,16 +33,10 @@ extension BrowseViewModel {
     }
 
     private func albumIdentifier(from itemID: String) -> AlbumIdentifier? {
-        let parts = itemID.split(
-            separator: "|",
-            maxSplits: 1,
-            omittingEmptySubsequences: false
-        )
-        guard parts.count == 2 else { return nil }
+        for track in tracks where AlbumSummary.makeID(artist: track.effectiveArtist, name: track.album) == itemID {
+            return AlbumIdentifier(albumName: track.album, artistName: track.effectiveArtist)
+        }
 
-        return AlbumIdentifier(
-            albumName: String(parts[1]),
-            artistName: String(parts[0])
-        )
+        return nil
     }
 }

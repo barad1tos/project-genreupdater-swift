@@ -1,4 +1,5 @@
 import Core
+import Foundation
 import Testing
 @testable import Genre_Updater
 
@@ -18,9 +19,21 @@ struct BrowseSelectionTests {
     func selectedAlbumExpandsToAlbumTracks() {
         let viewModel = BrowseViewModel()
         viewModel.tracks = makeTracks()
-        viewModel.selectedItems = ["Alpha|First"]
+        viewModel.selectedItems = [AlbumSummary.makeID(artist: "Alpha", name: "First")]
 
         #expect(viewModel.selectedTracksForUpdate().map(\.id) == ["alpha-1", "alpha-2"])
+    }
+
+    @Test("selected album supports pipe characters in artist names")
+    func selectedAlbumSupportsPipeCharactersInArtistNames() {
+        let viewModel = BrowseViewModel()
+        viewModel.tracks = [
+            Track(id: "pipe-1", name: "Pipe One", artist: "A|B", album: "Live"),
+            Track(id: "other-1", name: "Other", artist: "A", album: "B|Live"),
+        ]
+        viewModel.selectedItems = [AlbumSummary.makeID(artist: "A|B", name: "Live")]
+
+        #expect(viewModel.selectedTracksForUpdate().map(\.id) == ["pipe-1"])
     }
 
     @Test("selected track IDs are preserved as update scope")
@@ -36,9 +49,26 @@ struct BrowseSelectionTests {
     func mixedSelectionRemovesDuplicatesAndKeepsLibraryOrder() {
         let viewModel = BrowseViewModel()
         viewModel.tracks = makeTracks()
-        viewModel.selectedItems = ["Alpha", "Alpha|First", "alpha-1", "beta-1"]
+        viewModel.selectedItems = ["Alpha", AlbumSummary.makeID(artist: "Alpha", name: "First"), "alpha-1", "beta-1"]
 
         #expect(viewModel.selectedTracksForUpdate().map(\.id) == ["alpha-1", "alpha-2", "beta-1"])
+    }
+
+    @Test("browse update request parses typed action and selected items")
+    func browseUpdateRequestParsesTypedActionAndSelectedItems() throws {
+        let notification = Notification(
+            name: .browseAction,
+            object: nil,
+            userInfo: [
+                BrowseUpdateAction.actionUserInfoKey: BrowseUpdateAction.years.rawValue,
+                BrowseUpdateAction.selectedItemsUserInfoKey: Set(["alpha-1"]),
+            ]
+        )
+
+        let request = try #require(BrowseUpdateRequest(notification: notification))
+
+        #expect(request.action == .years)
+        #expect(request.selectedItems == ["alpha-1"])
     }
 
     private func makeTracks() -> [Track] {

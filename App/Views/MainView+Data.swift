@@ -6,10 +6,11 @@ import SharedUI
 import SwiftData
 import SwiftUI
 
-private enum BrowseUpdateAction: String {
-    case genres
-    case years
-    case dryRun
+struct SelectedUpdateScopeConfiguration {
+    let tracks: [Track]
+    let updateGenre: Bool
+    let updateYear: Bool
+    let previewOnly: Bool
 }
 
 extension MainView {
@@ -61,6 +62,7 @@ extension MainView {
                 guard libraryLoadRequestID == requestID else { return }
                 tracks = cachedTracks
                 browseViewModel.tracks = cachedTracks
+                reconcileUpdateScope(with: cachedTracks)
                 hasCachedTracks = !cachedTracks.isEmpty
                 await recordLibraryLoad(source: "snapshot", count: cachedTracks.count, startedAt: loadStart)
             }
@@ -75,6 +77,7 @@ extension MainView {
             await dependencies.refreshTrackIDMapping(musicKitTracks: liveTracks)
             await dependencies.persistLoadedLibraryTracks(liveTracks)
             browseViewModel.tracks = liveTracks
+            reconcileUpdateScope(with: liveTracks)
             lastLibraryScanDate = .now
             saveMetricsSnapshot(from: liveTracks)
             await recordLibraryLoad(source: "music", count: liveTracks.count, startedAt: loadStart)
@@ -116,6 +119,7 @@ extension MainView {
             defaultMinConfidence: configuredMinConfidence,
             defaultReleaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
         )
+        applyPendingSelectedUpdateScopeIfNeeded()
     }
 
     var configuredUpdateSelection: (updateGenre: Bool, updateYear: Bool) {
@@ -150,17 +154,13 @@ extension MainView {
 
     func prepareDefaultUpdate() {
         updateScopeTracks = nil
+        pendingSelectedUpdateScopeConfiguration = nil
         applyWorkflowDefaults()
         selectedCategory = .update
     }
 
     func prepareSelectedTracksUpdate() {
         let selectedTracks = browseViewModel.selectedTracksForUpdate()
-        guard !selectedTracks.isEmpty else {
-            prepareDefaultUpdate()
-            return
-        }
-
         configureSelectedUpdateScope(
             tracks: selectedTracks,
             updateGenre: configuredUpdateSelection.updateGenre,
@@ -170,14 +170,10 @@ extension MainView {
     }
 
     func handleBrowseAction(_ notification: Notification) {
-        guard let actionName = notification.userInfo?["action"] as? String,
-              let action = BrowseUpdateAction(rawValue: actionName)
-        else { return }
+        guard let request = BrowseUpdateRequest(notification: notification) else { return }
 
-        let selectedTracks = browseViewModel.selectedTracksForUpdate()
-        guard !selectedTracks.isEmpty else { return }
-
-        switch action {
+        let selectedTracks = browseViewModel.tracksForUpdate(itemIDs: request.selectedItems)
+        switch request.action {
         case .genres:
             configureSelectedUpdateScope(
                 tracks: selectedTracks,
@@ -202,32 +198,93 @@ extension MainView {
         }
     }
 
+    func selectCategory(_ category: NavigationCategory?) {
+        guard category == .update else {
+            selectedCategory = category
+            return
+        }
+
+        prepareDefaultUpdate()
+    }
+
+    var selectedCategoryBinding: Binding<NavigationCategory?> {
+        Binding(
+            get: { selectedCategory },
+            set: { selectCategory($0) }
+        )
+    }
+
+    var updateWorkflowTracks: [Track] {
+        guard let workflowViewModel else { return tracks }
+        return UpdateTrackScopeResolver.tracksForWorkflow(
+            libraryTracks: tracks,
+            selectedScopeTracks: updateScopeTracks,
+            mode: workflowViewModel.mode
+        )
+    }
+
+    func reconcileUpdateScope(with loadedTracks: [Track]) {
+        updateScopeTracks = UpdateTrackScopeResolver.reconciledSelectedScope(
+            currentScopeTracks: updateScopeTracks,
+            libraryTracks: loadedTracks
+        )
+
+        if workflowViewModel?.mode == .selectedTracks {
+            workflowViewModel?.computeScopePreview(tracks: updateScopeTracks ?? loadedTracks)
+        }
+    }
+
     private func configureSelectedUpdateScope(
         tracks selectedTracks: [Track],
         updateGenre: Bool,
         updateYear: Bool,
         previewOnly: Bool
     ) {
+        let configuration = SelectedUpdateScopeConfiguration(
+            tracks: selectedTracks,
+            updateGenre: updateGenre,
+            updateYear: updateYear,
+            previewOnly: previewOnly
+        )
+
         ensureWorkflowViewModel()
         guard let workflowViewModel else {
+            pendingSelectedUpdateScopeConfiguration = configuration
             updateScopeTracks = selectedTracks
             selectedCategory = .update
             return
         }
 
-        guard !workflowViewModel.isProcessing else {
+        guard workflowViewModel.canStart else {
             selectedCategory = .update
             return
         }
 
-        updateScopeTracks = selectedTracks
-        workflowViewModel.reset()
-        workflowViewModel.mode = .selectedTracks
-        workflowViewModel.updateGenre = updateGenre
-        workflowViewModel.updateYear = updateYear
-        workflowViewModel.previewOnly = previewOnly
-        workflowViewModel.computeScopePreview(tracks: selectedTracks)
+        applySelectedUpdateScope(configuration, to: workflowViewModel)
         selectedCategory = .update
+    }
+
+    private func applyPendingSelectedUpdateScopeIfNeeded() {
+        guard let configuration = pendingSelectedUpdateScopeConfiguration,
+              let workflowViewModel,
+              workflowViewModel.canStart
+        else { return }
+
+        applySelectedUpdateScope(configuration, to: workflowViewModel)
+        pendingSelectedUpdateScopeConfiguration = nil
+    }
+
+    private func applySelectedUpdateScope(
+        _ configuration: SelectedUpdateScopeConfiguration,
+        to workflowViewModel: WorkflowViewModel
+    ) {
+        updateScopeTracks = configuration.tracks
+        workflowViewModel.configureSelectedTracksScope(
+            tracks: configuration.tracks,
+            updateGenre: configuration.updateGenre,
+            updateYear: configuration.updateYear,
+            previewOnly: configuration.previewOnly
+        )
     }
 
     func loadCachedSnapshot() {
