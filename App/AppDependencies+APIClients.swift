@@ -3,12 +3,27 @@
 import Core
 import Services
 
+private let apiClientLog = AppLogger.make(category: "dependencies")
+
 extension AppDependencies {
     static func makeAPIOrchestrator(
         configuration: AppConfiguration,
         cache: (any CacheService)?,
         pendingVerificationService: (any PendingVerificationService)?,
-        reachability: NetworkReachabilityMonitor?
+        reachability: NetworkReachabilityMonitor?,
+        keychainDiscogsClientFactory: (
+            _ contactEmail: String,
+            _ rateLimiter: TokenBucketRateLimiter?
+        ) throws -> DiscogsClient = { contactEmail, rateLimiter in
+            try DiscogsClient.fromKeychain(
+                contactEmail: contactEmail,
+                rateLimiter: rateLimiter
+            )
+        },
+        keychainErrorHandler: (any Error) -> Void = { error in
+            apiClientLog
+                .error("Failed to load Discogs token from Keychain: \(error.localizedDescription, privacy: .public)")
+        }
     ) -> APIOrchestrator {
         let apiAuth = configuration.yearRetrieval.apiAuth
         let contactEmail = APIAuthReferenceResolver.resolve(
@@ -22,19 +37,27 @@ extension AppDependencies {
         )
         let discogsRateLimiter = makeDiscogsRateLimiter(configuration: configuration)
         let configuredDiscogsToken = APIAuthReferenceResolver.resolve(apiAuth.discogsTokenReference)
-        let discogsClient = configuredDiscogsToken.isEmpty
-            ? ((try? DiscogsClient.fromKeychain(
-                contactEmail: contactEmail,
-                rateLimiter: discogsRateLimiter
-            )) ?? DiscogsClient(
-                contactEmail: contactEmail,
-                rateLimiter: discogsRateLimiter
-            ))
-            : DiscogsClient(
+        let discogsClient: DiscogsClient
+        if configuredDiscogsToken.isEmpty {
+            do {
+                discogsClient = try keychainDiscogsClientFactory(
+                    contactEmail,
+                    discogsRateLimiter
+                )
+            } catch {
+                keychainErrorHandler(error)
+                discogsClient = DiscogsClient(
+                    contactEmail: contactEmail,
+                    rateLimiter: discogsRateLimiter
+                )
+            }
+        } else {
+            discogsClient = DiscogsClient(
                 token: configuredDiscogsToken,
                 contactEmail: contactEmail,
                 rateLimiter: discogsRateLimiter
             )
+        }
 
         return APIOrchestrator(
             musicBrainz: musicBrainzClient,
