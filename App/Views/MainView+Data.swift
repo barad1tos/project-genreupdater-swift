@@ -55,6 +55,23 @@ struct SelectedUpdateScopeConfiguration {
             )
         }
     }
+
+    @MainActor
+    init(
+        request: BrowseUpdateRequest,
+        browseViewModel: BrowseViewModel,
+        defaultUpdateGenre: Bool,
+        defaultUpdateYear: Bool,
+        defaultPreviewOnly: Bool
+    ) {
+        self.init(
+            tracks: browseViewModel.tracksForUpdate(itemIDs: request.selectedItems),
+            action: request.action,
+            defaultUpdateGenre: defaultUpdateGenre,
+            defaultUpdateYear: defaultUpdateYear,
+            defaultPreviewOnly: defaultPreviewOnly
+        )
+    }
 }
 
 extension MainView {
@@ -207,8 +224,7 @@ extension MainView {
         updateScopeTracks = nil
         pendingSelectedUpdateScopeConfiguration = nil
         applyWorkflowDefaults()
-        workflowViewModel?.mode = .fullLibrary
-        workflowViewModel?.computeScopePreview(tracks: tracks)
+        workflowViewModel?.configureFullLibraryScope(tracks: tracks)
         workflowNoticeMessage = nil
         selectedCategory = .update
     }
@@ -229,17 +245,7 @@ extension MainView {
     func handleBrowseAction(_ notification: Notification) {
         guard let request = BrowseUpdateRequest(notification: notification) else { return }
 
-        let selectedTracks = browseViewModel.tracksForUpdate(itemIDs: request.selectedItems)
-        let updateSelection = configuredUpdateSelection
-        configureSelectedUpdateScope(
-            SelectedUpdateScopeConfiguration(
-                tracks: selectedTracks,
-                action: request.action,
-                defaultUpdateGenre: updateSelection.updateGenre,
-                defaultUpdateYear: updateSelection.updateYear,
-                defaultPreviewOnly: configuredPreviewOnly
-            )
-        )
+        configureSelectedUpdateScope(selectedUpdateScopeConfiguration(for: request))
     }
 
     func selectCategory(_ category: NavigationCategory?) {
@@ -316,6 +322,17 @@ extension MainView {
             updateGenre: configuration.updateGenre,
             updateYear: configuration.updateYear,
             previewOnly: configuration.previewOnly
+        )
+    }
+
+    func selectedUpdateScopeConfiguration(for request: BrowseUpdateRequest) -> SelectedUpdateScopeConfiguration {
+        let updateSelection = configuredUpdateSelection
+        return SelectedUpdateScopeConfiguration(
+            request: request,
+            browseViewModel: browseViewModel,
+            defaultUpdateGenre: updateSelection.updateGenre,
+            defaultUpdateYear: updateSelection.updateYear,
+            defaultPreviewOnly: configuredPreviewOnly
         )
     }
 

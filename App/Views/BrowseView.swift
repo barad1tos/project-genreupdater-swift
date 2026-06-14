@@ -213,12 +213,13 @@ struct BrowseView: View {
             albumName: album.name,
             artistName: artistName
         )
+        let selectionID = BrowseSelectionItem.albumID(album.id)
 
         return AlbumListRow(
             title: album.name,
             genre: album.primaryGenre,
             year: album.year,
-            isSelected: viewModel.selectedAlbum == albumID
+            isSelected: viewModel.selectedItems.contains(selectionID)
         )
         .padding(.leading, Spacing.lg)
         .background {
@@ -254,7 +255,7 @@ struct BrowseView: View {
             let flags = NSApp.currentEvent?.modifierFlags ?? []
             if flags.contains(.command) || flags.contains(.shift) {
                 viewModel.handleRowClick(
-                    itemID: BrowseSelectionItem.albumID(album.id),
+                    itemID: selectionID,
                     allVisibleIDs: allAlbumIDs
                 )
             } else {

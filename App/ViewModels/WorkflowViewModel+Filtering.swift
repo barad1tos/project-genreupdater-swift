@@ -35,9 +35,12 @@ extension WorkflowViewModel {
     }
 
     func requireTrackCapacityForCurrentMode(tracks: [Track]) -> Bool {
-        guard mode != .fullLibrary else { return true }
-
         do {
+            if mode == .fullLibrary {
+                try featureGate?.require(.batchProcessing)
+                return true
+            }
+
             _ = try featureGate?.requireTrackCapacity(for: tracks)
             return true
         } catch {

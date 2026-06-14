@@ -1,0 +1,226 @@
+import Core
+import Foundation
+import Services
+import Testing
+@testable import Genre_Updater
+
+@MainActor
+func makeWorkflowViewModel() -> WorkflowViewModel {
+    makeWorkflowFixture().viewModel
+}
+
+@MainActor
+func makeWorkflowFixture(
+    apiService: DashboardStateAPIService = DashboardStateAPIService(),
+    tier: Tier = .pro
+) -> WorkflowFixture {
+    let scriptClient = DashboardStateScriptClient()
+    let trackStore = DashboardStateTrackStore()
+    let cache = DashboardStateCacheService()
+    let apiOrchestrator = APIOrchestrator(
+        musicBrainz: apiService,
+        discogs: apiService,
+        appleMusic: apiService,
+        cache: cache
+    )
+    let undoCoordinator = UndoCoordinator(scriptBridge: scriptClient, directory: temporaryDirectory())
+    let updateCoordinator = UpdateCoordinator(
+        apiOrchestrator: apiOrchestrator,
+        scriptBridge: scriptClient,
+        trackStore: trackStore,
+        cache: cache,
+        undoCoordinator: undoCoordinator,
+        genreDeterminator: GenreDeterminator()
+    )
+    let featureGate = FeatureGate(fixedTier: tier)
+    let batchProcessor = BatchProcessor(
+        checkpointManager: CheckpointManager(directory: temporaryDirectory()),
+        featureGate: featureGate
+    )
+
+    let viewModel = WorkflowViewModel(
+        updateCoordinator: updateCoordinator,
+        batchProcessor: batchProcessor,
+        changePreviewPipeline: ChangePreviewPipeline(),
+        featureGate: featureGate
+    )
+
+    return WorkflowFixture(viewModel: viewModel, scriptClient: scriptClient)
+}
+
+struct WorkflowFixture {
+    let viewModel: WorkflowViewModel
+    let scriptClient: DashboardStateScriptClient
+}
+
+@MainActor
+func waitForWorkflowToLeaveScanning(_ viewModel: WorkflowViewModel) async throws {
+    for _ in 0 ..< 200 {
+        switch viewModel.phase {
+        case .configure, .scanning:
+            try await Task.sleep(for: .milliseconds(10))
+        case .review, .applying, .done, .paused, .error:
+            return
+        }
+    }
+
+    #expect(Bool(false), "workflow did not leave scanning before timeout")
+}
+
+func makeProposedChange(id: String, isAccepted: Bool) -> ProposedChange {
+    ProposedChange(
+        track: Track(id: id, name: "Track \(id)", artist: "Artist", album: "Album"),
+        changeType: .genreUpdate,
+        oldValue: nil,
+        newValue: "Rock",
+        confidence: 90,
+        source: "test",
+        isAccepted: isAccepted
+    )
+}
+
+private func temporaryDirectory() -> URL {
+    FileManager.default.temporaryDirectory
+        .appendingPathComponent("GenreUpdaterWorkflowDashboardStateTests", isDirectory: true)
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+}
+
+struct DashboardStateAPIService: ExternalAPIService {
+    let year: Int?
+    let confidence: Int
+
+    init(year: Int? = nil, confidence: Int = 0) {
+        self.year = year
+        self.confidence = confidence
+    }
+
+    func getAlbumYear(
+        artist _: String,
+        album _: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> YearResult {
+        YearResult(
+            year: year,
+            confidence: confidence,
+            yearScores: year.map { [$0: confidence] } ?? [:]
+        )
+    }
+
+    func getReleaseCandidates(
+        artist _: String,
+        album _: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> [ReleaseCandidate] {
+        []
+    }
+
+    func getArtistActivityPeriod(normalizedArtist _: String) async throws -> (start: Int?, end: Int?) {
+        (nil, nil)
+    }
+
+    func getArtistStartYear(normalizedArtist _: String) async throws -> Int? {
+        nil
+    }
+
+    func initialize(force _: Bool) async throws {}
+
+    func close() async {}
+}
+
+actor DashboardStateScriptClient: AppleScriptClient {
+    private var writes: [(trackID: String, property: String, value: String)] = []
+
+    func initialize() async throws {}
+
+    func runScript(
+        name _: String,
+        arguments _: [String],
+        timeout _: Duration?
+    ) async throws -> String? {
+        nil
+    }
+
+    func fetchTracksByIDs(
+        _ trackIDs: [String],
+        batchSize _: Int,
+        timeout _: Duration?
+    ) async throws -> [Track] {
+        trackIDs.map { Track(id: $0, name: "Track \($0)", artist: "Artist", album: "Album") }
+    }
+
+    func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
+        []
+    }
+
+    func updateTrackProperty(trackID: String, property: String, value: String) async throws {
+        writes.append((trackID: trackID, property: property, value: value))
+    }
+
+    func updatedProperties() -> [(trackID: String, property: String, value: String)] {
+        writes
+    }
+}
+
+private actor DashboardStateTrackStore: TrackStateStore {
+    func initialize() async throws {}
+
+    func loadAllTracks() async throws -> [Track] {
+        []
+    }
+
+    func saveTracks(_: [Track]) async throws {}
+
+    func deleteTrackIDs(_: [String]) async throws -> Int {
+        0
+    }
+
+    func getTrack(byID _: String) async throws -> Track? {
+        nil
+    }
+
+    func updateTrackProcessingState(
+        id _: String,
+        genreUpdated _: Bool?,
+        yearUpdated _: Bool?
+    ) async throws {}
+
+    func getUnprocessedTracks() async throws -> [Track] {
+        []
+    }
+
+    func trackCount() async throws -> Int {
+        0
+    }
+}
+
+private actor DashboardStateCacheService: CacheService {
+    func initialize() async throws {}
+
+    func get<T: Codable & Sendable>(key _: String) async -> T? {
+        nil
+    }
+
+    func set(key _: String, value _: some Codable & Sendable, ttl _: TimeInterval?) async {}
+
+    func invalidate(key _: String) async {}
+
+    func clear() async {}
+
+    func getAlbumYear(artist _: String, album _: String) async -> AlbumCacheEntry? {
+        nil
+    }
+
+    func storeAlbumYear(artist _: String, album _: String, year _: Int, confidence _: Int) async {}
+
+    func invalidateAlbum(artist _: String, album _: String) async {}
+
+    func getCachedAPIResult(artist _: String, album _: String, source _: String) async -> CachedAPIResult? {
+        nil
+    }
+
+    func setCachedAPIResult(_: CachedAPIResult) async {}
+
+    func syncToDisk() async throws {}
+}

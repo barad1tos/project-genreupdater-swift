@@ -65,6 +65,12 @@ extension WorkflowViewModel {
         computeScopePreview(tracks: tracks)
     }
 
+    func configureFullLibraryScope(tracks: [Core.Track]) {
+        reset()
+        mode = .fullLibrary
+        computeScopePreview(tracks: tracks)
+    }
+
     private func applyDefaultConfiguration() {
         updateGenre = defaultUpdateGenre
         updateYear = defaultUpdateYear
