@@ -197,6 +197,36 @@ struct KeychainHelperTests {
         }
     }
 
+    @Test("Retrieve rejects legacy whitespace-only token data")
+    func retrieveRejectsLegacyWhitespaceOnlyTokenData() throws {
+        let keychain = InMemoryKeychainOperations()
+        keychain.seed(
+            token: "   \n\t",
+            service: testService,
+            account: testAccount,
+            isAccessControlled: true
+        )
+        let helper = KeychainHelper(operationHooks: keychain.hooks)
+
+        #expect(throws: KeychainError.invalidTokenData) {
+            try helper.retrieve(service: testService, account: testAccount)
+        }
+    }
+
+    @Test("Retrieve trims legacy token data")
+    func retrieveTrimsLegacyTokenData() throws {
+        let keychain = InMemoryKeychainOperations()
+        keychain.seed(
+            token: "  legacy-token\n",
+            service: testService,
+            account: testAccount,
+            isAccessControlled: true
+        )
+        let helper = KeychainHelper(operationHooks: keychain.hooks)
+
+        #expect(try helper.retrieve(service: testService, account: testAccount) == "legacy-token")
+    }
+
     @Test("Protected retrieve query uses an authentication context")
     func protectedRetrieveQueryUsesAuthenticationContext() {
         let helper = KeychainHelper()

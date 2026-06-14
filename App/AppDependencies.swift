@@ -97,6 +97,8 @@ final class AppDependencies {
     private(set) var appState: AppState = .loading
     var config: AppConfiguration
     var isAutoSyncRunning = false
+    private(set) var configurationLoadIssue: String?
+    @ObservationIgnored private let configurationSaver: (AppConfiguration) throws -> Void
 
     // MARK: - Services (lazy, initialized in initialize())
 
@@ -129,9 +131,21 @@ final class AppDependencies {
 
     // MARK: - Init
 
-    init() {
-        // Load config synchronously (it's just JSON from disk)
-        config = (try? AppConfiguration.load()) ?? AppConfiguration()
+    init(
+        configurationLoader: () throws -> AppConfiguration = AppConfiguration.load,
+        configurationSaver: @escaping (AppConfiguration) throws -> Void = { try $0.save() }
+    ) {
+        self.configurationSaver = configurationSaver
+
+        do {
+            config = try configurationLoader()
+        } catch {
+            let message = "Failed to load configuration: \(error.localizedDescription)"
+            config = AppConfiguration()
+            configurationLoadIssue = message
+            appState = .error(message)
+            log.error("\(message, privacy: .public)")
+        }
 
         // Create ModelContainer eagerly so SwiftUI can attach .modelContainer() immediately.
         // ModelContainerFactory.create() is synchronous.
@@ -148,6 +162,11 @@ final class AppDependencies {
     ///
     /// Called once from the app's `.task` modifier on launch.
     func initialize() async {
+        if let configurationLoadIssue {
+            appState = .error(configurationLoadIssue)
+            return
+        }
+
         appState = .loading
 
         do {
@@ -223,63 +242,24 @@ final class AppDependencies {
     /// Save current state (called on scene phase change to inactive).
     func saveState() async {
         do {
-            try config.save()
+            try configurationSaver(config)
             log.debug("App state saved")
         } catch {
             log.error("Failed to save state: \(error.localizedDescription, privacy: .public)")
         }
     }
 
-    func applyRuntimeConfiguration() {
-        let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
-        let configuredPendingVerificationService = modelContainer.map {
-            SwiftDataPendingVerificationService(modelContainer: $0, configuration: config)
-        }
-        let configuredAPIOrchestrator = Self.makeAPIOrchestrator(
-            configuration: config,
-            cache: cacheService,
-            pendingVerificationService: configuredPendingVerificationService,
-            reachability: networkReachabilityMonitor,
-            discogsCredentialIssueHandler: { [weak self] issue in
-                self?.discogsCredentialIssue = issue
-            }
-        )
-        yearDeterminator = configuredYearDeterminator
-        pendingVerificationService = configuredPendingVerificationService
-        apiOrchestrator = configuredAPIOrchestrator
-        if let librarySyncService {
-            maintenanceCoordinator = MaintenanceCoordinator(
-                databaseVerificationService: librarySyncService,
-                pendingVerificationService: configuredPendingVerificationService
-            )
-        }
-        if let cacheService {
-            librarySnapshotService = CachedLibrarySnapshotService(
-                cache: cacheService,
-                configuration: config.caching.librarySnapshot
-            )
-            analyticsService = CachedAnalyticsService(
-                cache: cacheService,
-                configuration: config.analytics
-            )
-        }
-
-        let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: config)
-        let appleScriptConfiguration = config.applescript
-        let librarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: config)
-        let batchProcessingConfiguration = BatchProcessingConfiguration(configuration: config)
-        Task {
-            try? await configuredPendingVerificationService?.initialize()
-            await applescriptBridge?.updateConfiguration(appleScriptConfiguration)
-            await musicReader?.updateTestArtists(config.development.testArtists)
-            await librarySyncService?.updateRuntimeConfiguration(librarySyncRuntimeConfiguration)
-            await batchProcessor?.updateProcessingConfiguration(batchProcessingConfiguration)
-            await analyticsService?.updateConfiguration(config.analytics)
-            await updateCoordinator?.updateRuntimeConfiguration(
-                runtimeConfiguration,
-                yearDeterminator: configuredYearDeterminator,
-                apiOrchestrator: configuredAPIOrchestrator
-            )
+    @discardableResult
+    func saveConfigurationAndApplyRuntime() -> Bool {
+        do {
+            try configurationSaver(config)
+            applyRuntimeConfiguration()
+            return true
+        } catch {
+            let message = "Failed to save configuration: \(error.localizedDescription)"
+            log.error("\(message, privacy: .public)")
+            appState = .error(message)
+            return false
         }
     }
 
@@ -447,5 +427,60 @@ final class AppDependencies {
         )
 
         changePreviewPipeline = ChangePreviewPipeline()
+    }
+}
+
+extension AppDependencies {
+    func applyRuntimeConfiguration() {
+        let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
+        let configuredPendingVerificationService = modelContainer.map {
+            SwiftDataPendingVerificationService(modelContainer: $0, configuration: config)
+        }
+        let configuredAPIOrchestrator = Self.makeAPIOrchestrator(
+            configuration: config,
+            cache: cacheService,
+            pendingVerificationService: configuredPendingVerificationService,
+            reachability: networkReachabilityMonitor,
+            discogsCredentialIssueHandler: { [weak self] issue in
+                self?.discogsCredentialIssue = issue
+            }
+        )
+        yearDeterminator = configuredYearDeterminator
+        pendingVerificationService = configuredPendingVerificationService
+        apiOrchestrator = configuredAPIOrchestrator
+        if let librarySyncService {
+            maintenanceCoordinator = MaintenanceCoordinator(
+                databaseVerificationService: librarySyncService,
+                pendingVerificationService: configuredPendingVerificationService
+            )
+        }
+        if let cacheService {
+            librarySnapshotService = CachedLibrarySnapshotService(
+                cache: cacheService,
+                configuration: config.caching.librarySnapshot
+            )
+            analyticsService = CachedAnalyticsService(
+                cache: cacheService,
+                configuration: config.analytics
+            )
+        }
+
+        let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: config)
+        let appleScriptConfiguration = config.applescript
+        let librarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: config)
+        let batchProcessingConfiguration = BatchProcessingConfiguration(configuration: config)
+        Task {
+            try? await configuredPendingVerificationService?.initialize()
+            await applescriptBridge?.updateConfiguration(appleScriptConfiguration)
+            await musicReader?.updateTestArtists(config.development.testArtists)
+            await librarySyncService?.updateRuntimeConfiguration(librarySyncRuntimeConfiguration)
+            await batchProcessor?.updateProcessingConfiguration(batchProcessingConfiguration)
+            await analyticsService?.updateConfiguration(config.analytics)
+            await updateCoordinator?.updateRuntimeConfiguration(
+                runtimeConfiguration,
+                yearDeterminator: configuredYearDeterminator,
+                apiOrchestrator: configuredAPIOrchestrator
+            )
+        }
     }
 }

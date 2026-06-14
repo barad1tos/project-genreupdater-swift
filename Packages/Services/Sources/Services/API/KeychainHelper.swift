@@ -347,7 +347,12 @@ public struct KeychainHelper: Sendable {
             throw KeychainError.invalidTokenData
         }
 
-        guard let token = String(data: data, encoding: .utf8), !token.isEmpty else {
+        guard let decodedToken = String(data: data, encoding: .utf8) else {
+            throw KeychainError.invalidTokenData
+        }
+
+        let token = decodedToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
             throw KeychainError.invalidTokenData
         }
 

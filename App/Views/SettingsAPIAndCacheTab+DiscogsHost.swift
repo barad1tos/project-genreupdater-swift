@@ -75,9 +75,14 @@ extension APIAndCacheTab {
         guard let normalizedHost = normalizedDiscogsHostInput else {
             return
         }
+        let previousHost = dependencies.config.yearRetrieval.apiAuth.discogsBaseHost
         dependencies.config.yearRetrieval.apiAuth.discogsBaseHost = normalizedHost
-        discogsHostInput = normalizedHost
-        saveConfiguration(dependencies)
+        if saveConfiguration(dependencies) {
+            discogsHostInput = normalizedHost
+        } else {
+            dependencies.config.yearRetrieval.apiAuth.discogsBaseHost = previousHost
+            discogsHostInput = previousHost
+        }
     }
 
     private func resetDiscogsHost() {

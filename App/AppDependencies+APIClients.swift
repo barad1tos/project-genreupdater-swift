@@ -51,6 +51,19 @@ extension AppDependencies {
                 baseURL: baseURL
             )
         },
+        configuredDiscogsClientFactory: (
+            _ token: String,
+            _ contactEmail: String,
+            _ rateLimiter: TokenBucketRateLimiter?,
+            _ baseURL: URL
+        ) -> DiscogsClient = { token, contactEmail, rateLimiter, baseURL in
+            DiscogsClient(
+                token: token,
+                contactEmail: contactEmail,
+                rateLimiter: rateLimiter,
+                baseURL: baseURL
+            )
+        },
         keychainErrorHandler: (any Error) -> Void = { error in
             apiClientLog
                 .error("Failed to load Discogs token from Keychain: \(error.localizedDescription, privacy: .public)")
@@ -92,11 +105,11 @@ extension AppDependencies {
             }
         } else {
             discogsCredentialIssueHandler(nil)
-            discogsClient = DiscogsClient(
-                token: configuredDiscogsToken,
-                contactEmail: contactEmail,
-                rateLimiter: discogsRateLimiter,
-                baseURL: discogsBaseURL
+            discogsClient = configuredDiscogsClientFactory(
+                configuredDiscogsToken,
+                contactEmail,
+                discogsRateLimiter,
+                discogsBaseURL
             )
         }
 

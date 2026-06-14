@@ -68,7 +68,9 @@ struct AppDependenciesAPIClientsTests {
     func configuredDiscogsTokenBypassesKeychainAndClearsCredentialIssue() {
         var configuration = AppConfiguration()
         configuration.yearRetrieval.apiAuth.discogsTokenReference = "configured-token"
+        configuration.yearRetrieval.apiAuth.discogsBaseHost = "sandbox.discogs.com"
         var capturedIssue: DiscogsCredentialIssue? = .keychain(.invalidTokenData)
+        var capturedBaseURL: URL?
 
         _ = AppDependencies.makeAPIOrchestrator(
             configuration: configuration,
@@ -78,12 +80,22 @@ struct AppDependenciesAPIClientsTests {
             keychainDiscogsClientFactory: { _, _, _ in
                 throw KeychainError.authenticationFailed(errSecAuthFailed)
             },
+            configuredDiscogsClientFactory: { token, contactEmail, rateLimiter, baseURL in
+                capturedBaseURL = baseURL
+                return DiscogsClient(
+                    token: token,
+                    contactEmail: contactEmail,
+                    rateLimiter: rateLimiter,
+                    baseURL: baseURL
+                )
+            },
             discogsCredentialIssueHandler: { issue in
                 capturedIssue = issue
             }
         )
 
         #expect(capturedIssue == nil)
+        #expect(capturedBaseURL?.host == "sandbox.discogs.com")
     }
 
     @Test("Configured Discogs API host is passed to Keychain client factory")

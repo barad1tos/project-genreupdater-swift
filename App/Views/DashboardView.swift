@@ -42,6 +42,10 @@ struct DashboardView: View {
         !viewModel.showShimmer
     }
 
+    var credentialWarningMessage: String? {
+        credentialIssue?.message
+    }
+
     private var isPrimaryActionDisabled: Bool {
         if case .loading = snapshot.scanState {
             return true
@@ -152,8 +156,8 @@ struct DashboardView: View {
                 onPrimaryAction: performPrimaryAction
             )
 
-            if let credentialIssue {
-                DashboardCredentialWarning(message: credentialIssue.message)
+            if let credentialWarningMessage {
+                DashboardCredentialWarning(message: credentialWarningMessage)
                     .opacity(showStatus ? 1 : 0)
             }
 
