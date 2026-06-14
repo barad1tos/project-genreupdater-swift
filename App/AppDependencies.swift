@@ -1,16 +1,4 @@
-// AppDependencies.swift — Composition root and app state management
-// Ported from: src/services/dependency_container.py (563 LOC → ~80 LOC)
-//
-// Python's DI container manually registered + resolved ~20 services with lifecycle management.
-// Swift replaces this with:
-// - Constructor injection (compile-time safety)
-// - @Environment for SwiftUI propagation (@Observable)
-// - Lazy initialization via async initialize()
-//
-// The massive LOC reduction comes from:
-// - No registration/resolution boilerplate
-// - No metaclass tricks for singletons
-// - SwiftUI handles view lifecycle automatically
+// AppDependencies.swift — Composition root and app state management.
 
 import Core
 import Foundation
@@ -100,6 +88,7 @@ final class AppDependencies {
     var isAutoSyncRunning = false
     private(set) var configurationLoadIssue: String?
     @ObservationIgnored private let configurationSaver: (AppConfiguration) throws -> Void
+    @ObservationIgnored private var configurationSaveRecoveryState: AppState?
 
     // MARK: - Services (lazy, initialized in initialize())
 
@@ -260,17 +249,32 @@ final class AppDependencies {
         } catch {
             let message = "\(configurationSaveErrorPrefix) \(error.localizedDescription)"
             log.error("\(message, privacy: .public)")
+            rememberConfigurationSaveRecoveryState()
             appState = .error(message)
             return false
         }
     }
 
-    private func clearConfigurationSaveIssue() {
-        guard case let .error(message) = appState,
-              message.hasPrefix(configurationSaveErrorPrefix) else {
+    private func rememberConfigurationSaveRecoveryState() {
+        guard !isConfigurationSaveIssue(appState) else {
             return
         }
-        appState = .ready
+        configurationSaveRecoveryState = appState
+    }
+
+    private func clearConfigurationSaveIssue() {
+        guard isConfigurationSaveIssue(appState) else {
+            return
+        }
+        appState = configurationSaveRecoveryState ?? .ready
+        configurationSaveRecoveryState = nil
+    }
+
+    private func isConfigurationSaveIssue(_ state: AppState) -> Bool {
+        guard case let .error(message) = state else {
+            return false
+        }
+        return message.hasPrefix(configurationSaveErrorPrefix)
     }
 
     // MARK: - Initialization Helpers

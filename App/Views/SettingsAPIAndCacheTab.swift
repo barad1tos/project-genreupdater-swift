@@ -8,9 +8,6 @@ import SwiftUI
 // MARK: - API & Cache Tab
 
 struct APIAndCacheTab: View {
-    private static let discogsService = DiscogsClient.keychainService
-    private static let discogsAccount = DiscogsClient.keychainAccount
-
     @Environment(AppDependencies.self) var dependencies
     @AppStorage("contactEmail") private var contactEmail = ""
     @State private var tokenInput = ""
@@ -23,8 +20,6 @@ struct APIAndCacheTab: View {
     @State var isSyncingLibrary = false
     @State var isUpdatingAutoSync = false
     @State var librarySyncStatus = ""
-
-    private let keychain = KeychainHelper()
 
     var body: some View {
         Form {
@@ -258,7 +253,7 @@ struct APIAndCacheTab: View {
 
     private func loadTokenStatus() {
         do {
-            if let existing = try keychain.retrieve(service: Self.discogsService, account: Self.discogsAccount),
+            if let existing = try DiscogsClient.retrieveSavedToken(),
                !existing.isEmpty {
                 tokenStatus = .saved
                 statusMessage = "Token saved (\(existing.prefix(4))...)"
@@ -274,7 +269,7 @@ struct APIAndCacheTab: View {
 
     private func saveToken() {
         do {
-            try keychain.save(token: tokenInput, service: Self.discogsService, account: Self.discogsAccount)
+            try DiscogsClient.saveToken(tokenInput)
             tokenInput = ""
             tokenStatus = .saved
             statusMessage = "Token saved successfully"
@@ -287,7 +282,7 @@ struct APIAndCacheTab: View {
 
     private func deleteToken() {
         do {
-            try keychain.delete(service: Self.discogsService, account: Self.discogsAccount)
+            try DiscogsClient.deleteSavedToken()
             tokenInput = ""
             tokenStatus = .missing
             statusMessage = "Token deleted"
@@ -300,7 +295,7 @@ struct APIAndCacheTab: View {
 
     private func testToken() {
         do {
-            if let token = try keychain.retrieve(service: Self.discogsService, account: Self.discogsAccount),
+            if let token = try DiscogsClient.retrieveSavedToken(),
                !token.isEmpty {
                 tokenStatus = .saved
                 statusMessage = "Token is present (\(token.count) characters)"
@@ -394,17 +389,16 @@ struct ScriptAPIPrioritySection: View {
     }
 
     func updateScriptPriority(_ key: String, slot: ScriptPrioritySlot, api: PreferredAPI) {
-        let previousPriority = dependencies.config.yearRetrieval.scriptAPIPriorities[key]
         var order = scriptPriorityOrder(for: key)
         order.removeAll { $0 == api }
         order.insert(api, at: min(slot.index, order.count))
 
-        dependencies.config.yearRetrieval.scriptAPIPriorities[key] = ScriptAPIPriority(
+        let newPriority = ScriptAPIPriority(
             primary: order.prefix(2).map { apiConfigurationValue(for: $0) },
             fallback: order.dropFirst(2).prefix(1).map { apiConfigurationValue(for: $0) }
         )
-        if !saveConfiguration(dependencies) {
-            dependencies.config.yearRetrieval.scriptAPIPriorities[key] = previousPriority
+        mutateConfiguration(dependencies) { configuration in
+            configuration.yearRetrieval.scriptAPIPriorities[key] = newPriority
         }
     }
 

@@ -56,8 +56,9 @@ struct AlbumTypeDetectionSection: View {
                 Text(value)
             }
             .onDelete { offsets in
-                dependencies.config.albumTypeDetection[keyPath: keyPath].remove(atOffsets: offsets)
-                saveConfiguration(dependencies)
+                mutateConfiguration(dependencies) { configuration in
+                    configuration.albumTypeDetection[keyPath: keyPath].remove(atOffsets: offsets)
+                }
             }
 
             HStack {
@@ -81,8 +82,10 @@ struct AlbumTypeDetectionSection: View {
     ) {
         let trimmed = newValue.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        dependencies.config.albumTypeDetection[keyPath: keyPath].append(trimmed)
-        newValue.wrappedValue = ""
-        saveConfiguration(dependencies)
+        if mutateConfiguration(dependencies, { configuration in
+            configuration.albumTypeDetection[keyPath: keyPath].append(trimmed)
+        }) {
+            newValue.wrappedValue = ""
+        }
     }
 }

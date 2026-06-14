@@ -58,13 +58,26 @@ func configBinding<Value>(
     Binding(
         get: { dependencies.config[keyPath: keyPath] },
         set: { newValue in
-            let previousValue = dependencies.config[keyPath: keyPath]
-            dependencies.config[keyPath: keyPath] = newValue
-            if !saveConfiguration(dependencies) {
-                dependencies.config[keyPath: keyPath] = previousValue
+            mutateConfiguration(dependencies) { configuration in
+                configuration[keyPath: keyPath] = newValue
             }
         }
     )
+}
+
+@MainActor
+@discardableResult
+func mutateConfiguration(
+    _ dependencies: AppDependencies,
+    _ mutation: (inout AppConfiguration) -> Void
+) -> Bool {
+    let previousConfiguration = dependencies.config
+    mutation(&dependencies.config)
+    guard saveConfiguration(dependencies) else {
+        dependencies.config = previousConfiguration
+        return false
+    }
+    return true
 }
 
 @MainActor

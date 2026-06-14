@@ -99,8 +99,9 @@ public struct KeychainHelper: Sendable {
     ///   - token: The token string to store.
     ///   - service: The Keychain service identifier (e.g., `"com.genreupdater.discogs"`).
     ///   - account: The Keychain account identifier (e.g., `"personal-access-token"`).
-    /// - Throws: `KeychainError.accessControlCreationFailed` if the local-authentication policy
-    ///   cannot be created, `KeychainError.authenticationFailed` for local-authentication failures,
+    /// - Throws: `KeychainError.emptyToken` for blank input,
+    ///   `KeychainError.accessControlCreationFailed` if the local-authentication policy cannot be created,
+    ///   `KeychainError.authenticationFailed` for local-authentication failures, or
     ///   `KeychainError.saveFailed` if the Security framework returns another error while adding or updating.
     public func save(
         token: String,
@@ -454,7 +455,7 @@ public enum KeychainError: Error, Sendable, Equatable, LocalizedError {
     case emptyToken
     /// The stored token item could not be decoded into a non-empty UTF-8 string.
     case invalidTokenData
-    /// `SecItemAdd` returned a non-success status.
+    /// `SecItemAdd` or `SecItemUpdate` returned a non-success status.
     case saveFailed(OSStatus)
     /// `SecItemCopyMatching` returned an unexpected status.
     case retrieveFailed(OSStatus)

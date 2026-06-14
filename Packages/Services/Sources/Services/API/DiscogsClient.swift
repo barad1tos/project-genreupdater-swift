@@ -79,32 +79,13 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         rateLimiter: TokenBucketRateLimiter? = nil,
         baseURL: URL = Self.defaultBaseURL
     ) throws -> Self {
-        let keychain = KeychainHelper()
-        let token = try keychain.retrieve(
-            service: keychainService,
-            account: keychainAccount
-        )
+        let token = try retrieveSavedToken(keychain: KeychainHelper())
         return Self(
             token: token,
             contactEmail: contactEmail,
             session: session,
             rateLimiter: rateLimiter,
             baseURL: baseURL
-        )
-    }
-
-    /// Saves a Discogs Personal Access Token to the Keychain.
-    ///
-    /// - Parameter token: The PAT to store.
-    /// - Throws: `KeychainError.emptyToken` for blank input, access-control and authentication
-    ///   errors when protected storage cannot be used, `KeychainError.deleteFailed` when replacing
-    ///   an existing item fails, or `KeychainError.saveFailed` on Keychain write failure.
-    public static func saveToken(_ token: String) throws {
-        let keychain = KeychainHelper()
-        try keychain.save(
-            token: token,
-            service: keychainService,
-            account: keychainAccount
         )
     }
 

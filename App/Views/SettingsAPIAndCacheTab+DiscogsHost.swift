@@ -76,11 +76,11 @@ extension APIAndCacheTab {
             return
         }
         let previousHost = dependencies.config.yearRetrieval.apiAuth.discogsBaseHost
-        dependencies.config.yearRetrieval.apiAuth.discogsBaseHost = normalizedHost
-        if saveConfiguration(dependencies) {
+        if mutateConfiguration(dependencies, { configuration in
+            configuration.yearRetrieval.apiAuth.discogsBaseHost = normalizedHost
+        }) {
             discogsHostInput = normalizedHost
         } else {
-            dependencies.config.yearRetrieval.apiAuth.discogsBaseHost = previousHost
             discogsHostInput = previousHost
         }
     }
