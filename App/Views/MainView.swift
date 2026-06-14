@@ -381,6 +381,7 @@ struct MainView: View {
                     lastScanDate: lastLibraryScanDate,
                     isDryRun: dependencies.config.runtime.dryRun,
                     workflowState: workflowDashboardState,
+                    credentialIssue: dependencies.discogsCredentialIssue,
                     onScanNow: {
                         startLibraryLoad(forceRefresh: true)
                     },

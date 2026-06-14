@@ -63,7 +63,7 @@ extension APIAndCacheTab {
             return "Host is required."
         }
         guard let normalizedHost = normalizedDiscogsHostInput else {
-            return "Use a public host such as api.discogs.com, without scheme or path."
+            return "Use api.discogs.com or a Discogs subdomain, without scheme or path."
         }
         guard normalizedHost != currentDiscogsBaseHost else {
             return "Using https://\(normalizedHost)"

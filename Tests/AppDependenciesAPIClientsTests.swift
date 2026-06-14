@@ -90,7 +90,7 @@ struct AppDependenciesAPIClientsTests {
     func configuredDiscogsAPIHostIsPassedToKeychainFactory() throws {
         var configuration = AppConfiguration()
         configuration.yearRetrieval.apiAuth.discogsTokenReference = ""
-        configuration.yearRetrieval.apiAuth.discogsBaseHost = "discogs.example.test"
+        configuration.yearRetrieval.apiAuth.discogsBaseHost = "sandbox.discogs.com"
         var capturedBaseURL: URL?
 
         _ = AppDependencies.makeAPIOrchestrator(
@@ -111,6 +111,6 @@ struct AppDependenciesAPIClientsTests {
 
         let baseURL = try #require(capturedBaseURL)
         #expect(baseURL.scheme == "https")
-        #expect(baseURL.host == "discogs.example.test")
+        #expect(baseURL.host == "sandbox.discogs.com")
     }
 }

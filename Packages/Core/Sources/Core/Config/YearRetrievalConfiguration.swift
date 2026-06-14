@@ -88,15 +88,27 @@ public struct APIAuthConfig: Sendable, Codable {
             String.self,
             forKey: .discogsTokenReference
         ) ?? "${DISCOGS_TOKEN}"
-        let configuredDiscogsBaseHost = try container.decodeIfPresent(
+        if let configuredDiscogsBaseHost = try container.decodeIfPresent(
             String.self,
             forKey: .discogsBaseHost
-        ) ?? container.decodeIfPresent(
+        ) {
+            discogsBaseHost = try Self.decodeDiscogsBaseHost(
+                configuredDiscogsBaseHost,
+                forKey: .discogsBaseHost,
+                in: container
+            )
+        } else if let legacyDiscogsBaseHost = try container.decodeIfPresent(
             String.self,
             forKey: .legacyDiscogsBaseHost
-        ) ?? Self.defaultDiscogsBaseHost
-        discogsBaseHost = Self.normalizedDiscogsBaseHost(configuredDiscogsBaseHost)
-            ?? Self.defaultDiscogsBaseHost
+        ) {
+            discogsBaseHost = try Self.decodeDiscogsBaseHost(
+                legacyDiscogsBaseHost,
+                forKey: .legacyDiscogsBaseHost,
+                in: container
+            )
+        } else {
+            discogsBaseHost = Self.defaultDiscogsBaseHost
+        }
         musicBrainzAppName = try container.decodeIfPresent(
             String.self,
             forKey: .musicBrainzAppName
@@ -142,6 +154,9 @@ public struct APIAuthConfig: Sendable, Codable {
         guard normalizedHost.split(separator: ".").last?.contains(where: \.isLetter) == true else {
             return nil
         }
+        guard isAllowedDiscogsHost(normalizedHost) else {
+            return nil
+        }
         return normalizedHost
     }
 
@@ -158,9 +173,31 @@ public struct APIAuthConfig: Sendable, Codable {
         case legacyDiscogsBaseHost = "discogs_base_host"
     }
 
+    private static func decodeDiscogsBaseHost(
+        _ host: String,
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String {
+        guard let normalizedHost = normalizedDiscogsBaseHost(host) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: """
+                Discogs API host must be api.discogs.com or a discogs.com subdomain without scheme, \
+                path, port, or local/private address.
+                """
+            )
+        }
+        return normalizedHost
+    }
+
     private static func isBlockedLocalHost(_ host: String) -> Bool {
         // "localhost.localdomain" is a conventional local hostname alias.
         host == "localhost" || host == "localhost.localdomain" || host.hasSuffix(".local")
+    }
+
+    private static func isAllowedDiscogsHost(_ host: String) -> Bool {
+        host == defaultDiscogsBaseHost || host.hasSuffix(".discogs.com")
     }
 
     private static func isPrivateIPv4Literal(_ host: String) -> Bool {

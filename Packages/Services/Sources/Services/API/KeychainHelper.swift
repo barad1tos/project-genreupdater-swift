@@ -104,7 +104,12 @@ public struct KeychainHelper: Sendable {
         service: String,
         account: String
     ) throws {
-        let data = Data(token.utf8)
+        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedToken.isEmpty else {
+            throw KeychainError.emptyToken
+        }
+
+        let data = Data(trimmedToken.utf8)
         let accessControl = try makeTokenAccessControl()
 
         // Delete existing item first (upsert pattern)
@@ -398,6 +403,8 @@ public enum KeychainError: Error, Sendable, Equatable, LocalizedError {
     case authenticationFailed(OSStatus)
     /// A legacy token item exists without the current local-authentication policy.
     case unprotectedItemRequiresResave
+    /// The token input was empty after trimming whitespace.
+    case emptyToken
     /// The stored token item could not be decoded into a non-empty UTF-8 string.
     case invalidTokenData
     /// `SecItemAdd` returned a non-success status.
@@ -419,6 +426,8 @@ public enum KeychainError: Error, Sendable, Equatable, LocalizedError {
             "Keychain authentication failed with OSStatus \(status)"
         case .unprotectedItemRequiresResave:
             "Stored Keychain token must be saved again to require local authentication"
+        case .emptyToken:
+            "Keychain token cannot be empty"
         case .invalidTokenData:
             "Stored Keychain token data is invalid"
         case let .saveFailed(status):

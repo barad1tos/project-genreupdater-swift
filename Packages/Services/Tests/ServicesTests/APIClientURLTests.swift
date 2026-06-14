@@ -249,14 +249,14 @@ struct DiscogsURLTests {
 
     @Test("buildSearchURL uses custom base URL")
     func searchURLUsesCustomBaseURL() throws {
-        let baseURL = try #require(URL(string: "https://discogs.example.test/api"))
+        let baseURL = try #require(URL(string: "https://sandbox.discogs.com/api"))
         let url = try #require(DiscogsClient.buildSearchURL(
             artist: "Iron Maiden",
             album: "Powerslave",
             baseURL: baseURL
         ))
         let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
-        #expect(components.host == "discogs.example.test")
+        #expect(components.host == "sandbox.discogs.com")
         #expect(components.path == "/api/database/search")
     }
 

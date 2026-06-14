@@ -119,7 +119,7 @@ struct APIAndCacheTab: View {
 
             HStack(spacing: Spacing.sm) {
                 Button("Save Token") { saveToken() }
-                    .disabled(tokenInput.isEmpty)
+                    .disabled(isTokenSaveDisabled)
                 Button("Delete Token", role: .destructive) { deleteToken() }
                 Button("Test Token") { testToken() }
             }
@@ -250,6 +250,10 @@ struct APIAndCacheTab: View {
 
     private var isLibrarySnapshotEnabled: Bool {
         dependencies.config.caching.librarySnapshot.enabled
+    }
+
+    private var isTokenSaveDisabled: Bool {
+        tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func loadTokenStatus() {

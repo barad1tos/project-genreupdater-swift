@@ -76,6 +76,40 @@ struct KeychainHelperTests {
         #expect(query[kSecAttrAccessible as String] == nil)
     }
 
+    @Test("Save rejects empty token input before touching Security")
+    func saveRejectsEmptyTokenInputBeforeTouchingSecurity() throws {
+        var addWasCalled = false
+        var deleteWasCalled = false
+        let hooks = KeychainOperationHooks(
+            addItem: { _ in
+                addWasCalled = true
+                return errSecSuccess
+            },
+            copyMatching: { _, _ in errSecItemNotFound },
+            deleteItem: { _ in
+                deleteWasCalled = true
+                return errSecSuccess
+            }
+        )
+        let helper = KeychainHelper(operationHooks: hooks)
+
+        #expect(throws: KeychainError.emptyToken) {
+            try helper.save(token: "   \n\t", service: testService, account: testAccount)
+        }
+        #expect(addWasCalled == false)
+        #expect(deleteWasCalled == false)
+    }
+
+    @Test("Save trims token input before storing")
+    func saveTrimsTokenInputBeforeStoring() throws {
+        let keychain = InMemoryKeychainOperations()
+        let helper = KeychainHelper(operationHooks: keychain.hooks)
+
+        try helper.save(token: "  trimmed-token\n", service: testService, account: testAccount)
+
+        #expect(try helper.retrieve(service: testService, account: testAccount) == "trimmed-token")
+    }
+
     @Test("Public save retrieve overwrite and delete lifecycle uses protected token items")
     func publicLifecycleUsesProtectedTokenItems() throws {
         let keychain = InMemoryKeychainOperations()
