@@ -2,6 +2,7 @@
 // Phase 4: API + Cache
 
 import Foundation
+import LocalAuthentication
 import Security
 
 // MARK: - KeychainHelper
@@ -18,7 +19,13 @@ import Security
 /// let token = try keychain.retrieve(service: "com.genreupdater.discogs", account: "personal-access-token")
 /// ```
 public struct KeychainHelper: Sendable {
-    public init() {}
+    private let authenticationPrompt: String
+
+    public init(
+        authenticationPrompt: String = "Authenticate with biometrics to use stored API tokens."
+    ) {
+        self.authenticationPrompt = authenticationPrompt
+    }
 
     /// Saves a token to the Keychain, replacing any existing value.
     ///
@@ -36,29 +43,32 @@ public struct KeychainHelper: Sendable {
         account: String
     ) throws {
         let data = Data(token.utf8)
+        let accessControl = try makeTokenAccessControl()
 
         // Delete existing item first (upsert pattern)
         try? delete(service: service, account: account)
 
+        // Keep access control in the SecItemAdd query literal so static analyzers
+        // can verify that stored API tokens require local authentication.
         let protectedQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecUseDataProtectionKeychain as String: true,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecAttrAccessControl as String: accessControl,
         ]
 
-        // API tokens must be available to non-interactive batch workflows.
-        // swiftformat:disable wrap
-        // swiftlint:disable:next line_length
-        let status = SecItemAdd(protectedQuery as CFDictionary, nil) // nosemgrep: swift.biometrics-and-auth.missing-user-auth.keychain-without-user-auth
-        // swiftformat:enable wrap
+        let status = SecItemAdd(protectedQuery as CFDictionary, nil)
         if Self.shouldUseLegacyKeychainFallback(status) {
-            let fallbackStatus = SecItemAdd(
-                legacyQuery(service: service, account: account, valueData: data) as CFDictionary,
-                nil
-            )
+            let fallbackQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
+                kSecValueData as String: data,
+                kSecAttrAccessControl as String: accessControl,
+            ]
+            let fallbackStatus = SecItemAdd(fallbackQuery as CFDictionary, nil)
             guard fallbackStatus == errSecSuccess else {
                 throw KeychainError.saveFailed(fallbackStatus)
             }
@@ -81,18 +91,21 @@ public struct KeychainHelper: Sendable {
         service: String,
         account: String
     ) throws -> String? {
-        let protectedQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecUseDataProtectionKeychain as String: true,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
+        let authenticationContext = makeAuthenticationContext()
+        let protectedQuery = makeProtectedRetrieveQuery(
+            service: service,
+            account: account,
+            authenticationContext: authenticationContext
+        )
 
         let protectedResult = try retrieveToken(
             query: protectedQuery,
-            fallbackQuery: legacyQuery(service: service, account: account, shouldReturnData: true)
+            fallbackQuery: legacyQuery(
+                service: service,
+                account: account,
+                shouldReturnData: true,
+                authenticationContext: authenticationContext
+            )
         )
         if protectedResult.status == errSecSuccess || protectedResult.status == errSecItemNotFound {
             return protectedResult.token
@@ -164,11 +177,103 @@ public struct KeychainHelper: Sendable {
         status == errSecNotAvailable || status == errSecMissingEntitlement
     }
 
+    func makeProtectedSaveQuery(
+        tokenData: Data,
+        service: String,
+        account: String
+    ) throws -> [String: Any] {
+        let accessControl = try makeTokenAccessControl()
+        return makeProtectedSaveQuery(
+            tokenData: tokenData,
+            service: service,
+            account: account,
+            accessControl: accessControl
+        )
+    }
+
+    private func makeProtectedSaveQuery(
+        tokenData: Data,
+        service: String,
+        account: String,
+        accessControl: SecAccessControl
+    ) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecUseDataProtectionKeychain as String: true,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: tokenData,
+            kSecAttrAccessControl as String: accessControl,
+        ]
+    }
+
+    func makeProtectedRetrieveQuery(
+        service: String,
+        account: String,
+        authenticationContext: LAContext? = nil
+    ) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecUseDataProtectionKeychain as String: true,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationContext as String: authenticationContext ?? makeAuthenticationContext(),
+        ]
+    }
+
+    func makeLegacySaveQuery(
+        tokenData: Data,
+        service: String,
+        account: String
+    ) throws -> [String: Any] {
+        let accessControl = try makeTokenAccessControl()
+        return makeLegacySaveQuery(
+            tokenData: tokenData,
+            service: service,
+            account: account,
+            accessControl: accessControl
+        )
+    }
+
+    private func makeLegacySaveQuery(
+        tokenData: Data,
+        service: String,
+        account: String,
+        accessControl: SecAccessControl
+    ) -> [String: Any] {
+        var query = legacyQuery(service: service, account: account)
+        query[kSecValueData as String] = tokenData
+        query[kSecAttrAccessControl as String] = accessControl
+        return query
+    }
+
+    private func makeTokenAccessControl() throws -> SecAccessControl {
+        var error: Unmanaged<CFError>?
+        guard let accessControl = SecAccessControlCreateWithFlags(
+            nil,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            .biometryCurrentSet,
+            &error
+        ) else {
+            throw KeychainError.accessControlCreationFailed
+        }
+        return accessControl
+    }
+
+    private func makeAuthenticationContext() -> LAContext {
+        let context = LAContext()
+        context.localizedReason = authenticationPrompt
+        return context
+    }
+
     private func legacyQuery(
         service: String,
         account: String,
         valueData: Data? = nil,
-        shouldReturnData: Bool = false
+        shouldReturnData: Bool = false,
+        authenticationContext: LAContext? = nil
     ) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -182,6 +287,9 @@ public struct KeychainHelper: Sendable {
             query[kSecReturnData as String] = true
             query[kSecMatchLimit as String] = kSecMatchLimitOne
         }
+        if let authenticationContext {
+            query[kSecUseAuthenticationContext as String] = authenticationContext
+        }
         return query
     }
 }
@@ -190,6 +298,8 @@ public struct KeychainHelper: Sendable {
 
 /// Errors from Keychain operations.
 public enum KeychainError: Error, Sendable, LocalizedError {
+    /// Creating the access-control policy for a protected token failed.
+    case accessControlCreationFailed
     /// `SecItemAdd` returned a non-success status.
     case saveFailed(OSStatus)
     /// `SecItemCopyMatching` returned an unexpected status.
@@ -199,6 +309,8 @@ public enum KeychainError: Error, Sendable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
+        case .accessControlCreationFailed:
+            "Keychain access-control creation failed"
         case let .saveFailed(status):
             "Keychain save failed with OSStatus \(status)"
         case let .retrieveFailed(status):

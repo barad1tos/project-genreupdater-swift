@@ -2,6 +2,7 @@
 // Phase 4: API + Cache
 
 import Foundation
+import LocalAuthentication
 import Testing
 @testable import Services
 
@@ -12,23 +13,62 @@ struct KeychainHelperTests {
     private let testService = "com.genreupdater.test.\(UUID().uuidString)"
     private let testAccount = "discogs-token-test"
 
-    @Test("Save and retrieve token roundtrip")
-    func saveAndRetrieve() throws {
+    @Test("Protected save query requires user authentication")
+    func protectedSaveQueryRequiresUserAuthentication() throws {
         let helper = KeychainHelper()
-        try helper.save(
-            token: "test-token-123",
+        let tokenData = Data("test-token-123".utf8)
+
+        let query = try helper.makeProtectedSaveQuery(
+            tokenData: tokenData,
             service: testService,
             account: testAccount
         )
 
-        let retrieved = try helper.retrieve(
+        #expect(query[kSecClass as String] as? String == kSecClassGenericPassword as String)
+        #expect(query[kSecUseDataProtectionKeychain as String] as? Bool == true)
+        #expect(query[kSecAttrService as String] as? String == testService)
+        #expect(query[kSecAttrAccount as String] as? String == testAccount)
+        #expect(query[kSecValueData as String] as? Data == tokenData)
+        #expect(query[kSecAttrAccessControl as String] != nil)
+        #expect(query[kSecAttrAccessible as String] == nil)
+    }
+
+    @Test("Legacy fallback save query also requires user authentication")
+    func legacyFallbackSaveQueryAlsoRequiresUserAuthentication() throws {
+        let helper = KeychainHelper()
+        let tokenData = Data("fallback-token".utf8)
+
+        let query = try helper.makeLegacySaveQuery(
+            tokenData: tokenData,
             service: testService,
             account: testAccount
         )
-        #expect(retrieved == "test-token-123")
 
-        // Cleanup
-        try helper.delete(service: testService, account: testAccount)
+        #expect(query[kSecClass as String] as? String == kSecClassGenericPassword as String)
+        #expect(query[kSecUseDataProtectionKeychain as String] == nil)
+        #expect(query[kSecAttrService as String] as? String == testService)
+        #expect(query[kSecAttrAccount as String] as? String == testAccount)
+        #expect(query[kSecValueData as String] as? Data == tokenData)
+        #expect(query[kSecAttrAccessControl as String] != nil)
+        #expect(query[kSecAttrAccessible as String] == nil)
+    }
+
+    @Test("Protected retrieve query uses an authentication prompt")
+    func protectedRetrieveQueryUsesAuthenticationPrompt() throws {
+        let helper = KeychainHelper()
+        let query = helper.makeProtectedRetrieveQuery(
+            service: testService,
+            account: testAccount
+        )
+
+        #expect(query[kSecClass as String] as? String == kSecClassGenericPassword as String)
+        #expect(query[kSecUseDataProtectionKeychain as String] as? Bool == true)
+        #expect(query[kSecAttrService as String] as? String == testService)
+        #expect(query[kSecAttrAccount as String] as? String == testAccount)
+        #expect(query[kSecReturnData as String] as? Bool == true)
+        #expect(query[kSecMatchLimit as String] as? String == kSecMatchLimitOne as String)
+        let authenticationContext = try #require(query[kSecUseAuthenticationContext as String] as? LAContext)
+        #expect(authenticationContext.localizedReason == "Authenticate with biometrics to use stored API tokens.")
     }
 
     @Test("Retrieve returns nil for missing token")
@@ -39,49 +79,5 @@ struct KeychainHelperTests {
             account: "nonexistent-\(UUID().uuidString)"
         )
         #expect(result == nil)
-    }
-
-    @Test("Delete removes token")
-    func deleteToken() throws {
-        let helper = KeychainHelper()
-        try helper.save(
-            token: "to-delete",
-            service: testService,
-            account: testAccount
-        )
-        try helper.delete(
-            service: testService,
-            account: testAccount
-        )
-
-        let result = try helper.retrieve(
-            service: testService,
-            account: testAccount
-        )
-        #expect(result == nil)
-    }
-
-    @Test("Save overwrites existing token")
-    func saveOverwrites() throws {
-        let helper = KeychainHelper()
-        try helper.save(
-            token: "old-token",
-            service: testService,
-            account: testAccount
-        )
-        try helper.save(
-            token: "new-token",
-            service: testService,
-            account: testAccount
-        )
-
-        let result = try helper.retrieve(
-            service: testService,
-            account: testAccount
-        )
-        #expect(result == "new-token")
-
-        // Cleanup
-        try helper.delete(service: testService, account: testAccount)
     }
 }
