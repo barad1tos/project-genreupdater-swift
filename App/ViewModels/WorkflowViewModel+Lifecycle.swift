@@ -1,5 +1,6 @@
 // WorkflowViewModel+Lifecycle.swift -- Workflow reset and default handling.
 
+import Core
 import Services
 
 extension WorkflowViewModel {
@@ -48,6 +49,26 @@ extension WorkflowViewModel {
         pendingDueAlbumCount = 0
         pendingSkippedAlbumCount = 0
         releaseYearRestoreThreshold = defaultReleaseYearRestoreThreshold
+    }
+
+    func configureSelectedTracksScope(
+        tracks: [Core.Track],
+        updateGenre: Bool,
+        updateYear: Bool,
+        previewOnly: Bool
+    ) {
+        reset()
+        mode = .selectedTracks
+        self.updateGenre = updateGenre
+        self.updateYear = updateYear
+        self.previewOnly = previewOnly
+        computeScopePreview(tracks: tracks)
+    }
+
+    func configureFullLibraryScope(tracks: [Core.Track]) {
+        reset()
+        mode = .fullLibrary
+        computeScopePreview(tracks: tracks)
     }
 
     private func applyDefaultConfiguration() {

@@ -305,7 +305,7 @@ struct UpdateConfigSection: View {
         .buttonStyle(.borderedProminent)
         .tint(Ayu.accent)
         .controlSize(.large)
-        .disabled(!viewModel.canStart || !viewModel.hasEnabledOperation)
+        .disabled(!viewModel.canStart || !viewModel.hasEnabledOperation || !viewModel.hasRunnableScope)
     }
 
     private var startButtonTitle: String {
