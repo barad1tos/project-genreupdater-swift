@@ -224,6 +224,7 @@ struct MainView: View {
     @State var libraryLoadError: LibraryLoadError?
     @State var lastLibraryScanDate: Date?
     @State var workflowViewModel: WorkflowViewModel?
+    @State var updateScopeTracks: [Track]?
     @State var hasNavigated = false
     @AppStorage("sidebarCompact") var isSidebarCompact = false
     @AppStorage("sidebarBadgesEnabled") var areSidebarBadgesEnabled = false
@@ -236,10 +237,13 @@ struct MainView: View {
             .task { startLibraryLoad() }
             .onAppear { updateColumnVisibility() }
             .onReceive(NotificationCenter.default.publisher(for: .updateSelectedTracks)) { _ in
-                selectedCategory = .update
+                prepareSelectedTracksUpdate()
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateToUpdate)) { _ in
-                selectedCategory = .update
+                prepareDefaultUpdate()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .browseAction)) { notification in
+                handleBrowseAction(notification)
             }
             .onChange(of: selectedCategory) {
                 if !hasNavigated { hasNavigated = true }
@@ -379,7 +383,7 @@ struct MainView: View {
                         startLibraryLoad(forceRefresh: true)
                     },
                     onReviewChanges: {
-                        selectedCategory = .update
+                        prepareDefaultUpdate()
                     }
                 )
             }
@@ -415,7 +419,7 @@ struct MainView: View {
     @ViewBuilder
     private var updateContent: some View {
         if let viewModel = workflowViewModel {
-            UpdateWorkflowView(viewModel: viewModel, tracks: tracks)
+            UpdateWorkflowView(viewModel: viewModel, tracks: updateScopeTracks ?? tracks)
         } else {
             ContentUnavailableView(
                 "Services Unavailable",
