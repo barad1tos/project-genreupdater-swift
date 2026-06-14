@@ -1,9 +1,38 @@
 // AppDependencies+APIClients.swift — API client factory helpers
 
 import Core
+import Foundation
 import Services
 
 private let apiClientLog = AppLogger.make(category: "dependencies")
+
+enum DiscogsCredentialIssue: Equatable {
+    case keychain(KeychainError)
+    case other(String)
+
+    init(error: any Error) {
+        if let keychainError = error as? KeychainError {
+            self = .keychain(keychainError)
+        } else {
+            self = .other(error.localizedDescription)
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .keychain(.authenticationFailed):
+            "Keychain authentication was cancelled or failed. Discogs is running without the saved token."
+        case .keychain(.unprotectedItemRequiresResave):
+            "The saved Discogs token must be saved again to require local authentication."
+        case .keychain(.invalidTokenData):
+            "The saved Discogs token data is invalid. Delete it and save the token again."
+        case let .keychain(error):
+            "Failed to load the saved Discogs token: \(error.localizedDescription)"
+        case let .other(description):
+            "Failed to load the saved Discogs token: \(description)"
+        }
+    }
+}
 
 extension AppDependencies {
     static func makeAPIOrchestrator(
@@ -23,7 +52,8 @@ extension AppDependencies {
         keychainErrorHandler: (any Error) -> Void = { error in
             apiClientLog
                 .error("Failed to load Discogs token from Keychain: \(error.localizedDescription, privacy: .public)")
-        }
+        },
+        discogsCredentialIssueHandler: (DiscogsCredentialIssue?) -> Void = { _ in }
     ) -> APIOrchestrator {
         let apiAuth = configuration.yearRetrieval.apiAuth
         let contactEmail = APIAuthReferenceResolver.resolve(
@@ -44,14 +74,17 @@ extension AppDependencies {
                     contactEmail,
                     discogsRateLimiter
                 )
+                discogsCredentialIssueHandler(nil)
             } catch {
                 keychainErrorHandler(error)
+                discogsCredentialIssueHandler(DiscogsCredentialIssue(error: error))
                 discogsClient = DiscogsClient(
                     contactEmail: contactEmail,
                     rateLimiter: discogsRateLimiter
                 )
             }
         } else {
+            discogsCredentialIssueHandler(nil)
             discogsClient = DiscogsClient(
                 token: configuredDiscogsToken,
                 contactEmail: contactEmail,

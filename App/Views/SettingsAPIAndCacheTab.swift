@@ -8,8 +8,8 @@ import SwiftUI
 // MARK: - API & Cache Tab
 
 struct APIAndCacheTab: View {
-    private static let discogsService = "GenreUpdater-Discogs"
-    private static let discogsAccount = "pat"
+    private static let discogsService = DiscogsClient.keychainService
+    private static let discogsAccount = DiscogsClient.keychainAccount
 
     @Environment(AppDependencies.self) var dependencies
     @AppStorage("contactEmail") private var contactEmail = ""
@@ -128,6 +128,16 @@ struct APIAndCacheTab: View {
                 Text(statusMessage)
                     .foregroundStyle(.secondary)
                     .font(.caption)
+            }
+
+            if let credentialIssue = dependencies.discogsCredentialIssue {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Ayu.warning)
+                    Text(credentialIssue.message)
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
             }
         } header: {
             Text("Discogs API")
@@ -260,6 +270,7 @@ struct APIAndCacheTab: View {
             tokenInput = ""
             tokenStatus = .saved
             statusMessage = "Token saved successfully"
+            dependencies.applyRuntimeConfiguration()
         } catch {
             tokenStatus = .error
             statusMessage = "Save failed: \(error.localizedDescription)"
@@ -272,6 +283,7 @@ struct APIAndCacheTab: View {
             tokenInput = ""
             tokenStatus = .missing
             statusMessage = "Token deleted"
+            dependencies.applyRuntimeConfiguration()
         } catch {
             tokenStatus = .error
             statusMessage = "Delete failed: \(error.localizedDescription)"

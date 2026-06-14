@@ -125,6 +125,7 @@ final class AppDependencies {
     private(set) var maintenanceCoordinator: MaintenanceCoordinator?
     var maintenancePreflightResult: MaintenancePreflightResult?
     private(set) var changePreviewPipeline: ChangePreviewPipeline?
+    private(set) var discogsCredentialIssue: DiscogsCredentialIssue?
 
     // MARK: - Init
 
@@ -238,7 +239,10 @@ final class AppDependencies {
             configuration: config,
             cache: cacheService,
             pendingVerificationService: configuredPendingVerificationService,
-            reachability: networkReachabilityMonitor
+            reachability: networkReachabilityMonitor,
+            discogsCredentialIssueHandler: { [weak self] issue in
+                self?.discogsCredentialIssue = issue
+            }
         )
         yearDeterminator = configuredYearDeterminator
         pendingVerificationService = configuredPendingVerificationService
@@ -377,7 +381,10 @@ final class AppDependencies {
             configuration: config,
             cache: cacheService,
             pendingVerificationService: pendingVerification,
-            reachability: reachability
+            reachability: reachability,
+            discogsCredentialIssueHandler: { [weak self] issue in
+                self?.discogsCredentialIssue = issue
+            }
         )
     }
 

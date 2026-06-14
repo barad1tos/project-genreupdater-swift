@@ -17,10 +17,14 @@ struct KeychainHelperTests {
     @Test("Save passes a protected query to Security")
     func savePassesProtectedQueryToSecurity() throws {
         var addQueries: [[String: Any]] = []
-        let hooks = KeychainOperationHooks(addItem: { query in
-            addQueries.append(query)
-            return errSecSuccess
-        })
+        let hooks = KeychainOperationHooks(
+            addItem: { query in
+                addQueries.append(query)
+                return errSecSuccess
+            },
+            copyMatching: { _, _ in errSecItemNotFound },
+            deleteItem: { _ in errSecItemNotFound }
+        )
         let helper = KeychainHelper(operationHooks: hooks)
         let tokenData = Data("test-token-123".utf8)
 
@@ -44,10 +48,14 @@ struct KeychainHelperTests {
     func saveFallbackAlsoPassesAccessControlledQueryToSecurity() throws {
         var addQueries: [[String: Any]] = []
         var statuses: [OSStatus] = [errSecMissingEntitlement, errSecSuccess]
-        let hooks = KeychainOperationHooks(addItem: { query in
-            addQueries.append(query)
-            return statuses.removeFirst()
-        })
+        let hooks = KeychainOperationHooks(
+            addItem: { query in
+                addQueries.append(query)
+                return statuses.removeFirst()
+            },
+            copyMatching: { _, _ in errSecItemNotFound },
+            deleteItem: { _ in errSecItemNotFound }
+        )
         let helper = KeychainHelper(operationHooks: hooks)
         let tokenData = Data("fallback-token".utf8)
 
@@ -93,6 +101,7 @@ struct KeychainHelperTests {
                 addWasCalled = true
                 return errSecSuccess
             },
+            copyMatching: { _, _ in errSecItemNotFound },
             deleteItem: { _ in
                 deleteStatuses.removeFirst()
             }
@@ -103,6 +112,23 @@ struct KeychainHelperTests {
             try helper.save(token: "replacement-token", service: testService, account: testAccount)
         }
         #expect(addWasCalled == false)
+    }
+
+    @Test("Delete maps authentication failures to authentication errors")
+    func deleteMapsAuthenticationFailuresToAuthenticationErrors() throws {
+        var deleteStatuses: [OSStatus] = [errSecAuthFailed, errSecItemNotFound]
+        let hooks = KeychainOperationHooks(
+            addItem: { _ in errSecSuccess },
+            copyMatching: { _, _ in errSecItemNotFound },
+            deleteItem: { _ in
+                deleteStatuses.removeFirst()
+            }
+        )
+        let helper = KeychainHelper(operationHooks: hooks)
+
+        #expect(throws: KeychainError.authenticationFailed(errSecAuthFailed)) {
+            try helper.delete(service: testService, account: testAccount)
+        }
     }
 
     @Test("Retrieve rejects legacy unprotected token items")
@@ -137,8 +163,8 @@ struct KeychainHelperTests {
         }
     }
 
-    @Test("Protected retrieve query uses an authentication prompt")
-    func protectedRetrieveQueryUsesAuthenticationPrompt() throws {
+    @Test("Protected retrieve query uses an authentication context")
+    func protectedRetrieveQueryUsesAuthenticationContext() {
         let helper = KeychainHelper()
         let query = helper.makeProtectedRetrieveQuery(
             service: testService,
@@ -152,18 +178,42 @@ struct KeychainHelperTests {
         #expect(query[kSecReturnData as String] as? Bool == true)
         #expect(query[kSecReturnAttributes as String] as? Bool == true)
         #expect(query[kSecMatchLimit as String] as? String == kSecMatchLimitOne as String)
-        let authenticationContext = try #require(query[kSecUseAuthenticationContext as String] as? LAContext)
-        #expect(authenticationContext.localizedReason == "Authenticate to use stored API tokens.")
+        #expect(query[kSecUseAuthenticationContext as String] is LAContext)
+        #expect(
+            KeychainAuthenticationPolicy.localUserPresence.defaultPrompt == "Authenticate to use stored API tokens."
+        )
     }
 
     @Test("Retrieve returns nil for missing token")
     func retrieveMissing() throws {
-        let helper = KeychainHelper()
+        let keychain = InMemoryKeychainOperations()
+        let helper = KeychainHelper(operationHooks: keychain.hooks)
         let result = try helper.retrieve(
             service: testService,
             account: "nonexistent-\(UUID().uuidString)"
         )
         #expect(result == nil)
+    }
+
+    @Test(
+        "Security-backed Keychain lifecycle can run manually",
+        .enabled(if: ProcessInfo.processInfo.environment["GENREUPDATER_RUN_KEYCHAIN_INTEGRATION"] == "1")
+    )
+    func securityBackedKeychainLifecycle() throws {
+        let service = "com.genreupdater.integration.\(UUID().uuidString)"
+        let account = "discogs-token-integration"
+        let helper = KeychainHelper(authenticationPrompt: "Authenticate to test GenreUpdater Keychain token access.")
+        let token = "integration-token-\(UUID().uuidString)"
+
+        defer {
+            try? helper.delete(service: service, account: account)
+        }
+
+        try helper.save(token: token, service: service, account: account)
+        #expect(try helper.retrieve(service: service, account: account) == token)
+
+        try helper.delete(service: service, account: account)
+        #expect(try helper.retrieve(service: service, account: account) == nil)
     }
 }
 

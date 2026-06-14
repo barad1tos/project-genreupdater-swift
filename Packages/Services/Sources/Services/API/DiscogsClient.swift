@@ -20,8 +20,10 @@ import OSLog
 /// so `getArtistActivityPeriod` and `getArtistStartYear` return `nil`.
 public struct DiscogsClient: ExternalAPIService, Sendable {
     private static let baseURL = "https://api.discogs.com"
-    private static let keychainService = "com.genreupdater.discogs"
-    private static let keychainAccount = "personal-access-token"
+    /// Keychain service identifier used for Discogs token storage.
+    public static let keychainService = "com.genreupdater.discogs"
+    /// Keychain account identifier used for Discogs token storage.
+    public static let keychainAccount = "personal-access-token"
 
     private let userAgent: String
     private let session: URLSession

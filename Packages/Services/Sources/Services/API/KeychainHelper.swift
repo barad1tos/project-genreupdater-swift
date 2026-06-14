@@ -31,14 +31,14 @@ final class KeychainOperationHooks: @unchecked Sendable {
     typealias CopyMatching = ([String: Any], inout AnyObject?) -> OSStatus
     typealias DeleteItem = ([String: Any]) -> OSStatus
 
-    let addItem: AddItem?
-    let copyMatching: CopyMatching?
-    let deleteItem: DeleteItem?
+    let addItem: AddItem
+    let copyMatching: CopyMatching
+    let deleteItem: DeleteItem
 
     init(
-        addItem: AddItem? = nil,
-        copyMatching: CopyMatching? = nil,
-        deleteItem: DeleteItem? = nil
+        addItem: @escaping AddItem,
+        copyMatching: @escaping CopyMatching,
+        deleteItem: @escaping DeleteItem
     ) {
         self.addItem = addItem
         self.copyMatching = copyMatching
@@ -122,8 +122,8 @@ public struct KeychainHelper: Sendable {
         ]
 
         let status: OSStatus
-        if let addItem = operationHooks?.addItem {
-            status = addItem(protectedQuery)
+        if let operationHooks {
+            status = operationHooks.addItem(protectedQuery)
         } else {
             let protectedStatus = SecItemAdd(protectedQuery as CFDictionary, nil)
             status = protectedStatus
@@ -138,8 +138,8 @@ public struct KeychainHelper: Sendable {
                 kSecAttrAccessControl as String: accessControl,
             ]
             let fallbackStatus: OSStatus
-            if let addItem = operationHooks?.addItem {
-                fallbackStatus = addItem(fallbackQuery)
+            if let operationHooks {
+                fallbackStatus = operationHooks.addItem(fallbackQuery)
             } else {
                 let legacyStatus = SecItemAdd(fallbackQuery as CFDictionary, nil)
                 fallbackStatus = legacyStatus
@@ -207,8 +207,8 @@ public struct KeychainHelper: Sendable {
         var result: AnyObject?
         // swiftformat:disable conditionalAssignment
         let status: OSStatus
-        if let copyMatching = operationHooks?.copyMatching {
-            status = copyMatching(query, &result)
+        if let operationHooks {
+            status = operationHooks.copyMatching(query, &result)
         } else {
             status = SecItemCopyMatching(query as CFDictionary, &result)
         }
@@ -244,7 +244,8 @@ public struct KeychainHelper: Sendable {
     /// - Parameters:
     ///   - service: The Keychain service identifier.
     ///   - account: The Keychain account identifier.
-    /// - Throws: `KeychainError.deleteFailed` for unexpected Security framework errors.
+    /// - Throws: `KeychainError.authenticationFailed` for local-authentication failures, or
+    ///   `KeychainError.deleteFailed` for other unexpected Security framework errors.
     public func delete(
         service: String,
         account: String
@@ -353,8 +354,8 @@ public struct KeychainHelper: Sendable {
     }
 
     private func deleteItem(_ query: [String: Any]) -> OSStatus {
-        if let deleteItem = operationHooks?.deleteItem {
-            return deleteItem(query)
+        if let operationHooks {
+            return operationHooks.deleteItem(query)
         }
         return SecItemDelete(query as CFDictionary)
     }
