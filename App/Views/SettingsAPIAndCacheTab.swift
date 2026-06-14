@@ -8,12 +8,10 @@ import SwiftUI
 // MARK: - API & Cache Tab
 
 struct APIAndCacheTab: View {
-    private static let discogsService = "GenreUpdater-Discogs"
-    private static let discogsAccount = "pat"
-
     @Environment(AppDependencies.self) var dependencies
     @AppStorage("contactEmail") private var contactEmail = ""
     @State private var tokenInput = ""
+    @State var discogsHostInput = APIAuthConfig.defaultDiscogsBaseHost
     @State private var tokenStatus: TokenStatus = .unknown
     @State private var statusMessage = ""
     @State private var cacheStatistics: CacheStatistics?
@@ -22,8 +20,6 @@ struct APIAndCacheTab: View {
     @State var isSyncingLibrary = false
     @State var isUpdatingAutoSync = false
     @State var librarySyncStatus = ""
-
-    private let keychain = KeychainHelper()
 
     var body: some View {
         Form {
@@ -40,6 +36,7 @@ struct APIAndCacheTab: View {
         .padding()
         .task {
             loadTokenStatus()
+            loadDiscogsHostInput()
             loadCacheStatistics()
             await dependencies.refreshAutoSyncStatus()
         }
@@ -117,7 +114,7 @@ struct APIAndCacheTab: View {
 
             HStack(spacing: Spacing.sm) {
                 Button("Save Token") { saveToken() }
-                    .disabled(tokenInput.isEmpty)
+                    .disabled(isTokenSaveDisabled)
                 Button("Delete Token", role: .destructive) { deleteToken() }
                 Button("Test Token") { testToken() }
             }
@@ -129,6 +126,18 @@ struct APIAndCacheTab: View {
                     .foregroundStyle(.secondary)
                     .font(.caption)
             }
+
+            if let credentialIssue = dependencies.discogsCredentialIssue {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Ayu.warning)
+                    Text(credentialIssue.message)
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+            }
+
+            discogsHostEditor
         } header: {
             Text("Discogs API")
         }
@@ -238,9 +247,13 @@ struct APIAndCacheTab: View {
         dependencies.config.caching.librarySnapshot.enabled
     }
 
+    private var isTokenSaveDisabled: Bool {
+        tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func loadTokenStatus() {
         do {
-            if let existing = try keychain.retrieve(service: Self.discogsService, account: Self.discogsAccount),
+            if let existing = try DiscogsClient.retrieveSavedToken(),
                !existing.isEmpty {
                 tokenStatus = .saved
                 statusMessage = "Token saved (\(existing.prefix(4))...)"
@@ -256,10 +269,11 @@ struct APIAndCacheTab: View {
 
     private func saveToken() {
         do {
-            try keychain.save(token: tokenInput, service: Self.discogsService, account: Self.discogsAccount)
+            try DiscogsClient.saveToken(tokenInput)
             tokenInput = ""
             tokenStatus = .saved
             statusMessage = "Token saved successfully"
+            dependencies.applyRuntimeConfiguration()
         } catch {
             tokenStatus = .error
             statusMessage = "Save failed: \(error.localizedDescription)"
@@ -268,10 +282,11 @@ struct APIAndCacheTab: View {
 
     private func deleteToken() {
         do {
-            try keychain.delete(service: Self.discogsService, account: Self.discogsAccount)
+            try DiscogsClient.deleteSavedToken()
             tokenInput = ""
             tokenStatus = .missing
             statusMessage = "Token deleted"
+            dependencies.applyRuntimeConfiguration()
         } catch {
             tokenStatus = .error
             statusMessage = "Delete failed: \(error.localizedDescription)"
@@ -280,7 +295,7 @@ struct APIAndCacheTab: View {
 
     private func testToken() {
         do {
-            if let token = try keychain.retrieve(service: Self.discogsService, account: Self.discogsAccount),
+            if let token = try DiscogsClient.retrieveSavedToken(),
                !token.isEmpty {
                 tokenStatus = .saved
                 statusMessage = "Token is present (\(token.count) characters)"
@@ -315,7 +330,7 @@ struct APIAndCacheTab: View {
 
 // MARK: - Script API Priority Section
 
-private struct ScriptAPIPrioritySection: View {
+struct ScriptAPIPrioritySection: View {
     let dependencies: AppDependencies
 
     var body: some View {
@@ -373,16 +388,18 @@ private struct ScriptAPIPrioritySection: View {
         )
     }
 
-    private func updateScriptPriority(_ key: String, slot: ScriptPrioritySlot, api: PreferredAPI) {
+    func updateScriptPriority(_ key: String, slot: ScriptPrioritySlot, api: PreferredAPI) {
         var order = scriptPriorityOrder(for: key)
         order.removeAll { $0 == api }
         order.insert(api, at: min(slot.index, order.count))
 
-        dependencies.config.yearRetrieval.scriptAPIPriorities[key] = ScriptAPIPriority(
+        let newPriority = ScriptAPIPriority(
             primary: order.prefix(2).map { apiConfigurationValue(for: $0) },
             fallback: order.dropFirst(2).prefix(1).map { apiConfigurationValue(for: $0) }
         )
-        saveConfiguration(dependencies)
+        mutateConfiguration(dependencies) { configuration in
+            configuration.yearRetrieval.scriptAPIPriorities[key] = newPriority
+        }
     }
 
     private func scriptPriorityOrder(for key: String) -> [PreferredAPI] {
@@ -422,7 +439,7 @@ private struct ScriptAPIPrioritySection: View {
     }
 }
 
-private enum ScriptPrioritySlot {
+enum ScriptPrioritySlot {
     case first
     case second
     case fallback

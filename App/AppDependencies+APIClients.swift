@@ -1,16 +1,79 @@
 // AppDependencies+APIClients.swift — API client factory helpers
 
 import Core
+import Foundation
 import Services
+
+private let apiClientLog = AppLogger.make(category: "dependencies")
+
+enum DiscogsCredentialIssue: Equatable {
+    case keychain(KeychainError)
+    case other(String)
+
+    init(error: any Error) {
+        if let keychainError = error as? KeychainError {
+            self = .keychain(keychainError)
+        } else {
+            self = .other(error.localizedDescription)
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .keychain(.authenticationFailed):
+            "Keychain authentication was cancelled or failed. Discogs is running without the saved token."
+        case .keychain(.unprotectedItemRequiresResave):
+            "The saved Discogs token must be saved again to require local authentication."
+        case .keychain(.invalidTokenData):
+            "The saved Discogs token data is invalid. Delete it and save the token again."
+        case let .keychain(error):
+            "Failed to load the saved Discogs token: \(error.localizedDescription)"
+        case let .other(description):
+            "Failed to load the saved Discogs token: \(description)"
+        }
+    }
+}
 
 extension AppDependencies {
     static func makeAPIOrchestrator(
         configuration: AppConfiguration,
         cache: (any CacheService)?,
         pendingVerificationService: (any PendingVerificationService)?,
-        reachability: NetworkReachabilityMonitor?
+        reachability: NetworkReachabilityMonitor?,
+        keychainDiscogsClientFactory: (
+            _ contactEmail: String,
+            _ rateLimiter: TokenBucketRateLimiter?,
+            _ baseURL: URL
+        ) throws -> DiscogsClient = { contactEmail, rateLimiter, baseURL in
+            try DiscogsClient.fromKeychain(
+                contactEmail: contactEmail,
+                rateLimiter: rateLimiter,
+                baseURL: baseURL
+            )
+        },
+        configuredDiscogsClientFactory: (
+            _ token: String,
+            _ contactEmail: String,
+            _ rateLimiter: TokenBucketRateLimiter?,
+            _ baseURL: URL
+        ) -> DiscogsClient = { token, contactEmail, rateLimiter, baseURL in
+            DiscogsClient(
+                token: token,
+                contactEmail: contactEmail,
+                rateLimiter: rateLimiter,
+                baseURL: baseURL
+            )
+        },
+        keychainErrorHandler: (any Error) -> Void = { error in
+            apiClientLog
+                .error("Failed to load Discogs token from Keychain: \(error.localizedDescription, privacy: .public)")
+        },
+        discogsCredentialIssueHandler: (DiscogsCredentialIssue?) -> Void = { _ in
+            // Default factory use has no UI state to update; callers that own state inject a handler.
+        }
     ) -> APIOrchestrator {
         let apiAuth = configuration.yearRetrieval.apiAuth
+        let discogsBaseURL = apiAuth.discogsBaseURL
         let contactEmail = APIAuthReferenceResolver.resolve(
             apiAuth.contactEmailReference,
             fallbackUserDefaultsKey: "contactEmail"
@@ -22,19 +85,33 @@ extension AppDependencies {
         )
         let discogsRateLimiter = makeDiscogsRateLimiter(configuration: configuration)
         let configuredDiscogsToken = APIAuthReferenceResolver.resolve(apiAuth.discogsTokenReference)
-        let discogsClient = configuredDiscogsToken.isEmpty
-            ? ((try? DiscogsClient.fromKeychain(
-                contactEmail: contactEmail,
-                rateLimiter: discogsRateLimiter
-            )) ?? DiscogsClient(
-                contactEmail: contactEmail,
-                rateLimiter: discogsRateLimiter
-            ))
-            : DiscogsClient(
-                token: configuredDiscogsToken,
-                contactEmail: contactEmail,
-                rateLimiter: discogsRateLimiter
+        let discogsClient: DiscogsClient
+        if configuredDiscogsToken.isEmpty {
+            do {
+                discogsClient = try keychainDiscogsClientFactory(
+                    contactEmail,
+                    discogsRateLimiter,
+                    discogsBaseURL
+                )
+                discogsCredentialIssueHandler(nil)
+            } catch {
+                keychainErrorHandler(error)
+                discogsCredentialIssueHandler(DiscogsCredentialIssue(error: error))
+                discogsClient = DiscogsClient(
+                    contactEmail: contactEmail,
+                    rateLimiter: discogsRateLimiter,
+                    baseURL: discogsBaseURL
+                )
+            }
+        } else {
+            discogsCredentialIssueHandler(nil)
+            discogsClient = configuredDiscogsClientFactory(
+                configuredDiscogsToken,
+                contactEmail,
+                discogsRateLimiter,
+                discogsBaseURL
             )
+        }
 
         return APIOrchestrator(
             musicBrainz: musicBrainzClient,

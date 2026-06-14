@@ -110,7 +110,7 @@ struct DiscogsClientTests {
 
     @Test("buildMasterURL uses correct ID")
     func buildMasterURL() throws { // swiftlint:disable:this inclusive_language
-        let url = DiscogsClient.buildMasterURL(masterID: 5678) // swiftlint:disable:this inclusive_language
+        let url = DiscogsClient.buildMasterURL(releaseID: 5678) // swiftlint:disable:this inclusive_language
 
         #expect(url != nil)
 
@@ -134,6 +134,6 @@ struct DiscogsClientTests {
 
         let userAgent = request.value(forHTTPHeaderField: "User-Agent")
         #expect(userAgent != nil)
-        #expect(try #require(userAgent?.contains("GenreUpdater")))
+        #expect(userAgent?.contains("GenreUpdater") == true)
     }
 }

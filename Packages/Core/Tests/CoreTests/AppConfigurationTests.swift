@@ -28,6 +28,8 @@ struct AppConfigurationTests { // swiftlint:disable:this type_body_length
         #expect(config.applescript.retry.operationTimeoutSeconds == 60)
         #expect(config.yearRetrieval.preferredAPI == .musicbrainz)
         #expect(config.yearRetrieval.apiAuth.musicBrainzAppName == "MusicGenreUpdater/2.0")
+        #expect(config.yearRetrieval.apiAuth.discogsBaseHost == "api.discogs.com")
+        #expect(config.yearRetrieval.apiAuth.discogsBaseURL.host == "api.discogs.com")
         #expect(config.yearRetrieval.rateLimits.discogsRequestsPerMinute == 55)
         #expect(config.yearRetrieval.rateLimits.concurrentAPICalls == 2)
         #expect(config.yearRetrieval.logic.definitiveScoreThreshold == 50)
@@ -81,6 +83,7 @@ struct AppConfigurationTests { // swiftlint:disable:this type_body_length
         #expect(decoded.applescript.concurrency == original.applescript.concurrency)
         #expect(decoded.yearRetrieval.preferredAPI == original.yearRetrieval.preferredAPI)
         #expect(decoded.yearRetrieval.apiAuth.musicBrainzAppName == original.yearRetrieval.apiAuth.musicBrainzAppName)
+        #expect(decoded.yearRetrieval.apiAuth.discogsBaseHost == original.yearRetrieval.apiAuth.discogsBaseHost)
         #expect(decoded.genreUpdate.batchSize == original.genreUpdate.batchSize)
         #expect(decoded.caching.defaultTTLSeconds == original.caching.defaultTTLSeconds)
         #expect(decoded.caching.librarySnapshot.cacheFile == original.caching.librarySnapshot.cacheFile)
@@ -139,6 +142,7 @@ struct AppConfigurationTests { // swiftlint:disable:this type_body_length
         #expect(decoded.runtime.retryDelaySeconds == 1)
         #expect(decoded.yearRetrieval.preferredAPI == .discogs)
         #expect(decoded.yearRetrieval.apiAuth.discogsTokenReference == "${DISCOGS_TOKEN}")
+        #expect(decoded.yearRetrieval.apiAuth.discogsBaseHost == "api.discogs.com")
         #expect(decoded.yearRetrieval.reissueDetection.reissueKeywords.count == 3)
         #expect(decoded.caching.defaultTTLSeconds == 120)
         #expect(decoded.caching.cleanupErrorRetryDelay == 60)
@@ -182,6 +186,65 @@ struct AppConfigurationTests { // swiftlint:disable:this type_body_length
         #expect(config.yearRetrieval.itunesSearch.entity == "album")
         #expect(config.yearRetrieval.itunesSearch.limit == 150)
         #expect(config.yearRetrieval.itunesSearch.lookupFallbackEnabled == false)
+    }
+
+    @Test("Discogs API host decodes from configuration and rejects unsafe hosts")
+    func discogsAPIHostConfigurationDecodes() throws {
+        let json = """
+        {
+          "yearRetrieval": {
+            "apiAuth": {
+              "discogsBaseHost": "SANDBOX.DISCOGS.COM"
+            }
+          }
+        }
+        """
+
+        let config = try JSONDecoder().decode(AppConfiguration.self, from: Data(json.utf8))
+
+        #expect(config.yearRetrieval.apiAuth.discogsBaseHost == "sandbox.discogs.com")
+        #expect(config.yearRetrieval.apiAuth.discogsBaseURL.absoluteString == "https://sandbox.discogs.com")
+        #expect(APIAuthConfig.normalizedDiscogsBaseHost("https://api.discogs.com") == nil)
+        #expect(APIAuthConfig.normalizedDiscogsBaseHost("api.discogs.com/api") == nil)
+        #expect(APIAuthConfig.normalizedDiscogsBaseHost("api.discogs.com:443") == nil)
+        #expect(APIAuthConfig.normalizedDiscogsBaseHost("localhost") == nil)
+        #expect(APIAuthConfig.normalizedDiscogsBaseHost("localhost.localdomain") == nil)
+        #expect(APIAuthConfig.normalizedDiscogsBaseHost("music.local") == nil)
+        #expect(APIAuthConfig.normalizedDiscogsBaseHost("127.0.0.1") == nil)
+        #expect(APIAuthConfig.normalizedDiscogsBaseHost("10.1.2.3") == nil)
+        #expect(APIAuthConfig.normalizedDiscogsBaseHost("100.64.0.1") == nil)
+        #expect(APIAuthConfig.normalizedDiscogsBaseHost("172.16.0.1") == nil)
+        #expect(APIAuthConfig.normalizedDiscogsBaseHost("192.168.1.10") == nil)
+        #expect(APIAuthConfig.normalizedDiscogsBaseHost("discogs.example.test") == nil)
+
+        let pythonStyleJSON = """
+        {
+          "yearRetrieval": {
+            "apiAuth": {
+              "discogs_base_host": "mirror.discogs.com"
+            }
+          }
+        }
+        """
+        let pythonStyleConfig = try JSONDecoder().decode(AppConfiguration.self, from: Data(pythonStyleJSON.utf8))
+        #expect(pythonStyleConfig.yearRetrieval.apiAuth.discogsBaseHost == "mirror.discogs.com")
+    }
+
+    @Test("Discogs API host decoding fails instead of falling back to production default")
+    func discogsAPIHostDecodeRejectsInvalidExplicitConfiguration() {
+        let json = """
+        {
+          "yearRetrieval": {
+            "apiAuth": {
+              "discogsBaseHost": "https://proxy.example.test/path"
+            }
+          }
+        }
+        """
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(AppConfiguration.self, from: Data(json.utf8))
+        }
     }
 
     @Test("Decoding Python-style cache keys preserves snapshot settings")

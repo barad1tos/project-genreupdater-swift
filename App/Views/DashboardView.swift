@@ -30,6 +30,7 @@ struct DashboardView: View {
     let lastScanDate: Date?
     let isDryRun: Bool
     let workflowState: WorkflowDashboardState
+    let credentialIssue: DiscogsCredentialIssue?
     let onScanNow: () -> Void
     let onReviewChanges: () -> Void
 
@@ -39,6 +40,10 @@ struct DashboardView: View {
 
     private var showsDashboardContent: Bool {
         !viewModel.showShimmer
+    }
+
+    var credentialWarningMessage: String? {
+        credentialIssue?.message
     }
 
     private var isPrimaryActionDisabled: Bool {
@@ -150,6 +155,11 @@ struct DashboardView: View {
                 onScanNow: onScanNow,
                 onPrimaryAction: performPrimaryAction
             )
+
+            if let credentialWarningMessage {
+                DashboardCredentialWarning(message: credentialWarningMessage)
+                    .opacity(showStatus ? 1 : 0)
+            }
 
             DashboardHealthHero(
                 snapshot: snapshot,
@@ -345,6 +355,27 @@ private struct DashboardHeader: View {
         .tint(snapshot.primaryActionTint)
         .frame(minWidth: 150)
         .disabled(isPrimaryActionDisabled)
+    }
+}
+
+private struct DashboardCredentialWarning: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Spacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Ayu.warning)
+                .frame(width: 18)
+
+            Text(message)
+                .font(AppFont.caption)
+                .foregroundStyle(Ayu.fgSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .dashboardGlassSurface(cornerRadius: Radius.md)
     }
 }
 
@@ -1105,6 +1136,7 @@ struct DashboardTrackContentFingerprint: Equatable {
         lastScanDate: .now,
         isDryRun: true,
         workflowState: .empty,
+        credentialIssue: nil,
         onScanNow: {},
         onReviewChanges: {}
     )
@@ -1120,6 +1152,7 @@ struct DashboardTrackContentFingerprint: Equatable {
         lastScanDate: nil,
         isDryRun: true,
         workflowState: .empty,
+        credentialIssue: nil,
         onScanNow: {},
         onReviewChanges: {}
     )

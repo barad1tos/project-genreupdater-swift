@@ -34,8 +34,9 @@ struct CountryScoringSection: View {
                 Text(code.uppercased())
             }
             .onDelete { offsets in
-                dependencies.config.yearRetrieval.logic.majorMarketCodes.remove(atOffsets: offsets)
-                saveConfiguration(dependencies)
+                mutateConfiguration(dependencies) { configuration in
+                    configuration.yearRetrieval.logic.majorMarketCodes.remove(atOffsets: offsets)
+                }
             }
 
             HStack {
@@ -58,8 +59,10 @@ struct CountryScoringSection: View {
             newMajorMarketCode = ""
             return
         }
-        dependencies.config.yearRetrieval.logic.majorMarketCodes.append(code)
-        newMajorMarketCode = ""
-        saveConfiguration(dependencies)
+        if mutateConfiguration(dependencies, { configuration in
+            configuration.yearRetrieval.logic.majorMarketCodes.append(code)
+        }) {
+            newMajorMarketCode = ""
+        }
     }
 }

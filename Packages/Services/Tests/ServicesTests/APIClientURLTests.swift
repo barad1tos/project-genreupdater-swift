@@ -247,9 +247,22 @@ struct DiscogsURLTests {
         #expect(perPageParam?.value == "5")
     }
 
+    @Test("buildSearchURL uses custom base URL")
+    func searchURLUsesCustomBaseURL() throws {
+        let baseURL = try #require(URL(string: "https://sandbox.discogs.com/api"))
+        let url = try #require(DiscogsClient.buildSearchURL(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            baseURL: baseURL
+        ))
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        #expect(components.host == "sandbox.discogs.com")
+        #expect(components.path == "/api/database/search")
+    }
+
     @Test("buildMasterURL produces valid URL with master ID")
     func canonicalReleaseURL() throws {
-        let url = try #require(DiscogsClient.buildMasterURL(masterID: 12345))
+        let url = try #require(DiscogsClient.buildMasterURL(releaseID: 12345))
         #expect(url.absoluteString == "https://api.discogs.com/masters/12345")
     }
 
