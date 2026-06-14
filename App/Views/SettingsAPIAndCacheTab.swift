@@ -335,7 +335,7 @@ struct APIAndCacheTab: View {
 
 // MARK: - Script API Priority Section
 
-private struct ScriptAPIPrioritySection: View {
+struct ScriptAPIPrioritySection: View {
     let dependencies: AppDependencies
 
     var body: some View {
@@ -393,7 +393,8 @@ private struct ScriptAPIPrioritySection: View {
         )
     }
 
-    private func updateScriptPriority(_ key: String, slot: ScriptPrioritySlot, api: PreferredAPI) {
+    func updateScriptPriority(_ key: String, slot: ScriptPrioritySlot, api: PreferredAPI) {
+        let previousPriority = dependencies.config.yearRetrieval.scriptAPIPriorities[key]
         var order = scriptPriorityOrder(for: key)
         order.removeAll { $0 == api }
         order.insert(api, at: min(slot.index, order.count))
@@ -402,7 +403,9 @@ private struct ScriptAPIPrioritySection: View {
             primary: order.prefix(2).map { apiConfigurationValue(for: $0) },
             fallback: order.dropFirst(2).prefix(1).map { apiConfigurationValue(for: $0) }
         )
-        saveConfiguration(dependencies)
+        if !saveConfiguration(dependencies) {
+            dependencies.config.yearRetrieval.scriptAPIPriorities[key] = previousPriority
+        }
     }
 
     private func scriptPriorityOrder(for key: String) -> [PreferredAPI] {
@@ -442,7 +445,7 @@ private struct ScriptAPIPrioritySection: View {
     }
 }
 
-private enum ScriptPrioritySlot {
+enum ScriptPrioritySlot {
     case first
     case second
     case fallback

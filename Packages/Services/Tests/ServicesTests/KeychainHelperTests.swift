@@ -126,26 +126,22 @@ struct KeychainHelperTests {
         #expect(keychain.addQueries.allSatisfy { $0[kSecAttrAccessControl as String] != nil })
     }
 
-    @Test("Save propagates delete failures before adding a replacement token")
-    func savePropagatesDeleteFailuresBeforeAddingReplacementToken() throws {
-        var addWasCalled = false
-        var deleteStatuses: [OSStatus] = [errSecSuccess, errSecAuthFailed]
-        let hooks = KeychainOperationHooks(
-            addItem: { _ in
-                addWasCalled = true
-                return errSecSuccess
-            },
-            copyMatching: { _, _ in errSecItemNotFound },
-            deleteItem: { _ in
-                deleteStatuses.removeFirst()
-            }
+    @Test("Save replacement failure preserves existing token")
+    func saveReplacementFailurePreservesExistingToken() throws {
+        let keychain = InMemoryKeychainOperations()
+        keychain.seed(
+            token: "existing-token",
+            service: testService,
+            account: testAccount,
+            isAccessControlled: true
         )
-        let helper = KeychainHelper(operationHooks: hooks)
+        keychain.updateStatus = errSecAuthFailed
+        let helper = KeychainHelper(operationHooks: keychain.hooks)
 
         #expect(throws: KeychainError.authenticationFailed(errSecAuthFailed)) {
             try helper.save(token: "replacement-token", service: testService, account: testAccount)
         }
-        #expect(addWasCalled == false)
+        #expect(try helper.retrieve(service: testService, account: testAccount) == "existing-token")
     }
 
     @Test("Delete maps authentication failures to authentication errors")
@@ -227,6 +223,23 @@ struct KeychainHelperTests {
         #expect(try helper.retrieve(service: testService, account: testAccount) == "legacy-token")
     }
 
+    @Test("Retrieve maps authentication failures to authentication errors", arguments: [
+        errSecUserCanceled,
+        errSecInteractionNotAllowed,
+    ])
+    func retrieveMapsAuthenticationFailuresToAuthenticationErrors(status: OSStatus) throws {
+        let hooks = KeychainOperationHooks(
+            addItem: { _ in errSecSuccess },
+            copyMatching: { _, _ in status },
+            deleteItem: { _ in errSecItemNotFound }
+        )
+        let helper = KeychainHelper(operationHooks: hooks)
+
+        #expect(throws: KeychainError.authenticationFailed(status)) {
+            try helper.retrieve(service: testService, account: testAccount)
+        }
+    }
+
     @Test("Protected retrieve query uses an authentication context")
     func protectedRetrieveQueryUsesAuthenticationContext() {
         let helper = KeychainHelper()
@@ -288,13 +301,16 @@ private final class InMemoryKeychainOperations {
     }
 
     var addQueries: [[String: Any]] = []
+    var updateQueries: [(query: [String: Any], attributes: [String: Any])] = []
+    var updateStatus: OSStatus = errSecSuccess
     private var items: [String: Item] = [:]
 
     var hooks: KeychainOperationHooks {
         KeychainOperationHooks(
             addItem: addItem,
             copyMatching: copyMatching,
-            deleteItem: deleteItem
+            deleteItem: deleteItem,
+            updateItem: updateItem
         )
     }
 
@@ -332,7 +348,12 @@ private final class InMemoryKeychainOperations {
             return errSecParam
         }
 
-        items[key(service: service, account: account)] = Item(
+        let itemKey = key(service: service, account: account)
+        guard items[itemKey] == nil else {
+            return errSecDuplicateItem
+        }
+
+        items[itemKey] = Item(
             data: data,
             isAccessControlled: query[kSecAttrAccessControl as String] != nil
         )
@@ -368,6 +389,29 @@ private final class InMemoryKeychainOperations {
         return items.removeValue(forKey: key(service: service, account: account)) == nil
             ? errSecItemNotFound
             : errSecSuccess
+    }
+
+    private func updateItem(_ query: [String: Any], attributes: [String: Any]) -> OSStatus {
+        updateQueries.append((query, attributes))
+        guard updateStatus == errSecSuccess else {
+            return updateStatus
+        }
+        guard let service = query[kSecAttrService as String] as? String,
+              let account = query[kSecAttrAccount as String] as? String,
+              let data = attributes[kSecValueData as String] as? Data else {
+            return errSecParam
+        }
+
+        let itemKey = key(service: service, account: account)
+        guard let existingItem = items[itemKey] else {
+            return errSecItemNotFound
+        }
+
+        items[itemKey] = Item(
+            data: data,
+            isAccessControlled: attributes[kSecAttrAccessControl as String] != nil || existingItem.isAccessControlled
+        )
+        return errSecSuccess
     }
 
     private func key(service: String, account: String) -> String {

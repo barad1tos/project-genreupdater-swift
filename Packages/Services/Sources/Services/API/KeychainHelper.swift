@@ -30,19 +30,23 @@ final class KeychainOperationHooks: @unchecked Sendable {
     typealias AddItem = ([String: Any]) -> OSStatus
     typealias CopyMatching = ([String: Any], inout AnyObject?) -> OSStatus
     typealias DeleteItem = ([String: Any]) -> OSStatus
+    typealias UpdateItem = ([String: Any], [String: Any]) -> OSStatus
 
     let addItem: AddItem
     let copyMatching: CopyMatching
     let deleteItem: DeleteItem
+    let updateItem: UpdateItem
 
     init(
         addItem: @escaping AddItem,
         copyMatching: @escaping CopyMatching,
-        deleteItem: @escaping DeleteItem
+        deleteItem: @escaping DeleteItem,
+        updateItem: @escaping UpdateItem = { _, _ in errSecUnimplemented }
     ) {
         self.addItem = addItem
         self.copyMatching = copyMatching
         self.deleteItem = deleteItem
+        self.updateItem = updateItem
     }
 }
 
@@ -88,8 +92,8 @@ public struct KeychainHelper: Sendable {
     /// Stored tokens require the configured local authentication policy before
     /// future reads can return token data.
     ///
-    /// Uses an upsert pattern: deletes the existing item first, then adds.
-    /// This avoids `errSecDuplicateItem` when updating an existing token.
+    /// Uses an add-then-update upsert pattern so a failed replacement does not
+    /// delete an existing valid token.
     ///
     /// - Parameters:
     ///   - token: The token string to store.
@@ -97,8 +101,7 @@ public struct KeychainHelper: Sendable {
     ///   - account: The Keychain account identifier (e.g., `"personal-access-token"`).
     /// - Throws: `KeychainError.accessControlCreationFailed` if the local-authentication policy
     ///   cannot be created, `KeychainError.authenticationFailed` for local-authentication failures,
-    ///   `KeychainError.deleteFailed` if replacing an existing item fails, or
-    ///   `KeychainError.saveFailed` if the Security framework returns another error while adding.
+    ///   `KeychainError.saveFailed` if the Security framework returns another error while adding or updating.
     public func save(
         token: String,
         service: String,
@@ -112,9 +115,6 @@ public struct KeychainHelper: Sendable {
         let data = Data(trimmedToken.utf8)
         let accessControl = try makeTokenAccessControl()
 
-        // Delete existing item first (upsert pattern)
-        try delete(service: service, account: account)
-
         // Keep access control in the SecItemAdd query literal so static analyzers
         // can verify that stored API tokens require local authentication.
         let protectedQuery: [String: Any] = [
@@ -126,12 +126,18 @@ public struct KeychainHelper: Sendable {
             kSecAttrAccessControl as String: accessControl,
         ]
 
-        let status: OSStatus
-        if let operationHooks {
-            status = operationHooks.addItem(protectedQuery)
-        } else {
-            let protectedStatus = SecItemAdd(protectedQuery as CFDictionary, nil)
-            status = protectedStatus
+        let status = addItem(protectedQuery)
+        if status == errSecSuccess {
+            return
+        }
+
+        if status == errSecDuplicateItem {
+            try updateToken(
+                matching: protectedSaveQuery(service: service, account: account),
+                data: data,
+                accessControl: accessControl
+            )
+            return
         }
 
         if Self.shouldUseLegacyKeychainFallback(status) {
@@ -142,22 +148,22 @@ public struct KeychainHelper: Sendable {
                 kSecValueData as String: data,
                 kSecAttrAccessControl as String: accessControl,
             ]
-            let fallbackStatus: OSStatus
-            if let operationHooks {
-                fallbackStatus = operationHooks.addItem(fallbackQuery)
-            } else {
-                let legacyStatus = SecItemAdd(fallbackQuery as CFDictionary, nil)
-                fallbackStatus = legacyStatus
+            let fallbackStatus = addItem(fallbackQuery)
+            if fallbackStatus == errSecSuccess {
+                return
             }
-            guard fallbackStatus == errSecSuccess else {
-                throw Self.error(for: .save, status: fallbackStatus)
+            if fallbackStatus == errSecDuplicateItem {
+                try updateToken(
+                    matching: legacyQuery(service: service, account: account),
+                    data: data,
+                    accessControl: accessControl
+                )
+                return
             }
-            return
+            throw Self.error(for: .save, status: fallbackStatus)
         }
 
-        guard status == errSecSuccess else {
-            throw Self.error(for: .save, status: status)
-        }
+        throw Self.error(for: .save, status: status)
     }
 
     /// Retrieves a token from the Keychain.
@@ -278,6 +284,16 @@ public struct KeychainHelper: Sendable {
         status == errSecNotAvailable || status == errSecMissingEntitlement
     }
 
+    private func protectedSaveQuery(service: String, account: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecUseDataProtectionKeychain as String: true,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecUseAuthenticationContext as String: makeAuthenticationContext(),
+        ]
+    }
+
     func makeProtectedRetrieveQuery(
         service: String,
         account: String,
@@ -368,6 +384,32 @@ public struct KeychainHelper: Sendable {
             return operationHooks.deleteItem(query)
         }
         return SecItemDelete(query as CFDictionary)
+    }
+
+    private func addItem(_ query: [String: Any]) -> OSStatus {
+        if let operationHooks {
+            return operationHooks.addItem(query)
+        }
+        return SecItemAdd(query as CFDictionary, nil)
+    }
+
+    private func updateToken(
+        matching query: [String: Any],
+        data: Data,
+        accessControl: SecAccessControl
+    ) throws {
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessControl as String: accessControl,
+        ]
+        let status: OSStatus = if let operationHooks {
+            operationHooks.updateItem(query, attributes)
+        } else {
+            SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        }
+        guard status == errSecSuccess else {
+            throw Self.error(for: .save, status: status)
+        }
     }
 
     private static func error(for operation: KeychainOperation, status: OSStatus) -> KeychainError {

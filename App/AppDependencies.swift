@@ -20,6 +20,7 @@ import SwiftData
 import SwiftUI
 
 private let log = AppLogger.make(category: "dependencies")
+private let configurationSaveErrorPrefix = "Failed to save configuration:"
 
 private enum AppDependencyInitializationError: LocalizedError {
     case missingModelContainer
@@ -254,13 +255,22 @@ final class AppDependencies {
         do {
             try configurationSaver(config)
             applyRuntimeConfiguration()
+            clearConfigurationSaveIssue()
             return true
         } catch {
-            let message = "Failed to save configuration: \(error.localizedDescription)"
+            let message = "\(configurationSaveErrorPrefix) \(error.localizedDescription)"
             log.error("\(message, privacy: .public)")
             appState = .error(message)
             return false
         }
+    }
+
+    private func clearConfigurationSaveIssue() {
+        guard case let .error(message) = appState,
+              message.hasPrefix(configurationSaveErrorPrefix) else {
+            return
+        }
+        appState = .ready
     }
 
     // MARK: - Initialization Helpers

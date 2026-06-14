@@ -18,8 +18,12 @@ struct DashboardCredentialWarningTests {
             isDryRun: true,
             workflowState: .empty,
             credentialIssue: .keychain(.invalidTokenData),
-            onScanNow: {},
-            onReviewChanges: {}
+            onScanNow: {
+                // View-only assertion does not exercise dashboard actions.
+            },
+            onReviewChanges: {
+                // View-only assertion does not exercise dashboard actions.
+            }
         )
 
         #expect(view.credentialWarningMessage?.contains("invalid") == true)

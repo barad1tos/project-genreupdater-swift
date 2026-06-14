@@ -10,7 +10,9 @@ struct AppDependenciesConfigurationTests {
     func configurationLoadFailureSurfacesAppError() async {
         let dependencies = AppDependencies(
             configurationLoader: { throw StubConfigurationError.loadFailed },
-            configurationSaver: { _ in }
+            configurationSaver: { _ in
+                // Load-failure setup must never try to persist configuration.
+            }
         )
 
         #expect(dependencies.configurationLoadIssue?.contains("test configuration load failed") == true)
@@ -35,6 +37,51 @@ struct AppDependenciesConfigurationTests {
         #expect(isAppError(dependencies.appState, containing: "test configuration save failed"))
         #expect(dependencies.apiOrchestrator == nil)
     }
+
+    @Test("Successful configuration save clears transient save error")
+    func successfulConfigurationSaveClearsTransientSaveError() {
+        var shouldFailSave = true
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                if shouldFailSave {
+                    throw StubConfigurationError.saveFailed
+                }
+            }
+        )
+
+        #expect(saveConfiguration(dependencies) == false)
+        #expect(isAppError(dependencies.appState, containing: "test configuration save failed"))
+
+        shouldFailSave = false
+
+        #expect(saveConfiguration(dependencies))
+        #expect(isAppReady(dependencies.appState))
+    }
+
+    @Test("Script API priority save failure rolls back in-memory config")
+    func scriptAPIPrioritySaveFailureRollsBackInMemoryConfig() {
+        let originalPriority = ScriptAPIPriority(
+            primary: ["musicbrainz", "discogs"],
+            fallback: ["itunes"]
+        )
+        let dependencies = AppDependencies(
+            configurationLoader: {
+                var configuration = AppConfiguration()
+                configuration.yearRetrieval.scriptAPIPriorities["default"] = originalPriority
+                return configuration
+            },
+            configurationSaver: { _ in throw StubConfigurationError.saveFailed }
+        )
+        let section = ScriptAPIPrioritySection(dependencies: dependencies)
+
+        section.updateScriptPriority("default", slot: .first, api: .itunes)
+
+        let storedPriority = dependencies.config.yearRetrieval.scriptAPIPriorities["default"]
+        #expect(storedPriority?.primary == originalPriority.primary)
+        #expect(storedPriority?.fallback == originalPriority.fallback)
+        #expect(isAppError(dependencies.appState, containing: "test configuration save failed"))
+    }
 }
 
 private enum StubConfigurationError: LocalizedError {
@@ -56,4 +103,11 @@ private func isAppError(_ state: AppState, containing expectedMessage: String) -
         return false
     }
     return message.contains(expectedMessage)
+}
+
+private func isAppReady(_ state: AppState) -> Bool {
+    guard case .ready = state else {
+        return false
+    }
+    return true
 }
