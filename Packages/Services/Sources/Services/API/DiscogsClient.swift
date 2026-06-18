@@ -33,6 +33,10 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     private let baseURL: URL
     private let log = AppLogger.api
 
+    public var isConfigured: Bool {
+        token?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
     /// Creates a Discogs client with an explicit token.
     ///
     /// Use this initializer for testing or when the token is already available.

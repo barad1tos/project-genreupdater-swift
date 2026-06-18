@@ -10,12 +10,17 @@ import SwiftUI
 struct UpdateConfigSection: View {
     @Bindable var viewModel: WorkflowViewModel
     let tracks: [Track]
+    let testArtists: [String]
+    let credentialIssue: DiscogsCredentialIssue?
 
     var body: some View {
         ScrollView {
             VStack(spacing: Spacing.xl) {
                 modeSelector
                 scopePreviewCard
+                if let credentialWarningMessage {
+                    credentialWarningCard(credentialWarningMessage)
+                }
                 maintenanceStatusCard
                 if viewModel.mode == .releaseYearRestore {
                     releaseYearRestoreSection
@@ -36,6 +41,13 @@ struct UpdateConfigSection: View {
         }
     }
 
+    var credentialWarningMessage: String? {
+        guard let credentialIssue else { return nil }
+        return "\(credentialIssue.message) Year lookup may be slower and less complete until this is fixed."
+    }
+}
+
+extension UpdateConfigSection {
     // MARK: - Mode Selector
 
     private var modeSelector: some View {
@@ -74,49 +86,139 @@ struct UpdateConfigSection: View {
     // MARK: - Scope Preview
 
     private var scopePreviewCard: some View {
-        HStack(spacing: Spacing.lg) {
-            scopeMetric(
-                value: viewModel.scopeTrackCount.formatted(),
-                label: "tracks"
-            )
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            HStack(spacing: Spacing.sm) {
+                scopeChip(scopeTitle, systemImage: viewModel.mode.icon, tint: Ayu.accent)
 
-            Divider()
-                .frame(height: 32)
+                if isTestArtistScopeActive {
+                    scopeChip(
+                        testArtistScopeTitle,
+                        systemImage: "person.crop.circle.badge.checkmark",
+                        tint: Ayu.warning
+                    )
+                }
 
-            scopeMetric(
-                value: viewModel.scopeArtistCount.formatted(),
-                label: "artists"
-            )
-
-            if viewModel.mode == .fullLibrary, let lastDate = mostRecentDateAdded {
-                Divider()
-                    .frame(height: 32)
-                scopeMetric(
-                    value: lastDate.formatted(.relative(presentation: .named)),
-                    label: "last scan"
-                )
+                Spacer(minLength: Spacing.md)
             }
 
-            if viewModel.mode == .pendingVerification {
+            HStack(spacing: Spacing.lg) {
+                scopeMetric(
+                    value: viewModel.scopeTrackCount.formatted(),
+                    label: "effective tracks"
+                )
+
                 Divider()
                     .frame(height: 32)
+
                 scopeMetric(
-                    value: viewModel.pendingDueAlbumCount.formatted(),
-                    label: "due"
+                    value: viewModel.scopeArtistCount.formatted(),
+                    label: "effective artists"
                 )
-                if viewModel.pendingSkippedAlbumCount > 0 {
+
+                if viewModel.mode == .fullLibrary, let lastDate = mostRecentDateAdded {
                     Divider()
                         .frame(height: 32)
                     scopeMetric(
-                        value: viewModel.pendingSkippedAlbumCount.formatted(),
-                        label: "waiting"
+                        value: lastDate.formatted(.relative(presentation: .named)),
+                        label: "last scan"
                     )
                 }
+
+                if viewModel.mode == .pendingVerification {
+                    Divider()
+                        .frame(height: 32)
+                    scopeMetric(
+                        value: viewModel.pendingDueAlbumCount.formatted(),
+                        label: "due"
+                    )
+                    if viewModel.pendingSkippedAlbumCount > 0 {
+                        Divider()
+                            .frame(height: 32)
+                        scopeMetric(
+                            value: viewModel.pendingSkippedAlbumCount.formatted(),
+                            label: "waiting"
+                        )
+                    }
+                }
+            }
+
+            if isTestArtistScopeActive {
+                Text("Full Library and selected updates are limited to configured test artists.")
+                    .font(AppFont.caption)
+                    .foregroundStyle(Ayu.fgSecondary)
             }
         }
         .frame(maxWidth: .infinity)
         .padding(Spacing.md)
         .background(Ayu.bgSecondary, in: .rect(cornerRadius: Radius.sm))
+    }
+
+    private func credentialWarningCard(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: Spacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Ayu.warning)
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                Text("API provider needs attention")
+                    .font(AppFont.subheadline)
+                    .foregroundStyle(Ayu.fgPrimary)
+                Text(message)
+                    .font(AppFont.caption)
+                    .foregroundStyle(Ayu.fgSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: Spacing.md)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Spacing.md)
+        .background(Ayu.warning.opacity(0.12), in: .rect(cornerRadius: Radius.sm))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.sm)
+                .stroke(Ayu.warning.opacity(0.35), lineWidth: 1)
+        )
+    }
+
+    private var scopeTitle: String {
+        switch viewModel.mode {
+        case .fullLibrary:
+            "Full Library - effective scope"
+        case .selectedTracks:
+            "Selected Tracks"
+        case .smartFilter:
+            "Smart Filter - \(viewModel.smartFilterType.rawValue)"
+        case .pendingVerification:
+            "Pending Verification"
+        case .releaseYearRestore:
+            "Restore Years"
+        }
+    }
+
+    private var isTestArtistScopeActive: Bool {
+        !normalizedTestArtists.isEmpty
+    }
+
+    private var normalizedTestArtists: [String] {
+        ArtistAllowList.normalized(testArtists)
+    }
+
+    private var testArtistScopeTitle: String {
+        if normalizedTestArtists.count == 1, let artist = normalizedTestArtists.first {
+            return "Test Artist: \(artist)"
+        }
+        return "Test Artists: \(normalizedTestArtists.count)"
+    }
+
+    private func scopeChip(
+        _ title: String,
+        systemImage: String,
+        tint: Color
+    ) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(AppFont.caption)
+            .foregroundStyle(tint)
+            .lineLimit(1)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xxs)
+            .background(tint.opacity(0.12), in: .capsule)
     }
 
     private func scopeMetric(value: String, label: String) -> some View {

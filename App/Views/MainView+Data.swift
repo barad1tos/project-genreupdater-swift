@@ -121,11 +121,15 @@ extension MainView {
             if !forceRefresh, let cachedTracks = await dependencies.loadLibrarySnapshot() {
                 try Task.checkCancellation()
                 guard libraryLoadRequestID == requestID else { return }
-                tracks = cachedTracks
-                browseViewModel.tracks = cachedTracks
-                reconcileUpdateScope(with: cachedTracks)
-                hasCachedTracks = !cachedTracks.isEmpty
-                await recordLibraryLoad(source: "snapshot", count: cachedTracks.count, startedAt: loadStart)
+                let scopedCachedTracks = UpdateTrackScopeResolver.filteredByTestArtists(
+                    cachedTracks,
+                    testArtists: dependencies.config.development.testArtists
+                )
+                tracks = scopedCachedTracks
+                browseViewModel.tracks = scopedCachedTracks
+                reconcileUpdateScope(with: scopedCachedTracks)
+                hasCachedTracks = !scopedCachedTracks.isEmpty
+                await recordLibraryLoad(source: "snapshot", count: scopedCachedTracks.count, startedAt: loadStart)
             }
 
             try Task.checkCancellation()
@@ -163,22 +167,26 @@ extension MainView {
         else { return }
 
         workflowViewModel = WorkflowViewModel(
-            updateCoordinator: coordinator,
-            batchProcessor: processor,
-            changePreviewPipeline: pipeline,
-            pendingVerificationService: dependencies.pendingVerificationService,
-            featureGate: dependencies.featureGate,
-            recordProcessedTracks: { count in
-                dependencies.subscriptionService?.incrementFreeTracksUsed(by: count)
-            },
-            runMaintenancePreflight: {
-                await dependencies.runMaintenancePreflight()
-            },
-            defaultUpdateGenre: configuredUpdateSelection.updateGenre,
-            defaultUpdateYear: configuredUpdateSelection.updateYear,
-            defaultPreviewOnly: configuredPreviewOnly,
-            defaultMinConfidence: configuredMinConfidence,
-            defaultReleaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
+            dependencies: WorkflowViewModel.Dependencies(
+                updateCoordinator: coordinator,
+                batchProcessor: processor,
+                changePreviewPipeline: pipeline,
+                pendingVerificationService: dependencies.pendingVerificationService,
+                featureGate: dependencies.featureGate,
+                recordProcessedTracks: { count in
+                    dependencies.subscriptionService?.incrementFreeTracksUsed(by: count)
+                },
+                runMaintenancePreflight: {
+                    await dependencies.runMaintenancePreflight()
+                }
+            ),
+            defaults: WorkflowViewModel.Defaults(
+                updateGenre: configuredUpdateSelection.updateGenre,
+                updateYear: configuredUpdateSelection.updateYear,
+                previewOnly: configuredPreviewOnly,
+                minConfidence: configuredMinConfidence,
+                releaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
+            )
         )
         applyPendingSelectedUpdateScopeIfNeeded()
     }
@@ -224,7 +232,13 @@ extension MainView {
         updateScopeTracks = nil
         pendingSelectedUpdateScopeConfiguration = nil
         applyWorkflowDefaults()
-        workflowViewModel?.configureFullLibraryScope(tracks: tracks)
+        let scopedLibraryTracks = UpdateTrackScopeResolver.tracksForWorkflow(
+            libraryTracks: tracks,
+            selectedScopeTracks: nil,
+            mode: .fullLibrary,
+            testArtists: dependencies.config.development.testArtists
+        )
+        workflowViewModel?.configureFullLibraryScope(tracks: scopedLibraryTracks)
         workflowNoticeMessage = nil
         selectedCategory = .update
     }
@@ -267,14 +281,16 @@ extension MainView {
         return UpdateTrackScopeResolver.tracksForWorkflow(
             libraryTracks: tracks,
             selectedScopeTracks: updateScopeTracks,
-            mode: workflowViewModel.mode
+            mode: workflowViewModel.mode,
+            testArtists: dependencies.config.development.testArtists
         )
     }
 
     func reconcileUpdateScope(with loadedTracks: [Track]) {
         updateScopeTracks = UpdateTrackScopeResolver.reconciledSelectedScope(
             currentScopeTracks: updateScopeTracks,
-            libraryTracks: loadedTracks
+            libraryTracks: loadedTracks,
+            testArtists: dependencies.config.development.testArtists
         )
 
         if workflowViewModel?.mode == .selectedTracks {
@@ -316,9 +332,15 @@ extension MainView {
         _ configuration: SelectedUpdateScopeConfiguration,
         to workflowViewModel: WorkflowViewModel
     ) {
-        updateScopeTracks = configuration.tracks
+        let scopedTracks = UpdateTrackScopeResolver.tracksForWorkflow(
+            libraryTracks: tracks,
+            selectedScopeTracks: configuration.tracks,
+            mode: .selectedTracks,
+            testArtists: dependencies.config.development.testArtists
+        )
+        updateScopeTracks = scopedTracks
         workflowViewModel.configureSelectedTracksScope(
-            tracks: configuration.tracks,
+            tracks: scopedTracks,
             updateGenre: configuration.updateGenre,
             updateYear: configuration.updateYear,
             previewOnly: configuration.previewOnly

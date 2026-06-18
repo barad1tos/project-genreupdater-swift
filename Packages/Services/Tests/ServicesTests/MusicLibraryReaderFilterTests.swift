@@ -95,4 +95,37 @@ struct MusicLibraryReaderFilterTests {
         )
         #expect(result.isEmpty)
     }
+
+    @Test("Test artists create artist-scoped fetch targets")
+    func artistsCreateArtistScopedFetchTargets() {
+        let targets = MusicLibraryReader.fetchTargets(
+            requestedArtist: nil,
+            testArtists: [" In Flames ", "Metallica", "in flames"],
+            ignoreTestFilter: false
+        )
+
+        #expect(targets == ["In Flames", "Metallica"])
+    }
+
+    @Test("Empty test artists keep full-library fetch target")
+    func emptyTestArtistsKeepFullLibraryFetchTarget() {
+        let targets = MusicLibraryReader.fetchTargets(
+            requestedArtist: nil,
+            testArtists: [],
+            ignoreTestFilter: false
+        )
+
+        #expect(targets == [nil])
+    }
+
+    @Test("Explicit artist fetch is preserved when test filtering is ignored")
+    func explicitArtistFetchIsPreservedWhenTestFilteringIsIgnored() {
+        let targets = MusicLibraryReader.fetchTargets(
+            requestedArtist: "Massive Attack",
+            testArtists: ["In Flames"],
+            ignoreTestFilter: true
+        )
+
+        #expect(targets == ["Massive Attack"])
+    }
 }

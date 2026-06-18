@@ -12,9 +12,10 @@ func makeWorkflowViewModel() -> WorkflowViewModel {
 @MainActor
 func makeWorkflowFixture(
     apiService: DashboardStateAPIService = DashboardStateAPIService(),
-    tier: Tier = .pro
+    tier: Tier = .pro,
+    failingWriteTrackIDs: Set<String> = []
 ) -> WorkflowFixture {
-    let scriptClient = DashboardStateScriptClient()
+    let scriptClient = DashboardStateScriptClient(failingTrackIDs: failingWriteTrackIDs)
     let trackStore = DashboardStateTrackStore()
     let cache = DashboardStateCacheService()
     let apiOrchestrator = APIOrchestrator(
@@ -25,11 +26,13 @@ func makeWorkflowFixture(
     )
     let undoCoordinator = UndoCoordinator(scriptBridge: scriptClient, directory: temporaryDirectory())
     let updateCoordinator = UpdateCoordinator(
-        apiOrchestrator: apiOrchestrator,
-        scriptBridge: scriptClient,
-        trackStore: trackStore,
-        cache: cache,
-        undoCoordinator: undoCoordinator,
+        dependencies: UpdateCoordinatorDependencies(
+            apiOrchestrator: apiOrchestrator,
+            scriptBridge: scriptClient,
+            trackStore: trackStore,
+            cache: cache,
+            undoCoordinator: undoCoordinator
+        ),
         genreDeterminator: GenreDeterminator()
     )
     let featureGate = FeatureGate(fixedTier: tier)
@@ -39,10 +42,12 @@ func makeWorkflowFixture(
     )
 
     let viewModel = WorkflowViewModel(
-        updateCoordinator: updateCoordinator,
-        batchProcessor: batchProcessor,
-        changePreviewPipeline: ChangePreviewPipeline(),
-        featureGate: featureGate
+        dependencies: WorkflowViewModel.Dependencies(
+            updateCoordinator: updateCoordinator,
+            batchProcessor: batchProcessor,
+            changePreviewPipeline: ChangePreviewPipeline(),
+            featureGate: featureGate
+        )
     )
 
     return WorkflowFixture(viewModel: viewModel, scriptClient: scriptClient)
@@ -134,7 +139,12 @@ struct DashboardStateAPIService: ExternalAPIService {
 }
 
 actor DashboardStateScriptClient: AppleScriptClient {
+    private let failingTrackIDs: Set<String>
     private var writes: [(trackID: String, property: String, value: String)] = []
+
+    init(failingTrackIDs: Set<String> = []) {
+        self.failingTrackIDs = failingTrackIDs
+    }
 
     func initialize() async throws {
         // Test double has no external resources to initialize.
@@ -161,11 +171,22 @@ actor DashboardStateScriptClient: AppleScriptClient {
     }
 
     func updateTrackProperty(trackID: String, property: String, value: String) async throws {
+        if failingTrackIDs.contains(trackID) {
+            throw DashboardStateScriptWriteError(trackID: trackID)
+        }
         writes.append((trackID: trackID, property: property, value: value))
     }
 
     func updatedProperties() -> [(trackID: String, property: String, value: String)] {
         writes
+    }
+}
+
+private struct DashboardStateScriptWriteError: LocalizedError {
+    let trackID: String
+
+    var errorDescription: String? {
+        "script write failed for \(trackID)"
     }
 }
 

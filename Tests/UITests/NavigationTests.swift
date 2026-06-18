@@ -101,6 +101,46 @@ final class NavigationTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testSettingsFooterOpensSettingsWindow() throws {
+        try waitForMainView()
+        let app = launchedApp()
+        let mainWindow = app.windows.firstMatch
+        let settingsButton = mainWindow.buttons["Settings"]
+
+        XCTAssertTrue(
+            settingsButton.waitForExistence(timeout: 3),
+            "Settings footer should be exposed as a clickable button"
+        )
+
+        settingsButton.click()
+
+        XCTAssertTrue(
+            app.buttons["API & Cache"].waitForExistence(timeout: 15),
+            "Settings footer should open the Settings window"
+        )
+    }
+
+    @MainActor
+    func testSettingsWindowIsWideEnoughForSettingsContent() throws {
+        try waitForMainView()
+        let app = launchedApp()
+        let mainWindow = app.windows.firstMatch
+        let settingsButton = mainWindow.buttons["Settings"]
+
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 3))
+        settingsButton.click()
+
+        let settingsWindow = app.windows.containing(.button, identifier: "API & Cache").firstMatch
+        XCTAssertTrue(settingsWindow.waitForExistence(timeout: 15))
+
+        XCTAssertGreaterThanOrEqual(
+            settingsWindow.frame.width,
+            700,
+            "Settings window should be wide enough to keep form labels and controls visible"
+        )
+    }
+
     // MARK: - Navigation Transitions
 
     @MainActor

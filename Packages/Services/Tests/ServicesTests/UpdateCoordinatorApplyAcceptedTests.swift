@@ -30,7 +30,10 @@ struct UpdateCoordinatorApplyAcceptedTests {
             ),
         ]
 
-        let result = try await fixture.coordinator.applyAcceptedChanges(proposals)
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
 
         let written = await fixture.bridge.writtenProperties
         #expect(written.count == 1)
@@ -40,7 +43,38 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.entries[0].changeType == .genreUpdate)
     }
 
-    private func makeCoordinator() async -> AcceptedApplyFixture {
+    @Test("Test artist allow-list skips out-of-scope reviewed changes")
+    func artistAllowListSkipsOutOfScopeReviewedChanges() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(testArtists: ["In Flames"])
+        )
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1969)
+        let proposals = [
+            ProposedChange(
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Electronic",
+                confidence: 80,
+                source: "Library",
+                isAccepted: true
+            ),
+        ]
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+    }
+
+    private func makeCoordinator(
+        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
+    ) async -> AcceptedApplyFixture {
         let bridge = MockAppleScriptClient()
         let apiService = MockAPIService()
         let orchestrator = APIOrchestrator(
@@ -52,13 +86,16 @@ struct UpdateCoordinatorApplyAcceptedTests {
             .appendingPathComponent("UpdateCoordinatorApplyAcceptedTests-\(UUID().uuidString)")
         let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
         let coordinator = UpdateCoordinator(
-            apiOrchestrator: orchestrator,
-            scriptBridge: bridge,
-            trackStore: MockTrackStore(),
-            cache: MockCacheService(),
-            undoCoordinator: undo,
+            dependencies: UpdateCoordinatorDependencies(
+                apiOrchestrator: orchestrator,
+                scriptBridge: bridge,
+                trackStore: MockTrackStore(),
+                cache: MockCacheService(),
+                undoCoordinator: undo
+            ),
             genreDeterminator: GenreDeterminator(),
-            yearDeterminator: YearDeterminator()
+            yearDeterminator: YearDeterminator(),
+            runtimeConfiguration: runtimeConfiguration
         )
 
         return AcceptedApplyFixture(coordinator: coordinator, bridge: bridge)
@@ -79,6 +116,10 @@ struct UpdateCoordinatorApplyAcceptedTests {
             trackStatus: nil
         )
     }
+}
+
+private func ignoreAcceptedChangeProgress(_ update: ProgressUpdate) {
+    _ = update
 }
 
 private struct AcceptedApplyFixture {

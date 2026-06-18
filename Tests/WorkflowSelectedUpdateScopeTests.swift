@@ -1,4 +1,5 @@
 import Core
+import Foundation
 import Services
 import Testing
 @testable import Genre_Updater
@@ -117,6 +118,108 @@ struct WorkflowSelectedUpdateScopeTests {
         }
         #expect(message.contains("batchProcessing"))
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+    }
+
+    @Test("full library live processing uses album context for genre updates")
+    func fullLibraryLiveProcessingUsesAlbumContextForGenreUpdates() async throws {
+        let fixture = makeWorkflowFixture()
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = true
+        viewModel.updateYear = false
+        viewModel.cleanTrackNames = false
+        viewModel.cleanAlbumNames = false
+        let albumGenreSourceDate = Date(timeIntervalSince1970: 1000)
+        let missingGenreDate = Date(timeIntervalSince1970: 2000)
+
+        viewModel.start(tracks: [
+            Track(
+                id: "missing-genre",
+                name: "Only for the Weak",
+                artist: "In Flames",
+                album: "Clayman",
+                dateAdded: missingGenreDate
+            ),
+            Track(
+                id: "genre-source",
+                name: "Bullet Ride",
+                artist: "In Flames",
+                album: "Clayman",
+                genre: "Melodic Death Metal",
+                dateAdded: albumGenreSourceDate
+            ),
+        ])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        guard case .done = viewModel.phase else {
+            #expect(Bool(false), "live full-library processing should complete")
+            return
+        }
+        let writes = await fixture.scriptClient.updatedProperties()
+        #expect(writes.contains {
+            $0.trackID == "missing-genre"
+                && $0.property == "genre"
+                && $0.value == "Melodic Death Metal"
+        })
+    }
+
+    @Test("full library live processing surfaces write failures")
+    func fullLibraryLiveProcessingSurfacesWriteFailures() async throws {
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2020, confidence: 90),
+            failingWriteTrackIDs: ["missing-year"]
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+        viewModel.cleanTrackNames = false
+        viewModel.cleanAlbumNames = false
+
+        viewModel.start(tracks: [
+            Track(id: "missing-year", name: "Track", artist: "In Flames", album: "Clayman", year: 1999),
+        ])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        #expect(!viewModel.failedTracks.isEmpty)
+        #expect(viewModel.failedTracks.first?.id == "missing-year")
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+    }
+
+    @Test("full library empty effective scope is not runnable")
+    func fullLibraryEmptyEffectiveScopeIsNotRunnable() {
+        let viewModel = makeWorkflowViewModel()
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.configureFullLibraryScope(tracks: [])
+
+        #expect(!viewModel.hasRunnableScope)
+
+        viewModel.start(tracks: [])
+
+        guard case let .error(message) = viewModel.phase else {
+            #expect(Bool(false), "empty full-library scope should surface an error instead of starting")
+            return
+        }
+        #expect(message.contains("No tracks"))
+    }
+
+    @Test("pause is ignored outside full-library scanning")
+    func pauseIsIgnoredOutsideFullLibraryScanning() async {
+        let viewModel = makeWorkflowViewModel()
+        viewModel.mode = .fullLibrary
+        viewModel.phase = .applying
+
+        await viewModel.pause()
+
+        guard case .applying = viewModel.phase else {
+            #expect(Bool(false), "pause should not move apply-accepted work into paused state")
+            return
+        }
     }
 
     @Test("full library scope resets finished workflow state")

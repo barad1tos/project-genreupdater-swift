@@ -5,7 +5,7 @@ import Testing
 
 // MARK: - Thread-Safe Accumulator
 
-private actor ProgressAccumulator {
+actor ProgressAccumulator {
     var items: [ProgressUpdate] = []
 
     func append(_ item: ProgressUpdate) {
@@ -19,7 +19,7 @@ private actor ProgressAccumulator {
 
 // MARK: - Helpers
 
-private func makeEditableTrack(
+func makeEditableTrack(
     id: String = "T1",
     name: String = "Come Together",
     artist: String = "Beatles",
@@ -42,7 +42,7 @@ private func makeEditableTrack(
 
 // MARK: - Tests
 
-private struct CoordinatorFixture {
+struct CoordinatorFixture {
     let coordinator: UpdateCoordinator
     let bridge: MockAppleScriptClient
     let undo: UndoCoordinator
@@ -50,7 +50,7 @@ private struct CoordinatorFixture {
 
 @Suite("UpdateCoordinator — single and multi-track updates")
 struct UpdateCoordinatorTests {
-    private func makeCoordinator(
+    func makeCoordinator(
         year: Int? = nil,
         confidence: Int = 0,
         scriptBridge: MockAppleScriptClient? = nil,
@@ -84,11 +84,13 @@ struct UpdateCoordinatorTests {
         )
 
         let coordinator = UpdateCoordinator(
-            apiOrchestrator: orchestrator,
-            scriptBridge: bridge,
-            trackStore: store,
-            cache: cacheService,
-            undoCoordinator: undo,
+            dependencies: UpdateCoordinatorDependencies(
+                apiOrchestrator: orchestrator,
+                scriptBridge: bridge,
+                trackStore: store,
+                cache: cacheService,
+                undoCoordinator: undo
+            ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: yearDeterminator,
             runtimeConfiguration: runtimeConfiguration
@@ -140,69 +142,6 @@ struct UpdateCoordinatorTests {
 
         let genreChange = changes.first { $0.changeType == .genreUpdate }
         #expect(genreChange?.newValue == "Electronic")
-    }
-
-    @Test("Configured album type patterns skip year updates")
-    func configuredAlbumTypePatternsSkipYearUpdates() async throws {
-        var albumTypeDetection = AlbumTypeDetectionConfig()
-        albumTypeDetection.specialPatterns = ["archive"]
-        albumTypeDetection.compilationPatterns = []
-        albumTypeDetection.reissuePatterns = []
-
-        let runtimeConfiguration = UpdateRuntimeConfiguration(
-            minimumYearUpdateConfidence: 30,
-            albumTypeDetection: albumTypeDetection
-        )
-        let fixture = await makeCoordinator(
-            year: 2024,
-            confidence: 95,
-            runtimeConfiguration: runtimeConfiguration
-        )
-
-        let track = makeEditableTrack(album: "Studio Archive", year: 1999)
-        let changes = try await fixture.coordinator.updateTrack(
-            track,
-            options: UpdateOptions(updateGenre: false, updateYear: true),
-            dryRun: true
-        )
-
-        #expect(changes.isEmpty)
-    }
-
-    @Test("Runtime album type configuration update applies to subsequent year updates")
-    func runtimeAlbumTypeConfigurationUpdateAppliesToSubsequentYearUpdates() async throws {
-        let fixture = await makeCoordinator(
-            year: 2024,
-            confidence: 95,
-            runtimeConfiguration: UpdateRuntimeConfiguration(minimumYearUpdateConfidence: 30)
-        )
-        let track = makeEditableTrack(album: "Session Archive", year: 1999)
-
-        let beforeUpdate = try await fixture.coordinator.updateTrack(
-            track,
-            options: UpdateOptions(updateGenre: false, updateYear: true),
-            dryRun: true
-        )
-        #expect(beforeUpdate.first { $0.changeType == .yearUpdate }?.newValue == "2024")
-
-        var albumTypeDetection = AlbumTypeDetectionConfig()
-        albumTypeDetection.specialPatterns = ["archive"]
-        albumTypeDetection.compilationPatterns = []
-        albumTypeDetection.reissuePatterns = []
-        await fixture.coordinator.updateRuntimeConfiguration(
-            UpdateRuntimeConfiguration(
-                minimumYearUpdateConfidence: 30,
-                albumTypeDetection: albumTypeDetection
-            ),
-            yearDeterminator: YearDeterminator()
-        )
-
-        let afterUpdate = try await fixture.coordinator.updateTrack(
-            track,
-            options: UpdateOptions(updateGenre: false, updateYear: true),
-            dryRun: true
-        )
-        #expect(afterUpdate.allSatisfy { $0.changeType != .yearUpdate })
     }
 
     @Test("Write mode applies changes to Music.app")
@@ -262,61 +201,6 @@ struct UpdateCoordinatorTests {
         #expect(yearChange != nil)
         #expect(yearChange?.newValue == "1970")
         #expect(yearChange?.source == "Cache")
-    }
-
-    @Test("Configured year confidence skips weak cache entries")
-    func configuredYearConfidenceSkipsWeakCacheEntries() async throws {
-        let cache = MockCacheService()
-        await cache.storeAlbumYear(artist: "Beatles", album: "Abbey Road", year: 1970, confidence: 70)
-
-        let runtimeConfiguration = UpdateRuntimeConfiguration(
-            minimumYearUpdateConfidence: 80
-        )
-        let fixture = await makeCoordinator(
-            year: 2020,
-            confidence: 90,
-            cache: cache,
-            runtimeConfiguration: runtimeConfiguration
-        )
-
-        let track = makeEditableTrack(year: 1969)
-        let changes = try await fixture.coordinator.updateTrack(
-            track,
-            options: UpdateOptions(updateGenre: false, updateYear: true),
-            dryRun: true
-        )
-
-        let yearChange = changes.first { $0.changeType == .yearUpdate }
-        #expect(yearChange?.newValue == "2020")
-        #expect(yearChange?.source == "Definitive")
-    }
-
-    @Test("Configured cache threshold skips weak API persistence")
-    func configuredCacheThresholdSkipsWeakAPIPersistence() async throws {
-        let cache = MockCacheService()
-        let runtimeConfiguration = UpdateRuntimeConfiguration(
-            minimumYearUpdateConfidence: 30,
-            minimumConfidenceToCache: 95
-        )
-        let fixture = await makeCoordinator(
-            year: 2020,
-            confidence: 30,
-            cache: cache,
-            runtimeConfiguration: runtimeConfiguration
-        )
-
-        let track = makeEditableTrack(year: 1969)
-        let changes = try await fixture.coordinator.updateTrack(
-            track,
-            options: UpdateOptions(updateGenre: false, updateYear: true, minConfidence: 0),
-            dryRun: true
-        )
-
-        let yearChange = changes.first { $0.changeType == .yearUpdate }
-        #expect(yearChange?.newValue == "2020")
-
-        let cached = await cache.getAlbumYear(artist: "Beatles", album: "Abbey Road")
-        #expect(cached == nil)
     }
 
     @Test("Local album year determination runs before API lookup")
@@ -405,68 +289,27 @@ struct UpdateCoordinatorTests {
 }
 
 extension UpdateCoordinatorTests {
-    @Test("Year lookup setting disables year changes")
-    func yearLookupSettingDisablesYearChanges() async throws {
-        let runtimeConfiguration = UpdateRuntimeConfiguration(
-            isYearLookupEnabled: false,
-            minimumYearUpdateConfidence: 30
-        )
-        let fixture = await makeCoordinator(
-            year: 2020,
-            confidence: 95,
-            runtimeConfiguration: runtimeConfiguration
-        )
+    static func ignoreProgress(_: ProgressUpdate) {
+        // This test asserts returned entries only; progress emission is covered separately.
+    }
 
-        let track = makeEditableTrack(year: 1969)
-        let changes = try await fixture.coordinator.updateTrack(
-            track,
+    @Test("Multi-track update returns only entries created by the current call")
+    func multiTrackUpdateReturnsOnlyCurrentEntries() async throws {
+        let fixture = await makeCoordinator(year: 2020, confidence: 90)
+        await fixture.undo.recordChange(ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "previous",
+            artist: "Previous Artist"
+        ))
+
+        let result = try await fixture.coordinator.updateTracks(
+            [makeEditableTrack(id: "current", year: 1969)],
             options: UpdateOptions(updateGenre: false, updateYear: true),
-            dryRun: true
+            progressHandler: Self.ignoreProgress
         )
 
-        #expect(changes.allSatisfy { $0.changeType != .yearUpdate })
-    }
-
-    @Test("Existing genres are preserved when override is disabled")
-    func existingGenresArePreservedWhenOverrideIsDisabled() async throws {
-        let fixture = await makeCoordinator()
-        let sourceDate = Date(timeIntervalSince1970: 1_234_567_890)
-        let track = makeEditableTrack(genre: "Rock")
-        let albumTracks = [
-            makeEditableTrack(id: "T1", genre: "Electronic", dateAdded: sourceDate),
-            makeEditableTrack(id: "T2", genre: "Electronic", dateAdded: sourceDate.addingTimeInterval(60)),
-        ]
-
-        let changes = try await fixture.coordinator.updateTrack(
-            track,
-            albumTracks: albumTracks,
-            options: UpdateOptions(updateGenre: true, updateYear: false),
-            dryRun: true
-        )
-
-        #expect(changes.allSatisfy { $0.changeType != .genreUpdate })
-    }
-
-    @Test("Existing genres update when override is enabled")
-    func existingGenresUpdateWhenOverrideIsEnabled() async throws {
-        let runtimeConfiguration = UpdateRuntimeConfiguration(shouldOverrideExistingGenres: true)
-        let fixture = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
-        let sourceDate = Date(timeIntervalSince1970: 1_234_567_890)
-        let track = makeEditableTrack(genre: "Rock")
-        let albumTracks = [
-            makeEditableTrack(id: "T1", genre: "Electronic", dateAdded: sourceDate),
-            makeEditableTrack(id: "T2", genre: "Electronic", dateAdded: sourceDate.addingTimeInterval(60)),
-        ]
-
-        let changes = try await fixture.coordinator.updateTrack(
-            track,
-            albumTracks: albumTracks,
-            options: UpdateOptions(updateGenre: true, updateYear: false),
-            dryRun: true
-        )
-
-        let genreChange = changes.first { $0.changeType == .genreUpdate }
-        #expect(genreChange?.oldValue == "Rock")
-        #expect(genreChange?.newValue == "Electronic")
+        #expect(result.entries.map(\.trackID) == ["current"])
+        #expect(!result.entries.contains { $0.trackID == "previous" })
+        #expect(result.failedTrackIDs.isEmpty)
     }
 }

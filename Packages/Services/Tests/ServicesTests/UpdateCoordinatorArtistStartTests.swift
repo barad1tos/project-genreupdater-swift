@@ -43,14 +43,18 @@ struct UpdateCoordinatorArtistStartTests {
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("UpdateCoordinatorArtistStartTests-\(UUID().uuidString)")
         return UpdateCoordinator(
-            apiOrchestrator: apiOrchestrator,
-            scriptBridge: bridge,
-            trackStore: store,
-            cache: cache,
-            undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: undoDirectory),
+            dependencies: UpdateCoordinatorDependencies(
+                apiOrchestrator: apiOrchestrator,
+                scriptBridge: bridge,
+                trackStore: store,
+                cache: cache,
+                undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
+            ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),
-            runtimeConfiguration: UpdateRuntimeConfiguration(minimumYearUpdateConfidence: 30)
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                policies: UpdateRuntimeConfiguration.Policies(minimumYearUpdateConfidence: 30)
+            )
         )
     }
 }

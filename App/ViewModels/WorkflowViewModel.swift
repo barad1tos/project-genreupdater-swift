@@ -19,6 +19,8 @@ enum WorkflowMode: String, CaseIterable, Identifiable {
         rawValue
     }
 
+    // swiftformat:disable:next docComments
+    // noinspection SpellCheckingInspection
     var icon: String {
         switch self {
         case .selectedTracks: "hand.tap"
@@ -141,7 +143,12 @@ final class WorkflowViewModel {
     }
 
     var hasRunnableScope: Bool {
-        mode != .selectedTracks || scopeTrackCount > 0
+        switch mode {
+        case .pendingVerification:
+            true
+        case .selectedTracks, .fullLibrary, .smartFilter, .releaseYearRestore:
+            scopeTrackCount > 0
+        }
     }
 
     /// Track IDs with their error messages from the most recent run.
@@ -171,36 +178,26 @@ final class WorkflowViewModel {
     var processingTask: Task<Void, Never>?
 
     init(
-        updateCoordinator: UpdateCoordinator,
-        batchProcessor: BatchProcessor,
-        changePreviewPipeline: ChangePreviewPipeline,
-        pendingVerificationService: (any PendingVerificationService)? = nil,
-        featureGate: FeatureGate? = nil,
-        recordProcessedTracks: @escaping (Int) -> Void = { _ in },
-        runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
-        defaultUpdateGenre: Bool = true,
-        defaultUpdateYear: Bool = true,
-        defaultPreviewOnly: Bool = true,
-        defaultMinConfidence: Double = 0.6,
-        defaultReleaseYearRestoreThreshold: Int = 5
+        dependencies: Dependencies,
+        defaults: Defaults = Defaults()
     ) {
-        self.updateCoordinator = updateCoordinator
-        self.batchProcessor = batchProcessor
-        self.changePreviewPipeline = changePreviewPipeline
-        self.pendingVerificationService = pendingVerificationService
-        self.featureGate = featureGate
-        self.recordProcessedTracks = recordProcessedTracks
-        self.runMaintenancePreflight = runMaintenancePreflight
-        self.defaultUpdateGenre = defaultUpdateGenre
-        self.defaultUpdateYear = defaultUpdateYear
-        self.defaultPreviewOnly = defaultPreviewOnly
-        self.defaultMinConfidence = defaultMinConfidence
-        self.defaultReleaseYearRestoreThreshold = defaultReleaseYearRestoreThreshold
-        updateGenre = defaultUpdateGenre
-        updateYear = defaultUpdateYear
-        previewOnly = defaultPreviewOnly
-        minConfidence = defaultMinConfidence
-        releaseYearRestoreThreshold = defaultReleaseYearRestoreThreshold
+        updateCoordinator = dependencies.updateCoordinator
+        batchProcessor = dependencies.batchProcessor
+        changePreviewPipeline = dependencies.changePreviewPipeline
+        pendingVerificationService = dependencies.pendingVerificationService
+        featureGate = dependencies.featureGate
+        recordProcessedTracks = dependencies.recordProcessedTracks
+        runMaintenancePreflight = dependencies.runMaintenancePreflight
+        defaultUpdateGenre = defaults.updateGenre
+        defaultUpdateYear = defaults.updateYear
+        defaultPreviewOnly = defaults.previewOnly
+        defaultMinConfidence = defaults.minConfidence
+        defaultReleaseYearRestoreThreshold = defaults.releaseYearRestoreThreshold
+        updateGenre = defaults.updateGenre
+        updateYear = defaults.updateYear
+        previewOnly = defaults.previewOnly
+        minConfidence = defaults.minConfidence
+        releaseYearRestoreThreshold = defaults.releaseYearRestoreThreshold
     }
 
     // MARK: - Start Workflow
@@ -319,101 +316,6 @@ final class WorkflowViewModel {
         }
     }
 
-    // MARK: - Batch Processing (Full Library mode)
-
-    private func startBatchProcessing(tracks: [Track]) {
-        phase = .scanning
-        processedCount = 0
-        failedCount = 0
-        trackStatuses = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, TrackProcessingStatus.queued) })
-        currentTrackID = nil
-
-        let options = UpdateOptions(
-            updateGenre: updateGenre,
-            updateYear: updateYear,
-            cleanTrackNames: cleanTrackNames,
-            cleanAlbumNames: cleanAlbumNames,
-            minConfidence: confidencePercentage,
-            autoAccept: true
-        )
-
-        let tracksByIndex = tracks
-
-        processingTask = Task {
-            do {
-                let entries = try await batchProcessor.process(
-                    tracks: tracks,
-                    operation: { [updateCoordinator] track in
-                        let batchResult = try await updateCoordinator.updateTracks(
-                            [track],
-                            options: options,
-                            progressHandler: { _ in }
-                        )
-                        return batchResult.entries
-                    },
-                    progressHandler: { [weak self] update in
-                        Task { @MainActor in
-                            self?.handleBatchProgress(update, tracksByIndex: tracksByIndex)
-                        }
-                    }
-                )
-
-                finalizeBatchStatuses(for: tracksByIndex)
-                completedEntries = entries
-                currentTrackID = nil
-                phase = .done
-                progress = nil
-            } catch is CancellationError {
-                currentTrackID = nil
-                phase = .configure
-                progress = nil
-            } catch let batchError as BatchProcessorError {
-                currentTrackID = nil
-                handleBatchError(batchError)
-            } catch {
-                currentTrackID = nil
-                phase = .error(error.localizedDescription)
-                progress = nil
-            }
-        }
-    }
-
-    /// Update per-track status from batch progress callbacks.
-    private func handleBatchProgress(_ update: ProgressUpdate, tracksByIndex: [Track]) {
-        progress = update
-        processedCount = update.current
-
-        if update.current <= tracksByIndex.count {
-            let currentTrack = tracksByIndex[update.current - 1]
-            currentTrackID = currentTrack.id
-            trackStatuses[currentTrack.id] = .writing
-
-            // Mark previous track as done if it was still writing
-            if update.current > 1 {
-                let previousTrack = tracksByIndex[update.current - 2]
-                if case .writing = trackStatuses[previousTrack.id] {
-                    trackStatuses[previousTrack.id] = .done
-                }
-            }
-        }
-
-        // On completion, mark the last writing track as done
-        if update.phase == .complete, let lastTrack = tracksByIndex.last {
-            if case .writing = trackStatuses[lastTrack.id] {
-                trackStatuses[lastTrack.id] = .done
-            }
-        }
-    }
-
-    /// Mark any remaining queued tracks as skipped after batch completes.
-    private func finalizeBatchStatuses(for tracks: [Track]) {
-        for track in tracks {
-            if case .queued = trackStatuses[track.id] {
-                trackStatuses[track.id] = .skipped
-            }
-        }
-    }
-
     // MARK: - Apply Accepted Changes
 
     /// Apply only the accepted proposed changes from the review phase.
@@ -429,11 +331,7 @@ final class WorkflowViewModel {
             do {
                 let batchResult = try await updateCoordinator.applyAcceptedChanges(
                     accepted,
-                    progressHandler: { [weak self] update in
-                        Task { @MainActor in
-                            self?.progress = update
-                        }
-                    }
+                    progressHandler: makeApplyProgressHandler()
                 )
 
                 result = batchResult
@@ -447,24 +345,30 @@ final class WorkflowViewModel {
         }
     }
 
+    private func makeApplyProgressHandler() -> @Sendable (ProgressUpdate) -> Void {
+        { [weak self] update in
+            Task { @MainActor in
+                self?.progress = update
+            }
+        }
+    }
+
     // MARK: - Batch Controls
 
     /// Pause the batch processor (Full Library mode only).
     func pause() async {
-        guard mode == .fullLibrary else { return }
+        guard mode == .fullLibrary, case .scanning = phase else { return }
         await batchProcessor.pause()
         phase = .paused
     }
 
     /// Resume the batch processor from paused state.
     func resume() async {
-        guard mode == .fullLibrary else { return }
+        guard mode == .fullLibrary, case .paused = phase else { return }
         await batchProcessor.resume()
         phase = .scanning
     }
-}
 
-extension WorkflowViewModel {
     private func startUpdateAfterMaintenancePreflight(tracks: [Track]) {
         phase = .scanning
         processedCount = 0

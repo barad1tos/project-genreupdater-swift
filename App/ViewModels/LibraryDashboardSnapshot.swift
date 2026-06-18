@@ -1,5 +1,3 @@
-// swiftlint:disable file_length
-
 import Core
 import Foundation
 import Services

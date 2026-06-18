@@ -50,6 +50,13 @@ final class KeychainOperationHooks: @unchecked Sendable {
     }
 }
 
+private struct KeychainRetrieveTokenResult {
+    let status: OSStatus
+    let token: String?
+    let isUnprotectedItem: Bool
+    let isLocalFallbackItem: Bool
+}
+
 // MARK: - KeychainHelper
 
 /// Minimal Keychain wrapper for storing and retrieving API tokens.
@@ -64,26 +71,33 @@ final class KeychainOperationHooks: @unchecked Sendable {
 /// let token = try keychain.retrieve(service: "com.genreupdater.discogs", account: "personal-access-token")
 /// ```
 public struct KeychainHelper: Sendable {
+    static let localFallbackMarkerData = Data("com.genreupdater.keychain.local-fallback.v1".utf8)
+
     private let authenticationPolicy: KeychainAuthenticationPolicy
     private let authenticationPrompt: String
+    private let allowsLocalFallback: Bool
     private let operationHooks: KeychainOperationHooks?
 
     public init(
         authenticationPolicy: KeychainAuthenticationPolicy = .localUserPresence,
-        authenticationPrompt: String? = nil
+        authenticationPrompt: String? = nil,
+        allowsLocalFallback: Bool = Self.defaultAllowsLocalFallback
     ) {
         self.authenticationPolicy = authenticationPolicy
         self.authenticationPrompt = authenticationPrompt ?? authenticationPolicy.defaultPrompt
+        self.allowsLocalFallback = allowsLocalFallback
         self.operationHooks = nil
     }
 
     init(
         authenticationPolicy: KeychainAuthenticationPolicy = .localUserPresence,
         authenticationPrompt: String? = nil,
+        allowsLocalFallback: Bool = Self.defaultAllowsLocalFallback,
         operationHooks: KeychainOperationHooks
     ) {
         self.authenticationPolicy = authenticationPolicy
         self.authenticationPrompt = authenticationPrompt ?? authenticationPolicy.defaultPrompt
+        self.allowsLocalFallback = allowsLocalFallback
         self.operationHooks = operationHooks
     }
 
@@ -103,11 +117,12 @@ public struct KeychainHelper: Sendable {
     ///   `KeychainError.accessControlCreationFailed` if the local-authentication policy cannot be created,
     ///   `KeychainError.authenticationFailed` for local-authentication failures, or
     ///   `KeychainError.saveFailed` if the Security framework returns another error while adding or updating.
+    @discardableResult
     public func save(
         token: String,
         service: String,
         account: String
-    ) throws {
+    ) throws -> KeychainSaveResult {
         let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedToken.isEmpty else {
             throw KeychainError.emptyToken
@@ -129,7 +144,7 @@ public struct KeychainHelper: Sendable {
 
         let status = addItem(protectedQuery)
         if status == errSecSuccess {
-            return
+            return .protected
         }
 
         if status == errSecDuplicateItem {
@@ -138,28 +153,21 @@ public struct KeychainHelper: Sendable {
                 data: data,
                 accessControl: accessControl
             )
-            return
+            return .protected
         }
 
-        if Self.shouldUseLegacyKeychainFallback(status) {
-            let fallbackQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: account,
-                kSecValueData as String: data,
-                kSecAttrAccessControl as String: accessControl,
-            ]
+        if allowsLocalFallback, Self.shouldUseLegacyKeychainFallback(status) {
+            let fallbackQuery = localFallbackSaveQuery(service: service, account: account, data: data)
             let fallbackStatus = addItem(fallbackQuery)
             if fallbackStatus == errSecSuccess {
-                return
+                return .localFallback
             }
             if fallbackStatus == errSecDuplicateItem {
-                try updateToken(
+                try updateLocalFallbackToken(
                     matching: legacyQuery(service: service, account: account),
-                    data: data,
-                    accessControl: accessControl
+                    data: data
                 )
-                return
+                return .localFallback
             }
             throw Self.error(for: .save, status: fallbackStatus)
         }
@@ -199,10 +207,11 @@ public struct KeychainHelper: Sendable {
                 account: account,
                 shouldReturnData: true,
                 authenticationContext: authenticationContext
-            )
+            ),
+            allowFallback: allowsLocalFallback
         )
         if protectedResult.status == errSecSuccess || protectedResult.status == errSecItemNotFound {
-            if protectedResult.isUnprotectedItem {
+            if protectedResult.isUnprotectedItem, !protectedResult.isLocalFallbackItem {
                 throw KeychainError.unprotectedItemRequiresResave
             }
             return protectedResult.token
@@ -215,7 +224,7 @@ public struct KeychainHelper: Sendable {
         query: [String: Any],
         fallbackQuery: [String: Any],
         allowFallback: Bool = true
-    ) throws -> (status: OSStatus, token: String?, isUnprotectedItem: Bool) {
+    ) throws -> KeychainRetrieveTokenResult {
         var result: AnyObject?
         // swiftformat:disable conditionalAssignment
         let status: OSStatus
@@ -229,7 +238,12 @@ public struct KeychainHelper: Sendable {
         switch status {
         case errSecSuccess:
             let tokenResult = try parseTokenResult(result)
-            return (status, tokenResult.token, !tokenResult.isAccessControlled)
+            return KeychainRetrieveTokenResult(
+                status: status,
+                token: tokenResult.token,
+                isUnprotectedItem: !tokenResult.isAccessControlled,
+                isLocalFallbackItem: tokenResult.isLocalFallback
+            )
         case errSecItemNotFound where allowFallback:
             return try retrieveToken(
                 query: fallbackQuery,
@@ -237,7 +251,12 @@ public struct KeychainHelper: Sendable {
                 allowFallback: false
             )
         case errSecItemNotFound:
-            return (status, nil, false)
+            return KeychainRetrieveTokenResult(
+                status: status,
+                token: nil,
+                isUnprotectedItem: false,
+                isLocalFallbackItem: false
+            )
         case _ where allowFallback && Self.shouldUseLegacyKeychainFallback(status):
             return try retrieveToken(
                 query: fallbackQuery,
@@ -245,7 +264,12 @@ public struct KeychainHelper: Sendable {
                 allowFallback: false
             )
         default:
-            return (status, nil, false)
+            return KeychainRetrieveTokenResult(
+                status: status,
+                token: nil,
+                isUnprotectedItem: false,
+                isLocalFallbackItem: false
+            )
         }
     }
 
@@ -280,6 +304,16 @@ public struct KeychainHelper: Sendable {
             throw Self.error(for: .delete, status: fallbackStatus)
         }
     }
+}
+
+extension KeychainHelper {
+    @usableFromInline static var defaultAllowsLocalFallback: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
 
     private static func shouldUseLegacyKeychainFallback(_ status: OSStatus) -> Bool {
         status == errSecNotAvailable || status == errSecMissingEntitlement
@@ -292,6 +326,17 @@ public struct KeychainHelper: Sendable {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecUseAuthenticationContext as String: makeAuthenticationContext(),
+        ]
+    }
+
+    private func localFallbackSaveQuery(service: String, account: String, data: Data) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecAttrGeneric as String: Self.localFallbackMarkerData,
         ]
     }
 
@@ -358,7 +403,9 @@ public struct KeychainHelper: Sendable {
         return query
     }
 
-    private func parseTokenResult(_ result: AnyObject?) throws -> (token: String, isAccessControlled: Bool) {
+    private func parseTokenResult(
+        _ result: AnyObject?
+    ) throws -> (token: String, isAccessControlled: Bool, isLocalFallback: Bool) {
         guard let attributes = result as? NSDictionary,
               let data = (attributes[kSecValueData] as? Data) ?? (attributes[kSecValueData as String] as? Data) else {
             throw KeychainError.invalidTokenData
@@ -376,7 +423,9 @@ public struct KeychainHelper: Sendable {
         return (
             token: token,
             isAccessControlled: attributes[kSecAttrAccessControl] != nil ||
-                attributes[kSecAttrAccessControl as String] != nil
+                attributes[kSecAttrAccessControl as String] != nil,
+            isLocalFallback: (attributes[kSecAttrGeneric] as? Data) == Self.localFallbackMarkerData ||
+                (attributes[kSecAttrGeneric as String] as? Data) == Self.localFallbackMarkerData
         )
     }
 
@@ -413,6 +462,24 @@ public struct KeychainHelper: Sendable {
         }
     }
 
+    private func updateLocalFallbackToken(
+        matching query: [String: Any],
+        data: Data
+    ) throws {
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrGeneric as String: Self.localFallbackMarkerData,
+        ]
+        let status: OSStatus = if let operationHooks {
+            operationHooks.updateItem(query, attributes)
+        } else {
+            SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        }
+        guard status == errSecSuccess else {
+            throw Self.error(for: .save, status: status)
+        }
+    }
+
     private static func error(for operation: KeychainOperation, status: OSStatus) -> KeychainError {
         if isAuthenticationFailureStatus(status) {
             return .authenticationFailed(status)
@@ -432,58 +499,5 @@ public struct KeychainHelper: Sendable {
         status == errSecAuthFailed ||
             status == errSecUserCanceled ||
             status == errSecInteractionNotAllowed
-    }
-}
-
-private enum KeychainOperation {
-    case save
-    case retrieve
-    case delete
-}
-
-// MARK: - KeychainError
-
-/// Errors from Keychain operations.
-public enum KeychainError: Error, Sendable, Equatable, LocalizedError {
-    /// Creating the access-control policy for a protected token failed.
-    case accessControlCreationFailed(String?)
-    /// Local authentication was unavailable, cancelled, or failed.
-    case authenticationFailed(OSStatus)
-    /// A legacy token item exists without the current local-authentication policy.
-    case unprotectedItemRequiresResave
-    /// The token input was empty after trimming whitespace.
-    case emptyToken
-    /// The stored token item could not be decoded into a non-empty UTF-8 string.
-    case invalidTokenData
-    /// `SecItemAdd` or `SecItemUpdate` returned a non-success status.
-    case saveFailed(OSStatus)
-    /// `SecItemCopyMatching` returned an unexpected status.
-    case retrieveFailed(OSStatus)
-    /// `SecItemDelete` returned an unexpected status.
-    case deleteFailed(OSStatus)
-
-    public var errorDescription: String? {
-        switch self {
-        case let .accessControlCreationFailed(description):
-            if let description, !description.isEmpty {
-                "Keychain access-control creation failed: \(description)"
-            } else {
-                "Keychain access-control creation failed"
-            }
-        case let .authenticationFailed(status):
-            "Keychain authentication failed with OSStatus \(status)"
-        case .unprotectedItemRequiresResave:
-            "Stored Keychain token must be saved again to require local authentication"
-        case .emptyToken:
-            "Keychain token cannot be empty"
-        case .invalidTokenData:
-            "Stored Keychain token data is invalid"
-        case let .saveFailed(status):
-            "Keychain save failed with OSStatus \(status)"
-        case let .retrieveFailed(status):
-            "Keychain retrieve failed with OSStatus \(status)"
-        case let .deleteFailed(status):
-            "Keychain delete failed with OSStatus \(status)"
-        }
     }
 }

@@ -39,7 +39,9 @@ struct UpdateCoordinatorCleaningTests {
         cleaning.trackCleaningExceptions = [
             TrackCleaningException(artist: "Beatles", album: "Album Remastered"),
         ]
-        let runtimeConfiguration = UpdateRuntimeConfiguration(cleaning: cleaning)
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: UpdateRuntimeConfiguration.Policies(cleaning: cleaning)
+        )
         let coordinator = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
         let track = makeTrack(
             name: "Song (Remastered 2020)",
@@ -93,19 +95,22 @@ struct UpdateCoordinatorCleaningTests {
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
     ) async -> UpdateCoordinator {
         let apiService = MockAPIService()
+        let scriptBridge = MockAppleScriptClient()
         return UpdateCoordinator(
-            apiOrchestrator: APIOrchestrator(
-                musicBrainz: apiService,
-                discogs: apiService,
-                appleMusic: apiService
-            ),
-            scriptBridge: MockAppleScriptClient(),
-            trackStore: MockTrackStore(),
-            cache: MockCacheService(),
-            undoCoordinator: UndoCoordinator(
-                scriptBridge: MockAppleScriptClient(),
-                directory: FileManager.default.temporaryDirectory
-                    .appendingPathComponent("UpdateCoordinatorCleaningTests-\(UUID().uuidString)")
+            dependencies: UpdateCoordinatorDependencies(
+                apiOrchestrator: APIOrchestrator(
+                    musicBrainz: apiService,
+                    discogs: apiService,
+                    appleMusic: apiService
+                ),
+                scriptBridge: scriptBridge,
+                trackStore: MockTrackStore(),
+                cache: MockCacheService(),
+                undoCoordinator: UndoCoordinator(
+                    scriptBridge: scriptBridge,
+                    directory: FileManager.default.temporaryDirectory
+                        .appendingPathComponent("UpdateCoordinatorCleaningTests-\(UUID().uuidString)")
+                )
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),

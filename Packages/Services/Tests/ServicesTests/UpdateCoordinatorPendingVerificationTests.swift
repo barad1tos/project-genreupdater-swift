@@ -35,11 +35,13 @@ private func makePendingCoordinator(
         appleMusic: apiService
     )
     let coordinator = UpdateCoordinator(
-        apiOrchestrator: orchestrator,
-        scriptBridge: bridge,
-        trackStore: store,
-        cache: cache,
-        undoCoordinator: undo,
+        dependencies: UpdateCoordinatorDependencies(
+            apiOrchestrator: orchestrator,
+            scriptBridge: bridge,
+            trackStore: store,
+            cache: cache,
+            undoCoordinator: undo
+        ),
         genreDeterminator: GenreDeterminator(),
         runtimeConfiguration: UpdateRuntimeConfiguration()
     )

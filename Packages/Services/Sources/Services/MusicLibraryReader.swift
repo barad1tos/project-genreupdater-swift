@@ -105,17 +105,17 @@ public actor MusicLibraryReader {
         let signpostState = AppSignpost.libraryLoad.beginInterval("fetchAllTracks")
         defer { AppSignpost.libraryLoad.endInterval("fetchAllTracks", signpostState) }
 
-        var request = MusicLibraryRequest<Song>()
-        request.sort(by: \.artistName, ascending: true)
-
-        if let artist {
-            request.filter(matching: \.artistName, equalTo: artist)
-        }
-
         do {
-            let response = try await request.response()
-            var tracks = response.items.map { song in
-                songToTrack(song)
+            var tracks: [Core.Track] = []
+            let targets = Self.fetchTargets(
+                requestedArtist: artist,
+                testArtists: testArtists,
+                ignoreTestFilter: ignoreTestFilter
+            )
+
+            for target in targets {
+                let scopedTracks = try await fetchTracks(matchingArtist: target)
+                tracks.append(contentsOf: scopedTracks)
             }
 
             if !ignoreTestFilter {
@@ -158,6 +158,24 @@ public actor MusicLibraryReader {
 
     // MARK: - Test Artist Filtering
 
+    /// Resolve MusicKit fetch targets for a requested artist and active test
+    /// artist scope.
+    public static func fetchTargets(
+        requestedArtist: String?,
+        testArtists: [String],
+        ignoreTestFilter: Bool
+    ) -> [String?] {
+        if let artist = ArtistAllowList.normalizedName(requestedArtist) {
+            return [artist]
+        }
+
+        guard !ignoreTestFilter else { return [nil] }
+
+        let scopedArtists = ArtistAllowList.normalized(testArtists)
+        guard !scopedArtists.isEmpty else { return [nil] }
+        return scopedArtists.map(Optional.some)
+    }
+
     /// Filter tracks to only those whose `effectiveArtist` matches
     /// one of the given test artist names (case-insensitive).
     ///
@@ -173,13 +191,20 @@ public actor MusicLibraryReader {
         _ tracks: [Core.Track],
         testArtists: [String]
     ) -> [Core.Track] {
-        guard !testArtists.isEmpty else { return tracks }
-        return tracks.filter { track in
-            testArtists.contains { name in
-                name.localizedCaseInsensitiveCompare(
-                    track.effectiveArtist
-                ) == .orderedSame
-            }
+        ArtistAllowList.filter(tracks, allowedArtists: testArtists)
+    }
+
+    private func fetchTracks(matchingArtist artist: String?) async throws -> [Core.Track] {
+        var request = MusicLibraryRequest<Song>()
+        request.sort(by: \.artistName, ascending: true)
+
+        if let artist {
+            request.filter(matching: \.artistName, equalTo: artist)
+        }
+
+        let response = try await request.response()
+        return response.items.map { song in
+            songToTrack(song)
         }
     }
 

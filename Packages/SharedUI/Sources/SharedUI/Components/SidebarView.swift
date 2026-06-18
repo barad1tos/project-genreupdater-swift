@@ -168,6 +168,7 @@ public struct SidebarView: View {
             }
         }
         .contentShape(.rect)
+        .accessibilityLabel("Settings")
         .onHover { hovering in
             withAnimation(Motion.curveFast) {
                 settingsHovered = hovering

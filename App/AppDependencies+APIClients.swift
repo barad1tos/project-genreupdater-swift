@@ -7,6 +7,7 @@ import Services
 private let apiClientLog = AppLogger.make(category: "dependencies")
 
 enum DiscogsCredentialIssue: Equatable {
+    case missingToken
     case keychain(KeychainError)
     case other(String)
 
@@ -20,6 +21,8 @@ enum DiscogsCredentialIssue: Equatable {
 
     var message: String {
         switch self {
+        case .missingToken:
+            "Discogs Personal Access Token is not configured. Discogs lookups are disabled until a token is saved."
         case .keychain(.authenticationFailed):
             "Keychain authentication was cancelled or failed. Discogs is running without the saved token."
         case .keychain(.unprotectedItemRequiresResave):
@@ -86,6 +89,7 @@ extension AppDependencies {
         let discogsRateLimiter = makeDiscogsRateLimiter(configuration: configuration)
         let configuredDiscogsToken = APIAuthReferenceResolver.resolve(apiAuth.discogsTokenReference)
         let discogsClient: DiscogsClient
+        var disabledSources: Set<APISource> = []
         if configuredDiscogsToken.isEmpty {
             do {
                 discogsClient = try keychainDiscogsClientFactory(
@@ -93,15 +97,17 @@ extension AppDependencies {
                     discogsRateLimiter,
                     discogsBaseURL
                 )
-                discogsCredentialIssueHandler(nil)
+                if discogsClient.isConfigured {
+                    discogsCredentialIssueHandler(nil)
+                } else {
+                    disabledSources.insert(.discogs)
+                    discogsCredentialIssueHandler(.missingToken)
+                }
             } catch {
                 keychainErrorHandler(error)
                 discogsCredentialIssueHandler(DiscogsCredentialIssue(error: error))
-                discogsClient = DiscogsClient(
-                    contactEmail: contactEmail,
-                    rateLimiter: discogsRateLimiter,
-                    baseURL: discogsBaseURL
-                )
+                disabledSources.insert(.discogs)
+                discogsClient = makeDisabledDiscogsClient(contactEmail, discogsRateLimiter, discogsBaseURL)
             }
         } else {
             discogsCredentialIssueHandler(nil)
@@ -122,11 +128,20 @@ extension AppDependencies {
             pendingVerificationService: pendingVerificationService,
             maxVerificationAttempts: configuration.yearRetrieval.fallback.maxVerificationAttempts,
             negativeResultTTL: configuration.caching.negativeResultTTL,
+            disabledSources: disabledSources,
             maxConcurrentSourceCalls: configuration.yearRetrieval.rateLimits.concurrentAPICalls,
             maxAPIRetries: configuration.runtime.maxRetries,
             apiRetryDelaySeconds: configuration.runtime.retryDelaySeconds,
             sourcePriorityConfiguration: APISourcePriorityConfiguration(configuration: configuration)
         )
+    }
+
+    private static func makeDisabledDiscogsClient(
+        _ contactEmail: String,
+        _ rateLimiter: TokenBucketRateLimiter?,
+        _ baseURL: URL
+    ) -> DiscogsClient {
+        DiscogsClient(contactEmail: contactEmail, rateLimiter: rateLimiter, baseURL: baseURL)
     }
 
     static func makeAppleMusicSearchClient(configuration: AppConfiguration) -> AppleMusicSearchClient {

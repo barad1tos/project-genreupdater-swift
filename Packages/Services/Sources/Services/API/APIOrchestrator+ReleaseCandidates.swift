@@ -28,7 +28,8 @@ extension APIOrchestrator {
             .itunes: appleMusic,
         ]
         let orderedSources = sourcePriorityConfiguration.orderedSources(artist: artist, album: album)
-        let sources = orderedSources.compactMap { source -> (source: APISource, service: any ExternalAPIService)? in
+        let activeSources = orderedSources.filter { !disabledSources.contains($0) }
+        let sources = activeSources.compactMap { source -> (source: APISource, service: any ExternalAPIService)? in
             guard let service = serviceBySource[source] else { return nil }
             return (source, service)
         }
@@ -39,7 +40,7 @@ extension APIOrchestrator {
             earliestTrackAddedYear: earliestTrackAddedYear,
             timeout: timeout
         )
-        let sourceRank = Dictionary(uniqueKeysWithValues: orderedSources.enumerated().map { ($0.element, $0.offset) })
+        let sourceRank = Dictionary(uniqueKeysWithValues: activeSources.enumerated().map { ($0.element, $0.offset) })
         let apiRetryConfiguration = apiRetryConfiguration
 
         let fetched = await withTaskGroup(

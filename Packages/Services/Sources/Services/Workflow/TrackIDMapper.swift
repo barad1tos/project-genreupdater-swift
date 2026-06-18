@@ -45,15 +45,15 @@ public actor TrackIDMapper: TrackIDMapping {
         appleScriptClient: any AppleScriptClient,
         batchSize: Int,
         allTrackIDsTimeout: Duration?,
-        tracksByIDsTimeout: Duration?
+        tracksByIDsTimeout: Duration?,
+        testArtists: [String] = []
     ) async throws -> Int {
-        let appleScriptTrackIDs = try await appleScriptClient.fetchAllTrackIDs(
-            timeout: allTrackIDsTimeout
-        )
-        let appleScriptTracks = try await appleScriptClient.fetchTracksByIDs(
-            appleScriptTrackIDs,
+        let appleScriptTracks = try await fetchAppleScriptTracks(
+            client: appleScriptClient,
             batchSize: batchSize,
-            timeout: tracksByIDsTimeout
+            allTrackIDsTimeout: allTrackIDsTimeout,
+            tracksByIDsTimeout: tracksByIDsTimeout,
+            testArtists: testArtists
         )
         refreshMapping(
             musicKitTracks: musicKitTracks,
@@ -72,5 +72,41 @@ public actor TrackIDMapper: TrackIDMapping {
 
     private func normalizedKey(_ track: Track) -> String {
         "\(track.name.lowercased())|\(track.artist.lowercased())|\(track.album.lowercased())"
+    }
+
+    private func fetchAppleScriptTracks(
+        client: any AppleScriptClient,
+        batchSize: Int,
+        allTrackIDsTimeout: Duration?,
+        tracksByIDsTimeout: Duration?,
+        testArtists: [String]
+    ) async throws -> [Track] {
+        let scopedArtists = MusicLibraryReader.fetchTargets(
+            requestedArtist: nil,
+            testArtists: testArtists,
+            ignoreTestFilter: false
+        )
+        .compactMap(\.self)
+
+        guard !scopedArtists.isEmpty else {
+            let appleScriptTrackIDs = try await client.fetchAllTrackIDs(
+                timeout: allTrackIDsTimeout
+            )
+            return try await client.fetchTracksByIDs(
+                appleScriptTrackIDs,
+                batchSize: batchSize,
+                timeout: tracksByIDsTimeout
+            )
+        }
+
+        var scopedTracks: [Track] = []
+        for artist in scopedArtists {
+            let tracks = try await client.fetchTracks(
+                artist: artist,
+                timeout: tracksByIDsTimeout
+            )
+            scopedTracks.append(contentsOf: tracks)
+        }
+        return scopedTracks
     }
 }

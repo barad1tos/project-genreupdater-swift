@@ -71,7 +71,6 @@ struct GenreUpdaterApp: App {
                 .environment(\.motionScale, fastAnimations ? 0.5 : 1.0)
                 .preferredColorScheme(appearanceMode.colorScheme)
                 .animation(Motion.curveDefault, value: appearanceMode)
-                .frame(minWidth: 520, idealWidth: 520, maxWidth: 520, minHeight: 400)
         }
     }
 

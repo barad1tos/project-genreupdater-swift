@@ -37,6 +37,32 @@ extension AlbumTypeDetectionConfig {
 
 // MARK: - Update Coordinator
 
+/// Infrastructure dependencies used by ``UpdateCoordinator``.
+public struct UpdateCoordinatorDependencies {
+    let apiOrchestrator: APIOrchestrator
+    let scriptBridge: any AppleScriptClient
+    let trackStore: any TrackStateStore
+    let cache: any CacheService
+    let undoCoordinator: UndoCoordinator
+    let idMapper: (any TrackIDMapping)?
+
+    public init(
+        apiOrchestrator: APIOrchestrator,
+        scriptBridge: any AppleScriptClient,
+        trackStore: any TrackStateStore,
+        cache: any CacheService,
+        undoCoordinator: UndoCoordinator,
+        idMapper: (any TrackIDMapping)? = nil
+    ) {
+        self.apiOrchestrator = apiOrchestrator
+        self.scriptBridge = scriptBridge
+        self.trackStore = trackStore
+        self.cache = cache
+        self.undoCoordinator = undoCoordinator
+        self.idMapper = idMapper
+    }
+}
+
 /// Central orchestrator: read → determine → preview → write → log.
 ///
 /// Coordinates all services to update track metadata in Music.app.
@@ -54,22 +80,17 @@ public actor UpdateCoordinator {
     private let log = Logger(subsystem: "com.genreupdater", category: "UpdateCoordinator")
 
     public init(
-        apiOrchestrator: APIOrchestrator,
-        scriptBridge: any AppleScriptClient,
-        trackStore: any TrackStateStore,
-        cache: any CacheService,
-        undoCoordinator: UndoCoordinator,
-        idMapper: (any TrackIDMapping)? = nil,
+        dependencies: UpdateCoordinatorDependencies,
         genreDeterminator: GenreDeterminator,
         yearDeterminator: YearDeterminator = YearDeterminator(),
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
     ) {
-        self.apiOrchestrator = apiOrchestrator
-        self.scriptBridge = scriptBridge
-        self.trackStore = trackStore
-        self.cache = cache
-        self.undoCoordinator = undoCoordinator
-        self.idMapper = idMapper
+        apiOrchestrator = dependencies.apiOrchestrator
+        scriptBridge = dependencies.scriptBridge
+        trackStore = dependencies.trackStore
+        cache = dependencies.cache
+        undoCoordinator = dependencies.undoCoordinator
+        idMapper = dependencies.idMapper
         self.genreDeterminator = genreDeterminator
         self.yearDeterminator = yearDeterminator
         self.runtimeConfiguration = runtimeConfiguration
@@ -103,6 +124,14 @@ public actor UpdateCoordinator {
         options: UpdateOptions,
         dryRun: Bool = false
     ) async throws -> [ProposedChange] {
+        guard runtimeConfiguration.allowsTrack(track) else {
+            log
+                .info(
+                    "Skipped track \(track.id, privacy: .private) outside test artist allow-list"
+                )
+            return []
+        }
+
         guard track.canEdit else {
             throw UpdateCoordinatorError.trackNotEditable(trackID: track.id)
         }
@@ -140,13 +169,13 @@ public actor UpdateCoordinator {
         }
 
         // Year determination (API-backed)
-        if options.updateYear, runtimeConfiguration.isYearLookupEnabled {
-            if let change = try await determineYearChange(
-                track: workingTrack,
-                albumTracks: albumTracks
-            ) {
-                proposedChanges.append(change)
-            }
+        if options.updateYear,
+           runtimeConfiguration.isYearLookupEnabled,
+           let change = try await determineYearChange(
+               track: workingTrack,
+               albumTracks: albumTracks
+           ) {
+            proposedChanges.append(change)
         }
 
         proposedChanges.append(contentsOf: Self.determineCleaningChanges(
@@ -181,21 +210,29 @@ public actor UpdateCoordinator {
     public func updateTracks(
         _ tracks: [Track],
         options: UpdateOptions,
+        albumTracksProvider: @Sendable (Track) -> [Track] = { _ in [] },
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> BatchUpdateResult {
         let signpostState = AppSignpost.batchProcessing.beginInterval("updateTracks")
         defer { AppSignpost.batchProcessing.endInterval("updateTracks", signpostState) }
 
+        var entries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
 
         for (index, track) in tracks.enumerated() {
             do {
-                _ = try await updateTrack(
+                let changes = try await updateTrack(
                     track,
+                    albumTracks: albumTracksProvider(track),
                     options: options,
-                    dryRun: false
+                    dryRun: true
                 )
+                for change in changes where change.isAccepted {
+                    if let entry = try await applyChange(change) {
+                        entries.append(entry)
+                    }
+                }
             } catch {
                 failedTrackIDs.append(track.id)
                 errorDescriptions.append(error.localizedDescription)
@@ -218,9 +255,6 @@ public actor UpdateCoordinator {
             total: tracks.count
         ))
 
-        // Entries are already recorded in undoCoordinator via applyChange()
-        let entries = await undoCoordinator.getHistory()
-
         if !errorDescriptions.isEmpty, entries.isEmpty {
             throw UpdateCoordinatorError.allTracksFailed(
                 count: errorDescriptions.count,
@@ -241,7 +275,7 @@ public actor UpdateCoordinator {
     /// recalculated or reintroduced during the write phase.
     public func applyAcceptedChanges(
         _ changes: [ProposedChange],
-        progressHandler: @Sendable (ProgressUpdate) -> Void = { _ in }
+        progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> BatchUpdateResult {
         let accepted = changes.filter(\.isAccepted)
         guard !accepted.isEmpty else {
@@ -297,6 +331,14 @@ public actor UpdateCoordinator {
 
     @discardableResult
     func applyChange(_ change: ProposedChange) async throws -> ChangeLogEntry? {
+        guard runtimeConfiguration.allowsChange(change) else {
+            log
+                .info(
+                    "Skipped change for track \(change.track.id, privacy: .private) outside test artist allow-list"
+                )
+            return nil
+        }
+
         guard let newValue = change.newValue else { return nil }
 
         let property = switch change.changeType {

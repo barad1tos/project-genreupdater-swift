@@ -44,8 +44,8 @@ struct KeychainHelperTests {
         #expect(query[kSecAttrAccessible as String] == nil)
     }
 
-    @Test("Save fallback also passes an access-controlled query to Security")
-    func saveFallbackAlsoPassesAccessControlledQueryToSecurity() throws {
+    @Test("Save fallback stores a marked local Keychain item when protected storage lacks entitlements")
+    func saveFallbackStoresMarkedLocalKeychainItemWhenProtectedStorageLacksEntitlements() throws {
         var addQueries: [[String: Any]] = []
         var statuses: [OSStatus] = [errSecMissingEntitlement, errSecSuccess]
         let hooks = KeychainOperationHooks(
@@ -59,12 +59,13 @@ struct KeychainHelperTests {
         let helper = KeychainHelper(operationHooks: hooks)
         let tokenData = Data("fallback-token".utf8)
 
-        try helper.save(
+        let result = try helper.save(
             token: "fallback-token",
             service: testService,
             account: testAccount
         )
 
+        #expect(result == .localFallback)
         #expect(addQueries.count == 2)
         let query = try #require(addQueries.last)
         #expect(query[kSecClass as String] as? String == kSecClassGenericPassword as String)
@@ -72,8 +73,53 @@ struct KeychainHelperTests {
         #expect(query[kSecAttrService as String] as? String == testService)
         #expect(query[kSecAttrAccount as String] as? String == testAccount)
         #expect(query[kSecValueData as String] as? Data == tokenData)
-        #expect(query[kSecAttrAccessControl as String] != nil)
-        #expect(query[kSecAttrAccessible as String] == nil)
+        #expect(query[kSecAttrAccessControl as String] == nil)
+        #expect(query[kSecAttrGeneric as String] as? Data == KeychainHelper.localFallbackMarkerData)
+        #expect(
+            query[kSecAttrAccessible as String] as? String == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String
+        )
+    }
+
+    @Test("Retrieve accepts local fallback token items that were marked by this app")
+    func retrieveAcceptsMarkedLocalFallbackTokenItems() throws {
+        let keychain = InMemoryKeychainOperations()
+        keychain.seed(
+            token: "local-fallback-token",
+            service: testService,
+            account: testAccount,
+            isAccessControlled: false,
+            isLocalFallback: true
+        )
+        let helper = KeychainHelper(operationHooks: keychain.hooks)
+
+        #expect(try helper.retrieve(service: testService, account: testAccount) == "local-fallback-token")
+    }
+
+    @Test("Retrieve uses fallback query for marked local fallback token items")
+    func retrieveUsesFallbackQueryForMarkedLocalFallbackTokenItems() throws {
+        var queries: [[String: Any]] = []
+        let tokenData = Data("local-fallback-token".utf8)
+        let hooks = KeychainOperationHooks(
+            addItem: { _ in errSecSuccess },
+            copyMatching: { query, result in
+                queries.append(query)
+                if query[kSecUseDataProtectionKeychain as String] as? Bool == true {
+                    return errSecItemNotFound
+                }
+                result = [
+                    kSecValueData as String: tokenData,
+                    kSecAttrGeneric as String: KeychainHelper.localFallbackMarkerData,
+                ] as NSDictionary
+                return errSecSuccess
+            },
+            deleteItem: { _ in errSecItemNotFound }
+        )
+        let helper = KeychainHelper(operationHooks: hooks)
+
+        #expect(try helper.retrieve(service: testService, account: testAccount) == "local-fallback-token")
+        #expect(queries.count == 2)
+        #expect(queries.first?[kSecUseDataProtectionKeychain as String] as? Bool == true)
+        #expect(queries.last?[kSecUseDataProtectionKeychain as String] == nil)
     }
 
     @Test("Save rejects empty token input before touching Security")
@@ -223,63 +269,6 @@ struct KeychainHelperTests {
         #expect(try helper.retrieve(service: testService, account: testAccount) == "legacy-token")
     }
 
-    @Test("Discogs saved token migrates previous Settings keychain item")
-    func discogsSavedTokenMigratesPreviousSettingsKeychainItem() throws {
-        let keychain = InMemoryKeychainOperations()
-        keychain.seed(
-            token: "legacy-discogs-token",
-            service: DiscogsClient.legacyKeychainService,
-            account: DiscogsClient.legacyKeychainAccount,
-            isAccessControlled: true
-        )
-        let helper = KeychainHelper(operationHooks: keychain.hooks)
-
-        let token = try DiscogsClient.retrieveSavedToken(keychain: helper)
-
-        #expect(token == "legacy-discogs-token")
-        #expect(try helper.retrieve(
-            service: DiscogsClient.keychainService,
-            account: DiscogsClient.keychainAccount
-        ) == "legacy-discogs-token")
-        #expect(try helper.retrieve(
-            service: DiscogsClient.legacyKeychainService,
-            account: DiscogsClient.legacyKeychainAccount
-        ) == nil)
-    }
-
-    @Test("Discogs saved token surfaces unsafe legacy Settings item")
-    func discogsSavedTokenSurfacesUnsafeLegacySettingsItem() throws {
-        let keychain = InMemoryKeychainOperations()
-        keychain.seed(
-            token: "legacy-discogs-token",
-            service: DiscogsClient.legacyKeychainService,
-            account: DiscogsClient.legacyKeychainAccount,
-            isAccessControlled: false
-        )
-        let helper = KeychainHelper(operationHooks: keychain.hooks)
-
-        #expect(throws: KeychainError.unprotectedItemRequiresResave) {
-            try DiscogsClient.retrieveSavedToken(keychain: helper)
-        }
-    }
-
-    @Test("Retrieve maps authentication failures to authentication errors", arguments: [
-        errSecUserCanceled,
-        errSecInteractionNotAllowed,
-    ])
-    func retrieveMapsAuthenticationFailuresToAuthenticationErrors(status: OSStatus) throws {
-        let hooks = KeychainOperationHooks(
-            addItem: { _ in errSecSuccess },
-            copyMatching: { _, _ in status },
-            deleteItem: { _ in errSecItemNotFound }
-        )
-        let helper = KeychainHelper(operationHooks: hooks)
-
-        #expect(throws: KeychainError.authenticationFailed(status)) {
-            try helper.retrieve(service: testService, account: testAccount)
-        }
-    }
-
     @Test("Protected retrieve query uses an authentication context")
     func protectedRetrieveQueryUsesAuthenticationContext() {
         let helper = KeychainHelper()
@@ -310,151 +299,5 @@ struct KeychainHelperTests {
             account: "nonexistent-\(UUID().uuidString)"
         )
         #expect(result == nil)
-    }
-
-    @Test(
-        "Security-backed Keychain lifecycle can run manually",
-        .enabled(if: ProcessInfo.processInfo.environment["GENREUPDATER_RUN_KEYCHAIN_INTEGRATION"] == "1")
-    )
-    func securityBackedKeychainLifecycle() throws {
-        let service = "com.genreupdater.integration.\(UUID().uuidString)"
-        let account = "discogs-token-integration"
-        let helper = KeychainHelper(authenticationPrompt: "Authenticate to test GenreUpdater Keychain token access.")
-        let token = "integration-token-\(UUID().uuidString)"
-
-        defer {
-            try? helper.delete(service: service, account: account)
-        }
-
-        try helper.save(token: token, service: service, account: account)
-        #expect(try helper.retrieve(service: service, account: account) == token)
-
-        try helper.delete(service: service, account: account)
-        #expect(try helper.retrieve(service: service, account: account) == nil)
-    }
-}
-
-private final class InMemoryKeychainOperations {
-    struct Item {
-        let data: Data
-        let isAccessControlled: Bool
-    }
-
-    var addQueries: [[String: Any]] = []
-    var updateQueries: [(query: [String: Any], attributes: [String: Any])] = []
-    var updateStatus: OSStatus = errSecSuccess
-    private var items: [String: Item] = [:]
-
-    var hooks: KeychainOperationHooks {
-        KeychainOperationHooks(
-            addItem: addItem,
-            copyMatching: copyMatching,
-            deleteItem: deleteItem,
-            updateItem: updateItem
-        )
-    }
-
-    func seed(
-        token: String,
-        service: String,
-        account: String,
-        isAccessControlled: Bool
-    ) {
-        seed(
-            data: Data(token.utf8),
-            service: service,
-            account: account,
-            isAccessControlled: isAccessControlled
-        )
-    }
-
-    func seed(
-        data: Data,
-        service: String,
-        account: String,
-        isAccessControlled: Bool
-    ) {
-        items[key(service: service, account: account)] = Item(
-            data: data,
-            isAccessControlled: isAccessControlled
-        )
-    }
-
-    private func addItem(_ query: [String: Any]) -> OSStatus {
-        addQueries.append(query)
-        guard let data = query[kSecValueData as String] as? Data,
-              let service = query[kSecAttrService as String] as? String,
-              let account = query[kSecAttrAccount as String] as? String else {
-            return errSecParam
-        }
-
-        let itemKey = key(service: service, account: account)
-        guard items[itemKey] == nil else {
-            return errSecDuplicateItem
-        }
-
-        items[itemKey] = Item(
-            data: data,
-            isAccessControlled: query[kSecAttrAccessControl as String] != nil
-        )
-        return errSecSuccess
-    }
-
-    private func copyMatching(
-        _ query: [String: Any],
-        _ result: inout AnyObject?
-    ) -> OSStatus {
-        guard let service = query[kSecAttrService as String] as? String,
-              let account = query[kSecAttrAccount as String] as? String,
-              let item = items[key(service: service, account: account)] else {
-            return errSecItemNotFound
-        }
-
-        var attributes: [String: Any] = [
-            kSecValueData as String: item.data,
-        ]
-        if item.isAccessControlled {
-            attributes[kSecAttrAccessControl as String] = "access-controlled"
-        }
-        result = attributes as NSDictionary
-        return errSecSuccess
-    }
-
-    private func deleteItem(_ query: [String: Any]) -> OSStatus {
-        guard let service = query[kSecAttrService as String] as? String,
-              let account = query[kSecAttrAccount as String] as? String else {
-            return errSecParam
-        }
-
-        return items.removeValue(forKey: key(service: service, account: account)) == nil
-            ? errSecItemNotFound
-            : errSecSuccess
-    }
-
-    private func updateItem(_ query: [String: Any], attributes: [String: Any]) -> OSStatus {
-        updateQueries.append((query, attributes))
-        guard updateStatus == errSecSuccess else {
-            return updateStatus
-        }
-        guard let service = query[kSecAttrService as String] as? String,
-              let account = query[kSecAttrAccount as String] as? String,
-              let data = attributes[kSecValueData as String] as? Data else {
-            return errSecParam
-        }
-
-        let itemKey = key(service: service, account: account)
-        guard let existingItem = items[itemKey] else {
-            return errSecItemNotFound
-        }
-
-        items[itemKey] = Item(
-            data: data,
-            isAccessControlled: attributes[kSecAttrAccessControl as String] != nil || existingItem.isAccessControlled
-        )
-        return errSecSuccess
-    }
-
-    private func key(service: String, account: String) -> String {
-        "\(service)\u{1F}\(account)"
     }
 }

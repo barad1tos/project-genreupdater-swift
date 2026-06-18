@@ -269,10 +269,16 @@ struct APIAndCacheTab: View {
 
     private func saveToken() {
         do {
-            try DiscogsClient.saveToken(tokenInput)
+            let saveResult = try DiscogsClient.saveToken(tokenInput)
             tokenInput = ""
-            tokenStatus = .saved
-            statusMessage = "Token saved successfully"
+            switch saveResult {
+            case .protected:
+                tokenStatus = .saved
+                statusMessage = "Token saved with local authentication"
+            case .localFallback:
+                tokenStatus = .localFallback
+                statusMessage = "Token saved in local Keychain fallback for this unsigned development build"
+            }
             dependencies.applyRuntimeConfiguration()
         } catch {
             tokenStatus = .error
@@ -462,12 +468,13 @@ private struct ScriptPriorityRow: Identifiable {
     }
 }
 private enum TokenStatus {
-    case unknown, saved, missing, error
+    case unknown, saved, localFallback, missing, error
 
     var symbolName: String {
         switch self {
         case .unknown: "questionmark.circle"
         case .saved: "checkmark.circle.fill"
+        case .localFallback: "exclamationmark.triangle.fill"
         case .missing: "xmark.circle"
         case .error: "exclamationmark.triangle.fill"
         }
@@ -477,6 +484,7 @@ private enum TokenStatus {
         switch self {
         case .unknown: .secondary
         case .saved: Ayu.success
+        case .localFallback: Ayu.warning
         case .missing: Ayu.warning
         case .error: Ayu.error
         }

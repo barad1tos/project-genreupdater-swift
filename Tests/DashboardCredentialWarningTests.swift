@@ -28,4 +28,17 @@ struct DashboardCredentialWarningTests {
 
         #expect(view.credentialWarningMessage?.contains("invalid") == true)
     }
+
+    @Test("update configuration exposes credential warning message when Discogs is degraded")
+    func updateConfigurationExposesCredentialWarningMessage() {
+        let view = UpdateConfigSection(
+            viewModel: makeWorkflowViewModel(),
+            tracks: [],
+            testArtists: [],
+            credentialIssue: .missingToken
+        )
+
+        #expect(view.credentialWarningMessage?.contains("Discogs") == true)
+        #expect(view.credentialWarningMessage?.contains("slower") == true)
+    }
 }

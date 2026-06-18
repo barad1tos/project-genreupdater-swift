@@ -8,7 +8,9 @@ private struct ReleaseYearRestoreFixture {
     let bridge: MockAppleScriptClient
 }
 
-private func makeReleaseYearRestoreFixture() async -> ReleaseYearRestoreFixture {
+private func makeReleaseYearRestoreFixture(
+    runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
+) async -> ReleaseYearRestoreFixture {
     let bridge = MockAppleScriptClient()
     let store = MockTrackStore()
     let cache = MockCacheService()
@@ -22,13 +24,15 @@ private func makeReleaseYearRestoreFixture() async -> ReleaseYearRestoreFixture 
         appleMusic: apiService
     )
     let coordinator = UpdateCoordinator(
-        apiOrchestrator: orchestrator,
-        scriptBridge: bridge,
-        trackStore: store,
-        cache: cache,
-        undoCoordinator: undo,
+        dependencies: UpdateCoordinatorDependencies(
+            apiOrchestrator: orchestrator,
+            scriptBridge: bridge,
+            trackStore: store,
+            cache: cache,
+            undoCoordinator: undo
+        ),
         genreDeterminator: GenreDeterminator(),
-        runtimeConfiguration: UpdateRuntimeConfiguration()
+        runtimeConfiguration: runtimeConfiguration
     )
     return ReleaseYearRestoreFixture(coordinator: coordinator, bridge: bridge)
 }
@@ -65,7 +69,7 @@ struct UpdateCoordinatorReleaseYearRestoreTests {
         let result = await fixture.coordinator.restoreReleaseYears(
             in: tracks,
             threshold: 5,
-            progressHandler: { _ in }
+            progressHandler: ignoreReleaseYearProgress
         )
 
         let written = await fixture.bridge.writtenProperties
@@ -86,7 +90,7 @@ struct UpdateCoordinatorReleaseYearRestoreTests {
         let result = await fixture.coordinator.restoreReleaseYears(
             in: tracks,
             threshold: 5,
-            progressHandler: { _ in }
+            progressHandler: ignoreReleaseYearProgress
         )
 
         let written = await fixture.bridge.writtenProperties
@@ -104,11 +108,37 @@ struct UpdateCoordinatorReleaseYearRestoreTests {
         let result = await fixture.coordinator.restoreReleaseYears(
             in: tracks,
             threshold: 5,
-            progressHandler: { _ in }
+            progressHandler: ignoreReleaseYearProgress
         )
 
         let written = await fixture.bridge.writtenProperties
         #expect(result.entries.count == 1)
         #expect(written.first?.value == "1997")
     }
+
+    @Test("Skips out-of-scope restore without recording success")
+    func skipsOutOfScopeRestoreWithoutRecordingSuccess() async {
+        let fixture = await makeReleaseYearRestoreFixture(
+            runtimeConfiguration: UpdateRuntimeConfiguration(testArtists: ["In Flames"])
+        )
+        let tracks = [
+            makeReleaseYearTrack(id: "T1", artist: "Crematory", year: 2025, releaseYear: 1997),
+            makeReleaseYearTrack(id: "T2", artist: "Crematory", year: 2025, releaseYear: 1997),
+        ]
+
+        let result = await fixture.coordinator.restoreReleaseYears(
+            in: tracks,
+            threshold: 5,
+            progressHandler: ignoreReleaseYearProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(written.isEmpty)
+    }
+}
+
+private func ignoreReleaseYearProgress(_ update: ProgressUpdate) {
+    _ = update
 }

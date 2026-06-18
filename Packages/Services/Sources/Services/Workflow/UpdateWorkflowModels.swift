@@ -66,26 +66,50 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     public let minimumConfidenceToCache: Int
     public let albumTypeDetection: AlbumTypeDetectionConfig
     public let cleaning: CleaningConfig
+    /// Artist allow-list for update writes; empty means all effective artists are allowed.
+    public let testArtists: [String]
     public let shouldOverrideExistingGenres: Bool
+
+    public struct Policies: Sendable, Equatable {
+        public let isYearLookupEnabled: Bool
+        public let minimumYearUpdateConfidence: Double
+        public let minimumConfidenceToCache: Int
+        public let albumTypeDetection: AlbumTypeDetectionConfig
+        public let cleaning: CleaningConfig
+        public let shouldOverrideExistingGenres: Bool
+
+        public init(
+            isYearLookupEnabled: Bool = AppConfiguration().yearRetrieval.enabled,
+            minimumYearUpdateConfidence: Double = AppConfiguration().yearRetrieval.logic.minConfidenceForNewYear,
+            minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache,
+            albumTypeDetection: AlbumTypeDetectionConfig = AlbumTypeDetectionConfig(),
+            cleaning: CleaningConfig = CleaningConfig(),
+            shouldOverrideExistingGenres: Bool = AppConfiguration().genreUpdate.overrideExisting
+        ) {
+            self.isYearLookupEnabled = isYearLookupEnabled
+            self.minimumYearUpdateConfidence = minimumYearUpdateConfidence
+            self.minimumConfidenceToCache = minimumConfidenceToCache
+            self.albumTypeDetection = albumTypeDetection
+            self.cleaning = cleaning
+            self.shouldOverrideExistingGenres = shouldOverrideExistingGenres
+        }
+    }
 
     public init(
         genreMappings: [String: String] = [:],
         artistRenameMappings: [String: String] = [:],
-        isYearLookupEnabled: Bool = AppConfiguration().yearRetrieval.enabled,
-        minimumYearUpdateConfidence: Double = AppConfiguration().yearRetrieval.logic.minConfidenceForNewYear,
-        minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache,
-        albumTypeDetection: AlbumTypeDetectionConfig = AlbumTypeDetectionConfig(),
-        cleaning: CleaningConfig = CleaningConfig(),
-        shouldOverrideExistingGenres: Bool = AppConfiguration().genreUpdate.overrideExisting
+        testArtists: [String] = AppConfiguration().development.testArtists,
+        policies: Policies = Policies()
     ) {
         self.genreMappings = genreMappings
         self.artistRenameMappings = Self.normalizedMappings(artistRenameMappings)
-        self.isYearLookupEnabled = isYearLookupEnabled
-        self.minimumYearUpdateConfidence = minimumYearUpdateConfidence
-        self.minimumConfidenceToCache = minimumConfidenceToCache
-        self.albumTypeDetection = albumTypeDetection
-        self.cleaning = cleaning
-        self.shouldOverrideExistingGenres = shouldOverrideExistingGenres
+        self.isYearLookupEnabled = policies.isYearLookupEnabled
+        self.minimumYearUpdateConfidence = policies.minimumYearUpdateConfidence
+        self.minimumConfidenceToCache = policies.minimumConfidenceToCache
+        self.albumTypeDetection = policies.albumTypeDetection
+        self.cleaning = policies.cleaning
+        self.testArtists = testArtists
+        self.shouldOverrideExistingGenres = policies.shouldOverrideExistingGenres
     }
 
     public init(configuration: AppConfiguration) {
@@ -98,13 +122,33 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         self.init(
             genreMappings: configuration.cleaning.genreMappings,
             artistRenameMappings: configuration.artistRenamer.mappings,
-            isYearLookupEnabled: configuration.yearRetrieval.enabled,
-            minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
-            minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
-            albumTypeDetection: configuration.albumTypeDetection,
-            cleaning: cleaning,
-            shouldOverrideExistingGenres: configuration.genreUpdate.overrideExisting
+            testArtists: configuration.development.testArtists,
+            policies: Policies(
+                isYearLookupEnabled: configuration.yearRetrieval.enabled,
+                minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
+                minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
+                albumTypeDetection: configuration.albumTypeDetection,
+                cleaning: cleaning,
+                shouldOverrideExistingGenres: configuration.genreUpdate.overrideExisting
+            )
         )
+    }
+
+    func allowsTrack(_ track: Track) -> Bool {
+        ArtistAllowList.contains(track, in: testArtists)
+    }
+
+    func allowsChange(_ change: ProposedChange) -> Bool {
+        if allowsTrack(change.track) {
+            return true
+        }
+
+        guard change.changeType == .artistRename,
+              let originalArtist = change.oldValue
+        else {
+            return false
+        }
+        return ArtistAllowList.contains(originalArtist, in: testArtists)
     }
 
     private static func normalizedMappings(_ mappings: [String: String]) -> [String: String] {

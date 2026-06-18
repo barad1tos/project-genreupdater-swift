@@ -16,9 +16,9 @@ extension DiscogsClient {
     /// - Throws: `KeychainError.emptyToken` for blank input, access-control and authentication
     ///   errors when protected storage cannot be used, or `KeychainError.saveFailed` on Keychain
     ///   add or replacement failure.
-    public static func saveToken(_ token: String) throws {
+    public static func saveToken(_ token: String) throws -> KeychainSaveResult {
         let keychain = KeychainHelper()
-        try keychain.save(
+        return try keychain.save(
             token: token,
             service: keychainService,
             account: keychainAccount
