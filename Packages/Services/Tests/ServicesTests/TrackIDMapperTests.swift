@@ -186,7 +186,9 @@ private actor ScopedTrackMappingScriptClient: AppleScriptClient {
         self.scopedTracks = scopedTracks
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        try Task.checkCancellation()
+    }
 
     func runScript(
         name _: String,
@@ -222,7 +224,9 @@ private actor ScopedTrackMappingScriptClient: AppleScriptClient {
         trackID _: String,
         property _: String,
         value _: String
-    ) async throws {}
+    ) async throws {
+        try Task.checkCancellation()
+    }
 
     func didFetchAllTrackIDs() -> Bool {
         fetchedAllTrackIDs

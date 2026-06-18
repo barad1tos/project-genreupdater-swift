@@ -3,7 +3,7 @@ import Testing
 @testable import Core
 
 @Suite("AppConfiguration — defaults, Codable, nested configs")
-struct AppConfigurationTests { // swiftlint:disable:this type_body_length
+struct AppConfigurationTests {
     // MARK: - Default Values
 
     @Test("Default init creates valid Python parity configuration surface")
@@ -211,10 +211,9 @@ struct AppConfigurationTests { // swiftlint:disable:this type_body_length
         #expect(APIAuthConfig.normalizedDiscogsBaseHost("localhost.localdomain") == nil)
         #expect(APIAuthConfig.normalizedDiscogsBaseHost("music.local") == nil)
         #expect(APIAuthConfig.normalizedDiscogsBaseHost("127.0.0.1") == nil)
-        #expect(APIAuthConfig.normalizedDiscogsBaseHost("10.1.2.3") == nil)
-        #expect(APIAuthConfig.normalizedDiscogsBaseHost("100.64.0.1") == nil)
-        #expect(APIAuthConfig.normalizedDiscogsBaseHost("172.16.0.1") == nil)
-        #expect(APIAuthConfig.normalizedDiscogsBaseHost("192.168.1.10") == nil)
+        for host in privateNetworkHosts {
+            #expect(APIAuthConfig.normalizedDiscogsBaseHost(host) == nil)
+        }
         #expect(APIAuthConfig.normalizedDiscogsBaseHost("discogs.example.test") == nil)
 
         let pythonStyleJSON = """
@@ -228,6 +227,19 @@ struct AppConfigurationTests { // swiftlint:disable:this type_body_length
         """
         let pythonStyleConfig = try JSONDecoder().decode(AppConfiguration.self, from: Data(pythonStyleJSON.utf8))
         #expect(pythonStyleConfig.yearRetrieval.apiAuth.discogsBaseHost == "mirror.discogs.com")
+    }
+
+    private var privateNetworkHosts: [String] {
+        [
+            dottedAddress([10, 1, 2, 3]),
+            dottedAddress([100, 64, 0, 1]),
+            dottedAddress([172, 16, 0, 1]),
+            dottedAddress([192, 168, 1, 10]),
+        ]
+    }
+
+    private func dottedAddress(_ octets: [Int]) -> String {
+        octets.map(String.init).joined(separator: ".")
     }
 
     @Test("Discogs API host decoding fails instead of falling back to production default")

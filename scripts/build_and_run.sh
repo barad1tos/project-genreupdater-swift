@@ -86,14 +86,14 @@ verify_app() {
   sleep 1
   local pid
   pid="$(process_id)"
-  test -n "$pid"
+  [[ -n "$pid" ]]
   echo "$PROCESS_NAME is running with PID $pid"
   echo "$APP_BINARY"
 }
 
 run_app() {
   build_app
-  test -x "$APP_BINARY"
+  [[ -x "$APP_BINARY" ]]
   sign_app_for_local_run
   stop_existing_app
   open_app
