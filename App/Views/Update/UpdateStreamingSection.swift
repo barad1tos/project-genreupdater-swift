@@ -191,6 +191,9 @@ struct UpdateStreamingSection: View {
 
     private var totalCount: Int {
         let progressTotal = viewModel.progress?.total ?? viewModel.totalCount
+        if case .applying = viewModel.phase {
+            return progressTotal
+        }
         return max(progressTotal, tracks.count)
     }
 

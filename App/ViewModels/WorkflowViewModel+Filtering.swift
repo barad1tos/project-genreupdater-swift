@@ -36,6 +36,12 @@ extension WorkflowViewModel {
 
     func requireTrackCapacityForCurrentMode(tracks: [Track]) -> Bool {
         do {
+            guard mode == .pendingVerification || !tracks.isEmpty else {
+                phase = .error("No tracks in the current scope")
+                progress = nil
+                return false
+            }
+
             if mode == .fullLibrary {
                 try featureGate?.require(.batchProcessing)
                 return true

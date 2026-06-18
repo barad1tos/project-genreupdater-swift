@@ -138,6 +138,19 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         ArtistAllowList.contains(track, in: testArtists)
     }
 
+    func allowsChange(_ change: ProposedChange) -> Bool {
+        if allowsTrack(change.track) {
+            return true
+        }
+
+        guard change.changeType == .artistRename,
+              let originalArtist = change.oldValue
+        else {
+            return false
+        }
+        return ArtistAllowList.contains(originalArtist, in: testArtists)
+    }
+
     private static func normalizedMappings(_ mappings: [String: String]) -> [String: String] {
         var normalized: [String: String] = [:]
 

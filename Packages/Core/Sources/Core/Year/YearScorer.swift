@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 // YearScorer.swift — Multi-factor release scoring and year resolution
 // Ported from: year_scoring.py (947 LOC) + year_score_resolver.py (525 LOC)
 //

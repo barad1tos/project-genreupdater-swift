@@ -5,6 +5,14 @@ extension WorkflowViewModel {
     // MARK: - Batch Processing (Full Library mode)
 
     func startBatchProcessing(tracks: [Track]) {
+        let tracksByIndex = Self.sortedForBatchProcessing(tracks)
+        guard !tracksByIndex.isEmpty else {
+            phase = .error("No tracks in the current scope")
+            progress = nil
+            currentTrackID = nil
+            return
+        }
+
         phase = .scanning
         processedCount = 0
         failedCount = 0
@@ -20,7 +28,6 @@ extension WorkflowViewModel {
             autoAccept: true
         )
 
-        let tracksByIndex = Self.sortedForBatchProcessing(tracks)
         let albumGroups = Self.groupTracksByAlbum(tracksByIndex)
         let albumTracksByTrackID = Dictionary(uniqueKeysWithValues: tracksByIndex.map {
             ($0.id, albumGroups[Self.albumKey(for: $0)] ?? [])
@@ -65,15 +72,28 @@ extension WorkflowViewModel {
         options: UpdateOptions,
         albumTracksByTrackID: [String: [Track]]
     ) -> @Sendable (Track) async throws -> [ChangeLogEntry] {
-        { track in
-            let batchResult = try await updateCoordinator.updateTracks(
-                [track],
-                options: options,
-                albumTracksProvider: Self.albumTracksProvider(albumTracksByTrackID),
-                progressHandler: Self.ignoreNestedTrackProgress
-            )
-            return batchResult.entries
+        { [weak self] track in
+            do {
+                let batchResult = try await updateCoordinator.updateTracks(
+                    [track],
+                    options: options,
+                    albumTracksProvider: Self.albumTracksProvider(albumTracksByTrackID),
+                    progressHandler: Self.ignoreNestedTrackProgress
+                )
+                if let failureDescription = batchResult.errorDescriptions.first {
+                    await self?.markBatchTrackFailed(track, message: failureDescription)
+                }
+                return batchResult.entries
+            } catch {
+                await self?.markBatchTrackFailed(track, message: error.localizedDescription)
+                throw error
+            }
         }
+    }
+
+    private func markBatchTrackFailed(_ track: Track, message: String) {
+        trackStatuses[track.id] = .failed(message)
+        failedCount = failedTracks.count
     }
 
     nonisolated private static func albumTracksProvider(
@@ -100,10 +120,17 @@ extension WorkflowViewModel {
         progress = update
         processedCount = update.current
 
-        if update.current <= tracksByIndex.count {
+        guard update.current > 0 else {
+            currentTrackID = nil
+            return
+        }
+
+        if tracksByIndex.indices.contains(update.current - 1) {
             let currentTrack = tracksByIndex[update.current - 1]
             currentTrackID = currentTrack.id
-            trackStatuses[currentTrack.id] = .writing
+            if !isFailedTrack(currentTrack.id) {
+                trackStatuses[currentTrack.id] = .writing
+            }
 
             // Mark previous track as done if it was still writing
             if update.current > 1 {
@@ -123,6 +150,13 @@ extension WorkflowViewModel {
         if case .writing = trackStatuses[track.id] {
             trackStatuses[track.id] = .done
         }
+    }
+
+    private func isFailedTrack(_ trackID: String) -> Bool {
+        if case .failed = trackStatuses[trackID] {
+            return true
+        }
+        return false
     }
 
     private func finalizeBatchStatuses(for tracks: [Track]) {

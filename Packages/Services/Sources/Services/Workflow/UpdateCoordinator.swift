@@ -37,6 +37,32 @@ extension AlbumTypeDetectionConfig {
 
 // MARK: - Update Coordinator
 
+/// Infrastructure dependencies used by ``UpdateCoordinator``.
+public struct UpdateCoordinatorDependencies {
+    let apiOrchestrator: APIOrchestrator
+    let scriptBridge: any AppleScriptClient
+    let trackStore: any TrackStateStore
+    let cache: any CacheService
+    let undoCoordinator: UndoCoordinator
+    let idMapper: (any TrackIDMapping)?
+
+    public init(
+        apiOrchestrator: APIOrchestrator,
+        scriptBridge: any AppleScriptClient,
+        trackStore: any TrackStateStore,
+        cache: any CacheService,
+        undoCoordinator: UndoCoordinator,
+        idMapper: (any TrackIDMapping)? = nil
+    ) {
+        self.apiOrchestrator = apiOrchestrator
+        self.scriptBridge = scriptBridge
+        self.trackStore = trackStore
+        self.cache = cache
+        self.undoCoordinator = undoCoordinator
+        self.idMapper = idMapper
+    }
+}
+
 /// Central orchestrator: read → determine → preview → write → log.
 ///
 /// Coordinates all services to update track metadata in Music.app.
@@ -54,22 +80,17 @@ public actor UpdateCoordinator {
     private let log = Logger(subsystem: "com.genreupdater", category: "UpdateCoordinator")
 
     public init(
-        apiOrchestrator: APIOrchestrator,
-        scriptBridge: any AppleScriptClient,
-        trackStore: any TrackStateStore,
-        cache: any CacheService,
-        undoCoordinator: UndoCoordinator,
-        idMapper: (any TrackIDMapping)? = nil,
+        dependencies: UpdateCoordinatorDependencies,
         genreDeterminator: GenreDeterminator,
         yearDeterminator: YearDeterminator = YearDeterminator(),
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
     ) {
-        self.apiOrchestrator = apiOrchestrator
-        self.scriptBridge = scriptBridge
-        self.trackStore = trackStore
-        self.cache = cache
-        self.undoCoordinator = undoCoordinator
-        self.idMapper = idMapper
+        apiOrchestrator = dependencies.apiOrchestrator
+        scriptBridge = dependencies.scriptBridge
+        trackStore = dependencies.trackStore
+        cache = dependencies.cache
+        undoCoordinator = dependencies.undoCoordinator
+        idMapper = dependencies.idMapper
         self.genreDeterminator = genreDeterminator
         self.yearDeterminator = yearDeterminator
         self.runtimeConfiguration = runtimeConfiguration
@@ -148,13 +169,13 @@ public actor UpdateCoordinator {
         }
 
         // Year determination (API-backed)
-        if options.updateYear, runtimeConfiguration.isYearLookupEnabled {
-            if let change = try await determineYearChange(
-                track: workingTrack,
-                albumTracks: albumTracks
-            ) {
-                proposedChanges.append(change)
-            }
+        if options.updateYear,
+           runtimeConfiguration.isYearLookupEnabled,
+           let change = try await determineYearChange(
+               track: workingTrack,
+               albumTracks: albumTracks
+           ) {
+            proposedChanges.append(change)
         }
 
         proposedChanges.append(contentsOf: Self.determineCleaningChanges(
@@ -254,7 +275,7 @@ public actor UpdateCoordinator {
     /// recalculated or reintroduced during the write phase.
     public func applyAcceptedChanges(
         _ changes: [ProposedChange],
-        progressHandler: @Sendable (ProgressUpdate) -> Void = { _ in }
+        progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> BatchUpdateResult {
         let accepted = changes.filter(\.isAccepted)
         guard !accepted.isEmpty else {
@@ -310,7 +331,7 @@ public actor UpdateCoordinator {
 
     @discardableResult
     func applyChange(_ change: ProposedChange) async throws -> ChangeLogEntry? {
-        guard runtimeConfiguration.allowsTrack(change.track) else {
+        guard runtimeConfiguration.allowsChange(change) else {
             log
                 .info(
                     "Skipped change for track \(change.track.id, privacy: .private) outside test artist allow-list"

@@ -143,7 +143,12 @@ final class WorkflowViewModel {
     }
 
     var hasRunnableScope: Bool {
-        mode != .selectedTracks || scopeTrackCount > 0
+        switch mode {
+        case .pendingVerification:
+            true
+        case .selectedTracks, .fullLibrary, .smartFilter, .releaseYearRestore:
+            scopeTrackCount > 0
+        }
     }
 
     /// Track IDs with their error messages from the most recent run.

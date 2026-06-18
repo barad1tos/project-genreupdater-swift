@@ -33,8 +33,9 @@ extension UpdateCoordinator {
             )
 
             do {
-                try await applyChange(change)
-                entries.append(Self.changeToLogEntry(change))
+                if let entry = try await applyChange(change) {
+                    entries.append(entry)
+                }
             } catch {
                 failedTrackIDs.append(track.id)
                 errorDescriptions.append(error.localizedDescription)
@@ -62,11 +63,13 @@ extension UpdateCoordinator {
     }
 
     static func releaseYearConsensusByAlbum(for tracks: [Track]) -> [String: Int] {
-        Dictionary(uniqueKeysWithValues: Dictionary(grouping: tracks, by: albumKey(for:))
-            .compactMap { key, albumTracks in
-                guard let releaseYear = mostCommonReleaseYear(in: albumTracks) else { return nil }
-                return (key, releaseYear)
-            })
+        let groupedTracks = Dictionary(grouping: tracks) { track in
+            Self.albumKey(for: track)
+        }
+        return Dictionary(uniqueKeysWithValues: groupedTracks.compactMap { key, albumTracks in
+            guard let releaseYear = mostCommonReleaseYear(in: albumTracks) else { return nil }
+            return (key, releaseYear)
+        })
     }
 
     static func albumKey(for track: Track) -> String {

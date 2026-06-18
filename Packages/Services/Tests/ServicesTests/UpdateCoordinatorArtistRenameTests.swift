@@ -59,28 +59,51 @@ struct UpdateCoordinatorArtistRenameTests {
         #expect(written.contains { $0.property == "artist" && $0.value == "NewArtist" })
     }
 
+    @Test("Scoped write mode applies allowed artist rename")
+    func scopedWriteModeAppliesAllowedArtistRename() async throws {
+        let fixture = await makeCoordinator(
+            mappings: ["OldArtist": "NewArtist"],
+            testArtists: ["OldArtist"]
+        )
+
+        let track = makeEditableTrack(artist: "OldArtist")
+        let changes = try await fixture.coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: false),
+            dryRun: false
+        )
+
+        #expect(changes.contains { $0.changeType == .artistRename })
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.contains { $0.property == "artist" && $0.value == "NewArtist" })
+    }
+
     private func makeCoordinator(
-        mappings: [String: String]
+        mappings: [String: String],
+        testArtists: [String] = []
     ) async -> (coordinator: UpdateCoordinator, bridge: MockAppleScriptClient) {
         let bridge = MockAppleScriptClient()
         let apiService = MockAPIService()
         let runtimeConfiguration = UpdateRuntimeConfiguration(
-            artistRenameMappings: mappings
+            artistRenameMappings: mappings,
+            testArtists: testArtists
         )
 
         let coordinator = UpdateCoordinator(
-            apiOrchestrator: APIOrchestrator(
-                musicBrainz: apiService,
-                discogs: apiService,
-                appleMusic: apiService
-            ),
-            scriptBridge: bridge,
-            trackStore: MockTrackStore(),
-            cache: MockCacheService(),
-            undoCoordinator: UndoCoordinator(
+            dependencies: UpdateCoordinatorDependencies(
+                apiOrchestrator: APIOrchestrator(
+                    musicBrainz: apiService,
+                    discogs: apiService,
+                    appleMusic: apiService
+                ),
                 scriptBridge: bridge,
-                directory: FileManager.default.temporaryDirectory
-                    .appendingPathComponent("UpdateCoordinatorArtistRenameTests-\(UUID().uuidString)")
+                trackStore: MockTrackStore(),
+                cache: MockCacheService(),
+                undoCoordinator: UndoCoordinator(
+                    scriptBridge: bridge,
+                    directory: FileManager.default.temporaryDirectory
+                        .appendingPathComponent("UpdateCoordinatorArtistRenameTests-\(UUID().uuidString)")
+                )
             ),
             genreDeterminator: GenreDeterminator(),
             runtimeConfiguration: runtimeConfiguration

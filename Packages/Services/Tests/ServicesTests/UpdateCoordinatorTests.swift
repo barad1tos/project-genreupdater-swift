@@ -84,11 +84,13 @@ struct UpdateCoordinatorTests {
         )
 
         let coordinator = UpdateCoordinator(
-            apiOrchestrator: orchestrator,
-            scriptBridge: bridge,
-            trackStore: store,
-            cache: cacheService,
-            undoCoordinator: undo,
+            dependencies: UpdateCoordinatorDependencies(
+                apiOrchestrator: orchestrator,
+                scriptBridge: bridge,
+                trackStore: store,
+                cache: cacheService,
+                undoCoordinator: undo
+            ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: yearDeterminator,
             runtimeConfiguration: runtimeConfiguration

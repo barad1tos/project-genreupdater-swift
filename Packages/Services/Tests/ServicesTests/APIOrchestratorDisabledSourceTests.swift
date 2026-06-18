@@ -30,6 +30,34 @@ struct APIOrchestratorDisabledSourceTests {
         #expect(calledSources.contains(.itunes))
         #expect(!calledSources.contains(.discogs))
     }
+
+    @Test("Disabled sources are skipped before release candidate calls")
+    func disabledSourcesAreSkippedBeforeReleaseCandidateCalls() async {
+        let recorder = APISourceCallRecorder()
+        let musicBrainz = SourceRecordingAPIService(source: .musicBrainz, recorder: recorder)
+        let discogs = SourceRecordingAPIService(source: .discogs, recorder: recorder)
+        let appleMusic = SourceRecordingAPIService(source: .itunes, recorder: recorder)
+        let orchestrator = APIOrchestrator(
+            musicBrainz: musicBrainz,
+            discogs: discogs,
+            appleMusic: appleMusic,
+            disabledSources: [.discogs],
+            sourcePriorityConfiguration: APISourcePriorityConfiguration(preferredAPI: .musicbrainz)
+        )
+
+        let candidates = await orchestrator.getReleaseCandidates(
+            artist: "In Flames",
+            album: "Clayman",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        let calledSources = await recorder.calledSources
+        #expect(calledSources.contains(.musicBrainz))
+        #expect(calledSources.contains(.itunes))
+        #expect(!calledSources.contains(.discogs))
+        #expect(!candidates.contains { $0.source == .discogs })
+    }
 }
 
 private actor APISourceCallRecorder {
@@ -63,13 +91,20 @@ private struct SourceRecordingAPIService: ExternalAPIService {
     }
 
     func getReleaseCandidates(
-        artist _: String,
-        album _: String,
+        artist: String,
+        album: String,
         currentLibraryYear _: Int?,
         earliestTrackAddedYear _: Int?
     ) async throws -> [ReleaseCandidate] {
         await recorder.record(source)
-        return []
+        return [
+            ReleaseCandidate(
+                artist: artist,
+                album: album,
+                year: 2000,
+                source: source
+            ),
+        ]
     }
 
     func getArtistActivityPeriod(
@@ -84,6 +119,11 @@ private struct SourceRecordingAPIService: ExternalAPIService {
         nil
     }
 
-    func initialize(force _: Bool) async throws {}
-    func close() async {}
+    func initialize(force _: Bool) async throws {
+        try Task.checkCancellation()
+    }
+
+    func close() async {
+        await Task.yield()
+    }
 }

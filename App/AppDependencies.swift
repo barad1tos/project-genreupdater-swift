@@ -410,12 +410,14 @@ final class AppDependencies {
         undoCoordinator = undo
 
         updateCoordinator = UpdateCoordinator(
-            apiOrchestrator: orchestrator,
-            scriptBridge: bridge,
-            trackStore: store,
-            cache: cache,
-            undoCoordinator: undo,
-            idMapper: mapper,
+            dependencies: UpdateCoordinatorDependencies(
+                apiOrchestrator: orchestrator,
+                scriptBridge: bridge,
+                trackStore: store,
+                cache: cache,
+                undoCoordinator: undo,
+                idMapper: mapper
+            ),
             genreDeterminator: genreDeterm,
             yearDeterminator: yearDeterm,
             runtimeConfiguration: UpdateRuntimeConfiguration(configuration: config)

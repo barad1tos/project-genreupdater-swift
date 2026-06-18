@@ -165,6 +165,49 @@ struct WorkflowSelectedUpdateScopeTests {
         })
     }
 
+    @Test("full library live processing surfaces write failures")
+    func fullLibraryLiveProcessingSurfacesWriteFailures() async throws {
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2020, confidence: 90),
+            failingWriteTrackIDs: ["missing-year"]
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+        viewModel.cleanTrackNames = false
+        viewModel.cleanAlbumNames = false
+
+        viewModel.start(tracks: [
+            Track(id: "missing-year", name: "Track", artist: "In Flames", album: "Clayman", year: 1999),
+        ])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        #expect(!viewModel.failedTracks.isEmpty)
+        #expect(viewModel.failedTracks.first?.id == "missing-year")
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+    }
+
+    @Test("full library empty effective scope is not runnable")
+    func fullLibraryEmptyEffectiveScopeIsNotRunnable() {
+        let viewModel = makeWorkflowViewModel()
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.configureFullLibraryScope(tracks: [])
+
+        #expect(!viewModel.hasRunnableScope)
+
+        viewModel.start(tracks: [])
+
+        guard case let .error(message) = viewModel.phase else {
+            #expect(Bool(false), "empty full-library scope should surface an error instead of starting")
+            return
+        }
+        #expect(message.contains("No tracks"))
+    }
+
     @Test("pause is ignored outside full-library scanning")
     func pauseIsIgnoredOutsideFullLibraryScanning() async {
         let viewModel = makeWorkflowViewModel()

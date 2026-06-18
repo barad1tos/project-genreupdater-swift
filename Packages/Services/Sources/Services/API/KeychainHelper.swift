@@ -75,24 +75,29 @@ public struct KeychainHelper: Sendable {
 
     private let authenticationPolicy: KeychainAuthenticationPolicy
     private let authenticationPrompt: String
+    private let allowsLocalFallback: Bool
     private let operationHooks: KeychainOperationHooks?
 
     public init(
         authenticationPolicy: KeychainAuthenticationPolicy = .localUserPresence,
-        authenticationPrompt: String? = nil
+        authenticationPrompt: String? = nil,
+        allowsLocalFallback: Bool = Self.defaultAllowsLocalFallback
     ) {
         self.authenticationPolicy = authenticationPolicy
         self.authenticationPrompt = authenticationPrompt ?? authenticationPolicy.defaultPrompt
+        self.allowsLocalFallback = allowsLocalFallback
         self.operationHooks = nil
     }
 
     init(
         authenticationPolicy: KeychainAuthenticationPolicy = .localUserPresence,
         authenticationPrompt: String? = nil,
+        allowsLocalFallback: Bool = Self.defaultAllowsLocalFallback,
         operationHooks: KeychainOperationHooks
     ) {
         self.authenticationPolicy = authenticationPolicy
         self.authenticationPrompt = authenticationPrompt ?? authenticationPolicy.defaultPrompt
+        self.allowsLocalFallback = allowsLocalFallback
         self.operationHooks = operationHooks
     }
 
@@ -151,7 +156,7 @@ public struct KeychainHelper: Sendable {
             return .protected
         }
 
-        if Self.shouldUseLegacyKeychainFallback(status) {
+        if allowsLocalFallback, Self.shouldUseLegacyKeychainFallback(status) {
             let fallbackQuery = localFallbackSaveQuery(service: service, account: account, data: data)
             let fallbackStatus = addItem(fallbackQuery)
             if fallbackStatus == errSecSuccess {
@@ -202,7 +207,8 @@ public struct KeychainHelper: Sendable {
                 account: account,
                 shouldReturnData: true,
                 authenticationContext: authenticationContext
-            )
+            ),
+            allowFallback: allowsLocalFallback
         )
         if protectedResult.status == errSecSuccess || protectedResult.status == errSecItemNotFound {
             if protectedResult.isUnprotectedItem, !protectedResult.isLocalFallbackItem {
@@ -301,6 +307,14 @@ public struct KeychainHelper: Sendable {
 }
 
 extension KeychainHelper {
+    @usableFromInline static var defaultAllowsLocalFallback: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
+
     private static func shouldUseLegacyKeychainFallback(_ status: OSStatus) -> Bool {
         status == errSecNotAvailable || status == errSecMissingEntitlement
     }

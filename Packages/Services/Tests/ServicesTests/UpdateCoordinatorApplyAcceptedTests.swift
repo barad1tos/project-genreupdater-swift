@@ -30,7 +30,10 @@ struct UpdateCoordinatorApplyAcceptedTests {
             ),
         ]
 
-        let result = try await fixture.coordinator.applyAcceptedChanges(proposals)
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
 
         let written = await fixture.bridge.writtenProperties
         #expect(written.count == 1)
@@ -58,7 +61,10 @@ struct UpdateCoordinatorApplyAcceptedTests {
             ),
         ]
 
-        let result = try await fixture.coordinator.applyAcceptedChanges(proposals)
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
 
         let written = await fixture.bridge.writtenProperties
         #expect(written.isEmpty)
@@ -80,11 +86,13 @@ struct UpdateCoordinatorApplyAcceptedTests {
             .appendingPathComponent("UpdateCoordinatorApplyAcceptedTests-\(UUID().uuidString)")
         let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
         let coordinator = UpdateCoordinator(
-            apiOrchestrator: orchestrator,
-            scriptBridge: bridge,
-            trackStore: MockTrackStore(),
-            cache: MockCacheService(),
-            undoCoordinator: undo,
+            dependencies: UpdateCoordinatorDependencies(
+                apiOrchestrator: orchestrator,
+                scriptBridge: bridge,
+                trackStore: MockTrackStore(),
+                cache: MockCacheService(),
+                undoCoordinator: undo
+            ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),
             runtimeConfiguration: runtimeConfiguration
@@ -108,6 +116,10 @@ struct UpdateCoordinatorApplyAcceptedTests {
             trackStatus: nil
         )
     }
+}
+
+private func ignoreAcceptedChangeProgress(_ update: ProgressUpdate) {
+    _ = update
 }
 
 private struct AcceptedApplyFixture {

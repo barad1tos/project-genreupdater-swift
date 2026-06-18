@@ -33,11 +33,13 @@ struct UpdateCoordinatorCandidateScoringTests {
             appleMusic: MockAPIService()
         )
         let coordinator = UpdateCoordinator(
-            apiOrchestrator: api,
-            scriptBridge: bridge,
-            trackStore: MockTrackStore(),
-            cache: cache,
-            undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: undoDirectory),
+            dependencies: UpdateCoordinatorDependencies(
+                apiOrchestrator: api,
+                scriptBridge: bridge,
+                trackStore: MockTrackStore(),
+                cache: cache,
+                undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
+            ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator()
         )
