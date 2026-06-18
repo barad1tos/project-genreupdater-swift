@@ -294,6 +294,9 @@ public protocol AppleScriptClient: Actor {
     /// Fetch all track IDs from the library (lightweight).
     func fetchAllTrackIDs(timeout: Duration?) async throws -> [String]
 
+    /// Fetch editable tracks, optionally scoped to a single effective artist.
+    func fetchTracks(artist: String?, timeout: Duration?) async throws -> [Track]
+
     /// Update a single property on a track in Music.app.
     func updateTrackProperty(trackID: String, property: String, value: String) async throws
 }
@@ -313,6 +316,17 @@ extension AppleScriptClient {
 
     public func fetchAllTrackIDs(timeout: Duration? = nil) async throws -> [String] {
         try await fetchAllTrackIDs(timeout: timeout)
+    }
+
+    public func fetchTracks(artist: String? = nil, timeout: Duration? = nil) async throws -> [Track] {
+        let output = try await runScript(
+            name: "fetch_tracks",
+            arguments: [artist ?? ""],
+            timeout: timeout
+        )
+        guard let output, output != "NO_TRACKS_FOUND" else { return [] }
+        return output.split(separator: Track.recordSeparator)
+            .compactMap { Track.fromAppleScriptOutput(String($0)) }
     }
 }
 

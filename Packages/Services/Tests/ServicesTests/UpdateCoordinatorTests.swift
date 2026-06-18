@@ -405,6 +405,26 @@ struct UpdateCoordinatorTests {
 }
 
 extension UpdateCoordinatorTests {
+    @Test("Multi-track update returns only entries created by the current call")
+    func multiTrackUpdateReturnsOnlyCurrentEntries() async throws {
+        let fixture = await makeCoordinator(year: 2020, confidence: 90)
+        await fixture.undo.recordChange(ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "previous",
+            artist: "Previous Artist"
+        ))
+
+        let result = try await fixture.coordinator.updateTracks(
+            [makeEditableTrack(id: "current", year: 1969)],
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            progressHandler: { _ in }
+        )
+
+        #expect(result.entries.map(\.trackID) == ["current"])
+        #expect(!result.entries.contains { $0.trackID == "previous" })
+        #expect(result.failedTrackIDs.isEmpty)
+    }
+
     @Test("Year lookup setting disables year changes")
     func yearLookupSettingDisablesYearChanges() async throws {
         let runtimeConfiguration = UpdateRuntimeConfiguration(

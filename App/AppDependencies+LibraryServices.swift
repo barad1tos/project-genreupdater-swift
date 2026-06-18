@@ -37,7 +37,8 @@ extension AppDependencies {
                 appleScriptClient: bridge,
                 batchSize: config.applescript.batchProcessing.idsBatchSize,
                 allTrackIDsTimeout: config.applescript.timeouts.fullLibraryFetch,
-                tracksByIDsTimeout: config.applescript.timeouts.idsBatchFetch
+                tracksByIDsTimeout: config.applescript.timeouts.idsBatchFetch,
+                testArtists: config.development.testArtists
             )
             libraryServicesLog
                 .info(

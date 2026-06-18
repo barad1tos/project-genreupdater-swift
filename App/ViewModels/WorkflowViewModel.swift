@@ -319,101 +319,6 @@ final class WorkflowViewModel {
         }
     }
 
-    // MARK: - Batch Processing (Full Library mode)
-
-    private func startBatchProcessing(tracks: [Track]) {
-        phase = .scanning
-        processedCount = 0
-        failedCount = 0
-        trackStatuses = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, TrackProcessingStatus.queued) })
-        currentTrackID = nil
-
-        let options = UpdateOptions(
-            updateGenre: updateGenre,
-            updateYear: updateYear,
-            cleanTrackNames: cleanTrackNames,
-            cleanAlbumNames: cleanAlbumNames,
-            minConfidence: confidencePercentage,
-            autoAccept: true
-        )
-
-        let tracksByIndex = tracks
-
-        processingTask = Task {
-            do {
-                let entries = try await batchProcessor.process(
-                    tracks: tracks,
-                    operation: { [updateCoordinator] track in
-                        let batchResult = try await updateCoordinator.updateTracks(
-                            [track],
-                            options: options,
-                            progressHandler: { _ in }
-                        )
-                        return batchResult.entries
-                    },
-                    progressHandler: { [weak self] update in
-                        Task { @MainActor in
-                            self?.handleBatchProgress(update, tracksByIndex: tracksByIndex)
-                        }
-                    }
-                )
-
-                finalizeBatchStatuses(for: tracksByIndex)
-                completedEntries = entries
-                currentTrackID = nil
-                phase = .done
-                progress = nil
-            } catch is CancellationError {
-                currentTrackID = nil
-                phase = .configure
-                progress = nil
-            } catch let batchError as BatchProcessorError {
-                currentTrackID = nil
-                handleBatchError(batchError)
-            } catch {
-                currentTrackID = nil
-                phase = .error(error.localizedDescription)
-                progress = nil
-            }
-        }
-    }
-
-    /// Update per-track status from batch progress callbacks.
-    private func handleBatchProgress(_ update: ProgressUpdate, tracksByIndex: [Track]) {
-        progress = update
-        processedCount = update.current
-
-        if update.current <= tracksByIndex.count {
-            let currentTrack = tracksByIndex[update.current - 1]
-            currentTrackID = currentTrack.id
-            trackStatuses[currentTrack.id] = .writing
-
-            // Mark previous track as done if it was still writing
-            if update.current > 1 {
-                let previousTrack = tracksByIndex[update.current - 2]
-                if case .writing = trackStatuses[previousTrack.id] {
-                    trackStatuses[previousTrack.id] = .done
-                }
-            }
-        }
-
-        // On completion, mark the last writing track as done
-        if update.phase == .complete, let lastTrack = tracksByIndex.last {
-            if case .writing = trackStatuses[lastTrack.id] {
-                trackStatuses[lastTrack.id] = .done
-            }
-        }
-    }
-
-    /// Mark any remaining queued tracks as skipped after batch completes.
-    private func finalizeBatchStatuses(for tracks: [Track]) {
-        for track in tracks {
-            if case .queued = trackStatuses[track.id] {
-                trackStatuses[track.id] = .skipped
-            }
-        }
-    }
-
     // MARK: - Apply Accepted Changes
 
     /// Apply only the accepted proposed changes from the review phase.
@@ -465,6 +370,103 @@ final class WorkflowViewModel {
 }
 
 extension WorkflowViewModel {
+    // MARK: - Batch Processing (Full Library mode)
+
+    private func startBatchProcessing(tracks: [Track]) {
+        phase = .scanning
+        processedCount = 0
+        failedCount = 0
+        trackStatuses = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, TrackProcessingStatus.queued) })
+        currentTrackID = nil
+
+        let options = UpdateOptions(
+            updateGenre: updateGenre,
+            updateYear: updateYear,
+            cleanTrackNames: cleanTrackNames,
+            cleanAlbumNames: cleanAlbumNames,
+            minConfidence: confidencePercentage,
+            autoAccept: true
+        )
+
+        let tracksByIndex = Self.sortedForBatchProcessing(tracks)
+        let albumGroups = Self.groupTracksByAlbum(tracksByIndex)
+        let albumTracksByTrackID = Dictionary(uniqueKeysWithValues: tracksByIndex.map {
+            ($0.id, albumGroups[Self.albumKey(for: $0)] ?? [])
+        })
+
+        processingTask = Task {
+            do {
+                let entries = try await batchProcessor.process(
+                    tracks: tracksByIndex,
+                    operation: { [updateCoordinator] track in
+                        let batchResult = try await updateCoordinator.updateTracks(
+                            [track],
+                            options: options,
+                            albumTracksProvider: { albumTracksByTrackID[$0.id] ?? [] },
+                            progressHandler: { _ in }
+                        )
+                        return batchResult.entries
+                    },
+                    progressHandler: { [weak self] update in
+                        Task { @MainActor in
+                            self?.handleBatchProgress(update, tracksByIndex: tracksByIndex)
+                        }
+                    }
+                )
+
+                finalizeBatchStatuses(for: tracksByIndex)
+                completedEntries = entries
+                currentTrackID = nil
+                phase = .done
+                progress = nil
+            } catch is CancellationError {
+                currentTrackID = nil
+                phase = .configure
+                progress = nil
+            } catch let batchError as BatchProcessorError {
+                currentTrackID = nil
+                handleBatchError(batchError)
+            } catch {
+                currentTrackID = nil
+                phase = .error(error.localizedDescription)
+                progress = nil
+            }
+        }
+    }
+
+    private func handleBatchProgress(_ update: ProgressUpdate, tracksByIndex: [Track]) {
+        progress = update
+        processedCount = update.current
+
+        if update.current <= tracksByIndex.count {
+            let currentTrack = tracksByIndex[update.current - 1]
+            currentTrackID = currentTrack.id
+            trackStatuses[currentTrack.id] = .writing
+
+            // Mark previous track as done if it was still writing
+            if update.current > 1 {
+                let previousTrack = tracksByIndex[update.current - 2]
+                if case .writing = trackStatuses[previousTrack.id] {
+                    trackStatuses[previousTrack.id] = .done
+                }
+            }
+        }
+
+        if update.phase == .complete, let lastTrack = tracksByIndex.last {
+            if case .writing = trackStatuses[lastTrack.id] {
+                trackStatuses[lastTrack.id] = .done
+            }
+        }
+    }
+
+    private func finalizeBatchStatuses(for tracks: [Track]) {
+        for track in tracks {
+            if case .queued = trackStatuses[track.id] {
+                trackStatuses[track.id] = .skipped
+            }
+        }
+    }
+
     private func startUpdateAfterMaintenancePreflight(tracks: [Track]) {
         phase = .scanning
         processedCount = 0

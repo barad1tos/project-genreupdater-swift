@@ -40,7 +40,35 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.entries[0].changeType == .genreUpdate)
     }
 
-    private func makeCoordinator() async -> AcceptedApplyFixture {
+    @Test("Test artist allow-list skips out-of-scope reviewed changes")
+    func artistAllowListSkipsOutOfScopeReviewedChanges() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(testArtists: ["In Flames"])
+        )
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1969)
+        let proposals = [
+            ProposedChange(
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Electronic",
+                confidence: 80,
+                source: "Library",
+                isAccepted: true
+            ),
+        ]
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(proposals)
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+    }
+
+    private func makeCoordinator(
+        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
+    ) async -> AcceptedApplyFixture {
         let bridge = MockAppleScriptClient()
         let apiService = MockAPIService()
         let orchestrator = APIOrchestrator(
@@ -58,7 +86,8 @@ struct UpdateCoordinatorApplyAcceptedTests {
             cache: MockCacheService(),
             undoCoordinator: undo,
             genreDeterminator: GenreDeterminator(),
-            yearDeterminator: YearDeterminator()
+            yearDeterminator: YearDeterminator(),
+            runtimeConfiguration: runtimeConfiguration
         )
 
         return AcceptedApplyFixture(coordinator: coordinator, bridge: bridge)

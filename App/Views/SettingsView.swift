@@ -22,8 +22,14 @@ struct SettingsView: View {
             AppearanceTab()
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }
         }
-        .frame(width: 620)
+        .frame(width: SettingsLayout.windowWidth, height: SettingsLayout.windowHeight)
+        .scenePadding()
     }
+}
+
+private enum SettingsLayout {
+    static let windowWidth: CGFloat = 760
+    static let windowHeight: CGFloat = 620
 }
 
 // MARK: - Appearance Tab

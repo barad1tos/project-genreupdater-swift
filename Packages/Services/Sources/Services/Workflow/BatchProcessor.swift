@@ -64,11 +64,14 @@ public struct BatchProcessingConfiguration: Sendable, Equatable {
         self.adaptiveDelay = adaptiveDelay
     }
 
-    public init(configuration: AppConfiguration) {
+    public init(configuration: AppConfiguration, isScopeRestricted: Bool? = nil) {
+        let hasRestrictedScope = isScopeRestricted ?? configuration.development.testArtists.contains {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
         self.init(
             batchSize: configuration.processing.batchSize,
-            delayBetweenBatches: configuration.processing.delayBetweenBatches,
-            adaptiveDelay: configuration.processing.adaptiveDelay,
+            delayBetweenBatches: hasRestrictedScope ? 0 : configuration.processing.delayBetweenBatches,
+            adaptiveDelay: hasRestrictedScope ? false : configuration.processing.adaptiveDelay,
             maxBatchSize: configuration.experimental.batchUpdatesEnabled
                 ? configuration.experimental.maxBatchSize
                 : nil

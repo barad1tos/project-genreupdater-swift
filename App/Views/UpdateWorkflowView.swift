@@ -9,6 +9,8 @@ import SwiftUI
 struct UpdateWorkflowView: View {
     @Bindable var viewModel: WorkflowViewModel
     let tracks: [Track]
+    let testArtists: [String]
+    let credentialIssue: DiscogsCredentialIssue?
     @Binding var noticeMessage: String?
 
     var body: some View {
@@ -19,7 +21,12 @@ struct UpdateWorkflowView: View {
             }
 
             if showsConfig {
-                UpdateConfigSection(viewModel: viewModel, tracks: tracks)
+                UpdateConfigSection(
+                    viewModel: viewModel,
+                    tracks: tracks,
+                    testArtists: testArtists,
+                    credentialIssue: credentialIssue
+                )
                 Divider()
             }
 
@@ -69,11 +76,19 @@ struct UpdateWorkflowView: View {
         case .configure:
             Color.clear
         case .scanning:
-            UpdateStreamingSection(viewModel: viewModel)
+            UpdateStreamingSection(
+                viewModel: viewModel,
+                tracks: tracks,
+                testArtists: testArtists
+            )
         case .review:
             UpdatePreviewSection(viewModel: viewModel)
         case .applying:
-            UpdateStreamingSection(viewModel: viewModel)
+            UpdateStreamingSection(
+                viewModel: viewModel,
+                tracks: tracks,
+                testArtists: testArtists
+            )
         case .done:
             UpdateDoneSection(viewModel: viewModel)
         case .paused:

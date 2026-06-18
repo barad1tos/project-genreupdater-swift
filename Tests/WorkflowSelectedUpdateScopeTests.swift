@@ -1,4 +1,5 @@
 import Core
+import Foundation
 import Services
 import Testing
 @testable import Genre_Updater
@@ -117,6 +118,51 @@ struct WorkflowSelectedUpdateScopeTests {
         }
         #expect(message.contains("batchProcessing"))
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+    }
+
+    @Test("full library live processing uses album context for genre updates")
+    func fullLibraryLiveProcessingUsesAlbumContextForGenreUpdates() async throws {
+        let fixture = makeWorkflowFixture()
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = true
+        viewModel.updateYear = false
+        viewModel.cleanTrackNames = false
+        viewModel.cleanAlbumNames = false
+        let albumGenreSourceDate = Date(timeIntervalSince1970: 1000)
+        let missingGenreDate = Date(timeIntervalSince1970: 2000)
+
+        viewModel.start(tracks: [
+            Track(
+                id: "missing-genre",
+                name: "Only for the Weak",
+                artist: "In Flames",
+                album: "Clayman",
+                dateAdded: missingGenreDate
+            ),
+            Track(
+                id: "genre-source",
+                name: "Bullet Ride",
+                artist: "In Flames",
+                album: "Clayman",
+                genre: "Melodic Death Metal",
+                dateAdded: albumGenreSourceDate
+            ),
+        ])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        guard case .done = viewModel.phase else {
+            #expect(Bool(false), "live full-library processing should complete")
+            return
+        }
+        let writes = await fixture.scriptClient.updatedProperties()
+        #expect(writes.contains {
+            $0.trackID == "missing-genre"
+                && $0.property == "genre"
+                && $0.value == "Melodic Death Metal"
+        })
     }
 
     @Test("full library scope resets finished workflow state")

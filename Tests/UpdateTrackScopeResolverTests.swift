@@ -45,6 +45,35 @@ struct UpdateTrackScopeResolverTests {
         #expect(resolved.map(\.id) == ["one", "two", "three"])
     }
 
+    @Test("full library mode applies test artist allow-list")
+    func fullLibraryModeAppliesTestArtistAllowList() {
+        let tracks = makeTracks()
+
+        let resolved = UpdateTrackScopeResolver.tracksForWorkflow(
+            libraryTracks: tracks,
+            selectedScopeTracks: nil,
+            mode: .fullLibrary,
+            testArtists: ["Beta"]
+        )
+
+        #expect(resolved.map(\.id) == ["three"])
+    }
+
+    @Test("selected tracks mode applies test artist allow-list")
+    func selectedTracksModeAppliesTestArtistAllowList() {
+        let tracks = makeTracks()
+        let selectedScope = [tracks[0], tracks[2]]
+
+        let resolved = UpdateTrackScopeResolver.tracksForWorkflow(
+            libraryTracks: tracks,
+            selectedScopeTracks: selectedScope,
+            mode: .selectedTracks,
+            testArtists: ["Beta"]
+        )
+
+        #expect(resolved.map(\.id) == ["three"])
+    }
+
     @Test("reconcile selected scope rebases to loaded library tracks")
     func reconcileSelectedScopeRebasesToLoadedLibraryTracks() {
         let oldScope = [
@@ -59,6 +88,23 @@ struct UpdateTrackScopeResolverTests {
         )
 
         #expect(reconciled?.map(\.name) == ["Two"])
+    }
+
+    @Test("reconcile selected scope applies test artist allow-list")
+    func reconcileSelectedScopeAppliesTestArtistAllowList() {
+        let oldScope = [
+            Track(id: "two", name: "Old Two", artist: "Alpha", album: "Old"),
+            Track(id: "three", name: "Old Three", artist: "Beta", album: "Old"),
+        ]
+        let loadedTracks = makeTracks()
+
+        let reconciled = UpdateTrackScopeResolver.reconciledSelectedScope(
+            currentScopeTracks: oldScope,
+            libraryTracks: loadedTracks,
+            testArtists: ["Beta"]
+        )
+
+        #expect(reconciled?.map(\.name) == ["Three"])
     }
 
     private func makeTracks() -> [Track] {

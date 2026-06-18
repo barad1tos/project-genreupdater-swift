@@ -66,6 +66,8 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     public let minimumConfidenceToCache: Int
     public let albumTypeDetection: AlbumTypeDetectionConfig
     public let cleaning: CleaningConfig
+    /// Artist allow-list for update writes; empty means all effective artists are allowed.
+    public let testArtists: [String]
     public let shouldOverrideExistingGenres: Bool
 
     public init(
@@ -76,6 +78,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache,
         albumTypeDetection: AlbumTypeDetectionConfig = AlbumTypeDetectionConfig(),
         cleaning: CleaningConfig = CleaningConfig(),
+        testArtists: [String] = AppConfiguration().development.testArtists,
         shouldOverrideExistingGenres: Bool = AppConfiguration().genreUpdate.overrideExisting
     ) {
         self.genreMappings = genreMappings
@@ -85,6 +88,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         self.minimumConfidenceToCache = minimumConfidenceToCache
         self.albumTypeDetection = albumTypeDetection
         self.cleaning = cleaning
+        self.testArtists = testArtists
         self.shouldOverrideExistingGenres = shouldOverrideExistingGenres
     }
 
@@ -103,8 +107,37 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
             albumTypeDetection: configuration.albumTypeDetection,
             cleaning: cleaning,
+            testArtists: configuration.development.testArtists,
             shouldOverrideExistingGenres: configuration.genreUpdate.overrideExisting
         )
+    }
+
+    func allowsTrack(_ track: Track) -> Bool {
+        let scopedArtists = Self.normalizedArtistAllowList(testArtists)
+        guard !scopedArtists.isEmpty else { return true }
+
+        let trackArtist = track.effectiveArtist.trimmingCharacters(in: .whitespacesAndNewlines)
+        return scopedArtists.contains { artist in
+            artist.localizedCaseInsensitiveCompare(trackArtist) == .orderedSame
+        }
+    }
+
+    private static func normalizedArtistAllowList(_ artists: [String]) -> [String] {
+        var scopedArtists: [String] = []
+
+        for artist in artists {
+            let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedArtist.isEmpty else { continue }
+
+            let alreadyIncluded = scopedArtists.contains { existingArtist in
+                existingArtist.localizedCaseInsensitiveCompare(trimmedArtist) == .orderedSame
+            }
+            if !alreadyIncluded {
+                scopedArtists.append(trimmedArtist)
+            }
+        }
+
+        return scopedArtists
     }
 
     private static func normalizedMappings(_ mappings: [String: String]) -> [String: String] {

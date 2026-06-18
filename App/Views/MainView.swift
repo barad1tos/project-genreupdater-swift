@@ -213,6 +213,7 @@ struct MainView: View {
     @Environment(\.modelContext) var modelContext
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @Environment(\.motionScale) var motionScale
+    @Environment(\.openSettings) var openSettings
     @State var selectedCategory: NavigationCategory? = .dashboard
     @State var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     @State var tracks: [Track] = []
@@ -338,7 +339,7 @@ struct MainView: View {
             ),
             items: sidebarItems,
             onSettingsTapped: {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                openSettings()
             }
         )
         .navigationSplitViewColumnWidth(
@@ -425,6 +426,8 @@ struct MainView: View {
             UpdateWorkflowView(
                 viewModel: viewModel,
                 tracks: updateWorkflowTracks,
+                testArtists: dependencies.config.development.testArtists,
+                credentialIssue: dependencies.discogsCredentialIssue,
                 noticeMessage: $workflowNoticeMessage
             )
         } else {

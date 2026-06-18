@@ -101,6 +101,37 @@ struct BatchProcessorTests {
         #expect(!disabledConfiguration.shouldDelayAfterBatch(processedCount: 1, isLastTrack: false))
     }
 
+    @Test("Batch configuration disables adaptive delay for restricted scopes")
+    func batchConfigurationDisablesAdaptiveDelayForRestrictedScopes() {
+        var appConfiguration = AppConfiguration()
+        appConfiguration.processing.batchSize = 25
+        appConfiguration.processing.delayBetweenBatches = 20
+        appConfiguration.processing.adaptiveDelay = true
+
+        let configuration = BatchProcessingConfiguration(
+            configuration: appConfiguration,
+            isScopeRestricted: true
+        )
+
+        #expect(configuration.batchSize == 25)
+        #expect(configuration.delayBetweenBatchesMilliseconds == 0)
+        #expect(!configuration.shouldDelayAfterBatch(processedCount: 25, isLastTrack: false))
+    }
+
+    @Test("Batch configuration treats configured test artists as restricted scope")
+    func batchConfigurationTreatsConfiguredTestArtistsAsRestrictedScope() {
+        var appConfiguration = AppConfiguration()
+        appConfiguration.processing.batchSize = 25
+        appConfiguration.processing.delayBetweenBatches = 20
+        appConfiguration.processing.adaptiveDelay = true
+        appConfiguration.development.testArtists = ["In Flames"]
+
+        let configuration = BatchProcessingConfiguration(configuration: appConfiguration)
+
+        #expect(configuration.delayBetweenBatchesMilliseconds == 0)
+        #expect(!configuration.shouldDelayAfterBatch(processedCount: 25, isLastTrack: false))
+    }
+
     @Test("Runtime batch processing configuration applies delay between batches")
     func runtimeBatchProcessingConfigurationAppliesDelayBetweenBatches() async throws {
         let dir = FileManager.default.temporaryDirectory

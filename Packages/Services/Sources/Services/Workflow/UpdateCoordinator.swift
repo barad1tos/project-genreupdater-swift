@@ -103,6 +103,14 @@ public actor UpdateCoordinator {
         options: UpdateOptions,
         dryRun: Bool = false
     ) async throws -> [ProposedChange] {
+        guard runtimeConfiguration.allowsTrack(track) else {
+            log
+                .info(
+                    "Skipped track \(track.id, privacy: .private) outside test artist allow-list"
+                )
+            return []
+        }
+
         guard track.canEdit else {
             throw UpdateCoordinatorError.trackNotEditable(trackID: track.id)
         }
@@ -181,21 +189,29 @@ public actor UpdateCoordinator {
     public func updateTracks(
         _ tracks: [Track],
         options: UpdateOptions,
+        albumTracksProvider: @Sendable (Track) -> [Track] = { _ in [] },
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> BatchUpdateResult {
         let signpostState = AppSignpost.batchProcessing.beginInterval("updateTracks")
         defer { AppSignpost.batchProcessing.endInterval("updateTracks", signpostState) }
 
+        var entries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
 
         for (index, track) in tracks.enumerated() {
             do {
-                _ = try await updateTrack(
+                let changes = try await updateTrack(
                     track,
+                    albumTracks: albumTracksProvider(track),
                     options: options,
-                    dryRun: false
+                    dryRun: true
                 )
+                for change in changes where change.isAccepted {
+                    if let entry = try await applyChange(change) {
+                        entries.append(entry)
+                    }
+                }
             } catch {
                 failedTrackIDs.append(track.id)
                 errorDescriptions.append(error.localizedDescription)
@@ -217,9 +233,6 @@ public actor UpdateCoordinator {
             current: tracks.count,
             total: tracks.count
         ))
-
-        // Entries are already recorded in undoCoordinator via applyChange()
-        let entries = await undoCoordinator.getHistory()
 
         if !errorDescriptions.isEmpty, entries.isEmpty {
             throw UpdateCoordinatorError.allTracksFailed(
@@ -297,6 +310,14 @@ public actor UpdateCoordinator {
 
     @discardableResult
     func applyChange(_ change: ProposedChange) async throws -> ChangeLogEntry? {
+        guard runtimeConfiguration.allowsTrack(change.track) else {
+            log
+                .info(
+                    "Skipped change for track \(change.track.id, privacy: .private) outside test artist allow-list"
+                )
+            return nil
+        }
+
         guard let newValue = change.newValue else { return nil }
 
         let property = switch change.changeType {
