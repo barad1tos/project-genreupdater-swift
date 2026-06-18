@@ -39,7 +39,9 @@ struct UpdateCoordinatorCleaningTests {
         cleaning.trackCleaningExceptions = [
             TrackCleaningException(artist: "Beatles", album: "Album Remastered"),
         ]
-        let runtimeConfiguration = UpdateRuntimeConfiguration(cleaning: cleaning)
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: UpdateRuntimeConfiguration.Policies(cleaning: cleaning)
+        )
         let coordinator = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
         let track = makeTrack(
             name: "Song (Remastered 2020)",

@@ -165,6 +165,20 @@ struct WorkflowSelectedUpdateScopeTests {
         })
     }
 
+    @Test("pause is ignored outside full-library scanning")
+    func pauseIsIgnoredOutsideFullLibraryScanning() async {
+        let viewModel = makeWorkflowViewModel()
+        viewModel.mode = .fullLibrary
+        viewModel.phase = .applying
+
+        await viewModel.pause()
+
+        guard case .applying = viewModel.phase else {
+            #expect(Bool(false), "pause should not move apply-accepted work into paused state")
+            return
+        }
+    }
+
     @Test("full library scope resets finished workflow state")
     func fullLibraryScopeResetsFinishedWorkflowState() {
         let viewModel = makeWorkflowViewModel()

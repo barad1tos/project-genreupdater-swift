@@ -50,7 +50,9 @@ struct UpdateCoordinatorArtistStartTests {
             undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: undoDirectory),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),
-            runtimeConfiguration: UpdateRuntimeConfiguration(minimumYearUpdateConfidence: 30)
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                policies: UpdateRuntimeConfiguration.Policies(minimumYearUpdateConfidence: 30)
+            )
         )
     }
 }

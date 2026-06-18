@@ -197,18 +197,7 @@ extension UpdateConfigSection {
     }
 
     private var normalizedTestArtists: [String] {
-        var artists: [String] = []
-        for artist in testArtists {
-            let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedArtist.isEmpty else { continue }
-            let exists = artists.contains { existing in
-                existing.localizedCaseInsensitiveCompare(trimmedArtist) == .orderedSame
-            }
-            if !exists {
-                artists.append(trimmedArtist)
-            }
-        }
-        return artists
+        ArtistAllowList.normalized(testArtists)
     }
 
     private var testArtistScopeTitle: String {

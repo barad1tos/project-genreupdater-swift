@@ -165,13 +165,13 @@ public actor MusicLibraryReader {
         testArtists: [String],
         ignoreTestFilter: Bool
     ) -> [String?] {
-        if let artist = normalizedArtistName(requestedArtist) {
+        if let artist = ArtistAllowList.normalizedName(requestedArtist) {
             return [artist]
         }
 
         guard !ignoreTestFilter else { return [nil] }
 
-        let scopedArtists = uniqueArtistNames(testArtists)
+        let scopedArtists = ArtistAllowList.normalized(testArtists)
         guard !scopedArtists.isEmpty else { return [nil] }
         return scopedArtists.map(Optional.some)
     }
@@ -191,35 +191,7 @@ public actor MusicLibraryReader {
         _ tracks: [Core.Track],
         testArtists: [String]
     ) -> [Core.Track] {
-        guard !testArtists.isEmpty else { return tracks }
-        return tracks.filter { track in
-            testArtists.contains { name in
-                name.localizedCaseInsensitiveCompare(
-                    track.effectiveArtist
-                ) == .orderedSame
-            }
-        }
-    }
-
-    private static func normalizedArtistName(_ artist: String?) -> String? {
-        let trimmedArtist = artist?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmedArtist.isEmpty ? nil : trimmedArtist
-    }
-
-    private static func uniqueArtistNames(_ artists: [String]) -> [String] {
-        var uniqueArtists: [String] = []
-
-        for artist in artists {
-            guard let trimmedArtist = normalizedArtistName(artist) else { continue }
-            let alreadyIncluded = uniqueArtists.contains { existingArtist in
-                existingArtist.localizedCaseInsensitiveCompare(trimmedArtist) == .orderedSame
-            }
-            if !alreadyIncluded {
-                uniqueArtists.append(trimmedArtist)
-            }
-        }
-
-        return uniqueArtists
+        ArtistAllowList.filter(tracks, allowedArtists: testArtists)
     }
 
     private func fetchTracks(matchingArtist artist: String?) async throws -> [Core.Track] {

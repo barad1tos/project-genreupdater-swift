@@ -39,10 +39,12 @@ func makeWorkflowFixture(
     )
 
     let viewModel = WorkflowViewModel(
-        updateCoordinator: updateCoordinator,
-        batchProcessor: batchProcessor,
-        changePreviewPipeline: ChangePreviewPipeline(),
-        featureGate: featureGate
+        dependencies: WorkflowViewModel.Dependencies(
+            updateCoordinator: updateCoordinator,
+            batchProcessor: batchProcessor,
+            changePreviewPipeline: ChangePreviewPipeline(),
+            featureGate: featureGate
+        )
     )
 
     return WorkflowFixture(viewModel: viewModel, scriptClient: scriptClient)

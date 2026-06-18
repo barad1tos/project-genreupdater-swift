@@ -167,22 +167,26 @@ extension MainView {
         else { return }
 
         workflowViewModel = WorkflowViewModel(
-            updateCoordinator: coordinator,
-            batchProcessor: processor,
-            changePreviewPipeline: pipeline,
-            pendingVerificationService: dependencies.pendingVerificationService,
-            featureGate: dependencies.featureGate,
-            recordProcessedTracks: { count in
-                dependencies.subscriptionService?.incrementFreeTracksUsed(by: count)
-            },
-            runMaintenancePreflight: {
-                await dependencies.runMaintenancePreflight()
-            },
-            defaultUpdateGenre: configuredUpdateSelection.updateGenre,
-            defaultUpdateYear: configuredUpdateSelection.updateYear,
-            defaultPreviewOnly: configuredPreviewOnly,
-            defaultMinConfidence: configuredMinConfidence,
-            defaultReleaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
+            dependencies: WorkflowViewModel.Dependencies(
+                updateCoordinator: coordinator,
+                batchProcessor: processor,
+                changePreviewPipeline: pipeline,
+                pendingVerificationService: dependencies.pendingVerificationService,
+                featureGate: dependencies.featureGate,
+                recordProcessedTracks: { count in
+                    dependencies.subscriptionService?.incrementFreeTracksUsed(by: count)
+                },
+                runMaintenancePreflight: {
+                    await dependencies.runMaintenancePreflight()
+                }
+            ),
+            defaults: WorkflowViewModel.Defaults(
+                updateGenre: configuredUpdateSelection.updateGenre,
+                updateYear: configuredUpdateSelection.updateYear,
+                previewOnly: configuredPreviewOnly,
+                minConfidence: configuredMinConfidence,
+                releaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
+            )
         )
         applyPendingSelectedUpdateScopeIfNeeded()
     }

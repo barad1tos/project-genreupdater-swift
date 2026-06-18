@@ -130,15 +130,12 @@ struct UpdateStreamingSection: View {
     private var detailsDisclosure: some View {
         DisclosureGroup(isExpanded: $showsDetails) {
             if showsDetails {
-                ScrollView {
-                    LazyVStack(spacing: 1) {
-                        ForEach(detailRows) { row in
-                            ProgressTrackRow(row: row)
-                        }
+                LazyVStack(spacing: 1) {
+                    ForEach(detailRows) { row in
+                        ProgressTrackRow(row: row)
                     }
-                    .padding(.top, Spacing.sm)
                 }
-                .frame(maxHeight: 320)
+                .padding(.top, Spacing.sm)
             }
         } label: {
             HStack(spacing: Spacing.sm) {
@@ -167,7 +164,7 @@ struct UpdateStreamingSection: View {
 
             Spacer()
 
-            if viewModel.mode == .fullLibrary {
+            if canPauseBatch {
                 Button {
                     Task { await viewModel.pause() }
                 } label: {
@@ -217,6 +214,13 @@ struct UpdateStreamingSection: View {
         default:
             "Processing update"
         }
+    }
+
+    private var canPauseBatch: Bool {
+        guard viewModel.mode == .fullLibrary, case .scanning = viewModel.phase else {
+            return false
+        }
+        return true
     }
 
     private var progressSubtitle: String {
@@ -302,18 +306,7 @@ struct UpdateStreamingSection: View {
     }
 
     private var normalizedTestArtists: [String] {
-        var artists: [String] = []
-        for artist in testArtists {
-            let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedArtist.isEmpty else { continue }
-            let exists = artists.contains { existing in
-                existing.localizedCaseInsensitiveCompare(trimmedArtist) == .orderedSame
-            }
-            if !exists {
-                artists.append(trimmedArtist)
-            }
-        }
-        return artists
+        ArtistAllowList.normalized(testArtists)
     }
 
     private var testArtistScopeTitle: String {

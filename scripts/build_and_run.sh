@@ -29,14 +29,31 @@ USAGE
 }
 
 build_app() {
+  local destination_spec
+  destination_spec="$(build_destination)"
+
   xcodebuild build -quiet \
     -project "$ROOT_DIR/$PROJECT_NAME.xcodeproj" \
     -scheme "$SCHEME" \
-    -destination "platform=macOS,arch=arm64" \
+    -destination "$destination_spec" \
     -derivedDataPath "$DERIVED_DATA_PATH" \
     CODE_SIGN_IDENTITY=- \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGNING_ALLOWED=NO
+}
+
+build_destination() {
+  local host_arch
+  host_arch="$(uname -m 2>/dev/null || true)"
+
+  case "$host_arch" in
+    arm64|x86_64)
+      printf 'platform=macOS,arch=%s\n' "$host_arch"
+      ;;
+    *)
+      printf 'platform=macOS\n'
+      ;;
+  esac
 }
 
 sign_app_for_local_run() {
