@@ -64,6 +64,33 @@ struct AppDependenciesAPIClientsTests {
         #expect(capturedIssue == nil)
     }
 
+    @Test("Missing Keychain Discogs token reports a credential issue and disables Discogs")
+    func missingKeychainDiscogsTokenReportsCredentialIssue() {
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.apiAuth.discogsTokenReference = ""
+        var capturedIssue: DiscogsCredentialIssue?
+
+        let orchestrator = AppDependencies.makeAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            keychainDiscogsClientFactory: { contactEmail, rateLimiter, baseURL in
+                DiscogsClient(
+                    contactEmail: contactEmail,
+                    rateLimiter: rateLimiter,
+                    baseURL: baseURL
+                )
+            },
+            discogsCredentialIssueHandler: { issue in
+                capturedIssue = issue
+            }
+        )
+
+        #expect(capturedIssue == .missingToken)
+        #expect(orchestrator.disabledSources.contains(.discogs))
+    }
+
     @Test("Configured Discogs token bypasses Keychain and clears the credential issue")
     func configuredDiscogsTokenBypassesKeychainAndClearsCredentialIssue() {
         var configuration = AppConfiguration()

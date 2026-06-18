@@ -44,8 +44,8 @@ struct KeychainHelperTests {
         #expect(query[kSecAttrAccessible as String] == nil)
     }
 
-    @Test("Save fallback also passes an access-controlled query to Security")
-    func saveFallbackAlsoPassesAccessControlledQueryToSecurity() throws {
+    @Test("Save fallback stores a marked local Keychain item when protected storage lacks entitlements")
+    func saveFallbackStoresMarkedLocalKeychainItemWhenProtectedStorageLacksEntitlements() throws {
         var addQueries: [[String: Any]] = []
         var statuses: [OSStatus] = [errSecMissingEntitlement, errSecSuccess]
         let hooks = KeychainOperationHooks(
@@ -59,12 +59,13 @@ struct KeychainHelperTests {
         let helper = KeychainHelper(operationHooks: hooks)
         let tokenData = Data("fallback-token".utf8)
 
-        try helper.save(
+        let result = try helper.save(
             token: "fallback-token",
             service: testService,
             account: testAccount
         )
 
+        #expect(result == .localFallback)
         #expect(addQueries.count == 2)
         let query = try #require(addQueries.last)
         #expect(query[kSecClass as String] as? String == kSecClassGenericPassword as String)
@@ -72,8 +73,26 @@ struct KeychainHelperTests {
         #expect(query[kSecAttrService as String] as? String == testService)
         #expect(query[kSecAttrAccount as String] as? String == testAccount)
         #expect(query[kSecValueData as String] as? Data == tokenData)
-        #expect(query[kSecAttrAccessControl as String] != nil)
-        #expect(query[kSecAttrAccessible as String] == nil)
+        #expect(query[kSecAttrAccessControl as String] == nil)
+        #expect(query[kSecAttrGeneric as String] as? Data == KeychainHelper.localFallbackMarkerData)
+        #expect(
+            query[kSecAttrAccessible as String] as? String == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String
+        )
+    }
+
+    @Test("Retrieve accepts local fallback token items that were marked by this app")
+    func retrieveAcceptsMarkedLocalFallbackTokenItems() throws {
+        let keychain = InMemoryKeychainOperations()
+        keychain.seed(
+            token: "local-fallback-token",
+            service: testService,
+            account: testAccount,
+            isAccessControlled: false,
+            isLocalFallback: true
+        )
+        let helper = KeychainHelper(operationHooks: keychain.hooks)
+
+        #expect(try helper.retrieve(service: testService, account: testAccount) == "local-fallback-token")
     }
 
     @Test("Save rejects empty token input before touching Security")
@@ -338,6 +357,7 @@ private final class InMemoryKeychainOperations {
     struct Item {
         let data: Data
         let isAccessControlled: Bool
+        let isLocalFallback: Bool
     }
 
     var addQueries: [[String: Any]] = []
@@ -358,13 +378,15 @@ private final class InMemoryKeychainOperations {
         token: String,
         service: String,
         account: String,
-        isAccessControlled: Bool
+        isAccessControlled: Bool,
+        isLocalFallback: Bool = false
     ) {
         seed(
             data: Data(token.utf8),
             service: service,
             account: account,
-            isAccessControlled: isAccessControlled
+            isAccessControlled: isAccessControlled,
+            isLocalFallback: isLocalFallback
         )
     }
 
@@ -372,11 +394,13 @@ private final class InMemoryKeychainOperations {
         data: Data,
         service: String,
         account: String,
-        isAccessControlled: Bool
+        isAccessControlled: Bool,
+        isLocalFallback: Bool = false
     ) {
         items[key(service: service, account: account)] = Item(
             data: data,
-            isAccessControlled: isAccessControlled
+            isAccessControlled: isAccessControlled,
+            isLocalFallback: isLocalFallback
         )
     }
 
@@ -395,7 +419,8 @@ private final class InMemoryKeychainOperations {
 
         items[itemKey] = Item(
             data: data,
-            isAccessControlled: query[kSecAttrAccessControl as String] != nil
+            isAccessControlled: query[kSecAttrAccessControl as String] != nil,
+            isLocalFallback: (query[kSecAttrGeneric as String] as? Data) == KeychainHelper.localFallbackMarkerData
         )
         return errSecSuccess
     }
@@ -415,6 +440,9 @@ private final class InMemoryKeychainOperations {
         ]
         if item.isAccessControlled {
             attributes[kSecAttrAccessControl as String] = "access-controlled"
+        }
+        if item.isLocalFallback {
+            attributes[kSecAttrGeneric as String] = KeychainHelper.localFallbackMarkerData
         }
         result = attributes as NSDictionary
         return errSecSuccess
@@ -449,7 +477,10 @@ private final class InMemoryKeychainOperations {
 
         items[itemKey] = Item(
             data: data,
-            isAccessControlled: attributes[kSecAttrAccessControl as String] != nil || existingItem.isAccessControlled
+            isAccessControlled: attributes[kSecAttrAccessControl as String] != nil || existingItem.isAccessControlled,
+            isLocalFallback: (attributes[kSecAttrGeneric as String] as? Data) ==
+                KeychainHelper.localFallbackMarkerData ||
+                existingItem.isLocalFallback
         )
         return errSecSuccess
     }

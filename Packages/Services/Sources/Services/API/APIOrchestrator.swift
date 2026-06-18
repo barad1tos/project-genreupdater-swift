@@ -79,6 +79,7 @@ public actor APIOrchestrator {
     private let maxVerificationAttempts: Int
     let timeout: Duration
     private let negativeResultTTL: TimeInterval
+    nonisolated public let disabledSources: Set<APISource>
     private let maxConcurrentSourceCalls: Int
     let apiRetryConfiguration: APIRetryConfiguration
     let sourcePriorityConfiguration: APISourcePriorityConfiguration
@@ -106,6 +107,7 @@ public actor APIOrchestrator {
         maxVerificationAttempts: Int = FallbackConfig().maxVerificationAttempts,
         timeout: Duration = .seconds(15),
         negativeResultTTL: TimeInterval = CachingConfig().negativeResultTTL,
+        disabledSources: Set<APISource> = [],
         maxConcurrentSourceCalls: Int = 3,
         maxAPIRetries: Int = 0,
         apiRetryDelaySeconds: Double = 1,
@@ -120,6 +122,7 @@ public actor APIOrchestrator {
         self.maxVerificationAttempts = max(0, maxVerificationAttempts)
         self.timeout = timeout
         self.negativeResultTTL = max(0, negativeResultTTL)
+        self.disabledSources = disabledSources
         self.maxConcurrentSourceCalls = max(1, maxConcurrentSourceCalls)
         apiRetryConfiguration = APIRetryConfiguration(maxRetries: maxAPIRetries, delaySeconds: apiRetryDelaySeconds)
         self.sourcePriorityConfiguration = sourcePriorityConfiguration
@@ -157,7 +160,8 @@ public actor APIOrchestrator {
             .itunes: appleMusic,
         ]
         let orderedSources = sourcePriorityConfiguration.orderedSources(artist: artist, album: album)
-        let sources = orderedSources.compactMap { source -> (source: APISource, service: any ExternalAPIService)? in
+        let activeSources = orderedSources.filter { !disabledSources.contains($0) }
+        let sources = activeSources.compactMap { source -> (source: APISource, service: any ExternalAPIService)? in
             guard let service = serviceBySource[source] else { return nil }
             return (source, service)
         }
@@ -170,7 +174,7 @@ public actor APIOrchestrator {
         )
 
         let results = await fetchSourceResults(sources: sources, query: query)
-        let result = Self.aggregateResults(results, orderedSources: orderedSources)
+        let result = Self.aggregateResults(results, orderedSources: activeSources)
         await PendingVerificationSync.synchronize(
             service: pendingVerificationService,
             albumKey: (artist, album),
@@ -345,11 +349,9 @@ public actor APIOrchestrator {
         ))
     }
 
-    /// Combines year scores from all source results and selects the best year.
-    ///
-    /// Merges `yearScores` dictionaries additively. The year with the highest
-    /// combined score wins. `isDefinitive` is true when 2+ sources agree on
-    /// the same year. Final confidence is capped at 100.
+    /// Combines source year scores and selects the best year.
+    /// Merges score dictionaries additively. The year with the highest combined score wins.
+    /// `isDefinitive` is true when 2+ sources agree on the same year. Final confidence is capped at 100.
     private static func aggregateResults(
         _ results: [SourceFetchResult],
         orderedSources: [APISource]
@@ -493,7 +495,4 @@ private struct SourceServiceOutcome {
     let shouldCacheEmptyResult: Bool
 }
 
-// MARK: - OrchestratorTimeoutError
-
-/// Internal error used to distinguish timeout from other failures.
 private struct OrchestratorTimeoutError: Error {}
