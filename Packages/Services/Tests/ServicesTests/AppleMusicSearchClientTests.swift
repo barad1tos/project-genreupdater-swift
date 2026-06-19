@@ -163,6 +163,41 @@ struct AppleMusicSearchClientTests {
         #expect(candidate.album == "Test Album")
     }
 
+    @Test("getReleaseCandidates throws for unsuccessful iTunes HTTP status")
+    func releaseCandidatesThrowForUnsuccessfulITunesStatus() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AppleMusicSearchMockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer {
+            AppleMusicSearchMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+
+        AppleMusicSearchMockURLProtocol.requestHandler = { request in
+            let url = try #require(request.url)
+            let response = try #require(HTTPURLResponse(
+                url: url,
+                statusCode: 500,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            return (response, Data(#"{"resultCount": 0, "results": []}"#.utf8))
+        }
+
+        let client = AppleMusicSearchClient(session: session)
+        do {
+            _ = try await client.getReleaseCandidates(
+                artist: "Test Artist",
+                album: "Test Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+            Issue.record("Expected iTunes HTTP failure")
+        } catch {
+            #expect(error.localizedDescription == "iTunes request returned HTTP 500")
+        }
+    }
+
     @Test("getReleaseCandidates uses iTunes lookup fallback when search is empty")
     func releaseCandidatesUseLookupFallback() async throws { // swiftlint:disable:this function_body_length
         let configuration = URLSessionConfiguration.ephemeral

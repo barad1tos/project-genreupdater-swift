@@ -69,6 +69,52 @@ public struct APISourcePriorityConfiguration: Sendable {
     }
 }
 
+public struct APIOrchestratorServices: Sendable {
+    let musicBrainz: any ExternalAPIService
+    let discogs: any ExternalAPIService
+    let appleMusic: any ExternalAPIService
+
+    public init(
+        musicBrainz: any ExternalAPIService,
+        discogs: any ExternalAPIService,
+        appleMusic: any ExternalAPIService
+    ) {
+        self.musicBrainz = musicBrainz
+        self.discogs = discogs
+        self.appleMusic = appleMusic
+    }
+}
+
+public struct APIOrchestratorConfiguration: Sendable {
+    public var reachability: NetworkReachabilityMonitor?
+    public var cache: (any CacheService)?
+    public var pendingVerificationService: (any PendingVerificationService)?
+    public var maxVerificationAttempts: Int
+    public var timeout: Duration
+    public var negativeResultTTL: TimeInterval
+    public var candidateResultTTL: TimeInterval?
+    public var disabledSources: Set<APISource>
+    public var maxConcurrentSourceCalls: Int
+    public var maxAPIRetries: Int
+    public var apiRetryDelaySeconds: Double
+    public var sourcePriorityConfiguration: APISourcePriorityConfiguration
+
+    public init() {
+        reachability = nil
+        cache = nil
+        pendingVerificationService = nil
+        maxVerificationAttempts = FallbackConfig().maxVerificationAttempts
+        timeout = .seconds(15)
+        negativeResultTTL = CachingConfig().negativeResultTTL
+        candidateResultTTL = nil
+        disabledSources = []
+        maxConcurrentSourceCalls = 3
+        maxAPIRetries = 0
+        apiRetryDelaySeconds = 1
+        sourcePriorityConfiguration = APISourcePriorityConfiguration()
+    }
+}
+
 public actor APIOrchestrator {
     let musicBrainz: any ExternalAPIService
     let discogs: any ExternalAPIService
@@ -78,7 +124,8 @@ public actor APIOrchestrator {
     private let pendingVerificationService: (any PendingVerificationService)?
     private let maxVerificationAttempts: Int
     let timeout: Duration
-    private let negativeResultTTL: TimeInterval
+    let negativeResultTTL: TimeInterval
+    let candidateResultTTL: TimeInterval?
     nonisolated public let disabledSources: Set<APISource>
     private let maxConcurrentSourceCalls: Int
     let apiRetryConfiguration: APIRetryConfiguration
@@ -88,44 +135,69 @@ public actor APIOrchestrator {
     /// Creates an orchestrator with three API sources and a per-source timeout.
     ///
     /// - Parameters:
-    ///   - musicBrainz: MusicBrainz API client.
-    ///   - discogs: Discogs API client.
-    ///   - appleMusic: Apple Music catalog search client.
-    ///   - reachability: Optional network monitor. When offline, API calls are skipped.
-    ///   - cache: Optional persistent cache for successful source results.
-    ///   - timeout: Maximum time to wait for each source. Defaults to 15 seconds.
-    ///   - negativeResultTTL: Cache TTL for successful source responses that found no year.
-    ///   - maxConcurrentSourceCalls: Maximum API sources queried at once. Values below 1 are clamped.
-    ///   - sourcePriorityConfiguration: Preferred source ordering and tie-break configuration.
+    ///   - services: Music metadata API clients.
+    ///   - configuration: Runtime limits, cache policy, and source ordering.
+    public init(
+        services: APIOrchestratorServices,
+        configuration: APIOrchestratorConfiguration = APIOrchestratorConfiguration()
+    ) {
+        musicBrainz = services.musicBrainz
+        discogs = services.discogs
+        appleMusic = services.appleMusic
+        reachability = configuration.reachability
+        cache = configuration.cache
+        pendingVerificationService = configuration.pendingVerificationService
+        maxVerificationAttempts = max(0, configuration.maxVerificationAttempts)
+        timeout = configuration.timeout
+        negativeResultTTL = max(0, configuration.negativeResultTTL)
+        candidateResultTTL = configuration.candidateResultTTL.flatMap { $0 > 0 ? $0 : nil }
+        disabledSources = configuration.disabledSources
+        maxConcurrentSourceCalls = max(1, configuration.maxConcurrentSourceCalls)
+        apiRetryConfiguration = APIRetryConfiguration(
+            maxRetries: configuration.maxAPIRetries,
+            delaySeconds: configuration.apiRetryDelaySeconds
+        )
+        sourcePriorityConfiguration = configuration.sourcePriorityConfiguration
+    }
+
+    /// Creates an orchestrator from concrete API clients and optional runtime configuration.
+    public init(
+        musicBrainz: any ExternalAPIService,
+        discogs: any ExternalAPIService,
+        appleMusic: any ExternalAPIService,
+        configuration: APIOrchestratorConfiguration = APIOrchestratorConfiguration()
+    ) {
+        self.init(
+            services: APIOrchestratorServices(
+                musicBrainz: musicBrainz,
+                discogs: discogs,
+                appleMusic: appleMusic
+            ),
+            configuration: configuration
+        )
+    }
+
+    /// Creates an orchestrator with common runtime overrides kept source-compatible with older call sites.
     public init(
         musicBrainz: any ExternalAPIService,
         discogs: any ExternalAPIService,
         appleMusic: any ExternalAPIService,
         reachability: NetworkReachabilityMonitor? = nil,
         cache: (any CacheService)? = nil,
-        pendingVerificationService: (any PendingVerificationService)? = nil,
-        maxVerificationAttempts: Int = FallbackConfig().maxVerificationAttempts,
         timeout: Duration = .seconds(15),
-        negativeResultTTL: TimeInterval = CachingConfig().negativeResultTTL,
-        disabledSources: Set<APISource> = [],
-        maxConcurrentSourceCalls: Int = 3,
-        maxAPIRetries: Int = 0,
-        apiRetryDelaySeconds: Double = 1,
-        sourcePriorityConfiguration: APISourcePriorityConfiguration = APISourcePriorityConfiguration()
+        disabledSources: Set<APISource> = []
     ) {
-        self.musicBrainz = musicBrainz
-        self.discogs = discogs
-        self.appleMusic = appleMusic
-        self.reachability = reachability
-        self.cache = cache
-        self.pendingVerificationService = pendingVerificationService
-        self.maxVerificationAttempts = max(0, maxVerificationAttempts)
-        self.timeout = timeout
-        self.negativeResultTTL = max(0, negativeResultTTL)
-        self.disabledSources = disabledSources
-        self.maxConcurrentSourceCalls = max(1, maxConcurrentSourceCalls)
-        apiRetryConfiguration = APIRetryConfiguration(maxRetries: maxAPIRetries, delaySeconds: apiRetryDelaySeconds)
-        self.sourcePriorityConfiguration = sourcePriorityConfiguration
+        var configuration = APIOrchestratorConfiguration()
+        configuration.reachability = reachability
+        configuration.cache = cache
+        configuration.timeout = timeout
+        configuration.disabledSources = disabledSources
+        self.init(
+            musicBrainz: musicBrainz,
+            discogs: discogs,
+            appleMusic: appleMusic,
+            configuration: configuration
+        )
     }
 
     /// Query configured sources and aggregate results by year score.
@@ -415,17 +487,11 @@ private func fetchWithTimeout(
     do {
         let result = try await withThrowingTaskGroup(of: YearResult.self) { group in
             group.addTask {
-                try await withRetry(
-                    maxAttempts: apiRetryConfiguration.maxAttempts,
-                    initialDelay: apiRetryConfiguration.initialDelay
-                ) {
-                    try await sourceEntry.service.getAlbumYear(
-                        artist: query.artist,
-                        album: query.album,
-                        currentLibraryYear: query.currentLibraryYear,
-                        earliestTrackAddedYear: query.earliestTrackAddedYear
-                    )
-                }
+                try await fetchAlbumYearWithRetry(
+                    sourceEntry: sourceEntry,
+                    query: query,
+                    apiRetryConfiguration: apiRetryConfiguration
+                )
             }
 
             group.addTask {
@@ -456,6 +522,24 @@ private func fetchWithTimeout(
                 "\(sourceEntry.source.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)"
             )
         return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
+    }
+}
+
+private func fetchAlbumYearWithRetry(
+    sourceEntry: (source: APISource, service: any ExternalAPIService),
+    query: SourceQuery,
+    apiRetryConfiguration: APIRetryConfiguration
+) async throws -> YearResult {
+    try await withRetry(
+        maxAttempts: apiRetryConfiguration.maxAttempts,
+        initialDelay: apiRetryConfiguration.initialDelay
+    ) {
+        try await sourceEntry.service.getAlbumYear(
+            artist: query.artist,
+            album: query.album,
+            currentLibraryYear: query.currentLibraryYear,
+            earliestTrackAddedYear: query.earliestTrackAddedYear
+        )
     }
 }
 

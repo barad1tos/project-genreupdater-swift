@@ -333,7 +333,7 @@ extension AppleScriptClient {
 // MARK: - Pending Verification Service
 
 /// Protocol for managing albums that need manual year verification.
-public protocol PendingVerificationService: Actor {
+public protocol PendingVerificationService: Actor, Sendable {
     func initialize() async throws
     func markForVerification(
         artist: String,

@@ -10,13 +10,14 @@ struct APIOrchestratorDisabledSourceTests {
         let musicBrainz = SourceRecordingAPIService(source: .musicBrainz, recorder: recorder)
         let discogs = SourceRecordingAPIService(source: .discogs, recorder: recorder)
         let appleMusic = SourceRecordingAPIService(source: .itunes, recorder: recorder)
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: musicBrainz,
             discogs: discogs,
             appleMusic: appleMusic,
-            disabledSources: [.discogs],
-            sourcePriorityConfiguration: APISourcePriorityConfiguration(preferredAPI: .musicbrainz)
-        )
+            disabledSources: [.discogs]
+        ) {
+            $0.sourcePriorityConfiguration = APISourcePriorityConfiguration(preferredAPI: .musicbrainz)
+        }
 
         _ = await orchestrator.getAlbumYear(
             artist: "In Flames",
@@ -37,13 +38,14 @@ struct APIOrchestratorDisabledSourceTests {
         let musicBrainz = SourceRecordingAPIService(source: .musicBrainz, recorder: recorder)
         let discogs = SourceRecordingAPIService(source: .discogs, recorder: recorder)
         let appleMusic = SourceRecordingAPIService(source: .itunes, recorder: recorder)
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: musicBrainz,
             discogs: discogs,
             appleMusic: appleMusic,
-            disabledSources: [.discogs],
-            sourcePriorityConfiguration: APISourcePriorityConfiguration(preferredAPI: .musicbrainz)
-        )
+            disabledSources: [.discogs]
+        ) {
+            $0.sourcePriorityConfiguration = APISourcePriorityConfiguration(preferredAPI: .musicbrainz)
+        }
 
         let candidates = await orchestrator.getReleaseCandidates(
             artist: "In Flames",

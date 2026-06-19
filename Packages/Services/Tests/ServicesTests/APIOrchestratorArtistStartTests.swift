@@ -6,7 +6,7 @@ import Testing
 struct APIOrchestratorArtistStartTests {
     @Test("Artist start year falls back to Apple Music when MusicBrainz has no activity period")
     func artistStartYearFallsBackToAppleMusic() async {
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(artistActivityPeriod: (nil, nil)),
             discogs: MockAPIService(),
             appleMusic: MockAPIService(artistStartYear: 1998)

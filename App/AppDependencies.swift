@@ -327,7 +327,7 @@ final class AppDependencies {
         return 5 * 60
     }
 
-    private static func apiResultCacheTTL(configuration: AppConfiguration) -> TimeInterval {
+    static func apiResultCacheTTL(configuration: AppConfiguration) -> TimeInterval {
         guard configuration.processing.cacheTTLDays > 0 else {
             return GRDBCacheService.defaultAPIResultTTL
         }
@@ -376,9 +376,9 @@ final class AppDependencies {
             cache: cacheService,
             pendingVerificationService: pendingVerification,
             reachability: reachability,
-            discogsCredentialIssueHandler: { [weak self] issue in
+            factoryOverrides: APIClientFactoryOverrides(discogsCredentialIssueHandler: { [weak self] issue in
                 self?.discogsCredentialIssue = issue
-            }
+            })
         )
     }
 
@@ -457,9 +457,9 @@ extension AppDependencies {
             cache: cacheService,
             pendingVerificationService: configuredPendingVerificationService,
             reachability: networkReachabilityMonitor,
-            discogsCredentialIssueHandler: { [weak self] issue in
+            factoryOverrides: APIClientFactoryOverrides(discogsCredentialIssueHandler: { [weak self] issue in
                 self?.discogsCredentialIssue = issue
-            }
+            })
         )
         yearDeterminator = configuredYearDeterminator
         pendingVerificationService = configuredPendingVerificationService

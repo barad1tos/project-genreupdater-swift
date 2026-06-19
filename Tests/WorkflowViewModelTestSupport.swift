@@ -18,11 +18,15 @@ func makeWorkflowFixture(
     let scriptClient = DashboardStateScriptClient(failingTrackIDs: failingWriteTrackIDs)
     let trackStore = DashboardStateTrackStore()
     let cache = DashboardStateCacheService()
+    var apiOrchestratorConfiguration = APIOrchestratorConfiguration()
+    apiOrchestratorConfiguration.cache = cache
     let apiOrchestrator = APIOrchestrator(
-        musicBrainz: apiService,
-        discogs: apiService,
-        appleMusic: apiService,
-        cache: cache
+        services: APIOrchestratorServices(
+            musicBrainz: apiService,
+            discogs: apiService,
+            appleMusic: apiService
+        ),
+        configuration: apiOrchestratorConfiguration
     )
     let undoCoordinator = UndoCoordinator(scriptBridge: scriptClient, directory: temporaryDirectory())
     let updateCoordinator = UpdateCoordinator(

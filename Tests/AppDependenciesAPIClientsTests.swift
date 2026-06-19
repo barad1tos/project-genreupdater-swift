@@ -15,12 +15,7 @@ struct AppDependenciesAPIClientsTests {
         let expectedError = KeychainError.authenticationFailed(errSecUserCanceled)
         var capturedError: (any Error)?
         var capturedIssue: DiscogsCredentialIssue?
-
-        _ = AppDependencies.makeAPIOrchestrator(
-            configuration: configuration,
-            cache: nil,
-            pendingVerificationService: nil,
-            reachability: nil,
+        let factoryOverrides = APIClientFactoryOverrides(
             keychainDiscogsClientFactory: { _, _, _ in
                 throw expectedError
             },
@@ -30,6 +25,14 @@ struct AppDependenciesAPIClientsTests {
             discogsCredentialIssueHandler: { issue in
                 capturedIssue = issue
             }
+        )
+
+        _ = AppDependencies.makeAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            factoryOverrides: factoryOverrides
         )
 
         let keychainError = try #require(capturedError as? KeychainError)
@@ -42,12 +45,7 @@ struct AppDependenciesAPIClientsTests {
         var configuration = AppConfiguration()
         configuration.yearRetrieval.apiAuth.discogsTokenReference = ""
         var capturedIssue: DiscogsCredentialIssue? = .keychain(.invalidTokenData)
-
-        _ = AppDependencies.makeAPIOrchestrator(
-            configuration: configuration,
-            cache: nil,
-            pendingVerificationService: nil,
-            reachability: nil,
+        let factoryOverrides = APIClientFactoryOverrides(
             keychainDiscogsClientFactory: { contactEmail, rateLimiter, baseURL in
                 DiscogsClient(
                     token: "saved-token",
@@ -61,6 +59,14 @@ struct AppDependenciesAPIClientsTests {
             }
         )
 
+        _ = AppDependencies.makeAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            factoryOverrides: factoryOverrides
+        )
+
         #expect(capturedIssue == nil)
     }
 
@@ -69,12 +75,7 @@ struct AppDependenciesAPIClientsTests {
         var configuration = AppConfiguration()
         configuration.yearRetrieval.apiAuth.discogsTokenReference = ""
         var capturedIssue: DiscogsCredentialIssue?
-
-        let orchestrator = AppDependencies.makeAPIOrchestrator(
-            configuration: configuration,
-            cache: nil,
-            pendingVerificationService: nil,
-            reachability: nil,
+        let factoryOverrides = APIClientFactoryOverrides(
             keychainDiscogsClientFactory: { contactEmail, rateLimiter, baseURL in
                 DiscogsClient(
                     contactEmail: contactEmail,
@@ -85,6 +86,14 @@ struct AppDependenciesAPIClientsTests {
             discogsCredentialIssueHandler: { issue in
                 capturedIssue = issue
             }
+        )
+
+        let orchestrator = AppDependencies.makeAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            factoryOverrides: factoryOverrides
         )
 
         #expect(capturedIssue == .missingToken)
@@ -98,12 +107,7 @@ struct AppDependenciesAPIClientsTests {
         configuration.yearRetrieval.apiAuth.discogsBaseHost = "sandbox.discogs.com"
         var capturedIssue: DiscogsCredentialIssue? = .keychain(.invalidTokenData)
         var capturedBaseURL: URL?
-
-        _ = AppDependencies.makeAPIOrchestrator(
-            configuration: configuration,
-            cache: nil,
-            pendingVerificationService: nil,
-            reachability: nil,
+        let factoryOverrides = APIClientFactoryOverrides(
             keychainDiscogsClientFactory: { _, _, _ in
                 throw KeychainError.authenticationFailed(errSecAuthFailed)
             },
@@ -121,6 +125,14 @@ struct AppDependenciesAPIClientsTests {
             }
         )
 
+        _ = AppDependencies.makeAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            factoryOverrides: factoryOverrides
+        )
+
         #expect(capturedIssue == nil)
         #expect(capturedBaseURL?.host == "sandbox.discogs.com")
     }
@@ -131,12 +143,7 @@ struct AppDependenciesAPIClientsTests {
         configuration.yearRetrieval.apiAuth.discogsTokenReference = ""
         configuration.yearRetrieval.apiAuth.discogsBaseHost = "sandbox.discogs.com"
         var capturedBaseURL: URL?
-
-        _ = AppDependencies.makeAPIOrchestrator(
-            configuration: configuration,
-            cache: nil,
-            pendingVerificationService: nil,
-            reachability: nil,
+        let factoryOverrides = APIClientFactoryOverrides(
             keychainDiscogsClientFactory: { contactEmail, rateLimiter, baseURL in
                 capturedBaseURL = baseURL
                 return DiscogsClient(
@@ -146,6 +153,14 @@ struct AppDependenciesAPIClientsTests {
                     baseURL: baseURL
                 )
             }
+        )
+
+        _ = AppDependencies.makeAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            factoryOverrides: factoryOverrides
         )
 
         let baseURL = try #require(capturedBaseURL)

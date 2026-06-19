@@ -28,7 +28,7 @@ struct APIOrchestratorTests {
             )
         )
 
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: musicBrainz,
             discogs: discogs,
             appleMusic: appleMusic
@@ -58,7 +58,7 @@ struct APIOrchestratorTests {
         let discogs = MockAPIService(shouldThrow: true)
         let appleMusic = MockAPIService(shouldThrow: true)
 
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: musicBrainz,
             discogs: discogs,
             appleMusic: appleMusic
@@ -76,7 +76,7 @@ struct APIOrchestratorTests {
 
     @Test("Returns empty result when all sources fail")
     func returnsEmptyWhenAllSourcesFail() async {
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(shouldThrow: true),
             discogs: MockAPIService(shouldThrow: true),
             appleMusic: MockAPIService(shouldThrow: true)
@@ -111,12 +111,13 @@ struct APIOrchestratorTests {
             delay: .seconds(10)
         )
 
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: fastService,
             discogs: slowService,
-            appleMusic: MockAPIService(shouldThrow: true),
-            timeout: .milliseconds(200)
-        )
+            appleMusic: MockAPIService(shouldThrow: true)
+        ) {
+            $0.timeout = .milliseconds(200)
+        }
 
         let result = await orchestrator.getAlbumYear(
             artist: "Test",
@@ -131,7 +132,7 @@ struct APIOrchestratorTests {
     @Test("Limits concurrent source calls")
     func limitsConcurrentSourceCalls() async {
         let probe = APIConcurrencyProbe()
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: RecordingAPIService(
                 probe: probe,
                 yearResult: YearResult(year: 2000, confidence: 60, yearScores: [2000: 60]),
@@ -146,10 +147,11 @@ struct APIOrchestratorTests {
                 probe: probe,
                 yearResult: YearResult(year: 2002, confidence: 60, yearScores: [2002: 60]),
                 delay: .milliseconds(50)
-            ),
-            timeout: .seconds(1),
-            maxConcurrentSourceCalls: 1
-        )
+            )
+        ) {
+            $0.timeout = .seconds(1)
+            $0.maxConcurrentSourceCalls = 1
+        }
 
         _ = await orchestrator.getAlbumYear(
             artist: "Test",
@@ -164,16 +166,17 @@ struct APIOrchestratorTests {
 
     @Test("Preferred API breaks tied source scores")
     func preferredAPIBreaksTiedSourceScores() async {
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(
                 yearResult: YearResult(year: 2000, confidence: 60, yearScores: [2000: 60])
             ),
             discogs: MockAPIService(
                 yearResult: YearResult(year: 2001, confidence: 60, yearScores: [2001: 60])
             ),
-            appleMusic: MockAPIService(),
-            sourcePriorityConfiguration: APISourcePriorityConfiguration(preferredAPI: .discogs)
-        )
+            appleMusic: MockAPIService()
+        ) {
+            $0.sourcePriorityConfiguration = APISourcePriorityConfiguration(preferredAPI: .discogs)
+        }
 
         let result = await orchestrator.getAlbumYear(
             artist: "Test",
@@ -188,21 +191,22 @@ struct APIOrchestratorTests {
 
     @Test("Script API priority overrides preferred API")
     func scriptAPIPriorityOverridesPreferredAPI() async {
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(
                 yearResult: YearResult(year: 2000, confidence: 60, yearScores: [2000: 60])
             ),
             discogs: MockAPIService(
                 yearResult: YearResult(year: 2001, confidence: 60, yearScores: [2001: 60])
             ),
-            appleMusic: MockAPIService(),
-            sourcePriorityConfiguration: APISourcePriorityConfiguration(
+            appleMusic: MockAPIService()
+        ) {
+            $0.sourcePriorityConfiguration = APISourcePriorityConfiguration(
                 preferredAPI: .musicbrainz,
                 scriptPriorities: [
                     "cyrillic": ScriptAPIPriority(primary: ["discogs"], fallback: ["musicbrainz"]),
                 ]
             )
-        )
+        }
 
         let result = await orchestrator.getAlbumYear(
             artist: "МУР",
@@ -241,7 +245,7 @@ struct APIOrchestratorTests {
             )
         )
 
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: musicBrainz,
             discogs: discogs,
             appleMusic: appleMusic
@@ -282,7 +286,7 @@ struct APIOrchestratorTests {
         ))
 
         let callCounter = APICallCounter()
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: CountingAPIService(
                 callCounter: callCounter,
                 yearResult: YearResult(year: 1999, confidence: 99, yearScores: [1999: 99])
@@ -306,7 +310,7 @@ struct APIOrchestratorTests {
     @Test("Successful source result is written to cache")
     func successfulSourceResultIsWrittenToCache() async {
         let cache = MockCacheService()
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(
                 yearResult: YearResult(year: 1986, confidence: 77, yearScores: [1986: 77])
             ),
@@ -348,13 +352,14 @@ struct APIOrchestratorRetryTests {
         let discogs = MockAPIService(shouldThrow: true)
         let appleMusic = MockAPIService(shouldThrow: true)
 
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: musicBrainz,
             discogs: discogs,
-            appleMusic: appleMusic,
-            maxAPIRetries: 1,
-            apiRetryDelaySeconds: 0
-        )
+            appleMusic: appleMusic
+        ) {
+            $0.maxAPIRetries = 1
+            $0.apiRetryDelaySeconds = 0
+        }
 
         let result = await orchestrator.getAlbumYear(
             artist: "Nirvana",

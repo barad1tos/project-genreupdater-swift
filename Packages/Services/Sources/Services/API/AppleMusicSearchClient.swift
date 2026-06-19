@@ -18,12 +18,14 @@ import OSLog
 /// - Note: Artist activity period and start year are not exposed by MusicKit,
 ///   so those methods always return `nil`.
 public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
-    private static let itunesBaseURL = "https://itunes.apple.com"
+    public static let defaultITunesHost = "itunes.apple.com"
+    public static let defaultITunesScheme = "https"
 
     private let session: URLSession
     private let countryCode: String
     private let entity: String
     private let limit: Int
+    private let iTunesConfiguration: ITunesSearchConfiguration
     private let lookupFallbackEnabled: Bool
     private let log = AppLogger.api
 
@@ -32,12 +34,14 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
         countryCode: String = "US",
         entity: String = "album",
         limit: Int = 200,
+        iTunesConfiguration: ITunesSearchConfiguration = ITunesSearchConfiguration(),
         lookupFallbackEnabled: Bool = true
     ) {
         self.session = session
         self.countryCode = countryCode
         self.entity = entity
         self.limit = min(max(limit, 1), 200)
+        self.iTunesConfiguration = iTunesConfiguration
         self.lookupFallbackEnabled = lookupFallbackEnabled
     }
 
@@ -121,7 +125,8 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
             term: "\(artist) \(album)",
             countryCode: countryCode,
             entity: entity,
-            limit: limit
+            limit: limit,
+            configuration: iTunesConfiguration
         ) else {
             return []
         }
@@ -151,7 +156,7 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
     ///
     /// Always returns `(nil, nil)`.
     public func getArtistActivityPeriod(
-        normalizedArtist: String
+        normalizedArtist _: String
     ) async throws -> (start: Int?, end: Int?) {
         (nil, nil)
     }
@@ -167,7 +172,8 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
             artist: normalizedArtist,
             countryCode: countryCode,
             entity: entity,
-            limit: limit
+            limit: limit,
+            configuration: iTunesConfiguration
         ) else {
             log.warning("Failed to build iTunes artist albums URL for \(normalizedArtist, privacy: .private)")
             return nil
@@ -183,7 +189,7 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
     }
 
     /// No initialization required — MusicKit manages its own state.
-    public func initialize(force: Bool) async throws {
+    public func initialize(force _: Bool) async throws {
         // No-op: MusicKit handles initialization internally
     }
 
@@ -206,31 +212,37 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
         artist: String,
         countryCode: String,
         entity: String = "album",
-        limit: Int = 200
+        limit: Int = 200,
+        configuration: ITunesSearchConfiguration = ITunesSearchConfiguration()
     ) -> URL? {
         let searchEntity = entity.trimmingCharacters(in: .whitespacesAndNewlines)
         let clampedLimit = min(max(limit, 1), 200)
-        var components = URLComponents(string: "\(itunesBaseURL)/search")
-        components?.queryItems = [
+        var components = URLComponents()
+        components.scheme = configuration.scheme
+        components.host = configuration.host
+        components.path = configuration.searchPath
+        components.queryItems = [
             URLQueryItem(name: "term", value: artist),
             URLQueryItem(name: "country", value: countryCode),
             URLQueryItem(name: "entity", value: searchEntity.isEmpty ? "album" : searchEntity),
             URLQueryItem(name: "limit", value: String(clampedLimit)),
         ]
-        return components?.url
+        return components.url
     }
 
     static func buildITunesSearchURL(
         term: String,
         countryCode: String,
         entity: String,
-        limit: Int
+        limit: Int,
+        configuration: ITunesSearchConfiguration = ITunesSearchConfiguration()
     ) -> URL? {
         buildArtistAlbumsSearchURL(
             artist: term,
             countryCode: countryCode,
             entity: entity,
-            limit: limit
+            limit: limit,
+            configuration: configuration
         )
     }
 
@@ -238,12 +250,12 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
         let (data, response) = try await session.data(from: url)
         guard let httpResponse = response as? HTTPURLResponse else {
             log.warning("iTunes request returned a non-HTTP response")
-            return []
+            throw ITunesSearchError.nonHTTPResponse
         }
 
         guard httpResponse.statusCode == 200 else {
             log.warning("iTunes request returned HTTP \(httpResponse.statusCode, privacy: .public)")
-            return []
+            throw ITunesSearchError.unsuccessfulStatusCode(httpResponse.statusCode)
         }
 
         return try JSONDecoder().decode(
@@ -257,7 +269,8 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
             term: artist,
             countryCode: countryCode,
             entity: "musicArtist",
-            limit: 5
+            limit: 5,
+            configuration: iTunesConfiguration
         ) else {
             return nil
         }
@@ -270,13 +283,16 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
     }
 
     private func lookupArtistAlbums(artistID: Int) async throws -> [ITunesAlbumResult] {
-        var components = URLComponents(string: "\(Self.itunesBaseURL)/lookup")
-        components?.queryItems = [
+        var components = URLComponents()
+        components.scheme = iTunesConfiguration.scheme
+        components.host = iTunesConfiguration.host
+        components.path = iTunesConfiguration.lookupPath
+        components.queryItems = [
             URLQueryItem(name: "id", value: String(artistID)),
             URLQueryItem(name: "entity", value: "album"),
             URLQueryItem(name: "limit", value: String(limit)),
         ]
-        guard let url = components?.url else { return [] }
+        guard let url = components.url else { return [] }
         return try await fetchITunesResults(from: url)
     }
 
@@ -333,6 +349,43 @@ public struct AppleMusicSearchClient: ExternalAPIService, Sendable {
     }
 }
 
+public struct ITunesSearchConfiguration: Sendable {
+    public let scheme: String
+    public let host: String
+    public let searchPath: String
+    public let lookupPath: String
+
+    public init(
+        scheme: String = AppleMusicSearchClient.defaultITunesScheme,
+        host: String = AppleMusicSearchClient.defaultITunesHost,
+        searchPath: String = Self.endpointPath("search"),
+        lookupPath: String = Self.endpointPath("lookup")
+    ) {
+        self.scheme = Self.resolved(scheme, fallback: AppleMusicSearchClient.defaultITunesScheme)
+        self.host = Self.resolved(host, fallback: AppleMusicSearchClient.defaultITunesHost)
+        self.searchPath = Self.resolvedEndpointPath(searchPath, fallback: Self.endpointPath("search"))
+        self.lookupPath = Self.resolvedEndpointPath(lookupPath, fallback: Self.endpointPath("lookup"))
+    }
+
+    public static func endpointPath(_ endpoint: String) -> String {
+        "/" + endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func resolved(_ value: String, fallback: String) -> String {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? fallback : trimmedValue
+    }
+
+    private static func resolvedEndpointPath(_ path: String, fallback: String) -> String {
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else { return fallback }
+        if trimmedPath.hasPrefix("/") {
+            return trimmedPath
+        }
+        return "/" + trimmedPath
+    }
+}
+
 private struct ITunesArtistAlbumsResponse: Decodable {
     let results: [ITunesAlbumResult]
 }
@@ -350,5 +403,19 @@ private struct ITunesAlbumResult: Decodable {
         case releaseDate
         case artistID = "artistId"
         case country
+    }
+}
+
+private enum ITunesSearchError: LocalizedError {
+    case nonHTTPResponse
+    case unsuccessfulStatusCode(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .nonHTTPResponse:
+            "iTunes request returned a non-HTTP response"
+        case let .unsuccessfulStatusCode(statusCode):
+            "iTunes request returned HTTP \(statusCode)"
+        }
     }
 }

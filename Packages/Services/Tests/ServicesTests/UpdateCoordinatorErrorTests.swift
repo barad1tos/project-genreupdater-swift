@@ -141,7 +141,7 @@ struct UpdateCoordinatorWriteFailureTests {
             yearScores: [2020: 90]
         )
         let apiService = MockAPIService(yearResult: yearResult)
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: apiService,
             discogs: apiService,
             appleMusic: apiService
@@ -196,7 +196,7 @@ struct UpdateCoordinatorWriteFailureTests {
         let emptyResult = MockAPIService(
             yearResult: YearResult()
         )
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: lowConfidence,
             discogs: emptyResult,
             appleMusic: emptyResult

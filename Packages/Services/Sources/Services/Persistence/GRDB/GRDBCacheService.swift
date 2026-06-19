@@ -169,14 +169,17 @@ public actor GRDBCacheService: CacheService {
     public func getAlbumYear(artist: String, album: String) async -> AlbumCacheEntry? {
         let signpostState = AppSignpost.cacheOperation.beginInterval("getAlbumYear")
         defer { AppSignpost.cacheOperation.endInterval("getAlbumYear", signpostState) }
+        let normalizedKey = Self.normalizedAlbumCacheKey(artist: artist, album: album)
 
         do {
             return try await dbWriter.read { database -> AlbumCacheEntry? in
-                let row = try AlbumYearRow.fetchOne(
-                    database,
-                    sql: "SELECT * FROM album_years WHERE artist = ? AND album = ?",
-                    arguments: [artist, album]
-                )
+                let row = try Self.fetchAlbumYearRow(database, key: normalizedKey)
+                    ?? Self.fetchLegacyAlbumYearRow(
+                        database,
+                        artist: artist,
+                        album: album,
+                        normalizedKey: normalizedKey
+                    )
 
                 guard let row else { return nil }
 
@@ -194,10 +197,11 @@ public actor GRDBCacheService: CacheService {
     }
 
     public func storeAlbumYear(artist: String, album: String, year: Int, confidence: Int) async {
+        let normalizedKey = Self.normalizedAlbumCacheKey(artist: artist, album: album)
         do {
             let entry = AlbumCacheEntry(
-                artist: artist,
-                album: album,
+                artist: normalizedKey.artist,
+                album: normalizedKey.album,
                 year: year,
                 confidence: confidence,
                 timestamp: .now
@@ -213,10 +217,7 @@ public actor GRDBCacheService: CacheService {
     public func invalidateAlbum(artist: String, album: String) async {
         do {
             try await dbWriter.write { database in
-                try database.execute(
-                    sql: "DELETE FROM album_years WHERE artist = ? AND album = ?",
-                    arguments: [artist, album]
-                )
+                try Self.deleteAlbumYearRows(database, artist: artist, album: album)
             }
         } catch {
             log.error("invalidateAlbum failed: \(error, privacy: .public)")
@@ -228,14 +229,18 @@ public actor GRDBCacheService: CacheService {
     public func getCachedAPIResult(artist: String, album: String, source: String) async -> CachedAPIResult? {
         let signpostState = AppSignpost.cacheOperation.beginInterval("getCachedAPIResult")
         defer { AppSignpost.cacheOperation.endInterval("getCachedAPIResult", signpostState) }
+        let normalizedKey = Self.normalizedAPIResultCacheKey(artist: artist, album: album, source: source)
 
         do {
             return try await dbWriter.read { database -> CachedAPIResult? in
-                let row = try CachedAPIRow.fetchOne(
-                    database,
-                    sql: "SELECT * FROM api_results WHERE artist = ? AND album = ? AND source = ?",
-                    arguments: [artist, album, source]
-                )
+                let row = try Self.fetchAPIResultRow(database, key: normalizedKey)
+                    ?? Self.fetchLegacyAPIResultRow(
+                        database,
+                        artist: artist,
+                        album: album,
+                        source: source,
+                        normalizedKey: normalizedKey
+                    )
 
                 guard let row else { return nil }
 
@@ -254,18 +259,31 @@ public actor GRDBCacheService: CacheService {
 
     public func setCachedAPIResult(_ result: CachedAPIResult) async {
         do {
-            let resultWithTTL: CachedAPIResult = if result.ttl == nil {
+            let normalizedKey = Self.normalizedAPIResultCacheKey(
+                artist: result.artist,
+                album: result.album,
+                source: result.source
+            )
+            let resultWithTTL = if result.ttl == nil {
                 CachedAPIResult(
-                    artist: result.artist,
-                    album: result.album,
+                    artist: normalizedKey.artist,
+                    album: normalizedKey.album,
                     year: result.year,
-                    source: result.source,
+                    source: normalizedKey.source,
                     timestamp: result.timestamp,
                     ttl: apiResultTTL,
                     metadata: result.metadata
                 )
             } else {
-                result
+                CachedAPIResult(
+                    artist: normalizedKey.artist,
+                    album: normalizedKey.album,
+                    year: result.year,
+                    source: normalizedKey.source,
+                    timestamp: result.timestamp,
+                    ttl: result.ttl,
+                    metadata: result.metadata
+                )
             }
 
             try await dbWriter.write { database in
@@ -288,9 +306,13 @@ public actor GRDBCacheService: CacheService {
         do {
             try await dbWriter.write { database in
                 for entry in entries {
-                    let cacheEntry = AlbumCacheEntry(
+                    let normalizedKey = Self.normalizedAlbumCacheKey(
                         artist: entry.artist,
-                        album: entry.album,
+                        album: entry.album
+                    )
+                    let cacheEntry = AlbumCacheEntry(
+                        artist: normalizedKey.artist,
+                        album: normalizedKey.album,
                         year: entry.year,
                         confidence: entry.confidence,
                         timestamp: .now
@@ -313,10 +335,7 @@ public actor GRDBCacheService: CacheService {
         do {
             try await dbWriter.write { database in
                 for (artist, album) in albums {
-                    try database.execute(
-                        sql: "DELETE FROM album_years WHERE artist = ? AND album = ?",
-                        arguments: [artist, album]
-                    )
+                    try Self.deleteAlbumYearRows(database, artist: artist, album: album)
                 }
             }
         } catch {
@@ -384,6 +403,97 @@ public enum GRDBCacheServiceError: Error {
 // MARK: - Factory
 
 extension GRDBCacheService {
+    fileprivate struct AlbumCacheKey: Hashable {
+        let artist: String
+        let album: String
+    }
+
+    fileprivate struct APIResultCacheKey: Hashable {
+        let artist: String
+        let album: String
+        let source: String
+    }
+
+    fileprivate static func normalizedAlbumCacheKey(artist: String, album: String) -> AlbumCacheKey {
+        AlbumCacheKey(
+            artist: normalizeForMatching(artist),
+            album: normalizeForMatching(album)
+        )
+    }
+
+    fileprivate static func normalizedAPIResultCacheKey(
+        artist: String,
+        album: String,
+        source: String
+    ) -> APIResultCacheKey {
+        APIResultCacheKey(
+            artist: normalizeForMatching(artist),
+            album: normalizeForMatching(album),
+            source: normalizeForMatching(source)
+        )
+    }
+
+    fileprivate static func fetchAlbumYearRow(
+        _ database: Database,
+        key: AlbumCacheKey
+    ) throws -> AlbumYearRow? {
+        try AlbumYearRow.fetchOne(
+            database,
+            sql: "SELECT * FROM album_years WHERE artist = ? AND album = ?",
+            arguments: [key.artist, key.album]
+        )
+    }
+
+    fileprivate static func deleteAlbumYearRows(
+        _ database: Database,
+        artist: String,
+        album: String
+    ) throws {
+        let normalizedKey = normalizedAlbumCacheKey(artist: artist, album: album)
+        try database.execute(
+            sql: """
+            DELETE FROM album_years
+            WHERE (artist = ? AND album = ?)
+               OR (LOWER(TRIM(artist)) = ? AND LOWER(TRIM(album)) = ?)
+            """,
+            arguments: [artist, album, normalizedKey.artist, normalizedKey.album]
+        )
+    }
+
+    fileprivate static func fetchLegacyAlbumYearRow(
+        _ database: Database,
+        artist: String,
+        album: String,
+        normalizedKey: AlbumCacheKey
+    ) throws -> AlbumYearRow? {
+        let requestedKey = AlbumCacheKey(artist: artist, album: album)
+        guard requestedKey != normalizedKey else { return nil }
+        return try fetchAlbumYearRow(database, key: requestedKey)
+    }
+
+    fileprivate static func fetchAPIResultRow(
+        _ database: Database,
+        key: APIResultCacheKey
+    ) throws -> CachedAPIRow? {
+        try CachedAPIRow.fetchOne(
+            database,
+            sql: "SELECT * FROM api_results WHERE artist = ? AND album = ? AND source = ?",
+            arguments: [key.artist, key.album, key.source]
+        )
+    }
+
+    fileprivate static func fetchLegacyAPIResultRow(
+        _ database: Database,
+        artist: String,
+        album: String,
+        source: String,
+        normalizedKey: APIResultCacheKey
+    ) throws -> CachedAPIRow? {
+        let requestedKey = APIResultCacheKey(artist: artist, album: album, source: source)
+        guard requestedKey != normalizedKey else { return nil }
+        return try fetchAPIResultRow(database, key: requestedKey)
+    }
+
     /// Create a cache service with the default Application Support path.
     public static func createDefault(
         defaultGenericTTL: TimeInterval? = nil,
