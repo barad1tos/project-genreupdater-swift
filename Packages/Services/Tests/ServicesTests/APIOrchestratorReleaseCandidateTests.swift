@@ -4,6 +4,27 @@ import Testing
 
 @Suite("APIOrchestrator - release candidate collection")
 struct APIOrchestratorReleaseCandidateTests {
+    @Test("Common legacy initializer labels remain available")
+    func commonLegacyInitializerLabelsRemainAvailable() async {
+        let orchestrator = APIOrchestrator(
+            musicBrainz: MockAPIService(),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService(),
+            cache: MockCacheService(),
+            timeout: .seconds(1),
+            disabledSources: [.musicBrainz, .discogs, .itunes]
+        )
+
+        let candidates = await orchestrator.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Test Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.isEmpty)
+    }
+
     @Test("collects release candidates in configured source order")
     func collectsReleaseCandidatesInSourceOrder() async {
         let musicBrainz = MockAPIService(releaseCandidates: [

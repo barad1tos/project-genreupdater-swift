@@ -177,6 +177,29 @@ public actor APIOrchestrator {
         )
     }
 
+    /// Creates an orchestrator with common runtime overrides kept source-compatible with older call sites.
+    public init(
+        musicBrainz: any ExternalAPIService,
+        discogs: any ExternalAPIService,
+        appleMusic: any ExternalAPIService,
+        reachability: NetworkReachabilityMonitor? = nil,
+        cache: (any CacheService)? = nil,
+        timeout: Duration = .seconds(15),
+        disabledSources: Set<APISource> = []
+    ) {
+        var configuration = APIOrchestratorConfiguration()
+        configuration.reachability = reachability
+        configuration.cache = cache
+        configuration.timeout = timeout
+        configuration.disabledSources = disabledSources
+        self.init(
+            musicBrainz: musicBrainz,
+            discogs: discogs,
+            appleMusic: appleMusic,
+            configuration: configuration
+        )
+    }
+
     /// Query configured sources and aggregate results by year score.
     ///
     /// Each source runs independently with its own timeout. If a source fails
