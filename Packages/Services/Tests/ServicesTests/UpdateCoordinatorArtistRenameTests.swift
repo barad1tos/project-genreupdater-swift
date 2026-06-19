@@ -91,7 +91,7 @@ struct UpdateCoordinatorArtistRenameTests {
 
         let coordinator = UpdateCoordinator(
             dependencies: UpdateCoordinatorDependencies(
-                apiOrchestrator: APIOrchestrator(
+                apiOrchestrator: makeAPIOrchestrator(
                     musicBrainz: apiService,
                     discogs: apiService,
                     appleMusic: apiService

@@ -77,7 +77,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
     ) async -> AcceptedApplyFixture {
         let bridge = MockAppleScriptClient()
         let apiService = MockAPIService()
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: apiService,
             discogs: apiService,
             appleMusic: apiService

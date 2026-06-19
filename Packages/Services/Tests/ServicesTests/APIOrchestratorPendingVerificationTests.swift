@@ -8,12 +8,13 @@ struct APIOrchestratorPendingVerificationTests {
     @Test("Marks album pending when APIs return no usable year")
     func noUsableYearMarksPendingVerification() async {
         let pendingVerification = RecordingPendingVerificationService()
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(yearResult: YearResult()),
             discogs: MockAPIService(shouldThrow: true),
-            appleMusic: MockAPIService(shouldThrow: true),
-            pendingVerificationService: pendingVerification
-        )
+            appleMusic: MockAPIService(shouldThrow: true)
+        ) {
+            $0.pendingVerificationService = pendingVerification
+        }
 
         let result = await orchestrator.getAlbumYear(
             artist: "Nobody",
@@ -34,7 +35,7 @@ struct APIOrchestratorPendingVerificationTests {
     @Test("Marks album pending when API year is not definitive")
     func nonDefinitiveYearMarksPendingVerification() async {
         let pendingVerification = RecordingPendingVerificationService()
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(
                 yearResult: YearResult(
                     year: 1994,
@@ -44,9 +45,10 @@ struct APIOrchestratorPendingVerificationTests {
                 )
             ),
             discogs: MockAPIService(shouldThrow: true),
-            appleMusic: MockAPIService(shouldThrow: true),
-            pendingVerificationService: pendingVerification
-        )
+            appleMusic: MockAPIService(shouldThrow: true)
+        ) {
+            $0.pendingVerificationService = pendingVerification
+        }
 
         let result = await orchestrator.getAlbumYear(
             artist: "Portishead",
@@ -68,7 +70,7 @@ struct APIOrchestratorPendingVerificationTests {
     @Test("Removes album from pending when API result is definitive")
     func definitiveYearRemovesPendingVerification() async {
         let pendingVerification = RecordingPendingVerificationService()
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(
                 yearResult: YearResult(
                     year: 1984,
@@ -83,9 +85,10 @@ struct APIOrchestratorPendingVerificationTests {
                     yearScores: [1984: 75]
                 )
             ),
-            appleMusic: MockAPIService(shouldThrow: true),
-            pendingVerificationService: pendingVerification
-        )
+            appleMusic: MockAPIService(shouldThrow: true)
+        ) {
+            $0.pendingVerificationService = pendingVerification
+        }
 
         let result = await orchestrator.getAlbumYear(
             artist: "Iron Maiden",
@@ -105,7 +108,7 @@ struct APIOrchestratorPendingVerificationTests {
     @Test("Removes album from pending when verification attempts are exhausted")
     func exhaustedVerificationAttemptsRemovePendingVerification() async {
         let pendingVerification = RecordingPendingVerificationService(attemptCount: 3)
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(
                 yearResult: YearResult(
                     year: 1997,
@@ -115,10 +118,11 @@ struct APIOrchestratorPendingVerificationTests {
                 )
             ),
             discogs: MockAPIService(shouldThrow: true),
-            appleMusic: MockAPIService(shouldThrow: true),
-            pendingVerificationService: pendingVerification,
-            maxVerificationAttempts: 3
-        )
+            appleMusic: MockAPIService(shouldThrow: true)
+        ) {
+            $0.pendingVerificationService = pendingVerification
+            $0.maxVerificationAttempts = 3
+        }
 
         let result = await orchestrator.getAlbumYear(
             artist: "Deftones",

@@ -42,6 +42,11 @@ extension APIOrchestrator {
         )
         let sourceRank = Dictionary(uniqueKeysWithValues: activeSources.enumerated().map { ($0.element, $0.offset) })
         let apiRetryConfiguration = apiRetryConfiguration
+        let cacheContext = ReleaseCandidateCacheContext(
+            cache: cache,
+            positiveResultTTL: candidateResultTTL,
+            negativeResultTTL: negativeResultTTL
+        )
 
         let fetched = await withTaskGroup(
             of: (source: APISource, candidates: [ReleaseCandidate]).self,
@@ -49,9 +54,10 @@ extension APIOrchestrator {
         ) { group in
             for sourceEntry in sources {
                 group.addTask {
-                    let candidates = await fetchReleaseCandidatesWithTimeout(
+                    let candidates = await cachedOrFetchedReleaseCandidates(
                         sourceEntry: sourceEntry,
                         query: query,
+                        cacheContext: cacheContext,
                         apiRetryConfiguration: apiRetryConfiguration,
                         log: log
                     )
@@ -72,29 +78,55 @@ extension APIOrchestrator {
     }
 }
 
+private func cachedOrFetchedReleaseCandidates(
+    sourceEntry: (source: APISource, service: any ExternalAPIService),
+    query: ReleaseCandidateQuery,
+    cacheContext: ReleaseCandidateCacheContext,
+    apiRetryConfiguration: APIRetryConfiguration,
+    log: Logger
+) async -> [ReleaseCandidate] {
+    if let cached = await cachedReleaseCandidates(
+        source: sourceEntry.source,
+        query: query,
+        cache: cacheContext.cache
+    ) {
+        return cached
+    }
+
+    let outcome = await fetchReleaseCandidatesWithTimeout(
+        sourceEntry: sourceEntry,
+        query: query,
+        apiRetryConfiguration: apiRetryConfiguration,
+        log: log
+    )
+
+    await cacheReleaseCandidates(
+        outcome.candidates,
+        source: sourceEntry.source,
+        query: query,
+        cacheContext: cacheContext,
+        shouldCacheEmptyResult: outcome.shouldCacheEmptyResult
+    )
+    return outcome.candidates
+}
+
 private func fetchReleaseCandidatesWithTimeout(
     sourceEntry: (source: APISource, service: any ExternalAPIService),
     query: ReleaseCandidateQuery,
     apiRetryConfiguration: APIRetryConfiguration,
     log: Logger
-) async -> [ReleaseCandidate] {
+) async -> ReleaseCandidateFetchOutcome {
     do {
-        return try await withThrowingTaskGroup(
+        let candidates = try await withThrowingTaskGroup(
             of: [ReleaseCandidate].self,
             returning: [ReleaseCandidate].self
         ) { group in
             group.addTask {
-                try await withRetry(
-                    maxAttempts: apiRetryConfiguration.maxAttempts,
-                    initialDelay: apiRetryConfiguration.initialDelay
-                ) {
-                    try await sourceEntry.service.getReleaseCandidates(
-                        artist: query.artist,
-                        album: query.album,
-                        currentLibraryYear: query.currentLibraryYear,
-                        earliestTrackAddedYear: query.earliestTrackAddedYear
-                    )
-                }
+                try await fetchReleaseCandidatesWithRetry(
+                    sourceEntry: sourceEntry,
+                    query: query,
+                    apiRetryConfiguration: apiRetryConfiguration
+                )
             }
 
             group.addTask {
@@ -109,22 +141,80 @@ private func fetchReleaseCandidatesWithTimeout(
             group.cancelAll()
             return candidates
         }
+        return ReleaseCandidateFetchOutcome(candidates: candidates, shouldCacheEmptyResult: true)
     } catch is ReleaseCandidateTimeoutError {
         log
             .warning(
                 "\(sourceEntry.source.rawValue, privacy: .public) candidate fetch timed out after \(query.timeout, privacy: .public)"
             )
-        return []
+        return ReleaseCandidateFetchOutcome(candidates: [], shouldCacheEmptyResult: false)
     } catch is CancellationError {
         log.debug("\(sourceEntry.source.rawValue, privacy: .public) candidate fetch cancelled")
-        return []
+        return ReleaseCandidateFetchOutcome(candidates: [], shouldCacheEmptyResult: false)
     } catch {
         log
             .error(
                 "\(sourceEntry.source.rawValue, privacy: .public) candidate fetch failed: \(error.localizedDescription, privacy: .public)"
             )
-        return []
+        return ReleaseCandidateFetchOutcome(candidates: [], shouldCacheEmptyResult: false)
     }
+}
+
+private func fetchReleaseCandidatesWithRetry(
+    sourceEntry: (source: APISource, service: any ExternalAPIService),
+    query: ReleaseCandidateQuery,
+    apiRetryConfiguration: APIRetryConfiguration
+) async throws -> [ReleaseCandidate] {
+    try await withRetry(
+        maxAttempts: apiRetryConfiguration.maxAttempts,
+        initialDelay: apiRetryConfiguration.initialDelay
+    ) {
+        try await sourceEntry.service.getReleaseCandidates(
+            artist: query.artist,
+            album: query.album,
+            currentLibraryYear: query.currentLibraryYear,
+            earliestTrackAddedYear: query.earliestTrackAddedYear
+        )
+    }
+}
+
+private func cachedReleaseCandidates(
+    source: APISource,
+    query: ReleaseCandidateQuery,
+    cache: (any CacheService)?
+) async -> [ReleaseCandidate]? {
+    let cacheKey = releaseCandidateCacheKey(source: source, query: query)
+    let cachedEntries: [CachedReleaseCandidate]? = await cache?.get(key: cacheKey)
+    return cachedEntries?.map(\.releaseCandidate)
+}
+
+private func cacheReleaseCandidates(
+    _ candidates: [ReleaseCandidate],
+    source: APISource,
+    query: ReleaseCandidateQuery,
+    cacheContext: ReleaseCandidateCacheContext,
+    shouldCacheEmptyResult: Bool
+) async {
+    if candidates.isEmpty, !shouldCacheEmptyResult {
+        return
+    }
+
+    let cacheKey = releaseCandidateCacheKey(source: source, query: query)
+    let ttl = candidates.isEmpty ? cacheContext.negativeResultTTL : cacheContext.positiveResultTTL
+    await cacheContext.cache?.set(
+        key: cacheKey,
+        value: candidates.map(CachedReleaseCandidate.init),
+        ttl: ttl
+    )
+}
+
+private func releaseCandidateCacheKey(source: APISource, query: ReleaseCandidateQuery) -> String {
+    [
+        "release_candidates",
+        source.rawValue,
+        normalizeForMatching(query.artist),
+        normalizeForMatching(query.album),
+    ].joined(separator: ":")
 }
 
 private struct ReleaseCandidateQuery {
@@ -133,6 +223,61 @@ private struct ReleaseCandidateQuery {
     let currentLibraryYear: Int?
     let earliestTrackAddedYear: Int?
     let timeout: Duration
+}
+
+private struct ReleaseCandidateCacheContext {
+    let cache: (any CacheService)?
+    let positiveResultTTL: TimeInterval?
+    let negativeResultTTL: TimeInterval
+}
+
+private struct ReleaseCandidateFetchOutcome {
+    let candidates: [ReleaseCandidate]
+    let shouldCacheEmptyResult: Bool
+}
+
+private struct CachedReleaseCandidate: Codable {
+    let artist: String
+    let album: String
+    let year: Int
+    let source: APISource
+    let releaseType: ReleaseType
+    let status: ReleaseStatus
+    let country: String?
+    let isReissue: Bool
+    let mbReleaseGroupID: String?
+    let mbReleaseGroupFirstYear: Int?
+    let genre: String?
+
+    init(_ candidate: ReleaseCandidate) {
+        artist = candidate.artist
+        album = candidate.album
+        year = candidate.year
+        source = candidate.source
+        releaseType = candidate.releaseType
+        status = candidate.status
+        country = candidate.country
+        isReissue = candidate.isReissue
+        mbReleaseGroupID = candidate.mbReleaseGroupID
+        mbReleaseGroupFirstYear = candidate.mbReleaseGroupFirstYear
+        genre = candidate.genre
+    }
+
+    var releaseCandidate: ReleaseCandidate {
+        ReleaseCandidate(
+            artist: artist,
+            album: album,
+            year: year,
+            source: source,
+            releaseType: releaseType,
+            status: status,
+            country: country,
+            isReissue: isReissue,
+            mbReleaseGroupID: mbReleaseGroupID,
+            mbReleaseGroupFirstYear: mbReleaseGroupFirstYear,
+            genre: genre
+        )
+    }
 }
 
 private struct ReleaseCandidateTimeoutError: Error {}

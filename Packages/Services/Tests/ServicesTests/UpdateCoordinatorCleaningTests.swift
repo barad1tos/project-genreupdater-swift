@@ -98,7 +98,7 @@ struct UpdateCoordinatorCleaningTests {
         let scriptBridge = MockAppleScriptClient()
         return UpdateCoordinator(
             dependencies: UpdateCoordinatorDependencies(
-                apiOrchestrator: APIOrchestrator(
+                apiOrchestrator: makeAPIOrchestrator(
                     musicBrainz: apiService,
                     discogs: apiService,
                     appleMusic: apiService

@@ -2,6 +2,30 @@ import Foundation
 @testable import Core
 @testable import Services
 
+// MARK: - APIOrchestrator Test Factory
+
+func makeAPIOrchestrator(
+    musicBrainz: any ExternalAPIService,
+    discogs: any ExternalAPIService,
+    appleMusic: any ExternalAPIService,
+    cache: (any CacheService)? = nil,
+    disabledSources: Set<APISource> = [],
+    configure: (inout APIOrchestratorConfiguration) -> Void = { _ in }
+) -> APIOrchestrator {
+    var configuration = APIOrchestratorConfiguration()
+    configuration.cache = cache
+    configuration.disabledSources = disabledSources
+    configure(&configuration)
+    return APIOrchestrator(
+        services: APIOrchestratorServices(
+            musicBrainz: musicBrainz,
+            discogs: discogs,
+            appleMusic: appleMusic
+        ),
+        configuration: configuration
+    )
+}
+
 // MARK: - MockAppleScriptClient
 
 actor MockAppleScriptClient: AppleScriptClient {
@@ -101,21 +125,36 @@ actor MockTrackStore: TrackStateStore {
 actor MockCacheService: CacheService {
     var albumYears: [String: AlbumCacheEntry] = [:]
     var apiResults: [String: CachedAPIResult] = [:]
+    private var genericEntries: [String: MockGenericCacheEntry] = [:]
 
     func initialize() async throws {}
-    func get<T: Codable & Sendable>(key _: String) async -> T? {
-        nil
+    func get<T: Codable & Sendable>(key: String) async -> T? {
+        guard let entry = genericEntries[key], !entry.isExpired else {
+            return nil
+        }
+        return try? JSONDecoder().decode(T.self, from: entry.data)
     }
-    func set(key _: String, value _: some Codable & Sendable, ttl _: TimeInterval?) async {}
-    func invalidate(key _: String) async {}
-    func clear() async {}
+
+    func set(key: String, value: some Codable & Sendable, ttl: TimeInterval?) async {
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        genericEntries[key] = MockGenericCacheEntry(data: data, timestamp: .now, ttl: ttl)
+    }
+    func invalidate(key: String) async {
+        genericEntries.removeValue(forKey: key)
+    }
+
+    func clear() async {
+        genericEntries.removeAll()
+        albumYears.removeAll()
+        apiResults.removeAll()
+    }
 
     func getAlbumYear(artist: String, album: String) async -> AlbumCacheEntry? {
-        albumYears["\(artist)-\(album)"]
+        albumYears[albumYearKey(artist: artist, album: album)]
     }
 
     func storeAlbumYear(artist: String, album: String, year: Int, confidence: Int) async {
-        albumYears["\(artist)-\(album)"] = AlbumCacheEntry(
+        albumYears[albumYearKey(artist: artist, album: album)] = AlbumCacheEntry(
             artist: artist,
             album: album,
             year: year,
@@ -124,14 +163,38 @@ actor MockCacheService: CacheService {
         )
     }
 
-    func invalidateAlbum(artist _: String, album _: String) async {}
+    func invalidateAlbum(artist: String, album: String) async {
+        albumYears.removeValue(forKey: albumYearKey(artist: artist, album: album))
+    }
+
     func getCachedAPIResult(artist: String, album: String, source: String) async -> CachedAPIResult? {
-        apiResults["\(artist)-\(album)-\(source)"]
+        apiResults[apiResultKey(artist: artist, album: album, source: source)]
     }
+
     func setCachedAPIResult(_ result: CachedAPIResult) async {
-        apiResults["\(result.artist)-\(result.album)-\(result.source)"] = result
+        apiResults[apiResultKey(artist: result.artist, album: result.album, source: result.source)] = result
     }
+
     func syncToDisk() async throws {}
+
+    private func albumYearKey(artist: String, album: String) -> String {
+        "\(normalizeForMatching(artist))-\(normalizeForMatching(album))"
+    }
+
+    private func apiResultKey(artist: String, album: String, source: String) -> String {
+        "\(normalizeForMatching(artist))-\(normalizeForMatching(album))-\(normalizeForMatching(source))"
+    }
+}
+
+private struct MockGenericCacheEntry {
+    let data: Data
+    let timestamp: Date
+    let ttl: TimeInterval?
+
+    var isExpired: Bool {
+        guard let ttl else { return false }
+        return Date.now > timestamp.addingTimeInterval(ttl)
+    }
 }
 
 // MARK: - MockAPIService

@@ -155,6 +155,17 @@ struct GRDBCacheServiceTests {
         #expect(entry?.confidence == 90)
     }
 
+    @Test("Album year cache normalizes artist and album keys")
+    func albumYearCacheNormalizesArtistAndAlbumKeys() async throws {
+        let service = try await makeService()
+
+        await service.storeAlbumYear(artist: " In Flames ", album: " Battles ", year: 2016, confidence: 95)
+        let entry = await service.getAlbumYear(artist: "in flames", album: "battles")
+
+        #expect(entry?.year == 2016)
+        #expect(entry?.confidence == 95)
+    }
+
     // MARK: - API Result Cache
 
     @Test("API result store and retrieve")
@@ -258,6 +269,30 @@ struct GRDBCacheServiceTests {
         await service.setCachedAPIResult(result)
         let cached = await service.getCachedAPIResult(artist: "Test", album: "Album", source: "discogs")
         #expect(cached == nil)
+    }
+
+    @Test("API result cache normalizes artist album and source keys")
+    func apiResultCacheNormalizesArtistAlbumAndSourceKeys() async throws {
+        let service = try await makeService()
+        let result = CachedAPIResult(
+            artist: " In Flames ",
+            album: " Battles ",
+            year: 2016,
+            source: "MusicBrainz",
+            timestamp: .now,
+            ttl: 3600,
+            metadata: ["confidence": "90"]
+        )
+
+        await service.setCachedAPIResult(result)
+        let cached = await service.getCachedAPIResult(
+            artist: "in flames",
+            album: "battles",
+            source: "musicbrainz"
+        )
+
+        #expect(cached?.year == 2016)
+        #expect(cached?.metadata["confidence"] == "90")
     }
 
     // MARK: - Bulk Operations

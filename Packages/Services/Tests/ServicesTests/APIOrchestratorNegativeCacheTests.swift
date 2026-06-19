@@ -21,7 +21,7 @@ struct APIOrchestratorNegativeCacheTests {
         ))
 
         let callCounter = APICallCounter()
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: CountingAPIService(
                 callCounter: callCounter,
                 yearResult: YearResult(year: 1999, confidence: 99, yearScores: [1999: 99])
@@ -45,13 +45,14 @@ struct APIOrchestratorNegativeCacheTests {
     @Test("Empty source result is cached with negative TTL")
     func emptySourceResultIsCachedWithNegativeTTL() async {
         let cache = MockCacheService()
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(yearResult: YearResult()),
             discogs: MockAPIService(shouldThrow: true),
             appleMusic: MockAPIService(shouldThrow: true),
-            cache: cache,
-            negativeResultTTL: 123
-        )
+            cache: cache
+        ) {
+            $0.negativeResultTTL = 123
+        }
 
         _ = await orchestrator.getAlbumYear(
             artist: "Unknown Artist",
@@ -73,13 +74,14 @@ struct APIOrchestratorNegativeCacheTests {
     @Test("Failed source result is not cached as negative")
     func failedSourceResultIsNotCachedAsNegative() async {
         let cache = MockCacheService()
-        let orchestrator = APIOrchestrator(
+        let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(shouldThrow: true),
             discogs: MockAPIService(shouldThrow: true),
             appleMusic: MockAPIService(shouldThrow: true),
-            cache: cache,
-            negativeResultTTL: 123
-        )
+            cache: cache
+        ) {
+            $0.negativeResultTTL = 123
+        }
 
         _ = await orchestrator.getAlbumYear(
             artist: "Failed Artist",

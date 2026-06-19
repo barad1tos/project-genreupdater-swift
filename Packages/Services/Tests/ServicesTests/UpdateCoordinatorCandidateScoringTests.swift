@@ -19,7 +19,7 @@ struct UpdateCoordinatorCandidateScoringTests {
         let cache = MockCacheService()
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("UpdateCoordinatorCandidateScoringTests-\(UUID().uuidString)")
-        let api = APIOrchestrator(
+        let api = makeAPIOrchestrator(
             musicBrainz: MockAPIService(releaseCandidates: [
                 ReleaseCandidate(
                     artist: "Test Artist",

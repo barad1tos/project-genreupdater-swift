@@ -18,7 +18,7 @@ private func makeReleaseYearRestoreFixture(
         .appendingPathComponent("UpdateCoordinatorReleaseYearRestoreTests-\(UUID().uuidString)")
     let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
     let apiService = MockAPIService()
-    let orchestrator = APIOrchestrator(
+    let orchestrator = makeAPIOrchestrator(
         musicBrainz: apiService,
         discogs: apiService,
         appleMusic: apiService
