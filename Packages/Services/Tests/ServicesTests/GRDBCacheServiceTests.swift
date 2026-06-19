@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import Core
 @testable import Services
@@ -164,6 +165,32 @@ struct GRDBCacheServiceTests {
 
         #expect(entry?.year == 2016)
         #expect(entry?.confidence == 95)
+    }
+
+    @Test("Album year invalidate removes legacy exact-case entries")
+    func albumYearInvalidateRemovesLegacyExactCaseEntries() async throws {
+        let databaseQueue = try DatabaseQueue()
+        var migrator = DatabaseMigrator()
+        GRDBMigrations.registerMigrations(&migrator)
+        try migrator.migrate(databaseQueue)
+        let service = GRDBCacheService(dbWriter: databaseQueue)
+        let legacyEntry = AlbumCacheEntry(
+            artist: " In Flames ",
+            album: " Battles ",
+            year: 2016,
+            confidence: 95,
+            timestamp: .now
+        )
+        try await databaseQueue.write { database in
+            try AlbumYearRow(from: legacyEntry).save(database)
+        }
+
+        await service.invalidateAlbum(artist: "in flames", album: "battles")
+
+        let normalizedEntry = await service.getAlbumYear(artist: "in flames", album: "battles")
+        let legacyEntryAfterInvalidation = await service.getAlbumYear(artist: " In Flames ", album: " Battles ")
+        #expect(normalizedEntry == nil)
+        #expect(legacyEntryAfterInvalidation == nil)
     }
 
     // MARK: - API Result Cache

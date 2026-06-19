@@ -160,6 +160,23 @@ public actor APIOrchestrator {
         sourcePriorityConfiguration = configuration.sourcePriorityConfiguration
     }
 
+    /// Creates an orchestrator from concrete API clients and optional runtime configuration.
+    public init(
+        musicBrainz: any ExternalAPIService,
+        discogs: any ExternalAPIService,
+        appleMusic: any ExternalAPIService,
+        configuration: APIOrchestratorConfiguration = APIOrchestratorConfiguration()
+    ) {
+        self.init(
+            services: APIOrchestratorServices(
+                musicBrainz: musicBrainz,
+                discogs: discogs,
+                appleMusic: appleMusic
+            ),
+            configuration: configuration
+        )
+    }
+
     /// Query configured sources and aggregate results by year score.
     ///
     /// Each source runs independently with its own timeout. If a source fails

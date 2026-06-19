@@ -209,12 +209,23 @@ private func cacheReleaseCandidates(
 }
 
 private func releaseCandidateCacheKey(source: APISource, query: ReleaseCandidateQuery) -> String {
-    [
-        "release_candidates",
+    let components = [
+        "v1",
         source.rawValue,
         normalizeForMatching(query.artist),
         normalizeForMatching(query.album),
+        query.currentLibraryYear.map { "library_year=\($0)" } ?? "library_year=nil",
+        query.earliestTrackAddedYear.map { "earliest_added_year=\($0)" } ?? "earliest_added_year=nil",
+    ]
+
+    return [
+        "release_candidates",
+        components.map(cacheKeyComponent).joined(separator: "|"),
     ].joined(separator: ":")
+}
+
+private func cacheKeyComponent(_ value: String) -> String {
+    "\(value.utf8.count):\(value)"
 }
 
 private struct ReleaseCandidateQuery {

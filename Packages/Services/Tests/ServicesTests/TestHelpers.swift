@@ -10,7 +10,9 @@ func makeAPIOrchestrator(
     appleMusic: any ExternalAPIService,
     cache: (any CacheService)? = nil,
     disabledSources: Set<APISource> = [],
-    configure: (inout APIOrchestratorConfiguration) -> Void = { _ in }
+    configure: (inout APIOrchestratorConfiguration) -> Void = { _ in
+        // Default test configuration needs no customization.
+    }
 ) -> APIOrchestrator {
     var configuration = APIOrchestratorConfiguration()
     configuration.cache = cache

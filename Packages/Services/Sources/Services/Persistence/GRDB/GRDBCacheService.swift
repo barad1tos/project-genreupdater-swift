@@ -215,15 +215,9 @@ public actor GRDBCacheService: CacheService {
     }
 
     public func invalidateAlbum(artist: String, album: String) async {
-        let keys = Self.albumCacheKeysForInvalidation(artist: artist, album: album)
         do {
             try await dbWriter.write { database in
-                for key in keys {
-                    try database.execute(
-                        sql: "DELETE FROM album_years WHERE artist = ? AND album = ?",
-                        arguments: [key.artist, key.album]
-                    )
-                }
+                try Self.deleteAlbumYearRows(database, artist: artist, album: album)
             }
         } catch {
             log.error("invalidateAlbum failed: \(error, privacy: .public)")
@@ -341,12 +335,7 @@ public actor GRDBCacheService: CacheService {
         do {
             try await dbWriter.write { database in
                 for (artist, album) in albums {
-                    for key in Self.albumCacheKeysForInvalidation(artist: artist, album: album) {
-                        try database.execute(
-                            sql: "DELETE FROM album_years WHERE artist = ? AND album = ?",
-                            arguments: [key.artist, key.album]
-                        )
-                    }
+                    try Self.deleteAlbumYearRows(database, artist: artist, album: album)
                 }
             }
         } catch {
@@ -444,15 +433,6 @@ extension GRDBCacheService {
         )
     }
 
-    fileprivate static func albumCacheKeysForInvalidation(artist: String, album: String) -> [AlbumCacheKey] {
-        let requestedKey = AlbumCacheKey(artist: artist, album: album)
-        let normalizedKey = normalizedAlbumCacheKey(artist: artist, album: album)
-        if requestedKey == normalizedKey {
-            return [normalizedKey]
-        }
-        return [normalizedKey, requestedKey]
-    }
-
     fileprivate static func fetchAlbumYearRow(
         _ database: Database,
         key: AlbumCacheKey
@@ -461,6 +441,22 @@ extension GRDBCacheService {
             database,
             sql: "SELECT * FROM album_years WHERE artist = ? AND album = ?",
             arguments: [key.artist, key.album]
+        )
+    }
+
+    fileprivate static func deleteAlbumYearRows(
+        _ database: Database,
+        artist: String,
+        album: String
+    ) throws {
+        let normalizedKey = normalizedAlbumCacheKey(artist: artist, album: album)
+        try database.execute(
+            sql: """
+            DELETE FROM album_years
+            WHERE (artist = ? AND album = ?)
+               OR (LOWER(TRIM(artist)) = ? AND LOWER(TRIM(album)) = ?)
+            """,
+            arguments: [artist, album, normalizedKey.artist, normalizedKey.album]
         )
     }
 
