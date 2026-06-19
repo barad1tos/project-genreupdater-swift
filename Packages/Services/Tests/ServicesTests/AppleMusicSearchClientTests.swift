@@ -185,13 +185,16 @@ struct AppleMusicSearchClientTests {
         }
 
         let client = AppleMusicSearchClient(session: session)
-        await #expect(throws: Error.self) {
+        do {
             _ = try await client.getReleaseCandidates(
                 artist: "Test Artist",
                 album: "Test Album",
                 currentLibraryYear: nil,
                 earliestTrackAddedYear: nil
             )
+            Issue.record("Expected iTunes HTTP failure")
+        } catch {
+            #expect(error.localizedDescription == "iTunes request returned HTTP 500")
         }
     }
 

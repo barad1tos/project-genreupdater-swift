@@ -190,6 +190,46 @@ struct APIOrchestratorReleaseCandidateTests {
         #expect(await callCounter.count() == 2)
     }
 
+    @Test("Release candidate cache separates earliest added year context")
+    func releaseCandidateCacheSeparatesEarliestAddedYearContext() async {
+        let cache = MockCacheService()
+        let callCounter = APICallCounter()
+        let musicBrainz = CountingReleaseCandidateService(callCounter: callCounter) { artist, album, _, addedYear in
+            [
+                ReleaseCandidate(
+                    artist: artist,
+                    album: album,
+                    year: addedYear ?? 0,
+                    source: .musicBrainz
+                ),
+            ]
+        }
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: musicBrainz,
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService(),
+            cache: cache,
+            disabledSources: [.discogs, .itunes]
+        )
+
+        let firstResult = await orchestrator.getReleaseCandidates(
+            artist: "In Flames",
+            album: "Battles",
+            currentLibraryYear: 2016,
+            earliestTrackAddedYear: 2020
+        )
+        let secondResult = await orchestrator.getReleaseCandidates(
+            artist: "In Flames",
+            album: "Battles",
+            currentLibraryYear: 2016,
+            earliestTrackAddedYear: 2021
+        )
+
+        #expect(firstResult.map(\.year) == [2020])
+        #expect(secondResult.map(\.year) == [2021])
+        #expect(await callCounter.count() == 2)
+    }
+
     @Test("Release candidate cache separates delimiter-like artist and album names")
     func releaseCandidateCacheSeparatesDelimiterLikeArtistAndAlbumNames() async {
         let cache = MockCacheService()
