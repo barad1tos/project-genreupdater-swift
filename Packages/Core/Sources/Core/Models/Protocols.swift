@@ -171,6 +171,7 @@ public protocol CacheService: Actor, Sendable {
     // API result cache
     func getCachedAPIResult(artist: String, album: String, source: String) async -> CachedAPIResult?
     func setCachedAPIResult(_ result: CachedAPIResult) async
+    func invalidateCachedAPIResults(artist: String, album: String) async
 
     /// Persistence
     func syncToDisk() async throws

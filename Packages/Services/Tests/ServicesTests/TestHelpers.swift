@@ -177,6 +177,13 @@ actor MockCacheService: CacheService {
         apiResults[apiResultKey(artist: result.artist, album: result.album, source: result.source)] = result
     }
 
+    func invalidateCachedAPIResults(artist: String, album: String) async {
+        let keyPrefix = "\(normalizeForMatching(artist))-\(normalizeForMatching(album))-"
+        apiResults = apiResults.filter { key, _ in
+            !key.hasPrefix(keyPrefix)
+        }
+    }
+
     func syncToDisk() async throws {}
 
     private func albumYearKey(artist: String, album: String) -> String {
