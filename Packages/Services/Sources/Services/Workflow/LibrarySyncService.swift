@@ -71,6 +71,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
     public let idsBatchFetchTimeout: Duration
     public let databaseVerificationBatchSize: Int
     public let databaseVerificationIntervalDays: Int
+    public let forceMetadataScanIntervalDays: Int
     public let logsBaseDirectory: String
     public let lastDatabaseVerifyLog: String
 
@@ -80,6 +81,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         idsBatchFetchTimeout: Duration = AppleScriptTimeouts().idsBatchFetch,
         databaseVerificationBatchSize: Int = DatabaseVerificationConfig().batchSize,
         databaseVerificationIntervalDays: Int = DatabaseVerificationConfig().autoVerifyDays,
+        forceMetadataScanIntervalDays: Int = 7,
         logsBaseDirectory: String = PathsConfig().logsBaseDirectory,
         lastDatabaseVerifyLog: String = LoggingConfig().lastDatabaseVerifyLog
     ) {
@@ -88,6 +90,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         self.idsBatchFetchTimeout = idsBatchFetchTimeout
         self.databaseVerificationBatchSize = max(1, databaseVerificationBatchSize)
         self.databaseVerificationIntervalDays = max(0, databaseVerificationIntervalDays)
+        self.forceMetadataScanIntervalDays = max(0, forceMetadataScanIntervalDays)
         self.logsBaseDirectory = logsBaseDirectory
         self.lastDatabaseVerifyLog = lastDatabaseVerifyLog
     }
@@ -116,6 +119,7 @@ public actor LibrarySyncService {
     private let cache: (any CacheService)?
     private var librarySnapshotService: (any LibrarySnapshotService)?
     private var runtimeConfiguration: LibrarySyncRuntimeConfiguration
+    private let currentDate: @Sendable () -> Date
     private var autoSyncTask: Task<Void, Never>?
     private let log = Logger(subsystem: "com.genreupdater", category: "LibrarySyncService")
 
@@ -125,7 +129,8 @@ public actor LibrarySyncService {
         featureGate: FeatureGate,
         cache: (any CacheService)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
-        runtimeConfiguration: LibrarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration()
+        runtimeConfiguration: LibrarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(),
+        currentDate: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.scriptBridge = scriptBridge
         self.trackStore = trackStore
@@ -133,6 +138,7 @@ public actor LibrarySyncService {
         self.cache = cache
         self.librarySnapshotService = librarySnapshotService
         self.runtimeConfiguration = runtimeConfiguration
+        self.currentDate = currentDate
     }
 
     public func updateRuntimeConfiguration(
@@ -148,7 +154,7 @@ public actor LibrarySyncService {
     // MARK: Manual Sync
 
     /// Detect changes between the current Music.app library and stored state.
-    public func detectChanges() async throws -> SyncResult {
+    public func detectChanges(forceMetadataRefresh: Bool = false) async throws -> SyncResult {
         let libraryIDs = try await scriptBridge.fetchAllTrackIDs(
             timeout: runtimeConfiguration.fullLibraryFetchTimeout
         )
@@ -174,13 +180,10 @@ public actor LibrarySyncService {
             []
         }
 
-        // Modified tracks: exist in both, but need refresh to detect changes.
-        // We fetch current state for tracks that exist in both sets,
-        // then compare lastModified timestamps.
         let commonIDs = libraryIDSet.intersection(storedIDSet)
         var modifiedTracks: [Track] = []
 
-        if !commonIDs.isEmpty {
+        if !commonIDs.isEmpty, await shouldRefreshCommonTrackMetadata(force: forceMetadataRefresh) {
             let currentTracks = try await scriptBridge.fetchTracksByIDs(
                 Array(commonIDs),
                 batchSize: runtimeConfiguration.idsBatchSize,
@@ -192,6 +195,7 @@ public actor LibrarySyncService {
                     modifiedTracks.append(current)
                 }
             }
+            try await updateForceScanDate()
         }
 
         let result = SyncResult(
@@ -263,8 +267,8 @@ public actor LibrarySyncService {
 
     /// Detect and persist Music.app library changes in the local store.
     @discardableResult
-    public func synchronizeNow() async throws -> SyncResult {
-        let result = try await detectChanges()
+    public func synchronizeNow(forceMetadataRefresh: Bool = false) async throws -> SyncResult {
+        let result = try await detectChanges(forceMetadataRefresh: forceMetadataRefresh)
         try await applyDetectedChanges(result)
         return result
     }
@@ -333,6 +337,23 @@ public actor LibrarySyncService {
         }
 
         return TrackFingerprint.hash(current) != TrackFingerprint.hash(stored)
+    }
+
+    private func shouldRefreshCommonTrackMetadata(force: Bool) async -> Bool {
+        if force { return true }
+        guard runtimeConfiguration.forceMetadataScanIntervalDays > 0,
+              let metadata = await librarySnapshotService?.getSnapshotMetadata(),
+              let lastForceScanDate = metadata.lastForceScanDate
+        else { return false }
+
+        let interval = TimeInterval(runtimeConfiguration.forceMetadataScanIntervalDays) * 86400
+        return currentDate().timeIntervalSince(lastForceScanDate) >= interval
+    }
+
+    private func updateForceScanDate() async throws {
+        guard var metadata = await librarySnapshotService?.getSnapshotMetadata() else { return }
+        metadata.lastForceScanDate = currentDate()
+        try await librarySnapshotService?.updateSnapshotMetadata(metadata)
     }
 
     private func applyDetectedChanges(_ result: SyncResult) async throws {

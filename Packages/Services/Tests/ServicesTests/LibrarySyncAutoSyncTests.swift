@@ -84,7 +84,7 @@ struct LibrarySyncAutoSyncTests {
             featureGate: gate
         )
 
-        let result = try await service.detectChanges()
+        let result = try await service.detectChanges(forceMetadataRefresh: true)
         #expect(result.modifiedTracks.count == 1)
     }
 
@@ -107,7 +107,7 @@ struct LibrarySyncAutoSyncTests {
             featureGate: gate
         )
 
-        let result = try await service.detectChanges()
+        let result = try await service.detectChanges(forceMetadataRefresh: true)
         #expect(result.modifiedTracks.count == 1)
     }
 }

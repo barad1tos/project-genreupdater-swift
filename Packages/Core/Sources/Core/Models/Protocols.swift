@@ -92,12 +92,20 @@ public struct LibraryCacheMetadata: Sendable, Codable {
     public var snapshotHash: String
     public var timestamp: Date
     public var libraryModificationDate: Date
+    public var lastForceScanDate: Date?
 
-    public init(trackCount: Int, snapshotHash: String, timestamp: Date, libraryModificationDate: Date) {
+    public init(
+        trackCount: Int,
+        snapshotHash: String,
+        timestamp: Date,
+        libraryModificationDate: Date,
+        lastForceScanDate: Date? = nil
+    ) {
         self.trackCount = trackCount
         self.snapshotHash = snapshotHash
         self.timestamp = timestamp
         self.libraryModificationDate = libraryModificationDate
+        self.lastForceScanDate = lastForceScanDate
     }
 }
 

@@ -192,14 +192,17 @@ struct LibraryCacheMetadataTests {
     @Test("Init preserves all fields")
     func initPreservesFields() {
         let timestamp = Date(timeIntervalSince1970: 1_600_000_000)
+        let lastForceScanDate = timestamp.addingTimeInterval(-86400)
         let metadata = LibraryCacheMetadata(
             trackCount: 30000,
             snapshotHash: "abc123",
             timestamp: timestamp,
-            libraryModificationDate: timestamp
+            libraryModificationDate: timestamp,
+            lastForceScanDate: lastForceScanDate
         )
         #expect(metadata.trackCount == 30000)
         #expect(metadata.snapshotHash == "abc123")
+        #expect(metadata.lastForceScanDate == lastForceScanDate)
     }
 
     @Test("Codable round-trip")
@@ -208,12 +211,14 @@ struct LibraryCacheMetadataTests {
             trackCount: 100,
             snapshotHash: "hash",
             timestamp: Date(timeIntervalSince1970: 1_000_000),
-            libraryModificationDate: Date(timeIntervalSince1970: 999_999)
+            libraryModificationDate: Date(timeIntervalSince1970: 999_999),
+            lastForceScanDate: Date(timeIntervalSince1970: 888_888)
         )
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(LibraryCacheMetadata.self, from: data)
         #expect(decoded.trackCount == original.trackCount)
         #expect(decoded.snapshotHash == original.snapshotHash)
+        #expect(decoded.lastForceScanDate == original.lastForceScanDate)
     }
 }
 

@@ -8,7 +8,7 @@ import Testing
 actor SyncMockScriptClient: AppleScriptClient {
     var libraryTrackIDs: [String] = []
     var tracksByID: [String: Track] = [:]
-    private var fetchTracksRequests: [(batchSize: Int, timeout: Duration?)] = []
+    private var fetchTracksRequests: [(trackIDs: [String], batchSize: Int, timeout: Duration?)] = []
     private var fetchAllTrackIDsTimeouts: [Duration?] = []
 
     func initialize() async throws {}
@@ -26,7 +26,7 @@ actor SyncMockScriptClient: AppleScriptClient {
         batchSize: Int,
         timeout: Duration?
     ) async throws -> [Track] {
-        fetchTracksRequests.append((batchSize: batchSize, timeout: timeout))
+        fetchTracksRequests.append((trackIDs: trackIDs, batchSize: batchSize, timeout: timeout))
         return trackIDs.compactMap { tracksByID[$0] }
     }
 
@@ -38,7 +38,16 @@ actor SyncMockScriptClient: AppleScriptClient {
     func updateTrackProperty(trackID: String, property: String, value: String) async throws {}
 
     func lastFetchTracksRequest() -> (batchSize: Int, timeout: Duration?)? {
-        fetchTracksRequests.last
+        guard let request = fetchTracksRequests.last else { return nil }
+        return (batchSize: request.batchSize, timeout: request.timeout)
+    }
+
+    func fetchTracksRequestCount() -> Int {
+        fetchTracksRequests.count
+    }
+
+    func fetchedTrackIDSets() -> [Set<String>] {
+        fetchTracksRequests.map { Set($0.trackIDs) }
     }
 
     func lastFetchAllTrackIDsTimeout() -> Duration? {
@@ -230,7 +239,7 @@ struct LibrarySyncServiceTests {
             featureGate: gate
         )
 
-        let result = try await service.detectChanges()
+        let result = try await service.detectChanges(forceMetadataRefresh: true)
         #expect(result.modifiedTracks.count == 1)
         #expect(result.modifiedTracks.first?.id == "T1")
     }
@@ -262,7 +271,7 @@ struct LibrarySyncServiceTests {
             featureGate: gate
         )
 
-        let result = try await service.detectChanges()
+        let result = try await service.detectChanges(forceMetadataRefresh: true)
         #expect(result.modifiedTracks.count == 1)
         #expect(result.modifiedTracks.first?.id == "T1")
     }
@@ -321,6 +330,102 @@ struct LibrarySyncServiceTests {
         #expect(!result.hasChanges)
     }
 
+    @Test("Fast mode skips metadata fetch for common tracks")
+    func fastModeSkipsMetadataFetchForCommonTracks() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+
+        let stored = Track(id: "T1", name: "Stored", artist: "A", album: "B")
+        let current = Track(id: "T1", name: "Changed", artist: "A", album: "B")
+        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": current])
+        await store.setStored([stored])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        let result = try await service.detectChanges()
+
+        #expect(!result.hasChanges)
+        #expect(await bridge.fetchTracksRequestCount() == 0)
+    }
+
+    @Test("Force mode fetches common tracks and records force scan timestamp")
+    func forceModeFetchesCommonTracksAndRecordsTimestamp() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let scanDate = Date(timeIntervalSince1970: 1_800_000_000)
+
+        let oldDate = scanDate.addingTimeInterval(-3600)
+        let stored = Track(id: "T1", name: "Stored", artist: "A", album: "B", lastModified: oldDate)
+        let current = Track(id: "T1", name: "Changed", artist: "A", album: "B", lastModified: scanDate)
+        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": current])
+        await store.setStored([stored])
+        await snapshotService.setMetadata(LibraryCacheMetadata(
+            trackCount: 1,
+            snapshotHash: "hash",
+            timestamp: oldDate,
+            libraryModificationDate: oldDate
+        ))
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            librarySnapshotService: snapshotService,
+            currentDate: { scanDate }
+        )
+
+        let result = try await service.detectChanges(forceMetadataRefresh: true)
+        let metadata = await snapshotService.getSnapshotMetadata()
+
+        #expect(result.modifiedTracks.map { $0.id } == ["T1"])
+        #expect(await bridge.fetchedTrackIDSets() == [Set(["T1"])])
+        #expect(metadata?.lastForceScanDate == scanDate)
+    }
+
+    @Test("Stale force scan timestamp triggers metadata refresh")
+    func staleForceScanTimestampTriggersMetadataRefresh() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let staleForceScanDate = now.addingTimeInterval(-8 * 86400)
+
+        let stored = Track(id: "T1", name: "Stored", artist: "A", album: "B")
+        let current = Track(id: "T1", name: "Changed", artist: "A", album: "B")
+        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": current])
+        await store.setStored([stored])
+        await snapshotService.setMetadata(LibraryCacheMetadata(
+            trackCount: 1,
+            snapshotHash: "hash",
+            timestamp: staleForceScanDate,
+            libraryModificationDate: staleForceScanDate,
+            lastForceScanDate: staleForceScanDate
+        ))
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            librarySnapshotService: snapshotService,
+            currentDate: { now }
+        )
+
+        let result = try await service.detectChanges()
+        let metadata = await snapshotService.getSnapshotMetadata()
+
+        #expect(result.modifiedTracks.map { $0.id } == ["T1"])
+        #expect(await bridge.fetchTracksRequestCount() == 1)
+        #expect(metadata?.lastForceScanDate == now)
+    }
+
     @Test("Synchronize now applies new modified and removed tracks to store")
     func synchronizeNowAppliesDetectedChanges() async throws {
         let bridge = SyncMockScriptClient()
@@ -353,11 +458,11 @@ struct LibrarySyncServiceTests {
             featureGate: gate
         )
 
-        let result = try await service.synchronizeNow()
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
         let storedTracks = await store.storedTracks
 
         #expect(result.newTracks.map(\.id) == ["NEW"])
-        #expect(result.modifiedTracks.map(\.id) == ["MOD"])
+        #expect(result.modifiedTracks.map { $0.id } == ["MOD"])
         #expect(result.removedTrackIDs == ["REMOVED"])
         #expect(storedTracks.map(\.id).sorted() == ["MOD", "NEW"])
         #expect(storedTracks.first { $0.id == "MOD" }?.name == "Updated Song")
@@ -388,7 +493,7 @@ struct LibrarySyncServiceTests {
             librarySnapshotService: snapshotService
         )
 
-        _ = try await service.synchronizeNow()
+        _ = try await service.synchronizeNow(forceMetadataRefresh: true)
 
         await expectSyncCachesInvalidated(cache, artist: "Old Artist", album: "Old Album")
         await expectSyncCachesInvalidated(cache, artist: "New Artist", album: "New Album")
@@ -416,6 +521,7 @@ actor SyncMockLibrarySnapshotService: LibrarySnapshotService {
     var isEnabled = true
     var isDeltaEnabled = true
     private var didClearSnapshot = false
+    private var metadata: LibraryCacheMetadata?
 
     func loadSnapshot() async throws -> [Track]? {
         nil
@@ -430,9 +536,11 @@ actor SyncMockLibrarySnapshotService: LibrarySnapshotService {
         true
     }
     func getSnapshotMetadata() async -> LibraryCacheMetadata? {
-        nil
+        metadata
     }
-    func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {}
+    func updateSnapshotMetadata(_ metadata: LibraryCacheMetadata) async throws {
+        self.metadata = metadata
+    }
     func loadDelta() async -> LibraryDeltaCache? {
         nil
     }
@@ -443,6 +551,10 @@ actor SyncMockLibrarySnapshotService: LibrarySnapshotService {
 
     func wasCleared() -> Bool {
         didClearSnapshot
+    }
+
+    func setMetadata(_ metadata: LibraryCacheMetadata) {
+        self.metadata = metadata
     }
 }
 
