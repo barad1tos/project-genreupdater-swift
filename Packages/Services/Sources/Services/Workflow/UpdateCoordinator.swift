@@ -452,13 +452,44 @@ public actor UpdateCoordinator {
             genreUpdated: change.changeType == .genreUpdate ? true : nil,
             yearUpdated: change.changeType == .yearUpdate || change.changeType == .yearRevert ? true : nil
         )
-        await cache.invalidateAlbum(artist: change.track.artist, album: change.track.album)
-        await cache.invalidateCachedAPIResults(artist: change.track.artist, album: change.track.album)
+        await invalidateCaches(for: change)
 
         log
             .info(
                 "Applied \(change.changeType.rawValue, privacy: .public) to track \(change.track.id, privacy: .private)"
             )
         return logEntry
+    }
+
+    private func invalidateCaches(for change: ProposedChange) async {
+        for target in cacheInvalidationTargets(for: change) {
+            await cache.invalidateAlbum(artist: target.artist, album: target.album)
+            await cache.invalidateCachedAPIResults(artist: target.artist, album: target.album)
+        }
+    }
+
+    private func cacheInvalidationTargets(for change: ProposedChange) -> [(artist: String, album: String)] {
+        var candidates = [(artist: change.track.artist, album: change.track.album)]
+
+        if let originalArtist = change.track.originalArtist {
+            candidates.append((artist: originalArtist, album: change.track.album))
+        }
+        if change.changeType == .artistRename, let oldArtist = change.oldValue {
+            candidates.append((artist: oldArtist, album: change.track.album))
+        }
+        if change.changeType == .albumCleaning, let newAlbum = change.newValue {
+            candidates.append((artist: change.track.artist, album: newAlbum))
+        }
+
+        var seenKeys: Set<String> = []
+        return candidates.compactMap { candidate in
+            let artist = candidate.artist.trimmingCharacters(in: .whitespacesAndNewlines)
+            let album = candidate.album.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !artist.isEmpty, !album.isEmpty else { return nil }
+
+            let key = "\(normalizeForMatching(artist))\u{1F}\(normalizeForMatching(album))"
+            guard seenKeys.insert(key).inserted else { return nil }
+            return (artist: artist, album: album)
+        }
     }
 }

@@ -295,6 +295,56 @@ struct UpdateCoordinatorTests {
         #expect(cached == nil)
     }
 
+    @Test("Artist rename write invalidates old and new artist caches")
+    func artistRenameWriteInvalidatesOldAndNewArtistCaches() async throws {
+        let cache = MockCacheService()
+        await seedAlbumCaches(cache, artist: "OldArtist", album: "Album")
+        await seedAlbumCaches(cache, artist: "NewArtist", album: "Album")
+        let fixture = await makeCoordinator(cache: cache)
+        var renamedTrack = makeEditableTrack(artist: "NewArtist", album: "Album")
+        renamedTrack.originalArtist = "OldArtist"
+
+        let change = ProposedChange(
+            track: renamedTrack,
+            changeType: .artistRename,
+            oldValue: "OldArtist",
+            newValue: "NewArtist",
+            confidence: 100,
+            source: "Test"
+        )
+        _ = try await fixture.coordinator.applyAcceptedChanges(
+            [change],
+            progressHandler: Self.ignoreProgress
+        )
+
+        await expectAlbumCachesInvalidated(cache, artist: "OldArtist", album: "Album")
+        await expectAlbumCachesInvalidated(cache, artist: "NewArtist", album: "Album")
+    }
+
+    @Test("Album cleaning write invalidates old and new album caches")
+    func albumCleaningWriteInvalidatesOldAndNewAlbumCaches() async throws {
+        let cache = MockCacheService()
+        await seedAlbumCaches(cache, artist: "Beatles", album: "Old Album")
+        await seedAlbumCaches(cache, artist: "Beatles", album: "New Album")
+        let fixture = await makeCoordinator(cache: cache)
+
+        let change = ProposedChange(
+            track: makeEditableTrack(artist: "Beatles", album: "Old Album"),
+            changeType: .albumCleaning,
+            oldValue: "Old Album",
+            newValue: "New Album",
+            confidence: 100,
+            source: "Test"
+        )
+        _ = try await fixture.coordinator.applyAcceptedChanges(
+            [change],
+            progressHandler: Self.ignoreProgress
+        )
+
+        await expectAlbumCachesInvalidated(cache, artist: "Beatles", album: "Old Album")
+        await expectAlbumCachesInvalidated(cache, artist: "Beatles", album: "New Album")
+    }
+
     @Test("Multi-track update reports progress")
     func multiTrackProgress() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)
@@ -344,6 +394,29 @@ struct UpdateCoordinatorTests {
 extension UpdateCoordinatorTests {
     static func ignoreProgress(_: ProgressUpdate) {
         // This test asserts returned entries only; progress emission is covered separately.
+    }
+
+    private func seedAlbumCaches(_ cache: MockCacheService, artist: String, album: String) async {
+        await cache.storeAlbumYear(artist: artist, album: album, year: 1970, confidence: 85)
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: artist,
+            album: album,
+            year: 1970,
+            source: "musicbrainz",
+            timestamp: Date(),
+            ttl: nil
+        ))
+    }
+
+    private func expectAlbumCachesInvalidated(_ cache: MockCacheService, artist: String, album: String) async {
+        let albumYear = await cache.getAlbumYear(artist: artist, album: album)
+        let apiResult = await cache.getCachedAPIResult(
+            artist: artist,
+            album: album,
+            source: "musicbrainz"
+        )
+        #expect(albumYear == nil)
+        #expect(apiResult == nil)
     }
 
     @Test("Multi-track update skips non-editable tracks without reporting write failures")
