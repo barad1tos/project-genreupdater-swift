@@ -30,12 +30,25 @@ extension UpdateCoordinator {
             return localChange
         }
 
-        if !hasAmbiguousReleaseYearSignal,
-           let cachedChange = await yearChangeFromCache(
-               track: track,
-               releaseYearConflict: releaseYearConflict
-           ) {
-            return cachedChange
+        let cachedAlbumYear = await cache.getAlbumYear(artist: track.artist, album: track.album)
+
+        if !hasAmbiguousReleaseYearSignal {
+            if releaseYearConflict == nil,
+               shouldSkipYearLookupFromCachedAlbumYear(
+                   track: track,
+                   albumTracks: albumTracks,
+                   entry: cachedAlbumYear
+               ) {
+                return nil
+            }
+
+            if let cachedChange = yearChangeFromCached(
+                track: track,
+                entry: cachedAlbumYear,
+                requiredYear: releaseYearConflict?.verificationYear
+            ) {
+                return cachedChange
+            }
         }
 
         if releaseYearConflict == nil,
@@ -58,13 +71,63 @@ extension UpdateCoordinator {
         )
     }
 
+    private func albumContextTracks(track: Track, albumTracks: [Track]) -> [Track] {
+        albumTracks.contains { $0.id == track.id } ? albumTracks : albumTracks + [track]
+    }
+
     private func isAlbumAlreadyProcessedByMGU(track: Track, albumTracks: [Track]) -> Bool {
-        let tracks = albumTracks.contains { $0.id == track.id } ? albumTracks : albumTracks + [track]
+        let tracks = albumContextTracks(track: track, albumTracks: albumTracks)
         guard let processedYear = tracks.first?.yearSetByMGU else { return false }
 
         return tracks.allSatisfy { albumTrack in
             albumTrack.yearSetByMGU == processedYear && albumTrack.year == processedYear
         }
+    }
+
+    private func shouldSkipYearLookupFromCachedAlbumYear(
+        track: Track,
+        albumTracks: [Track],
+        entry: AlbumCacheEntry?
+    ) -> Bool {
+        guard let entry,
+              let cachedYear = entry.year,
+              Double(entry.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence,
+              let libraryYear = dominantValidLibraryYear(
+                  in: albumContextTracks(track: track, albumTracks: albumTracks)
+              )
+        else {
+            return false
+        }
+
+        return cachedYear == libraryYear
+    }
+
+    private func dominantValidLibraryYear(in tracks: [Track]) -> Int? {
+        var yearCounts: [Int: Int] = [:]
+        var orderedYears: [Int] = []
+        for track in tracks {
+            guard let year = track.year,
+                  case .valid = yearDeterminator.validator.validate(year: year)
+            else {
+                continue
+            }
+            if yearCounts[year] == nil {
+                orderedYears.append(year)
+            }
+            yearCounts[year, default: 0] += 1
+        }
+
+        var dominantYear: Int?
+        for year in orderedYears {
+            guard let currentDominantYear = dominantYear else {
+                dominantYear = year
+                continue
+            }
+            if yearCounts[year, default: 0] > yearCounts[currentDominantYear, default: 0] {
+                dominantYear = year
+            }
+        }
+        return dominantYear
     }
 
     private func shouldPreferLocalYearRepair(for track: Track) -> Bool {
@@ -112,18 +175,6 @@ extension UpdateCoordinator {
             albumTypeInfo: albumTypeInfo
         )
         return (determination.yearResult, determination.source.rawValue.capitalized)
-    }
-
-    private func yearChangeFromCache(
-        track: Track,
-        releaseYearConflict: ReleaseYearConflict?
-    ) async -> ProposedChange? {
-        let cached = await cache.getAlbumYear(artist: track.artist, album: track.album)
-        return yearChangeFromCached(
-            track: track,
-            entry: cached,
-            requiredYear: releaseYearConflict?.verificationYear
-        )
     }
 
     private func yearChangeFromAPIDetermination(

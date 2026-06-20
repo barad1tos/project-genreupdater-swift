@@ -270,6 +270,41 @@ struct UpdateCoordinatorCandidateScoringTests {
         #expect(yearChange.source == "Cache")
     }
 
+    @Test("Skips year lookup when cached year matches the library")
+    func skipsYearLookupWhenCachedYearMatchesTheLibrary() async throws {
+        let track = subRosaTrack(year: 2008)
+        let albumTracks = subRosaAlbumTracks(year: 2008)
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "SubRosa",
+            album: "Strega",
+            year: 2008,
+            confidence: 100
+        )
+        let apiProbe = APIRequestProbe()
+        let api = makeAPIOrchestrator(
+            musicBrainz: RecordingAPIService(probe: apiProbe, yearResult: YearResult(
+                year: 1999,
+                isDefinitive: true,
+                confidence: 100
+            )),
+            discogs: RecordingAPIService(probe: apiProbe),
+            appleMusic: RecordingAPIService(probe: apiProbe)
+        )
+        let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(!changes.contains { $0.changeType == ChangeType.yearUpdate })
+        #expect(await apiProbe.requestCount == 0)
+    }
+
     @Test("Skips year lookup when every album track was already processed")
     func skipsYearLookupWhenEveryAlbumTrackWasAlreadyProcessed() async throws {
         let track = subRosaTrack(year: 2008, yearSetByMGU: 2008)
@@ -556,4 +591,59 @@ struct UpdateCoordinatorCandidateScoringTests {
             yearDeterminator: YearDeterminator()
         )
     }
+}
+
+private actor APIRequestProbe {
+    private(set) var requestCount = 0
+
+    func recordRequest() {
+        requestCount += 1
+    }
+}
+
+private struct RecordingAPIService: ExternalAPIService {
+    let probe: APIRequestProbe
+    let yearResult: YearResult
+    let releaseCandidates: [ReleaseCandidate]
+
+    init(
+        probe: APIRequestProbe,
+        yearResult: YearResult = YearResult(),
+        releaseCandidates: [ReleaseCandidate] = []
+    ) {
+        self.probe = probe
+        self.yearResult = yearResult
+        self.releaseCandidates = releaseCandidates
+    }
+
+    func getAlbumYear(
+        artist _: String,
+        album _: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> YearResult {
+        await probe.recordRequest()
+        return yearResult
+    }
+
+    func getReleaseCandidates(
+        artist _: String,
+        album _: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> [ReleaseCandidate] {
+        await probe.recordRequest()
+        return releaseCandidates
+    }
+
+    func getArtistActivityPeriod(normalizedArtist _: String) async throws -> (start: Int?, end: Int?) {
+        (nil, nil)
+    }
+
+    func getArtistStartYear(normalizedArtist _: String) async throws -> Int? {
+        nil
+    }
+
+    func initialize(force _: Bool) async throws {}
+    func close() async {}
 }
