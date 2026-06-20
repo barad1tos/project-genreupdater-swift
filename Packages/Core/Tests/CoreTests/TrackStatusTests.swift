@@ -26,11 +26,11 @@ struct TrackKindTests {
     }
 
     @Test(
-        "canEditMetadata is true only for writable statuses",
+        "canEditMetadata is false only for prerelease status",
         arguments: TrackKind.allCases
     )
     func canEditMetadata(kind: TrackKind) {
-        if kind == .prerelease || kind == .noLongerAvailable {
+        if kind == .prerelease {
             #expect(!kind.canEditMetadata)
         } else {
             #expect(kind.canEditMetadata)

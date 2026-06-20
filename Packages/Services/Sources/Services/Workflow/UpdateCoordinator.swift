@@ -369,6 +369,11 @@ public actor UpdateCoordinator {
                 if let entry = try await applyChange(change) {
                     entries.append(entry)
                 }
+            } catch UpdateCoordinatorError.trackNotEditable {
+                log
+                    .info(
+                        "Skipped non-editable reviewed change for track \(change.track.id, privacy: .private)"
+                    )
             } catch {
                 failedTrackIDs.append(change.track.id)
                 errorDescriptions.append(error.localizedDescription)
@@ -418,23 +423,21 @@ public actor UpdateCoordinator {
         }
 
         guard let newValue = change.newValue else { return nil }
-
-        let property = switch change.changeType {
-        case .genreUpdate: "genre"
-        case .yearUpdate, .yearRevert: "year"
-        case .trackCleaning: "name"
-        case .albumCleaning: "album"
-        case .artistRename: "artist"
+        let mutationTrack = try await trackWithMutationMetadata(change.track)
+        guard mutationTrack.canEdit else {
+            throw UpdateCoordinatorError.trackNotEditable(trackID: mutationTrack.id)
         }
+
+        let property = Self.appleScriptProperty(for: change.changeType)
 
         let writeID: String
         if let idMapper {
-            guard let appleScriptID = await idMapper.appleScriptID(forMusicKitID: change.track.id) else {
-                throw UpdateCoordinatorError.missingAppleScriptID(trackID: change.track.id)
+            guard let appleScriptID = await idMapper.appleScriptID(forMusicKitID: mutationTrack.id) else {
+                throw UpdateCoordinatorError.missingAppleScriptID(trackID: mutationTrack.id)
             }
             writeID = appleScriptID
         } else {
-            writeID = change.track.id
+            writeID = mutationTrack.id
         }
 
         do {
@@ -468,6 +471,16 @@ public actor UpdateCoordinator {
                 "Applied \(change.changeType.rawValue, privacy: .public) to track \(change.track.id, privacy: .private)"
             )
         return logEntry
+    }
+
+    private static func appleScriptProperty(for changeType: ChangeType) -> String {
+        switch changeType {
+        case .genreUpdate: "genre"
+        case .yearUpdate, .yearRevert: "year"
+        case .trackCleaning: "name"
+        case .albumCleaning: "album"
+        case .artistRename: "artist"
+        }
     }
 
     private func invalidateCaches(for change: ProposedChange) async {

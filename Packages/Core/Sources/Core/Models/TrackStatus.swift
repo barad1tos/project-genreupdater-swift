@@ -38,12 +38,14 @@ public enum TrackKind: String, Sendable, CaseIterable, Codable, CustomStringConv
     /// Whether this track's metadata can be edited.
     ///
     /// Prerelease tracks are read-only in Music.app — attempting to write
-    /// to them via AppleScript will fail silently or error.
+    /// to them via AppleScript will fail silently or error. Other known
+    /// statuses may be excluded from normal processing while still following
+    /// Python parity for write eligibility.
     public var canEditMetadata: Bool {
         switch self {
-        case .localOnly, .purchased, .matched, .uploaded, .subscription, .downloaded:
+        case .localOnly, .purchased, .matched, .uploaded, .subscription, .downloaded, .noLongerAvailable:
             true
-        case .prerelease, .noLongerAvailable:
+        case .prerelease:
             false
         }
     }

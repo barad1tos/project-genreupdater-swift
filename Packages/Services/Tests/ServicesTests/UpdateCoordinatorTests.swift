@@ -431,6 +431,36 @@ struct UpdateCoordinatorTests {
         await #expect(!snapshotService.wasCleared())
     }
 
+    @Test("Reviewed prerelease changes are skipped without writing")
+    func reviewedPrereleaseChangesAreSkippedWithoutWriting() async throws {
+        let fixture = await makeCoordinator()
+        let change = ProposedChange(
+            track: Track(
+                id: "T1",
+                name: "Track",
+                artist: "Artist",
+                album: "Album",
+                genre: "Rock",
+                trackStatus: "prerelease"
+            ),
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Metal",
+            confidence: 100,
+            source: "Test"
+        )
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            [change],
+            progressHandler: Self.ignoreProgress
+        )
+
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
+    }
+
     @Test("Multi-track update reports progress")
     func multiTrackProgress() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)
@@ -508,17 +538,17 @@ extension UpdateCoordinatorTests {
     @Test("Multi-track update skips non-editable tracks without reporting write failures")
     func multiTrackUpdateSkipsNonEditableTracks() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)
-        let unavailableTrack = Track(
-            id: "unavailable",
-            name: "Archived Song",
+        let prereleaseTrack = Track(
+            id: "prerelease",
+            name: "Upcoming Song",
             artist: "Clutch",
             album: "Blast Tyrant",
             year: 2004,
-            trackStatus: "no longer available"
+            trackStatus: "prerelease"
         )
 
         let result = try await fixture.coordinator.updateTracks(
-            [unavailableTrack],
+            [prereleaseTrack],
             options: UpdateOptions(updateGenre: false, updateYear: true),
             progressHandler: Self.ignoreProgress
         )

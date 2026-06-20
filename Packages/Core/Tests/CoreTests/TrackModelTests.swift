@@ -123,13 +123,13 @@ struct TrackModelTests {
         #expect(track.canEdit == false)
     }
 
-    @Test("canEdit is false for unavailable status")
-    func canEditFalseForUnavailable() {
+    @Test("canEdit is true for unavailable status")
+    func canEditTrueForUnavailable() {
         let track = Track(
             id: "1", name: "Song", artist: "Artist", album: "Album",
             trackStatus: "no longer available"
         )
-        #expect(track.canEdit == false)
+        #expect(track.canEdit == true)
     }
 
     @Test(
