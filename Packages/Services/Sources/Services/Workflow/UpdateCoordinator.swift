@@ -163,6 +163,10 @@ public actor UpdateCoordinator {
         }
 
         let inputTrack = try await trackWithMutationMetadata(track)
+        if await shouldSkipPrereleaseProcessing(track: inputTrack, albumTracks: albumTracks) {
+            return []
+        }
+
         let inputAlbumTracks = await availableTracksWithMutationMetadata(albumTracks)
 
         guard inputTrack.canEdit else {
@@ -252,6 +256,64 @@ public actor UpdateCoordinator {
             newValue: newGenre,
             confidence: 80,
             source: "Library"
+        )
+    }
+
+    private func shouldSkipPrereleaseProcessing(track: Track, albumTracks: [Track]) async -> Bool {
+        guard runtimeConfiguration.skipPrerelease,
+              track.kind == .prerelease
+        else {
+            return false
+        }
+
+        let contextTracks = albumContextTracks(track: track, albumTracks: albumTracks)
+        let prereleaseCount = contextTracks.count(where: { $0.kind == .prerelease })
+        let editableCount = contextTracks.filter(\.canEdit).count
+
+        switch runtimeConfiguration.prereleaseHandling {
+        case .skipAll:
+            return true
+        case .markOnly:
+            await markPrereleaseAlbum(
+                track: track,
+                metadata: [
+                    "editable_count": String(editableCount),
+                    "mode": "mark_only",
+                    "prerelease_count": String(prereleaseCount),
+                    "track_count": String(contextTracks.count),
+                ]
+            )
+            return true
+        case .processEditable:
+            var metadata = [
+                "prerelease_count": String(prereleaseCount),
+                "track_count": String(contextTracks.count),
+            ]
+            if editableCount == 0 {
+                metadata["all_prerelease"] = "true"
+            } else {
+                metadata["editable_count"] = String(editableCount)
+                metadata["mixed_album"] = "true"
+            }
+            await markPrereleaseAlbum(track: track, metadata: metadata)
+            return true
+        }
+    }
+
+    private func albumContextTracks(track: Track, albumTracks: [Track]) -> [Track] {
+        albumTracks.contains { $0.id == track.id } ? albumTracks : albumTracks + [track]
+    }
+
+    private func markPrereleaseAlbum(
+        track: Track,
+        metadata: [String: String]
+    ) async {
+        await pendingVerificationService?.markForVerification(
+            artist: track.effectiveArtist,
+            album: track.album,
+            reason: "prerelease",
+            metadata: metadata,
+            recheckDays: runtimeConfiguration.prereleaseRecheckDays
         )
     }
 

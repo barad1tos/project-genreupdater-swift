@@ -59,6 +59,7 @@ struct UpdateCoordinatorRecordingAPIService: ExternalAPIService {
 actor PendingVerificationProbe: PendingVerificationService {
     let entry: PendingAlbumEntry?
     let isVerificationNeededResult: Bool
+    private(set) var markedAlbums: [PendingVerificationMark] = []
 
     init(entry: PendingAlbumEntry?, isVerificationNeeded: Bool) {
         self.entry = entry
@@ -68,12 +69,20 @@ actor PendingVerificationProbe: PendingVerificationService {
     func initialize() async throws {}
 
     func markForVerification(
-        artist _: String,
-        album _: String,
-        reason _: String,
-        metadata _: [String: String]?,
-        recheckDays _: Int?
-    ) async {}
+        artist: String,
+        album: String,
+        reason: String,
+        metadata: [String: String]?,
+        recheckDays: Int?
+    ) async {
+        markedAlbums.append(PendingVerificationMark(
+            artist: artist,
+            album: album,
+            reason: reason,
+            metadata: metadata ?? [:],
+            recheckDays: recheckDays
+        ))
+    }
 
     func removeFromPending(artist _: String, album _: String) async {}
 
@@ -102,4 +111,12 @@ actor PendingVerificationProbe: PendingVerificationService {
     }
 
     func updateVerificationTimestamp() async throws {}
+}
+
+struct PendingVerificationMark {
+    let artist: String
+    let album: String
+    let reason: String
+    let metadata: [String: String]
+    let recheckDays: Int?
 }

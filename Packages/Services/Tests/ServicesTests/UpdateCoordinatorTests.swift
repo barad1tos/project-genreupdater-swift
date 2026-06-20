@@ -203,7 +203,8 @@ struct UpdateCoordinatorTests {
 
     @Test("Non-editable track throws trackNotEditable")
     func nonEditableTrackThrows() async {
-        let fixture = await makeCoordinator()
+        let runtimeConfiguration = UpdateRuntimeConfiguration(policies: .init(skipPrerelease: false))
+        let fixture = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
 
         let track = Track(
             id: "T1",
@@ -566,7 +567,8 @@ extension UpdateCoordinatorTests {
 
     @Test("Multi-track update reports non-editable tracks as failures")
     func multiTrackUpdateReportsNonEditableTracksAsFailures() async throws {
-        let fixture = await makeCoordinator(year: 2020, confidence: 90)
+        let runtimeConfiguration = UpdateRuntimeConfiguration(policies: .init(skipPrerelease: false))
+        let fixture = await makeCoordinator(year: 2020, confidence: 90, runtimeConfiguration: runtimeConfiguration)
         let prereleaseTrack = Track(
             id: "prerelease",
             name: "Upcoming Song",

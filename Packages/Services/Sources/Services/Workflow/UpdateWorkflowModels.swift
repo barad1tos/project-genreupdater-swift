@@ -66,6 +66,9 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     public let minimumConfidenceToCache: Int
     public let albumTypeDetection: AlbumTypeDetectionConfig
     public let cleaning: CleaningConfig
+    public let skipPrerelease: Bool
+    public let prereleaseHandling: PrereleaseHandling
+    public let prereleaseRecheckDays: Int
     /// Artist allow-list for update writes; empty means all effective artists are allowed.
     public let testArtists: [String]
     public let shouldOverrideExistingGenres: Bool
@@ -76,6 +79,9 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         public let minimumConfidenceToCache: Int
         public let albumTypeDetection: AlbumTypeDetectionConfig
         public let cleaning: CleaningConfig
+        public let skipPrerelease: Bool
+        public let prereleaseHandling: PrereleaseHandling
+        public let prereleaseRecheckDays: Int
         public let shouldOverrideExistingGenres: Bool
 
         public init(
@@ -84,6 +90,9 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache,
             albumTypeDetection: AlbumTypeDetectionConfig = AlbumTypeDetectionConfig(),
             cleaning: CleaningConfig = CleaningConfig(),
+            skipPrerelease: Bool = AppConfiguration().processing.skipPrerelease,
+            prereleaseHandling: PrereleaseHandling = AppConfiguration().processing.prereleaseHandling,
+            prereleaseRecheckDays: Int = AppConfiguration().processing.prereleaseRecheckDays,
             shouldOverrideExistingGenres: Bool = AppConfiguration().genreUpdate.overrideExisting
         ) {
             self.isYearLookupEnabled = isYearLookupEnabled
@@ -91,6 +100,9 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             self.minimumConfidenceToCache = minimumConfidenceToCache
             self.albumTypeDetection = albumTypeDetection
             self.cleaning = cleaning
+            self.skipPrerelease = skipPrerelease
+            self.prereleaseHandling = prereleaseHandling
+            self.prereleaseRecheckDays = prereleaseRecheckDays
             self.shouldOverrideExistingGenres = shouldOverrideExistingGenres
         }
     }
@@ -108,6 +120,9 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         self.minimumConfidenceToCache = policies.minimumConfidenceToCache
         self.albumTypeDetection = policies.albumTypeDetection
         self.cleaning = policies.cleaning
+        self.skipPrerelease = policies.skipPrerelease
+        self.prereleaseHandling = policies.prereleaseHandling
+        self.prereleaseRecheckDays = policies.prereleaseRecheckDays
         self.testArtists = testArtists
         self.shouldOverrideExistingGenres = policies.shouldOverrideExistingGenres
     }
@@ -129,6 +144,9 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
                 minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
                 albumTypeDetection: configuration.albumTypeDetection,
                 cleaning: cleaning,
+                skipPrerelease: configuration.processing.skipPrerelease,
+                prereleaseHandling: configuration.processing.prereleaseHandling,
+                prereleaseRecheckDays: configuration.processing.prereleaseRecheckDays,
                 shouldOverrideExistingGenres: configuration.genreUpdate.overrideExisting
             )
         )
