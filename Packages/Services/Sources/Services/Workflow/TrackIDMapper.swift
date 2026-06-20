@@ -21,15 +21,32 @@ public actor TrackIDMapper: TrackIDMapping {
         appleScriptTracks: [Track]
     ) {
         var appleScriptLookup: [String: Track] = [:]
+        var ambiguousAppleScriptKeys: Set<String> = []
         for track in appleScriptTracks {
             let key = normalizedKey(track)
-            appleScriptLookup[key] = track
+            if appleScriptLookup[key] != nil {
+                appleScriptLookup[key] = nil
+                ambiguousAppleScriptKeys.insert(key)
+            } else if !ambiguousAppleScriptKeys.contains(key) {
+                appleScriptLookup[key] = track
+            }
         }
+
+        var musicKitKeyCounts: [String: Int] = [:]
+        for track in musicKitTracks {
+            musicKitKeyCounts[normalizedKey(track), default: 0] += 1
+        }
+        let ambiguousMusicKitKeys = Set(musicKitKeyCounts.compactMap { key, count in
+            count > 1 ? key : nil
+        })
 
         mapping = [:]
         appleScriptMetadataByMusicKitID = [:]
         for track in musicKitTracks {
             let key = normalizedKey(track)
+            guard !ambiguousMusicKitKeys.contains(key) else {
+                continue
+            }
             if let appleScriptTrack = appleScriptLookup[key] {
                 mapping[track.id] = appleScriptTrack.id
                 appleScriptMetadataByMusicKitID[track.id] = appleScriptTrack

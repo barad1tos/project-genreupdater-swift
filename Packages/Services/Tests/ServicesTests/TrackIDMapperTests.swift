@@ -101,25 +101,52 @@ struct TrackIDMapperTests {
         #expect(result == "AS1")
     }
 
-    @Test("Duplicate keys: last AppleScript track wins")
-    func duplicateKeysLastWins() async {
+    @Test("Duplicate AppleScript keys are treated as ambiguous")
+    func duplicateAppleScriptKeysAreAmbiguous() async {
         let mapper = TrackIDMapper()
 
-        let musicKitTracks = [
-            makeTrack(id: "MK1", name: "Song", artist: "Artist", album: "Album"),
-        ]
+        let musicKitTrack = makeTrack(id: "MK1", name: "Song", artist: "Artist", album: "Album")
         let appleScriptTracks = [
             makeTrack(id: "AS-FIRST", name: "Song", artist: "Artist", album: "Album"),
             makeTrack(id: "AS-SECOND", name: "Song", artist: "Artist", album: "Album"),
         ]
 
         await mapper.refreshMapping(
-            musicKitTracks: musicKitTracks,
+            musicKitTracks: [musicKitTrack],
             appleScriptTracks: appleScriptTracks
         )
 
-        let result = await mapper.appleScriptID(forMusicKitID: "MK1")
-        #expect(result == "AS-SECOND")
+        let writeID = await mapper.appleScriptID(forMusicKitID: "MK1")
+        let enrichedTrack = await mapper.trackWithAppleScriptMetadata(for: musicKitTrack)
+
+        #expect(writeID == nil)
+        #expect(enrichedTrack == nil)
+    }
+
+    @Test("Duplicate MusicKit keys are treated as ambiguous")
+    func duplicateMusicKitKeysAreAmbiguous() async {
+        let mapper = TrackIDMapper()
+
+        let musicKitTracks = [
+            makeTrack(id: "MK1", name: "Song", artist: "Artist", album: "Album"),
+            makeTrack(id: "MK2", name: "Song", artist: "Artist", album: "Album"),
+        ]
+        let appleScriptTrack = makeTrack(id: "AS1", name: "Song", artist: "Artist", album: "Album")
+
+        await mapper.refreshMapping(
+            musicKitTracks: musicKitTracks,
+            appleScriptTracks: [appleScriptTrack]
+        )
+
+        let firstWriteID = await mapper.appleScriptID(forMusicKitID: "MK1")
+        let secondWriteID = await mapper.appleScriptID(forMusicKitID: "MK2")
+        let firstEnrichedTrack = await mapper.trackWithAppleScriptMetadata(for: musicKitTracks[0])
+        let secondEnrichedTrack = await mapper.trackWithAppleScriptMetadata(for: musicKitTracks[1])
+
+        #expect(firstWriteID == nil)
+        #expect(secondWriteID == nil)
+        #expect(firstEnrichedTrack == nil)
+        #expect(secondEnrichedTrack == nil)
     }
 
     @Test("Empty input produces empty mapping")
