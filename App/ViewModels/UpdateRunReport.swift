@@ -517,6 +517,13 @@ struct UpdateRunTrackResult: Identifiable, Equatable {
     }
 
     var currentMetadataSummary: String {
+        if !changes.isEmpty {
+            let changedMetadata = changes.map(\.oldMetadataSummary)
+            if !changedMetadata.isEmpty {
+                return changedMetadata.joined(separator: " | ")
+            }
+        }
+
         var parts = [String]()
         if let currentYear {
             parts.append("Year \(currentYear)")
@@ -538,6 +545,21 @@ struct UpdateRunChangeSummary: Equatable, Hashable {
 
     var summary: String {
         "\(oldValue) -> \(newValue)"
+    }
+
+    var oldMetadataSummary: String {
+        switch changeType {
+        case .genreUpdate:
+            "Genre \(oldValue)"
+        case .yearUpdate, .yearRevert:
+            "Year \(oldValue)"
+        case .trackCleaning:
+            "Name \(oldValue)"
+        case .albumCleaning:
+            "Album \(oldValue)"
+        case .artistRename:
+            "Artist \(oldValue)"
+        }
     }
 }
 

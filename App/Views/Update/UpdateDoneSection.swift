@@ -418,16 +418,39 @@ private struct UpdateRunAlbumDetailPane: View {
     }
 
     private var yearSummary: String? {
+        if let changedYearSummary {
+            return changedYearSummary
+        }
+
         switch (album.currentYear, album.releaseYear) {
         case let (currentYear?, releaseYear?) where currentYear != releaseYear:
-            "\(currentYear) -> \(releaseYear)"
+            return "\(currentYear) -> \(releaseYear)"
         case let (currentYear?, _):
-            "\(currentYear)"
+            return "\(currentYear)"
         case let (_, releaseYear?):
-            "Release \(releaseYear)"
+            return "Release \(releaseYear)"
         default:
-            nil
+            return nil
         }
+    }
+
+    private var changedYearSummary: String? {
+        let summaries = Set(album.tracks.flatMap(\.changes).compactMap { change -> String? in
+            switch change.changeType {
+            case .yearUpdate, .yearRevert:
+                "Year \(change.summary)"
+            case .genreUpdate, .trackCleaning, .albumCleaning, .artistRename:
+                nil
+            }
+        })
+
+        if summaries.count == 1 {
+            return summaries.first
+        }
+        if summaries.count > 1 {
+            return "\(summaries.count) year changes"
+        }
+        return nil
     }
 
     private func resultPill(value: Int, label: String, tint: Color) -> some View {
@@ -475,7 +498,7 @@ private struct UpdateRunTrackTable: View {
         HStack(spacing: Spacing.sm) {
             tableHeader("#", width: 34, alignment: .trailing)
             tableHeader("Track", minWidth: 180)
-            tableHeader("Current metadata", width: 210)
+            tableHeader("Before run", width: 210)
             tableHeader("Result", width: 220)
         }
         .padding(.horizontal, Spacing.md)

@@ -88,6 +88,47 @@ struct UpdateRunReportTests {
         #expect(report.albumResults.first?.failureCount == 1)
     }
 
+    @Test("changed year rows show original editable year instead of release metadata")
+    func changedYearRowsShowOriginalEditableYearInsteadOfReleaseMetadata() throws {
+        var entry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "pure-rock-1",
+            artist: "Clutch",
+            trackName: "American Sleep",
+            albumName: "Pure Rock Fury"
+        )
+        entry.oldYear = 1999
+        entry.newYear = 2001
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [entry],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
+            completedEntries: [],
+            trackStatuses: ["pure-rock-1": .done],
+            tracks: [
+                Track(
+                    id: "pure-rock-1",
+                    name: "American Sleep",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury",
+                    year: nil,
+                    releaseYear: 2001
+                ),
+            ],
+            testArtists: ["Clutch"]
+        )
+
+        guard let trackResult = report.albumResults.first?.tracks.first else {
+            Issue.record("expected changed track row")
+            return
+        }
+        #expect(trackResult.currentMetadataSummary == "Year 1999")
+        #expect(trackResult.proposedSummary == "1999 -> 2001")
+    }
+
     @Test("falls back to completed entries when batch result is unavailable")
     func fallsBackToCompletedEntriesWhenBatchResultIsUnavailable() {
         let report = UpdateRunReport(
