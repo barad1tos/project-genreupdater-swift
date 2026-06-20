@@ -400,7 +400,8 @@ struct UpdateCoordinatorTests {
             progressHandler: Self.ignoreProgress
         )
 
-        await #expect(snapshotService.wasCleared())
+        let wasCleared = await snapshotService.wasCleared()
+        #expect(wasCleared)
     }
 
     @Test("Failed write keeps library snapshot cache")
@@ -428,7 +429,8 @@ struct UpdateCoordinatorTests {
             )
         }
 
-        await #expect(!snapshotService.wasCleared())
+        let wasCleared = await snapshotService.wasCleared()
+        #expect(!wasCleared)
     }
 
     @Test("Reviewed prerelease changes fail without writing")

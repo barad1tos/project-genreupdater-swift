@@ -534,7 +534,8 @@ struct LibrarySyncServiceTests {
         await expectSyncCachesInvalidated(cache, artist: "Old Artist", album: "Old Album")
         await expectSyncCachesInvalidated(cache, artist: "New Artist", album: "New Album")
         await expectSyncCachesInvalidated(cache, artist: "Gone Artist", album: "Gone Album")
-        await #expect(snapshotService.wasCleared())
+        let wasCleared = await snapshotService.wasCleared()
+        #expect(wasCleared)
     }
 }
 

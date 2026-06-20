@@ -20,6 +20,8 @@ struct LibrarySyncDatabaseVerificationTests {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let gate = await FeatureGate(fixedTier: .free)
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
 
         await bridge.setLibrary(ids: ["T1", "T3"], tracks: [:])
         await store.setStored([
@@ -31,7 +33,11 @@ struct LibrarySyncDatabaseVerificationTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate
+            featureGate: gate,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            )
         )
 
         let result = try await service.verifyAndCleanDatabase(force: true)
@@ -76,7 +82,8 @@ struct LibrarySyncDatabaseVerificationTests {
         _ = try await service.verifyAndCleanDatabase(force: true)
 
         await expectSyncCachesInvalidated(cache, artist: "Gone Artist", album: "Gone Album")
-        await #expect(snapshotService.wasCleared())
+        let wasCleared = await snapshotService.wasCleared()
+        #expect(wasCleared)
     }
 
     @Test("Respects recent timestamp unless forced")
