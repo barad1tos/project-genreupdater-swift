@@ -95,6 +95,46 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(written.isEmpty)
     }
 
+    @Test("Reviewed mapped changes use AppleScript metadata before writing")
+    func reviewedMappedChangesUseAppleScriptMetadataBeforeWriting() async throws {
+        let mapper = TrackIDMapper()
+        let musicKitTrack = makeEditableTrack(id: "MK1", genre: "Rock", year: nil)
+        let appleScriptTrack = Track(
+            id: "AS1",
+            name: "Come Together",
+            artist: "Beatles",
+            album: "Abbey Road",
+            genre: "Rock",
+            year: 1969,
+            trackStatus: "prerelease",
+            releaseYear: 2023
+        )
+        await mapper.refreshMapping(
+            musicKitTracks: [musicKitTrack],
+            appleScriptTracks: [appleScriptTrack]
+        )
+        let fixture = await makeCoordinator(idMapper: mapper)
+        let change = ProposedChange(
+            track: musicKitTrack,
+            changeType: .yearUpdate,
+            oldValue: nil,
+            newValue: "2023",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            [change],
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+    }
+
     private func makeCoordinator(
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
         idMapper: (any TrackIDMapping)? = nil
