@@ -362,6 +362,39 @@ struct LibrarySyncServiceTests {
         #expect(storedTracks.map(\.id).sorted() == ["MOD", "NEW"])
         #expect(storedTracks.first { $0.id == "MOD" }?.name == "Updated Song")
     }
+
+    @Test("Synchronize now invalidates cache for modified identities and removed tracks")
+    func synchronizeNowInvalidatesCacheForModifiedIdentitiesAndRemovedTracks() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+
+        let oldModified = Track(id: "MOD", name: "Song", artist: "Old Artist", album: "Old Album")
+        let newModified = Track(id: "MOD", name: "Song", artist: "New Artist", album: "New Album")
+        let removed = Track(id: "REMOVED", name: "Removed", artist: "Gone Artist", album: "Gone Album")
+        await bridge.setLibrary(ids: ["MOD"], tracks: ["MOD": newModified])
+        await store.setStored([oldModified, removed])
+        await seedSyncCaches(cache, artist: "Old Artist", album: "Old Album")
+        await seedSyncCaches(cache, artist: "New Artist", album: "New Album")
+        await seedSyncCaches(cache, artist: "Gone Artist", album: "Gone Album")
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            cache: cache,
+            librarySnapshotService: snapshotService
+        )
+
+        _ = try await service.synchronizeNow()
+
+        await expectSyncCachesInvalidated(cache, artist: "Old Artist", album: "Old Album")
+        await expectSyncCachesInvalidated(cache, artist: "New Artist", album: "New Album")
+        await expectSyncCachesInvalidated(cache, artist: "Gone Artist", album: "Gone Album")
+        await #expect(snapshotService.wasCleared())
+    }
 }
 
 // MARK: - Mock Helpers
@@ -377,6 +410,63 @@ extension SyncMockTrackStore {
     func setStored(_ tracks: [Track]) {
         storedTracks = tracks
     }
+}
+
+actor SyncMockLibrarySnapshotService: LibrarySnapshotService {
+    var isEnabled = true
+    var isDeltaEnabled = true
+    private var didClearSnapshot = false
+
+    func loadSnapshot() async throws -> [Track]? {
+        nil
+    }
+    func saveSnapshot(_: [Track]) async throws -> String {
+        "snapshot"
+    }
+    func clearSnapshot() async {
+        didClearSnapshot = true
+    }
+    func isSnapshotValid() async -> Bool {
+        true
+    }
+    func getSnapshotMetadata() async -> LibraryCacheMetadata? {
+        nil
+    }
+    func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {}
+    func loadDelta() async -> LibraryDeltaCache? {
+        nil
+    }
+    func saveDelta(_: LibraryDeltaCache) async throws {}
+    func getLibraryModificationDate() async throws -> Date {
+        .distantPast
+    }
+
+    func wasCleared() -> Bool {
+        didClearSnapshot
+    }
+}
+
+func seedSyncCaches(_ cache: MockCacheService, artist: String, album: String) async {
+    await cache.storeAlbumYear(artist: artist, album: album, year: 1970, confidence: 85)
+    await cache.setCachedAPIResult(CachedAPIResult(
+        artist: artist,
+        album: album,
+        year: 1970,
+        source: "musicbrainz",
+        timestamp: Date(),
+        ttl: nil
+    ))
+}
+
+func expectSyncCachesInvalidated(_ cache: MockCacheService, artist: String, album: String) async {
+    let albumYear = await cache.getAlbumYear(artist: artist, album: album)
+    let apiResult = await cache.getCachedAPIResult(
+        artist: artist,
+        album: album,
+        source: "musicbrainz"
+    )
+    #expect(albumYear == nil)
+    #expect(apiResult == nil)
 }
 
 // MARK: - SyncResult Tests

@@ -437,6 +437,8 @@ final class AppDependencies {
             scriptBridge: bridge,
             trackStore: store,
             featureGate: gate,
+            cache: cache,
+            librarySnapshotService: librarySnapshotService,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config)
         )
         librarySyncService = syncService
@@ -498,7 +500,10 @@ extension AppDependencies {
             try? await configuredPendingVerificationService?.initialize()
             await applescriptBridge?.updateConfiguration(appleScriptConfiguration)
             await musicReader?.updateTestArtists(config.development.testArtists)
-            await librarySyncService?.updateRuntimeConfiguration(librarySyncRuntimeConfiguration)
+            await librarySyncService?.updateRuntimeConfiguration(
+                librarySyncRuntimeConfiguration,
+                librarySnapshotService: configuredLibrarySnapshotService
+            )
             await batchProcessor?.updateProcessingConfiguration(batchProcessingConfiguration)
             await analyticsService?.updateConfiguration(config.analytics)
             await updateCoordinator?.updateRuntimeConfiguration(

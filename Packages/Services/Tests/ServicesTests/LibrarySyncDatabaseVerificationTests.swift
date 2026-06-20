@@ -44,6 +44,41 @@ struct LibrarySyncDatabaseVerificationTests {
         #expect(remainingIDs == ["T1", "T3"])
     }
 
+    @Test("Database verification invalidates cache for removed tracks")
+    func databaseVerificationInvalidatesCacheForRemovedTracks() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
+
+        await bridge.setLibrary(ids: ["T1"], tracks: [:])
+        await store.setStored([
+            Track(id: "T1", name: "One", artist: "Artist", album: "Album"),
+            Track(id: "T2", name: "Two", artist: "Gone Artist", album: "Gone Album"),
+        ])
+        await seedSyncCaches(cache, artist: "Gone Artist", album: "Gone Album")
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            cache: cache,
+            librarySnapshotService: snapshotService,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            )
+        )
+
+        _ = try await service.verifyAndCleanDatabase(force: true)
+
+        await expectSyncCachesInvalidated(cache, artist: "Gone Artist", album: "Gone Album")
+        await #expect(snapshotService.wasCleared())
+    }
+
     @Test("Respects recent timestamp unless forced")
     func skipsRecentRunUnlessForced() async throws {
         let bridge = SyncMockScriptClient()

@@ -113,6 +113,8 @@ public actor LibrarySyncService {
     private let scriptBridge: any AppleScriptClient
     private let trackStore: any TrackStateStore
     private let featureGate: FeatureGate
+    private let cache: (any CacheService)?
+    private var librarySnapshotService: (any LibrarySnapshotService)?
     private var runtimeConfiguration: LibrarySyncRuntimeConfiguration
     private var autoSyncTask: Task<Void, Never>?
     private let log = Logger(subsystem: "com.genreupdater", category: "LibrarySyncService")
@@ -121,16 +123,26 @@ public actor LibrarySyncService {
         scriptBridge: any AppleScriptClient,
         trackStore: any TrackStateStore,
         featureGate: FeatureGate,
+        cache: (any CacheService)? = nil,
+        librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runtimeConfiguration: LibrarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration()
     ) {
         self.scriptBridge = scriptBridge
         self.trackStore = trackStore
         self.featureGate = featureGate
+        self.cache = cache
+        self.librarySnapshotService = librarySnapshotService
         self.runtimeConfiguration = runtimeConfiguration
     }
 
-    public func updateRuntimeConfiguration(_ runtimeConfiguration: LibrarySyncRuntimeConfiguration) {
+    public func updateRuntimeConfiguration(
+        _ runtimeConfiguration: LibrarySyncRuntimeConfiguration,
+        librarySnapshotService: (any LibrarySnapshotService)? = nil
+    ) {
         self.runtimeConfiguration = runtimeConfiguration
+        if let librarySnapshotService {
+            self.librarySnapshotService = librarySnapshotService
+        }
     }
 
     // MARK: Manual Sync
@@ -231,6 +243,12 @@ public actor LibrarySyncService {
         for chunk in removedIDs.chunked(into: runtimeConfiguration.databaseVerificationBatchSize) {
             try await trackStore.deleteTrackIDs(chunk)
         }
+        let removedIDSet = Set(removedIDs)
+        let removedTracks = storedTracks.filter { removedIDSet.contains($0.id) }
+        await invalidateCachesForLibraryChanges(
+            hasLibraryChanges: !removedTracks.isEmpty,
+            targets: cacheInvalidationTargets(removedTracks: removedTracks)
+        )
 
         try updateDatabaseVerificationTimestamp()
         log.info(
@@ -318,6 +336,8 @@ public actor LibrarySyncService {
     }
 
     private func applyDetectedChanges(_ result: SyncResult) async throws {
+        let storedTracks = try await trackStore.loadAllTracks()
+        let storedByID = Dictionary(uniqueKeysWithValues: storedTracks.map { ($0.id, $0) })
         let refreshedTracks = result.newTracks + result.modifiedTracks
         if !refreshedTracks.isEmpty {
             try await trackStore.saveTracks(refreshedTracks)
@@ -325,6 +345,77 @@ public actor LibrarySyncService {
 
         if !result.removedTrackIDs.isEmpty {
             _ = try await trackStore.deleteTrackIDs(result.removedTrackIDs)
+        }
+
+        await invalidateCachesForLibraryChanges(
+            hasLibraryChanges: result.hasChanges,
+            targets: cacheInvalidationTargets(
+                modifiedTracks: result.modifiedTracks,
+                removedTrackIDs: result.removedTrackIDs,
+                storedByID: storedByID
+            )
+        )
+    }
+
+    private func invalidateCachesForLibraryChanges(
+        hasLibraryChanges: Bool,
+        targets: [(artist: String, album: String)]
+    ) async {
+        guard hasLibraryChanges else { return }
+        for target in targets {
+            await cache?.invalidateAlbum(artist: target.artist, album: target.album)
+            await cache?.invalidateCachedAPIResults(artist: target.artist, album: target.album)
+        }
+        await librarySnapshotService?.clearSnapshot()
+    }
+
+    private func cacheInvalidationTargets(
+        modifiedTracks: [Track] = [],
+        removedTrackIDs: [String] = [],
+        storedByID: [String: Track]
+    ) -> [(artist: String, album: String)] {
+        var candidates: [(artist: String, album: String)] = []
+
+        for current in modifiedTracks {
+            guard let stored = storedByID[current.id],
+                  hasIdentityChanged(current: current, stored: stored)
+            else {
+                continue
+            }
+            candidates.append((artist: stored.artist, album: stored.album))
+            candidates.append((artist: current.artist, album: current.album))
+        }
+
+        let removedIDSet = Set(removedTrackIDs)
+        let removedTracks = storedByID.values.filter { removedIDSet.contains($0.id) }
+        candidates.append(contentsOf: cacheInvalidationTargets(removedTracks: removedTracks))
+
+        return normalizedCacheInvalidationTargets(candidates)
+    }
+
+    private func cacheInvalidationTargets(removedTracks: [Track]) -> [(artist: String, album: String)] {
+        normalizedCacheInvalidationTargets(
+            removedTracks.map { (artist: $0.artist, album: $0.album) }
+        )
+    }
+
+    private func hasIdentityChanged(current: Track, stored: Track) -> Bool {
+        normalizeForMatching(current.artist) != normalizeForMatching(stored.artist)
+            || normalizeForMatching(current.album) != normalizeForMatching(stored.album)
+    }
+
+    private func normalizedCacheInvalidationTargets(
+        _ candidates: [(artist: String, album: String)]
+    ) -> [(artist: String, album: String)] {
+        var seenKeys: Set<String> = []
+        return candidates.compactMap { candidate in
+            let artist = candidate.artist.trimmingCharacters(in: .whitespacesAndNewlines)
+            let album = candidate.album.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !artist.isEmpty, !album.isEmpty else { return nil }
+
+            let key = "\(normalizeForMatching(artist))\u{1F}\(normalizeForMatching(album))"
+            guard seenKeys.insert(key).inserted else { return nil }
+            return (artist: artist, album: album)
         }
     }
 
