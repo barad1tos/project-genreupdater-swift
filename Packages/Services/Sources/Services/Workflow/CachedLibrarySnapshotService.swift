@@ -34,6 +34,12 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
         return await cachedSnapshot()
     }
 
+    public func clearSnapshot() async {
+        await cache.invalidate(key: snapshotKey)
+        await cache.invalidate(key: metadataKey)
+        await cache.invalidate(key: deltaKey)
+    }
+
     @discardableResult
     public func saveSnapshot(_ tracks: [Track]) async throws -> String {
         let hash = try Self.snapshotHash(for: tracks)

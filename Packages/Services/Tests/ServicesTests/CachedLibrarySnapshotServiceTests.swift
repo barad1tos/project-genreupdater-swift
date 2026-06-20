@@ -85,4 +85,36 @@ struct CachedLibrarySnapshotServiceTests {
         #expect(delta?.removedIDs == ["A"])
         #expect(delta?.modifiedIDs == ["B"])
     }
+
+    @Test("Clear snapshot removes tracks metadata and delta")
+    func clearSnapshotRemovesTracksMetadataAndDelta() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        var configuration = LibrarySnapshotConfig()
+        configuration.deltaEnabled = true
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let service = CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: configuration,
+            currentDate: { now }
+        )
+        let firstSnapshot = [
+            Track(id: "A", name: "Old", artist: "Artist", album: "Album"),
+        ]
+        let secondSnapshot = [
+            Track(id: "A", name: "New", artist: "Artist", album: "Album"),
+        ]
+
+        _ = try await service.saveSnapshot(firstSnapshot)
+        _ = try await service.saveSnapshot(secondSnapshot)
+        await service.clearSnapshot()
+
+        let loaded = try await service.loadSnapshot()
+        let metadata = await service.getSnapshotMetadata()
+        let delta = await service.loadDelta()
+        #expect(loaded == nil)
+        #expect(metadata == nil)
+        #expect(delta == nil)
+        #expect(await !service.isSnapshotValid())
+    }
 }

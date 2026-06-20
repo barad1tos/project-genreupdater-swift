@@ -386,6 +386,7 @@ public struct RateLimiterStats: Sendable {
 public protocol LibrarySnapshotService: Actor {
     func loadSnapshot() async throws -> [Track]?
     func saveSnapshot(_ tracks: [Track]) async throws -> String
+    func clearSnapshot() async
     func isSnapshotValid() async -> Bool
     func getSnapshotMetadata() async -> LibraryCacheMetadata?
     func updateSnapshotMetadata(_ metadata: LibraryCacheMetadata) async throws

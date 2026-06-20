@@ -58,6 +58,7 @@ public struct UpdateCoordinatorDependencies {
     let cache: any CacheService
     let undoCoordinator: UndoCoordinator
     let idMapper: (any TrackIDMapping)?
+    let librarySnapshotService: (any LibrarySnapshotService)?
 
     public init(
         apiOrchestrator: APIOrchestrator,
@@ -65,7 +66,8 @@ public struct UpdateCoordinatorDependencies {
         trackStore: any TrackStateStore,
         cache: any CacheService,
         undoCoordinator: UndoCoordinator,
-        idMapper: (any TrackIDMapping)? = nil
+        idMapper: (any TrackIDMapping)? = nil,
+        librarySnapshotService: (any LibrarySnapshotService)? = nil
     ) {
         self.apiOrchestrator = apiOrchestrator
         self.scriptBridge = scriptBridge
@@ -73,6 +75,7 @@ public struct UpdateCoordinatorDependencies {
         self.cache = cache
         self.undoCoordinator = undoCoordinator
         self.idMapper = idMapper
+        self.librarySnapshotService = librarySnapshotService
     }
 }
 
@@ -87,6 +90,7 @@ public actor UpdateCoordinator {
     let cache: any CacheService
     private let undoCoordinator: UndoCoordinator
     private let idMapper: (any TrackIDMapping)?
+    private var librarySnapshotService: (any LibrarySnapshotService)?
     private let genreDeterminator: GenreDeterminator
     var yearDeterminator: YearDeterminator
     var runtimeConfiguration: UpdateRuntimeConfiguration
@@ -104,6 +108,7 @@ public actor UpdateCoordinator {
         cache = dependencies.cache
         undoCoordinator = dependencies.undoCoordinator
         idMapper = dependencies.idMapper
+        librarySnapshotService = dependencies.librarySnapshotService
         self.genreDeterminator = genreDeterminator
         self.yearDeterminator = yearDeterminator
         self.runtimeConfiguration = runtimeConfiguration
@@ -112,12 +117,16 @@ public actor UpdateCoordinator {
     public func updateRuntimeConfiguration(
         _ runtimeConfiguration: UpdateRuntimeConfiguration,
         yearDeterminator: YearDeterminator,
-        apiOrchestrator: APIOrchestrator? = nil
+        apiOrchestrator: APIOrchestrator? = nil,
+        librarySnapshotService: (any LibrarySnapshotService)? = nil
     ) {
         self.runtimeConfiguration = runtimeConfiguration
         self.yearDeterminator = yearDeterminator
         if let apiOrchestrator {
             self.apiOrchestrator = apiOrchestrator
+        }
+        if let librarySnapshotService {
+            self.librarySnapshotService = librarySnapshotService
         }
     }
 
@@ -466,6 +475,7 @@ public actor UpdateCoordinator {
             await cache.invalidateAlbum(artist: target.artist, album: target.album)
             await cache.invalidateCachedAPIResults(artist: target.artist, album: target.album)
         }
+        await librarySnapshotService?.clearSnapshot()
     }
 
     private func cacheInvalidationTargets(for change: ProposedChange) -> [(artist: String, album: String)] {

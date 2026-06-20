@@ -419,7 +419,8 @@ final class AppDependencies {
                 trackStore: store,
                 cache: cache,
                 undoCoordinator: undo,
-                idMapper: mapper
+                idMapper: mapper,
+                librarySnapshotService: librarySnapshotService
             ),
             genreDeterminator: genreDeterm,
             yearDeterminator: yearDeterm,
@@ -473,15 +474,20 @@ extension AppDependencies {
                 pendingVerificationService: configuredPendingVerificationService
             )
         }
+        let configuredLibrarySnapshotService: (any LibrarySnapshotService)?
         if let cacheService {
-            librarySnapshotService = CachedLibrarySnapshotService(
+            let snapshotService = CachedLibrarySnapshotService(
                 cache: cacheService,
                 configuration: config.caching.librarySnapshot
             )
+            librarySnapshotService = snapshotService
+            configuredLibrarySnapshotService = snapshotService
             analyticsService = CachedAnalyticsService(
                 cache: cacheService,
                 configuration: config.analytics
             )
+        } else {
+            configuredLibrarySnapshotService = nil
         }
 
         let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: config)
@@ -498,7 +504,8 @@ extension AppDependencies {
             await updateCoordinator?.updateRuntimeConfiguration(
                 runtimeConfiguration,
                 yearDeterminator: configuredYearDeterminator,
-                apiOrchestrator: configuredAPIOrchestrator
+                apiOrchestrator: configuredAPIOrchestrator,
+                librarySnapshotService: configuredLibrarySnapshotService
             )
         }
     }

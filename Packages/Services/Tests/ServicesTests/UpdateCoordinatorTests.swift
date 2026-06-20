@@ -48,6 +48,41 @@ struct CoordinatorFixture {
     let undo: UndoCoordinator
 }
 
+actor MockLibrarySnapshotService: LibrarySnapshotService {
+    var isEnabled = true
+    var isDeltaEnabled = true
+    private var didClearSnapshot = false
+
+    func loadSnapshot() async throws -> [Track]? {
+        nil
+    }
+    func saveSnapshot(_: [Track]) async throws -> String {
+        "snapshot"
+    }
+    func isSnapshotValid() async -> Bool {
+        true
+    }
+    func getSnapshotMetadata() async -> LibraryCacheMetadata? {
+        nil
+    }
+    func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {}
+    func loadDelta() async -> LibraryDeltaCache? {
+        nil
+    }
+    func saveDelta(_: LibraryDeltaCache) async throws {}
+    func getLibraryModificationDate() async throws -> Date {
+        .distantPast
+    }
+
+    func clearSnapshot() async {
+        didClearSnapshot = true
+    }
+
+    func wasCleared() -> Bool {
+        didClearSnapshot
+    }
+}
+
 @Suite("UpdateCoordinator — single and multi-track updates")
 struct UpdateCoordinatorTests {
     func makeCoordinator(
@@ -55,6 +90,7 @@ struct UpdateCoordinatorTests {
         confidence: Int = 0,
         scriptBridge: MockAppleScriptClient? = nil,
         cache: MockCacheService? = nil,
+        librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
         yearDeterminator: YearDeterminator = YearDeterminator()
     ) async -> CoordinatorFixture {
@@ -89,7 +125,8 @@ struct UpdateCoordinatorTests {
                 scriptBridge: bridge,
                 trackStore: store,
                 cache: cacheService,
-                undoCoordinator: undo
+                undoCoordinator: undo,
+                librarySnapshotService: librarySnapshotService
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: yearDeterminator,
@@ -343,6 +380,55 @@ struct UpdateCoordinatorTests {
 
         await expectAlbumCachesInvalidated(cache, artist: "Beatles", album: "Old Album")
         await expectAlbumCachesInvalidated(cache, artist: "Beatles", album: "New Album")
+    }
+
+    @Test("Successful write invalidates library snapshot cache")
+    func successfulWriteInvalidatesLibrarySnapshotCache() async throws {
+        let snapshotService = MockLibrarySnapshotService()
+        let fixture = await makeCoordinator(librarySnapshotService: snapshotService)
+
+        let change = ProposedChange(
+            track: makeEditableTrack(),
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Alternative",
+            confidence: 100,
+            source: "Test"
+        )
+        _ = try await fixture.coordinator.applyAcceptedChanges(
+            [change],
+            progressHandler: Self.ignoreProgress
+        )
+
+        await #expect(snapshotService.wasCleared())
+    }
+
+    @Test("Failed write keeps library snapshot cache")
+    func failedWriteKeepsLibrarySnapshotCache() async throws {
+        let snapshotService = MockLibrarySnapshotService()
+        let bridge = MockAppleScriptClient()
+        await bridge.setThrowMode(true)
+        let fixture = await makeCoordinator(
+            scriptBridge: bridge,
+            librarySnapshotService: snapshotService
+        )
+
+        let change = ProposedChange(
+            track: makeEditableTrack(),
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Alternative",
+            confidence: 100,
+            source: "Test"
+        )
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [change],
+                progressHandler: Self.ignoreProgress
+            )
+        }
+
+        await #expect(!snapshotService.wasCleared())
     }
 
     @Test("Multi-track update reports progress")
