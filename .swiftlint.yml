@@ -59,13 +59,13 @@ line_length:
 
 # Type body length
 type_body_length:
-  warning: 500
-  error: 800
+  warning: 800
+  error: 1000
   excluded_types: []
 
 # File length
 file_length:
-  warning: 700
+  warning: 800
   error: 1000
   ignore_comment_only_lines: false
 

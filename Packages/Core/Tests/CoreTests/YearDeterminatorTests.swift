@@ -2,12 +2,10 @@ import Foundation
 import Testing
 @testable import Core
 
-// swiftlint:disable file_length
-
 // MARK: - YearDeterminator Tests
 
 @Suite("YearDeterminator — Orchestration")
-struct YearDeterminatorTests { // swiftlint:disable:this type_body_length
+struct YearDeterminatorTests {
     let determinator = YearDeterminator()
 
     // MARK: - Helpers
@@ -122,6 +120,48 @@ struct YearDeterminatorTests { // swiftlint:disable:this type_body_length
             currentYear: 2000
         )
         #expect(result.yearResult.year == 2005)
+        #expect(result.source == .consensus)
+        #expect(result.yearResult.isDefinitive == true)
+    }
+
+    @Test("Consensus release year overrides invalid dominant track year")
+    func consensusReleaseYearOverridesInvalidDominantTrackYear() {
+        let track = makeTrack(year: 2211)
+        let albumTracks = [
+            Track(
+                id: "1",
+                name: "The Elephant Riders",
+                artist: "Clutch",
+                album: "The Elephant Riders",
+                year: 2211,
+                releaseYear: 1998
+            ),
+            Track(
+                id: "2",
+                name: "Ship of Gold",
+                artist: "Clutch",
+                album: "The Elephant Riders",
+                year: 2211,
+                releaseYear: 1998
+            ),
+            Track(
+                id: "3",
+                name: "Eight Times Over Miss October",
+                artist: "Clutch",
+                album: "The Elephant Riders",
+                year: 2211,
+                releaseYear: 1998
+            ),
+        ]
+
+        let result = determinator.determineYear(
+            candidates: [],
+            track: track,
+            albumTracks: albumTracks,
+            currentYear: 2211
+        )
+
+        #expect(result.yearResult.year == 1998)
         #expect(result.source == .consensus)
         #expect(result.yearResult.isDefinitive == true)
     }

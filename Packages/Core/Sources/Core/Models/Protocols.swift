@@ -447,6 +447,9 @@ public protocol TrackIDMapping: Sendable {
     /// Get the AppleScript persistent ID for a MusicKit track.
     func appleScriptID(forMusicKitID musicKitID: String) async -> String?
 
+    /// Return a MusicKit-ID-preserving track enriched with AppleScript metadata.
+    func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track?
+
     /// Build/refresh the mapping table from both ID sources.
     func refreshMapping(
         musicKitTracks: [Track],

@@ -50,6 +50,16 @@ public enum MusicLibraryError: Error, LocalizedError {
 /// For write operations (updating genre, year), use `AppleScriptBridge` instead —
 /// MusicKit does not support writing metadata.
 public actor MusicLibraryReader {
+    struct MusicKitTrackMetadata {
+        let id: String
+        let name: String
+        let artist: String
+        let album: String?
+        let genres: [String]
+        let releaseDate: Date?
+        let libraryAddedDate: Date?
+    }
+
     private var testArtists: [String]
 
     /// - Parameter testArtists: When non-empty, `fetchAllTracks` returns
@@ -212,16 +222,29 @@ public actor MusicLibraryReader {
 
     /// Convert a MusicKit Song to our domain Track model.
     private func songToTrack(_ song: Song) -> Core.Track {
-        Core.Track(
+        Self.makeTrackFromMusicKitMetadata(MusicKitTrackMetadata(
             id: song.id.rawValue,
             name: song.title,
             artist: song.artistName,
-            album: song.albumTitle ?? "",
-            genre: song.genreNames.first,
-            year: song.releaseDate.map { Calendar.current.component(.year, from: $0) },
-            dateAdded: song.libraryAddedDate,
+            album: song.albumTitle,
+            genres: song.genreNames,
+            releaseDate: song.releaseDate,
+            libraryAddedDate: song.libraryAddedDate
+        ))
+    }
+
+    static func makeTrackFromMusicKitMetadata(_ metadata: MusicKitTrackMetadata) -> Core.Track {
+        Core.Track(
+            id: metadata.id,
+            name: metadata.name,
+            artist: metadata.artist,
+            album: metadata.album ?? "",
+            genre: metadata.genres.first,
+            year: nil,
+            dateAdded: metadata.libraryAddedDate,
             lastModified: nil,
             trackStatus: nil,
+            releaseYear: metadata.releaseDate.map { Calendar.current.component(.year, from: $0) },
             albumArtist: nil
         )
     }

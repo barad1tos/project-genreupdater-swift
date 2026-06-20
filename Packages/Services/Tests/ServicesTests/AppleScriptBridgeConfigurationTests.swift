@@ -1,3 +1,4 @@
+import Carbon.OpenScripting
 import Foundation
 import Testing
 @testable import Core
@@ -71,5 +72,16 @@ struct AppleScriptBridgeConfigurationTests {
         configuration.windowSizeSeconds = 1
 
         #expect(AppleScriptBridge.makeRateLimiter(configuration: configuration) != nil)
+    }
+
+    @Test("AppleScript argv event launches script with direct arguments")
+    func appleScriptArgvEventLaunchesScriptWithDirectArguments() throws {
+        let event = try #require(AppleScriptBridge.makeRunAppleEvent(arguments: ["In Flames"]))
+        let arguments = try #require(event.paramDescriptor(forKeyword: keyDirectObject))
+
+        #expect(event.eventClass == AEEventClass(kCoreEventClass))
+        #expect(event.eventID == AEEventID(kAEOpenApplication))
+        #expect(arguments.numberOfItems == 1)
+        #expect(arguments.atIndex(1)?.stringValue == "In Flames")
     }
 }

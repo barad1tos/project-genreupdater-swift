@@ -115,6 +115,10 @@ public struct YearValidator: Sendable {
             return nil
         }
 
+        guard case .valid = validate(year: bestYear) else {
+            return nil
+        }
+
         // Python parity: suspicious years return nil (need API verification)
         let suspiciousOld = isYearSuspiciouslyOld(
             year: bestYear, tracks: tracks

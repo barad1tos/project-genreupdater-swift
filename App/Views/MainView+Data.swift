@@ -131,10 +131,10 @@ extension MainView {
                 hasCachedTracks = !scopedCachedTracks.isEmpty
                 await recordLibraryLoad(source: "snapshot", count: scopedCachedTracks.count, startedAt: loadStart)
             }
-
             try Task.checkCancellation()
             try await reader.requestAuthorization()
             try Task.checkCancellation()
+            await reader.updateTestArtists(dependencies.config.development.testArtists)
             let liveTracks = try await reader.fetchAllTracks()
             try Task.checkCancellation()
             guard libraryLoadRequestID == requestID else { return }
@@ -158,7 +158,6 @@ extension MainView {
             }
         }
     }
-
     func ensureWorkflowViewModel() {
         guard workflowViewModel == nil,
               let coordinator = dependencies.updateCoordinator,

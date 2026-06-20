@@ -261,7 +261,29 @@ struct MainView: View {
             .onChange(of: dependencies.config.processing.releaseYearRestoreThreshold) {
                 applyWorkflowDefaults()
             }
+            .onChange(of: dependencies.config.development.testArtists) {
+                handleTestArtistScopeChange()
+            }
             .focusedValue(\.selectedCategory, selectedCategoryBinding)
+    }
+
+    private func handleTestArtistScopeChange() {
+        guard workflowViewModel?.canStart ?? true else {
+            workflowNoticeMessage = "Finish or reset the current update before changing the test artist scope."
+            selectedCategory = .update
+            return
+        }
+
+        updateScopeTracks = nil
+        pendingSelectedUpdateScopeConfiguration = nil
+        workflowNoticeMessage = nil
+        tracks = []
+        browseViewModel.tracks = []
+        metricsSnapshot = nil
+        lastLibraryScanDate = nil
+        workflowViewModel?.reset()
+        applyWorkflowDefaults()
+        startLibraryLoad(forceRefresh: true)
     }
 
     @ViewBuilder

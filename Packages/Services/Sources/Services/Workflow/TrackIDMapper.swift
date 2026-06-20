@@ -11,6 +11,7 @@ import OSLog
 /// This actor builds a lookup table by matching tracks on their metadata tuple.
 public actor TrackIDMapper: TrackIDMapping {
     private var mapping: [String: String] = [:]
+    private var appleScriptMetadataByMusicKitID: [String: Track] = [:]
     private let log = Logger(subsystem: "com.genreupdater", category: "TrackIDMapper")
 
     public init() {}
@@ -19,17 +20,19 @@ public actor TrackIDMapper: TrackIDMapping {
         musicKitTracks: [Track],
         appleScriptTracks: [Track]
     ) {
-        var appleScriptLookup: [String: String] = [:]
+        var appleScriptLookup: [String: Track] = [:]
         for track in appleScriptTracks {
             let key = normalizedKey(track)
-            appleScriptLookup[key] = track.id
+            appleScriptLookup[key] = track
         }
 
         mapping = [:]
+        appleScriptMetadataByMusicKitID = [:]
         for track in musicKitTracks {
             let key = normalizedKey(track)
-            if let appleScriptID = appleScriptLookup[key] {
-                mapping[track.id] = appleScriptID
+            if let appleScriptTrack = appleScriptLookup[key] {
+                mapping[track.id] = appleScriptTrack.id
+                appleScriptMetadataByMusicKitID[track.id] = appleScriptTrack
             }
         }
 
@@ -64,6 +67,31 @@ public actor TrackIDMapper: TrackIDMapping {
 
     public func appleScriptID(forMusicKitID musicKitID: String) -> String? {
         mapping[musicKitID]
+    }
+
+    public func trackWithAppleScriptMetadata(for musicKitTrack: Track) -> Track? {
+        guard let appleScriptTrack = appleScriptMetadataByMusicKitID[musicKitTrack.id] else {
+            return nil
+        }
+
+        return Track(
+            id: musicKitTrack.id,
+            name: appleScriptTrack.name,
+            artist: appleScriptTrack.artist,
+            album: appleScriptTrack.album,
+            genre: appleScriptTrack.genre,
+            year: appleScriptTrack.year,
+            dateAdded: appleScriptTrack.dateAdded ?? musicKitTrack.dateAdded,
+            lastModified: appleScriptTrack.lastModified,
+            trackStatus: appleScriptTrack.trackStatus,
+            originalArtist: musicKitTrack.originalArtist,
+            originalAlbum: musicKitTrack.originalAlbum,
+            yearBeforeMGU: musicKitTrack.yearBeforeMGU,
+            yearSetByMGU: musicKitTrack.yearSetByMGU,
+            releaseYear: appleScriptTrack.releaseYear ?? musicKitTrack.releaseYear,
+            originalPosition: musicKitTrack.originalPosition,
+            albumArtist: appleScriptTrack.albumArtist ?? musicKitTrack.albumArtist
+        )
     }
 
     public func hasMappingFor(musicKitID: String) -> Bool {

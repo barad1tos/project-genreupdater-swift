@@ -30,6 +30,16 @@ struct UpdateCoordinatorErrorTests {
         #expect(description.contains("5"))
     }
 
+    @Test("Single-track allTracksFailed exposes underlying write failure")
+    func singleTrackAllFailedKeepsWriteFailureReason() {
+        let error = UpdateCoordinatorError.allTracksFailed(
+            count: 1,
+            errorDescriptions: ["Failed to write year for track T1: Year value is out of range"]
+        )
+
+        #expect(error.errorDescription == "Failed to write year for track T1: Year value is out of range")
+    }
+
     @Test("writeFailed includes track ID, property, and reason in description")
     func writeFailed() {
         let error = UpdateCoordinatorError.writeFailed(
@@ -41,6 +51,13 @@ struct UpdateCoordinatorErrorTests {
         #expect(description.contains("T1"))
         #expect(description.contains("genre"))
         #expect(description.contains("Permission denied"))
+    }
+
+    @Test("missingAppleScriptID includes track ID in description")
+    func missingAppleScriptID() {
+        let error = UpdateCoordinatorError.missingAppleScriptID(trackID: "MK1")
+        let description = error.errorDescription ?? ""
+        #expect(description.contains("MK1"))
     }
 }
 

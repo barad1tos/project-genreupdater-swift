@@ -72,8 +72,32 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.failedTrackIDs.isEmpty)
     }
 
+    @Test("Mapped writes fail before calling AppleScript when AppleScript ID is missing")
+    func mappedWriteFailsBeforeCallingAppleScriptWhenAppleScriptIDIsMissing() async throws {
+        let mapper = TrackIDMapper()
+        let fixture = await makeCoordinator(idMapper: mapper)
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 2021)
+        let change = ProposedChange(
+            track: track,
+            changeType: .yearUpdate,
+            oldValue: "2021",
+            newValue: "2023",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+
+        await #expect(throws: UpdateCoordinatorError.self) {
+            try await fixture.coordinator.applyChange(change)
+        }
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
+    }
+
     private func makeCoordinator(
-        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
+        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
+        idMapper: (any TrackIDMapping)? = nil
     ) async -> AcceptedApplyFixture {
         let bridge = MockAppleScriptClient()
         let apiService = MockAPIService()
@@ -91,7 +115,8 @@ struct UpdateCoordinatorApplyAcceptedTests {
                 scriptBridge: bridge,
                 trackStore: MockTrackStore(),
                 cache: MockCacheService(),
-                undoCoordinator: undo
+                undoCoordinator: undo,
+                idMapper: idMapper
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),

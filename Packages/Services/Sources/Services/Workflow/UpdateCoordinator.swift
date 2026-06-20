@@ -8,6 +8,7 @@ public enum UpdateCoordinatorError: Error, LocalizedError {
     case trackNotEditable(trackID: String)
     case noChangesProduced
     case allTracksFailed(count: Int, errorDescriptions: [String])
+    case missingAppleScriptID(trackID: String)
     case writeFailed(trackID: String, property: String, reason: String)
 
     public var errorDescription: String? {
@@ -16,11 +17,23 @@ public enum UpdateCoordinatorError: Error, LocalizedError {
             "Track \(trackID) is not editable"
         case .noChangesProduced:
             "No changes were produced for the given tracks"
-        case let .allTracksFailed(count, _):
-            "All \(count) tracks failed to update"
+        case let .allTracksFailed(count, errorDescriptions):
+            Self.allTracksFailedDescription(count: count, errorDescriptions: errorDescriptions)
+        case let .missingAppleScriptID(trackID):
+            "Cannot write track \(trackID): no AppleScript ID mapping is available"
         case let .writeFailed(trackID, property, reason):
             "Failed to write \(property) for track \(trackID): \(reason)"
         }
+    }
+
+    private static func allTracksFailedDescription(count: Int, errorDescriptions: [String]) -> String {
+        guard let firstError = errorDescriptions.first, !firstError.isEmpty else {
+            return "All \(count) tracks failed to update"
+        }
+        if count == 1 {
+            return firstError
+        }
+        return "All \(count) tracks failed to update. First error: \(firstError)"
     }
 }
 
@@ -132,12 +145,15 @@ public actor UpdateCoordinator {
             return []
         }
 
-        guard track.canEdit else {
-            throw UpdateCoordinatorError.trackNotEditable(trackID: track.id)
+        let inputTrack = try await trackWithMutationMetadata(track)
+        let inputAlbumTracks = try await tracksWithMutationMetadata(albumTracks)
+
+        guard inputTrack.canEdit else {
+            throw UpdateCoordinatorError.trackNotEditable(trackID: inputTrack.id)
         }
 
         var proposedChanges: [ProposedChange] = []
-        var workingTrack = track
+        var workingTrack = inputTrack
 
         if let change = Self.determineArtistRenameChange(
             track: workingTrack,
@@ -148,24 +164,13 @@ public actor UpdateCoordinator {
         }
 
         // Genre determination (local — uses existing track genres)
-        let canUpdateGenre = runtimeConfiguration.shouldOverrideExistingGenres
-            || (workingTrack.genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        if options.updateGenre, canUpdateGenre {
-            let artistTracks = albumTracks.isEmpty ? [workingTrack] : albumTracks
-            let genreResult = genreDeterminator.determineDominantGenre(
-                artistTracks: artistTracks,
-                genreMappings: runtimeConfiguration.genreMappings
-            )
-            if let newGenre = genreResult.genre, newGenre != workingTrack.genre {
-                proposedChanges.append(ProposedChange(
-                    track: workingTrack,
-                    changeType: .genreUpdate,
-                    oldValue: workingTrack.genre,
-                    newValue: newGenre,
-                    confidence: 80, // Genre from library consensus
-                    source: "Library"
-                ))
-            }
+        let artistTracks = inputAlbumTracks.isEmpty ? [workingTrack] : inputAlbumTracks
+        if let change = determineGenreChange(
+            track: workingTrack,
+            artistTracks: artistTracks,
+            options: options
+        ) {
+            proposedChanges.append(change)
         }
 
         // Year determination (API-backed)
@@ -173,7 +178,7 @@ public actor UpdateCoordinator {
            runtimeConfiguration.isYearLookupEnabled,
            let change = try await determineYearChange(
                track: workingTrack,
-               albumTracks: albumTracks
+               albumTracks: inputAlbumTracks
            ) {
             proposedChanges.append(change)
         }
@@ -198,6 +203,59 @@ public actor UpdateCoordinator {
         }
 
         return proposedChanges
+    }
+
+    private func determineGenreChange(
+        track: Track,
+        artistTracks: [Track],
+        options: UpdateOptions
+    ) -> ProposedChange? {
+        let canUpdateGenre = runtimeConfiguration.shouldOverrideExistingGenres
+            || (track.genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        guard options.updateGenre, canUpdateGenre else {
+            return nil
+        }
+
+        let genreResult = genreDeterminator.determineDominantGenre(
+            artistTracks: artistTracks,
+            genreMappings: runtimeConfiguration.genreMappings
+        )
+        guard let newGenre = genreResult.genre, newGenre != track.genre else {
+            return nil
+        }
+
+        return ProposedChange(
+            track: track,
+            changeType: .genreUpdate,
+            oldValue: track.genre,
+            newValue: newGenre,
+            confidence: 80,
+            source: "Library"
+        )
+    }
+
+    private func trackWithMutationMetadata(_ track: Track) async throws -> Track {
+        guard let idMapper else {
+            return track
+        }
+
+        guard let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track) else {
+            throw UpdateCoordinatorError.missingAppleScriptID(trackID: track.id)
+        }
+
+        return enrichedTrack
+    }
+
+    private func tracksWithMutationMetadata(_ tracks: [Track]) async throws -> [Track] {
+        var enrichedTracks: [Track] = []
+        enrichedTracks.reserveCapacity(tracks.count)
+
+        for track in tracks {
+            let enrichedTrack = try await trackWithMutationMetadata(track)
+            enrichedTracks.append(enrichedTrack)
+        }
+
+        return enrichedTracks
     }
 
     // MARK: Multi-Track
@@ -349,10 +407,14 @@ public actor UpdateCoordinator {
         case .artistRename: "artist"
         }
 
-        let writeID = if let idMapper {
-            await idMapper.appleScriptID(forMusicKitID: change.track.id) ?? change.track.id
+        let writeID: String
+        if let idMapper {
+            guard let appleScriptID = await idMapper.appleScriptID(forMusicKitID: change.track.id) else {
+                throw UpdateCoordinatorError.missingAppleScriptID(trackID: change.track.id)
+            }
+            writeID = appleScriptID
         } else {
-            change.track.id
+            writeID = change.track.id
         }
 
         do {

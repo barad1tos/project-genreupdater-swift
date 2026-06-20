@@ -9,9 +9,24 @@ private func makeTrack(
     id: String,
     name: String = "Song",
     artist: String = "Artist",
-    album: String = "Album"
+    album: String = "Album",
+    genre: String? = nil,
+    year: Int? = nil,
+    trackStatus: String? = nil,
+    releaseYear: Int? = nil,
+    albumArtist: String? = nil
 ) -> Track {
-    Track(id: id, name: name, artist: artist, album: album)
+    Track(
+        id: id,
+        name: name,
+        artist: artist,
+        album: album,
+        genre: genre,
+        year: year,
+        trackStatus: trackStatus,
+        releaseYear: releaseYear,
+        albumArtist: albumArtist
+    )
 }
 
 // MARK: - Tests
@@ -174,6 +189,43 @@ struct TrackIDMapperTests {
         #expect(await bridge.requestedArtists() == ["In Flames"])
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-IN") == "AS-IN")
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-OUT") == nil)
+    }
+
+    @Test("Enrichment keeps MusicKit ID and uses AppleScript writable metadata")
+    func enrichmentKeepsMusicKitIDAndUsesAppleScriptMetadata() async throws {
+        let mapper = TrackIDMapper()
+        let musicKitTrack = makeTrack(
+            id: "MK1",
+            name: "Foregone Pt. 1",
+            artist: "In Flames",
+            album: "Foregone",
+            year: nil,
+            releaseYear: 2023
+        )
+        let appleScriptTrack = makeTrack(
+            id: "AS-HEX-1",
+            name: "Foregone Pt. 1",
+            artist: "In Flames",
+            album: "Foregone",
+            genre: "Melodic Death Metal",
+            year: 2021,
+            trackStatus: "subscription",
+            releaseYear: 2023,
+            albumArtist: "In Flames"
+        )
+
+        await mapper.refreshMapping(
+            musicKitTracks: [musicKitTrack],
+            appleScriptTracks: [appleScriptTrack]
+        )
+
+        let enriched = try #require(await mapper.trackWithAppleScriptMetadata(for: musicKitTrack))
+        #expect(enriched.id == "MK1")
+        #expect(enriched.year == 2021)
+        #expect(enriched.releaseYear == 2023)
+        #expect(enriched.genre == "Melodic Death Metal")
+        #expect(enriched.trackStatus == "subscription")
+        #expect(enriched.albumArtist == "In Flames")
     }
 }
 

@@ -65,7 +65,7 @@ enum WorkflowPhase {
 // MARK: - Track Processing Status
 
 /// Per-track processing status for streaming progress rows.
-enum TrackProcessingStatus {
+enum TrackProcessingStatus: Equatable {
     case queued
     case analyzing
     case writing

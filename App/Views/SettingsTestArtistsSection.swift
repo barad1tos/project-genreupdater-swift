@@ -18,7 +18,21 @@ struct SettingsTestArtistsSection: View {
             }
 
             ForEach(dependencies.config.development.testArtists, id: \.self) { artist in
-                Text(artist)
+                HStack {
+                    Text(artist)
+
+                    Spacer()
+
+                    Button {
+                        removeTestArtist(artist)
+                    } label: {
+                        Image(systemName: "trash")
+                            .accessibilityLabel("Remove \(artist)")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.red)
+                    .help("Remove \(artist)")
+                }
             }
             .onDelete { offsets in
                 dependencies.config.development.testArtists.remove(atOffsets: offsets)
@@ -58,6 +72,18 @@ struct SettingsTestArtistsSection: View {
         let addedCount = addTestArtists([trimmedTestArtist])
         newTestArtist = ""
         importStatus = addedCount == 0 ? "Artist already exists" : ""
+    }
+
+    private func removeTestArtist(_ artist: String) {
+        let previousCount = dependencies.config.development.testArtists.count
+        dependencies.config.development.testArtists.removeAll { existing in
+            existing.localizedCaseInsensitiveCompare(artist) == .orderedSame
+        }
+
+        if dependencies.config.development.testArtists.count < previousCount {
+            importStatus = ""
+            saveConfiguration(dependencies)
+        }
     }
 
     private func importTestArtistsFromFile() {

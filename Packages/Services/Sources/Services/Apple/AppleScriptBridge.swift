@@ -263,11 +263,15 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     /// Build an NSAppleEventDescriptor with string arguments.
     private func buildAppleEvent(arguments: [String]) throws -> NSAppleEventDescriptor? {
+        Self.makeRunAppleEvent(arguments: arguments)
+    }
+
+    static func makeRunAppleEvent(arguments: [String]) -> NSAppleEventDescriptor? {
         guard !arguments.isEmpty else { return nil }
 
         let event = NSAppleEventDescriptor(
-            eventClass: AEEventClass(kASAppleScriptSuite),
-            eventID: AEEventID(kASSubroutineEvent),
+            eventClass: AEEventClass(kCoreEventClass),
+            eventID: AEEventID(kAEOpenApplication),
             targetDescriptor: nil,
             returnID: AEReturnID(kAutoGenerateReturnID),
             transactionID: AETransactionID(kAnyTransactionID)

@@ -11,6 +11,11 @@ extension UpdateCoordinator {
         let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(track.album)
         guard albumTypeInfo.strategy != .markAndSkip else { return nil }
 
+        if shouldPreferLocalYearRepair(for: track),
+           let localChange = yearChangeFromLocalDetermination(track: track, albumTracks: albumTracks) {
+            return localChange
+        }
+
         if let cached = await cache.getAlbumYear(artist: track.artist, album: track.album),
            Double(cached.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence {
             return yearChangeFromCached(track: track, entry: cached)
@@ -58,6 +63,14 @@ extension UpdateCoordinator {
             confidence: apiDetermination.yearResult.confidence,
             source: apiDetermination.sourceLabel
         )
+    }
+
+    private func shouldPreferLocalYearRepair(for track: Track) -> Bool {
+        guard let year = track.year else { return false }
+        if case .valid = yearDeterminator.validator.validate(year: year) {
+            return false
+        }
+        return true
     }
 
     private func determineYearFromAPI(

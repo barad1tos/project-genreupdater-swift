@@ -90,7 +90,11 @@ struct UpdateWorkflowView: View {
                 testArtists: testArtists
             )
         case .done:
-            UpdateDoneSection(viewModel: viewModel)
+            UpdateDoneSection(
+                viewModel: viewModel,
+                tracks: tracks,
+                testArtists: testArtists
+            )
         case .paused:
             pausedView
         case let .error(message):
