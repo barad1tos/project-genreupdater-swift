@@ -436,6 +436,7 @@ final class AppDependencies {
             trackStore: store,
             featureGate: gate,
             cache: cache,
+            pendingVerificationService: pendingVerificationService,
             librarySnapshotService: librarySnapshotService,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config)
         )
@@ -497,7 +498,8 @@ extension AppDependencies {
             await musicReader?.updateTestArtists(config.development.testArtists)
             await librarySyncService?.updateRuntimeConfiguration(
                 librarySyncRuntimeConfiguration,
-                librarySnapshotService: configuredLibrarySnapshotService
+                librarySnapshotService: configuredLibrarySnapshotService,
+                pendingVerificationService: configuredPendingVerificationService
             )
             await batchProcessor?.updateProcessingConfiguration(batchProcessingConfiguration)
             await analyticsService?.updateConfiguration(config.analytics)

@@ -504,6 +504,97 @@ struct LibrarySyncServiceTests {
         #expect(storedTracks.first { $0.id == "MOD" }?.name == "Updated Song")
     }
 
+    @Test("Synchronize now resolves prerelease pending after subscription transition")
+    func synchronizeNowResolvesPrereleasePendingAfterSubscriptionTransition() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let pendingVerification = PendingVerificationProbe(entry: nil, isVerificationNeeded: false)
+        let modifiedDate = Date()
+
+        let storedTrack = Track(
+            id: "PRE",
+            name: "Future Song",
+            artist: "SubRosa",
+            album: "Future Album",
+            lastModified: modifiedDate,
+            trackStatus: TrackKind.prerelease.rawValue
+        )
+        let currentTrack = Track(
+            id: "PRE",
+            name: "Future Song",
+            artist: "SubRosa",
+            album: "Future Album",
+            lastModified: modifiedDate,
+            trackStatus: TrackKind.subscription.rawValue
+        )
+        await bridge.setLibrary(ids: ["PRE"], tracks: ["PRE": currentTrack])
+        await store.setStored([storedTrack])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            pendingVerificationService: pendingVerification
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+        let storedTracks = await store.storedTracks
+        let removedAlbums = await pendingVerification.removedAlbums
+        let removedAlbum = try #require(removedAlbums.first)
+        let modifiedTrackIDs: [String] = result.modifiedTracks.map(\.id)
+
+        #expect(modifiedTrackIDs == ["PRE"])
+        #expect(storedTracks.first { $0.id == "PRE" }?.trackStatus == TrackKind.subscription.rawValue)
+        #expect(removedAlbums.count == 1)
+        #expect(removedAlbum.artist == "SubRosa")
+        #expect(removedAlbum.album == "Future Album")
+    }
+
+    @Test("Synchronize now keeps prerelease pending after unavailable transition")
+    func synchronizeNowKeepsPrereleasePendingAfterUnavailableTransition() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let pendingVerification = PendingVerificationProbe(entry: nil, isVerificationNeeded: false)
+        let modifiedDate = Date()
+
+        let storedTrack = Track(
+            id: "PRE",
+            name: "Future Song",
+            artist: "SubRosa",
+            album: "Future Album",
+            lastModified: modifiedDate,
+            trackStatus: TrackKind.prerelease.rawValue
+        )
+        let currentTrack = Track(
+            id: "PRE",
+            name: "Future Song",
+            artist: "SubRosa",
+            album: "Future Album",
+            lastModified: modifiedDate,
+            trackStatus: TrackKind.noLongerAvailable.rawValue
+        )
+        await bridge.setLibrary(ids: ["PRE"], tracks: ["PRE": currentTrack])
+        await store.setStored([storedTrack])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            pendingVerificationService: pendingVerification
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+        let storedTracks = await store.storedTracks
+        let removedAlbums = await pendingVerification.removedAlbums
+        let modifiedTrackIDs: [String] = result.modifiedTracks.map(\.id)
+
+        #expect(modifiedTrackIDs == ["PRE"])
+        #expect(storedTracks.first { $0.id == "PRE" }?.trackStatus == TrackKind.noLongerAvailable.rawValue)
+        #expect(removedAlbums.isEmpty)
+    }
+
     @Test("Synchronize now invalidates cache for modified identities and removed tracks")
     func synchronizeNowInvalidatesCacheForModifiedIdentitiesAndRemovedTracks() async throws {
         let bridge = SyncMockScriptClient()

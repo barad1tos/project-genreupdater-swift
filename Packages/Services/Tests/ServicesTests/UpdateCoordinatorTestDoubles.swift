@@ -60,6 +60,7 @@ actor PendingVerificationProbe: PendingVerificationService {
     let entry: PendingAlbumEntry?
     let isVerificationNeededResult: Bool
     private(set) var markedAlbums: [PendingVerificationMark] = []
+    private(set) var removedAlbums: [PendingVerificationRemoval] = []
 
     init(entry: PendingAlbumEntry?, isVerificationNeeded: Bool) {
         self.entry = entry
@@ -84,7 +85,9 @@ actor PendingVerificationProbe: PendingVerificationService {
         ))
     }
 
-    func removeFromPending(artist _: String, album _: String) async {}
+    func removeFromPending(artist: String, album: String) async {
+        removedAlbums.append(PendingVerificationRemoval(artist: artist, album: album))
+    }
 
     func getEntry(artist _: String, album _: String) async -> PendingAlbumEntry? {
         entry
@@ -119,4 +122,9 @@ struct PendingVerificationMark {
     let reason: String
     let metadata: [String: String]
     let recheckDays: Int?
+}
+
+struct PendingVerificationRemoval {
+    let artist: String
+    let album: String
 }
