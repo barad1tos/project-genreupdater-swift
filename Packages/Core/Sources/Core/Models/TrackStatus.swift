@@ -19,6 +19,7 @@ public enum TrackKind: String, Sendable, CaseIterable, Codable, CustomStringConv
     case subscription
     case downloaded
     case prerelease
+    case noLongerAvailable = "no longer available"
 
     /// Human-readable description for UI display.
     public var description: String {
@@ -30,15 +31,23 @@ public enum TrackKind: String, Sendable, CaseIterable, Codable, CustomStringConv
         case .subscription: "Subscription"
         case .downloaded: "Downloaded"
         case .prerelease: "Pre-release"
+        case .noLongerAvailable: "No Longer Available"
         }
     }
 
     /// Whether this track's metadata can be edited.
     ///
     /// Prerelease tracks are read-only in Music.app — attempting to write
-    /// to them via AppleScript will fail silently or error.
+    /// to them via AppleScript will fail silently or error. Other known
+    /// statuses may be excluded from normal processing while still following
+    /// Python parity for write eligibility.
     public var canEditMetadata: Bool {
-        self != .prerelease
+        switch self {
+        case .localOnly, .purchased, .matched, .uploaded, .subscription, .downloaded, .noLongerAvailable:
+            true
+        case .prerelease:
+            false
+        }
     }
 
     /// Whether this track is available for standard genre/year processing.
@@ -48,7 +57,7 @@ public enum TrackKind: String, Sendable, CaseIterable, Codable, CustomStringConv
         switch self {
         case .localOnly, .purchased, .matched, .uploaded, .subscription, .downloaded:
             true
-        case .prerelease:
+        case .prerelease, .noLongerAvailable:
             false
         }
     }

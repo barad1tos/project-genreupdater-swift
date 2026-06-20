@@ -322,6 +322,57 @@ struct GRDBCacheServiceTests {
         #expect(cached?.metadata["confidence"] == "90")
     }
 
+    @Test("API result invalidation removes all sources for normalized album")
+    func apiResultInvalidationRemovesAllSourcesForNormalizedAlbum() async throws {
+        let service = try await makeService()
+        await service.setCachedAPIResult(CachedAPIResult(
+            artist: " In Flames ",
+            album: " Battles ",
+            year: 2016,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: 3600
+        ))
+        await service.setCachedAPIResult(CachedAPIResult(
+            artist: "In Flames",
+            album: "Battles",
+            year: 2016,
+            source: "discogs",
+            timestamp: .now,
+            ttl: 3600
+        ))
+        await service.setCachedAPIResult(CachedAPIResult(
+            artist: "In Flames",
+            album: "Clayman",
+            year: 2000,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: 3600
+        ))
+
+        await service.invalidateCachedAPIResults(artist: "in flames", album: "battles")
+
+        let musicBrainz = await service.getCachedAPIResult(
+            artist: "In Flames",
+            album: "Battles",
+            source: "musicbrainz"
+        )
+        let discogs = await service.getCachedAPIResult(
+            artist: "In Flames",
+            album: "Battles",
+            source: "discogs"
+        )
+        let otherAlbum = await service.getCachedAPIResult(
+            artist: "In Flames",
+            album: "Clayman",
+            source: "musicbrainz"
+        )
+
+        #expect(musicBrainz == nil)
+        #expect(discogs == nil)
+        #expect(otherAlbum?.year == 2000)
+    }
+
     // MARK: - Bulk Operations
 
     @Test("Bulk store album years stores all entries in one transaction")

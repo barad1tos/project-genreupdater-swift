@@ -92,12 +92,20 @@ public struct LibraryCacheMetadata: Sendable, Codable {
     public var snapshotHash: String
     public var timestamp: Date
     public var libraryModificationDate: Date
+    public var lastForceScanDate: Date?
 
-    public init(trackCount: Int, snapshotHash: String, timestamp: Date, libraryModificationDate: Date) {
+    public init(
+        trackCount: Int,
+        snapshotHash: String,
+        timestamp: Date,
+        libraryModificationDate: Date,
+        lastForceScanDate: Date? = nil
+    ) {
         self.trackCount = trackCount
         self.snapshotHash = snapshotHash
         self.timestamp = timestamp
         self.libraryModificationDate = libraryModificationDate
+        self.lastForceScanDate = lastForceScanDate
     }
 }
 
@@ -171,6 +179,7 @@ public protocol CacheService: Actor, Sendable {
     // API result cache
     func getCachedAPIResult(artist: String, album: String, source: String) async -> CachedAPIResult?
     func setCachedAPIResult(_ result: CachedAPIResult) async
+    func invalidateCachedAPIResults(artist: String, album: String) async
 
     /// Persistence
     func syncToDisk() async throws
@@ -385,6 +394,7 @@ public struct RateLimiterStats: Sendable {
 public protocol LibrarySnapshotService: Actor {
     func loadSnapshot() async throws -> [Track]?
     func saveSnapshot(_ tracks: [Track]) async throws -> String
+    func clearSnapshot() async
     func isSnapshotValid() async -> Bool
     func getSnapshotMetadata() async -> LibraryCacheMetadata?
     func updateSnapshotMetadata(_ metadata: LibraryCacheMetadata) async throws
@@ -446,6 +456,9 @@ public protocol ChangeLogStore: Actor {
 public protocol TrackIDMapping: Sendable {
     /// Get the AppleScript persistent ID for a MusicKit track.
     func appleScriptID(forMusicKitID musicKitID: String) async -> String?
+
+    /// Return a MusicKit-ID-preserving track enriched with AppleScript metadata.
+    func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track?
 
     /// Build/refresh the mapping table from both ID sources.
     func refreshMapping(

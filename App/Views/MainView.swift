@@ -218,6 +218,7 @@ struct MainView: View {
     @State var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     @State var tracks: [Track] = []
     @State var isLoading = false
+    @State var isMutationMetadataReady = false
     @State var libraryLoadTask: Task<Void, Never>?
     @State var libraryLoadRequestID = UUID()
     @State var browseViewModel = BrowseViewModel()
@@ -261,7 +262,29 @@ struct MainView: View {
             .onChange(of: dependencies.config.processing.releaseYearRestoreThreshold) {
                 applyWorkflowDefaults()
             }
+            .onChange(of: dependencies.config.development.testArtists) {
+                handleTestArtistScopeChange()
+            }
             .focusedValue(\.selectedCategory, selectedCategoryBinding)
+    }
+
+    private func handleTestArtistScopeChange() {
+        guard workflowViewModel?.canStart ?? true else {
+            workflowNoticeMessage = "Finish or reset the current update before changing the test artist scope."
+            selectedCategory = .update
+            return
+        }
+
+        updateScopeTracks = nil
+        pendingSelectedUpdateScopeConfiguration = nil
+        workflowNoticeMessage = nil
+        tracks = []
+        browseViewModel.tracks = []
+        metricsSnapshot = nil
+        lastLibraryScanDate = nil
+        workflowViewModel?.reset()
+        applyWorkflowDefaults()
+        startLibraryLoad(forceRefresh: true)
     }
 
     @ViewBuilder
@@ -428,6 +451,7 @@ struct MainView: View {
                 tracks: updateWorkflowTracks,
                 testArtists: dependencies.config.development.testArtists,
                 credentialIssue: dependencies.discogsCredentialIssue,
+                isLibraryReadyForUpdates: !isLoading && isMutationMetadataReady,
                 noticeMessage: $workflowNoticeMessage
             )
         } else {

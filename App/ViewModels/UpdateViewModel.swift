@@ -154,13 +154,12 @@ final class UpdateViewModel {
                         message: "Analyzing: \(track.name)"
                     )
 
-                    let changes = try await updateCoordinator.updateTrack(
-                        track,
-                        albumTracks: [],
-                        options: options,
-                        dryRun: true
-                    )
-                    allChanges.append(contentsOf: changes)
+                    do {
+                        let changes = try await previewChanges(for: track, options: options)
+                        allChanges.append(contentsOf: changes)
+                    } catch let error where Self.isWriteEligibilityError(error) {
+                        continue
+                    }
                 }
 
                 let filtered = changePreviewPipeline.filter(
@@ -187,6 +186,18 @@ final class UpdateViewModel {
                 progress = nil
             }
         }
+    }
+
+    private func previewChanges(
+        for track: Track,
+        options: UpdateOptions
+    ) async throws -> [ProposedChange] {
+        try await updateCoordinator.updateTrack(
+            track,
+            albumTracks: [],
+            options: options,
+            dryRun: true
+        )
     }
 
     // MARK: - Apply Changes
@@ -228,6 +239,15 @@ final class UpdateViewModel {
         let appliedTrackCount = Set(result.entries.map(\.trackID)).count
         guard appliedTrackCount > 0 else { return }
         recordProcessedTracks(appliedTrackCount)
+    }
+
+    private static func isWriteEligibilityError(_ error: any Error) -> Bool {
+        switch error {
+        case UpdateCoordinatorError.trackNotEditable, UpdateCoordinatorError.missingAppleScriptID:
+            true
+        default:
+            false
+        }
     }
 
     // MARK: - Change Selection

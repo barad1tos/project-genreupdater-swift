@@ -294,6 +294,16 @@ public actor GRDBCacheService: CacheService {
         }
     }
 
+    public func invalidateCachedAPIResults(artist: String, album: String) async {
+        do {
+            try await dbWriter.write { database in
+                try Self.deleteAPIResultRows(database, artist: artist, album: album)
+            }
+        } catch {
+            log.error("invalidateCachedAPIResults failed: \(error, privacy: .public)")
+        }
+    }
+
     // MARK: - Bulk Operations
 
     /// Store multiple album year entries in a single write transaction.
@@ -492,6 +502,22 @@ extension GRDBCacheService {
         let requestedKey = APIResultCacheKey(artist: artist, album: album, source: source)
         guard requestedKey != normalizedKey else { return nil }
         return try fetchAPIResultRow(database, key: requestedKey)
+    }
+
+    fileprivate static func deleteAPIResultRows(
+        _ database: Database,
+        artist: String,
+        album: String
+    ) throws {
+        let normalizedKey = normalizedAlbumCacheKey(artist: artist, album: album)
+        try database.execute(
+            sql: """
+            DELETE FROM api_results
+            WHERE (artist = ? AND album = ?)
+               OR (LOWER(TRIM(artist)) = ? AND LOWER(TRIM(album)) = ?)
+            """,
+            arguments: [artist, album, normalizedKey.artist, normalizedKey.album]
+        )
     }
 
     /// Create a cache service with the default Application Support path.

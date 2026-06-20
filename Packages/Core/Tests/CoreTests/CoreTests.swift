@@ -67,6 +67,19 @@ struct TrackStatusNilHandlingTests {
         #expect(filtered.isEmpty, "Prerelease tracks must be excluded")
     }
 
+    @Test("unavailable tracks are excluded")
+    func unavailableExcluded() {
+        let track = Track(
+            id: "5",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            trackStatus: "no longer available"
+        )
+        let filtered = filterAvailableTracks([track])
+        #expect(filtered.isEmpty, "Unavailable tracks must be excluded")
+    }
+
     @Test("subscription tracks are included")
     func subscriptionIncluded() {
         let track = Track(id: "4", name: "Song", artist: "Artist", album: "Album", trackStatus: "subscription")
@@ -81,9 +94,11 @@ struct TrackStatusNilHandlingTests {
             Track(id: "2", name: "B", artist: "X", album: "Y", trackStatus: "subscription"),
             Track(id: "3", name: "C", artist: "X", album: "Y", trackStatus: "prerelease"),
             Track(id: "4", name: "D", artist: "X", album: "Y", trackStatus: "purchased"),
+            Track(id: "5", name: "E", artist: "X", album: "Y", trackStatus: "no longer available"),
         ]
         let filtered = filterAvailableTracks(tracks)
-        #expect(filtered.count == 3, "Only prerelease should be excluded")
+        #expect(filtered.count == 3, "Only writable or unknown statuses should be included")
         #expect(!filtered.contains { $0.id == "3" })
+        #expect(!filtered.contains { $0.id == "5" })
     }
 }

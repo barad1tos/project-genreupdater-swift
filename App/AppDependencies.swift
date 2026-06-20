@@ -164,11 +164,14 @@ final class AppDependencies {
             let installer = try ScriptInstaller()
             scriptInstaller = installer
 
-            // Step 2: Check if scripts are installed
-            let scriptsReady = await installer.areScriptsInstalled()
+            // Step 2: Install or refresh bundled scripts when the Application Scripts copy is missing or stale.
+            if await !installer.areScriptsCurrent() {
+                let installedScripts = try await installer.installScripts()
+                log.info("Installed or refreshed \(installedScripts.count, privacy: .public) AppleScript files")
+            }
 
-            if !scriptsReady {
-                log.info("Scripts not installed — showing onboarding")
+            guard await installer.areScriptsInstalled() else {
+                log.info("Scripts not installed after refresh attempt — showing onboarding")
                 appState = .needsOnboarding
                 return
             }
@@ -304,10 +307,7 @@ final class AppDependencies {
         )
         try await cache.initialize()
         cacheService = cache
-        librarySnapshotService = CachedLibrarySnapshotService(
-            cache: cache,
-            configuration: config.caching.librarySnapshot
-        )
+        librarySnapshotService = Self.makeLibrarySnapshotService(cache: cache, configuration: config)
         analyticsService = CachedAnalyticsService(
             cache: cache,
             configuration: config.analytics
@@ -416,7 +416,8 @@ final class AppDependencies {
                 trackStore: store,
                 cache: cache,
                 undoCoordinator: undo,
-                idMapper: mapper
+                idMapper: mapper,
+                librarySnapshotService: librarySnapshotService
             ),
             genreDeterminator: genreDeterm,
             yearDeterminator: yearDeterm,
@@ -433,6 +434,8 @@ final class AppDependencies {
             scriptBridge: bridge,
             trackStore: store,
             featureGate: gate,
+            cache: cache,
+            librarySnapshotService: librarySnapshotService,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config)
         )
         librarySyncService = syncService
@@ -470,15 +473,17 @@ extension AppDependencies {
                 pendingVerificationService: configuredPendingVerificationService
             )
         }
+        let configuredLibrarySnapshotService: (any LibrarySnapshotService)?
         if let cacheService {
-            librarySnapshotService = CachedLibrarySnapshotService(
-                cache: cacheService,
-                configuration: config.caching.librarySnapshot
-            )
+            let snapshotService = Self.makeLibrarySnapshotService(cache: cacheService, configuration: config)
+            librarySnapshotService = snapshotService
+            configuredLibrarySnapshotService = snapshotService
             analyticsService = CachedAnalyticsService(
                 cache: cacheService,
                 configuration: config.analytics
             )
+        } else {
+            configuredLibrarySnapshotService = nil
         }
 
         let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: config)
@@ -489,14 +494,59 @@ extension AppDependencies {
             try? await configuredPendingVerificationService?.initialize()
             await applescriptBridge?.updateConfiguration(appleScriptConfiguration)
             await musicReader?.updateTestArtists(config.development.testArtists)
-            await librarySyncService?.updateRuntimeConfiguration(librarySyncRuntimeConfiguration)
+            await librarySyncService?.updateRuntimeConfiguration(
+                librarySyncRuntimeConfiguration,
+                librarySnapshotService: configuredLibrarySnapshotService
+            )
             await batchProcessor?.updateProcessingConfiguration(batchProcessingConfiguration)
             await analyticsService?.updateConfiguration(config.analytics)
             await updateCoordinator?.updateRuntimeConfiguration(
                 runtimeConfiguration,
                 yearDeterminator: configuredYearDeterminator,
-                apiOrchestrator: configuredAPIOrchestrator
+                apiOrchestrator: configuredAPIOrchestrator,
+                librarySnapshotService: configuredLibrarySnapshotService
             )
         }
+    }
+
+    private static func makeLibrarySnapshotService(
+        cache: any CacheService,
+        configuration: AppConfiguration
+    ) -> CachedLibrarySnapshotService {
+        CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: configuration.caching.librarySnapshot,
+            libraryModificationDateProvider: makeLibraryModificationDateProvider(
+                path: configuration.paths.musicLibraryPath
+            )
+        )
+    }
+
+    private static func makeLibraryModificationDateProvider(path: String) -> @Sendable () -> Date? {
+        let resolvedPath = resolveConfigurationPath(path)
+        return {
+            guard !resolvedPath.isEmpty else { return nil }
+            let attributes = try? FileManager.default.attributesOfItem(atPath: resolvedPath)
+            return attributes?[.modificationDate] as? Date
+        }
+    }
+
+    private static func resolveConfigurationPath(_ path: String) -> String {
+        var resolvedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedPath.isEmpty else { return "" }
+
+        resolvedPath = resolvedPath.replacingOccurrences(of: "${HOME}", with: NSHomeDirectory())
+        let appSupportDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
+        if resolvedPath.contains("${APP_SUPPORT}"), let appSupportDirectory {
+            resolvedPath = resolvedPath.replacingOccurrences(
+                of: "${APP_SUPPORT}",
+                with: appSupportDirectory.appendingPathComponent("GenreUpdater", isDirectory: true).path
+            )
+        }
+
+        return (resolvedPath as NSString).expandingTildeInPath
     }
 }

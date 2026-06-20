@@ -72,8 +72,131 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.failedTrackIDs.isEmpty)
     }
 
+    @Test("Mapped writes fail before calling AppleScript when AppleScript ID is missing")
+    func mappedWriteFailsBeforeCallingAppleScriptWhenAppleScriptIDIsMissing() async throws {
+        let mapper = TrackIDMapper()
+        let fixture = await makeCoordinator(idMapper: mapper)
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 2021)
+        let change = ProposedChange(
+            track: track,
+            changeType: .yearUpdate,
+            oldValue: "2021",
+            newValue: "2023",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+
+        await #expect(throws: UpdateCoordinatorError.self) {
+            try await fixture.coordinator.applyChange(change)
+        }
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
+    }
+
+    @Test("Reviewed mapped changes fail tracks without AppleScript IDs")
+    func reviewedMappedChangesFailTracksWithoutAppleScriptIDs() async throws {
+        let mapper = TrackIDMapper()
+        let fixture = await makeCoordinator(idMapper: mapper)
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 2021)
+        let change = ProposedChange(
+            track: track,
+            changeType: .yearUpdate,
+            oldValue: "2021",
+            newValue: "2023",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [change],
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+        }
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
+    }
+
+    @Test("Reviewed mapped changes fail on non-editable AppleScript metadata")
+    func reviewedMappedChangesFailOnNonEditableAppleScriptMetadata() async throws {
+        let mapper = TrackIDMapper()
+        let musicKitTrack = makeEditableTrack(id: "MK1", genre: "Rock", year: nil)
+        let appleScriptTrack = Track(
+            id: "AS1",
+            name: "Come Together",
+            artist: "Beatles",
+            album: "Abbey Road",
+            genre: "Rock",
+            year: 1969,
+            trackStatus: "prerelease",
+            releaseYear: 2023
+        )
+        await mapper.refreshMapping(
+            musicKitTracks: [musicKitTrack],
+            appleScriptTracks: [appleScriptTrack]
+        )
+        let fixture = await makeCoordinator(idMapper: mapper)
+        let change = ProposedChange(
+            track: musicKitTrack,
+            changeType: .yearUpdate,
+            oldValue: nil,
+            newValue: "2023",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [change],
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+        }
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
+    }
+
+    @Test("Reviewed unavailable changes fail without writing")
+    func reviewedUnavailableChangesFailWithoutWriting() async throws {
+        let fixture = await makeCoordinator()
+        let track = Track(
+            id: "MK1",
+            name: "Come Together",
+            artist: "Beatles",
+            album: "Abbey Road",
+            genre: "Rock",
+            year: 1969,
+            trackStatus: "no longer available"
+        )
+        let change = ProposedChange(
+            track: track,
+            changeType: .yearUpdate,
+            oldValue: "1969",
+            newValue: "1970",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [change],
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+        }
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
+    }
+
     private func makeCoordinator(
-        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
+        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
+        idMapper: (any TrackIDMapping)? = nil
     ) async -> AcceptedApplyFixture {
         let bridge = MockAppleScriptClient()
         let apiService = MockAPIService()
@@ -91,7 +214,8 @@ struct UpdateCoordinatorApplyAcceptedTests {
                 scriptBridge: bridge,
                 trackStore: MockTrackStore(),
                 cache: MockCacheService(),
-                undoCoordinator: undo
+                undoCoordinator: undo,
+                idMapper: idMapper
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),

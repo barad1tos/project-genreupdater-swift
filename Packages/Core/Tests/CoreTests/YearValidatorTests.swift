@@ -203,6 +203,17 @@ struct YearValidatorTests {
         #expect(result == nil)
     }
 
+    @Test("Future dominant year is marked for verification")
+    func futureDominantYearMarkedForVerification() {
+        let tracks = [
+            Track(id: "1", name: "A", artist: "X", album: "Y", year: 2099),
+            Track(id: "2", name: "B", artist: "X", album: "Y", year: 2099),
+        ]
+        let result = validator.getDominantYear(tracks: tracks)
+        #expect(result?.year == 2099)
+        #expect(result?.isSuspicious == true)
+    }
+
     @Test("Single track is dominant (100% confidence)")
     func singleTrackDominant() {
         let tracks = [

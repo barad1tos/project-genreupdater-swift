@@ -9,7 +9,16 @@ struct TrackKindTests {
         "description returns expected human-readable string",
         arguments: zip(
             TrackKind.allCases,
-            ["Local Only", "Purchased", "Matched", "Uploaded", "Subscription", "Downloaded", "Pre-release"]
+            [
+                "Local Only",
+                "Purchased",
+                "Matched",
+                "Uploaded",
+                "Subscription",
+                "Downloaded",
+                "Pre-release",
+                "No Longer Available",
+            ]
         )
     )
     func description(kind: TrackKind, expected: String) {
@@ -17,7 +26,7 @@ struct TrackKindTests {
     }
 
     @Test(
-        "canEditMetadata is true for all except prerelease",
+        "canEditMetadata is false only for prerelease status",
         arguments: TrackKind.allCases
     )
     func canEditMetadata(kind: TrackKind) {
@@ -29,11 +38,11 @@ struct TrackKindTests {
     }
 
     @Test(
-        "isAvailableForProcessing is true for all except prerelease",
+        "isAvailableForProcessing is true only for processable statuses",
         arguments: TrackKind.allCases
     )
     func isAvailableForProcessing(kind: TrackKind) {
-        if kind == .prerelease {
+        if kind == .prerelease || kind == .noLongerAvailable {
             #expect(!kind.isAvailableForProcessing)
         } else {
             #expect(kind.isAvailableForProcessing)
@@ -116,6 +125,11 @@ struct NormalizeTrackStatusTests {
         #expect(normalizeTrackStatus("«constant ****kSub»") == .subscription)
     }
 
+    @Test("Music unavailable status normalizes correctly")
+    func noLongerAvailableStatus() {
+        #expect(normalizeTrackStatus("No Longer Available") == .noLongerAvailable)
+    }
+
     @Test("Unknown string returns nil")
     func unknownString() {
         #expect(normalizeTrackStatus("foobar") == nil)
@@ -126,12 +140,13 @@ struct NormalizeTrackStatusTests {
 
 @Suite("filterAvailableTracks — status-based filtering")
 struct FilterAvailableTracksTests {
-    @Test("Mixed statuses: filters out only prerelease tracks")
+    @Test("Mixed statuses: filters out non-processable tracks")
     func mixedStatuses() {
         let tracks = [
             Track(id: "1", name: "A", artist: "X", album: "Z", trackStatus: nil),
             Track(id: "2", name: "B", artist: "X", album: "Z", trackStatus: "subscription"),
             Track(id: "3", name: "C", artist: "X", album: "Z", trackStatus: "prerelease"),
+            Track(id: "4", name: "D", artist: "X", album: "Z", trackStatus: "no longer available"),
         ]
         let result = filterAvailableTracks(tracks)
         #expect(result.count == 2)

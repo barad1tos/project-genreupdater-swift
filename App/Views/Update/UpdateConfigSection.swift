@@ -12,6 +12,7 @@ struct UpdateConfigSection: View {
     let tracks: [Track]
     let testArtists: [String]
     let credentialIssue: DiscogsCredentialIssue?
+    let isLibraryReadyForUpdates: Bool
 
     var body: some View {
         ScrollView {
@@ -407,11 +408,15 @@ extension UpdateConfigSection {
         .buttonStyle(.borderedProminent)
         .tint(Ayu.accent)
         .controlSize(.large)
-        .disabled(!viewModel.canStart || !viewModel.hasEnabledOperation || !viewModel.hasRunnableScope)
+        .disabled(isStartDisabled)
     }
 
     private var startButtonTitle: String {
-        switch viewModel.mode {
+        guard isLibraryReadyForUpdates else {
+            return "Preparing Library"
+        }
+
+        return switch viewModel.mode {
         case .fullLibrary:
             "Start Processing"
         case .pendingVerification:
@@ -421,6 +426,13 @@ extension UpdateConfigSection {
         case .selectedTracks, .smartFilter:
             "Start Preview"
         }
+    }
+
+    private var isStartDisabled: Bool {
+        !isLibraryReadyForUpdates
+            || !viewModel.canStart
+            || !viewModel.hasEnabledOperation
+            || !viewModel.hasRunnableScope
     }
 }
 

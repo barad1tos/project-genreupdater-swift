@@ -57,8 +57,11 @@ build_destination() {
 }
 
 sign_app_for_local_run() {
+  local bundle_id
+
   mkdir -p "$(dirname "$LOCAL_ENTITLEMENTS")"
   cp "$SOURCE_ENTITLEMENTS" "$LOCAL_ENTITLEMENTS"
+  bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_BUNDLE/Contents/Info.plist")"
 
   # Local ad-hoc signing cannot satisfy the iCloud KVS entitlement without a
   # provisioning profile. Keep the source entitlements intact for release builds,
@@ -67,7 +70,37 @@ sign_app_for_local_run() {
     -c "Delete :com.apple.developer.ubiquity-kvstore-identifier" \
     "$LOCAL_ENTITLEMENTS" >/dev/null 2>&1 || true
 
-  /usr/bin/codesign --force --sign - --entitlements "$LOCAL_ENTITLEMENTS" "$APP_BUNDLE"
+  /usr/bin/codesign --force --sign - --identifier "$bundle_id" --entitlements "$LOCAL_ENTITLEMENTS" "$APP_BUNDLE"
+}
+
+install_local_application_scripts() {
+  local bundle_id
+  local bundle_scripts_dir
+  local application_scripts_dir
+  local source_path
+  local script_file
+  local script_name
+  local fingerprint
+  local destination_path
+
+  bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_BUNDLE/Contents/Info.plist")"
+  bundle_scripts_dir="$APP_BUNDLE/Contents/Resources/Scripts"
+  application_scripts_dir="$HOME/Library/Application Scripts/$bundle_id"
+
+  [[ -d "$bundle_scripts_dir" ]]
+  mkdir -p "$application_scripts_dir"
+
+  for source_path in "$bundle_scripts_dir"/*.scpt; do
+    script_file="$(basename "$source_path")"
+    script_name="${script_file%.scpt}"
+    fingerprint="$(/usr/bin/shasum -a 256 "$source_path" | /usr/bin/awk '{print substr($1, 1, 16)}')"
+    destination_path="$application_scripts_dir/$script_name-$fingerprint.scpt"
+
+    if [[ ! -f "$destination_path" ]] || ! /usr/bin/cmp -s "$source_path" "$destination_path"; then
+      /bin/cp "$source_path" "$destination_path"
+      /bin/chmod 644 "$destination_path"
+    fi
+  done
 }
 
 stop_existing_app() {
@@ -95,6 +128,7 @@ run_app() {
   build_app
   [[ -x "$APP_BINARY" ]]
   sign_app_for_local_run
+  install_local_application_scripts
   stop_existing_app
   open_app
 }

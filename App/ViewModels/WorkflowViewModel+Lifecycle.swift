@@ -51,6 +51,12 @@ extension WorkflowViewModel {
         releaseYearRestoreThreshold = defaultReleaseYearRestoreThreshold
     }
 
+    func enableWritesForReviewedChanges() {
+        guard case .review = phase else { return }
+        previewOnly = false
+        dryRunReport = nil
+    }
+
     func configureSelectedTracksScope(
         tracks: [Core.Track],
         updateGenre: Bool,

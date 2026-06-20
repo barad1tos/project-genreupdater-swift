@@ -273,6 +273,10 @@ private actor DashboardStateCacheService: CacheService {
         // These tests do not assert API-result cache writes.
     }
 
+    func invalidateCachedAPIResults(artist _: String, album _: String) async {
+        // These tests do not assert API-result cache invalidation.
+    }
+
     func syncToDisk() async throws {
         // Test double has no disk-backed cache to synchronize.
     }

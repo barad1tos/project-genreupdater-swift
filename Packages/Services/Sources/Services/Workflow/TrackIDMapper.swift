@@ -11,6 +11,7 @@ import OSLog
 /// This actor builds a lookup table by matching tracks on their metadata tuple.
 public actor TrackIDMapper: TrackIDMapping {
     private var mapping: [String: String] = [:]
+    private var appleScriptMetadataByMusicKitID: [String: Track] = [:]
     private let log = Logger(subsystem: "com.genreupdater", category: "TrackIDMapper")
 
     public init() {}
@@ -19,17 +20,36 @@ public actor TrackIDMapper: TrackIDMapping {
         musicKitTracks: [Track],
         appleScriptTracks: [Track]
     ) {
-        var appleScriptLookup: [String: String] = [:]
+        var appleScriptLookup: [String: Track] = [:]
+        var ambiguousAppleScriptKeys: Set<String> = []
         for track in appleScriptTracks {
             let key = normalizedKey(track)
-            appleScriptLookup[key] = track.id
+            if appleScriptLookup[key] != nil {
+                appleScriptLookup[key] = nil
+                ambiguousAppleScriptKeys.insert(key)
+            } else if !ambiguousAppleScriptKeys.contains(key) {
+                appleScriptLookup[key] = track
+            }
         }
 
+        var musicKitKeyCounts: [String: Int] = [:]
+        for track in musicKitTracks {
+            musicKitKeyCounts[normalizedKey(track), default: 0] += 1
+        }
+        let ambiguousMusicKitKeys = Set(musicKitKeyCounts.compactMap { key, count in
+            count > 1 ? key : nil
+        })
+
         mapping = [:]
+        appleScriptMetadataByMusicKitID = [:]
         for track in musicKitTracks {
             let key = normalizedKey(track)
-            if let appleScriptID = appleScriptLookup[key] {
-                mapping[track.id] = appleScriptID
+            guard !ambiguousMusicKitKeys.contains(key) else {
+                continue
+            }
+            if let appleScriptTrack = appleScriptLookup[key] {
+                mapping[track.id] = appleScriptTrack.id
+                appleScriptMetadataByMusicKitID[track.id] = appleScriptTrack
             }
         }
 
@@ -64,6 +84,31 @@ public actor TrackIDMapper: TrackIDMapping {
 
     public func appleScriptID(forMusicKitID musicKitID: String) -> String? {
         mapping[musicKitID]
+    }
+
+    public func trackWithAppleScriptMetadata(for musicKitTrack: Track) -> Track? {
+        guard let appleScriptTrack = appleScriptMetadataByMusicKitID[musicKitTrack.id] else {
+            return nil
+        }
+
+        return Track(
+            id: musicKitTrack.id,
+            name: appleScriptTrack.name,
+            artist: appleScriptTrack.artist,
+            album: appleScriptTrack.album,
+            genre: appleScriptTrack.genre,
+            year: appleScriptTrack.year,
+            dateAdded: appleScriptTrack.dateAdded ?? musicKitTrack.dateAdded,
+            lastModified: appleScriptTrack.lastModified,
+            trackStatus: appleScriptTrack.trackStatus,
+            originalArtist: musicKitTrack.originalArtist,
+            originalAlbum: musicKitTrack.originalAlbum,
+            yearBeforeMGU: musicKitTrack.yearBeforeMGU,
+            yearSetByMGU: musicKitTrack.yearSetByMGU,
+            releaseYear: appleScriptTrack.releaseYear ?? musicKitTrack.releaseYear,
+            originalPosition: musicKitTrack.originalPosition,
+            albumArtist: appleScriptTrack.albumArtist ?? musicKitTrack.albumArtist
+        )
     }
 
     public func hasMappingFor(musicKitID: String) -> Bool {
