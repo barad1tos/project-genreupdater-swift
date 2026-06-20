@@ -452,6 +452,7 @@ public actor UpdateCoordinator {
             genreUpdated: change.changeType == .genreUpdate ? true : nil,
             yearUpdated: change.changeType == .yearUpdate || change.changeType == .yearRevert ? true : nil
         )
+        await cache.invalidateAlbum(artist: change.track.artist, album: change.track.album)
 
         log
             .info(

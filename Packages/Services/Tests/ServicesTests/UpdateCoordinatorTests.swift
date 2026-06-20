@@ -242,6 +242,27 @@ struct UpdateCoordinatorTests {
         #expect(history.first?.changeType == .yearUpdate)
     }
 
+    @Test("Successful write invalidates cached album year")
+    func successfulWriteInvalidatesCachedAlbumYear() async throws {
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(artist: "Beatles", album: "Abbey Road", year: 1970, confidence: 85)
+        let fixture = await makeCoordinator(
+            year: 2020,
+            confidence: 90,
+            cache: cache
+        )
+
+        let track = makeEditableTrack(year: 1969)
+        _ = try await fixture.coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: false
+        )
+
+        let cached = await cache.getAlbumYear(artist: "Beatles", album: "Abbey Road")
+        #expect(cached == nil)
+    }
+
     @Test("Multi-track update reports progress")
     func multiTrackProgress() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)
