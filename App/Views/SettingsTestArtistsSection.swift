@@ -42,6 +42,7 @@ struct SettingsTestArtistsSection: View {
             HStack {
                 TextField("Artist", text: $newTestArtist)
                     .textFieldStyle(.roundedBorder)
+                    .onSubmit(addTestArtist)
                 Button("Add") { addTestArtist() }
                     .disabled(trimmedTestArtist.isEmpty)
                 Button {

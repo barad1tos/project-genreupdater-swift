@@ -27,4 +27,16 @@ struct ArtistAllowListTests {
 
         #expect(filtered.map(\.id) == ["1"])
     }
+
+    @Test("Track filtering supports Cyrillic artist names")
+    func filteringSupportsCyrillicArtistNames() {
+        let tracks = [
+            Track(id: "1", name: "Пісня", artist: "паліндром", album: "Придумано в черзі"),
+            Track(id: "2", name: "Only for the Weak", artist: "In Flames", album: "Clayman"),
+        ]
+
+        let filtered = ArtistAllowList.filter(tracks, allowedArtists: ["Паліндром"])
+
+        #expect(filtered.map(\.id) == ["1"])
+    }
 }
