@@ -4,7 +4,7 @@ import OSLog
 
 // MARK: - Track ID Mapper
 
-/// Maps MusicKit IDs to AppleScript persistent IDs by matching on (name, artist, album).
+/// Maps MusicKit IDs to AppleScript persistent IDs by matching on (name, artist/albumArtist, album).
 ///
 /// MusicKit returns numeric `MusicItemID` strings while AppleScript uses hex
 /// persistent IDs. These are different ID spaces with no direct translation.
@@ -23,18 +23,21 @@ public actor TrackIDMapper: TrackIDMapping {
         var appleScriptLookup: [String: Track] = [:]
         var ambiguousAppleScriptKeys: Set<String> = []
         for track in appleScriptTracks {
-            let key = normalizedKey(track)
-            if appleScriptLookup[key] != nil {
-                appleScriptLookup[key] = nil
-                ambiguousAppleScriptKeys.insert(key)
-            } else if !ambiguousAppleScriptKeys.contains(key) {
-                appleScriptLookup[key] = track
+            for key in normalizedKeys(track) {
+                if appleScriptLookup[key] != nil {
+                    appleScriptLookup[key] = nil
+                    ambiguousAppleScriptKeys.insert(key)
+                } else if !ambiguousAppleScriptKeys.contains(key) {
+                    appleScriptLookup[key] = track
+                }
             }
         }
 
         var musicKitKeyCounts: [String: Int] = [:]
         for track in musicKitTracks {
-            musicKitKeyCounts[normalizedKey(track), default: 0] += 1
+            for key in normalizedKeys(track) {
+                musicKitKeyCounts[key, default: 0] += 1
+            }
         }
         let ambiguousMusicKitKeys = Set(musicKitKeyCounts.compactMap { key, count in
             count > 1 ? key : nil
@@ -43,14 +46,15 @@ public actor TrackIDMapper: TrackIDMapping {
         mapping = [:]
         appleScriptMetadataByMusicKitID = [:]
         for track in musicKitTracks {
-            let key = normalizedKey(track)
-            guard !ambiguousMusicKitKeys.contains(key) else {
-                continue
-            }
-            if let appleScriptTrack = appleScriptLookup[key] {
-                mapping[track.id] = appleScriptTrack.id
-                appleScriptMetadataByMusicKitID[track.id] = appleScriptTrack
-            }
+            let candidates = normalizedKeys(track)
+                .filter { !ambiguousMusicKitKeys.contains($0) }
+                .filter { !ambiguousAppleScriptKeys.contains($0) }
+                .compactMap { appleScriptLookup[$0] }
+            let uniqueAppleScriptIDs = Set(candidates.map(\.id))
+            guard uniqueAppleScriptIDs.count == 1, let appleScriptTrack = candidates.first else { continue }
+
+            mapping[track.id] = appleScriptTrack.id
+            appleScriptMetadataByMusicKitID[track.id] = appleScriptTrack
         }
 
         log
@@ -115,8 +119,25 @@ public actor TrackIDMapper: TrackIDMapping {
         mapping[musicKitID] != nil
     }
 
-    private func normalizedKey(_ track: Track) -> String {
-        "\(track.name.lowercased())|\(track.artist.lowercased())|\(track.album.lowercased())"
+    private func normalizedKeys(_ track: Track) -> [String] {
+        let albumArtist = track.albumArtist?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var artistValues = [track.artist]
+        if let albumArtist, !albumArtist.isEmpty {
+            artistValues.append(albumArtist)
+        }
+
+        var keys: [String] = []
+        var seenKeys: Set<String> = []
+        for artist in artistValues {
+            let key = normalizedKey(track: track, artist: artist)
+            guard seenKeys.insert(key).inserted else { continue }
+            keys.append(key)
+        }
+        return keys
+    }
+
+    private func normalizedKey(track: Track, artist: String) -> String {
+        "\(track.name.lowercased())|\(artist.lowercased())|\(track.album.lowercased())"
     }
 
     private func fetchAppleScriptTracks(
