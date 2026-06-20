@@ -62,6 +62,7 @@ public struct UpdateCoordinatorDependencies {
     let undoCoordinator: UndoCoordinator
     let idMapper: (any TrackIDMapping)?
     let librarySnapshotService: (any LibrarySnapshotService)?
+    let pendingVerificationService: (any PendingVerificationService)?
 
     public init(
         apiOrchestrator: APIOrchestrator,
@@ -70,7 +71,8 @@ public struct UpdateCoordinatorDependencies {
         cache: any CacheService,
         undoCoordinator: UndoCoordinator,
         idMapper: (any TrackIDMapping)? = nil,
-        librarySnapshotService: (any LibrarySnapshotService)? = nil
+        librarySnapshotService: (any LibrarySnapshotService)? = nil,
+        pendingVerificationService: (any PendingVerificationService)? = nil
     ) {
         self.apiOrchestrator = apiOrchestrator
         self.scriptBridge = scriptBridge
@@ -79,6 +81,7 @@ public struct UpdateCoordinatorDependencies {
         self.undoCoordinator = undoCoordinator
         self.idMapper = idMapper
         self.librarySnapshotService = librarySnapshotService
+        self.pendingVerificationService = pendingVerificationService
     }
 }
 
@@ -94,6 +97,7 @@ public actor UpdateCoordinator {
     private let undoCoordinator: UndoCoordinator
     private let idMapper: (any TrackIDMapping)?
     private var librarySnapshotService: (any LibrarySnapshotService)?
+    let pendingVerificationService: (any PendingVerificationService)?
     private let genreDeterminator: GenreDeterminator
     var yearDeterminator: YearDeterminator
     var runtimeConfiguration: UpdateRuntimeConfiguration
@@ -112,6 +116,7 @@ public actor UpdateCoordinator {
         undoCoordinator = dependencies.undoCoordinator
         idMapper = dependencies.idMapper
         librarySnapshotService = dependencies.librarySnapshotService
+        pendingVerificationService = dependencies.pendingVerificationService
         self.genreDeterminator = genreDeterminator
         self.yearDeterminator = yearDeterminator
         self.runtimeConfiguration = runtimeConfiguration

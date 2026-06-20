@@ -8,6 +8,15 @@ private struct ReleaseYearConflict {
 }
 
 extension UpdateCoordinator {
+    private static let fallbackRejectionReasons: Set<String> = [
+        "suspicious_year_change",
+        "implausible_existing_year",
+        "absurd_year_no_existing",
+        "special_album_compilation",
+        "special_album_special",
+        "special_album_reissue",
+    ]
+
     func determineYearChange(
         track: Track,
         albumTracks: [Track]
@@ -15,6 +24,7 @@ extension UpdateCoordinator {
         let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(track.album)
         guard albumTypeInfo.strategy != .markAndSkip else { return nil }
         guard !isAlbumAlreadyProcessedByMGU(track: track, albumTracks: albumTracks) else { return nil }
+        if await shouldSkipRecentFallbackRejection(track: track) { return nil }
 
         let releaseYearConflict = releaseYearConflict(
             for: track,
@@ -82,6 +92,25 @@ extension UpdateCoordinator {
         return tracks.allSatisfy { albumTrack in
             albumTrack.yearSetByMGU == processedYear && albumTrack.year == processedYear
         }
+    }
+
+    private func shouldSkipRecentFallbackRejection(track: Track) async -> Bool {
+        guard let pendingVerificationService else { return false }
+        guard let entry = await pendingVerificationService.getEntry(
+            artist: track.artist,
+            album: track.album
+        ) else {
+            return false
+        }
+        guard Self.fallbackRejectionReasons.contains(entry.reason) else {
+            return false
+        }
+
+        let isVerificationNeeded = await pendingVerificationService.isVerificationNeeded(
+            artist: track.artist,
+            album: track.album
+        )
+        return !isVerificationNeeded
     }
 
     private func shouldSkipYearLookupFromCachedAlbumYear(

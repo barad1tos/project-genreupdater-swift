@@ -417,7 +417,8 @@ final class AppDependencies {
                 cache: cache,
                 undoCoordinator: undo,
                 idMapper: mapper,
-                librarySnapshotService: librarySnapshotService
+                librarySnapshotService: librarySnapshotService,
+                pendingVerificationService: pendingVerificationService
             ),
             genreDeterminator: genreDeterm,
             yearDeterminator: yearDeterm,

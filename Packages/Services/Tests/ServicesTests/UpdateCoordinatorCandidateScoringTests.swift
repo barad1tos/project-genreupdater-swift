@@ -305,6 +305,81 @@ struct UpdateCoordinatorCandidateScoringTests {
         #expect(await apiProbe.requestCount == 0)
     }
 
+    @Test("Skips year lookup for recent fallback rejections")
+    func skipsYearLookupForRecentFallbackRejections() async throws {
+        let track = subRosaTrack(year: 2008)
+        let albumTracks = subRosaAlbumTracks(year: 2008)
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        let apiProbe = APIRequestProbe()
+        let api = makeAPIOrchestrator(
+            musicBrainz: RecordingAPIService(probe: apiProbe, yearResult: YearResult(
+                year: 1999,
+                isDefinitive: true,
+                confidence: 100
+            )),
+            discogs: RecordingAPIService(probe: apiProbe),
+            appleMusic: RecordingAPIService(probe: apiProbe)
+        )
+        let pendingVerification = PendingVerificationProbe(
+            entry: pendingFallbackRejection(reason: "suspicious_year_change"),
+            isVerificationNeeded: false
+        )
+        let coordinator = makeCoordinator(
+            api: api,
+            bridge: bridge,
+            cache: cache,
+            pendingVerificationService: pendingVerification
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(!changes.contains { $0.changeType == ChangeType.yearUpdate })
+        #expect(await apiProbe.requestCount == 0)
+    }
+
+    @Test("Does not skip year lookup when fallback rejection is due")
+    func doesNotSkipYearLookupWhenFallbackRejectionIsDue() async throws {
+        let track = subRosaTrack(year: 2008)
+        let albumTracks = subRosaAlbumTracks(year: 2008)
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        let apiProbe = APIRequestProbe()
+        let api = makeAPIOrchestrator(
+            musicBrainz: RecordingAPIService(probe: apiProbe, yearResult: YearResult(
+                year: 1999,
+                isDefinitive: true,
+                confidence: 100
+            )),
+            discogs: RecordingAPIService(probe: apiProbe),
+            appleMusic: RecordingAPIService(probe: apiProbe)
+        )
+        let pendingVerification = PendingVerificationProbe(
+            entry: pendingFallbackRejection(reason: "suspicious_year_change"),
+            isVerificationNeeded: true
+        )
+        let coordinator = makeCoordinator(
+            api: api,
+            bridge: bridge,
+            cache: cache,
+            pendingVerificationService: pendingVerification
+        )
+
+        _ = try await coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(await apiProbe.requestCount > 0)
+    }
+
     @Test("Skips year lookup when every album track was already processed")
     func skipsYearLookupWhenEveryAlbumTrackWasAlreadyProcessed() async throws {
         let track = subRosaTrack(year: 2008, yearSetByMGU: 2008)
@@ -570,11 +645,24 @@ struct UpdateCoordinatorCandidateScoringTests {
         )
     }
 
+    private func pendingFallbackRejection(reason: String) -> PendingAlbumEntry {
+        PendingAlbumEntry(
+            id: "subrosa-strega",
+            artist: "SubRosa",
+            album: "Strega",
+            reason: reason,
+            attemptCount: 1,
+            lastAttempt: Date(),
+            recheckInterval: 30 * 24 * 60 * 60
+        )
+    }
+
     private func makeCoordinator(
         api: APIOrchestrator,
         bridge: MockAppleScriptClient,
         cache: MockCacheService,
-        idMapper: (any TrackIDMapping)? = nil
+        idMapper: (any TrackIDMapping)? = nil,
+        pendingVerificationService: (any PendingVerificationService)? = nil
     ) -> UpdateCoordinator {
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("UpdateCoordinatorCandidateScoringTests-\(UUID().uuidString)")
@@ -585,7 +673,9 @@ struct UpdateCoordinatorCandidateScoringTests {
                 trackStore: MockTrackStore(),
                 cache: cache,
                 undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: undoDirectory),
-                idMapper: idMapper
+                idMapper: idMapper,
+                librarySnapshotService: nil,
+                pendingVerificationService: pendingVerificationService
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator()
@@ -646,4 +736,52 @@ private struct RecordingAPIService: ExternalAPIService {
 
     func initialize(force _: Bool) async throws {}
     func close() async {}
+}
+
+private actor PendingVerificationProbe: PendingVerificationService {
+    let entry: PendingAlbumEntry?
+    let isVerificationNeededResult: Bool
+
+    init(entry: PendingAlbumEntry?, isVerificationNeeded: Bool) {
+        self.entry = entry
+        isVerificationNeededResult = isVerificationNeeded
+    }
+
+    func initialize() async throws {}
+
+    func markForVerification(
+        artist _: String,
+        album _: String,
+        reason _: String,
+        metadata _: [String: String]?,
+        recheckDays _: Int?
+    ) async {}
+
+    func removeFromPending(artist _: String, album _: String) async {}
+
+    func getEntry(artist _: String, album _: String) async -> PendingAlbumEntry? {
+        entry
+    }
+
+    func getAttemptCount(artist _: String, album _: String) async -> Int {
+        entry?.attemptCount ?? 0
+    }
+
+    func isVerificationNeeded(artist _: String, album _: String) async -> Bool {
+        isVerificationNeededResult
+    }
+
+    func getAllPendingAlbums() async -> [PendingAlbumEntry] {
+        entry.map { [$0] } ?? []
+    }
+
+    func generateProblematicAlbumsReport(minAttempts _: Int, reportURL _: URL?) async throws -> Int {
+        0
+    }
+
+    func shouldAutoVerify() async -> Bool {
+        false
+    }
+
+    func updateVerificationTimestamp() async throws {}
 }
