@@ -307,10 +307,7 @@ final class AppDependencies {
         )
         try await cache.initialize()
         cacheService = cache
-        librarySnapshotService = CachedLibrarySnapshotService(
-            cache: cache,
-            configuration: config.caching.librarySnapshot
-        )
+        librarySnapshotService = Self.makeLibrarySnapshotService(cache: cache, configuration: config)
         analyticsService = CachedAnalyticsService(
             cache: cache,
             configuration: config.analytics
@@ -478,10 +475,7 @@ extension AppDependencies {
         }
         let configuredLibrarySnapshotService: (any LibrarySnapshotService)?
         if let cacheService {
-            let snapshotService = CachedLibrarySnapshotService(
-                cache: cacheService,
-                configuration: config.caching.librarySnapshot
-            )
+            let snapshotService = Self.makeLibrarySnapshotService(cache: cacheService, configuration: config)
             librarySnapshotService = snapshotService
             configuredLibrarySnapshotService = snapshotService
             analyticsService = CachedAnalyticsService(
@@ -513,5 +507,46 @@ extension AppDependencies {
                 librarySnapshotService: configuredLibrarySnapshotService
             )
         }
+    }
+
+    private static func makeLibrarySnapshotService(
+        cache: any CacheService,
+        configuration: AppConfiguration
+    ) -> CachedLibrarySnapshotService {
+        CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: configuration.caching.librarySnapshot,
+            libraryModificationDateProvider: makeLibraryModificationDateProvider(
+                path: configuration.paths.musicLibraryPath
+            )
+        )
+    }
+
+    private static func makeLibraryModificationDateProvider(path: String) -> @Sendable () -> Date? {
+        let resolvedPath = resolveConfigurationPath(path)
+        return {
+            guard !resolvedPath.isEmpty else { return nil }
+            let attributes = try? FileManager.default.attributesOfItem(atPath: resolvedPath)
+            return attributes?[.modificationDate] as? Date
+        }
+    }
+
+    private static func resolveConfigurationPath(_ path: String) -> String {
+        var resolvedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedPath.isEmpty else { return "" }
+
+        resolvedPath = resolvedPath.replacingOccurrences(of: "${HOME}", with: NSHomeDirectory())
+        let appSupportDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
+        if resolvedPath.contains("${APP_SUPPORT}"), let appSupportDirectory {
+            resolvedPath = resolvedPath.replacingOccurrences(
+                of: "${APP_SUPPORT}",
+                with: appSupportDirectory.appendingPathComponent("GenreUpdater", isDirectory: true).path
+            )
+        }
+
+        return (resolvedPath as NSString).expandingTildeInPath
     }
 }

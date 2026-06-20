@@ -8,6 +8,7 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
     private let cache: any CacheService
     private let configuration: LibrarySnapshotConfig
     private let currentDate: @Sendable () -> Date
+    private let libraryModificationDateProvider: (@Sendable () -> Date?)?
     private let namespace: String
 
     public var isEnabled: Bool {
@@ -21,11 +22,13 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
     public init(
         cache: any CacheService,
         configuration: LibrarySnapshotConfig,
-        currentDate: @escaping @Sendable () -> Date = { Date() }
+        currentDate: @escaping @Sendable () -> Date = { Date() },
+        libraryModificationDateProvider: (@Sendable () -> Date?)? = nil
     ) {
         self.cache = cache
         self.configuration = configuration
         self.currentDate = currentDate
+        self.libraryModificationDateProvider = libraryModificationDateProvider
         namespace = "library-snapshot:\(configuration.cacheFile)"
     }
 
@@ -47,13 +50,14 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
 
         let previousSnapshot = await cachedSnapshot()
         let now = currentDate()
+        let libraryModificationDate = libraryModificationDateProvider?() ?? now
         let ttl = snapshotTTL
         await cache.set(key: snapshotKey, value: tracks, ttl: ttl)
         try await updateSnapshotMetadata(LibraryCacheMetadata(
             trackCount: tracks.count,
             snapshotHash: hash,
             timestamp: now,
-            libraryModificationDate: now
+            libraryModificationDate: libraryModificationDate
         ))
 
         if isDeltaEnabled, let previousSnapshot {
@@ -68,9 +72,24 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
     }
 
     public func isSnapshotValid() async -> Bool {
-        guard isEnabled, let metadata = await getSnapshotMetadata() else { return false }
-        let maxAge = TimeInterval(max(1, configuration.maxAgeHours)) * 3600
-        return currentDate().timeIntervalSince(metadata.timestamp) <= maxAge
+        guard isEnabled,
+              let metadata = await getSnapshotMetadata(),
+              let snapshot = await cachedSnapshot()
+        else { return false }
+
+        guard metadata.trackCount == snapshot.count,
+              let snapshotHash = try? Self.snapshotHash(for: snapshot),
+              snapshotHash == metadata.snapshotHash
+        else { return false }
+
+        if let libraryModificationDateProvider {
+            guard let libraryModificationDate = libraryModificationDateProvider() else { return false }
+            if libraryModificationDate <= metadata.libraryModificationDate {
+                return true
+            }
+        }
+
+        return currentDate().timeIntervalSince(metadata.timestamp) <= snapshotTTL
     }
 
     public func getSnapshotMetadata() async -> LibraryCacheMetadata? {
