@@ -84,4 +84,12 @@ struct AppleScriptBridgeConfigurationTests {
         #expect(arguments.numberOfItems == 1)
         #expect(arguments.atIndex(1)?.stringValue == "In Flames")
     }
+
+    @Test("Track ID parser ignores blank IDs and AppleScript error output")
+    func trackIDParserIgnoresBlankIDsAndErrors() {
+        #expect(AppleScriptBridge.parseTrackIDOutput(" 10, 20,, 30, ") == ["10", "20", "30"])
+        #expect(AppleScriptBridge.parseTrackIDOutput("ERROR:Music failed").isEmpty)
+        #expect(AppleScriptBridge.parseTrackIDOutput("NO_TRACKS_FOUND").isEmpty)
+        #expect(AppleScriptBridge.parseTrackIDOutput("").isEmpty)
+    }
 }

@@ -200,8 +200,7 @@ public actor AppleScriptBridge: AppleScriptClient {
             return []
         }
 
-        // fetch_track_ids.applescript returns comma-separated IDs
-        let ids = output.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+        let ids = Self.parseTrackIDOutput(output)
         log.info("Fetched \(ids.count, privacy: .public) track IDs from library")
         return ids
     }
@@ -284,6 +283,19 @@ public actor AppleScriptBridge: AppleScriptClient {
         event.setDescriptor(argList, forKeyword: keyDirectObject)
 
         return event
+    }
+
+    /// Parse comma-separated IDs returned by fetch_track_ids.applescript.
+    static func parseTrackIDOutput(_ output: String) -> [String] {
+        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedOutput.isEmpty else { return [] }
+        guard !trimmedOutput.hasPrefix("ERROR:") else { return [] }
+        guard trimmedOutput != "NO_TRACKS_FOUND" else { return [] }
+
+        return output
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     /// Parse AppleScript output into Track objects.
