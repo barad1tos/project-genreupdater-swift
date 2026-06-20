@@ -14,6 +14,7 @@ extension UpdateCoordinator {
     ) async throws -> ProposedChange? {
         let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(track.album)
         guard albumTypeInfo.strategy != .markAndSkip else { return nil }
+        guard !isAlbumAlreadyProcessedByMGU(track: track, albumTracks: albumTracks) else { return nil }
 
         let releaseYearConflict = releaseYearConflict(
             for: track,
@@ -55,6 +56,15 @@ extension UpdateCoordinator {
             apiDetermination: apiDetermination,
             releaseYearConflict: releaseYearConflict
         )
+    }
+
+    private func isAlbumAlreadyProcessedByMGU(track: Track, albumTracks: [Track]) -> Bool {
+        let tracks = albumTracks.contains { $0.id == track.id } ? albumTracks : albumTracks + [track]
+        guard let processedYear = tracks.first?.yearSetByMGU else { return false }
+
+        return tracks.allSatisfy { albumTrack in
+            albumTrack.yearSetByMGU == processedYear && albumTrack.year == processedYear
+        }
     }
 
     private func shouldPreferLocalYearRepair(for track: Track) -> Bool {
