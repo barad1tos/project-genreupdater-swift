@@ -165,13 +165,19 @@ struct UpdatePreviewSection: View {
 
     private var actionBar: some View {
         HStack {
+            Button("Back") { viewModel.reset() }
             Button("Accept All") { viewModel.acceptAll() }
             Button("Reject All") { viewModel.rejectAll() }
             Spacer()
             if viewModel.previewOnly {
-                Label("Dry Run Only", systemImage: "eye")
-                    .font(AppFont.caption)
-                    .foregroundStyle(Ayu.fgSecondary)
+                Button {
+                    viewModel.enableWritesForReviewedChanges()
+                } label: {
+                    Label("Enable Writes", systemImage: "pencil.and.list.clipboard")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Ayu.warning)
+                .disabled(viewModel.acceptedCount == 0)
             } else {
                 Button {
                     viewModel.applyAccepted()

@@ -42,4 +42,25 @@ struct DashboardCredentialWarningTests {
         #expect(view.credentialWarningMessage?.contains("Discogs") == true)
         #expect(view.credentialWarningMessage?.contains("slower") == true)
     }
+
+    @Test("preview-only review can be switched to live apply")
+    func previewOnlyReviewCanBeSwitchedToLiveApply() {
+        let viewModel = makeWorkflowViewModel()
+        viewModel.previewOnly = true
+        viewModel.phase = .review
+        viewModel.proposedChanges = [
+            makeProposedChange(id: "accepted", isAccepted: true),
+            makeProposedChange(id: "rejected", isAccepted: false),
+        ]
+
+        viewModel.enableWritesForReviewedChanges()
+
+        #expect(viewModel.previewOnly == false)
+        #expect(viewModel.acceptedCount == 1)
+        #expect(viewModel.proposedChanges.count == 2)
+        guard case .review = viewModel.phase else {
+            Issue.record("workflow should remain in review phase")
+            return
+        }
+    }
 }
