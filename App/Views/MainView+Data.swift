@@ -101,6 +101,7 @@ extension MainView {
     private func loadTracks(forceRefresh: Bool, requestID: UUID) async {
         libraryLoadRequestID = requestID
         libraryLoadError = nil
+        isMutationMetadataReady = false
         loadCachedSnapshot()
         ensureWorkflowViewModel()
 
@@ -138,8 +139,11 @@ extension MainView {
             let liveTracks = try await reader.fetchAllTracks()
             try Task.checkCancellation()
             guard libraryLoadRequestID == requestID else { return }
+            let isMappingReady = await dependencies.refreshTrackIDMapping(musicKitTracks: liveTracks)
+            try Task.checkCancellation()
+            guard libraryLoadRequestID == requestID else { return }
+            isMutationMetadataReady = isMappingReady
             tracks = liveTracks
-            await dependencies.refreshTrackIDMapping(musicKitTracks: liveTracks)
             await dependencies.persistLoadedLibraryTracks(liveTracks)
             browseViewModel.tracks = liveTracks
             reconcileUpdateScope(with: liveTracks)

@@ -35,7 +35,8 @@ struct DashboardCredentialWarningTests {
             viewModel: makeWorkflowViewModel(),
             tracks: [],
             testArtists: [],
-            credentialIssue: .missingToken
+            credentialIssue: .missingToken,
+            isLibraryReadyForUpdates: true
         )
 
         #expect(view.credentialWarningMessage?.contains("Discogs") == true)

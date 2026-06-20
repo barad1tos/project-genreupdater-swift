@@ -95,6 +95,32 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(written.isEmpty)
     }
 
+    @Test("Reviewed mapped changes skip tracks without AppleScript IDs")
+    func reviewedMappedChangesSkipTracksWithoutAppleScriptIDs() async throws {
+        let mapper = TrackIDMapper()
+        let fixture = await makeCoordinator(idMapper: mapper)
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 2021)
+        let change = ProposedChange(
+            track: track,
+            changeType: .yearUpdate,
+            oldValue: "2021",
+            newValue: "2023",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            [change],
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+    }
+
     @Test("Reviewed mapped changes use AppleScript metadata before writing")
     func reviewedMappedChangesUseAppleScriptMetadataBeforeWriting() async throws {
         let mapper = TrackIDMapper()

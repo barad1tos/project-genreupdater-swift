@@ -269,26 +269,19 @@ final class WorkflowViewModel {
                 for (index, track) in tracks.enumerated() {
                     try Task.checkCancellation()
 
-                    currentTrackID = track.id
-                    trackStatuses[track.id] = .analyzing
+                    updateDryRunProgress(for: track, index: index, total: total)
 
-                    progress = ProgressUpdate(
-                        phase: .analyzing,
-                        current: index + 1,
-                        total: total,
-                        message: "Analyzing: \(track.name)"
-                    )
-                    processedCount = index + 1
-
-                    let changes = try await updateCoordinator.updateTrack(
-                        track,
-                        albumTracks: albumGroups[Self.albumKey(for: track)] ?? [],
-                        options: options,
-                        dryRun: true
-                    )
-                    allChanges.append(contentsOf: changes)
-
-                    trackStatuses[track.id] = .done
+                    do {
+                        let changes = try await previewChanges(
+                            for: track,
+                            albumGroups: albumGroups,
+                            options: options
+                        )
+                        allChanges.append(contentsOf: changes)
+                        trackStatuses[track.id] = .done
+                    } catch let error where Self.isWriteEligibilityError(error) {
+                        trackStatuses[track.id] = .skipped
+                    }
                 }
 
                 let filtered = changePreviewPipeline.filter(
@@ -314,6 +307,31 @@ final class WorkflowViewModel {
                 progress = nil
             }
         }
+    }
+
+    private func updateDryRunProgress(for track: Track, index: Int, total: Int) {
+        currentTrackID = track.id
+        trackStatuses[track.id] = .analyzing
+        progress = ProgressUpdate(
+            phase: .analyzing,
+            current: index + 1,
+            total: total,
+            message: "Analyzing: \(track.name)"
+        )
+        processedCount = index + 1
+    }
+
+    private func previewChanges(
+        for track: Track,
+        albumGroups: [String: [Track]],
+        options: UpdateOptions
+    ) async throws -> [ProposedChange] {
+        try await updateCoordinator.updateTrack(
+            track,
+            albumTracks: albumGroups[Self.albumKey(for: track)] ?? [],
+            options: options,
+            dryRun: true
+        )
     }
 
     // MARK: - Apply Accepted Changes
@@ -350,6 +368,15 @@ final class WorkflowViewModel {
             Task { @MainActor in
                 self?.progress = update
             }
+        }
+    }
+
+    private static func isWriteEligibilityError(_ error: any Error) -> Bool {
+        switch error {
+        case UpdateCoordinatorError.trackNotEditable, UpdateCoordinatorError.missingAppleScriptID:
+            true
+        default:
+            false
         }
     }
 

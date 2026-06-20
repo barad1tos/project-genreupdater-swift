@@ -26,10 +26,10 @@ struct ProblematicAlbumsReportExport {
 }
 
 extension AppDependencies {
-    func refreshTrackIDMapping(musicKitTracks: [Track]) async {
+    func refreshTrackIDMapping(musicKitTracks: [Track]) async -> Bool {
         guard let mapper = trackIDMapper,
               let bridge = applescriptBridge
-        else { return }
+        else { return false }
 
         do {
             let mappedCount = try await mapper.refreshMapping(
@@ -44,9 +44,11 @@ extension AppDependencies {
                 .info(
                     "Track ID mapping refreshed: \(mappedCount, privacy: .public)/\(musicKitTracks.count, privacy: .public)"
                 )
+            return mappedCount > 0 || musicKitTracks.isEmpty
         } catch {
             libraryServicesLog
                 .error("Track ID mapping refresh failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 

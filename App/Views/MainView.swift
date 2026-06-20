@@ -218,6 +218,7 @@ struct MainView: View {
     @State var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     @State var tracks: [Track] = []
     @State var isLoading = false
+    @State var isMutationMetadataReady = false
     @State var libraryLoadTask: Task<Void, Never>?
     @State var libraryLoadRequestID = UUID()
     @State var browseViewModel = BrowseViewModel()
@@ -450,6 +451,7 @@ struct MainView: View {
                 tracks: updateWorkflowTracks,
                 testArtists: dependencies.config.development.testArtists,
                 credentialIssue: dependencies.discogsCredentialIssue,
+                isLibraryReadyForUpdates: !isLoading && isMutationMetadataReady,
                 noticeMessage: $workflowNoticeMessage
             )
         } else {

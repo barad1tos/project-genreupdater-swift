@@ -11,6 +11,7 @@ struct UpdateWorkflowView: View {
     let tracks: [Track]
     let testArtists: [String]
     let credentialIssue: DiscogsCredentialIssue?
+    let isLibraryReadyForUpdates: Bool
     @Binding var noticeMessage: String?
 
     var body: some View {
@@ -25,7 +26,8 @@ struct UpdateWorkflowView: View {
                     viewModel: viewModel,
                     tracks: tracks,
                     testArtists: testArtists,
-                    credentialIssue: credentialIssue
+                    credentialIssue: credentialIssue,
+                    isLibraryReadyForUpdates: isLibraryReadyForUpdates
                 )
                 Divider()
             }

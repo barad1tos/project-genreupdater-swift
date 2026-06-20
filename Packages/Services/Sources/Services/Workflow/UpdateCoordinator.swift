@@ -311,6 +311,8 @@ public actor UpdateCoordinator {
                     .info(
                         "Skipped non-editable track \(track.id, privacy: .private)"
                     )
+            } catch UpdateCoordinatorError.missingAppleScriptID {
+                logSkippedMissingAppleScriptID(trackID: track.id, isReviewedChange: false)
             } catch {
                 failedTrackIDs.append(track.id)
                 errorDescriptions.append(error.localizedDescription)
@@ -374,6 +376,8 @@ public actor UpdateCoordinator {
                     .info(
                         "Skipped non-editable reviewed change for track \(change.track.id, privacy: .private)"
                     )
+            } catch UpdateCoordinatorError.missingAppleScriptID {
+                logSkippedMissingAppleScriptID(trackID: change.track.id, isReviewedChange: true)
             } catch {
                 failedTrackIDs.append(change.track.id)
                 errorDescriptions.append(error.localizedDescription)
@@ -408,6 +412,16 @@ public actor UpdateCoordinator {
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions
         )
+    }
+
+    private func logSkippedMissingAppleScriptID(trackID: String, isReviewedChange: Bool) {
+        if isReviewedChange {
+            log.info(
+                "Skipped reviewed change for track \(trackID, privacy: .private) without AppleScript ID mapping"
+            )
+        } else {
+            log.info("Skipped track \(trackID, privacy: .private) without AppleScript ID mapping")
+        }
     }
 
     // MARK: Apply Change
