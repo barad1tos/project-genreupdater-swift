@@ -260,15 +260,17 @@ public actor UpdateCoordinator {
     }
 
     private func shouldSkipPrereleaseProcessing(track: Track, albumTracks: [Track]) async -> Bool {
-        guard runtimeConfiguration.skipPrerelease,
-              track.kind == .prerelease
-        else {
+        guard runtimeConfiguration.skipPrerelease else {
             return false
         }
 
         let contextTracks = albumContextTracks(track: track, albumTracks: albumTracks)
         let prereleaseCount = contextTracks.count(where: { $0.kind == .prerelease })
-        let editableCount = contextTracks.filter(\.canEdit).count
+        guard prereleaseCount > 0 else {
+            return false
+        }
+
+        let editableCount = contextTracks.count(where: { $0.canEdit })
 
         switch runtimeConfiguration.prereleaseHandling {
         case .skipAll:
@@ -291,12 +293,13 @@ public actor UpdateCoordinator {
             ]
             if editableCount == 0 {
                 metadata["all_prerelease"] = "true"
-            } else {
-                metadata["editable_count"] = String(editableCount)
-                metadata["mixed_album"] = "true"
+                await markPrereleaseAlbum(track: track, metadata: metadata)
+                return true
             }
+            metadata["editable_count"] = String(editableCount)
+            metadata["mixed_album"] = "true"
             await markPrereleaseAlbum(track: track, metadata: metadata)
-            return true
+            return !track.canEdit
         }
     }
 
