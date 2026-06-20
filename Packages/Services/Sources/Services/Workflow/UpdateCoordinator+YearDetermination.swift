@@ -63,6 +63,16 @@ extension UpdateCoordinator {
 
         if releaseYearConflict == nil,
            !hasAmbiguousReleaseYearSignal,
+           shouldSkipYearLookupFromUncachedConsistentAlbumYear(
+               track: track,
+               albumTracks: albumTracks,
+               entry: cachedAlbumYear
+           ) {
+            return nil
+        }
+
+        if releaseYearConflict == nil,
+           !hasAmbiguousReleaseYearSignal,
            let localChange = yearChangeFromLocalDetermination(track: track, albumTracks: albumTracks) {
             return localChange
         }
@@ -129,6 +139,49 @@ extension UpdateCoordinator {
         }
 
         return cachedYear == libraryYear
+    }
+
+    private func shouldSkipYearLookupFromUncachedConsistentAlbumYear(
+        track: Track,
+        albumTracks: [Track],
+        entry: AlbumCacheEntry?
+    ) -> Bool {
+        guard entry == nil else { return false }
+        let tracks = albumContextTracks(track: track, albumTracks: albumTracks)
+        guard let libraryYear = consistentValidLibraryYear(in: tracks) else {
+            return false
+        }
+        return !requiresAPIVerificationForRecentYearWithoutReleaseSignal(
+            libraryYear,
+            tracks: tracks
+        )
+    }
+
+    private func consistentValidLibraryYear(in tracks: [Track]) -> Int? {
+        guard tracks.count >= 2 else { return nil }
+
+        var consistentYear: Int?
+        for track in tracks {
+            guard let year = track.year,
+                  case .valid = yearDeterminator.validator.validate(year: year)
+            else {
+                return nil
+            }
+            if let existingYear = consistentYear, existingYear != year {
+                return nil
+            }
+            consistentYear = year
+        }
+        return consistentYear
+    }
+
+    private func requiresAPIVerificationForRecentYearWithoutReleaseSignal(
+        _ year: Int,
+        tracks: [Track]
+    ) -> Bool {
+        let currentYear = Calendar.current.component(.year, from: Date())
+        guard year >= currentYear - 1 else { return false }
+        return validReleaseYears(in: tracks).isEmpty
     }
 
     private func dominantValidLibraryYear(in tracks: [Track]) -> Int? {
