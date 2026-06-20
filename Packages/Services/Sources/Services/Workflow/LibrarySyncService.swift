@@ -99,7 +99,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
             idsBatchFetchTimeout: configuration.applescript.timeouts.idsBatchFetch,
             databaseVerificationBatchSize: configuration.databaseVerification.batchSize,
             databaseVerificationIntervalDays: configuration.databaseVerification.autoVerifyDays,
-            logsBaseDirectory: configuration.paths.logsBaseDirectory,
+            logsBaseDirectory: configuration.paths.effectiveLogsBaseDirectory,
             lastDatabaseVerifyLog: configuration.logging.lastDatabaseVerifyLog
         )
     }
@@ -371,7 +371,9 @@ public actor LibrarySyncService {
 
     private static func resolvedURL(path: String, relativeTo baseURL: URL? = nil) -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let appSupport = defaultDirectory().path
         var expandedPath = path
+            .replacingOccurrences(of: "${APP_SUPPORT}", with: appSupport)
             .replacingOccurrences(of: "${HOME}", with: home)
             .replacingOccurrences(of: "$HOME", with: home)
         if expandedPath == "~" {
@@ -384,5 +386,16 @@ public actor LibrarySyncService {
             return URL(fileURLWithPath: expandedPath)
         }
         return (baseURL ?? FileManager.default.temporaryDirectory).appendingPathComponent(expandedPath)
+    }
+
+    private static func defaultDirectory() -> URL {
+        let directories = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )
+        guard let appSupport = directories.first else {
+            return URL(fileURLWithPath: NSTemporaryDirectory())
+        }
+        return appSupport.appendingPathComponent("GenreUpdater", isDirectory: true)
     }
 }

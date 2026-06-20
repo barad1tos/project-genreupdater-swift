@@ -124,7 +124,7 @@ public actor AppleScriptBridge: AppleScriptClient {
     }
 
     public func initialize() async throws {
-        let installed = await installer.areScriptsInstalled()
+        let installed = await installer.areScriptsCurrent()
         guard installed else {
             throw AppleScriptBridgeError.scriptsNotInstalled
         }

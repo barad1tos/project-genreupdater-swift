@@ -43,7 +43,7 @@ on get_status_string(c)
 	end try
 end get_status_string
 
--- Same filter as fetch_tracks.scpt: excludes "prerelease" (read-only tracks)
+-- Same filter as fetch_tracks.scpt: includes unavailable tracks for Swift-side non-writable classification.
 on is_valid_cloud_status(statusText)
-	return statusText is in {"local only", "purchased", "matched", "uploaded", "subscription", "downloaded"}
+	return statusText is in {"local only", "purchased", "matched", "uploaded", "subscription", "downloaded", "no longer available"}
 end is_valid_cloud_status

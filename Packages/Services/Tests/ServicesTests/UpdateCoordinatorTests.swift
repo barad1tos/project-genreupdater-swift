@@ -293,6 +293,29 @@ extension UpdateCoordinatorTests {
         // This test asserts returned entries only; progress emission is covered separately.
     }
 
+    @Test("Multi-track update skips non-editable tracks without reporting write failures")
+    func multiTrackUpdateSkipsNonEditableTracks() async throws {
+        let fixture = await makeCoordinator(year: 2020, confidence: 90)
+        let unavailableTrack = Track(
+            id: "unavailable",
+            name: "Archived Song",
+            artist: "Clutch",
+            album: "Blast Tyrant",
+            year: 2004,
+            trackStatus: "no longer available"
+        )
+
+        let result = try await fixture.coordinator.updateTracks(
+            [unavailableTrack],
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            progressHandler: Self.ignoreProgress
+        )
+
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(result.errorDescriptions.isEmpty)
+    }
+
     @Test("Multi-track update returns only entries created by the current call")
     func multiTrackUpdateReturnsOnlyCurrentEntries() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)

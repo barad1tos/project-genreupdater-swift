@@ -13,6 +13,8 @@ struct AppConfigurationTests {
         // All nested configs exist (non-optional, so this is a compile-time guarantee,
         // but verifying key defaults proves the struct initializes correctly)
         #expect(config.paths.musicLibraryPath == "${HOME}/Music/Music/Music Library.musiclibrary")
+        #expect(config.paths.logsBaseDirectory == PathsConfig.defaultLogsBaseDirectory)
+        #expect(config.paths.effectiveLogsBaseDirectory == PathsConfig.defaultLogsBaseDirectory)
         #expect(config.paths.apiCacheFile == "cache/cache.json")
         #expect(config.pythonSettings.preventBytecode)
         #expect(config.runtime.cacheTTLSeconds == 1800)
@@ -66,6 +68,24 @@ struct AppConfigurationTests {
         #expect(config.experimental.batchUpdatesEnabled == false)
         #expect(config.development.testArtists.isEmpty)
         #expect(config.development.debugMode == false)
+    }
+
+    @Test("Legacy temporary logs path maps to sandbox-safe app support logs")
+    func legacyTemporaryLogsPathUsesAppSupportEffectivePath() {
+        var paths = PathsConfig()
+
+        paths.logsBaseDirectory = PathsConfig.legacyTemporaryLogsBaseDirectory
+
+        #expect(paths.effectiveLogsBaseDirectory == PathsConfig.defaultLogsBaseDirectory)
+    }
+
+    @Test("Custom logs path stays unchanged")
+    func customLogsPathIsPreserved() {
+        var paths = PathsConfig()
+
+        paths.logsBaseDirectory = "/custom/logs"
+
+        #expect(paths.effectiveLogsBaseDirectory == "/custom/logs")
     }
 
     // MARK: - JSON Codable Round-Trip

@@ -297,6 +297,11 @@ public actor UpdateCoordinator {
                         entries.append(entry)
                     }
                 }
+            } catch UpdateCoordinatorError.trackNotEditable {
+                log
+                    .info(
+                        "Skipped non-editable track \(track.id, privacy: .private)"
+                    )
             } catch {
                 failedTrackIDs.append(track.id)
                 errorDescriptions.append(error.localizedDescription)

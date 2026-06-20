@@ -100,7 +100,7 @@ extension AppDependencies {
             throw AppDependencyServiceError.pendingVerificationUnavailable
         }
 
-        let logsDirectory = Self.resolvedURL(path: config.paths.logsBaseDirectory)
+        let logsDirectory = Self.resolvedURL(path: config.paths.effectiveLogsBaseDirectory)
         let reportURL = Self.resolvedURL(
             path: config.reporting.problematicAlbumsPath,
             relativeTo: logsDirectory
@@ -142,7 +142,9 @@ extension AppDependencies {
 
     private static func resolvedURL(path: String, relativeTo baseURL: URL? = nil) -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let appSupport = defaultDirectory().path
         var expandedPath = path
+            .replacingOccurrences(of: "${APP_SUPPORT}", with: appSupport)
             .replacingOccurrences(of: "${HOME}", with: home)
             .replacingOccurrences(of: "$HOME", with: home)
         if expandedPath == "~" {

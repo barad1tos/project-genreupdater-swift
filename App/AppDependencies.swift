@@ -164,11 +164,14 @@ final class AppDependencies {
             let installer = try ScriptInstaller()
             scriptInstaller = installer
 
-            // Step 2: Check if scripts are installed
-            let scriptsReady = await installer.areScriptsInstalled()
+            // Step 2: Install or refresh bundled scripts when the Application Scripts copy is missing or stale.
+            if await !installer.areScriptsCurrent() {
+                let installedScripts = try await installer.installScripts()
+                log.info("Installed or refreshed \(installedScripts.count, privacy: .public) AppleScript files")
+            }
 
-            if !scriptsReady {
-                log.info("Scripts not installed — showing onboarding")
+            guard await installer.areScriptsInstalled() else {
+                log.info("Scripts not installed after refresh attempt — showing onboarding")
                 appState = .needsOnboarding
                 return
             }

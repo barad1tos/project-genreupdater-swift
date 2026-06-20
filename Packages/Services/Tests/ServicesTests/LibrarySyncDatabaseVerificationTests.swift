@@ -5,6 +5,16 @@ import Testing
 
 @Suite("LibrarySyncService — database verification")
 struct LibrarySyncDatabaseVerificationTests {
+    @Test("Runtime configuration maps legacy temporary logs directory to app support token")
+    func runtimeConfigurationMapsLegacyTemporaryLogsDirectory() {
+        var configuration = AppConfiguration()
+        configuration.paths.logsBaseDirectory = PathsConfig.legacyTemporaryLogsBaseDirectory
+
+        let runtimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: configuration)
+
+        #expect(runtimeConfiguration.logsBaseDirectory == PathsConfig.defaultLogsBaseDirectory)
+    }
+
     @Test("Removes persisted tracks missing from Music.app")
     func removesMissingTracks() async throws {
         let bridge = SyncMockScriptClient()

@@ -80,6 +80,7 @@ struct TrackModelTests {
             ("uploaded", TrackKind.uploaded),
             ("downloaded", TrackKind.downloaded),
             ("local only", TrackKind.localOnly),
+            ("no longer available", TrackKind.noLongerAvailable),
         ] as [(String, TrackKind)]
     )
     func kindMapsStatus(status: String, expected: TrackKind) {
@@ -122,8 +123,17 @@ struct TrackModelTests {
         #expect(track.canEdit == false)
     }
 
+    @Test("canEdit is false for unavailable status")
+    func canEditFalseForUnavailable() {
+        let track = Track(
+            id: "1", name: "Song", artist: "Artist", album: "Album",
+            trackStatus: "no longer available"
+        )
+        #expect(track.canEdit == false)
+    }
+
     @Test(
-        "canEdit is true for all non-prerelease statuses",
+        "canEdit is true for writable statuses",
         arguments: ["subscription", "matched", "purchased", "uploaded", "downloaded", "local only"]
     )
     func canEditTrueForNonPrerelease(status: String) {

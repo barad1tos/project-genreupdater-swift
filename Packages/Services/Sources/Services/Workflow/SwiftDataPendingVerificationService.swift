@@ -46,7 +46,7 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
         self.modelExecutor = DefaultSerialModelExecutor(modelContext: modelContext)
         self.modelContainer = modelContainer
 
-        let logsDirectory = baseDirectory ?? Self.resolvedURL(path: configuration.paths.logsBaseDirectory)
+        let logsDirectory = baseDirectory ?? Self.resolvedURL(path: configuration.paths.effectiveLogsBaseDirectory)
         self.legacyStorageURL = Self.resolvedURL(
             path: configuration.logging.pendingVerificationFile,
             relativeTo: logsDirectory
@@ -359,7 +359,9 @@ extension SwiftDataPendingVerificationService {
 
     private static func resolvedURL(path: String, relativeTo baseURL: URL? = nil) -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let appSupport = defaultDirectory().path
         var expandedPath = path
+            .replacingOccurrences(of: "${APP_SUPPORT}", with: appSupport)
             .replacingOccurrences(of: "${HOME}", with: home)
             .replacingOccurrences(of: "$HOME", with: home)
         if expandedPath == "~" {

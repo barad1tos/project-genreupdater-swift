@@ -5,11 +5,20 @@ import Foundation
 // MARK: - Main Paths
 
 public struct PathsConfig: Sendable, Codable {
+    public static let defaultLogsBaseDirectory = "${APP_SUPPORT}/logs"
+    public static let legacyTemporaryLogsBaseDirectory = "/tmp/mgu-logs"
+
     public var musicLibraryPath: String = "${HOME}/Music/Music/Music Library.musiclibrary"
     public var appleScriptsDirectory: String = "applescripts"
-    public var logsBaseDirectory: String = "/tmp/mgu-logs"
+    public var logsBaseDirectory: String = Self.defaultLogsBaseDirectory
     public var apiCacheFile: String = "cache/cache.json"
     public var albumYearsCacheFile: String = "cache/album_years.csv"
+
+    public var effectiveLogsBaseDirectory: String {
+        logsBaseDirectory == Self.legacyTemporaryLogsBaseDirectory
+            ? Self.defaultLogsBaseDirectory
+            : logsBaseDirectory
+    }
 
     public init() {}
 }

@@ -8,7 +8,7 @@
     - Uses explicit separators (ASCII 30 for fields, ASCII 29 for lines)
     - Bulk property fetching via reference approach
     - Handles AppleScript raw enum constants (e.g., «constant ****kSub»)
-    - Filters tracks at the source, returning ONLY those with modifiable statuses
+    - Filters tracks at the source, returning tracks with known statuses so Swift can classify write eligibility
 *)
 
 on run argv
@@ -191,9 +191,10 @@ end normalize_cloud_status
 
 
 on is_valid_cloud_status(statusText)
-	-- Returns true if the cloud status allows editing
-	-- Excludes "prerelease" as they are read-only and cause permission errors
-	return statusText is in {"local only", "purchased", "matched", "uploaded", "subscription", "downloaded"}
+	-- Returns true if the cloud status is useful for mutation planning.
+	-- "no longer available" is returned for Swift-side non-writable classification.
+	-- "prerelease" remains excluded because it is handled by pending-verification logic.
+	return statusText is in {"local only", "purchased", "matched", "uploaded", "subscription", "downloaded", "no longer available"}
 end is_valid_cloud_status
 
 
