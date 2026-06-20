@@ -306,12 +306,12 @@ struct UpdateRunReport: Equatable {
     }
 
     private static func trackSort(_ left: Track, _ right: Track) -> Bool {
-        switch (left.originalPosition, right.originalPosition) {
-        case let (leftPosition?, rightPosition?) where leftPosition != rightPosition:
-            leftPosition < rightPosition
-        default:
-            left.name.localizedStandardCompare(right.name) == .orderedAscending
+        if let leftPosition = left.originalPosition,
+           let rightPosition = right.originalPosition,
+           leftPosition != rightPosition {
+            return leftPosition < rightPosition
         }
+        return left.name.localizedStandardCompare(right.name) == .orderedAscending
     }
 
     private static func albumResultSort(_ left: UpdateRunAlbumResult, _ right: UpdateRunAlbumResult) -> Bool {

@@ -581,7 +581,9 @@ actor SyncMockLibrarySnapshotService: LibrarySnapshotService {
     func loadDelta() async -> LibraryDeltaCache? {
         nil
     }
-    func saveDelta(_: LibraryDeltaCache) async throws {}
+    func saveDelta(_: LibraryDeltaCache) async throws {
+        // Tests using this mock do not assert delta persistence.
+    }
     func getLibraryModificationDate() async throws -> Date {
         .distantPast
     }

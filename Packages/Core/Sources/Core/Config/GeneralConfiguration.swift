@@ -6,7 +6,7 @@ import Foundation
 
 public struct PathsConfig: Sendable, Codable {
     public static let defaultLogsBaseDirectory = "${APP_SUPPORT}/logs"
-    public static let legacyTemporaryLogsBaseDirectory = "/tmp/mgu-logs"
+    public static let legacyTemporaryLogsBaseDirectory = "/tmp/mgu-logs" // NOSONAR - legacy migration sentinel.
 
     public var musicLibraryPath: String = "${HOME}/Music/Music/Music Library.musiclibrary"
     public var appleScriptsDirectory: String = "applescripts"

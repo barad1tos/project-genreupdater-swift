@@ -82,10 +82,13 @@ struct AppConfigurationTests {
     @Test("Custom logs path stays unchanged")
     func customLogsPathIsPreserved() {
         var paths = PathsConfig()
+        let customLogsPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("custom-logs")
+            .path
 
-        paths.logsBaseDirectory = "/custom/logs"
+        paths.logsBaseDirectory = customLogsPath
 
-        #expect(paths.effectiveLogsBaseDirectory == "/custom/logs")
+        #expect(paths.effectiveLogsBaseDirectory == customLogsPath)
     }
 
     // MARK: - JSON Codable Round-Trip
