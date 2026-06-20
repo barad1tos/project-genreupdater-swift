@@ -146,7 +146,7 @@ public actor UpdateCoordinator {
         }
 
         let inputTrack = try await trackWithMutationMetadata(track)
-        let inputAlbumTracks = try await tracksWithMutationMetadata(albumTracks)
+        let inputAlbumTracks = await availableTracksWithMutationMetadata(albumTracks)
 
         guard inputTrack.canEdit else {
             throw UpdateCoordinatorError.trackNotEditable(trackID: inputTrack.id)
@@ -246,15 +246,18 @@ public actor UpdateCoordinator {
         return enrichedTrack
     }
 
-    private func tracksWithMutationMetadata(_ tracks: [Track]) async throws -> [Track] {
-        var enrichedTracks: [Track] = []
-        enrichedTracks.reserveCapacity(tracks.count)
-
-        for track in tracks {
-            let enrichedTrack = try await trackWithMutationMetadata(track)
-            enrichedTracks.append(enrichedTrack)
+    private func availableTracksWithMutationMetadata(_ tracks: [Track]) async -> [Track] {
+        guard let idMapper else {
+            return tracks
         }
 
+        var enrichedTracks: [Track] = []
+        enrichedTracks.reserveCapacity(tracks.count)
+        for track in tracks {
+            if let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track) {
+                enrichedTracks.append(enrichedTrack)
+            }
+        }
         return enrichedTracks
     }
 
@@ -280,9 +283,12 @@ public actor UpdateCoordinator {
 
         for (index, track) in tracks.enumerated() {
             do {
+                let albumTracksWithMutationMetadata = await availableTracksWithMutationMetadata(
+                    albumTracksProvider(track)
+                )
                 let changes = try await updateTrack(
                     track,
-                    albumTracks: albumTracksProvider(track),
+                    albumTracks: albumTracksWithMutationMetadata,
                     options: options,
                     dryRun: true
                 )

@@ -115,16 +115,23 @@ public struct YearValidator: Sendable {
             return nil
         }
 
-        guard case .valid = validate(year: bestYear) else {
+        let validation = validate(year: bestYear)
+        if case .absurd = validation {
             return nil
         }
 
-        // Python parity: suspicious years return nil (need API verification)
+        // Python parity: future dominant years are still reported,
+        // but callers must treat them as requiring verification.
         let suspiciousOld = isYearSuspiciouslyOld(
             year: bestYear, tracks: tracks
         )
         if isSuspicious(year: bestYear) || suspiciousOld {
             return nil
+        }
+        let isFutureYear = if case .future = validation {
+            true
+        } else {
+            false
         }
 
         return DominantYearResult(
@@ -132,7 +139,7 @@ public struct YearValidator: Sendable {
             confidence: confidence,
             trackCount: bestCount,
             totalTracks: tracksWithYear.count,
-            isSuspicious: false
+            isSuspicious: isFutureYear
         )
     }
 

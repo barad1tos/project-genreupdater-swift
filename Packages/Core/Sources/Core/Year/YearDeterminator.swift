@@ -261,6 +261,8 @@ public struct YearDeterminator: Sendable {
         albumTracks: [Track],
         candidateCount: Int
     ) -> YearDeterminationResult? {
+        let consensusReleaseYear = validatedConsensusReleaseYear(albumTracks)
+
         // Step 1: Dominant year (Python parity: dominant first)
         if let dominant = validator.getDominantYear(
             tracks: albumTracks
@@ -278,26 +280,40 @@ public struct YearDeterminator: Sendable {
         }
 
         // Step 2: Consensus release year
-        if let consensus = validator.getConsensusReleaseYear(
-            tracks: albumTracks
-        ) {
-            let validation = validator.validate(
-                year: consensus
+        if let consensusReleaseYear {
+            return consensusDetermination(
+                year: consensusReleaseYear,
+                candidateCount: candidateCount
             )
-            if case .valid = validation {
-                return YearDeterminationResult(
-                    yearResult: YearResult(
-                        year: consensus,
-                        isDefinitive: true,
-                        confidence: 95
-                    ),
-                    source: .consensus,
-                    candidateCount: candidateCount
-                )
-            }
         }
 
         return nil
+    }
+
+    private func validatedConsensusReleaseYear(_ tracks: [Track]) -> Int? {
+        guard !tracks.isEmpty,
+              tracks.allSatisfy({ $0.releaseYear != nil }),
+              let consensus = validator.getConsensusReleaseYear(tracks: tracks),
+              case .valid = validator.validate(year: consensus)
+        else {
+            return nil
+        }
+        return consensus
+    }
+
+    private func consensusDetermination(
+        year: Int,
+        candidateCount: Int
+    ) -> YearDeterminationResult {
+        YearDeterminationResult(
+            yearResult: YearResult(
+                year: year,
+                isDefinitive: true,
+                confidence: 95
+            ),
+            source: .consensus,
+            candidateCount: candidateCount
+        )
     }
 
     private func mapDecisionToResult(
