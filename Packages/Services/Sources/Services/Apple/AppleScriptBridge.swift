@@ -326,21 +326,35 @@ extension AppleScriptBridge {
         let wrappedEvent = UnsafeSendable(value: event)
         let gate = concurrencyGate
         return try await gate.withPermit {
-            try await withThrowingTaskGroup(of: String?.self) { group in
-                group.addTask {
-                    let descriptor = try await wrappedTask.value.execute(withAppleEvent: wrappedEvent.value)
-                    return descriptor.stringValue
-                }
+            try await Self.executeTaskWithTimeout(
+                task: wrappedTask,
+                event: wrappedEvent,
+                scriptName: name,
+                timeout: timeout
+            )
+        }
+    }
 
-                group.addTask {
-                    try await Task.sleep(for: timeout)
-                    throw AppleScriptBridgeError.timeout(scriptName: name, duration: timeout)
-                }
-
-                let result = try await group.next()
-                group.cancelAll()
-                return result.flatMap(\.self)
+    private static func executeTaskWithTimeout(
+        task: UnsafeSendable<NSUserAppleScriptTask>,
+        event: UnsafeSendable<NSAppleEventDescriptor?>,
+        scriptName: String,
+        timeout: Duration
+    ) async throws -> String? {
+        try await withThrowingTaskGroup(of: String?.self) { group in
+            group.addTask {
+                let descriptor = try await task.value.execute(withAppleEvent: event.value)
+                return descriptor.stringValue
             }
+
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw AppleScriptBridgeError.timeout(scriptName: scriptName, duration: timeout)
+            }
+
+            let result = try await group.next()
+            group.cancelAll()
+            return result.flatMap(\.self)
         }
     }
 
