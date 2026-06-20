@@ -114,6 +114,53 @@ struct APIOrchestratorReleaseCandidateTests {
         #expect(await callCounter.count() == 1)
     }
 
+    @Test("Release candidate cache uses cleaned API search album")
+    func releaseCandidateCacheUsesCleanedAPISearchAlbum() async {
+        let cache = MockCacheService()
+        let callCounter = APICallCounter()
+        let musicBrainz = CountingReleaseCandidateService(callCounter: callCounter) { artist, album, _, _ in
+            [
+                ReleaseCandidate(
+                    artist: artist,
+                    album: album,
+                    year: 2022,
+                    source: .musicBrainz
+                ),
+            ]
+        }
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: musicBrainz,
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService(),
+            cache: cache,
+            disabledSources: [.discogs, .itunes]
+        )
+
+        let decoratedResult = await orchestrator.getReleaseCandidates(
+            artist: "Karma & Effect",
+            album: "\"Survival of the Sickest\" (Bonus Track Version)",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+        let cleanedResult = await orchestrator.getReleaseCandidates(
+            artist: "Karma and Effect",
+            album: "Survival of the Sickest",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(decoratedResult == [
+            ReleaseCandidate(
+                artist: "Karma and Effect",
+                album: "Survival of the Sickest",
+                year: 2022,
+                source: .musicBrainz
+            ),
+        ])
+        #expect(cleanedResult == decoratedResult)
+        #expect(await callCounter.count() == 1)
+    }
+
     @Test("Empty release candidate result is cached")
     func emptyReleaseCandidateResultIsCached() async {
         let cache = MockCacheService()
@@ -235,7 +282,7 @@ struct APIOrchestratorReleaseCandidateTests {
         let cache = MockCacheService()
         let callCounter = APICallCounter()
         let musicBrainz = CountingReleaseCandidateService(callCounter: callCounter) { artist, album, _, _ in
-            let year = artist == "A" && album == "B:C" ? 2001 : 2002
+            let year = artist == "A" && album == "B C" ? 2001 : 2002
             return [
                 ReleaseCandidate(
                     artist: artist,

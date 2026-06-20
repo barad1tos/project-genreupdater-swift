@@ -27,15 +27,19 @@ extension APIOrchestrator {
             .discogs: discogs,
             .itunes: appleMusic,
         ]
-        let orderedSources = sourcePriorityConfiguration.orderedSources(artist: artist, album: album)
+        let searchQuery = makeAPISearchQuery(artist: artist, album: album)
+        let orderedSources = sourcePriorityConfiguration.orderedSources(
+            artist: searchQuery.artist,
+            album: searchQuery.album
+        )
         let activeSources = orderedSources.filter { !disabledSources.contains($0) }
         let sources = activeSources.compactMap { source -> (source: APISource, service: any ExternalAPIService)? in
             guard let service = serviceBySource[source] else { return nil }
             return (source, service)
         }
         let query = ReleaseCandidateQuery(
-            artist: artist,
-            album: album,
+            artist: searchQuery.artist,
+            album: searchQuery.album,
             currentLibraryYear: currentLibraryYear,
             earliestTrackAddedYear: earliestTrackAddedYear,
             timeout: timeout

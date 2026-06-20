@@ -334,6 +334,31 @@ struct APIOrchestratorTests {
         #expect(cached?.year == 1986)
         #expect(cached?.metadata["confidence"] == "77")
     }
+
+    @Test("Album year search strips API-only album decoration")
+    func albumYearSearchStripsAPIOnlyAlbumDecoration() async {
+        let recorder = APIQueryRecorder()
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: RecordingYearQueryService(
+                recorder: recorder,
+                yearResult: YearResult(year: 2022, confidence: 80, yearScores: [2022: 80])
+            ),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService(),
+            disabledSources: [.discogs, .itunes]
+        )
+
+        _ = await orchestrator.getAlbumYear(
+            artist: "Karma & Effect",
+            album: "\"Survival of the Sickest\" (Bonus Track Version)",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        let query = await recorder.firstQuery()
+        #expect(query?.artist == "Karma and Effect")
+        #expect(query?.album == "Survival of the Sickest")
+    }
 }
 
 @Suite("APIOrchestrator — API retry configuration")
@@ -406,6 +431,53 @@ actor APICallCounter {
     func count() -> Int {
         value
     }
+}
+
+private actor APIQueryRecorder {
+    struct Query: Equatable {
+        let artist: String
+        let album: String
+    }
+
+    private var queries: [Query] = []
+
+    func record(artist: String, album: String) {
+        queries.append(Query(artist: artist, album: album))
+    }
+
+    func firstQuery() -> Query? {
+        queries.first
+    }
+}
+
+private struct RecordingYearQueryService: ExternalAPIService {
+    let recorder: APIQueryRecorder
+    let yearResult: YearResult
+
+    func getAlbumYear(
+        artist: String,
+        album: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> YearResult {
+        await recorder.record(artist: artist, album: album)
+        return yearResult
+    }
+
+    func getArtistActivityPeriod(
+        normalizedArtist _: String
+    ) async throws -> (start: Int?, end: Int?) {
+        (nil, nil)
+    }
+
+    func getArtistStartYear(
+        normalizedArtist _: String
+    ) async throws -> Int? {
+        nil
+    }
+
+    func initialize(force _: Bool) async throws {}
+    func close() async {}
 }
 
 struct CountingAPIService: ExternalAPIService {

@@ -115,6 +115,22 @@ public struct APIOrchestratorConfiguration: Sendable {
     }
 }
 
+struct APISearchQuery {
+    let artist: String
+    let album: String
+}
+
+func makeAPISearchQuery(artist: String, album: String) -> APISearchQuery {
+    let albumWithoutQuotes = album
+        .replacingOccurrences(of: "\"", with: "")
+        .replacingOccurrences(of: "'", with: "")
+    let albumWithoutParentheticalText = stripParentheticalText(from: albumWithoutQuotes)
+    return APISearchQuery(
+        artist: normalizeAPIQueryName(artist),
+        album: normalizeAPIQueryName(albumWithoutParentheticalText)
+    )
+}
+
 public actor APIOrchestrator {
     let musicBrainz: any ExternalAPIService
     let discogs: any ExternalAPIService
@@ -231,15 +247,19 @@ public actor APIOrchestrator {
             .discogs: discogs,
             .itunes: appleMusic,
         ]
-        let orderedSources = sourcePriorityConfiguration.orderedSources(artist: artist, album: album)
+        let searchQuery = makeAPISearchQuery(artist: artist, album: album)
+        let orderedSources = sourcePriorityConfiguration.orderedSources(
+            artist: searchQuery.artist,
+            album: searchQuery.album
+        )
         let activeSources = orderedSources.filter { !disabledSources.contains($0) }
         let sources = activeSources.compactMap { source -> (source: APISource, service: any ExternalAPIService)? in
             guard let service = serviceBySource[source] else { return nil }
             return (source, service)
         }
         let query = SourceQuery(
-            artist: artist,
-            album: album,
+            artist: searchQuery.artist,
+            album: searchQuery.album,
             currentLibraryYear: currentLibraryYear,
             earliestTrackAddedYear: earliestTrackAddedYear,
             timeout: timeout
@@ -580,3 +600,52 @@ private struct SourceServiceOutcome {
 }
 
 private struct OrchestratorTimeoutError: Error {}
+
+private func normalizeAPIQueryName(_ name: String) -> String {
+    guard !name.isEmpty else { return name }
+
+    var normalized = name
+    for (oldValue, newValue) in [
+        (" & ", " and "),
+        ("&", " and "),
+        (" w/ ", " with "),
+        (" w/", " with"),
+        (" = ", " "),
+        (":", " "),
+    ] {
+        normalized = normalized.replacingOccurrences(of: oldValue, with: newValue)
+    }
+
+    normalized = replacingMatches(
+        in: normalized,
+        pattern: #"\s*\+\s+\d+.*$"#,
+        with: ""
+    )
+
+    if let slashRange = normalized.range(of: " / ") {
+        normalized = String(normalized[..<slashRange.lowerBound])
+    }
+
+    return normalized.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+}
+
+private func stripParentheticalText(from text: String) -> String {
+    replacingMatches(
+        in: text,
+        pattern: #"\s*\([^)]*\)"#,
+        with: ""
+    )
+    .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private func replacingMatches(in text: String, pattern: String, with replacement: String) -> String {
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        return text
+    }
+    let range = NSRange(text.startIndex ..< text.endIndex, in: text)
+    return regex.stringByReplacingMatches(
+        in: text,
+        range: range,
+        withTemplate: replacement
+    )
+}
