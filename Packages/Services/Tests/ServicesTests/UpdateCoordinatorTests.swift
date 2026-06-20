@@ -431,8 +431,8 @@ struct UpdateCoordinatorTests {
         await #expect(!snapshotService.wasCleared())
     }
 
-    @Test("Reviewed prerelease changes are skipped without writing")
-    func reviewedPrereleaseChangesAreSkippedWithoutWriting() async throws {
+    @Test("Reviewed prerelease changes fail without writing")
+    func reviewedPrereleaseChangesFailWithoutWriting() async throws {
         let fixture = await makeCoordinator()
         let change = ProposedChange(
             track: Track(
@@ -450,14 +450,37 @@ struct UpdateCoordinatorTests {
             source: "Test"
         )
 
-        let result = try await fixture.coordinator.applyAcceptedChanges(
-            [change],
-            progressHandler: Self.ignoreProgress
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [change],
+                progressHandler: Self.ignoreProgress
+            )
+        }
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
+    }
+
+    @Test("Unavailable tracks do not enter normal update processing")
+    func unavailableTracksDoNotEnterNormalUpdateProcessing() async throws {
+        let fixture = await makeCoordinator(year: 2020, confidence: 90)
+        let track = Track(
+            id: "unavailable",
+            name: "Archived Song",
+            artist: "Clutch",
+            album: "Blast Tyrant",
+            year: 2004,
+            trackStatus: "no longer available"
         )
 
-        #expect(result.entries.isEmpty)
-        #expect(result.failedTrackIDs.isEmpty)
+        let changes = try await fixture.coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: false
+        )
+
         let written = await fixture.bridge.writtenProperties
+        #expect(changes.isEmpty)
         #expect(written.isEmpty)
     }
 
@@ -535,8 +558,8 @@ extension UpdateCoordinatorTests {
         #expect(apiResult == nil)
     }
 
-    @Test("Multi-track update skips non-editable tracks without reporting write failures")
-    func multiTrackUpdateSkipsNonEditableTracks() async throws {
+    @Test("Multi-track update reports non-editable tracks as failures")
+    func multiTrackUpdateReportsNonEditableTracksAsFailures() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)
         let prereleaseTrack = Track(
             id: "prerelease",
@@ -547,15 +570,16 @@ extension UpdateCoordinatorTests {
             trackStatus: "prerelease"
         )
 
-        let result = try await fixture.coordinator.updateTracks(
-            [prereleaseTrack],
-            options: UpdateOptions(updateGenre: false, updateYear: true),
-            progressHandler: Self.ignoreProgress
-        )
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await fixture.coordinator.updateTracks(
+                [prereleaseTrack],
+                options: UpdateOptions(updateGenre: false, updateYear: true),
+                progressHandler: Self.ignoreProgress
+            )
+        }
 
-        #expect(result.entries.isEmpty)
-        #expect(result.failedTrackIDs.isEmpty)
-        #expect(result.errorDescriptions.isEmpty)
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
     }
 
     @Test("Multi-track update returns only entries created by the current call")

@@ -95,8 +95,8 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(written.isEmpty)
     }
 
-    @Test("Reviewed mapped changes skip tracks without AppleScript IDs")
-    func reviewedMappedChangesSkipTracksWithoutAppleScriptIDs() async throws {
+    @Test("Reviewed mapped changes fail tracks without AppleScript IDs")
+    func reviewedMappedChangesFailTracksWithoutAppleScriptIDs() async throws {
         let mapper = TrackIDMapper()
         let fixture = await makeCoordinator(idMapper: mapper)
         let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 2021)
@@ -110,19 +110,19 @@ struct UpdateCoordinatorApplyAcceptedTests {
             isAccepted: true
         )
 
-        let result = try await fixture.coordinator.applyAcceptedChanges(
-            [change],
-            progressHandler: ignoreAcceptedChangeProgress
-        )
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [change],
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+        }
 
         let written = await fixture.bridge.writtenProperties
         #expect(written.isEmpty)
-        #expect(result.entries.isEmpty)
-        #expect(result.failedTrackIDs.isEmpty)
     }
 
-    @Test("Reviewed mapped changes use AppleScript metadata before writing")
-    func reviewedMappedChangesUseAppleScriptMetadataBeforeWriting() async throws {
+    @Test("Reviewed mapped changes fail on non-editable AppleScript metadata")
+    func reviewedMappedChangesFailOnNonEditableAppleScriptMetadata() async throws {
         let mapper = TrackIDMapper()
         let musicKitTrack = makeEditableTrack(id: "MK1", genre: "Rock", year: nil)
         let appleScriptTrack = Track(
@@ -150,15 +150,48 @@ struct UpdateCoordinatorApplyAcceptedTests {
             isAccepted: true
         )
 
-        let result = try await fixture.coordinator.applyAcceptedChanges(
-            [change],
-            progressHandler: ignoreAcceptedChangeProgress
-        )
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [change],
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+        }
 
         let written = await fixture.bridge.writtenProperties
         #expect(written.isEmpty)
-        #expect(result.entries.isEmpty)
-        #expect(result.failedTrackIDs.isEmpty)
+    }
+
+    @Test("Reviewed unavailable changes fail without writing")
+    func reviewedUnavailableChangesFailWithoutWriting() async throws {
+        let fixture = await makeCoordinator()
+        let track = Track(
+            id: "MK1",
+            name: "Come Together",
+            artist: "Beatles",
+            album: "Abbey Road",
+            genre: "Rock",
+            year: 1969,
+            trackStatus: "no longer available"
+        )
+        let change = ProposedChange(
+            track: track,
+            changeType: .yearUpdate,
+            oldValue: "1969",
+            newValue: "1970",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [change],
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+        }
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
     }
 
     private func makeCoordinator(

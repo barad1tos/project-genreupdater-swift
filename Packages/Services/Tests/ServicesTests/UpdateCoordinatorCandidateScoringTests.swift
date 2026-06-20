@@ -203,32 +203,11 @@ struct UpdateCoordinatorCandidateScoringTests {
 
     @Test("Does not rewrite valid editable year from release year without API confirmation")
     func doesNotRewriteValidEditableYearWithoutAPIConfirmation() async throws {
-        let track = Track(
-            id: "subrosa-1",
-            name: "Sugar Creek",
-            artist: "SubRosa",
-            album: "Strega",
-            year: 2023,
-            releaseYear: 2008
-        )
-        let albumTracks = [
-            track,
-            Track(
-                id: "subrosa-2",
-                name: "Crucible",
-                artist: "SubRosa",
-                album: "Strega",
-                year: 2023,
-                releaseYear: 2008
-            ),
-        ]
+        let track = subRosaTrack()
+        let albumTracks = subRosaAlbumTracks()
         let bridge = MockAppleScriptClient()
         let cache = MockCacheService()
-        let api = makeAPIOrchestrator(
-            musicBrainz: MockAPIService(),
-            discogs: MockAPIService(),
-            appleMusic: MockAPIService()
-        )
+        let api = emptyAPIOrchestrator()
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
 
         let changes = try await coordinator.updateTrack(
@@ -243,40 +222,11 @@ struct UpdateCoordinatorCandidateScoringTests {
 
     @Test("Uses API confirmation when release year conflicts with valid editable year")
     func usesAPIConfirmationForConflictingReleaseYear() async throws {
-        let track = Track(
-            id: "subrosa-1",
-            name: "Sugar Creek",
-            artist: "SubRosa",
-            album: "Strega",
-            year: 2023,
-            releaseYear: 2008
-        )
-        let albumTracks = [
-            track,
-            Track(
-                id: "subrosa-2",
-                name: "Crucible",
-                artist: "SubRosa",
-                album: "Strega",
-                year: 2023,
-                releaseYear: 2008
-            ),
-        ]
+        let track = subRosaTrack()
+        let albumTracks = subRosaAlbumTracks()
         let bridge = MockAppleScriptClient()
         let cache = MockCacheService()
-        let api = makeAPIOrchestrator(
-            musicBrainz: MockAPIService(releaseCandidates: [
-                ReleaseCandidate(
-                    artist: "SubRosa",
-                    album: "Strega",
-                    year: 2008,
-                    source: .musicBrainz,
-                    mbReleaseGroupFirstYear: 2008
-                ),
-            ]),
-            discogs: MockAPIService(),
-            appleMusic: MockAPIService()
-        )
+        let api = subRosaAPIOrchestrator(confirmingYear: 2008)
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
 
         let changes = try await coordinator.updateTrack(
@@ -294,25 +244,8 @@ struct UpdateCoordinatorCandidateScoringTests {
 
     @Test("Uses cached year when it matches the release year conflict target")
     func usesCachedYearWhenItMatchesTheReleaseYearConflictTarget() async throws {
-        let track = Track(
-            id: "subrosa-1",
-            name: "Sugar Creek",
-            artist: "SubRosa",
-            album: "Strega",
-            year: 2023,
-            releaseYear: 2008
-        )
-        let albumTracks = [
-            track,
-            Track(
-                id: "subrosa-2",
-                name: "Crucible",
-                artist: "SubRosa",
-                album: "Strega",
-                year: 2023,
-                releaseYear: 2008
-            ),
-        ]
+        let track = subRosaTrack()
+        let albumTracks = subRosaAlbumTracks()
         let bridge = MockAppleScriptClient()
         let cache = MockCacheService()
         await cache.storeAlbumYear(
@@ -321,11 +254,7 @@ struct UpdateCoordinatorCandidateScoringTests {
             year: 2008,
             confidence: 100
         )
-        let api = makeAPIOrchestrator(
-            musicBrainz: MockAPIService(),
-            discogs: MockAPIService(),
-            appleMusic: MockAPIService()
-        )
+        let api = emptyAPIOrchestrator()
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
 
         let changes = try await coordinator.updateTrack(
@@ -343,25 +272,8 @@ struct UpdateCoordinatorCandidateScoringTests {
 
     @Test("Falls back to API when cached year does not match the release year conflict target")
     func fallsBackToAPIWhenCachedYearDoesNotMatchTheReleaseYearConflictTarget() async throws {
-        let track = Track(
-            id: "subrosa-1",
-            name: "Sugar Creek",
-            artist: "SubRosa",
-            album: "Strega",
-            year: 2023,
-            releaseYear: 2008
-        )
-        let albumTracks = [
-            track,
-            Track(
-                id: "subrosa-2",
-                name: "Crucible",
-                artist: "SubRosa",
-                album: "Strega",
-                year: 2023,
-                releaseYear: 2008
-            ),
-        ]
+        let track = subRosaTrack()
+        let albumTracks = subRosaAlbumTracks()
         let bridge = MockAppleScriptClient()
         let cache = MockCacheService()
         await cache.storeAlbumYear(
@@ -370,19 +282,7 @@ struct UpdateCoordinatorCandidateScoringTests {
             year: 2010,
             confidence: 100
         )
-        let api = makeAPIOrchestrator(
-            musicBrainz: MockAPIService(releaseCandidates: [
-                ReleaseCandidate(
-                    artist: "SubRosa",
-                    album: "Strega",
-                    year: 2008,
-                    source: .musicBrainz,
-                    mbReleaseGroupFirstYear: 2008
-                ),
-            ]),
-            discogs: MockAPIService(),
-            appleMusic: MockAPIService()
-        )
+        let api = subRosaAPIOrchestrator(confirmingYear: 2008)
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
 
         let changes = try await coordinator.updateTrack(
@@ -400,40 +300,11 @@ struct UpdateCoordinatorCandidateScoringTests {
 
     @Test("Uses API confirmation when only the target track has a valid release year signal")
     func usesAPIConfirmationWhenOnlyTheTargetTrackHasAValidReleaseYearSignal() async throws {
-        let track = Track(
-            id: "subrosa-1",
-            name: "Sugar Creek",
-            artist: "SubRosa",
-            album: "Strega",
-            year: 2023,
-            releaseYear: 2008
-        )
-        let albumTracks = [
-            track,
-            Track(
-                id: "subrosa-2",
-                name: "Crucible",
-                artist: "SubRosa",
-                album: "Strega",
-                year: 2023,
-                releaseYear: nil
-            ),
-        ]
+        let track = subRosaTrack()
+        let albumTracks = subRosaAlbumTracks(secondReleaseYear: nil)
         let bridge = MockAppleScriptClient()
         let cache = MockCacheService()
-        let api = makeAPIOrchestrator(
-            musicBrainz: MockAPIService(releaseCandidates: [
-                ReleaseCandidate(
-                    artist: "SubRosa",
-                    album: "Strega",
-                    year: 2008,
-                    source: .musicBrainz,
-                    mbReleaseGroupFirstYear: 2008
-                ),
-            ]),
-            discogs: MockAPIService(),
-            appleMusic: MockAPIService()
-        )
+        let api = subRosaAPIOrchestrator(confirmingYear: 2008)
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
 
         let changes = try await coordinator.updateTrack(
@@ -451,32 +322,11 @@ struct UpdateCoordinatorCandidateScoringTests {
 
     @Test("Does not rewrite when only target release year signal lacks confirmation")
     func doesNotRewriteWhenOnlyTargetReleaseYearSignalLacksConfirmation() async throws {
-        let track = Track(
-            id: "subrosa-1",
-            name: "Sugar Creek",
-            artist: "SubRosa",
-            album: "Strega",
-            year: 2023,
-            releaseYear: 2008
-        )
-        let albumTracks = [
-            track,
-            Track(
-                id: "subrosa-2",
-                name: "Crucible",
-                artist: "SubRosa",
-                album: "Strega",
-                year: 2023,
-                releaseYear: nil
-            ),
-        ]
+        let track = subRosaTrack()
+        let albumTracks = subRosaAlbumTracks(secondReleaseYear: nil)
         let bridge = MockAppleScriptClient()
         let cache = MockCacheService()
-        let api = makeAPIOrchestrator(
-            musicBrainz: MockAPIService(),
-            discogs: MockAPIService(),
-            appleMusic: MockAPIService()
-        )
+        let api = emptyAPIOrchestrator()
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
 
         let changes = try await coordinator.updateTrack(
@@ -493,25 +343,8 @@ struct UpdateCoordinatorCandidateScoringTests {
 
     @Test("Does not rewrite when cache conflicts with release year and APIs do not confirm")
     func doesNotRewriteWhenCacheConflictsWithReleaseYearAndAPIsDoNotConfirm() async throws {
-        let track = Track(
-            id: "subrosa-1",
-            name: "Sugar Creek",
-            artist: "SubRosa",
-            album: "Strega",
-            year: 2023,
-            releaseYear: 2008
-        )
-        let albumTracks = [
-            track,
-            Track(
-                id: "subrosa-2",
-                name: "Crucible",
-                artist: "SubRosa",
-                album: "Strega",
-                year: 2023,
-                releaseYear: 2008
-            ),
-        ]
+        let track = subRosaTrack()
+        let albumTracks = subRosaAlbumTracks()
         let bridge = MockAppleScriptClient()
         let cache = MockCacheService()
         await cache.storeAlbumYear(
@@ -520,11 +353,7 @@ struct UpdateCoordinatorCandidateScoringTests {
             year: 2010,
             confidence: 100
         )
-        let api = makeAPIOrchestrator(
-            musicBrainz: MockAPIService(),
-            discogs: MockAPIService(),
-            appleMusic: MockAPIService()
-        )
+        let api = emptyAPIOrchestrator()
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
 
         let changes = try await coordinator.updateTrack(
@@ -541,40 +370,11 @@ struct UpdateCoordinatorCandidateScoringTests {
 
     @Test("Does not write when API conflicts with release year signal")
     func doesNotWriteWhenAPIConflictsWithReleaseYearSignal() async throws {
-        let track = Track(
-            id: "subrosa-1",
-            name: "Sugar Creek",
-            artist: "SubRosa",
-            album: "Strega",
-            year: 2023,
-            releaseYear: 2008
-        )
-        let albumTracks = [
-            track,
-            Track(
-                id: "subrosa-2",
-                name: "Crucible",
-                artist: "SubRosa",
-                album: "Strega",
-                year: 2023,
-                releaseYear: 2008
-            ),
-        ]
+        let track = subRosaTrack()
+        let albumTracks = subRosaAlbumTracks()
         let bridge = MockAppleScriptClient()
         let cache = MockCacheService()
-        let api = makeAPIOrchestrator(
-            musicBrainz: MockAPIService(releaseCandidates: [
-                ReleaseCandidate(
-                    artist: "SubRosa",
-                    album: "Strega",
-                    year: 2010,
-                    source: .musicBrainz,
-                    mbReleaseGroupFirstYear: 2010
-                ),
-            ]),
-            discogs: MockAPIService(),
-            appleMusic: MockAPIService()
-        )
+        let api = subRosaAPIOrchestrator(confirmingYear: 2010)
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
 
         let changes = try await coordinator.updateTrack(
@@ -585,6 +385,86 @@ struct UpdateCoordinatorCandidateScoringTests {
         )
 
         #expect(!changes.contains { $0.changeType == ChangeType.yearUpdate })
+    }
+
+    @Test("Uses API confirmation when album release years disagree")
+    func usesAPIConfirmationWhenAlbumReleaseYearsDisagree() async throws {
+        let track = subRosaTrack()
+        let albumTracks = [
+            track,
+            subRosaTrack(
+                id: "subrosa-2",
+                name: "Crucible",
+                releaseYear: 2010
+            ),
+        ]
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        let api = subRosaAPIOrchestrator(confirmingYear: 2010)
+        let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        let yearChange = try #require(changes.first { $0.changeType == ChangeType.yearUpdate })
+        #expect(yearChange.oldValue == "2023")
+        #expect(yearChange.newValue == "2010")
+        #expect(yearChange.source == "Api")
+    }
+
+    private func subRosaTrack(
+        id: String = "subrosa-1",
+        name: String = "Sugar Creek",
+        year: Int? = 2023,
+        releaseYear: Int? = 2008
+    ) -> Track {
+        Track(
+            id: id,
+            name: name,
+            artist: "SubRosa",
+            album: "Strega",
+            year: year,
+            releaseYear: releaseYear
+        )
+    }
+
+    private func subRosaAlbumTracks(secondReleaseYear: Int? = 2008) -> [Track] {
+        [
+            subRosaTrack(),
+            subRosaTrack(
+                id: "subrosa-2",
+                name: "Crucible",
+                releaseYear: secondReleaseYear
+            ),
+        ]
+    }
+
+    private func subRosaAPIOrchestrator(confirmingYear year: Int) -> APIOrchestrator {
+        makeAPIOrchestrator(
+            musicBrainz: MockAPIService(releaseCandidates: [
+                ReleaseCandidate(
+                    artist: "SubRosa",
+                    album: "Strega",
+                    year: year,
+                    source: .musicBrainz,
+                    mbReleaseGroupFirstYear: year
+                ),
+            ]),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService()
+        )
+    }
+
+    private func emptyAPIOrchestrator() -> APIOrchestrator {
+        makeAPIOrchestrator(
+            musicBrainz: MockAPIService(),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService()
+        )
     }
 
     private func makeCoordinator(

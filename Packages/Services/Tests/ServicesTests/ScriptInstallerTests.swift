@@ -15,6 +15,7 @@ struct ScriptInstallerTests {
 
         #expect(scriptsNeedingInstall == ["fetch_tracks"])
         #expect(await installer.areScriptsCurrent() == false)
+        #expect(await installer.areScriptsInstalled() == false)
     }
 
     @Test("Stale installed script requires installation")
@@ -40,6 +41,24 @@ struct ScriptInstallerTests {
 
         #expect(await installer.scriptsNeedingInstall().isEmpty)
         #expect(await installer.areScriptsCurrent())
+    }
+
+    @Test("Missing bundled script is not masked by legacy installed script")
+    func missingBundledScriptIsNotMaskedByLegacyInstalledScript() async throws {
+        let fixture = try ScriptInstallerFixture()
+        try fixture.writeBundledScripts()
+        try fixture.removeBundledScript(named: "fetch_tracks")
+        try fixture.writeLegacyInstalledScript(named: "fetch_tracks", contents: "old fetch_tracks")
+        let installer = fixture.makeInstaller()
+
+        let scriptsNeedingInstall = await installer.scriptsNeedingInstall()
+
+        #expect(scriptsNeedingInstall.contains("fetch_tracks"))
+        #expect(await installer.areScriptsCurrent() == false)
+        #expect(await installer.areScriptsInstalled() == false)
+        await #expect(throws: ScriptInstallerError.self) {
+            _ = try await installer.installScripts()
+        }
     }
 
     @Test("Installation replaces stale scripts from bundle")
@@ -134,6 +153,10 @@ private struct ScriptInstallerFixture {
             atomically: true,
             encoding: .utf8
         )
+    }
+
+    func removeBundledScript(named scriptName: String) throws {
+        try FileManager.default.removeItem(at: bundledURL(for: scriptName))
     }
 
     func installedContents(for scriptName: String, using installer: ScriptInstaller) async throws -> String {

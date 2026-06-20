@@ -19,20 +19,26 @@ extension UpdateCoordinator {
             for: track,
             albumTracks: albumTracks
         )
+        let hasAmbiguousReleaseYearSignal = hasAmbiguousReleaseYearSignal(
+            for: track,
+            albumTracks: albumTracks
+        )
 
         if shouldPreferLocalYearRepair(for: track),
            let localChange = yearChangeFromLocalDetermination(track: track, albumTracks: albumTracks) {
             return localChange
         }
 
-        if let cachedChange = await yearChangeFromCache(
-            track: track,
-            releaseYearConflict: releaseYearConflict
-        ) {
+        if !hasAmbiguousReleaseYearSignal,
+           let cachedChange = await yearChangeFromCache(
+               track: track,
+               releaseYearConflict: releaseYearConflict
+           ) {
             return cachedChange
         }
 
         if releaseYearConflict == nil,
+           !hasAmbiguousReleaseYearSignal,
            let localChange = yearChangeFromLocalDetermination(track: track, albumTracks: albumTracks) {
             return localChange
         }
@@ -41,7 +47,7 @@ extension UpdateCoordinator {
             track: track,
             albumTracks: albumTracks,
             albumTypeInfo: albumTypeInfo,
-            ignoreLocalAlbumYears: releaseYearConflict != nil
+            ignoreLocalAlbumYears: releaseYearConflict != nil || hasAmbiguousReleaseYearSignal
         )
 
         return await yearChangeFromAPIDetermination(
@@ -245,6 +251,10 @@ extension UpdateCoordinator {
             return consensusYear
         }
 
+        guard validReleaseYears(in: contextTracks).count <= 1 else {
+            return nil
+        }
+
         guard let releaseYear = track.releaseYear,
               case .valid = yearDeterminator.validator.validate(year: releaseYear)
         else {
@@ -252,6 +262,25 @@ extension UpdateCoordinator {
         }
 
         return releaseYear
+    }
+
+    private func hasAmbiguousReleaseYearSignal(
+        for track: Track,
+        albumTracks: [Track]
+    ) -> Bool {
+        let contextTracks = albumTracks.isEmpty ? [track] : albumTracks
+        return validReleaseYears(in: contextTracks).count > 1
+    }
+
+    private func validReleaseYears(in tracks: [Track]) -> Set<Int> {
+        Set(tracks.compactMap { track in
+            guard let releaseYear = track.releaseYear,
+                  case .valid = yearDeterminator.validator.validate(year: releaseYear)
+            else {
+                return nil
+            }
+            return releaseYear
+        })
     }
 
     private func consensusReleaseYear(in tracks: [Track]) -> Int? {

@@ -25,6 +25,7 @@ public enum ScriptInstallerError: Error, LocalizedError {
     case scriptsDirectoryNotFound
     case bundleScriptsNotFound
     case scriptCopyFailed(scriptName: String, underlyingError: any Error)
+    case scriptInstallationIncomplete(errors: [String])
     case allScriptsFailed(errors: [String])
 
     public var errorDescription: String? {
@@ -35,6 +36,8 @@ public enum ScriptInstallerError: Error, LocalizedError {
             "Script resources not found in the app bundle."
         case let .scriptCopyFailed(name, error):
             "Failed to install script '\(name)': \(error.localizedDescription)"
+        case let .scriptInstallationIncomplete(errors):
+            "Some required script installations failed:\n\(errors.joined(separator: "\n"))"
         case let .allScriptsFailed(errors):
             "All script installations failed:\n\(errors.joined(separator: "\n"))"
         }
@@ -81,7 +84,13 @@ public actor ScriptInstaller {
     /// Check if all required scripts are installed.
     public func areScriptsInstalled() -> Bool {
         Self.requiredScripts.allSatisfy { name in
-            FileManager.default.fileExists(atPath: scriptURL(for: name).path)
+            guard let sourceURL = bundledScriptURL(for: name),
+                  FileManager.default.fileExists(atPath: sourceURL.path),
+                  let destinationURL = versionedScriptURL(for: name, sourceURL: sourceURL)
+            else {
+                return false
+            }
+            return FileManager.default.fileExists(atPath: destinationURL.path)
         }
     }
 
@@ -96,7 +105,7 @@ public actor ScriptInstaller {
             guard let sourceURL = bundledScriptURL(for: name),
                   FileManager.default.fileExists(atPath: sourceURL.path)
             else {
-                return !FileManager.default.fileExists(atPath: legacyScriptURL(for: name).path)
+                return true
             }
 
             guard let destinationURL = versionedScriptURL(for: name, sourceURL: sourceURL) else {
@@ -166,8 +175,11 @@ public actor ScriptInstaller {
             }
         }
 
-        if installed.isEmpty, !errors.isEmpty {
-            throw ScriptInstallerError.allScriptsFailed(errors: errors)
+        if !errors.isEmpty {
+            if installed.isEmpty {
+                throw ScriptInstallerError.allScriptsFailed(errors: errors)
+            }
+            throw ScriptInstallerError.scriptInstallationIncomplete(errors: errors)
         }
 
         log.info("Script installation complete: \(installed.count)/\(Self.requiredScripts.count) installed")

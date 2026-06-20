@@ -342,9 +342,9 @@ public actor LibrarySyncService {
     private func shouldRefreshCommonTrackMetadata(force: Bool) async -> Bool {
         if force { return true }
         guard runtimeConfiguration.forceMetadataScanIntervalDays > 0,
-              let metadata = await librarySnapshotService?.getSnapshotMetadata(),
-              let lastForceScanDate = metadata.lastForceScanDate
+              let metadata = await librarySnapshotService?.getSnapshotMetadata()
         else { return false }
+        guard let lastForceScanDate = metadata.lastForceScanDate else { return true }
 
         let interval = TimeInterval(runtimeConfiguration.forceMetadataScanIntervalDays) * 86400
         return currentDate().timeIntervalSince(lastForceScanDate) >= interval

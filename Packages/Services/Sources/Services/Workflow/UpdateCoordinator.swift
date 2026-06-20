@@ -6,6 +6,7 @@ import OSLog
 
 public enum UpdateCoordinatorError: Error, LocalizedError {
     case trackNotEditable(trackID: String)
+    case trackNotProcessable(trackID: String, status: String)
     case noChangesProduced
     case allTracksFailed(count: Int, errorDescriptions: [String])
     case missingAppleScriptID(trackID: String)
@@ -15,6 +16,8 @@ public enum UpdateCoordinatorError: Error, LocalizedError {
         switch self {
         case let .trackNotEditable(trackID):
             "Track \(trackID) is not editable"
+        case let .trackNotProcessable(trackID, status):
+            "Track \(trackID) is not processable in its current status: \(status)"
         case .noChangesProduced:
             "No changes were produced for the given tracks"
         case let .allTracksFailed(count, errorDescriptions):
@@ -160,6 +163,10 @@ public actor UpdateCoordinator {
         guard inputTrack.canEdit else {
             throw UpdateCoordinatorError.trackNotEditable(trackID: inputTrack.id)
         }
+        guard Self.isTrackAvailableForProcessing(inputTrack) else {
+            log.info("Skipped unavailable track \(inputTrack.id, privacy: .private)")
+            return []
+        }
 
         var proposedChanges: [ProposedChange] = []
         var workingTrack = inputTrack
@@ -257,13 +264,14 @@ public actor UpdateCoordinator {
 
     private func availableTracksWithMutationMetadata(_ tracks: [Track]) async -> [Track] {
         guard let idMapper else {
-            return tracks
+            return tracks.filter(Self.isTrackAvailableForProcessing)
         }
 
         var enrichedTracks: [Track] = []
         enrichedTracks.reserveCapacity(tracks.count)
         for track in tracks {
-            if let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track) {
+            if let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track),
+               Self.isTrackAvailableForProcessing(enrichedTrack) {
                 enrichedTracks.append(enrichedTrack)
             }
         }
@@ -292,34 +300,34 @@ public actor UpdateCoordinator {
 
         for (index, track) in tracks.enumerated() {
             do {
-                let albumTracksWithMutationMetadata = await availableTracksWithMutationMetadata(
-                    albumTracksProvider(track)
-                )
-                let changes = try await updateTrack(
-                    track,
-                    albumTracks: albumTracksWithMutationMetadata,
+                let trackEntries = try await applyGeneratedAcceptedChanges(
+                    for: track,
                     options: options,
-                    dryRun: true
+                    albumTracksProvider: albumTracksProvider
                 )
-                for change in changes where change.isAccepted {
-                    if let entry = try await applyChange(change) {
-                        entries.append(entry)
-                    }
+                entries.append(contentsOf: trackEntries)
+            } catch let error as UpdateCoordinatorError {
+                if !recordKnownWorkflowFailure(
+                    error,
+                    fallbackTrackID: track.id,
+                    isReviewedChange: false,
+                    failedTrackIDs: &failedTrackIDs,
+                    errorDescriptions: &errorDescriptions
+                ) {
+                    recordUnexpectedWorkflowFailure(
+                        trackID: track.id,
+                        error: error,
+                        failedTrackIDs: &failedTrackIDs,
+                        errorDescriptions: &errorDescriptions
+                    )
                 }
-            } catch UpdateCoordinatorError.trackNotEditable {
-                log
-                    .info(
-                        "Skipped non-editable track \(track.id, privacy: .private)"
-                    )
-            } catch UpdateCoordinatorError.missingAppleScriptID {
-                logSkippedMissingAppleScriptID(trackID: track.id, isReviewedChange: false)
             } catch {
-                failedTrackIDs.append(track.id)
-                errorDescriptions.append(error.localizedDescription)
-                log
-                    .warning(
-                        "Failed to update track \(track.id, privacy: .private): \(error.localizedDescription, privacy: .public)"
-                    )
+                recordUnexpectedWorkflowFailure(
+                    trackID: track.id,
+                    error: error,
+                    failedTrackIDs: &failedTrackIDs,
+                    errorDescriptions: &errorDescriptions
+                )
             }
 
             progressHandler(ProgressUpdate(
@@ -349,6 +357,30 @@ public actor UpdateCoordinator {
         )
     }
 
+    private func applyGeneratedAcceptedChanges(
+        for track: Track,
+        options: UpdateOptions,
+        albumTracksProvider: @Sendable (Track) -> [Track]
+    ) async throws -> [ChangeLogEntry] {
+        let albumTracksWithMutationMetadata = await availableTracksWithMutationMetadata(
+            albumTracksProvider(track)
+        )
+        let changes = try await updateTrack(
+            track,
+            albumTracks: albumTracksWithMutationMetadata,
+            options: options,
+            dryRun: true
+        )
+
+        var entries: [ChangeLogEntry] = []
+        for change in changes where change.isAccepted {
+            if let entry = try await applyChange(change) {
+                entries.append(entry)
+            }
+        }
+        return entries
+    }
+
     /// Apply reviewed proposals exactly as accepted by the user.
     ///
     /// This preserves per-change review decisions: rejected proposals are not
@@ -371,20 +403,28 @@ public actor UpdateCoordinator {
                 if let entry = try await applyChange(change) {
                     entries.append(entry)
                 }
-            } catch UpdateCoordinatorError.trackNotEditable {
-                log
-                    .info(
-                        "Skipped non-editable reviewed change for track \(change.track.id, privacy: .private)"
+            } catch let error as UpdateCoordinatorError {
+                if !recordKnownWorkflowFailure(
+                    error,
+                    fallbackTrackID: change.track.id,
+                    isReviewedChange: true,
+                    failedTrackIDs: &failedTrackIDs,
+                    errorDescriptions: &errorDescriptions
+                ) {
+                    recordUnexpectedWorkflowFailure(
+                        trackID: change.track.id,
+                        error: error,
+                        failedTrackIDs: &failedTrackIDs,
+                        errorDescriptions: &errorDescriptions
                     )
-            } catch UpdateCoordinatorError.missingAppleScriptID {
-                logSkippedMissingAppleScriptID(trackID: change.track.id, isReviewedChange: true)
+                }
             } catch {
-                failedTrackIDs.append(change.track.id)
-                errorDescriptions.append(error.localizedDescription)
-                log
-                    .warning(
-                        "Failed to apply reviewed change for track \(change.track.id, privacy: .private): \(error.localizedDescription, privacy: .public)"
-                    )
+                recordUnexpectedWorkflowFailure(
+                    trackID: change.track.id,
+                    error: error,
+                    failedTrackIDs: &failedTrackIDs,
+                    errorDescriptions: &errorDescriptions
+                )
             }
 
             progressHandler(ProgressUpdate(
@@ -424,6 +464,88 @@ public actor UpdateCoordinator {
         }
     }
 
+    private func recordKnownWorkflowFailure(
+        _ error: UpdateCoordinatorError,
+        fallbackTrackID: String,
+        isReviewedChange: Bool,
+        failedTrackIDs: inout [String],
+        errorDescriptions: inout [String]
+    ) -> Bool {
+        switch error {
+        case let .trackNotEditable(trackID):
+            Self.recordFailedTrack(
+                id: trackID,
+                error: error,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            )
+            logNonEditableTrack(trackID: fallbackTrackID, isReviewedChange: isReviewedChange)
+        case let .trackNotProcessable(trackID, _):
+            Self.recordFailedTrack(
+                id: trackID,
+                error: error,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            )
+            logUnprocessableTrack(trackID: trackID, isReviewedChange: isReviewedChange)
+        case let .missingAppleScriptID(trackID):
+            Self.recordFailedTrack(
+                id: trackID,
+                error: error,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            )
+            logSkippedMissingAppleScriptID(trackID: trackID, isReviewedChange: isReviewedChange)
+        default:
+            return false
+        }
+        return true
+    }
+
+    private func logNonEditableTrack(trackID: String, isReviewedChange: Bool) {
+        if isReviewedChange {
+            log.info("Skipped non-editable reviewed change for track \(trackID, privacy: .private)")
+        } else {
+            log.info("Skipped non-editable track \(trackID, privacy: .private)")
+        }
+    }
+
+    private func logUnprocessableTrack(trackID: String, isReviewedChange: Bool) {
+        if isReviewedChange {
+            log.info("Skipped unprocessable reviewed change for track \(trackID, privacy: .private)")
+        } else {
+            log.info("Skipped unprocessable track \(trackID, privacy: .private)")
+        }
+    }
+
+    private func recordUnexpectedWorkflowFailure(
+        trackID: String,
+        error: any Error,
+        failedTrackIDs: inout [String],
+        errorDescriptions: inout [String]
+    ) {
+        Self.recordFailedTrack(
+            id: trackID,
+            error: error,
+            failedTrackIDs: &failedTrackIDs,
+            errorDescriptions: &errorDescriptions
+        )
+        log.warning(
+            "Failed workflow operation for track \(trackID, privacy: .private): \(error.localizedDescription, privacy: .public)"
+        )
+    }
+
+    private static func recordFailedTrack(
+        id: String,
+        error: any Error,
+        failedTrackIDs: inout [String],
+        errorDescriptions: inout [String]
+    ) {
+        failedTrackIDs.append(id)
+        let description = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        errorDescriptions.append(description)
+    }
+
     // MARK: Apply Change
 
     @discardableResult
@@ -440,6 +562,12 @@ public actor UpdateCoordinator {
         let mutationTrack = try await trackWithMutationMetadata(change.track)
         guard mutationTrack.canEdit else {
             throw UpdateCoordinatorError.trackNotEditable(trackID: mutationTrack.id)
+        }
+        guard Self.isTrackAvailableForProcessing(mutationTrack) else {
+            throw UpdateCoordinatorError.trackNotProcessable(
+                trackID: mutationTrack.id,
+                status: mutationTrack.trackStatus ?? "unknown"
+            )
         }
 
         let property = Self.appleScriptProperty(for: change.changeType)
@@ -495,6 +623,10 @@ public actor UpdateCoordinator {
         case .albumCleaning: "album"
         case .artistRename: "artist"
         }
+    }
+
+    private static func isTrackAvailableForProcessing(_ track: Track) -> Bool {
+        track.kind?.isAvailableForProcessing ?? true
     }
 
     private func invalidateCaches(for change: ProposedChange) async {

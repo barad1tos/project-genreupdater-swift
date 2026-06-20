@@ -14,6 +14,17 @@ struct UpdateCoordinatorErrorTests {
         #expect(description.contains("ABC123"))
     }
 
+    @Test("trackNotProcessable includes track ID and status in description")
+    func trackNotProcessable() {
+        let error = UpdateCoordinatorError.trackNotProcessable(
+            trackID: "ABC123",
+            status: "no longer available"
+        )
+        let description = error.errorDescription ?? ""
+        #expect(description.contains("ABC123"))
+        #expect(description.contains("no longer available"))
+    }
+
     @Test("noChangesProduced has a description")
     func noChangesProduced() {
         let error = UpdateCoordinatorError.noChangesProduced

@@ -384,7 +384,7 @@ struct LibrarySyncServiceTests {
         let result = try await service.detectChanges(forceMetadataRefresh: true)
         let metadata = await snapshotService.getSnapshotMetadata()
 
-        #expect(result.modifiedTracks.map { $0.id } == ["T1"])
+        #expect(result.modifiedTracks.map(\.id) == ["T1"])
         #expect(await bridge.fetchedTrackIDSets() == [Set(["T1"])])
         #expect(metadata?.lastForceScanDate == scanDate)
     }
@@ -421,7 +421,43 @@ struct LibrarySyncServiceTests {
         let result = try await service.detectChanges()
         let metadata = await snapshotService.getSnapshotMetadata()
 
-        #expect(result.modifiedTracks.map { $0.id } == ["T1"])
+        #expect(result.modifiedTracks.map(\.id) == ["T1"])
+        #expect(await bridge.fetchTracksRequestCount() == 1)
+        #expect(metadata?.lastForceScanDate == now)
+    }
+
+    @Test("Missing force scan timestamp triggers initial metadata refresh")
+    func missingForceScanTimestampTriggersInitialMetadataRefresh() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let snapshotDate = now.addingTimeInterval(-3600)
+
+        let stored = Track(id: "T1", name: "Stored", artist: "A", album: "B")
+        let current = Track(id: "T1", name: "Changed", artist: "A", album: "B")
+        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": current])
+        await store.setStored([stored])
+        await snapshotService.setMetadata(LibraryCacheMetadata(
+            trackCount: 1,
+            snapshotHash: "hash",
+            timestamp: snapshotDate,
+            libraryModificationDate: snapshotDate
+        ))
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            librarySnapshotService: snapshotService,
+            currentDate: { now }
+        )
+
+        let result = try await service.detectChanges()
+        let metadata = await snapshotService.getSnapshotMetadata()
+
+        #expect(result.modifiedTracks.map(\.id) == ["T1"])
         #expect(await bridge.fetchTracksRequestCount() == 1)
         #expect(metadata?.lastForceScanDate == now)
     }
@@ -462,7 +498,7 @@ struct LibrarySyncServiceTests {
         let storedTracks = await store.storedTracks
 
         #expect(result.newTracks.map(\.id) == ["NEW"])
-        #expect(result.modifiedTracks.map { $0.id } == ["MOD"])
+        #expect(result.modifiedTracks.map(\.id) == ["MOD"])
         #expect(result.removedTrackIDs == ["REMOVED"])
         #expect(storedTracks.map(\.id).sorted() == ["MOD", "NEW"])
         #expect(storedTracks.first { $0.id == "MOD" }?.name == "Updated Song")
