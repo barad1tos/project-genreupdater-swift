@@ -37,7 +37,7 @@ public func removeParenthesesWithKeywords(_ name: String, keywords: [String]) ->
     var cleaned = name
     cleaned = removeSegments(from: cleaned, open: "(", close: ")", balanced: true, keywords: keywords)
     cleaned = removeSegments(from: cleaned, open: "[", close: "]", balanced: false, keywords: keywords)
-    return cleaned.split(separator: " ").joined(separator: " ")
+    return collapseWhitespace(cleaned)
 }
 
 // MARK: - Album Suffix Removal
@@ -105,8 +105,8 @@ public func cleanNames(
         exceptions: config.trackCleaningExceptions
     ) {
         return (
-            trackName.trimmingCharacters(in: .whitespaces),
-            albumName.trimmingCharacters(in: .whitespaces)
+            trackName.trimmingCharacters(in: .whitespacesAndNewlines),
+            albumName.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
 
@@ -207,7 +207,7 @@ private func compileSuffixPatterns(_ rawSuffixes: [String]) -> [(String, NSRegul
 
     var result: [(String, NSRegularExpression)] = []
     for suffix in deduped {
-        let trimmed = suffix.trimmingCharacters(in: .whitespaces)
+        let trimmed = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { continue }
 
         let specialChars = CharacterSet(charactersIn: " ()\u{2013}\u{2014}-")
@@ -251,6 +251,5 @@ private func isCleaningException(
 
 /// Collapse multiple whitespace characters into single spaces and trim.
 private func collapseWhitespace(_ text: String) -> String {
-    text.split(separator: " ").joined(separator: " ")
-        .trimmingCharacters(in: .whitespaces)
+    text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
 }

@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 import Foundation
 import Testing
 @testable import Core
@@ -67,6 +66,21 @@ struct YearScorerScoringTests {
         // Python parity: normalized strings differ ("okcomputer" vs "okcomputerremastered"),
         // "okcomputer" is substring of "okcomputerremastered" → albumSubstringPenalty
         #expect(result.breakdown.albumMatch == scorer.config.albumSubstringPenalty)
+    }
+
+    @Test("Configured edition keywords normalize album match for scoring")
+    func albumEditionKeywordsNormalizeScoreMatch() {
+        let configuredScorer = YearScorer(editionKeywords: ["deluxe", "edition"])
+        let candidate = makeCandidate(artist: "X", album: "Fallen", year: 2003)
+        let result = configuredScorer.scoreRelease(
+            candidate,
+            queryArtist: "X",
+            queryAlbum: "Fallen (Deluxe Edition)"
+        )
+        let expectedAlbumMatch = configuredScorer.config.albumExactMatchBonus
+            + configuredScorer.config.perfectMatchBonus
+
+        #expect(result.breakdown.albumMatch == expectedAlbumMatch)
     }
 
     @Test("Unrelated album gives penalty")
@@ -468,6 +482,19 @@ struct YearScorerResolutionTests {
         #expect(result.year == 1997)
     }
 
+    @Test("Original release preference skips when best title lacks edition keywords")
+    func originalReleasePreferenceRequiresEditionKeywordWhenConfigured() {
+        let scorer = YearScorer(editionKeywords: ["remaster", "deluxe"])
+        let scored = [
+            makeScoredRelease(year: 2020, score: 85, album: "Different Album"),
+            makeScoredRelease(year: 1997, score: 80, album: "Original Album"),
+        ]
+
+        let result = scorer.resolveScores(scored)
+
+        #expect(result.year == 2020)
+    }
+
     @Test("Definitive when high score and large gap")
     func definitiveResult() {
         let scored = [
@@ -570,11 +597,12 @@ private func makeCandidate(
 private func makeScoredRelease(
     year: Int,
     score: Int,
-    isReissue: Bool = false
+    isReissue: Bool = false,
+    album: String = "Test"
 ) -> ScoredRelease {
     let candidate = ReleaseCandidate(
         artist: "Test",
-        album: "Test",
+        album: album,
         year: year,
         source: .musicBrainz,
         isReissue: isReissue

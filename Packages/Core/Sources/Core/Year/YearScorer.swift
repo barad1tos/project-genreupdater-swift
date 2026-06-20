@@ -22,13 +22,16 @@ private let veryHighScoreThreshold = 75
 public struct YearScorer: Sendable {
     public let config: ScoringConfig
     public let yearLogic: YearLogicConfig
+    public let editionKeywords: [String]
 
     public init(
         config: ScoringConfig = ScoringConfig(),
-        yearLogic: YearLogicConfig = YearLogicConfig()
+        yearLogic: YearLogicConfig = YearLogicConfig(),
+        editionKeywords: [String] = []
     ) {
         self.config = config
         self.yearLogic = yearLogic
+        self.editionKeywords = editionKeywords
     }
 
     // MARK: - Score One Release
@@ -289,6 +292,10 @@ public struct YearScorer: Sendable {
             return (year, score)
         }
 
+        guard shouldApplyOriginalReleasePreference(bestYear: year, scored: scored) else {
+            return (year, score)
+        }
+
         guard let earliestScore = scored
             .filter({ $0.candidate.year == earliestYear })
             .max(by: { $0.totalScore < $1.totalScore })?
@@ -300,6 +307,24 @@ public struct YearScorer: Sendable {
             return (earliestYear, earliestScore)
         }
         return (year, score)
+    }
+
+    private func shouldApplyOriginalReleasePreference(bestYear: Int, scored: [ScoredRelease]) -> Bool {
+        guard !editionKeywords.isEmpty else {
+            return true
+        }
+
+        let bestYearAlbums = scored
+            .filter { $0.candidate.year == bestYear }
+            .map(\.candidate.album)
+        return containsEditionKeyword(bestYearAlbums)
+    }
+
+    private func containsEditionKeyword(_ titles: [String]) -> Bool {
+        titles.contains { title in
+            let normalizedTitle = title.lowercased()
+            return editionKeywords.contains { normalizedTitle.contains($0.lowercased()) }
+        }
     }
 
     private func checkScoreConflict(
@@ -381,9 +406,9 @@ extension YearScorer {
         artistMatchScore: Int = 0
     ) -> Int {
         // Python parity: normalize by lowercasing + removing non-alphanumeric
-        // (no edition stripping — Python only strips if remaster_keywords provided)
-        let compQuery = normalizeForScoreComparison(query)
-        let compCandidate = normalizeForScoreComparison(candidate)
+        // after optional edition stripping when remaster_keywords are configured.
+        let compQuery = normalizeForScoreComparison(stripEditionSuffix(query))
+        let compCandidate = normalizeForScoreComparison(stripEditionSuffix(candidate))
 
         // Exact match (Python: comp_release_title == comp_album_norm)
         if compQuery == compCandidate {
@@ -408,6 +433,13 @@ extension YearScorer {
     private func normalizeForScoreComparison(_ text: String) -> String {
         text.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
             .map { String($0) }.joined()
+    }
+
+    private func stripEditionSuffix(_ album: String) -> String {
+        guard !editionKeywords.isEmpty else {
+            return album
+        }
+        return removeParenthesesWithKeywords(album, keywords: editionKeywords)
     }
 
     private func scoreSoundtrackCompensation(

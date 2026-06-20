@@ -340,7 +340,8 @@ final class AppDependencies {
         return YearDeterminator(
             scorer: YearScorer(
                 config: yearRetrieval.scoring,
-                yearLogic: yearRetrieval.logic
+                yearLogic: yearRetrieval.logic,
+                editionKeywords: configuration.cleaning.remasterKeywords
             ),
             validator: YearValidator(config: yearRetrieval.logic),
             fallback: YearFallbackStrategy(
