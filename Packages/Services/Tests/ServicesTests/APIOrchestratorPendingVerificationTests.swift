@@ -32,6 +32,62 @@ struct APIOrchestratorPendingVerificationTests {
         #expect(await pendingVerification.removalCount() == 0)
     }
 
+    @Test("Falls back to valid library year when APIs return no usable year")
+    func noUsableYearFallsBackToValidLibraryYearAndKeepsPendingVerification() async {
+        let pendingVerification = RecordingPendingVerificationService()
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(yearResult: YearResult()),
+            discogs: MockAPIService(shouldThrow: true),
+            appleMusic: MockAPIService(shouldThrow: true)
+        ) {
+            $0.pendingVerificationService = pendingVerification
+        }
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "Clutch",
+            album: "Pure Rock Fury",
+            currentLibraryYear: 2001,
+            earliestTrackAddedYear: 1999
+        )
+
+        let mark = await pendingVerification.firstMark()
+        #expect(result.year == 2001)
+        #expect(result.isDefinitive == false)
+        #expect(result.confidence == 0)
+        #expect(result.yearScores.isEmpty)
+        #expect(mark?.artist == "Clutch")
+        #expect(mark?.album == "Pure Rock Fury")
+        #expect(mark?.reason == "no_year_found")
+        #expect(await pendingVerification.removalCount() == 0)
+    }
+
+    @Test("Rejects current-year library fallback without a current add date")
+    func noUsableYearRejectsSuspiciousCurrentYearFallback() async {
+        let pendingVerification = RecordingPendingVerificationService()
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(yearResult: YearResult()),
+            discogs: MockAPIService(shouldThrow: true),
+            appleMusic: MockAPIService(shouldThrow: true)
+        ) {
+            $0.pendingVerificationService = pendingVerification
+        }
+        let currentYear = Calendar.current.component(.year, from: Date())
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "Future Noise",
+            album: "Auto Tagged",
+            currentLibraryYear: currentYear,
+            earliestTrackAddedYear: nil
+        )
+
+        let mark = await pendingVerification.firstMark()
+        #expect(result.year == nil)
+        #expect(mark?.artist == "Future Noise")
+        #expect(mark?.album == "Auto Tagged")
+        #expect(mark?.reason == "no_year_found")
+        #expect(await pendingVerification.removalCount() == 0)
+    }
+
     @Test("Marks album pending when API year is not definitive")
     func nonDefinitiveYearMarksPendingVerification() async {
         let pendingVerification = RecordingPendingVerificationService()

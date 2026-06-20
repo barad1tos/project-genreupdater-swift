@@ -266,18 +266,67 @@ public actor APIOrchestrator {
         )
 
         let results = await fetchSourceResults(sources: sources, query: query)
-        let result = Self.aggregateResults(results, orderedSources: activeSources)
+        let apiResult = Self.aggregateResults(results, orderedSources: activeSources)
         await PendingVerificationSync.synchronize(
             service: pendingVerificationService,
             albumKey: (artist, album),
             currentLibraryYear: currentLibraryYear,
             maxVerificationAttempts: maxVerificationAttempts,
-            result: result
+            result: apiResult
         )
-        return result
+        return Self.applyingCurrentLibraryFallback(
+            to: apiResult,
+            currentLibraryYear: currentLibraryYear,
+            earliestTrackAddedYear: earliestTrackAddedYear
+        )
     }
 
     // MARK: - Private
+
+    private static func applyingCurrentLibraryFallback(
+        to result: YearResult,
+        currentLibraryYear: Int?,
+        earliestTrackAddedYear: Int?
+    ) -> YearResult {
+        guard result.year == nil,
+              let fallbackYear = currentLibraryYear
+        else {
+            return result
+        }
+
+        let currentYear = Calendar.current.component(.year, from: Date())
+        guard isValidCurrentLibraryFallbackYear(fallbackYear, currentYear: currentYear),
+              !isCurrentYearContamination(
+                  currentLibraryYear: fallbackYear,
+                  earliestTrackAddedYear: earliestTrackAddedYear,
+                  currentYear: currentYear
+              )
+        else {
+            return result
+        }
+
+        return YearResult(year: fallbackYear)
+    }
+
+    private static func isValidCurrentLibraryFallbackYear(_ year: Int, currentYear: Int) -> Bool {
+        year >= YearLogicConfig().minValidYear && year <= currentYear
+    }
+
+    private static func isCurrentYearContamination(
+        currentLibraryYear: Int,
+        earliestTrackAddedYear: Int?,
+        currentYear: Int
+    ) -> Bool {
+        guard currentLibraryYear == currentYear else {
+            return false
+        }
+
+        guard let earliestTrackAddedYear else {
+            return true
+        }
+
+        return earliestTrackAddedYear > currentYear || earliestTrackAddedYear < currentYear
+    }
 
     /// Fetches source results with bounded concurrency while preserving configured source order.
     private func fetchSourceResults(
