@@ -57,8 +57,11 @@ build_destination() {
 }
 
 sign_app_for_local_run() {
+  local bundle_id
+
   mkdir -p "$(dirname "$LOCAL_ENTITLEMENTS")"
   cp "$SOURCE_ENTITLEMENTS" "$LOCAL_ENTITLEMENTS"
+  bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_BUNDLE/Contents/Info.plist")"
 
   # Local ad-hoc signing cannot satisfy the iCloud KVS entitlement without a
   # provisioning profile. Keep the source entitlements intact for release builds,
@@ -67,7 +70,7 @@ sign_app_for_local_run() {
     -c "Delete :com.apple.developer.ubiquity-kvstore-identifier" \
     "$LOCAL_ENTITLEMENTS" >/dev/null 2>&1 || true
 
-  /usr/bin/codesign --force --sign - --entitlements "$LOCAL_ENTITLEMENTS" "$APP_BUNDLE"
+  /usr/bin/codesign --force --sign - --identifier "$bundle_id" --entitlements "$LOCAL_ENTITLEMENTS" "$APP_BUNDLE"
 }
 
 install_local_application_scripts() {
