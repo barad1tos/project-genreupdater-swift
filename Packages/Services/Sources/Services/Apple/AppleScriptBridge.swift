@@ -183,7 +183,7 @@ public actor AppleScriptBridge: AppleScriptClient {
                 continue
             }
 
-            let tracks = parseTrackOutput(output)
+            let tracks = Self.parseTrackOutput(output)
             allTracks.append(contentsOf: tracks)
         }
 
@@ -299,7 +299,7 @@ public actor AppleScriptBridge: AppleScriptClient {
     }
 
     /// Parse AppleScript output into Track objects.
-    private func parseTrackOutput(_ output: String) -> [Core.Track] {
+    static func parseTrackOutput(_ output: String) -> [Core.Track] {
         output.split(separator: Core.Track.recordSeparator)
             .compactMap { Core.Track.fromAppleScriptOutput(String($0)) }
     }
