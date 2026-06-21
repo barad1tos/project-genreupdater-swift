@@ -91,17 +91,17 @@ public struct UpdateCoordinatorDependencies {
 /// Supports single-track updates, batch processing, and dry-run previews.
 public actor UpdateCoordinator {
     var apiOrchestrator: APIOrchestrator
-    private let scriptBridge: any AppleScriptClient
-    private let trackStore: any TrackStateStore
+    let scriptBridge: any AppleScriptClient
+    let trackStore: any TrackStateStore
     let cache: any CacheService
-    private let undoCoordinator: UndoCoordinator
-    private let idMapper: (any TrackIDMapping)?
-    private var librarySnapshotService: (any LibrarySnapshotService)?
+    let undoCoordinator: UndoCoordinator
+    let idMapper: (any TrackIDMapping)?
+    var librarySnapshotService: (any LibrarySnapshotService)?
     let pendingVerificationService: (any PendingVerificationService)?
     private let genreDeterminator: GenreDeterminator
     var yearDeterminator: YearDeterminator
     var runtimeConfiguration: UpdateRuntimeConfiguration
-    private let log = Logger(subsystem: "com.genreupdater", category: "UpdateCoordinator")
+    let log = Logger(subsystem: "com.genreupdater", category: "UpdateCoordinator")
 
     public init(
         dependencies: UpdateCoordinatorDependencies,
@@ -321,7 +321,7 @@ public actor UpdateCoordinator {
         )
     }
 
-    private func trackWithMutationMetadata(_ track: Track) async throws -> Track {
+    func trackWithMutationMetadata(_ track: Track) async throws -> Track {
         guard let idMapper else {
             return track
         }
@@ -443,8 +443,13 @@ public actor UpdateCoordinator {
             dryRun: true
         )
 
+        let acceptedChanges = changes.filter(\.isAccepted)
+        if let entries = await applyChangesAsBatchIfPossible(acceptedChanges) {
+            return entries
+        }
+
         var entries: [ChangeLogEntry] = []
-        for change in changes where change.isAccepted {
+        for change in acceptedChanges {
             if let entry = try await applyChange(change) {
                 entries.append(entry)
             }
@@ -469,40 +474,24 @@ public actor UpdateCoordinator {
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
 
-        for (index, change) in accepted.enumerated() {
-            do {
-                if let entry = try await applyChange(change) {
-                    entries.append(entry)
-                }
-            } catch let error as UpdateCoordinatorError {
-                if !recordKnownWorkflowFailure(
-                    error,
-                    fallbackTrackID: change.track.id,
-                    isReviewedChange: true,
-                    failedTrackIDs: &failedTrackIDs,
-                    errorDescriptions: &errorDescriptions
-                ) {
-                    recordUnexpectedWorkflowFailure(
-                        trackID: change.track.id,
-                        error: error,
-                        failedTrackIDs: &failedTrackIDs,
-                        errorDescriptions: &errorDescriptions
-                    )
-                }
-            } catch {
-                recordUnexpectedWorkflowFailure(
-                    trackID: change.track.id,
-                    error: error,
-                    failedTrackIDs: &failedTrackIDs,
-                    errorDescriptions: &errorDescriptions
-                )
-            }
+        var index = 0
+        while index < accepted.count {
+            let changeGroup = consecutiveChangesForSameTrack(in: accepted, startingAt: index)
+            let groupEntries = await applyReviewedChangeGroup(
+                changeGroup,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            )
+            entries.append(contentsOf: groupEntries)
 
-            progressHandler(ProgressUpdate(
-                phase: .updating,
-                current: index + 1,
-                total: accepted.count
-            ))
+            for progressOffset in changeGroup.indices {
+                progressHandler(ProgressUpdate(
+                    phase: .updating,
+                    current: index + progressOffset + 1,
+                    total: accepted.count
+                ))
+            }
+            index += changeGroup.count
         }
 
         progressHandler(ProgressUpdate(
@@ -535,7 +524,7 @@ public actor UpdateCoordinator {
         }
     }
 
-    private func recordKnownWorkflowFailure(
+    func recordKnownWorkflowFailure(
         _ error: UpdateCoordinatorError,
         fallbackTrackID: String,
         isReviewedChange: Bool,
@@ -589,7 +578,7 @@ public actor UpdateCoordinator {
         }
     }
 
-    private func recordUnexpectedWorkflowFailure(
+    func recordUnexpectedWorkflowFailure(
         trackID: String,
         error: any Error,
         failedTrackIDs: inout [String],
@@ -615,121 +604,5 @@ public actor UpdateCoordinator {
         failedTrackIDs.append(id)
         let description = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         errorDescriptions.append(description)
-    }
-
-    // MARK: Apply Change
-
-    @discardableResult
-    func applyChange(_ change: ProposedChange) async throws -> ChangeLogEntry? {
-        guard runtimeConfiguration.allowsChange(change) else {
-            log
-                .info(
-                    "Skipped change for track \(change.track.id, privacy: .private) outside test artist allow-list"
-                )
-            return nil
-        }
-
-        guard let newValue = change.newValue else { return nil }
-        let mutationTrack = try await trackWithMutationMetadata(change.track)
-        guard mutationTrack.canEdit else {
-            throw UpdateCoordinatorError.trackNotEditable(trackID: mutationTrack.id)
-        }
-        guard Self.isTrackAvailableForProcessing(mutationTrack) else {
-            throw UpdateCoordinatorError.trackNotProcessable(
-                trackID: mutationTrack.id,
-                status: mutationTrack.trackStatus ?? "unknown"
-            )
-        }
-
-        let property = Self.appleScriptProperty(for: change.changeType)
-
-        let writeID: String
-        if let idMapper {
-            guard let appleScriptID = await idMapper.appleScriptID(forMusicKitID: mutationTrack.id) else {
-                throw UpdateCoordinatorError.missingAppleScriptID(trackID: mutationTrack.id)
-            }
-            writeID = appleScriptID
-        } else {
-            writeID = mutationTrack.id
-        }
-
-        do {
-            try await scriptBridge.updateTrackProperty(
-                trackID: writeID,
-                property: property,
-                value: newValue
-            )
-        } catch {
-            throw UpdateCoordinatorError.writeFailed(
-                trackID: change.track.id,
-                property: property,
-                reason: error.localizedDescription
-            )
-        }
-
-        // Record for undo
-        let logEntry = Self.changeToLogEntry(change)
-        await undoCoordinator.recordChange(logEntry)
-
-        // Update track processing state
-        try? await trackStore.updateTrackProcessingState(
-            id: change.track.id,
-            genreUpdated: change.changeType == .genreUpdate ? true : nil,
-            yearUpdated: change.changeType == .yearUpdate || change.changeType == .yearRevert ? true : nil
-        )
-        await invalidateCaches(for: change)
-
-        log
-            .info(
-                "Applied \(change.changeType.rawValue, privacy: .public) to track \(change.track.id, privacy: .private)"
-            )
-        return logEntry
-    }
-
-    private static func appleScriptProperty(for changeType: ChangeType) -> String {
-        switch changeType {
-        case .genreUpdate: "genre"
-        case .yearUpdate, .yearRevert: "year"
-        case .trackCleaning: "name"
-        case .albumCleaning: "album"
-        case .artistRename: "artist"
-        }
-    }
-
-    private static func isTrackAvailableForProcessing(_ track: Track) -> Bool {
-        track.kind?.isAvailableForProcessing ?? true
-    }
-
-    private func invalidateCaches(for change: ProposedChange) async {
-        for target in cacheInvalidationTargets(for: change) {
-            await cache.invalidateAlbum(artist: target.artist, album: target.album)
-            await cache.invalidateCachedAPIResults(artist: target.artist, album: target.album)
-        }
-        await librarySnapshotService?.clearSnapshot()
-    }
-
-    private func cacheInvalidationTargets(for change: ProposedChange) -> [(artist: String, album: String)] {
-        var candidates = [(artist: change.track.artist, album: change.track.album)]
-
-        if let originalArtist = change.track.originalArtist {
-            candidates.append((artist: originalArtist, album: change.track.album))
-        }
-        if change.changeType == .artistRename, let oldArtist = change.oldValue {
-            candidates.append((artist: oldArtist, album: change.track.album))
-        }
-        if change.changeType == .albumCleaning, let newAlbum = change.newValue {
-            candidates.append((artist: change.track.artist, album: newAlbum))
-        }
-
-        var seenKeys: Set<String> = []
-        return candidates.compactMap { candidate in
-            let artist = candidate.artist.trimmingCharacters(in: .whitespacesAndNewlines)
-            let album = candidate.album.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !artist.isEmpty, !album.isEmpty else { return nil }
-
-            let key = "\(normalizeForMatching(artist))\u{1F}\(normalizeForMatching(album))"
-            guard seenKeys.insert(key).inserted else { return nil }
-            return (artist: artist, album: album)
-        }
     }
 }

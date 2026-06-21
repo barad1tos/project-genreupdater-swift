@@ -181,6 +181,16 @@ actor DashboardStateScriptClient: AppleScriptClient {
         writes.append((trackID: trackID, property: property, value: value))
     }
 
+    func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
+        for update in updates {
+            try await updateTrackProperty(
+                trackID: update.trackID,
+                property: update.property,
+                value: update.value
+            )
+        }
+    }
+
     func updatedProperties() -> [(trackID: String, property: String, value: String)] {
         writes
     }

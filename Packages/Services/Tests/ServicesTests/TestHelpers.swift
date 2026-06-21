@@ -32,9 +32,11 @@ func makeAPIOrchestrator(
 
 actor MockAppleScriptClient: AppleScriptClient {
     var writtenProperties: [(trackID: String, property: String, value: String)] = []
+    var batchUpdates: [[(trackID: String, property: String, value: String)]] = []
     var trackIDsToFetch: [String] = []
     var tracksByID: [String: Track] = [:]
     var shouldThrow = false
+    var shouldThrowBatch = false
 
     func initialize() async throws {}
 
@@ -65,8 +67,19 @@ actor MockAppleScriptClient: AppleScriptClient {
         writtenProperties.append((trackID, property, value))
     }
 
+    func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
+        batchUpdates.append(updates)
+        if shouldThrowBatch {
+            throw MockScriptError.intentional
+        }
+    }
+
     func setThrowMode(_ shouldFail: Bool) {
         shouldThrow = shouldFail
+    }
+
+    func setBatchThrowMode(_ shouldFail: Bool) {
+        shouldThrowBatch = shouldFail
     }
 
     func setFetchedTracks(_ tracks: [Track]) {

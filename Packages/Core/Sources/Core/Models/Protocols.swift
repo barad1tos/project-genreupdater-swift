@@ -308,6 +308,9 @@ public protocol AppleScriptClient: Actor {
 
     /// Update a single property on a track in Music.app.
     func updateTrackProperty(trackID: String, property: String, value: String) async throws
+
+    /// Update multiple track properties in one Music.app script call.
+    func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws
 }
 
 extension AppleScriptClient {

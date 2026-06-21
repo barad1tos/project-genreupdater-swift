@@ -43,6 +43,140 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.entries[0].changeType == .genreUpdate)
     }
 
+    @Test("Batch writes accepted same-track proposals when enabled")
+    func batchWritesAcceptedSameTrackProposalsWhenEnabled() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            )
+        )
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        let proposals = [
+            ProposedChange(
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Stoner Rock",
+                confidence: 90,
+                source: "Library",
+                isAccepted: true
+            ),
+            ProposedChange(
+                track: track,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz",
+                isAccepted: true
+            ),
+            ProposedChange(
+                track: track,
+                changeType: .trackCleaning,
+                oldValue: "American Sleep - Single",
+                newValue: "American Sleep",
+                confidence: 88,
+                source: "Cleaner",
+                isAccepted: false
+            ),
+        ]
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let batches = await fixture.bridge.batchUpdates
+        let written = await fixture.bridge.writtenProperties
+        #expect(batches.count == 1)
+        #expect(batches[0].map(\.property) == ["genre", "year"])
+        #expect(batches[0].map(\.value) == ["Stoner Rock", "2001"])
+        #expect(written.isEmpty)
+        #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
+    }
+
+    @Test("Default reviewed writes keep single-write behavior")
+    func defaultReviewedWritesKeepSingleWriteBehavior() async throws {
+        let fixture = await makeCoordinator()
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        let proposals = [
+            ProposedChange(
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Stoner Rock",
+                confidence: 90,
+                source: "Library",
+                isAccepted: true
+            ),
+            ProposedChange(
+                track: track,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz",
+                isAccepted: true
+            ),
+        ]
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let batches = await fixture.bridge.batchUpdates
+        let written = await fixture.bridge.writtenProperties
+        #expect(batches.isEmpty)
+        #expect(written.map(\.property) == ["genre", "year"])
+        #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
+    }
+
+    @Test("Batch failure falls back to single reviewed writes")
+    func batchFailureFallsBackToSingleReviewedWrites() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            )
+        )
+        await fixture.bridge.setBatchThrowMode(true)
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        let proposals = [
+            ProposedChange(
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Stoner Rock",
+                confidence: 90,
+                source: "Library",
+                isAccepted: true
+            ),
+            ProposedChange(
+                track: track,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz",
+                isAccepted: true
+            ),
+        ]
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let batches = await fixture.bridge.batchUpdates
+        let written = await fixture.bridge.writtenProperties
+        #expect(batches.count == 1)
+        #expect(written.map(\.property) == ["genre", "year"])
+        #expect(written.map(\.value) == ["Stoner Rock", "2001"])
+        #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
+    }
+
     @Test("Test artist allow-list skips out-of-scope reviewed changes")
     func artistAllowListSkipsOutOfScopeReviewedChanges() async throws {
         let fixture = await makeCoordinator(

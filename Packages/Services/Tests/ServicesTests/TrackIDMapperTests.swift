@@ -380,6 +380,12 @@ private actor ScopedTrackMappingScriptClient: AppleScriptClient {
         try Task.checkCancellation()
     }
 
+    func batchUpdateTracks(
+        _: [(trackID: String, property: String, value: String)]
+    ) async throws {
+        try Task.checkCancellation()
+    }
+
     func didFetchAllTrackIDs() -> Bool {
         fetchedAllTrackIDs
     }

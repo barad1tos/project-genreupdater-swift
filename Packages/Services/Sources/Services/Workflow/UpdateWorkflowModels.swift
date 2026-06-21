@@ -75,6 +75,8 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     /// Artist allow-list for update writes; empty means all effective artists are allowed.
     public let testArtists: [String]
     public let shouldOverrideExistingGenres: Bool
+    public let areBatchUpdatesEnabled: Bool
+    public let maxBatchUpdateSize: Int
 
     public struct Policies: Sendable, Equatable {
         public let isYearLookupEnabled: Bool
@@ -114,6 +116,8 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         genreMappings: [String: String] = [:],
         artistRenameMappings: [String: String] = [:],
         testArtists: [String] = AppConfiguration().development.testArtists,
+        areBatchUpdatesEnabled: Bool = AppConfiguration().experimental.batchUpdatesEnabled,
+        maxBatchUpdateSize: Int = AppConfiguration().experimental.maxBatchSize,
         policies: Policies = Policies()
     ) {
         self.genreMappings = genreMappings
@@ -128,6 +132,8 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         self.prereleaseRecheckDays = policies.prereleaseRecheckDays
         self.testArtists = testArtists
         self.shouldOverrideExistingGenres = policies.shouldOverrideExistingGenres
+        self.areBatchUpdatesEnabled = areBatchUpdatesEnabled
+        self.maxBatchUpdateSize = max(1, maxBatchUpdateSize)
     }
 
     public init(configuration: AppConfiguration) {
@@ -141,6 +147,8 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             genreMappings: configuration.cleaning.genreMappings,
             artistRenameMappings: configuration.artistRenamer.mappings,
             testArtists: configuration.development.testArtists,
+            areBatchUpdatesEnabled: configuration.experimental.batchUpdatesEnabled,
+            maxBatchUpdateSize: configuration.experimental.maxBatchSize,
             policies: Policies(
                 isYearLookupEnabled: configuration.yearRetrieval.enabled,
                 minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
