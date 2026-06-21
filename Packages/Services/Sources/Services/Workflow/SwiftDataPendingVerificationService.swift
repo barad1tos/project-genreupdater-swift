@@ -11,6 +11,39 @@ private struct LegacyPendingVerificationStore: Codable {
     var lastAutoVerification: Date?
 }
 
+private enum PendingCSVMetadataValue: Decodable {
+    case bool(Bool)
+    case double(Double)
+    case integer(Int)
+    case string(String)
+
+    var stringValue: String {
+        switch self {
+        case let .bool(value):
+            value ? "true" : "false"
+        case let .double(value):
+            String(value)
+        case let .integer(value):
+            String(value)
+        case let .string(value):
+            value
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Int.self) {
+            self = .integer(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .double(value)
+        } else {
+            self = try .string(container.decode(String.self))
+        }
+    }
+}
+
 /// Stores pending album verification state in SwiftData.
 ///
 /// The legacy JSON path is only read as a migration source. New runtime state
@@ -282,10 +315,194 @@ extension SwiftDataPendingVerificationService {
         if let decodedEnvelope = try? decoder.decode(LegacyPendingVerificationStore.self, from: data) {
             return decodedEnvelope
         }
-        return try LegacyPendingVerificationStore(
-            entries: decoder.decode([PendingAlbumEntry].self, from: data),
-            lastAutoVerification: nil
+        if let decodedEntries = try? decoder.decode([PendingAlbumEntry].self, from: data) {
+            return LegacyPendingVerificationStore(entries: decodedEntries, lastAutoVerification: nil)
+        }
+        return try decodePythonPendingCSV(data)
+    }
+
+    private func decodePythonPendingCSV(_ data: Data) throws -> LegacyPendingVerificationStore {
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: [], debugDescription: "Pending CSV is not valid UTF-8")
+            )
+        }
+
+        let rows = Self.parseCSVRows(text)
+        guard let header = rows.first else {
+            return LegacyPendingVerificationStore(entries: [], lastAutoVerification: nil)
+        }
+
+        let columnIndexes = Self.pendingCSVColumnIndexes(header)
+        guard Self.hasRequiredPendingCSVColumns(columnIndexes) else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: [], debugDescription: "Pending CSV header missing expected fields")
+            )
+        }
+
+        var entries: [PendingAlbumEntry] = []
+        for row in rows.dropFirst() {
+            if let entry = pendingEntry(fromPendingCSVRow: row, columnIndexes: columnIndexes) {
+                entries.append(entry)
+            }
+        }
+        return LegacyPendingVerificationStore(entries: entries, lastAutoVerification: nil)
+    }
+
+    private func pendingEntry(
+        fromPendingCSVRow row: [String],
+        columnIndexes: [String: Int]
+    ) -> PendingAlbumEntry? {
+        let artist = Self.csvField("artist", in: row, columnIndexes: columnIndexes)
+        let album = Self.csvField("album", in: row, columnIndexes: columnIndexes)
+        let timestamp = Self.csvField("timestamp", in: row, columnIndexes: columnIndexes)
+        guard !artist.isEmpty, !album.isEmpty, let lastAttempt = Self.parsePendingCSVTimestamp(timestamp) else {
+            return nil
+        }
+
+        let reason = Self.pendingCSVReason(Self.csvField("reason", in: row, columnIndexes: columnIndexes))
+        let metadata = Self.pendingCSVMetadata(Self.csvField("metadata", in: row, columnIndexes: columnIndexes))
+        let attemptCount = Self.pendingCSVAttemptCount(
+            Self.csvField("attempt_count", in: row, columnIndexes: columnIndexes)
         )
+
+        return PendingAlbumEntry(
+            id: albumKey(artist: artist, album: album),
+            artist: artist,
+            album: album,
+            reason: reason,
+            attemptCount: attemptCount,
+            lastAttempt: lastAttempt,
+            recheckInterval: pendingCSVRecheckInterval(reason: reason, metadata: metadata),
+            metadata: metadata
+        )
+    }
+
+    private func pendingCSVRecheckInterval(reason: String, metadata: [String: String]) -> TimeInterval {
+        if let recheckDays = Self.positiveRecheckDays(metadata["recheck_days"]) {
+            return TimeInterval(recheckDays) * 86400
+        }
+        if Self.isPrereleaseReason(reason) {
+            return TimeInterval(prereleaseRecheckDays) * 86400
+        }
+        return verificationInterval
+    }
+
+    private static func parseCSVRows(_ text: String) -> [[String]] {
+        var rows: [[String]] = []
+        var row: [String] = []
+        var field = ""
+        var isQuoted = false
+        let characters = Array(text)
+        var index = 0
+
+        while index < characters.count {
+            let character = characters[index]
+            let nextCharacter = index + 1 < characters.count ? characters[index + 1] : nil
+
+            if character == "\"" {
+                if isQuoted, nextCharacter == "\"" {
+                    field.append(character)
+                    index += 1
+                } else {
+                    isQuoted.toggle()
+                }
+            } else if character == ",", !isQuoted {
+                row.append(field)
+                field.removeAll(keepingCapacity: true)
+            } else if character == "\n" || character == "\r", !isQuoted {
+                row.append(field)
+                field.removeAll(keepingCapacity: true)
+                if row.contains(where: { !$0.isEmpty }) {
+                    rows.append(row)
+                }
+                row.removeAll(keepingCapacity: true)
+                if character == "\r", nextCharacter == "\n" {
+                    index += 1
+                }
+            } else {
+                field.append(character)
+            }
+
+            index += 1
+        }
+
+        if !field.isEmpty || !row.isEmpty {
+            row.append(field)
+            rows.append(row)
+        }
+        return rows
+    }
+
+    private static func pendingCSVColumnIndexes(_ header: [String]) -> [String: Int] {
+        var indexes: [String: Int] = [:]
+        for (index, field) in header.enumerated() {
+            indexes[field.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()] = index
+        }
+        return indexes
+    }
+
+    private static func hasRequiredPendingCSVColumns(_ columnIndexes: [String: Int]) -> Bool {
+        columnIndexes["artist"] != nil
+            && columnIndexes["album"] != nil
+            && columnIndexes["timestamp"] != nil
+    }
+
+    private static func csvField(
+        _ name: String,
+        in row: [String],
+        columnIndexes: [String: Int]
+    ) -> String {
+        guard let index = columnIndexes[name], row.indices.contains(index) else { return "" }
+        return row[index].trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func pendingCSVReason(_ value: String) -> String {
+        let normalizedReason = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard pendingCSVKnownReasons.contains(normalizedReason) else { return "no_year_found" }
+        return normalizedReason
+    }
+
+    private static let pendingCSVKnownReasons: Set<String> = [
+        "absurd_year_no_existing",
+        "implausible_existing_year",
+        "implausible_matching_year",
+        "implausible_proposed_year",
+        "no_year_found",
+        "prerelease",
+        "special_album_compilation",
+        "special_album_reissue",
+        "special_album_special",
+        "suspicious_album_name",
+        "suspicious_year_change",
+        "very_low_confidence_no_existing",
+    ]
+
+    private static func parsePendingCSVTimestamp(_ value: String) -> Date? {
+        pendingCSVDateFormatter(format: "yyyy-MM-dd HH:mm:ss").date(from: value)
+            ?? pendingCSVDateFormatter(format: "yyyy-MM-dd").date(from: value)
+    }
+
+    private static func pendingCSVDateFormatter(format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = format
+        return formatter
+    }
+
+    private static func pendingCSVMetadata(_ value: String) -> [String: String] {
+        guard !value.isEmpty, let data = value.data(using: .utf8) else { return [:] }
+        guard let values = try? JSONDecoder().decode([String: PendingCSVMetadataValue].self, from: data) else {
+            return [:]
+        }
+        return values.mapValues(\.stringValue)
+    }
+
+    private static func pendingCSVAttemptCount(_ value: String) -> Int {
+        guard let count = Int(value), count > 0 else { return 0 }
+        return count
     }
 
     private func fetchEntry(id: String) throws -> PersistedPendingAlbumEntry? {

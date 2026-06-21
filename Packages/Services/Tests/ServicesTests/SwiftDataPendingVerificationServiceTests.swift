@@ -336,6 +336,46 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(await !(service.shouldAutoVerify()))
     }
 
+    @Test("Python pending CSV imports into SwiftData")
+    func pythonPendingCSVImportsIntoSwiftData() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
+        let legacyURL = directory.appendingPathComponent("pending_year_verification.csv")
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let csv = """
+        artist,album,timestamp,reason,metadata,attempt_count
+        "Bjork, Solo",Debut,2023-11-14 22:13:20,prerelease,"{""source"":""python"",""recheck_days"":7}",4
+        Low,HEY WHAT,2023-11-14,no_year_found,,2
+        Coil,Wrong,2023-11-14,unknown_reason,,1
+        """
+        try csv.write(to: legacyURL, atomically: true, encoding: .utf8)
+
+        let service = makeService(
+            container: container,
+            directory: directory,
+            date: baseDate.addingTimeInterval(8 * day),
+            verificationIntervalDays: 30,
+            legacyStorageURL: legacyURL
+        )
+        try await service.initialize()
+
+        let prerelease = try #require(await service.getEntry(artist: "Bjork, Solo", album: "Debut"))
+        #expect(prerelease.reason == "prerelease")
+        #expect(prerelease.attemptCount == 4)
+        #expect(prerelease.metadata["source"] == "python")
+        #expect(prerelease.metadata["recheck_days"] == "7")
+        #expect(await service.isVerificationNeeded(artist: "Bjork, Solo", album: "Debut"))
+
+        let missingYear = try #require(await service.getEntry(artist: "Low", album: "HEY WHAT"))
+        #expect(missingYear.reason == "no_year_found")
+        #expect(missingYear.attemptCount == 2)
+        #expect(missingYear.metadata.isEmpty)
+
+        let unknownReason = try #require(await service.getEntry(artist: "Coil", album: "Wrong"))
+        #expect(unknownReason.reason == "no_year_found")
+    }
+
     @Test("Problematic albums report writes Python-compatible CSV columns")
     func problematicAlbumsReportWritesCSV() async throws {
         let directory = try makeTempDirectory()
