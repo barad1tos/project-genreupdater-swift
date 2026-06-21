@@ -171,7 +171,7 @@ final class WorkflowViewModel {
     let featureGate: FeatureGate?
     let recordProcessedTracks: (Int) -> Void
     let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
-    let resolveIncrementalTracks: ([Track]) async -> [Track]
+    let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
     let updateIncrementalRunTimestamp: (() async -> Void)?
     var defaultUpdateGenre: Bool
     var defaultUpdateYear: Bool
@@ -445,7 +445,10 @@ final class WorkflowViewModel {
 
     private func tracksForProcessing(_ tracks: [Track]) async -> [Track] {
         guard mode == .fullLibrary else { return tracks }
-        return await resolveIncrementalTracks(tracks)
+        return await resolveIncrementalTracks(
+            tracks,
+            IncrementalTrackScopeOptions(updateGenre: updateGenre)
+        )
     }
 
     private func finishEmptyProcessingRun() {
