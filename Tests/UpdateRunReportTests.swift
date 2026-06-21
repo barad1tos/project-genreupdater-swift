@@ -89,7 +89,7 @@ struct UpdateRunReportTests {
     }
 
     @Test("changed year rows show original editable year instead of release metadata")
-    func changedYearRowsShowOriginalEditableYearInsteadOfReleaseMetadata() throws {
+    func changedYearRowsShowOriginalEditableYearInsteadOfReleaseMetadata() {
         var entry = ChangeLogEntry(
             changeType: .yearUpdate,
             trackID: "pure-rock-1",
@@ -148,6 +148,50 @@ struct UpdateRunReportTests {
         #expect(report.changedTrackCount == 1)
         #expect(report.skippedCount == 1)
         #expect(report.scannedTrackCount == 2)
+    }
+
+    @Test("summarizes change breakdown by type in report output")
+    func summarizesChangeBreakdownByTypeInReportOutput() {
+        var genreEntry = ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "foregone-1",
+            artist: "In Flames",
+            trackName: "State of Slow Decay",
+            albumName: "Foregone"
+        )
+        genreEntry.oldGenre = "Melodic Death Metal"
+        genreEntry.newGenre = "Metal"
+
+        var albumCleaningEntry = ChangeLogEntry(
+            changeType: .albumCleaning,
+            trackID: "foregone-1",
+            artist: "In Flames",
+            trackName: "State of Slow Decay",
+            albumName: "Foregone (Deluxe Edition)"
+        )
+        albumCleaningEntry.oldAlbumName = "Foregone (Deluxe Edition)"
+        albumCleaningEntry.newAlbumName = "Foregone"
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: makeEntries(album: "Foregone", count: 2, oldYear: 2021, newYear: 2023)
+                    + [genreEntry, albumCleaningEntry],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: ["In Flames"]
+        )
+
+        #expect(report.changeBreakdown.map(\.changeType) == [.albumCleaning, .genreUpdate, .yearUpdate])
+        #expect(report.changeBreakdown.map(\.changeCount) == [1, 1, 2])
+        #expect(report.changeBreakdown.map(\.trackCount) == [1, 1, 2])
+        #expect(report.changeBreakdown.map(\.albumCount) == [1, 1, 1])
+        #expect(report.plainTextSummary.contains("Change Breakdown"))
+        #expect(report.plainTextSummary.contains("- Album: 1 change, 1 track, 1 album"))
+        #expect(report.plainTextSummary.contains("- Year: 2 changes, 2 tracks, 1 album"))
     }
 
     private func makeEntries(

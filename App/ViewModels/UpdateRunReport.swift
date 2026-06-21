@@ -6,6 +6,7 @@ struct UpdateRunReport: Equatable {
     let changedEntries: [ChangeLogEntry]
     let albumGroups: [UpdateRunAlbumGroup]
     let albumResults: [UpdateRunAlbumResult]
+    let changeBreakdown: [UpdateRunChangeBreakdown]
     let failures: [UpdateRunFailure]
     let skippedCount: Int
     let scannedTrackCount: Int
@@ -26,6 +27,7 @@ struct UpdateRunReport: Equatable {
         )
         changedEntries = entries
         albumGroups = Self.makeAlbumGroups(from: entries)
+        changeBreakdown = Self.makeChangeBreakdown(from: entries)
         failures = failureItems
         albumResults = Self.makeAlbumResults(
             entries: entries,
@@ -143,6 +145,22 @@ struct UpdateRunReport: Equatable {
             }
             .sorted { left, right in
                 left.title.localizedStandardCompare(right.title) == .orderedAscending
+            }
+    }
+
+    private static func makeChangeBreakdown(from entries: [ChangeLogEntry]) -> [UpdateRunChangeBreakdown] {
+        Dictionary(grouping: entries, by: \.changeType)
+            .map { changeType, entries in
+                UpdateRunChangeBreakdown(
+                    changeType: changeType,
+                    changeCount: entries.count,
+                    trackCount: Set(entries.map(\.trackID)).count,
+                    albumCount: Set(entries.map { [$0.artist, $0.albumName].joined(separator: "\u{1F}") }).count
+                )
+            }
+            .sorted { left, right in
+                left.changeType.displayLabel
+                    .localizedStandardCompare(right.changeType.displayLabel) == .orderedAscending
             }
     }
 
@@ -366,6 +384,7 @@ struct UpdateRunReport: Equatable {
         ]
 
         appendFailures(to: &lines)
+        appendChangeBreakdown(to: &lines)
         appendAlbumGroups(to: &lines)
         return lines.joined(separator: "\n")
     }
@@ -380,6 +399,16 @@ struct UpdateRunReport: Equatable {
         lines.append("")
     }
 
+    private func appendChangeBreakdown(to lines: inout [String]) {
+        guard !changeBreakdown.isEmpty else { return }
+
+        lines.append("Change Breakdown")
+        for item in changeBreakdown {
+            lines.append("- \(item.changeType.displayLabel): \(item.summary)")
+        }
+        lines.append("")
+    }
+
     private func appendAlbumGroups(to lines: inout [String]) {
         guard !albumGroups.isEmpty else { return }
 
@@ -390,6 +419,25 @@ struct UpdateRunReport: Equatable {
                 lines.append("  - \(entry.trackName)")
             }
         }
+    }
+}
+
+struct UpdateRunChangeBreakdown: Equatable {
+    let changeType: ChangeType
+    let changeCount: Int
+    let trackCount: Int
+    let albumCount: Int
+
+    var summary: String {
+        [
+            "\(changeCount.formatted()) \(Self.noun("change", count: changeCount))",
+            "\(trackCount.formatted()) \(Self.noun("track", count: trackCount))",
+            "\(albumCount.formatted()) \(Self.noun("album", count: albumCount))",
+        ].joined(separator: ", ")
+    }
+
+    private static func noun(_ singular: String, count: Int) -> String {
+        count == 1 ? singular : "\(singular)s"
     }
 }
 
