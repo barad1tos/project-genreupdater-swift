@@ -164,6 +164,32 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(change.newValue == "1999")
     }
 
+    @Test("full library force lookup bypasses incremental scope")
+    func fullLibraryForceLookupBypassesIncrementalScope() async throws {
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2001, confidence: 100),
+            resolveIncrementalTracks: { _, _ in [] }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = true
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+        viewModel.forceYearLookup = true
+
+        viewModel.start(tracks: [
+            Track(id: "old-track", name: "Song", artist: "Artist", album: "Album", year: 1999),
+        ])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        let change = try #require(viewModel.proposedChanges.first)
+        #expect(change.track.id == "old-track")
+        #expect(change.changeType == .yearUpdate)
+        #expect(change.oldValue == "1999")
+        #expect(change.newValue == "2001")
+    }
+
     @Test("full library preview only still requires batch feature")
     func fullLibraryPreviewOnlyStillRequiresBatchFeature() async {
         let fixture = makeWorkflowFixture(
