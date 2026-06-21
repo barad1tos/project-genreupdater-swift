@@ -190,7 +190,7 @@ public actor LibrarySyncService {
         let commonIDs = libraryIDSet.intersection(storedIDSet)
         var modifiedTracks: [Track] = []
 
-        if !commonIDs.isEmpty, await shouldRefreshCommonTrackMetadata(force: forceMetadataRefresh) {
+        if !commonIDs.isEmpty, try await shouldRefreshCommonTrackMetadata(force: forceMetadataRefresh) {
             let currentTracks = try await scriptBridge.fetchTracksByIDs(
                 Array(commonIDs),
                 batchSize: runtimeConfiguration.idsBatchSize,
@@ -346,12 +346,15 @@ public actor LibrarySyncService {
         return TrackFingerprint.hash(current) != TrackFingerprint.hash(stored)
     }
 
-    private func shouldRefreshCommonTrackMetadata(force: Bool) async -> Bool {
+    private func shouldRefreshCommonTrackMetadata(force: Bool) async throws -> Bool {
         if force { return true }
         guard runtimeConfiguration.forceMetadataScanIntervalDays > 0,
               let metadata = await librarySnapshotService?.getSnapshotMetadata()
         else { return false }
-        guard let lastForceScanDate = metadata.lastForceScanDate else { return false }
+        guard let lastForceScanDate = metadata.lastForceScanDate else {
+            try await updateForceScanDate()
+            return false
+        }
 
         let interval = TimeInterval(runtimeConfiguration.forceMetadataScanIntervalDays) * 86400
         return currentDate().timeIntervalSince(lastForceScanDate) >= interval
