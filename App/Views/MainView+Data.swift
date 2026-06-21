@@ -6,8 +6,6 @@ import SharedUI
 import SwiftData
 import SwiftUI
 
-private let mainViewDataLog = AppLogger.make(category: "main-view-data")
-
 struct SelectedUpdateScopeConfiguration {
     let tracks: [Track]
     let updateGenre: Bool
@@ -186,13 +184,10 @@ extension MainView {
                 },
                 resolveIncrementalTracks: { tracks, options in
                     let lastRunTime = await dependencies.incrementalRunTracker?.getLastRunTimestamp()
-                    let previousTracks = await Self.loadPreviousIncrementalScopeTracks(
-                        dependencies.trackStore
-                    )
                     return UpdateTrackScopeResolver.incrementalTracks(
                         tracks,
                         lastRunTime: lastRunTime,
-                        previousTracks: previousTracks,
+                        previousTracks: dependencies.previousIncrementalScopeTracks,
                         options: options
                     )
                 },
@@ -209,18 +204,6 @@ extension MainView {
             )
         )
         applyPendingSelectedUpdateScopeIfNeeded()
-    }
-
-    private static func loadPreviousIncrementalScopeTracks(_ trackStore: SwiftDataTrackStore?) async -> [Track] {
-        guard let trackStore else { return [] }
-        do {
-            return try await trackStore.loadAllTracks()
-        } catch {
-            mainViewDataLog.warning(
-                "Failed to load previous incremental scope tracks: \(error.localizedDescription, privacy: .public)"
-            )
-            return []
-        }
     }
 
     var configuredUpdateSelection: (updateGenre: Bool, updateYear: Bool) {
