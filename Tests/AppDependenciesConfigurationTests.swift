@@ -99,6 +99,26 @@ struct AppDependenciesConfigurationTests {
         #expect(storedPriority?.fallback == originalPriority.fallback)
         #expect(isAppError(dependencies.appState, containing: "test configuration save failed"))
     }
+
+    @Test("Runtime apply refreshes incremental run tracker path")
+    func runtimeApplyRefreshesIncrementalRunTrackerPath() async {
+        let logsDirectory = temporaryConfigurationTestDirectory()
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in }
+        )
+        dependencies.config.paths.logsBaseDirectory = logsDirectory.path
+        dependencies.config.logging.lastIncrementalRunFile = "state/last_incremental_run.log"
+
+        #expect(dependencies.saveConfigurationAndApplyRuntime())
+
+        await dependencies.incrementalRunTracker?.updateLastRunTimestamp()
+
+        let expectedTimestampFile = logsDirectory
+            .appendingPathComponent("state", isDirectory: true)
+            .appendingPathComponent("last_incremental_run.log")
+        #expect(FileManager.default.fileExists(atPath: expectedTimestampFile.path))
+    }
 }
 
 private enum StubConfigurationError: LocalizedError {
@@ -134,4 +154,10 @@ private func isAppLoading(_ state: AppState) -> Bool {
         return false
     }
     return true
+}
+
+private func temporaryConfigurationTestDirectory() -> URL {
+    FileManager.default.temporaryDirectory
+        .appendingPathComponent("GenreUpdaterAppDependenciesConfigurationTests", isDirectory: true)
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
 }

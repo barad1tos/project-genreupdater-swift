@@ -13,7 +13,8 @@ func makeWorkflowViewModel() -> WorkflowViewModel {
 func makeWorkflowFixture(
     apiService: DashboardStateAPIService = DashboardStateAPIService(),
     tier: Tier = .pro,
-    failingWriteTrackIDs: Set<String> = []
+    failingWriteTrackIDs: Set<String> = [],
+    updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {
     let scriptClient = DashboardStateScriptClient(failingTrackIDs: failingWriteTrackIDs)
     let trackStore = DashboardStateTrackStore()
@@ -50,7 +51,8 @@ func makeWorkflowFixture(
             updateCoordinator: updateCoordinator,
             batchProcessor: batchProcessor,
             changePreviewPipeline: ChangePreviewPipeline(),
-            featureGate: featureGate
+            featureGate: featureGate,
+            updateIncrementalRunTimestamp: updateIncrementalRunTimestamp
         )
     )
 
