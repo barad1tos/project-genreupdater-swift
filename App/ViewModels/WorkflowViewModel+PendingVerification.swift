@@ -170,15 +170,7 @@ extension WorkflowViewModel {
 
     private func pendingVerificationSnapshot() async -> (all: [PendingAlbumEntry], due: [PendingAlbumEntry]) {
         guard let pendingVerificationService else { return ([], []) }
-
-        let allEntries = await pendingVerificationService.getAllPendingAlbums()
-        var dueEntries: [PendingAlbumEntry] = []
-        for entry in allEntries {
-            let isDue = await pendingVerificationService.isVerificationNeeded(artist: entry.artist, album: entry.album)
-            guard isDue else { continue }
-            dueEntries.append(entry)
-        }
-        return (allEntries, dueEntries)
+        return await pendingVerificationService.getPendingVerificationSnapshot()
     }
 
     private func updatePendingScope(
