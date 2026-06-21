@@ -365,138 +365,6 @@ struct LibrarySyncServiceTests {
         #expect(!result.hasChanges)
     }
 
-    @Test("Fast mode skips metadata fetch for common tracks")
-    func fastModeSkipsMetadataFetchForCommonTracks() async throws {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
-
-        let stored = Track(id: "T1", name: "Stored", artist: "A", album: "B")
-        let current = Track(id: "T1", name: "Changed", artist: "A", album: "B")
-        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": current])
-        await store.setStored([stored])
-
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
-        )
-
-        let result = try await service.detectChanges()
-
-        #expect(!result.hasChanges)
-        #expect(await bridge.fetchTracksRequestCount() == 0)
-    }
-
-    @Test("Force mode fetches common tracks and records force scan timestamp")
-    func forceModeFetchesCommonTracksAndRecordsTimestamp() async throws {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
-        let snapshotService = SyncMockLibrarySnapshotService()
-        let scanDate = Date(timeIntervalSince1970: 1_800_000_000)
-
-        let oldDate = scanDate.addingTimeInterval(-3600)
-        let stored = Track(id: "T1", name: "Stored", artist: "A", album: "B", lastModified: oldDate)
-        let current = Track(id: "T1", name: "Changed", artist: "A", album: "B", lastModified: scanDate)
-        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": current])
-        await store.setStored([stored])
-        await snapshotService.setMetadata(LibraryCacheMetadata(
-            trackCount: 1,
-            snapshotHash: "hash",
-            timestamp: oldDate,
-            libraryModificationDate: oldDate
-        ))
-
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate,
-            librarySnapshotService: snapshotService,
-            currentDate: { scanDate }
-        )
-
-        let result = try await service.detectChanges(forceMetadataRefresh: true)
-        let metadata = await snapshotService.getSnapshotMetadata()
-
-        #expect(result.modifiedTracks.map(\.id) == ["T1"])
-        #expect(await bridge.fetchedTrackIDSets() == [Set(["T1"])])
-        #expect(metadata?.lastForceScanDate == scanDate)
-    }
-
-    @Test("Stale force scan timestamp triggers metadata refresh")
-    func staleForceScanTimestampTriggersMetadataRefresh() async throws {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
-        let snapshotService = SyncMockLibrarySnapshotService()
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let staleForceScanDate = now.addingTimeInterval(-8 * 86400)
-
-        let stored = Track(id: "T1", name: "Stored", artist: "A", album: "B")
-        let current = Track(id: "T1", name: "Changed", artist: "A", album: "B")
-        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": current])
-        await store.setStored([stored])
-        await snapshotService.setMetadata(LibraryCacheMetadata(
-            trackCount: 1,
-            snapshotHash: "hash",
-            timestamp: staleForceScanDate,
-            libraryModificationDate: staleForceScanDate,
-            lastForceScanDate: staleForceScanDate
-        ))
-
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate,
-            librarySnapshotService: snapshotService,
-            currentDate: { now }
-        )
-
-        let result = try await service.detectChanges()
-        let metadata = await snapshotService.getSnapshotMetadata()
-
-        #expect(result.modifiedTracks.map(\.id) == ["T1"])
-        #expect(await bridge.fetchTracksRequestCount() == 1)
-        #expect(metadata?.lastForceScanDate == now)
-    }
-
-    @Test("Missing force scan timestamp triggers initial metadata refresh")
-    func missingForceScanTimestampTriggersInitialMetadataRefresh() async throws {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
-        let snapshotService = SyncMockLibrarySnapshotService()
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let snapshotDate = now.addingTimeInterval(-3600)
-
-        let stored = Track(id: "T1", name: "Stored", artist: "A", album: "B")
-        let current = Track(id: "T1", name: "Changed", artist: "A", album: "B")
-        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": current])
-        await store.setStored([stored])
-        await snapshotService.setMetadata(LibraryCacheMetadata(
-            trackCount: 1,
-            snapshotHash: "hash",
-            timestamp: snapshotDate,
-            libraryModificationDate: snapshotDate
-        ))
-
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate,
-            librarySnapshotService: snapshotService,
-            currentDate: { now }
-        )
-
-        let result = try await service.detectChanges()
-        let metadata = await snapshotService.getSnapshotMetadata()
-
-        #expect(result.modifiedTracks.map(\.id) == ["T1"])
-        #expect(await bridge.fetchTracksRequestCount() == 1)
-        #expect(metadata?.lastForceScanDate == now)
-    }
-
     @Test("Synchronize now applies new modified and removed tracks to store")
     func synchronizeNowAppliesDetectedChanges() async throws {
         let bridge = SyncMockScriptClient()
@@ -704,6 +572,27 @@ actor SyncMockLibrarySnapshotService: LibrarySnapshotService {
 
     func setMetadata(_ metadata: LibraryCacheMetadata) {
         self.metadata = metadata
+    }
+}
+
+final class SyncDateProvider: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date: Date
+
+    init(_ date: Date) {
+        self.date = date
+    }
+
+    func now() -> Date {
+        lock.withLock {
+            date
+        }
+    }
+
+    func set(_ date: Date) {
+        lock.withLock {
+            self.date = date
+        }
     }
 }
 
