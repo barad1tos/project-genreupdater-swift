@@ -250,7 +250,7 @@ final class WorkflowViewModel {
 
     // MARK: - Dry Run (Selected + Smart Filter modes)
 
-    private func startDryRun(tracks: [Track]) {
+    private func startDryRun(tracks: [Track], contextTracks: [Track]? = nil) {
         phase = .scanning
         processedCount = 0
         trackStatuses = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, TrackProcessingStatus.queued) })
@@ -270,7 +270,7 @@ final class WorkflowViewModel {
 
                 var allChanges: [ProposedChange] = []
                 let total = tracks.count
-                let albumGroups = Self.groupTracksByAlbum(tracks)
+                let albumGroups = Self.groupTracksByAlbum(contextTracks ?? tracks)
 
                 for (index, track) in tracks.enumerated() {
                     try Task.checkCancellation()
@@ -436,9 +436,9 @@ final class WorkflowViewModel {
             maintenancePreflightResult = preflightResult
 
             if shouldRunBatchProcessing {
-                startBatchProcessing(tracks: processingTracks)
+                startBatchProcessing(tracks: processingTracks, contextTracks: tracks)
             } else {
-                startDryRun(tracks: processingTracks)
+                startDryRun(tracks: processingTracks, contextTracks: tracks)
             }
         }
     }

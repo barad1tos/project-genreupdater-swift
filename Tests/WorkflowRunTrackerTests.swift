@@ -1,4 +1,5 @@
 import Core
+import Foundation
 import Testing
 @testable import Genre_Updater
 
@@ -101,6 +102,51 @@ struct WorkflowRunTrackerTests {
 
         #expect(writes.map(\.trackID) == [newTrack.id])
         #expect(viewModel.scopeTrackCount == 1)
+    }
+
+    @Test("incremental full-library scope keeps full artist context for decisions")
+    func incrementalFullLibraryScopeKeepsFullArtistContextForDecisions() async throws {
+        let genreSource = Track(
+            id: "genre-source",
+            name: "Bullet Ride",
+            artist: "In Flames",
+            album: "Clayman",
+            genre: "Melodic Death Metal",
+            dateAdded: Date(timeIntervalSince1970: 1000)
+        )
+        let missingGenre = Track(
+            id: "missing-genre",
+            name: "Only for the Weak",
+            artist: "In Flames",
+            album: "Clayman",
+            dateAdded: Date(timeIntervalSince1970: 2000)
+        )
+        let fixture = makeWorkflowFixture(
+            resolveIncrementalTracks: { tracks in
+                tracks.filter { $0.id == missingGenre.id }
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = true
+        viewModel.updateYear = false
+
+        viewModel.start(tracks: [missingGenre, genreSource])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let updatedMissingGenre = writes.contains { write in
+            write.trackID == missingGenre.id
+                && write.property == "genre"
+                && write.value == "Melodic Death Metal"
+        }
+        let onlyMissingGenreUpdated = writes.allSatisfy { write in
+            write.trackID == missingGenre.id
+        }
+
+        #expect(updatedMissingGenre)
+        #expect(onlyMissingGenreUpdated)
     }
 
     @Test("empty incremental full-library scope completes without writes or timestamp")
