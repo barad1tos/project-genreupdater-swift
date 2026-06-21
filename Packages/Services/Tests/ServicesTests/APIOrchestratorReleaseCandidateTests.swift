@@ -399,18 +399,6 @@ private struct CountingReleaseCandidateService: ExternalAPIService {
         return releaseCandidates(artist, album, currentLibraryYear, earliestTrackAddedYear)
     }
 
-    func getArtistActivityPeriod(
-        normalizedArtist _: String
-    ) async throws -> (start: Int?, end: Int?) {
-        (nil, nil)
-    }
-
-    func getArtistStartYear(
-        normalizedArtist _: String
-    ) async throws -> Int? {
-        nil
-    }
-
     func initialize(force _: Bool) async throws {
         // Test double has no external resources to initialize.
     }
@@ -444,18 +432,6 @@ private struct FlakyReleaseCandidateService: ExternalAPIService {
             throw ReleaseCandidateTestError.transientFailure
         }
         return releaseCandidates
-    }
-
-    func getArtistActivityPeriod(
-        normalizedArtist _: String
-    ) async throws -> (start: Int?, end: Int?) {
-        (nil, nil)
-    }
-
-    func getArtistStartYear(
-        normalizedArtist _: String
-    ) async throws -> Int? {
-        nil
     }
 
     func initialize(force _: Bool) async throws {

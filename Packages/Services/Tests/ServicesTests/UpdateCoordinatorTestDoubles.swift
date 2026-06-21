@@ -44,16 +44,9 @@ struct UpdateCoordinatorRecordingAPIService: ExternalAPIService {
         return releaseCandidates
     }
 
-    func getArtistActivityPeriod(normalizedArtist _: String) async throws -> (start: Int?, end: Int?) {
-        (nil, nil)
+    func initialize(force _: Bool) async throws {
+        try Task.checkCancellation()
     }
-
-    func getArtistStartYear(normalizedArtist _: String) async throws -> Int? {
-        nil
-    }
-
-    func initialize(force _: Bool) async throws {}
-    func close() async {}
 }
 
 actor PendingVerificationProbe: PendingVerificationService {

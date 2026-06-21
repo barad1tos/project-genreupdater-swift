@@ -464,20 +464,9 @@ private struct RecordingYearQueryService: ExternalAPIService {
         return yearResult
     }
 
-    func getArtistActivityPeriod(
-        normalizedArtist _: String
-    ) async throws -> (start: Int?, end: Int?) {
-        (nil, nil)
+    func initialize(force _: Bool) async throws {
+        try Task.checkCancellation()
     }
-
-    func getArtistStartYear(
-        normalizedArtist _: String
-    ) async throws -> Int? {
-        nil
-    }
-
-    func initialize(force _: Bool) async throws {}
-    func close() async {}
 }
 
 struct CountingAPIService: ExternalAPIService {
@@ -494,20 +483,9 @@ struct CountingAPIService: ExternalAPIService {
         return yearResult
     }
 
-    func getArtistActivityPeriod(
-        normalizedArtist _: String
-    ) async throws -> (start: Int?, end: Int?) {
-        (nil, nil)
+    func initialize(force _: Bool) async throws {
+        try Task.checkCancellation()
     }
-
-    func getArtistStartYear(
-        normalizedArtist _: String
-    ) async throws -> Int? {
-        nil
-    }
-
-    func initialize(force _: Bool) async throws {}
-    func close() async {}
 }
 
 struct FlakyAPIService: ExternalAPIService {
@@ -527,20 +505,9 @@ struct FlakyAPIService: ExternalAPIService {
         return yearResult
     }
 
-    func getArtistActivityPeriod(
-        normalizedArtist _: String
-    ) async throws -> (start: Int?, end: Int?) {
-        (nil, nil)
+    func initialize(force _: Bool) async throws {
+        try Task.checkCancellation()
     }
-
-    func getArtistStartYear(
-        normalizedArtist _: String
-    ) async throws -> Int? {
-        nil
-    }
-
-    func initialize(force _: Bool) async throws {}
-    func close() async {}
 }
 
 private struct RecordingAPIService: ExternalAPIService {
@@ -560,18 +527,7 @@ private struct RecordingAPIService: ExternalAPIService {
         return yearResult
     }
 
-    func getArtistActivityPeriod(
-        normalizedArtist _: String
-    ) async throws -> (start: Int?, end: Int?) {
-        (nil, nil)
+    func initialize(force _: Bool) async throws {
+        try Task.checkCancellation()
     }
-
-    func getArtistStartYear(
-        normalizedArtist _: String
-    ) async throws -> Int? {
-        nil
-    }
-
-    func initialize(force _: Bool) async throws {}
-    func close() async {}
 }

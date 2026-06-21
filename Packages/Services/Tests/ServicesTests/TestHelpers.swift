@@ -28,6 +28,16 @@ func makeAPIOrchestrator(
     )
 }
 
+extension ExternalAPIService {
+    func getArtistActivityPeriod(normalizedArtist _: String) async throws -> (start: Int?, end: Int?) {
+        (nil, nil)
+    }
+
+    func getArtistStartYear(normalizedArtist _: String) async throws -> Int? {
+        nil
+    }
+}
+
 // MARK: - MockAppleScriptClient
 
 actor MockAppleScriptClient: AppleScriptClient {
@@ -323,8 +333,9 @@ struct MockAPIService: ExternalAPIService {
         return artistStartYear
     }
 
-    func initialize(force _: Bool) async throws {}
-    func close() async {}
+    func initialize(force _: Bool) async throws {
+        try Task.checkCancellation()
+    }
 
     private func waitIfNeeded() async throws {
         if delay > .zero {
