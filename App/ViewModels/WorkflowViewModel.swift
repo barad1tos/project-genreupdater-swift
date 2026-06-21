@@ -451,6 +451,9 @@ final class WorkflowViewModel {
 
     private func tracksForProcessing(_ tracks: [Track]) async -> [Track] {
         guard mode == .fullLibrary else { return tracks }
+        if updateYear, forceYearLookup {
+            return tracks
+        }
         return await resolveIncrementalTracks(
             tracks,
             IncrementalTrackScopeOptions(updateGenre: updateGenre)
