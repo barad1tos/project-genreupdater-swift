@@ -271,7 +271,9 @@ final class WorkflowViewModel {
 
                 var allChanges: [ProposedChange] = []
                 let total = tracks.count
-                let albumGroups = Self.groupTracksByAlbum(contextTracks ?? tracks)
+                let contextTracks = contextTracks ?? tracks
+                let albumGroups = Self.groupTracksByAlbum(contextTracks)
+                let artistGroups = Self.groupTracksByArtist(contextTracks)
 
                 for (index, track) in tracks.enumerated() {
                     try Task.checkCancellation()
@@ -282,6 +284,7 @@ final class WorkflowViewModel {
                         let changes = try await previewChanges(
                             for: track,
                             albumGroups: albumGroups,
+                            artistGroups: artistGroups,
                             options: options
                         )
                         allChanges.append(contentsOf: changes)
@@ -331,11 +334,13 @@ final class WorkflowViewModel {
     private func previewChanges(
         for track: Track,
         albumGroups: [String: [Track]],
+        artistGroups: [String: [Track]],
         options: UpdateOptions
     ) async throws -> [ProposedChange] {
         try await updateCoordinator.updateTrack(
             track,
             albumTracks: albumGroups[Self.albumKey(for: track)] ?? [],
+            artistTracks: artistGroups[Self.artistKey(for: track)] ?? [],
             options: options,
             dryRun: true
         )
