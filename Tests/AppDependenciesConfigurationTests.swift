@@ -103,14 +103,18 @@ struct AppDependenciesConfigurationTests {
     @Test("Runtime apply refreshes incremental run tracker path")
     func runtimeApplyRefreshesIncrementalRunTrackerPath() async {
         let logsDirectory = temporaryConfigurationTestDirectory()
+        var didSaveConfiguration = false
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { _ in }
+            configurationSaver: { _ in
+                didSaveConfiguration = true
+            }
         )
         dependencies.config.paths.logsBaseDirectory = logsDirectory.path
         dependencies.config.logging.lastIncrementalRunFile = "state/last_incremental_run.log"
 
         #expect(dependencies.saveConfigurationAndApplyRuntime())
+        #expect(didSaveConfiguration)
 
         await dependencies.incrementalRunTracker?.updateLastRunTimestamp()
 
