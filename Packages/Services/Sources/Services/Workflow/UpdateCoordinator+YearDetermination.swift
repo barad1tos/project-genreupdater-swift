@@ -335,12 +335,13 @@ extension UpdateCoordinator {
         guard Double(apiDetermination.yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence else {
             return nil
         }
-        if let releaseYearChange = await yearChangeFromFreshReleaseYear(
-            track: track,
-            albumTracks: albumTracks,
-            staleAPIYear: year,
-            apiDetermination: apiDetermination
-        ) {
+        if !apiDetermination.yearResult.isDefinitive,
+           let releaseYearChange = await yearChangeFromFreshReleaseYear(
+               track: track,
+               albumTracks: albumTracks,
+               staleAPIYear: year,
+               apiDetermination: apiDetermination
+           ) {
             return releaseYearChange
         }
         if let releaseYearConflict, releaseYearConflict.verificationYear != year {
