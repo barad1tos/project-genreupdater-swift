@@ -324,7 +324,7 @@ public actor UpdateCoordinator {
         }
     }
 
-    private func albumContextTracks(track: Track, albumTracks: [Track]) -> [Track] {
+    func albumContextTracks(track: Track, albumTracks: [Track]) -> [Track] {
         albumTracks.contains { $0.id == track.id } ? albumTracks : albumTracks + [track]
     }
 
