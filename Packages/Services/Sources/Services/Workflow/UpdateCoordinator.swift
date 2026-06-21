@@ -164,12 +164,18 @@ public actor UpdateCoordinator {
             return []
         }
 
+        if track.kind == .prerelease,
+           await shouldSkipPrereleaseProcessing(track: track, albumTracks: albumTracks) {
+            return []
+        }
+
         let inputTrack = try await trackWithMutationMetadata(track)
         if await shouldSkipPrereleaseProcessing(track: inputTrack, albumTracks: albumTracks) {
             return []
         }
 
         let inputAlbumTracks = await availableTracksWithMutationMetadata(albumTracks)
+        let inputArtistTracks = await availableTracksWithMutationMetadata(artistTracks)
 
         guard inputTrack.canEdit else {
             throw UpdateCoordinatorError.trackNotEditable(trackID: inputTrack.id)
@@ -182,7 +188,7 @@ public actor UpdateCoordinator {
         let candidateChanges = try await proposedChanges(
             for: inputTrack,
             albumTracks: inputAlbumTracks,
-            artistTracks: artistTracks,
+            artistTracks: inputArtistTracks,
             options: options
         )
         let proposedChanges = ChangePreviewPipeline().filter(

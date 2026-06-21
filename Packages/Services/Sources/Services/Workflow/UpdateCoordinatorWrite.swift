@@ -99,6 +99,10 @@ extension UpdateCoordinator {
                     )
                 }
             )
+            guard try await verifyBatchWrites(preparedWrites) else {
+                log.warning("Batch AppleScript write could not be verified; falling back to single writes")
+                return nil
+            }
         } catch {
             log.warning(
                 "Batch AppleScript write failed; falling back to single writes: \(error.localizedDescription, privacy: .public)"
@@ -112,6 +116,26 @@ extension UpdateCoordinator {
             entries.append(entry)
         }
         return entries
+    }
+
+    private func verifyBatchWrites(_ preparedWrites: [PreparedAppleScriptWrite]) async throws -> Bool {
+        let trackIDs = Array(Set(preparedWrites.map(\.trackID)))
+        let refreshedTracks = try await scriptBridge.fetchTracksByIDs(
+            trackIDs,
+            batchSize: max(trackIDs.count, 1),
+            timeout: nil
+        )
+        let refreshedTracksByID = Dictionary(uniqueKeysWithValues: refreshedTracks.map { ($0.id, $0) })
+
+        return preparedWrites.allSatisfy { preparedWrite in
+            guard let refreshedTrack = refreshedTracksByID[preparedWrite.trackID] else {
+                return false
+            }
+            return Self.value(
+                forAppleScriptProperty: preparedWrite.property,
+                in: refreshedTrack
+            ) == preparedWrite.value
+        }
     }
 
     @discardableResult
@@ -203,6 +227,23 @@ extension UpdateCoordinator {
         case .trackCleaning: "name"
         case .albumCleaning: "album"
         case .artistRename: "artist"
+        }
+    }
+
+    private static func value(forAppleScriptProperty property: String, in track: Track) -> String? {
+        switch property {
+        case "genre":
+            track.genre
+        case "year":
+            track.year.map(String.init)
+        case "name":
+            track.name
+        case "album":
+            track.album
+        case "artist":
+            track.artist
+        default:
+            nil
         }
     }
 

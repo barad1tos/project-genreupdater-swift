@@ -85,12 +85,34 @@ struct AppleScriptBridgeConfigurationTests {
         #expect(arguments.atIndex(1)?.stringValue == "In Flames")
     }
 
-    @Test("Track ID parser ignores blank IDs and AppleScript error output")
-    func trackIDParserIgnoresBlankIDsAndErrors() {
-        #expect(AppleScriptBridge.parseTrackIDOutput(" 10, 20,, 30, ") == ["10", "20", "30"])
-        #expect(AppleScriptBridge.parseTrackIDOutput("ERROR:Music failed").isEmpty)
-        #expect(AppleScriptBridge.parseTrackIDOutput("NO_TRACKS_FOUND").isEmpty)
-        #expect(AppleScriptBridge.parseTrackIDOutput("").isEmpty)
+    @Test("Track ID parser preserves empty library sentinel and rejects AppleScript errors")
+    func trackIDParserPreservesEmptyLibraryAndRejectsErrors() throws {
+        #expect(try AppleScriptBridge.parseTrackIDOutput(" 10, 20,, 30, ") == ["10", "20", "30"])
+        #expect(try AppleScriptBridge.parseTrackIDOutput("NO_TRACKS_FOUND").isEmpty)
+        #expect(try AppleScriptBridge.parseTrackIDOutput("").isEmpty)
+        #expect(throws: AppleScriptBridgeError.self) {
+            _ = try AppleScriptBridge.parseTrackIDOutput("ERROR:Music failed")
+        }
+    }
+
+    @Test("Batch update output rejects per-track AppleScript failures")
+    func batchUpdateOutputRejectsPerTrackFailures() throws {
+        try AppleScriptBridge.validateBatchUpdateOutput(
+            "Success: Batch update process completed.",
+            updateCount: 2
+        )
+        #expect(throws: AppleScriptBridgeError.self) {
+            try AppleScriptBridge.validateBatchUpdateOutput(
+                "Error updating track ID T1: Music failed\nSuccess: Batch update process completed.",
+                updateCount: 2
+            )
+        }
+        #expect(throws: AppleScriptBridgeError.self) {
+            try AppleScriptBridge.validateBatchUpdateOutput(
+                "Year 1800 out of range for track T1\nSuccess: Batch update process completed.",
+                updateCount: 2
+            )
+        }
     }
 
     @Test("Track output parser preserves valid records and skips malformed records")

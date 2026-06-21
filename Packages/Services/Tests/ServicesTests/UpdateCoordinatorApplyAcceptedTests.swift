@@ -52,6 +52,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
             )
         )
         let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.bridge.setFetchedTracks([track])
         let proposals = [
             ProposedChange(
                 track: track,
@@ -93,6 +94,51 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(batches[0].map(\.property) == ["genre", "year"])
         #expect(batches[0].map(\.value) == ["Stoner Rock", "2001"])
         #expect(written.isEmpty)
+        #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
+    }
+
+    @Test("Unverified batch success falls back to single reviewed writes")
+    func unverifiedBatchSuccessFallsBackToSingleReviewedWrites() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            )
+        )
+        await fixture.bridge.setBatchMutationEnabled(false)
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.bridge.setFetchedTracks([track])
+        let proposals = [
+            ProposedChange(
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Stoner Rock",
+                confidence: 90,
+                source: "Library",
+                isAccepted: true
+            ),
+            ProposedChange(
+                track: track,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz",
+                isAccepted: true
+            ),
+        ]
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let batches = await fixture.bridge.batchUpdates
+        let written = await fixture.bridge.writtenProperties
+        #expect(batches.count == 1)
+        #expect(written.map(\.property) == ["genre", "year"])
+        #expect(written.map(\.value) == ["Stoner Rock", "2001"])
         #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
     }
 

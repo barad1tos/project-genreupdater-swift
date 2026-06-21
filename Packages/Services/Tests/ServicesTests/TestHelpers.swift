@@ -37,6 +37,7 @@ actor MockAppleScriptClient: AppleScriptClient {
     var tracksByID: [String: Track] = [:]
     var shouldThrow = false
     var shouldThrowBatch = false
+    var shouldApplyBatchUpdates = true
 
     func initialize() async throws {}
 
@@ -65,12 +66,17 @@ actor MockAppleScriptClient: AppleScriptClient {
             throw MockScriptError.intentional
         }
         writtenProperties.append((trackID, property, value))
+        apply(property: property, value: value, toTrackWithID: trackID)
     }
 
     func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
         batchUpdates.append(updates)
         if shouldThrowBatch {
             throw MockScriptError.intentional
+        }
+        guard shouldApplyBatchUpdates else { return }
+        for update in updates {
+            apply(property: update.property, value: update.value, toTrackWithID: update.trackID)
         }
     }
 
@@ -82,9 +88,33 @@ actor MockAppleScriptClient: AppleScriptClient {
         shouldThrowBatch = shouldFail
     }
 
+    func setBatchMutationEnabled(_ isEnabled: Bool) {
+        shouldApplyBatchUpdates = isEnabled
+    }
+
     func setFetchedTracks(_ tracks: [Track]) {
         trackIDsToFetch = tracks.map(\.id)
         tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+    }
+
+    private func apply(property: String, value: String, toTrackWithID trackID: String) {
+        guard var track = tracksByID[trackID] else { return }
+
+        switch property {
+        case "genre":
+            track.genre = value
+        case "year":
+            track.year = Int(value)
+        case "name":
+            track.name = value
+        case "album":
+            track.album = value
+        case "artist":
+            track.artist = value
+        default:
+            return
+        }
+        tracksByID[trackID] = track
     }
 }
 

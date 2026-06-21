@@ -8,6 +8,7 @@ import Testing
 actor SyncMockScriptClient: AppleScriptClient {
     var libraryTrackIDs: [String] = []
     var tracksByID: [String: Track] = [:]
+    private var fetchAllTrackIDsError: AppleScriptBridgeError?
     private var fetchTracksRequests: [(trackIDs: [String], batchSize: Int, timeout: Duration?)] = []
     private var fetchAllTrackIDsTimeouts: [Duration?] = []
 
@@ -32,6 +33,9 @@ actor SyncMockScriptClient: AppleScriptClient {
 
     func fetchAllTrackIDs(timeout: Duration?) async throws -> [String] {
         fetchAllTrackIDsTimeouts.append(timeout)
+        if let fetchAllTrackIDsError {
+            throw fetchAllTrackIDsError
+        }
         return libraryTrackIDs
     }
 
@@ -217,6 +221,31 @@ struct LibrarySyncServiceTests {
         let result = try await service.detectChanges()
         #expect(result.newTracks.isEmpty)
         #expect(result.removedTrackIDs == ["T2"])
+    }
+
+    @Test("Track ID fetch failure does not apply removals")
+    func trackIDFetchFailureDoesNotApplyRemovals() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        await bridge.setFetchAllTrackIDsError(.executionFailed(
+            scriptName: "fetch_track_ids",
+            detail: "ERROR:Music failed"
+        ))
+        await store.setStored([
+            Track(id: "T1", name: "Stored", artist: "A", album: "B"),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        await #expect(throws: AppleScriptBridgeError.self) {
+            _ = try await service.synchronizeNow()
+        }
+        #expect(try await store.trackCount() == 1)
     }
 
     @Test("Detect modified tracks via lastModified change")
@@ -638,6 +667,10 @@ extension SyncMockScriptClient {
     func setLibrary(ids: [String], tracks: [String: Track]) {
         libraryTrackIDs = ids
         tracksByID = tracks
+    }
+
+    func setFetchAllTrackIDsError(_ error: AppleScriptBridgeError) {
+        fetchAllTrackIDsError = error
     }
 }
 

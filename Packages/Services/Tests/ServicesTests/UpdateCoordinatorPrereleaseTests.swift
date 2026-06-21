@@ -5,8 +5,8 @@ import Testing
 
 @Suite("UpdateCoordinator - prerelease preflight")
 struct UpdateCoordinatorPrereleaseTests {
-    @Test("Marks prerelease tracks pending without API lookup")
-    func marksPrereleaseTracksPendingWithoutAPILookup() async throws {
+    @Test("Marks prerelease tracks pending before AppleScript ID lookup")
+    func marksPrereleaseTracksPendingBeforeAppleScriptIDLookup() async throws {
         let track = Track(
             id: "pre-1",
             name: "Future Track",
@@ -28,6 +28,7 @@ struct UpdateCoordinatorPrereleaseTests {
             api: api,
             bridge: bridge,
             cache: cache,
+            idMapper: MissingTrackIDMapper(),
             pendingVerificationService: pendingVerification
         )
 
@@ -118,6 +119,7 @@ struct UpdateCoordinatorPrereleaseTests {
         api: APIOrchestrator,
         bridge: MockAppleScriptClient,
         cache: MockCacheService,
+        idMapper: (any TrackIDMapping)? = nil,
         pendingVerificationService: (any PendingVerificationService)? = nil
     ) -> UpdateCoordinator {
         let undoDirectory = FileManager.default.temporaryDirectory
@@ -129,10 +131,27 @@ struct UpdateCoordinatorPrereleaseTests {
                 trackStore: MockTrackStore(),
                 cache: cache,
                 undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: undoDirectory),
+                idMapper: idMapper,
                 pendingVerificationService: pendingVerificationService
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator()
         )
+    }
+
+    private struct MissingTrackIDMapper: TrackIDMapping {
+        func appleScriptID(forMusicKitID _: String) async -> String? {
+            nil
+        }
+
+        func trackWithAppleScriptMetadata(for _: Track) async -> Track? {
+            nil
+        }
+
+        func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {}
+
+        func hasMappingFor(musicKitID _: String) async -> Bool {
+            false
+        }
     }
 }

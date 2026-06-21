@@ -200,7 +200,7 @@ public actor AppleScriptBridge: AppleScriptClient {
             return []
         }
 
-        let ids = Self.parseTrackIDOutput(output)
+        let ids = try Self.parseTrackIDOutput(output)
         log.info("Fetched \(ids.count, privacy: .public) track IDs from library")
         return ids
     }
@@ -248,14 +248,8 @@ public actor AppleScriptBridge: AppleScriptClient {
             timeout: config.timeouts.batchUpdate
         )
 
+        try Self.validateBatchUpdateOutput(output, updateCount: updates.count)
         log.info("Batch updated \(updates.count, privacy: .public) tracks")
-
-        if let output, output.lowercased().contains("error") {
-            throw AppleScriptBridgeError.executionFailed(
-                scriptName: "batch_update_tracks",
-                detail: "Batch of \(updates.count) updates, response=\(String(output.prefix(200)))"
-            )
-        }
     }
 
     // MARK: - Private Helpers
@@ -286,16 +280,38 @@ public actor AppleScriptBridge: AppleScriptClient {
     }
 
     /// Parse comma-separated IDs returned by fetch_track_ids.applescript.
-    static func parseTrackIDOutput(_ output: String) -> [String] {
+    static func parseTrackIDOutput(_ output: String) throws -> [String] {
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedOutput.isEmpty else { return [] }
-        guard !trimmedOutput.hasPrefix("ERROR:") else { return [] }
+        if trimmedOutput.localizedCaseInsensitiveContains("ERROR:") {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: "fetch_track_ids",
+                detail: String(trimmedOutput.prefix(200))
+            )
+        }
         guard trimmedOutput != "NO_TRACKS_FOUND" else { return [] }
 
         return output
             .split(separator: ",", omittingEmptySubsequences: false)
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    static func validateBatchUpdateOutput(_ output: String?, updateCount: Int) throws {
+        guard let output else { return }
+
+        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercasedOutput = trimmedOutput.lowercased()
+        let containsFailure =
+            lowercasedOutput.hasPrefix("error:")
+                || lowercasedOutput.contains("error updating track id")
+                || lowercasedOutput.contains(" out of range for track ")
+        guard !containsFailure else {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: "batch_update_tracks",
+                detail: "Batch of \(updateCount) updates, response=\(String(trimmedOutput.prefix(200)))"
+            )
+        }
     }
 
     /// Parse AppleScript output into Track objects.

@@ -94,6 +94,7 @@ struct UpdateCoordinatorTests {
         confidence: Int = 0,
         scriptBridge: MockAppleScriptClient? = nil,
         cache: MockCacheService? = nil,
+        idMapper: (any TrackIDMapping)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
         yearDeterminator: YearDeterminator = YearDeterminator()
@@ -130,6 +131,7 @@ struct UpdateCoordinatorTests {
                 trackStore: store,
                 cache: cacheService,
                 undoCoordinator: undo,
+                idMapper: idMapper,
                 librarySnapshotService: librarySnapshotService
             ),
             genreDeterminator: GenreDeterminator(),
@@ -231,6 +233,62 @@ struct UpdateCoordinatorTests {
         #expect(result.failedTrackIDs.isEmpty)
         #expect(written.contains { $0.trackID == "target" && $0.property == "genre" && $0.value == "Punk" })
         #expect(!written.contains { $0.trackID == "target" && $0.property == "genre" && $0.value == "Pop" })
+    }
+
+    @Test("Genre context uses AppleScript-enriched artist tracks")
+    func genreContextUsesAppleScriptEnrichedArtistTracks() async throws {
+        let mapper = TrackIDMapper()
+        let musicKitSource = makeEditableTrack(
+            id: "music-source",
+            name: "Source Song",
+            artist: "Artist",
+            album: "Source Album",
+            genre: "MusicKit Rock",
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 100)
+        )
+        let targetTrack = makeEditableTrack(
+            id: "music-target",
+            name: "Target Song",
+            artist: "Artist",
+            album: "Target Album",
+            genre: nil,
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 200)
+        )
+        let appleScriptSource = makeEditableTrack(
+            id: "script-source",
+            name: "Source Song",
+            artist: "Artist",
+            album: "Source Album",
+            genre: "AppleScript Punk",
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 100)
+        )
+        let appleScriptTarget = makeEditableTrack(
+            id: "script-target",
+            name: "Target Song",
+            artist: "Artist",
+            album: "Target Album",
+            genre: nil,
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 200)
+        )
+        await mapper.refreshMapping(
+            musicKitTracks: [musicKitSource, targetTrack],
+            appleScriptTracks: [appleScriptSource, appleScriptTarget]
+        )
+        let fixture = await makeCoordinator(idMapper: mapper)
+
+        let changes = try await fixture.coordinator.updateTrack(
+            targetTrack,
+            artistTracks: [musicKitSource],
+            options: UpdateOptions(updateGenre: true, updateYear: false),
+            dryRun: true
+        )
+
+        let genreChange = try #require(changes.first { $0.changeType == .genreUpdate })
+        #expect(genreChange.newValue == "AppleScript Punk")
     }
 
     @Test("Write mode applies changes to Music.app")
