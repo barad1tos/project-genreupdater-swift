@@ -100,6 +100,31 @@ extension UpdateCoordinatorTests {
         #expect(yearChange?.source == "Definitive")
     }
 
+    @Test("Cached year match skips lookup regardless of cache confidence")
+    func cachedYearMatchSkipsLookupRegardlessOfCacheConfidence() async throws {
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(artist: "Beatles", album: "Abbey Road", year: 1969, confidence: 70)
+
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: UpdateRuntimeConfiguration.Policies(minimumYearUpdateConfidence: 80)
+        )
+        let fixture = await makeCoordinator(
+            year: 2020,
+            confidence: 90,
+            cache: cache,
+            runtimeConfiguration: runtimeConfiguration
+        )
+
+        let track = makeEditableTrack(year: 1969)
+        let changes = try await fixture.coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(!changes.contains { $0.changeType == .yearUpdate })
+    }
+
     @Test("Configured cache threshold skips weak API persistence")
     func configuredCacheThresholdSkipsWeakAPIPersistence() async throws {
         let cache = MockCacheService()

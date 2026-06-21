@@ -130,7 +130,6 @@ extension UpdateCoordinator {
     ) -> Bool {
         guard let entry,
               let cachedYear = entry.year,
-              Double(entry.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence,
               let libraryYear = dominantValidLibraryYear(
                   in: albumContextTracks(track: track, albumTracks: albumTracks)
               )
@@ -189,7 +188,7 @@ extension UpdateCoordinator {
         var orderedYears: [Int] = []
         for track in tracks {
             guard let year = track.year,
-                  case .valid = yearDeterminator.validator.validate(year: year)
+                  isValidLibraryYearForCacheComparison(year)
             else {
                 continue
             }
@@ -210,6 +209,11 @@ extension UpdateCoordinator {
             }
         }
         return dominantYear
+    }
+
+    private func isValidLibraryYearForCacheComparison(_ year: Int) -> Bool {
+        let currentYear = Calendar.current.component(.year, from: Date())
+        return year >= yearDeterminator.validator.config.minValidYear && year <= currentYear
     }
 
     private func shouldPreferLocalYearRepair(for track: Track) -> Bool {
