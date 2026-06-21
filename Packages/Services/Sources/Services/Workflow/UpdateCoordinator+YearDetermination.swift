@@ -69,6 +69,7 @@ extension UpdateCoordinator {
 
         return await yearChangeFromAPIDetermination(
             track: track,
+            albumTracks: albumTracks,
             apiDetermination: apiDetermination,
             releaseYearConflict: releaseYearConflict
         )
@@ -324,6 +325,7 @@ extension UpdateCoordinator {
 
     private func yearChangeFromAPIDetermination(
         track: Track,
+        albumTracks: [Track],
         apiDetermination: (yearResult: YearResult, sourceLabel: String),
         releaseYearConflict: ReleaseYearConflict?
     ) async -> ProposedChange? {
@@ -332,6 +334,14 @@ extension UpdateCoordinator {
         }
         guard Double(apiDetermination.yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence else {
             return nil
+        }
+        if let releaseYearChange = await yearChangeFromFreshReleaseYear(
+            track: track,
+            albumTracks: albumTracks,
+            staleAPIYear: year,
+            apiDetermination: apiDetermination
+        ) {
+            return releaseYearChange
         }
         if let releaseYearConflict, releaseYearConflict.verificationYear != year {
             return nil
@@ -361,6 +371,43 @@ extension UpdateCoordinator {
             newValue: String(year),
             confidence: apiDetermination.yearResult.confidence,
             source: apiDetermination.sourceLabel
+        )
+    }
+
+    private func yearChangeFromFreshReleaseYear(
+        track: Track,
+        albumTracks: [Track],
+        staleAPIYear: Int,
+        apiDetermination: (yearResult: YearResult, sourceLabel: String)
+    ) async -> ProposedChange? {
+        let contextTracks = albumTracks.isEmpty ? [track] : albumTracks
+        guard let releaseYear = releaseYearSignal(for: track, contextTracks: contextTracks) else {
+            return nil
+        }
+        let currentYear = Calendar.current.component(.year, from: Date())
+        guard releaseYear == currentYear, staleAPIYear < releaseYear else {
+            return nil
+        }
+
+        await pendingVerificationService?.markForVerification(
+            artist: track.artist,
+            album: track.album,
+            reason: "stale_api_data_for_fresh_album",
+            metadata: [
+                "current_year": String(currentYear),
+                "proposed_year": String(staleAPIYear),
+                "release_year": String(releaseYear),
+            ],
+            recheckDays: nil
+        )
+
+        return ProposedChange(
+            track: track,
+            changeType: .yearUpdate,
+            oldValue: track.year.map(String.init),
+            newValue: String(releaseYear),
+            confidence: apiDetermination.yearResult.confidence,
+            source: "Release Year"
         )
     }
 

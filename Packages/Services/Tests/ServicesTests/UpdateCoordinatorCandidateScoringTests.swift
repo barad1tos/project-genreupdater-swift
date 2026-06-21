@@ -434,6 +434,60 @@ struct UpdateCoordinatorCandidateScoringTests {
         #expect(yearChange.source == "Api")
     }
 
+    @Test("Force lookup trusts fresh release year over stale API")
+    func forceLookupTrustsFreshReleaseYearOverStaleAPI() async throws {
+        let currentYear = Calendar.current.component(.year, from: Date())
+        let staleAPIYear = currentYear - 2
+        let track = subRosaTrack(year: nil, releaseYear: currentYear)
+        let albumTracks = [
+            track,
+            subRosaTrack(
+                id: "subrosa-2",
+                name: "Crucible",
+                year: nil,
+                releaseYear: currentYear
+            ),
+        ]
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        let api = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(yearResult: YearResult(
+                year: staleAPIYear,
+                isDefinitive: false,
+                confidence: 100,
+                yearScores: [staleAPIYear: 100]
+            )),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService()
+        )
+        let pendingVerification = PendingVerificationProbe(entry: nil, isVerificationNeeded: true)
+        let coordinator = makeCoordinator(
+            api: api,
+            bridge: bridge,
+            cache: cache,
+            pendingVerificationService: pendingVerification
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true, forceYearLookup: true),
+            dryRun: true
+        )
+
+        let yearChange = try #require(changes.first { $0.changeType == ChangeType.yearUpdate })
+        #expect(yearChange.oldValue == nil)
+        #expect(yearChange.newValue == String(currentYear))
+        #expect(yearChange.source == "Release Year")
+
+        let markedAlbums = await pendingVerification.markedAlbums
+        let markedAlbum = try #require(markedAlbums.first)
+        #expect(markedAlbums.count == 1)
+        #expect(markedAlbum.reason == "stale_api_data_for_fresh_album")
+        #expect(markedAlbum.metadata["release_year"] == String(currentYear))
+        #expect(markedAlbum.metadata["proposed_year"] == String(staleAPIYear))
+    }
+
     @Test("Does not skip year lookup for partially processed albums")
     func doesNotSkipYearLookupForPartiallyProcessedAlbums() async throws {
         let track = subRosaTrack(year: 2008, yearSetByMGU: 2008)
