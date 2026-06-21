@@ -117,6 +117,7 @@ public actor LibrarySyncService {
     private let trackStore: any TrackStateStore
     private let featureGate: FeatureGate
     private let cache: (any CacheService)?
+    private var pendingVerificationService: (any PendingVerificationService)?
     private var librarySnapshotService: (any LibrarySnapshotService)?
     private var runtimeConfiguration: LibrarySyncRuntimeConfiguration
     private let currentDate: @Sendable () -> Date
@@ -128,6 +129,7 @@ public actor LibrarySyncService {
         trackStore: any TrackStateStore,
         featureGate: FeatureGate,
         cache: (any CacheService)? = nil,
+        pendingVerificationService: (any PendingVerificationService)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runtimeConfiguration: LibrarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(),
         currentDate: @escaping @Sendable () -> Date = { Date() }
@@ -136,6 +138,7 @@ public actor LibrarySyncService {
         self.trackStore = trackStore
         self.featureGate = featureGate
         self.cache = cache
+        self.pendingVerificationService = pendingVerificationService
         self.librarySnapshotService = librarySnapshotService
         self.runtimeConfiguration = runtimeConfiguration
         self.currentDate = currentDate
@@ -143,11 +146,15 @@ public actor LibrarySyncService {
 
     public func updateRuntimeConfiguration(
         _ runtimeConfiguration: LibrarySyncRuntimeConfiguration,
-        librarySnapshotService: (any LibrarySnapshotService)? = nil
+        librarySnapshotService: (any LibrarySnapshotService)? = nil,
+        pendingVerificationService: (any PendingVerificationService)? = nil
     ) {
         self.runtimeConfiguration = runtimeConfiguration
         if let librarySnapshotService {
             self.librarySnapshotService = librarySnapshotService
+        }
+        if let pendingVerificationService {
+            self.pendingVerificationService = pendingVerificationService
         }
     }
 
@@ -376,6 +383,10 @@ public actor LibrarySyncService {
                 storedByID: storedByID
             )
         )
+        try await removeResolvedPrereleasePendingEntries(
+            modifiedTracks: result.modifiedTracks,
+            previousTracksByID: storedByID
+        )
     }
 
     private func invalidateCachesForLibraryChanges(
@@ -423,6 +434,38 @@ public actor LibrarySyncService {
     private func hasIdentityChanged(current: Track, stored: Track) -> Bool {
         normalizeForMatching(current.artist) != normalizeForMatching(stored.artist)
             || normalizeForMatching(current.album) != normalizeForMatching(stored.album)
+    }
+
+    private func removeResolvedPrereleasePendingEntries(
+        modifiedTracks: [Track],
+        previousTracksByID: [String: Track]
+    ) async throws {
+        guard let pendingVerificationService else { return }
+
+        let transitionedAlbums = modifiedTracks.compactMap { current -> (artist: String, album: String)? in
+            guard let previous = previousTracksByID[current.id],
+                  previous.kind == .prerelease,
+                  current.kind?.isAvailableForProcessing == true
+            else {
+                return nil
+            }
+            return (artist: previous.effectiveArtist, album: previous.album)
+        }
+        let targets = normalizedCacheInvalidationTargets(transitionedAlbums)
+        guard !targets.isEmpty else { return }
+
+        let currentTracks = try await trackStore.loadAllTracks()
+        for target in targets where !hasPrereleaseTrack(in: currentTracks, artist: target.artist, album: target.album) {
+            await pendingVerificationService.removeFromPending(artist: target.artist, album: target.album)
+        }
+    }
+
+    private func hasPrereleaseTrack(in tracks: [Track], artist: String, album: String) -> Bool {
+        tracks.contains { track in
+            normalizeForMatching(track.effectiveArtist) == normalizeForMatching(artist)
+                && normalizeForMatching(track.album) == normalizeForMatching(album)
+                && track.kind == .prerelease
+        }
     }
 
     private func normalizedCacheInvalidationTargets(

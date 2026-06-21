@@ -340,7 +340,8 @@ final class AppDependencies {
         return YearDeterminator(
             scorer: YearScorer(
                 config: yearRetrieval.scoring,
-                yearLogic: yearRetrieval.logic
+                yearLogic: yearRetrieval.logic,
+                editionKeywords: configuration.cleaning.remasterKeywords
             ),
             validator: YearValidator(config: yearRetrieval.logic),
             fallback: YearFallbackStrategy(
@@ -417,7 +418,8 @@ final class AppDependencies {
                 cache: cache,
                 undoCoordinator: undo,
                 idMapper: mapper,
-                librarySnapshotService: librarySnapshotService
+                librarySnapshotService: librarySnapshotService,
+                pendingVerificationService: pendingVerificationService
             ),
             genreDeterminator: genreDeterm,
             yearDeterminator: yearDeterm,
@@ -435,6 +437,7 @@ final class AppDependencies {
             trackStore: store,
             featureGate: gate,
             cache: cache,
+            pendingVerificationService: pendingVerificationService,
             librarySnapshotService: librarySnapshotService,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config)
         )
@@ -496,7 +499,8 @@ extension AppDependencies {
             await musicReader?.updateTestArtists(config.development.testArtists)
             await librarySyncService?.updateRuntimeConfiguration(
                 librarySyncRuntimeConfiguration,
-                librarySnapshotService: configuredLibrarySnapshotService
+                librarySnapshotService: configuredLibrarySnapshotService,
+                pendingVerificationService: configuredPendingVerificationService
             )
             await batchProcessor?.updateProcessingConfiguration(batchProcessingConfiguration)
             await analyticsService?.updateConfiguration(config.analytics)

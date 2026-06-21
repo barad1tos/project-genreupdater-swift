@@ -188,6 +188,44 @@ struct AppConfigurationTests {
         #expect(decoded.reporting.changeDisplayMode == .compact)
     }
 
+    @Test("Python-style cleaning keys decode and drive metadata cleaning")
+    func pythonStyleCleaningKeysDecode() throws {
+        let jsonString = """
+        {
+          "cleaning": {
+            "remaster_keywords": ["promo", "expanded edition"],
+            "album_suffixes_to_remove": ["EP", "Single"],
+            "track_cleaning": [
+              {
+                "artist": "Rabbit Junk",
+                "album": "Xenospheres"
+              }
+            ],
+            "genre_mappings": {
+              "Electronica": "Electronic"
+            }
+          }
+        }
+        """
+        let decoded = try JSONDecoder().decode(AppConfiguration.self, from: Data(jsonString.utf8))
+
+        #expect(decoded.cleaning.remasterKeywords == ["promo", "expanded edition"])
+        #expect(decoded.cleaning.albumSuffixesToRemove == ["EP", "Single"])
+        #expect(decoded.cleaning.trackCleaningExceptions == [
+            TrackCleaningException(artist: "Rabbit Junk", album: "Xenospheres"),
+        ])
+        #expect(decoded.cleaning.genreMappings == ["Electronica": "Electronic"])
+
+        let cleaned = cleanNames(
+            artist: "Artist",
+            trackName: "Song [Promo]",
+            albumName: "Album - Single",
+            config: decoded.cleaning
+        )
+        #expect(cleaned.cleanedTrack == "Song")
+        #expect(cleaned.cleanedAlbum == "Album")
+    }
+
     @Test("iTunes search configuration decodes from JSON")
     func iTunesSearchConfigurationDecodes() throws {
         let json = """

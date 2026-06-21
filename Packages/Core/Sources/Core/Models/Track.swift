@@ -265,7 +265,7 @@ extension Track {
             dateAdded: fields.count > 6 ? fields[safe: 6].flatMap { parseAppleScriptDate($0) } : nil,
             lastModified: fields.count > 7 ? fields[safe: 7].flatMap { parseAppleScriptDate($0) } : nil,
             trackStatus: fields.count > 8 ? fields[safe: 8]?.nilIfEmpty : nil,
-            releaseYear: fields.count > 10 ? fields[safe: 10].flatMap { Int($0) } : nil,
+            releaseYear: fields.count > 10 ? parseAppleScriptReleaseYear(fields[safe: 10]) : nil,
             albumArtist: fields.count > 3 ? fields[safe: 3]?.nilIfEmpty : nil
         )
     }
@@ -300,6 +300,13 @@ private func parseAppleScriptDate(_ string: String) -> Date? {
     if let date = AppleScriptDateFormatters.compact.date(from: string) { return date }
     if let date = AppleScriptDateFormatters.iso8601.date(from: string) { return date }
     return AppleScriptDateFormatters.natural.date(from: string)
+}
+
+private func parseAppleScriptReleaseYear(_ string: String?) -> Int? {
+    guard let value = string?.nilIfEmpty else { return nil }
+    if let year = Int(value) { return year }
+    guard let releaseDate = parseAppleScriptDate(value) else { return nil }
+    return Calendar(identifier: .gregorian).component(.year, from: releaseDate)
 }
 
 extension Collection {

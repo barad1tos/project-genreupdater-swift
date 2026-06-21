@@ -8,6 +8,7 @@ import Testing
 actor SyncMockScriptClient: AppleScriptClient {
     var libraryTrackIDs: [String] = []
     var tracksByID: [String: Track] = [:]
+    private var fetchAllTrackIDsError: AppleScriptBridgeError?
     private var fetchTracksRequests: [(trackIDs: [String], batchSize: Int, timeout: Duration?)] = []
     private var fetchAllTrackIDsTimeouts: [Duration?] = []
 
@@ -32,10 +33,19 @@ actor SyncMockScriptClient: AppleScriptClient {
 
     func fetchAllTrackIDs(timeout: Duration?) async throws -> [String] {
         fetchAllTrackIDsTimeouts.append(timeout)
+        if let fetchAllTrackIDsError {
+            throw fetchAllTrackIDsError
+        }
         return libraryTrackIDs
     }
 
-    func updateTrackProperty(trackID: String, property: String, value: String) async throws {}
+    func updateTrackProperty(trackID _: String, property _: String, value _: String) async throws {
+        try Task.checkCancellation()
+    }
+
+    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
+        try Task.checkCancellation()
+    }
 
     func lastFetchTracksRequest() -> (batchSize: Int, timeout: Duration?)? {
         guard let request = fetchTracksRequests.last else { return nil }
@@ -215,6 +225,31 @@ struct LibrarySyncServiceTests {
         let result = try await service.detectChanges()
         #expect(result.newTracks.isEmpty)
         #expect(result.removedTrackIDs == ["T2"])
+    }
+
+    @Test("Track ID fetch failure does not apply removals")
+    func trackIDFetchFailureDoesNotApplyRemovals() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        await bridge.setFetchAllTrackIDsError(.executionFailed(
+            scriptName: "fetch_track_ids",
+            detail: "ERROR:Music failed"
+        ))
+        await store.setStored([
+            Track(id: "T1", name: "Stored", artist: "A", album: "B"),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        await #expect(throws: AppleScriptBridgeError.self) {
+            _ = try await service.synchronizeNow()
+        }
+        #expect(try await store.trackCount() == 1)
     }
 
     @Test("Detect modified tracks via lastModified change")
@@ -504,6 +539,37 @@ struct LibrarySyncServiceTests {
         #expect(storedTracks.first { $0.id == "MOD" }?.name == "Updated Song")
     }
 
+    @Test("Synchronize now resolves prerelease pending after subscription transition")
+    func synchronizeNowResolvesPrereleasePendingAfterSubscriptionTransition() async throws {
+        let fixture = await makePrereleaseFixture(currentStatus: .subscription)
+
+        let result = try await fixture.service.synchronizeNow(forceMetadataRefresh: true)
+        let storedTracks = await fixture.store.storedTracks
+        let removedAlbums = await fixture.pendingVerification.removedAlbums
+        let removedAlbum = try #require(removedAlbums.first)
+        let modifiedTrackIDs: [String] = result.modifiedTracks.map(\.id)
+
+        #expect(modifiedTrackIDs == ["PRE"])
+        #expect(storedTracks.first { $0.id == "PRE" }?.trackStatus == TrackKind.subscription.rawValue)
+        #expect(removedAlbums.count == 1)
+        #expect(removedAlbum.artist == "SubRosa")
+        #expect(removedAlbum.album == "Future Album")
+    }
+
+    @Test("Synchronize now keeps prerelease pending after unavailable transition")
+    func synchronizeNowKeepsPrereleasePendingAfterUnavailableTransition() async throws {
+        let fixture = await makePrereleaseFixture(currentStatus: .noLongerAvailable)
+
+        let result = try await fixture.service.synchronizeNow(forceMetadataRefresh: true)
+        let storedTracks = await fixture.store.storedTracks
+        let removedAlbums = await fixture.pendingVerification.removedAlbums
+        let modifiedTrackIDs: [String] = result.modifiedTracks.map(\.id)
+
+        #expect(modifiedTrackIDs == ["PRE"])
+        #expect(storedTracks.first { $0.id == "PRE" }?.trackStatus == TrackKind.noLongerAvailable.rawValue)
+        #expect(removedAlbums.isEmpty)
+    }
+
     @Test("Synchronize now invalidates cache for modified identities and removed tracks")
     func synchronizeNowInvalidatesCacheForModifiedIdentitiesAndRemovedTracks() async throws {
         let bridge = SyncMockScriptClient()
@@ -537,6 +603,46 @@ struct LibrarySyncServiceTests {
         let wasCleared = await snapshotService.wasCleared()
         #expect(wasCleared)
     }
+
+    private func makePrereleaseFixture(
+        currentStatus: TrackKind
+    ) async -> (
+        store: SyncMockTrackStore,
+        pendingVerification: PendingVerificationProbe,
+        service: LibrarySyncService
+    ) {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let pendingVerification = PendingVerificationProbe(entry: nil, isVerificationNeeded: false)
+        let modifiedDate = Date()
+        let storedTrack = Track(
+            id: "PRE",
+            name: "Future Song",
+            artist: "SubRosa",
+            album: "Future Album",
+            lastModified: modifiedDate,
+            trackStatus: TrackKind.prerelease.rawValue
+        )
+        let currentTrack = Track(
+            id: "PRE",
+            name: "Future Song",
+            artist: "SubRosa",
+            album: "Future Album",
+            lastModified: modifiedDate,
+            trackStatus: currentStatus.rawValue
+        )
+        await bridge.setLibrary(ids: ["PRE"], tracks: ["PRE": currentTrack])
+        await store.setStored([storedTrack])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            pendingVerificationService: pendingVerification
+        )
+        return (store, pendingVerification, service)
+    }
 }
 
 // MARK: - Mock Helpers
@@ -545,6 +651,10 @@ extension SyncMockScriptClient {
     func setLibrary(ids: [String], tracks: [String: Track]) {
         libraryTrackIDs = ids
         tracksByID = tracks
+    }
+
+    func setFetchAllTrackIDsError(_ error: AppleScriptBridgeError) {
+        fetchAllTrackIDsError = error
     }
 }
 

@@ -29,6 +29,7 @@ final class UpdateViewModel {
     var phase: UpdatePhase = .configuring
     var updateGenre: Bool
     var updateYear: Bool
+    var forceYearLookup = false
     var cleanTrackNames = false
     var cleanAlbumNames = false
 
@@ -135,6 +136,7 @@ final class UpdateViewModel {
                 let options = UpdateOptions(
                     updateGenre: updateGenre,
                     updateYear: updateYear,
+                    forceYearLookup: forceYearLookup,
                     cleanTrackNames: cleanTrackNames,
                     cleanAlbumNames: cleanAlbumNames,
                     minConfidence: confidencePercentage,
@@ -286,6 +288,7 @@ final class UpdateViewModel {
         dryRunReport = nil
         updateGenre = defaultUpdateGenre
         updateYear = defaultUpdateYear
+        forceYearLookup = false
         cleanTrackNames = false
         cleanAlbumNames = false
         previewOnly = defaultPreviewOnly

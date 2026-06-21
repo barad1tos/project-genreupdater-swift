@@ -183,7 +183,7 @@ public actor AppleScriptBridge: AppleScriptClient {
                 continue
             }
 
-            let tracks = parseTrackOutput(output)
+            let tracks = Self.parseTrackOutput(output)
             allTracks.append(contentsOf: tracks)
         }
 
@@ -200,8 +200,7 @@ public actor AppleScriptBridge: AppleScriptClient {
             return []
         }
 
-        // fetch_track_ids.applescript returns comma-separated IDs
-        let ids = output.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+        let ids = try Self.parseTrackIDOutput(output)
         log.info("Fetched \(ids.count, privacy: .public) track IDs from library")
         return ids
     }
@@ -249,14 +248,8 @@ public actor AppleScriptBridge: AppleScriptClient {
             timeout: config.timeouts.batchUpdate
         )
 
+        try Self.validateBatchUpdateOutput(output, updateCount: updates.count)
         log.info("Batch updated \(updates.count, privacy: .public) tracks")
-
-        if let output, output.lowercased().contains("error") {
-            throw AppleScriptBridgeError.executionFailed(
-                scriptName: "batch_update_tracks",
-                detail: "Batch of \(updates.count) updates, response=\(String(output.prefix(200)))"
-            )
-        }
     }
 
     // MARK: - Private Helpers
@@ -286,8 +279,43 @@ public actor AppleScriptBridge: AppleScriptClient {
         return event
     }
 
+    /// Parse comma-separated IDs returned by fetch_track_ids.applescript.
+    static func parseTrackIDOutput(_ output: String) throws -> [String] {
+        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedOutput.isEmpty else { return [] }
+        if trimmedOutput.localizedCaseInsensitiveContains("ERROR:") {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: "fetch_track_ids",
+                detail: String(trimmedOutput.prefix(200))
+            )
+        }
+        guard trimmedOutput != "NO_TRACKS_FOUND" else { return [] }
+
+        return output
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    static func validateBatchUpdateOutput(_ output: String?, updateCount: Int) throws {
+        guard let output else { return }
+
+        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercasedOutput = trimmedOutput.lowercased()
+        let containsFailure =
+            lowercasedOutput.hasPrefix("error:")
+                || lowercasedOutput.contains("error updating track id")
+                || lowercasedOutput.contains(" out of range for track ")
+        guard !containsFailure else {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: "batch_update_tracks",
+                detail: "Batch of \(updateCount) updates, response=\(String(trimmedOutput.prefix(200)))"
+            )
+        }
+    }
+
     /// Parse AppleScript output into Track objects.
-    private func parseTrackOutput(_ output: String) -> [Core.Track] {
+    static func parseTrackOutput(_ output: String) -> [Core.Track] {
         output.split(separator: Core.Track.recordSeparator)
             .compactMap { Core.Track.fromAppleScriptOutput(String($0)) }
     }
@@ -314,21 +342,35 @@ extension AppleScriptBridge {
         let wrappedEvent = UnsafeSendable(value: event)
         let gate = concurrencyGate
         return try await gate.withPermit {
-            try await withThrowingTaskGroup(of: String?.self) { group in
-                group.addTask {
-                    let descriptor = try await wrappedTask.value.execute(withAppleEvent: wrappedEvent.value)
-                    return descriptor.stringValue
-                }
+            try await Self.executeTaskWithTimeout(
+                task: wrappedTask,
+                event: wrappedEvent,
+                scriptName: name,
+                timeout: timeout
+            )
+        }
+    }
 
-                group.addTask {
-                    try await Task.sleep(for: timeout)
-                    throw AppleScriptBridgeError.timeout(scriptName: name, duration: timeout)
-                }
-
-                let result = try await group.next()
-                group.cancelAll()
-                return result.flatMap(\.self)
+    private static func executeTaskWithTimeout(
+        task: UnsafeSendable<NSUserAppleScriptTask>,
+        event: UnsafeSendable<NSAppleEventDescriptor?>,
+        scriptName: String,
+        timeout: Duration
+    ) async throws -> String? {
+        try await withThrowingTaskGroup(of: String?.self) { group in
+            group.addTask {
+                let descriptor = try await task.value.execute(withAppleEvent: event.value)
+                return descriptor.stringValue
             }
+
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw AppleScriptBridgeError.timeout(scriptName: scriptName, duration: timeout)
+            }
+
+            let result = try await group.next()
+            group.cancelAll()
+            return result.flatMap(\.self)
         }
     }
 

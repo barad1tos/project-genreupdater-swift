@@ -104,6 +104,20 @@ struct MetadataUtilsTests {
         #expect(stripAlbumSuffixes("Album", suffixes: []) == "Album")
     }
 
+    @Test("Album suffix removal matches Python EP and Single edge cases")
+    func stripPythonEPSingleSuffixes() {
+        #expect(stripAlbumSuffixes(
+            "Dead End Dreams (Chapter 1) - EP",
+            suffixes: [" - EP", "EP"]
+        ) == "Dead End Dreams (Chapter 1)")
+        #expect(stripAlbumSuffixes("Dead End Dreams —EP", suffixes: ["EP"]) == "Dead End Dreams")
+        #expect(stripAlbumSuffixes(
+            "Another Song   - Single",
+            suffixes: [" - Single", "Single"]
+        ) == "Another Song")
+        #expect(stripAlbumSuffixes("Sleep", suffixes: ["EP"]) == "Sleep")
+    }
+
     // MARK: - cleanNames
 
     @Test("Cleans track and album names")
@@ -172,5 +186,21 @@ struct MetadataUtilsTests {
             config: config
         )
         #expect(album == "Album")
+    }
+
+    @Test("Whitespace normalization matches Python cleaner")
+    func cleanNamesCollapsesAllWhitespace() {
+        var config = CleaningConfig()
+        config.remasterKeywords = ["promo"]
+
+        let (track, album) = cleanNames(
+            artist: "Artist",
+            trackName: "Track\t\nName  (Promo)",
+            albumName: "Album\t\nName",
+            config: config
+        )
+
+        #expect(track == "Track Name")
+        #expect(album == "Album Name")
     }
 }

@@ -98,6 +98,35 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
+    @Test("selected dry run passes forced year lookup to workflow options")
+    func selectedDryRunPassesForcedYearLookupToWorkflowOptions() async throws {
+        let fixture = makeWorkflowFixture(apiService: DashboardStateAPIService(year: 1999, confidence: 100))
+        let viewModel = fixture.viewModel
+        viewModel.mode = .selectedTracks
+        viewModel.previewOnly = true
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+        viewModel.forceYearLookup = true
+
+        viewModel.start(tracks: [
+            Track(
+                id: "processed-year",
+                name: "Borrowed Time",
+                artist: "SubRosa",
+                album: "No Help for the Mighty Ones",
+                year: 2008,
+                yearSetByMGU: 2008
+            ),
+        ])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        let change = try #require(viewModel.proposedChanges.first)
+        #expect(change.changeType == .yearUpdate)
+        #expect(change.oldValue == "2008")
+        #expect(change.newValue == "1999")
+    }
+
     @Test("full library preview only still requires batch feature")
     func fullLibraryPreviewOnlyStillRequiresBatchFeature() async {
         let fixture = makeWorkflowFixture(

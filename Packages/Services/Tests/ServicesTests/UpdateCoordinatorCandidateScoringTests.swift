@@ -270,6 +270,205 @@ struct UpdateCoordinatorCandidateScoringTests {
         #expect(yearChange.source == "Cache")
     }
 
+    @Test("Skips year lookup when cached year matches the library")
+    func skipsYearLookupWhenCachedYearMatchesTheLibrary() async throws {
+        let track = subRosaTrack(year: 2008)
+        let albumTracks = subRosaAlbumTracks(year: 2008)
+        let fixture = makeProbedCoordinator()
+        await fixture.cache.storeAlbumYear(
+            artist: "SubRosa",
+            album: "Strega",
+            year: 2008,
+            confidence: 100
+        )
+
+        let changes = try await fixture.coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(!changes.contains { $0.changeType == ChangeType.yearUpdate })
+        #expect(await fixture.apiProbe.requestCount == 0)
+    }
+
+    @Test("Skips year lookup for recent fallback rejections")
+    func skipsYearLookupForRecentFallbackRejections() async throws {
+        let track = subRosaTrack(year: 2008)
+        let albumTracks = subRosaAlbumTracks(year: 2008)
+        let pendingVerification = PendingVerificationProbe(
+            entry: pendingFallbackRejection(reason: "suspicious_year_change"),
+            isVerificationNeeded: false
+        )
+        let fixture = makeProbedCoordinator(
+            pendingVerificationService: pendingVerification
+        )
+
+        let changes = try await fixture.coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(!changes.contains { $0.changeType == ChangeType.yearUpdate })
+        #expect(await fixture.apiProbe.requestCount == 0)
+    }
+
+    @Test("Does not skip year lookup when fallback rejection is due")
+    func doesNotSkipYearLookupWhenFallbackRejectionIsDue() async throws {
+        let track = subRosaTrack(year: 2008, releaseYear: 1999)
+        let albumTracks = [
+            track,
+            subRosaTrack(id: "subrosa-2", name: "Crucible", year: 2008, releaseYear: 1999),
+        ]
+        let pendingVerification = PendingVerificationProbe(
+            entry: pendingFallbackRejection(reason: "suspicious_year_change"),
+            isVerificationNeeded: true
+        )
+        let fixture = makeProbedCoordinator(
+            pendingVerificationService: pendingVerification
+        )
+
+        _ = try await fixture.coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(await fixture.apiProbe.requestCount > 0)
+    }
+
+    @Test("Skips API lookup when uncached album years are consistently valid")
+    func skipsAPILookupWhenUncachedAlbumYearsAreConsistentlyValid() async throws {
+        let track = subRosaTrack(year: 2008, releaseYear: nil)
+        let albumTracks = [
+            track,
+            subRosaTrack(id: "subrosa-2", name: "Crucible", year: 2008, releaseYear: nil),
+        ]
+        let fixture = makeProbedCoordinator()
+
+        let changes = try await fixture.coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(!changes.contains { $0.changeType == ChangeType.yearUpdate })
+        #expect(await fixture.apiProbe.requestCount == 0)
+    }
+
+    @Test("Uses API verification for recent uncached years without release year")
+    func usesAPIVerificationForRecentUncachedYearsWithoutReleaseYear() async throws {
+        let currentYear = Calendar.current.component(.year, from: Date())
+        let track = subRosaTrack(year: currentYear, releaseYear: nil)
+        let albumTracks = [
+            track,
+            subRosaTrack(id: "subrosa-2", name: "Crucible", year: currentYear, releaseYear: nil),
+        ]
+        let fixture = makeProbedCoordinator()
+
+        _ = try await fixture.coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(await fixture.apiProbe.requestCount > 0)
+    }
+
+    @Test("Skips year lookup when every album track was already processed")
+    func skipsYearLookupWhenEveryAlbumTrackWasAlreadyProcessed() async throws {
+        let track = subRosaTrack(year: 2008, yearSetByMGU: 2008)
+        let albumTracks = subRosaAlbumTracks(year: 2008, yearSetByMGU: 2008)
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "SubRosa",
+            album: "Strega",
+            year: 1999,
+            confidence: 100
+        )
+        let api = subRosaAPIOrchestrator(confirmingYear: 1999)
+        let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(!changes.contains { $0.changeType == ChangeType.yearUpdate })
+    }
+
+    @Test("Force year lookup bypasses already processed album skip")
+    func forceYearLookupBypassesAlreadyProcessedAlbumSkip() async throws {
+        let track = subRosaTrack(year: 2008, yearSetByMGU: 2008)
+        let albumTracks = subRosaAlbumTracks(year: 2008, yearSetByMGU: 2008)
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "SubRosa",
+            album: "Strega",
+            year: 2008,
+            confidence: 100
+        )
+        let api = subRosaAPIOrchestrator(confirmingYear: 1999)
+        let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true, forceYearLookup: true),
+            dryRun: true
+        )
+
+        let yearChange = try #require(changes.first { $0.changeType == ChangeType.yearUpdate })
+        #expect(yearChange.oldValue == "2008")
+        #expect(yearChange.newValue == "1999")
+        #expect(yearChange.source == "Api")
+    }
+
+    @Test("Does not skip year lookup for partially processed albums")
+    func doesNotSkipYearLookupForPartiallyProcessedAlbums() async throws {
+        let track = subRosaTrack(year: 2008, yearSetByMGU: 2008)
+        let albumTracks = [
+            track,
+            subRosaTrack(
+                id: "subrosa-2",
+                name: "Crucible",
+                year: 2008,
+                releaseYear: 2008
+            ),
+        ]
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "SubRosa",
+            album: "Strega",
+            year: 1999,
+            confidence: 100
+        )
+        let api = subRosaAPIOrchestrator(confirmingYear: 1999)
+        let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        let yearChange = try #require(changes.first { $0.changeType == ChangeType.yearUpdate })
+        #expect(yearChange.oldValue == "2008")
+        #expect(yearChange.newValue == "1999")
+    }
+
     @Test("Falls back to API when cached year does not match the release year conflict target")
     func fallsBackToAPIWhenCachedYearDoesNotMatchTheReleaseYearConflictTarget() async throws {
         let track = subRosaTrack()
@@ -420,7 +619,8 @@ struct UpdateCoordinatorCandidateScoringTests {
         id: String = "subrosa-1",
         name: String = "Sugar Creek",
         year: Int? = 2023,
-        releaseYear: Int? = 2008
+        releaseYear: Int? = 2008,
+        yearSetByMGU: Int? = nil
     ) -> Track {
         Track(
             id: id,
@@ -428,17 +628,24 @@ struct UpdateCoordinatorCandidateScoringTests {
             artist: "SubRosa",
             album: "Strega",
             year: year,
+            yearSetByMGU: yearSetByMGU,
             releaseYear: releaseYear
         )
     }
 
-    private func subRosaAlbumTracks(secondReleaseYear: Int? = 2008) -> [Track] {
+    private func subRosaAlbumTracks(
+        secondReleaseYear: Int? = 2008,
+        year: Int? = 2023,
+        yearSetByMGU: Int? = nil
+    ) -> [Track] {
         [
-            subRosaTrack(),
+            subRosaTrack(year: year, yearSetByMGU: yearSetByMGU),
             subRosaTrack(
                 id: "subrosa-2",
                 name: "Crucible",
-                releaseYear: secondReleaseYear
+                year: year,
+                releaseYear: secondReleaseYear,
+                yearSetByMGU: yearSetByMGU
             ),
         ]
     }
@@ -467,11 +674,53 @@ struct UpdateCoordinatorCandidateScoringTests {
         )
     }
 
+    private func makeProbedCoordinator(
+        definitiveYear year: Int = 1999,
+        pendingVerificationService: (any PendingVerificationService)? = nil
+    ) -> (
+        cache: MockCacheService,
+        apiProbe: APIRequestProbe,
+        coordinator: UpdateCoordinator
+    ) {
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        let apiProbe = APIRequestProbe()
+        let api = makeAPIOrchestrator(
+            musicBrainz: UpdateCoordinatorRecordingAPIService(probe: apiProbe, yearResult: YearResult(
+                year: year,
+                isDefinitive: true,
+                confidence: 100
+            )),
+            discogs: UpdateCoordinatorRecordingAPIService(probe: apiProbe),
+            appleMusic: UpdateCoordinatorRecordingAPIService(probe: apiProbe)
+        )
+        let coordinator = makeCoordinator(
+            api: api,
+            bridge: bridge,
+            cache: cache,
+            pendingVerificationService: pendingVerificationService
+        )
+        return (cache, apiProbe, coordinator)
+    }
+
+    private func pendingFallbackRejection(reason: String) -> PendingAlbumEntry {
+        PendingAlbumEntry(
+            id: "subrosa-strega",
+            artist: "SubRosa",
+            album: "Strega",
+            reason: reason,
+            attemptCount: 1,
+            lastAttempt: Date(),
+            recheckInterval: 30 * 24 * 60 * 60
+        )
+    }
+
     private func makeCoordinator(
         api: APIOrchestrator,
         bridge: MockAppleScriptClient,
         cache: MockCacheService,
-        idMapper: (any TrackIDMapping)? = nil
+        idMapper: (any TrackIDMapping)? = nil,
+        pendingVerificationService: (any PendingVerificationService)? = nil
     ) -> UpdateCoordinator {
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("UpdateCoordinatorCandidateScoringTests-\(UUID().uuidString)")
@@ -482,7 +731,9 @@ struct UpdateCoordinatorCandidateScoringTests {
                 trackStore: MockTrackStore(),
                 cache: cache,
                 undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: undoDirectory),
-                idMapper: idMapper
+                idMapper: idMapper,
+                librarySnapshotService: nil,
+                pendingVerificationService: pendingVerificationService
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator()

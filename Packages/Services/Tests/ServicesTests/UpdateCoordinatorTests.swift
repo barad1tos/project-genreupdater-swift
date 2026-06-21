@@ -94,6 +94,7 @@ struct UpdateCoordinatorTests {
         confidence: Int = 0,
         scriptBridge: MockAppleScriptClient? = nil,
         cache: MockCacheService? = nil,
+        idMapper: (any TrackIDMapping)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
         yearDeterminator: YearDeterminator = YearDeterminator()
@@ -130,6 +131,7 @@ struct UpdateCoordinatorTests {
                 trackStore: store,
                 cache: cacheService,
                 undoCoordinator: undo,
+                idMapper: idMapper,
                 librarySnapshotService: librarySnapshotService
             ),
             genreDeterminator: GenreDeterminator(),
@@ -185,6 +187,110 @@ struct UpdateCoordinatorTests {
         #expect(genreChange?.newValue == "Electronic")
     }
 
+    @Test("Multi-track genre uses artist discography instead of album-only context")
+    func multiTrackGenreUsesArtistDiscography() async throws {
+        let fixture = await makeCoordinator()
+
+        let earlyTrack = makeEditableTrack(
+            id: "early",
+            name: "First Record Song",
+            artist: "Artist",
+            album: "First Record",
+            genre: "Punk",
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 100)
+        )
+        let albumSibling = makeEditableTrack(
+            id: "sibling",
+            name: "Later Record Song",
+            artist: "Artist",
+            album: "Later Record",
+            genre: "Pop",
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 200)
+        )
+        let targetTrack = makeEditableTrack(
+            id: "target",
+            name: "Missing Genre Song",
+            artist: "Artist",
+            album: "Later Record",
+            genre: nil,
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 260)
+        )
+        let tracks = [earlyTrack, albumSibling, targetTrack]
+
+        let result = try await fixture.coordinator.updateTracks(
+            tracks,
+            options: UpdateOptions(updateGenre: true, updateYear: false),
+            albumTracksProvider: { track in
+                tracks.filter { $0.album == track.album }
+            },
+            progressHandler: Self.ignoreProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(written.contains { $0.trackID == "target" && $0.property == "genre" && $0.value == "Punk" })
+        #expect(!written.contains { $0.trackID == "target" && $0.property == "genre" && $0.value == "Pop" })
+    }
+
+    @Test("Genre context uses AppleScript-enriched artist tracks")
+    func genreContextUsesAppleScriptEnrichedArtistTracks() async throws {
+        let mapper = TrackIDMapper()
+        let musicKitSource = makeEditableTrack(
+            id: "music-source",
+            name: "Source Song",
+            artist: "Artist",
+            album: "Source Album",
+            genre: "MusicKit Rock",
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 100)
+        )
+        let targetTrack = makeEditableTrack(
+            id: "music-target",
+            name: "Target Song",
+            artist: "Artist",
+            album: "Target Album",
+            genre: nil,
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 200)
+        )
+        let appleScriptSource = makeEditableTrack(
+            id: "script-source",
+            name: "Source Song",
+            artist: "Artist",
+            album: "Source Album",
+            genre: "AppleScript Punk",
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 100)
+        )
+        let appleScriptTarget = makeEditableTrack(
+            id: "script-target",
+            name: "Target Song",
+            artist: "Artist",
+            album: "Target Album",
+            genre: nil,
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 200)
+        )
+        await mapper.refreshMapping(
+            musicKitTracks: [musicKitSource, targetTrack],
+            appleScriptTracks: [appleScriptSource, appleScriptTarget]
+        )
+        let fixture = await makeCoordinator(idMapper: mapper)
+
+        let changes = try await fixture.coordinator.updateTrack(
+            targetTrack,
+            artistTracks: [musicKitSource],
+            options: UpdateOptions(updateGenre: true, updateYear: false),
+            dryRun: true
+        )
+
+        let genreChange = try #require(changes.first { $0.changeType == .genreUpdate })
+        #expect(genreChange.newValue == "AppleScript Punk")
+    }
+
     @Test("Write mode applies changes to Music.app")
     func writeAppliesChanges() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)
@@ -203,7 +309,8 @@ struct UpdateCoordinatorTests {
 
     @Test("Non-editable track throws trackNotEditable")
     func nonEditableTrackThrows() async {
-        let fixture = await makeCoordinator()
+        let runtimeConfiguration = UpdateRuntimeConfiguration(policies: .init(skipPrerelease: false))
+        let fixture = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
 
         let track = Track(
             id: "T1",
@@ -265,6 +372,36 @@ struct UpdateCoordinatorTests {
         let yearChange = changes.first { $0.changeType == .yearUpdate }
         #expect(yearChange?.newValue == "1970")
         #expect(yearChange?.source == "Dominant")
+    }
+
+    @Test("Batch year updates use album context by default")
+    func batchYearUpdatesUseAlbumContextByDefault() async throws {
+        let fixture = await makeCoordinator(year: nil, confidence: 0)
+
+        let targetTrack = makeEditableTrack(
+            id: "target",
+            artist: "Album Artist",
+            album: "Context Album",
+            year: nil
+        )
+        let albumTracks = [
+            targetTrack,
+            makeEditableTrack(id: "sibling-1", artist: "Album Artist", album: "Context Album", year: 1970),
+            makeEditableTrack(id: "sibling-2", artist: "Album Artist", album: "Context Album", year: 1970),
+            makeEditableTrack(id: "sibling-3", artist: "Album Artist", album: "Context Album", year: 1970),
+        ]
+
+        let result = try await fixture.coordinator.updateTracks(
+            albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            progressHandler: Self.ignoreProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(written.contains { property in
+            property.trackID == "target" && property.property == "year" && property.value == "1970"
+        })
     }
 
     @Test("Changes recorded in undo coordinator after write")
@@ -566,7 +703,8 @@ extension UpdateCoordinatorTests {
 
     @Test("Multi-track update reports non-editable tracks as failures")
     func multiTrackUpdateReportsNonEditableTracksAsFailures() async throws {
-        let fixture = await makeCoordinator(year: 2020, confidence: 90)
+        let runtimeConfiguration = UpdateRuntimeConfiguration(policies: .init(skipPrerelease: false))
+        let fixture = await makeCoordinator(year: 2020, confidence: 90, runtimeConfiguration: runtimeConfiguration)
         let prereleaseTrack = Track(
             id: "prerelease",
             name: "Upcoming Song",

@@ -109,18 +109,6 @@ private struct SourceRecordingAPIService: ExternalAPIService {
         ]
     }
 
-    func getArtistActivityPeriod(
-        normalizedArtist _: String
-    ) async throws -> (start: Int?, end: Int?) {
-        (nil, nil)
-    }
-
-    func getArtistStartYear(
-        normalizedArtist _: String
-    ) async throws -> Int? {
-        nil
-    }
-
     func initialize(force _: Bool) async throws {
         try Task.checkCancellation()
     }

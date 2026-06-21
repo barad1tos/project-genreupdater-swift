@@ -35,6 +35,7 @@ public struct PendingAlbumVerificationResult: Sendable {
 public struct UpdateOptions: Sendable {
     public let updateGenre: Bool
     public let updateYear: Bool
+    public let forceYearLookup: Bool
     public let cleanTrackNames: Bool
     public let cleanAlbumNames: Bool
     public let minConfidence: Int
@@ -43,6 +44,7 @@ public struct UpdateOptions: Sendable {
     public init(
         updateGenre: Bool = true,
         updateYear: Bool = true,
+        forceYearLookup: Bool = false,
         cleanTrackNames: Bool = false,
         cleanAlbumNames: Bool = false,
         minConfidence: Int = 60,
@@ -50,6 +52,7 @@ public struct UpdateOptions: Sendable {
     ) {
         self.updateGenre = updateGenre
         self.updateYear = updateYear
+        self.forceYearLookup = forceYearLookup
         self.cleanTrackNames = cleanTrackNames
         self.cleanAlbumNames = cleanAlbumNames
         self.minConfidence = minConfidence
@@ -66,9 +69,14 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     public let minimumConfidenceToCache: Int
     public let albumTypeDetection: AlbumTypeDetectionConfig
     public let cleaning: CleaningConfig
+    public let skipPrerelease: Bool
+    public let prereleaseHandling: PrereleaseHandling
+    public let prereleaseRecheckDays: Int
     /// Artist allow-list for update writes; empty means all effective artists are allowed.
     public let testArtists: [String]
     public let shouldOverrideExistingGenres: Bool
+    public let areBatchUpdatesEnabled: Bool
+    public let maxBatchUpdateSize: Int
 
     public struct Policies: Sendable, Equatable {
         public let isYearLookupEnabled: Bool
@@ -76,6 +84,9 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         public let minimumConfidenceToCache: Int
         public let albumTypeDetection: AlbumTypeDetectionConfig
         public let cleaning: CleaningConfig
+        public let skipPrerelease: Bool
+        public let prereleaseHandling: PrereleaseHandling
+        public let prereleaseRecheckDays: Int
         public let shouldOverrideExistingGenres: Bool
 
         public init(
@@ -84,6 +95,9 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache,
             albumTypeDetection: AlbumTypeDetectionConfig = AlbumTypeDetectionConfig(),
             cleaning: CleaningConfig = CleaningConfig(),
+            skipPrerelease: Bool = AppConfiguration().processing.skipPrerelease,
+            prereleaseHandling: PrereleaseHandling = AppConfiguration().processing.prereleaseHandling,
+            prereleaseRecheckDays: Int = AppConfiguration().processing.prereleaseRecheckDays,
             shouldOverrideExistingGenres: Bool = AppConfiguration().genreUpdate.overrideExisting
         ) {
             self.isYearLookupEnabled = isYearLookupEnabled
@@ -91,6 +105,9 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             self.minimumConfidenceToCache = minimumConfidenceToCache
             self.albumTypeDetection = albumTypeDetection
             self.cleaning = cleaning
+            self.skipPrerelease = skipPrerelease
+            self.prereleaseHandling = prereleaseHandling
+            self.prereleaseRecheckDays = prereleaseRecheckDays
             self.shouldOverrideExistingGenres = shouldOverrideExistingGenres
         }
     }
@@ -99,6 +116,8 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         genreMappings: [String: String] = [:],
         artistRenameMappings: [String: String] = [:],
         testArtists: [String] = AppConfiguration().development.testArtists,
+        areBatchUpdatesEnabled: Bool = AppConfiguration().experimental.batchUpdatesEnabled,
+        maxBatchUpdateSize: Int = AppConfiguration().experimental.maxBatchSize,
         policies: Policies = Policies()
     ) {
         self.genreMappings = genreMappings
@@ -108,8 +127,13 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         self.minimumConfidenceToCache = policies.minimumConfidenceToCache
         self.albumTypeDetection = policies.albumTypeDetection
         self.cleaning = policies.cleaning
+        self.skipPrerelease = policies.skipPrerelease
+        self.prereleaseHandling = policies.prereleaseHandling
+        self.prereleaseRecheckDays = policies.prereleaseRecheckDays
         self.testArtists = testArtists
         self.shouldOverrideExistingGenres = policies.shouldOverrideExistingGenres
+        self.areBatchUpdatesEnabled = areBatchUpdatesEnabled
+        self.maxBatchUpdateSize = max(1, maxBatchUpdateSize)
     }
 
     public init(configuration: AppConfiguration) {
@@ -123,12 +147,17 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             genreMappings: configuration.cleaning.genreMappings,
             artistRenameMappings: configuration.artistRenamer.mappings,
             testArtists: configuration.development.testArtists,
+            areBatchUpdatesEnabled: configuration.experimental.batchUpdatesEnabled,
+            maxBatchUpdateSize: configuration.experimental.maxBatchSize,
             policies: Policies(
                 isYearLookupEnabled: configuration.yearRetrieval.enabled,
                 minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
                 minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
                 albumTypeDetection: configuration.albumTypeDetection,
                 cleaning: cleaning,
+                skipPrerelease: configuration.processing.skipPrerelease,
+                prereleaseHandling: configuration.processing.prereleaseHandling,
+                prereleaseRecheckDays: configuration.processing.prereleaseRecheckDays,
                 shouldOverrideExistingGenres: configuration.genreUpdate.overrideExisting
             )
         )

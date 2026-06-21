@@ -149,6 +149,79 @@ struct TrackIDMapperTests {
         #expect(secondEnrichedTrack == nil)
     }
 
+    @Test("Album artist fallback maps variant track artists")
+    func albumArtistFallbackMapsVariantTrackArtists() async throws {
+        let mapper = TrackIDMapper()
+        let musicKitTrack = makeTrack(
+            id: "MK1",
+            name: "Immortal",
+            artist: "Clutch feat. Leslie West",
+            album: "Pure Rock Fury",
+            albumArtist: "Clutch"
+        )
+        let appleScriptTrack = makeTrack(
+            id: "AS-HEX-1",
+            name: "Immortal",
+            artist: "Clutch",
+            album: "Pure Rock Fury",
+            year: 2001,
+            albumArtist: "Clutch"
+        )
+
+        await mapper.refreshMapping(
+            musicKitTracks: [musicKitTrack],
+            appleScriptTracks: [appleScriptTrack]
+        )
+
+        let writeID = await mapper.appleScriptID(forMusicKitID: "MK1")
+        let enrichedTrack = try #require(await mapper.trackWithAppleScriptMetadata(for: musicKitTrack))
+
+        #expect(writeID == "AS-HEX-1")
+        #expect(enrichedTrack.id == "MK1")
+        #expect(enrichedTrack.year == 2001)
+        #expect(enrichedTrack.artist == "Clutch")
+        #expect(enrichedTrack.albumArtist == "Clutch")
+    }
+
+    @Test("Ambiguous album artist fallback is not mapped")
+    func ambiguousAlbumArtistFallbackIsNotMapped() async {
+        let mapper = TrackIDMapper()
+        let musicKitTrack = makeTrack(
+            id: "MK1",
+            name: "Intro",
+            artist: "Unknown Performer",
+            album: "Compilation",
+            albumArtist: "Various Artists"
+        )
+        let appleScriptTracks = [
+            makeTrack(
+                id: "AS-FIRST",
+                name: "Intro",
+                artist: "Performer One",
+                album: "Compilation",
+                albumArtist: "Various Artists"
+            ),
+            makeTrack(
+                id: "AS-SECOND",
+                name: "Intro",
+                artist: "Performer Two",
+                album: "Compilation",
+                albumArtist: "Various Artists"
+            ),
+        ]
+
+        await mapper.refreshMapping(
+            musicKitTracks: [musicKitTrack],
+            appleScriptTracks: appleScriptTracks
+        )
+
+        let writeID = await mapper.appleScriptID(forMusicKitID: "MK1")
+        let enrichedTrack = await mapper.trackWithAppleScriptMetadata(for: musicKitTrack)
+
+        #expect(writeID == nil)
+        #expect(enrichedTrack == nil)
+    }
+
     @Test("Empty input produces empty mapping")
     func emptyInputProducesEmptyMapping() async {
         let mapper = TrackIDMapper()
@@ -303,6 +376,12 @@ private actor ScopedTrackMappingScriptClient: AppleScriptClient {
         trackID _: String,
         property _: String,
         value _: String
+    ) async throws {
+        try Task.checkCancellation()
+    }
+
+    func batchUpdateTracks(
+        _: [(trackID: String, property: String, value: String)]
     ) async throws {
         try Task.checkCancellation()
     }

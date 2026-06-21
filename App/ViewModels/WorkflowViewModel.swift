@@ -92,6 +92,7 @@ final class WorkflowViewModel {
     var smartFilterType: SmartFilterType = .missingGenres
     var updateGenre: Bool
     var updateYear: Bool
+    var forceYearLookup = false
     var cleanTrackNames = false
     var cleanAlbumNames = false
     var previewOnly: Bool
@@ -256,6 +257,7 @@ final class WorkflowViewModel {
                 let options = UpdateOptions(
                     updateGenre: updateGenre,
                     updateYear: updateYear,
+                    forceYearLookup: forceYearLookup,
                     cleanTrackNames: cleanTrackNames,
                     cleanAlbumNames: cleanAlbumNames,
                     minConfidence: confidencePercentage,

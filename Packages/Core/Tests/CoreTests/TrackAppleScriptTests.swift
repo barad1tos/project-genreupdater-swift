@@ -194,6 +194,19 @@ struct TrackAppleScriptTests {
         #expect(track?.releaseYear == 2020)
     }
 
+    @Test("Parses releaseYear from AppleScript date field")
+    func parseReleaseYearDateField() {
+        let fields = [
+            "1", "Song", "Artist", "", "Album",
+            "", "", "", "", "2023", "2001-07-24 00:00:00", "",
+        ]
+        let raw = fields.joined(separator: fs)
+        let track = Track.fromAppleScriptOutput(raw)
+
+        #expect(track?.year == 2023)
+        #expect(track?.releaseYear == 2001)
+    }
+
     // MARK: - Round-Trip
 
     @Test("Known AppleScript output produces expected Track")
