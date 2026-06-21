@@ -54,6 +54,17 @@ struct RunTrackerTests {
 
         #expect(await tracker.getLastRunTimestamp() == Date(timeIntervalSince1970: 1_704_067_200))
     }
+
+    @Test("Python UTC timestamp with microseconds is parsed")
+    func pythonUTCTimestampWithMicrosecondsIsParsed() async throws {
+        let logsDirectory = temporaryDirectory()
+        defer { removeTemporaryDirectory(logsDirectory) }
+        try writeTimestamp("2024-01-01T00:00:00.123456+00:00", in: logsDirectory)
+        let tracker = IncrementalRunTracker(logsBaseDirectory: logsDirectory.path)
+
+        let timestamp = try #require(await tracker.getLastRunTimestamp())
+        #expect(abs(timestamp.timeIntervalSince1970 - 1_704_067_200.123_456) < 0.000_001)
+    }
 }
 
 private func temporaryDirectory() -> URL {

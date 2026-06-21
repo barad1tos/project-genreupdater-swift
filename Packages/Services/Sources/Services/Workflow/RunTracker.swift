@@ -78,6 +78,9 @@ public actor IncrementalRunTracker {
         if let date = iso8601Formatter.date(from: timestamp) {
             return date
         }
+        if let date = fractionalISO8601Formatter.date(from: timestamp) {
+            return adjustedForMicroseconds(date, timestamp: timestamp)
+        }
 
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
@@ -87,10 +90,53 @@ public actor IncrementalRunTracker {
         for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss"] {
             formatter.dateFormat = format
             if let date = formatter.date(from: timestamp) {
-                return date
+                return adjustedForMicroseconds(date, timestamp: timestamp)
             }
         }
         return nil
+    }
+
+    private static var fractionalISO8601Formatter: ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }
+
+    private static func adjustedForMicroseconds(_ date: Date, timestamp: String) -> Date {
+        date.addingTimeInterval(microsecondAdjustment(for: timestamp))
+    }
+
+    private static func microsecondAdjustment(for timestamp: String) -> TimeInterval {
+        guard let dotIndex = timestamp.firstIndex(of: ".") else {
+            return 0
+        }
+
+        var digits = ""
+        var currentIndex = timestamp.index(after: dotIndex)
+        while currentIndex < timestamp.endIndex, timestamp[currentIndex].isNumber {
+            digits.append(timestamp[currentIndex])
+            currentIndex = timestamp.index(after: currentIndex)
+        }
+        guard digits.count > 3 else {
+            return 0
+        }
+
+        let microsecondDigits = String(digits.prefix(6)).padding(
+            toLength: 6,
+            withPad: "0",
+            startingAt: 0
+        )
+        let millisecondDigits = String(digits.prefix(3)).padding(
+            toLength: 3,
+            withPad: "0",
+            startingAt: 0
+        )
+        guard let microseconds = Double(microsecondDigits),
+              let milliseconds = Double(millisecondDigits)
+        else {
+            return 0
+        }
+        return microseconds / 1_000_000 - milliseconds / 1000
     }
 
     private static func resolvedURL(path: String, relativeTo baseURL: URL? = nil) -> URL {
