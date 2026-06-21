@@ -89,6 +89,31 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(await reloaded.isVerificationNeeded(artist: "Massive Attack", album: "Mezzanine"))
     }
 
+    @Test("Pending albums can be filtered by normalized reason")
+    func pendingAlbumsCanBeFilteredByReason() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let service = makeService(container: container, directory: directory, date: baseDate)
+        await service.markForVerification(artist: "Portishead", album: "Dummy", reason: "missing_year")
+        await service.markForVerification(artist: "Slowdive", album: "Everything Is Alive", reason: " PRERELEASE ")
+        await service.markForVerification(
+            artist: "Low",
+            album: "HEY WHAT",
+            reason: "stale_api_data_for_fresh_album"
+        )
+
+        let missingYearEntries = await service.getPendingAlbums(reason: "missing-year")
+        let prereleaseEntries = await service.getPendingAlbums(reason: "pre-release")
+        let staleAPIEntries = await service.getPendingAlbums(reason: "STALE_API_DATA_FOR_FRESH_ALBUM")
+
+        #expect(missingYearEntries.map(\.album) == ["Dummy"])
+        #expect(prereleaseEntries.map(\.album) == ["Everything Is Alive"])
+        #expect(staleAPIEntries.map(\.album) == ["HEY WHAT"])
+    }
+
     @Test("Prerelease entries use the configured prerelease recheck interval")
     func prereleaseEntriesUseConfiguredRecheckInterval() async throws {
         let directory = try makeTempDirectory()
