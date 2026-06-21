@@ -77,6 +77,9 @@ struct UpdateView: View {
             Section("Update Options") {
                 Toggle("Update Genre", isOn: $viewModel.updateGenre)
                 Toggle("Update Year", isOn: $viewModel.updateYear)
+                Toggle("Force Year Lookup", isOn: $viewModel.forceYearLookup)
+                    .disabled(!viewModel.updateYear)
+                    .help("Bypass cached and local year shortcuts.")
                 Toggle("Clean Track Names", isOn: $viewModel.cleanTrackNames)
                 Toggle("Clean Album Names", isOn: $viewModel.cleanAlbumNames)
             }

@@ -35,6 +35,7 @@ public struct PendingAlbumVerificationResult: Sendable {
 public struct UpdateOptions: Sendable {
     public let updateGenre: Bool
     public let updateYear: Bool
+    public let forceYearLookup: Bool
     public let cleanTrackNames: Bool
     public let cleanAlbumNames: Bool
     public let minConfidence: Int
@@ -43,6 +44,7 @@ public struct UpdateOptions: Sendable {
     public init(
         updateGenre: Bool = true,
         updateYear: Bool = true,
+        forceYearLookup: Bool = false,
         cleanTrackNames: Bool = false,
         cleanAlbumNames: Bool = false,
         minConfidence: Int = 60,
@@ -50,6 +52,7 @@ public struct UpdateOptions: Sendable {
     ) {
         self.updateGenre = updateGenre
         self.updateYear = updateYear
+        self.forceYearLookup = forceYearLookup
         self.cleanTrackNames = cleanTrackNames
         self.cleanAlbumNames = cleanAlbumNames
         self.minConfidence = minConfidence

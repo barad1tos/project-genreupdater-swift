@@ -80,6 +80,7 @@ extension WorkflowViewModel {
     private func applyDefaultConfiguration() {
         updateGenre = defaultUpdateGenre
         updateYear = defaultUpdateYear
+        forceYearLookup = false
         cleanTrackNames = false
         cleanAlbumNames = false
         previewOnly = defaultPreviewOnly

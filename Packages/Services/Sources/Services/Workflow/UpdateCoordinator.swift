@@ -203,7 +203,8 @@ public actor UpdateCoordinator {
            runtimeConfiguration.isYearLookupEnabled,
            let change = try await determineYearChange(
                track: workingTrack,
-               albumTracks: inputAlbumTracks
+               albumTracks: inputAlbumTracks,
+               forceYearLookup: options.forceYearLookup
            ) {
             proposedChanges.append(change)
         }

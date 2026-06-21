@@ -126,6 +126,7 @@ struct UpdateOptionsTests {
         let options = UpdateOptions()
         #expect(options.updateGenre == true)
         #expect(options.updateYear == true)
+        #expect(options.forceYearLookup == false)
         #expect(options.cleanTrackNames == false)
         #expect(options.cleanAlbumNames == false)
         #expect(options.minConfidence == 60)
@@ -137,12 +138,14 @@ struct UpdateOptionsTests {
         let options = UpdateOptions(
             updateGenre: false,
             updateYear: true,
+            forceYearLookup: true,
             cleanTrackNames: true,
             cleanAlbumNames: true,
             minConfidence: 90,
             autoAccept: true
         )
         #expect(options.updateGenre == false)
+        #expect(options.forceYearLookup == true)
         #expect(options.cleanTrackNames == true)
         #expect(options.cleanAlbumNames == true)
         #expect(options.minConfidence == 90)

@@ -472,6 +472,34 @@ struct UpdateCoordinatorCandidateScoringTests {
         #expect(!changes.contains { $0.changeType == ChangeType.yearUpdate })
     }
 
+    @Test("Force year lookup bypasses already processed album skip")
+    func forceYearLookupBypassesAlreadyProcessedAlbumSkip() async throws {
+        let track = subRosaTrack(year: 2008, yearSetByMGU: 2008)
+        let albumTracks = subRosaAlbumTracks(year: 2008, yearSetByMGU: 2008)
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "SubRosa",
+            album: "Strega",
+            year: 2008,
+            confidence: 100
+        )
+        let api = subRosaAPIOrchestrator(confirmingYear: 1999)
+        let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            albumTracks: albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true, forceYearLookup: true),
+            dryRun: true
+        )
+
+        let yearChange = try #require(changes.first { $0.changeType == ChangeType.yearUpdate })
+        #expect(yearChange.oldValue == "2008")
+        #expect(yearChange.newValue == "1999")
+        #expect(yearChange.source == "Api")
+    }
+
     @Test("Does not skip year lookup for partially processed albums")
     func doesNotSkipYearLookupForPartiallyProcessedAlbums() async throws {
         let track = subRosaTrack(year: 2008, yearSetByMGU: 2008)

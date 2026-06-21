@@ -7,6 +7,12 @@ private struct ReleaseYearConflict {
     let verificationYear: Int
 }
 
+private enum YearShortcutDecision {
+    case continueToAPI
+    case skip
+    case change(ProposedChange)
+}
+
 extension UpdateCoordinator {
     private static let fallbackRejectionReasons: Set<String> = [
         "suspicious_year_change",
@@ -19,12 +25,16 @@ extension UpdateCoordinator {
 
     func determineYearChange(
         track: Track,
-        albumTracks: [Track]
+        albumTracks: [Track],
+        forceYearLookup: Bool = false
     ) async throws -> ProposedChange? {
         let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(track.album)
         guard albumTypeInfo.strategy != .markAndSkip else { return nil }
-        guard !isAlbumAlreadyProcessedByMGU(track: track, albumTracks: albumTracks) else { return nil }
-        if await shouldSkipRecentFallbackRejection(track: track) { return nil }
+        if await shouldSkipYearPreflight(
+            track: track,
+            albumTracks: albumTracks,
+            forceYearLookup: forceYearLookup
+        ) { return nil }
 
         let releaseYearConflict = releaseYearConflict(
             for: track,
@@ -35,53 +45,26 @@ extension UpdateCoordinator {
             albumTracks: albumTracks
         )
 
-        if shouldPreferLocalYearRepair(for: track),
-           let localChange = yearChangeFromLocalDetermination(track: track, albumTracks: albumTracks) {
-            return localChange
-        }
-
-        let cachedAlbumYear = await cache.getAlbumYear(artist: track.artist, album: track.album)
-
-        if !hasAmbiguousReleaseYearSignal {
-            if releaseYearConflict == nil,
-               shouldSkipYearLookupFromCachedAlbumYear(
-                   track: track,
-                   albumTracks: albumTracks,
-                   entry: cachedAlbumYear
-               ) {
-                return nil
-            }
-
-            if let cachedChange = yearChangeFromCached(
-                track: track,
-                entry: cachedAlbumYear,
-                requiredYear: releaseYearConflict?.verificationYear
-            ) {
-                return cachedChange
-            }
-        }
-
-        if releaseYearConflict == nil,
-           !hasAmbiguousReleaseYearSignal,
-           shouldSkipYearLookupFromUncachedConsistentAlbumYear(
-               track: track,
-               albumTracks: albumTracks,
-               entry: cachedAlbumYear
-           ) {
+        switch await yearShortcutDecision(
+            track: track,
+            albumTracks: albumTracks,
+            forceYearLookup: forceYearLookup,
+            releaseYearConflict: releaseYearConflict,
+            hasAmbiguousReleaseYearSignal: hasAmbiguousReleaseYearSignal
+        ) {
+        case .continueToAPI:
+            break
+        case .skip:
             return nil
-        }
-
-        if releaseYearConflict == nil,
-           !hasAmbiguousReleaseYearSignal,
-           let localChange = yearChangeFromLocalDetermination(track: track, albumTracks: albumTracks) {
-            return localChange
+        case let .change(change):
+            return change
         }
 
         let apiDetermination = await determineYearFromAPI(
             track: track,
             albumTracks: albumTracks,
             albumTypeInfo: albumTypeInfo,
-            ignoreLocalAlbumYears: releaseYearConflict != nil || hasAmbiguousReleaseYearSignal
+            ignoreLocalAlbumYears: forceYearLookup || releaseYearConflict != nil || hasAmbiguousReleaseYearSignal
         )
 
         return await yearChangeFromAPIDetermination(
@@ -93,6 +76,86 @@ extension UpdateCoordinator {
 
     private func albumContextTracks(track: Track, albumTracks: [Track]) -> [Track] {
         albumTracks.contains { $0.id == track.id } ? albumTracks : albumTracks + [track]
+    }
+
+    private func shouldSkipYearPreflight(
+        track: Track,
+        albumTracks: [Track],
+        forceYearLookup: Bool
+    ) async -> Bool {
+        guard !forceYearLookup else { return false }
+        if isAlbumAlreadyProcessedByMGU(track: track, albumTracks: albumTracks) {
+            return true
+        }
+        return await shouldSkipRecentFallbackRejection(track: track)
+    }
+
+    private func yearShortcutDecision(
+        track: Track,
+        albumTracks: [Track],
+        forceYearLookup: Bool,
+        releaseYearConflict: ReleaseYearConflict?,
+        hasAmbiguousReleaseYearSignal: Bool
+    ) async -> YearShortcutDecision {
+        guard !forceYearLookup else { return .continueToAPI }
+        if shouldPreferLocalYearRepair(for: track),
+           let localChange = yearChangeFromLocalDetermination(track: track, albumTracks: albumTracks) {
+            return .change(localChange)
+        }
+
+        let cachedAlbumYear = await cache.getAlbumYear(artist: track.artist, album: track.album)
+        if !hasAmbiguousReleaseYearSignal,
+           let cachedDecision = cachedYearShortcutDecision(
+               track: track,
+               albumTracks: albumTracks,
+               entry: cachedAlbumYear,
+               releaseYearConflict: releaseYearConflict
+           ) {
+            return cachedDecision
+        }
+
+        if releaseYearConflict == nil,
+           !hasAmbiguousReleaseYearSignal,
+           shouldSkipYearLookupFromUncachedConsistentAlbumYear(
+               track: track,
+               albumTracks: albumTracks,
+               entry: cachedAlbumYear
+           ) {
+            return .skip
+        }
+
+        if releaseYearConflict == nil,
+           !hasAmbiguousReleaseYearSignal,
+           let localChange = yearChangeFromLocalDetermination(track: track, albumTracks: albumTracks) {
+            return .change(localChange)
+        }
+
+        return .continueToAPI
+    }
+
+    private func cachedYearShortcutDecision(
+        track: Track,
+        albumTracks: [Track],
+        entry: AlbumCacheEntry?,
+        releaseYearConflict: ReleaseYearConflict?
+    ) -> YearShortcutDecision? {
+        if releaseYearConflict == nil,
+           shouldSkipYearLookupFromCachedAlbumYear(
+               track: track,
+               albumTracks: albumTracks,
+               entry: entry
+           ) {
+            return .skip
+        }
+
+        if let cachedChange = yearChangeFromCached(
+            track: track,
+            entry: entry,
+            requiredYear: releaseYearConflict?.verificationYear
+        ) {
+            return .change(cachedChange)
+        }
+        return nil
     }
 
     private func isAlbumAlreadyProcessedByMGU(track: Track, albumTracks: [Track]) -> Bool {
