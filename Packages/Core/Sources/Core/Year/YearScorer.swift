@@ -189,7 +189,7 @@ public struct YearScorer: Sendable {
             year: bestYear, score: bestScore,
             bestPerYear: bestPerYear,
             existingYear: existingYear,
-            bestScore: bestScore
+            calendarYear: calendarYear
         )
 
         let existingYearBoosted = (finalYear != bestYear)
@@ -240,14 +240,15 @@ public struct YearScorer: Sendable {
         year: Int, score: Int,
         bestPerYear: [Int: Int],
         existingYear: Int?,
-        bestScore: Int
+        calendarYear: Int
     ) -> (year: Int, score: Int) {
         guard let existing = existingYear,
+              existing <= calendarYear,
               let existingScore = bestPerYear[existing],
               existing != year else {
             return (year, score)
         }
-        let threshold = Double(bestScore) * 0.9
+        let threshold = Double(score) * 0.9
         if Double(existingScore) >= threshold {
             return (existing, existingScore)
         }

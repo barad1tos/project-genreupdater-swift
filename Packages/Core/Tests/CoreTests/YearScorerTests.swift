@@ -471,6 +471,25 @@ struct YearScorerResolutionTests {
         #expect(result.year == 2005)
     }
 
+    @Test("Existing future year is not boosted over stronger non-future candidate")
+    func existingFutureYearNotBoosted() {
+        let calendarYear = Calendar.current.component(
+            Calendar.Component.year,
+            from: Date()
+        )
+        let scored = [
+            makeScoredRelease(year: calendarYear - 1, score: 100),
+            makeScoredRelease(year: calendarYear + 1, score: 91),
+        ]
+
+        let result = scorer.resolveScores(
+            scored,
+            existingYear: calendarYear + 1
+        )
+
+        #expect(result.year == calendarYear - 1)
+    }
+
     @Test("Future year preference uses definitive score diff")
     func futureYearPreferenceUsesDefinitiveScoreDiff() {
         let calendarYear = Calendar.current.component(
