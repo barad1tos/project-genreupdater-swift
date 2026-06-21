@@ -365,6 +365,38 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(!csv.contains("HEY WHAT"))
     }
 
+    @Test("Problematic pending albums expose typed report rows")
+    func problematicPendingAlbumsExposeTypedReportRows() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let service = makeService(
+            container: container,
+            directory: directory,
+            date: baseDate,
+            verificationIntervalDays: 30
+        )
+        await service.markForVerification(artist: "Low", album: "HEY WHAT", reason: "missing_year")
+        await service.markForVerification(artist: "Bjork, Solo", album: "Debut", reason: "missing_year")
+        await service.markForVerification(artist: "Bjork, Solo", album: "Debut", reason: "missing_year")
+        await service.markForVerification(artist: "Bjork, Solo", album: "Debut", reason: "missing_year")
+        await service.markForVerification(artist: "The Cure", album: "Wish", reason: "missing_year")
+        await service.markForVerification(artist: "The Cure", album: "Wish", reason: "missing_year")
+        await service.markForVerification(artist: "The Cure", album: "Wish", reason: "missing_year")
+        await service.markForVerification(artist: "The Cure", album: "Wish", reason: "missing_year")
+
+        let rows = await service.getProblematicPendingAlbums(minAttempts: 3)
+
+        #expect(rows.map(\.entry.album) == ["Wish", "Debut"])
+        #expect(rows.map(\.totalAttempts) == [4, 3])
+        #expect(rows[0].firstAttempt == baseDate.addingTimeInterval(-90 * 86400))
+        #expect(rows[0].lastAttempt == baseDate)
+        #expect(rows[0].daysSinceFirstAttempt == 90)
+        #expect(rows[0].status == "Pending verification")
+    }
+
     @Test("Problematic prerelease report uses the effective prerelease interval")
     func problematicPrereleaseReportUsesEffectiveRecheckInterval() async throws {
         let directory = try makeTempDirectory()

@@ -11,13 +11,6 @@ private struct LegacyPendingVerificationStore: Codable {
     var lastAutoVerification: Date?
 }
 
-private struct ProblematicAlbumReportRow {
-    let entry: PendingAlbumEntry
-    let totalAttempts: Int
-    let firstAttempt: Date
-    let lastAttempt: Date
-}
-
 /// Stores pending album verification state in SwiftData.
 ///
 /// The legacy JSON path is only read as a migration source. New runtime state
@@ -192,6 +185,20 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
         }
     }
 
+    public func getProblematicPendingAlbums(minAttempts: Int = 3) async -> [ProblematicPendingAlbum] {
+        ensureInitialized()
+
+        do {
+            return try loadProblematicPendingAlbums(
+                minAttempts: minAttempts,
+                now: currentDate()
+            )
+        } catch {
+            log.warning("Failed to load problematic pending albums: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+    }
+
     @discardableResult
     public func generateProblematicAlbumsReport(
         minAttempts: Int = 3,
@@ -199,31 +206,12 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
     ) async throws -> Int {
         ensureInitialized()
 
-        let descriptor = FetchDescriptor<PersistedPendingAlbumEntry>()
-        let entries = try modelContext.fetch(descriptor).map { $0.toPendingAlbumEntry() }
-        let threshold = max(1, minAttempts)
         let now = currentDate()
-        let rows = entries.compactMap { entry -> ProblematicAlbumReportRow? in
-            let attempts = totalAttempts(for: entry, now: now)
-            guard attempts >= threshold else { return nil }
-            let interval = max(1, effectiveRecheckInterval(for: entry))
-            let firstAttempt = entry.lastAttempt.addingTimeInterval(-Double(max(0, attempts - 1)) * interval)
-            return ProblematicAlbumReportRow(
-                entry: entry,
-                totalAttempts: attempts,
-                firstAttempt: firstAttempt,
-                lastAttempt: entry.lastAttempt
-            )
-        }.sorted {
-            if $0.totalAttempts != $1.totalAttempts {
-                return $0.totalAttempts > $1.totalAttempts
-            }
-            return $0.entry.album.localizedCaseInsensitiveCompare($1.entry.album) == .orderedAscending
-        }
+        let rows = try loadProblematicPendingAlbums(minAttempts: minAttempts, now: now)
 
         let destinationURL = reportURL ?? defaultReportURL
         try ensureDirectoryExists(for: destinationURL)
-        let csv = Self.problematicAlbumsCSV(rows: rows, now: now)
+        let csv = Self.problematicAlbumsCSV(rows: rows)
         try Data(csv.utf8).write(to: destinationURL, options: .atomic)
         return rows.count
     }
@@ -355,6 +343,39 @@ extension SwiftDataPendingVerificationService {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
+    private func loadProblematicPendingAlbums(
+        minAttempts: Int,
+        now: Date
+    ) throws -> [ProblematicPendingAlbum] {
+        let descriptor = FetchDescriptor<PersistedPendingAlbumEntry>()
+        let entries = try modelContext.fetch(descriptor).map { $0.toPendingAlbumEntry() }
+        let threshold = max(1, minAttempts)
+
+        return entries.compactMap { entry -> ProblematicPendingAlbum? in
+            let attempts = totalAttempts(for: entry, now: now)
+            guard attempts >= threshold else { return nil }
+            let interval = max(1, effectiveRecheckInterval(for: entry))
+            let firstAttempt = entry.lastAttempt.addingTimeInterval(-Double(max(0, attempts - 1)) * interval)
+
+            return ProblematicPendingAlbum(
+                entry: entry,
+                totalAttempts: attempts,
+                firstAttempt: firstAttempt,
+                lastAttempt: entry.lastAttempt,
+                daysSinceFirstAttempt: Self.daysElapsed(from: firstAttempt, to: now)
+            )
+        }.sorted {
+            if $0.totalAttempts != $1.totalAttempts {
+                return $0.totalAttempts > $1.totalAttempts
+            }
+            return $0.entry.album.localizedCaseInsensitiveCompare($1.entry.album) == .orderedAscending
+        }
+    }
+
+    private static func daysElapsed(from startDate: Date, to endDate: Date) -> Int {
+        max(0, Int(endDate.timeIntervalSince(startDate) / 86400))
+    }
+
     private func totalAttempts(for entry: PendingAlbumEntry, now: Date) -> Int {
         let recordedAttempts = max(0, entry.attemptCount)
         let recheckInterval = effectiveRecheckInterval(for: entry)
@@ -442,7 +463,7 @@ extension SwiftDataPendingVerificationService {
         return appSupport.appendingPathComponent("GenreUpdater", isDirectory: true)
     }
 
-    private static func problematicAlbumsCSV(rows: [ProblematicAlbumReportRow], now: Date) -> String {
+    private static func problematicAlbumsCSV(rows: [ProblematicPendingAlbum]) -> String {
         var lines = [
             "Artist,Album,First Attempt,Last Attempt,Total Attempts,Days Since First Attempt,Status",
         ]
@@ -453,8 +474,8 @@ extension SwiftDataPendingVerificationService {
                 dateOnly(row.firstAttempt),
                 dateOnly(row.lastAttempt),
                 String(row.totalAttempts),
-                String(max(0, Calendar.current.dateComponents([.day], from: row.firstAttempt, to: now).day ?? 0)),
-                "Pending verification",
+                String(row.daysSinceFirstAttempt),
+                row.status,
             ].map(escapeCSVField).joined(separator: ",")
         })
         return lines.joined(separator: "\r\n")
