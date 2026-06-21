@@ -461,8 +461,8 @@ struct LibrarySyncServiceTests {
         #expect(metadata?.lastForceScanDate == now)
     }
 
-    @Test("Missing force scan timestamp triggers initial metadata refresh")
-    func missingForceScanTimestampTriggersInitialMetadataRefresh() async throws {
+    @Test("Missing force scan timestamp stays in fast mode")
+    func missingForceScanTimestampStaysInFastMode() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let gate = await FeatureGate(fixedTier: .free)
@@ -492,9 +492,9 @@ struct LibrarySyncServiceTests {
         let result = try await service.detectChanges()
         let metadata = await snapshotService.getSnapshotMetadata()
 
-        #expect(result.modifiedTracks.map(\.id) == ["T1"])
-        #expect(await bridge.fetchTracksRequestCount() == 1)
-        #expect(metadata?.lastForceScanDate == now)
+        #expect(!result.hasChanges)
+        #expect(await bridge.fetchTracksRequestCount() == 0)
+        #expect(metadata?.lastForceScanDate == nil)
     }
 
     @Test("Synchronize now applies new modified and removed tracks to store")

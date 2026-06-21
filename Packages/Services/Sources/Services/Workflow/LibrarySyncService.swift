@@ -351,7 +351,7 @@ public actor LibrarySyncService {
         guard runtimeConfiguration.forceMetadataScanIntervalDays > 0,
               let metadata = await librarySnapshotService?.getSnapshotMetadata()
         else { return false }
-        guard let lastForceScanDate = metadata.lastForceScanDate else { return true }
+        guard let lastForceScanDate = metadata.lastForceScanDate else { return false }
 
         let interval = TimeInterval(runtimeConfiguration.forceMetadataScanIntervalDays) * 86400
         return currentDate().timeIntervalSince(lastForceScanDate) >= interval
