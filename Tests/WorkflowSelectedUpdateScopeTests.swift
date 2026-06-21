@@ -98,6 +98,43 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
+    @Test("full library preview uses artist context for genre mismatch repair")
+    func fullLibraryPreviewUsesArtistContextForGenreMismatchRepair() async throws {
+        let fixture = makeWorkflowFixture()
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = true
+        viewModel.updateGenre = true
+        viewModel.updateYear = false
+
+        viewModel.start(tracks: [
+            Track(
+                id: "genre-mismatch",
+                name: "Second Song",
+                artist: "The Clash",
+                album: "Second Album",
+                genre: "Pop",
+                dateAdded: Date(timeIntervalSince1970: 200)
+            ),
+            Track(
+                id: "genre-source",
+                name: "First Song",
+                artist: "The Clash",
+                album: "First Album",
+                genre: "Punk",
+                dateAdded: Date(timeIntervalSince1970: 100)
+            ),
+        ])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        let genreChange = try #require(viewModel.proposedChanges.first { $0.changeType == .genreUpdate })
+        #expect(genreChange.track.id == "genre-mismatch")
+        #expect(genreChange.oldValue == "Pop")
+        #expect(genreChange.newValue == "Punk")
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+    }
+
     @Test("selected dry run passes forced year lookup to workflow options")
     func selectedDryRunPassesForcedYearLookupToWorkflowOptions() async throws {
         let fixture = makeWorkflowFixture(apiService: DashboardStateAPIService(year: 1999, confidence: 100))

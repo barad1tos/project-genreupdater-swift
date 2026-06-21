@@ -149,6 +149,47 @@ struct WorkflowRunTrackerTests {
         #expect(onlyMissingGenreUpdated)
     }
 
+    @Test("full-library genre scope repairs existing genre mismatches")
+    func fullLibraryGenreScopeRepairsExistingGenreMismatches() async throws {
+        let genreSource = Track(
+            id: "genre-source",
+            name: "First Song",
+            artist: "The Clash",
+            album: "First Album",
+            genre: "Punk",
+            dateAdded: Date(timeIntervalSince1970: 100)
+        )
+        let mismatch = Track(
+            id: "genre-mismatch",
+            name: "Second Song",
+            artist: "The Clash",
+            album: "Second Album",
+            genre: "Pop",
+            dateAdded: Date(timeIntervalSince1970: 200)
+        )
+        let fixture = makeWorkflowFixture(
+            resolveIncrementalTracks: { tracks, _ in
+                tracks.filter { $0.id == mismatch.id }
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = true
+        viewModel.updateYear = false
+
+        viewModel.start(tracks: [mismatch, genreSource])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+
+        #expect(writes.contains { write in
+            write.trackID == mismatch.id
+                && write.property == "genre"
+                && write.value == "Punk"
+        })
+    }
+
     @Test("empty incremental full-library scope completes without writes or timestamp")
     func emptyIncrementalFullLibraryScopeCompletesWithoutWritesOrTimestamp() async throws {
         let timestampUpdates = RunTimestampUpdateCounter()

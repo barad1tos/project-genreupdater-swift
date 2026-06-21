@@ -262,8 +262,10 @@ public actor UpdateCoordinator {
         artistTracks: [Track],
         options: UpdateOptions
     ) -> ProposedChange? {
-        let canUpdateGenre = runtimeConfiguration.shouldOverrideExistingGenres
-            || (track.genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let canRepairExistingGenre = runtimeConfiguration.shouldOverrideExistingGenres
+            || options.repairExistingGenreMismatches
+        let canUpdateGenre = canRepairExistingGenre
+            || Self.isMissingGenre(track.genre)
         guard options.updateGenre, canUpdateGenre else {
             return nil
         }
@@ -272,7 +274,9 @@ public actor UpdateCoordinator {
             artistTracks: artistTracks,
             genreMappings: runtimeConfiguration.genreMappings
         )
-        guard let newGenre = genreResult.genre, newGenre != track.genre else {
+        guard let newGenre = genreResult.genre,
+              Self.hasGenreValueChanged(currentGenre: track.genre, newGenre: newGenre)
+        else {
             return nil
         }
 
@@ -284,6 +288,16 @@ public actor UpdateCoordinator {
             confidence: 80,
             source: "Library"
         )
+    }
+
+    private static func isMissingGenre(_ genre: String?) -> Bool {
+        genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+    }
+
+    private static func hasGenreValueChanged(currentGenre: String?, newGenre: String) -> Bool {
+        let normalizedCurrentGenre = currentGenre?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedNewGenre = newGenre.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalizedCurrentGenre != normalizedNewGenre
     }
 
     private func shouldSkipPrereleaseProcessing(track: Track, albumTracks: [Track]) async -> Bool {
