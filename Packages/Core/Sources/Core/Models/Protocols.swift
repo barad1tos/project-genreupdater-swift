@@ -360,17 +360,40 @@ public protocol PendingVerificationService: Actor, Sendable {
     func isVerificationNeeded(artist: String, album: String) async -> Bool
     func getAllPendingAlbums() async -> [PendingAlbumEntry]
     func getPendingAlbums(reason: String) async -> [PendingAlbumEntry]
+    func getDuePendingAlbums() async -> [PendingAlbumEntry]
+    func getPendingVerificationSnapshot() async -> (all: [PendingAlbumEntry], due: [PendingAlbumEntry])
     func generateProblematicAlbumsReport(minAttempts: Int, reportURL: URL?) async throws -> Int
     func shouldAutoVerify() async -> Bool
     func updateVerificationTimestamp() async throws
 }
 
 extension PendingVerificationService {
+    public func getDuePendingAlbums() async -> [PendingAlbumEntry] {
+        let allEntries = await getAllPendingAlbums()
+        return await duePendingAlbums(from: allEntries)
+    }
+
+    public func getPendingVerificationSnapshot() async -> (all: [PendingAlbumEntry], due: [PendingAlbumEntry]) {
+        let allEntries = await getAllPendingAlbums()
+        let dueEntries = await duePendingAlbums(from: allEntries)
+        return (allEntries, dueEntries)
+    }
+
     public func getPendingAlbums(reason: String) async -> [PendingAlbumEntry] {
         let normalizedReason = normalizedPendingVerificationReason(reason)
         return await getAllPendingAlbums().filter {
             normalizedPendingVerificationReason($0.reason) == normalizedReason
         }
+    }
+
+    private func duePendingAlbums(from entries: [PendingAlbumEntry]) async -> [PendingAlbumEntry] {
+        var dueEntries: [PendingAlbumEntry] = []
+        for entry in entries {
+            let isDue = await isVerificationNeeded(artist: entry.artist, album: entry.album)
+            guard isDue else { continue }
+            dueEntries.append(entry)
+        }
+        return dueEntries
     }
 }
 

@@ -153,6 +153,40 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(await afterRecheck.isVerificationNeeded(artist: "Slowdive", album: "Everything Is Alive"))
     }
 
+    @Test("Due pending albums use each entry's effective recheck interval")
+    func duePendingAlbumsUseEffectiveRecheckInterval() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+        var configuration = AppConfiguration()
+        configuration.processing.pendingVerificationIntervalDays = 30
+        configuration.processing.prereleaseRecheckDays = 7
+
+        let initial = SwiftDataPendingVerificationService(
+            modelContainer: container,
+            configuration: configuration,
+            baseDirectory: directory,
+            currentDate: { baseDate }
+        )
+        await initial.markForVerification(artist: "Portishead", album: "Dummy", reason: "no_year_found")
+        await initial.markForVerification(artist: "Slowdive", album: "Everything Is Alive", reason: "prerelease")
+
+        let afterPrereleaseInterval = SwiftDataPendingVerificationService(
+            modelContainer: container,
+            configuration: configuration,
+            baseDirectory: directory,
+            currentDate: { baseDate.addingTimeInterval(7 * day) }
+        )
+
+        let dueEntries = await afterPrereleaseInterval.getDuePendingAlbums()
+        let snapshot = await afterPrereleaseInterval.getPendingVerificationSnapshot()
+
+        #expect(dueEntries.map(\.album) == ["Everything Is Alive"])
+        #expect(snapshot.all.map(\.album).sorted() == ["Dummy", "Everything Is Alive"])
+        #expect(snapshot.due.map(\.album) == ["Everything Is Alive"])
+    }
+
     @Test("Imported prerelease entries without recheck metadata use the configured prerelease interval")
     func importedPrereleaseEntriesWithoutMetadataUseConfiguredRecheckInterval() async throws {
         let directory = try makeTempDirectory()
