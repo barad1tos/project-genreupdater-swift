@@ -145,12 +145,14 @@ public actor UpdateCoordinator {
     /// - Parameters:
     ///   - track: The track to update
     ///   - albumTracks: Other tracks on the same album (for cross-track scoring)
+    ///   - artistTracks: All tracks by the same artist (for dominant genre)
     ///   - options: Update configuration (genre/year, confidence, auto-accept)
     ///   - dryRun: If true, return proposed changes without writing
     /// - Returns: Proposed changes (written if not dry-run)
     public func updateTrack(
         _ track: Track,
         albumTracks: [Track] = [],
+        artistTracks: [Track] = [],
         options: UpdateOptions,
         dryRun: Bool = false
     ) async throws -> [ProposedChange] {
@@ -177,8 +179,37 @@ public actor UpdateCoordinator {
             return []
         }
 
+        let candidateChanges = try await proposedChanges(
+            for: inputTrack,
+            albumTracks: inputAlbumTracks,
+            artistTracks: artistTracks,
+            options: options
+        )
+        let proposedChanges = ChangePreviewPipeline().filter(
+            changes: candidateChanges,
+            minConfidence: options.minConfidence
+        )
+
+        if dryRun {
+            return proposedChanges
+        }
+
+        // Write accepted changes
+        for change in proposedChanges where change.isAccepted {
+            try await applyChange(change)
+        }
+
+        return proposedChanges
+    }
+
+    private func proposedChanges(
+        for track: Track,
+        albumTracks: [Track],
+        artistTracks: [Track],
+        options: UpdateOptions
+    ) async throws -> [ProposedChange] {
         var proposedChanges: [ProposedChange] = []
-        var workingTrack = inputTrack
+        var workingTrack = track
 
         if let change = Self.determineArtistRenameChange(
             track: workingTrack,
@@ -188,22 +219,24 @@ public actor UpdateCoordinator {
             workingTrack = change.track
         }
 
-        // Genre determination (local — uses existing track genres)
-        let artistTracks = inputAlbumTracks.isEmpty ? [workingTrack] : inputAlbumTracks
-        if let change = determineGenreChange(
+        let genreContextTracks = Self.genreContextTracks(
             track: workingTrack,
             artistTracks: artistTracks,
+            albumTracks: albumTracks
+        )
+        if let change = determineGenreChange(
+            track: workingTrack,
+            artistTracks: genreContextTracks,
             options: options
         ) {
             proposedChanges.append(change)
         }
 
-        // Year determination (API-backed)
         if options.updateYear,
            runtimeConfiguration.isYearLookupEnabled,
            let change = try await determineYearChange(
                track: workingTrack,
-               albumTracks: inputAlbumTracks,
+               albumTracks: albumTracks,
                forceYearLookup: options.forceYearLookup
            ) {
             proposedChanges.append(change)
@@ -214,19 +247,6 @@ public actor UpdateCoordinator {
             options: options,
             cleaning: runtimeConfiguration.cleaning
         ))
-
-        // Filter by confidence
-        let pipeline = ChangePreviewPipeline()
-        proposedChanges = pipeline.filter(changes: proposedChanges, minConfidence: options.minConfidence)
-
-        if dryRun {
-            return proposedChanges
-        }
-
-        // Write accepted changes
-        for change in proposedChanges where change.isAccepted {
-            try await applyChange(change)
-        }
 
         return proposedChanges
     }
@@ -308,6 +328,27 @@ public actor UpdateCoordinator {
         albumTracks.contains { $0.id == track.id } ? albumTracks : albumTracks + [track]
     }
 
+    private static func genreContextTracks(
+        track: Track,
+        artistTracks: [Track],
+        albumTracks: [Track]
+    ) -> [Track] {
+        let availableArtistTracks = artistTracks.filter(isTrackAvailableForProcessing)
+        if !availableArtistTracks.isEmpty {
+            return tracks(availableArtistTracks, containing: track)
+        }
+
+        if !albumTracks.isEmpty {
+            return tracks(albumTracks, containing: track)
+        }
+
+        return [track]
+    }
+
+    private static func tracks(_ tracks: [Track], containing track: Track) -> [Track] {
+        tracks.contains { $0.id == track.id } ? tracks : tracks + [track]
+    }
+
     private func markPrereleaseAlbum(
         track: Track,
         metadata: [String: String]
@@ -360,6 +401,7 @@ public actor UpdateCoordinator {
         _ tracks: [Track],
         options: UpdateOptions,
         albumTracksProvider: @Sendable (Track) -> [Track] = { _ in [] },
+        artistTracksProvider: (@Sendable (Track) -> [Track])? = nil,
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> BatchUpdateResult {
         let signpostState = AppSignpost.batchProcessing.beginInterval("updateTracks")
@@ -368,13 +410,17 @@ public actor UpdateCoordinator {
         var entries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
+        let resolvedArtistTracksProvider = artistTracksProvider ?? Self.artistTracksProvider(
+            Self.artistTracksByTrackID(for: tracks)
+        )
 
         for (index, track) in tracks.enumerated() {
             do {
                 let trackEntries = try await applyGeneratedAcceptedChanges(
                     for: track,
                     options: options,
-                    albumTracksProvider: albumTracksProvider
+                    albumTracksProvider: albumTracksProvider,
+                    artistTracksProvider: resolvedArtistTracksProvider
                 )
                 entries.append(contentsOf: trackEntries)
             } catch let error as UpdateCoordinatorError {
@@ -401,18 +447,10 @@ public actor UpdateCoordinator {
                 )
             }
 
-            progressHandler(ProgressUpdate(
-                phase: .updating,
-                current: index + 1,
-                total: tracks.count
-            ))
+            Self.reportUpdateProgress(index: index, total: tracks.count, progressHandler: progressHandler)
         }
 
-        progressHandler(ProgressUpdate(
-            phase: .complete,
-            current: tracks.count,
-            total: tracks.count
-        ))
+        Self.reportUpdateComplete(total: tracks.count, progressHandler: progressHandler)
 
         if !errorDescriptions.isEmpty, entries.isEmpty {
             throw UpdateCoordinatorError.allTracksFailed(
@@ -428,17 +466,43 @@ public actor UpdateCoordinator {
         )
     }
 
+    private static func reportUpdateProgress(
+        index: Int,
+        total: Int,
+        progressHandler: @Sendable (ProgressUpdate) -> Void
+    ) {
+        progressHandler(ProgressUpdate(
+            phase: .updating,
+            current: index + 1,
+            total: total
+        ))
+    }
+
+    private static func reportUpdateComplete(
+        total: Int,
+        progressHandler: @Sendable (ProgressUpdate) -> Void
+    ) {
+        progressHandler(ProgressUpdate(
+            phase: .complete,
+            current: total,
+            total: total
+        ))
+    }
+
     private func applyGeneratedAcceptedChanges(
         for track: Track,
         options: UpdateOptions,
-        albumTracksProvider: @Sendable (Track) -> [Track]
+        albumTracksProvider: @Sendable (Track) -> [Track],
+        artistTracksProvider: @Sendable (Track) -> [Track]
     ) async throws -> [ChangeLogEntry] {
         let albumTracksWithMutationMetadata = await availableTracksWithMutationMetadata(
             albumTracksProvider(track)
         )
+        let artistTracks = artistTracksProvider(track).filter(Self.isTrackAvailableForProcessing)
         let changes = try await updateTrack(
             track,
             albumTracks: albumTracksWithMutationMetadata,
+            artistTracks: artistTracks,
             options: options,
             dryRun: true
         )
@@ -455,6 +519,23 @@ public actor UpdateCoordinator {
             }
         }
         return entries
+    }
+
+    private static func artistTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
+        let tracksByArtist = Dictionary(grouping: tracks.filter(isTrackAvailableForProcessing)) {
+            normalizeForMatching($0.effectiveArtist)
+        }
+        return Dictionary(uniqueKeysWithValues: tracks.map { track in
+            (track.id, tracksByArtist[normalizeForMatching(track.effectiveArtist)] ?? [])
+        })
+    }
+
+    private static func artistTracksProvider(
+        _ artistTracksByTrackID: [String: [Track]]
+    ) -> @Sendable (Track) -> [Track] {
+        { track in
+            artistTracksByTrackID[track.id] ?? []
+        }
     }
 
     /// Apply reviewed proposals exactly as accepted by the user.

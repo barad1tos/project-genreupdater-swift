@@ -29,14 +29,12 @@ extension WorkflowViewModel {
             autoAccept: true
         )
 
-        let albumGroups = Self.groupTracksByAlbum(tracksByIndex)
-        let albumTracksByTrackID = Dictionary(uniqueKeysWithValues: tracksByIndex.map {
-            ($0.id, albumGroups[Self.albumKey(for: $0)] ?? [])
-        })
+        let context = Self.batchContext(for: tracksByIndex)
         let operation = makeBatchTrackOperation(
             updateCoordinator: updateCoordinator,
             options: options,
-            albumTracksByTrackID: albumTracksByTrackID
+            albumTracksByTrackID: context.albums,
+            artistTracksByTrackID: context.artists
         )
         let progressHandler = makeBatchProgressHandler(tracksByIndex: tracksByIndex)
 
@@ -68,10 +66,26 @@ extension WorkflowViewModel {
         }
     }
 
+    private static func batchContext(
+        for tracks: [Track]
+    ) -> (albums: [String: [Track]], artists: [String: [Track]]) {
+        let albumGroups = groupTracksByAlbum(tracks)
+        let artistGroups = groupTracksByArtist(tracks)
+        return (
+            albums: Dictionary(uniqueKeysWithValues: tracks.map {
+                ($0.id, albumGroups[albumKey(for: $0)] ?? [])
+            }),
+            artists: Dictionary(uniqueKeysWithValues: tracks.map {
+                ($0.id, artistGroups[artistKey(for: $0)] ?? [])
+            })
+        )
+    }
+
     private func makeBatchTrackOperation(
         updateCoordinator: UpdateCoordinator,
         options: UpdateOptions,
-        albumTracksByTrackID: [String: [Track]]
+        albumTracksByTrackID: [String: [Track]],
+        artistTracksByTrackID: [String: [Track]]
     ) -> @Sendable (Track) async throws -> [ChangeLogEntry] {
         { [weak self] track in
             do {
@@ -79,6 +93,7 @@ extension WorkflowViewModel {
                     [track],
                     options: options,
                     albumTracksProvider: Self.albumTracksProvider(albumTracksByTrackID),
+                    artistTracksProvider: Self.artistTracksProvider(artistTracksByTrackID),
                     progressHandler: Self.ignoreNestedTrackProgress
                 )
                 if let failureDescription = batchResult.errorDescriptions.first {
@@ -102,6 +117,14 @@ extension WorkflowViewModel {
     ) -> @Sendable (Track) -> [Track] {
         { track in
             albumTracksByTrackID[track.id] ?? []
+        }
+    }
+
+    nonisolated private static func artistTracksProvider(
+        _ artistTracksByTrackID: [String: [Track]]
+    ) -> @Sendable (Track) -> [Track] {
+        { track in
+            artistTracksByTrackID[track.id] ?? []
         }
     }
 

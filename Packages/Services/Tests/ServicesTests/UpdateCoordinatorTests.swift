@@ -185,6 +185,54 @@ struct UpdateCoordinatorTests {
         #expect(genreChange?.newValue == "Electronic")
     }
 
+    @Test("Multi-track genre uses artist discography instead of album-only context")
+    func multiTrackGenreUsesArtistDiscography() async throws {
+        let fixture = await makeCoordinator()
+
+        let earlyTrack = makeEditableTrack(
+            id: "early",
+            name: "First Record Song",
+            artist: "Artist",
+            album: "First Record",
+            genre: "Punk",
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 100)
+        )
+        let albumSibling = makeEditableTrack(
+            id: "sibling",
+            name: "Later Record Song",
+            artist: "Artist",
+            album: "Later Record",
+            genre: "Pop",
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 200)
+        )
+        let targetTrack = makeEditableTrack(
+            id: "target",
+            name: "Missing Genre Song",
+            artist: "Artist",
+            album: "Later Record",
+            genre: nil,
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 260)
+        )
+        let tracks = [earlyTrack, albumSibling, targetTrack]
+
+        let result = try await fixture.coordinator.updateTracks(
+            tracks,
+            options: UpdateOptions(updateGenre: true, updateYear: false),
+            albumTracksProvider: { track in
+                tracks.filter { $0.album == track.album }
+            },
+            progressHandler: Self.ignoreProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(written.contains { $0.trackID == "target" && $0.property == "genre" && $0.value == "Punk" })
+        #expect(!written.contains { $0.trackID == "target" && $0.property == "genre" && $0.value == "Pop" })
+    }
+
     @Test("Write mode applies changes to Music.app")
     func writeAppliesChanges() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)
