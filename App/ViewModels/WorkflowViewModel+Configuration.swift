@@ -10,6 +10,7 @@ extension WorkflowViewModel {
         let featureGate: FeatureGate?
         let recordProcessedTracks: (Int) -> Void
         let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
+        let resolveIncrementalTracks: ([Track]) async -> [Track]
         let updateIncrementalRunTimestamp: (() async -> Void)?
 
         init(
@@ -22,6 +23,7 @@ extension WorkflowViewModel {
                 // Default for tests/previews; production injects subscription metering.
             },
             runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
+            resolveIncrementalTracks: @escaping ([Track]) async -> [Track] = { $0 },
             updateIncrementalRunTimestamp: (() async -> Void)? = nil
         ) {
             self.updateCoordinator = updateCoordinator
@@ -31,6 +33,7 @@ extension WorkflowViewModel {
             self.featureGate = featureGate
             self.recordProcessedTracks = recordProcessedTracks
             self.runMaintenancePreflight = runMaintenancePreflight
+            self.resolveIncrementalTracks = resolveIncrementalTracks
             self.updateIncrementalRunTimestamp = updateIncrementalRunTimestamp
         }
     }

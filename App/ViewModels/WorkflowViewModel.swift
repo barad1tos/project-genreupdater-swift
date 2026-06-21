@@ -171,6 +171,7 @@ final class WorkflowViewModel {
     let featureGate: FeatureGate?
     let recordProcessedTracks: (Int) -> Void
     let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
+    let resolveIncrementalTracks: ([Track]) async -> [Track]
     let updateIncrementalRunTimestamp: (() async -> Void)?
     var defaultUpdateGenre: Bool
     var defaultUpdateYear: Bool
@@ -190,6 +191,7 @@ final class WorkflowViewModel {
         featureGate = dependencies.featureGate
         recordProcessedTracks = dependencies.recordProcessedTracks
         runMaintenancePreflight = dependencies.runMaintenancePreflight
+        resolveIncrementalTracks = dependencies.resolveIncrementalTracks
         updateIncrementalRunTimestamp = dependencies.updateIncrementalRunTimestamp
         defaultUpdateGenre = defaults.updateGenre
         defaultUpdateYear = defaults.updateYear
@@ -411,6 +413,20 @@ final class WorkflowViewModel {
         )
 
         processingTask = Task { [runMaintenancePreflight] in
+            let processingTracks = await tracksForProcessing(tracks)
+            if Task.isCancelled {
+                phase = .configure
+                progress = nil
+                return
+            }
+
+            totalCount = processingTracks.count
+            computeScopePreview(tracks: processingTracks)
+            guard !processingTracks.isEmpty else {
+                finishEmptyProcessingRun()
+                return
+            }
+
             let preflightResult = await runMaintenancePreflight?()
             if Task.isCancelled {
                 phase = .configure
@@ -420,11 +436,29 @@ final class WorkflowViewModel {
             maintenancePreflightResult = preflightResult
 
             if shouldRunBatchProcessing {
-                startBatchProcessing(tracks: tracks)
+                startBatchProcessing(tracks: processingTracks)
             } else {
-                startDryRun(tracks: tracks)
+                startDryRun(tracks: processingTracks)
             }
         }
+    }
+
+    private func tracksForProcessing(_ tracks: [Track]) async -> [Track] {
+        guard mode == .fullLibrary else { return tracks }
+        return await resolveIncrementalTracks(tracks)
+    }
+
+    private func finishEmptyProcessingRun() {
+        result = BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
+        completedEntries = []
+        proposedChanges = []
+        dryRunReport = previewOnly ? DryRunReport(proposedChanges: []) : nil
+        processedCount = 0
+        failedCount = 0
+        trackStatuses = [:]
+        currentTrackID = nil
+        phase = .done
+        progress = nil
     }
 
     var shouldRunBatchProcessing: Bool {

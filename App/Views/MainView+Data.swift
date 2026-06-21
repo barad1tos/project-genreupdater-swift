@@ -182,6 +182,10 @@ extension MainView {
                 runMaintenancePreflight: {
                     await dependencies.runMaintenancePreflight()
                 },
+                resolveIncrementalTracks: { tracks in
+                    let lastRunTime = await dependencies.incrementalRunTracker?.getLastRunTimestamp()
+                    return UpdateTrackScopeResolver.incrementalTracks(tracks, lastRunTime: lastRunTime)
+                },
                 updateIncrementalRunTimestamp: {
                     await dependencies.incrementalRunTracker?.updateLastRunTimestamp()
                 }

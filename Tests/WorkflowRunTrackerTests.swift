@@ -77,6 +77,62 @@ struct WorkflowRunTrackerTests {
 
         #expect(await timestampUpdates.count() == 0)
     }
+
+    @Test("full-library write processes only resolved incremental candidates")
+    func fullLibraryWriteProcessesOnlyResolvedIncrementalCandidates() async throws {
+        let oldTrack = Track(id: "old-track", name: "Old", artist: "Clutch", album: "Old Album", year: 1999)
+        let newTrack = Track(id: "new-track", name: "New", artist: "Clutch", album: "New Album", year: 1999)
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2001, confidence: 90),
+            resolveIncrementalTracks: { tracks in
+                tracks.filter { $0.id == newTrack.id }
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+
+        viewModel.start(tracks: [oldTrack, newTrack])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+
+        #expect(writes.map(\.trackID) == [newTrack.id])
+        #expect(viewModel.scopeTrackCount == 1)
+    }
+
+    @Test("empty incremental full-library scope completes without writes or timestamp")
+    func emptyIncrementalFullLibraryScopeCompletesWithoutWritesOrTimestamp() async throws {
+        let timestampUpdates = RunTimestampUpdateCounter()
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2001, confidence: 90),
+            resolveIncrementalTracks: { _ in [] },
+            updateIncrementalRunTimestamp: {
+                await timestampUpdates.record()
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+
+        viewModel.start(tracks: [
+            Track(id: "old-track", name: "Old", artist: "Clutch", album: "Old Album", year: 1999),
+        ])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        guard case .done = viewModel.phase else {
+            #expect(Bool(false), "empty incremental scope should skip successfully, not error")
+            return
+        }
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+        #expect(await timestampUpdates.count() == 0)
+        #expect(viewModel.result?.entries.isEmpty == true)
+    }
 }
 
 private actor RunTimestampUpdateCounter {
