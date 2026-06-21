@@ -155,31 +155,28 @@ All interactive list rows (ArtistListRow, AlbumListRow) share a consistent trio:
 
 ## Build & Test
 
-Before pushing branches that trigger GitHub Actions, run `just ci` locally when feasible. macOS Actions minutes are expensive; if the full local gate cannot run, record the skipped checks and do not push until the remaining risk is explicitly accepted.
+The repository is public and CI uses standard GitHub-hosted runners, so macOS
+GitHub Actions minutes are not a reason to block branch pushes. Commit and push
+work branches when that is the natural next step and the current slice has
+relevant local verification. Never merge branches or PRs without an explicit
+user request.
 
 ```bash
-# Local CI — full pipeline (mirrors .github/workflows/ci.yml)
-# Requires: brew install just
-just ci
-
-# Individual steps
-just build        # Build Core → Services → SharedUI
-just test         # Test Core + Services (with coverage)
-just coverage     # Check coverage thresholds (Core ≥85%, Services ≥65%)
-just entitlements # Validate entitlements whitelist
-just lint         # SwiftLint --strict
-just format       # SwiftFormat --lint (check only)
-just periphery    # Periphery scan Core + Services
-just fix          # Auto-fix: apply SwiftFormat
-
 # Build all packages
 swift build --package-path Packages/Core
 swift build --package-path Packages/Services
 swift build --package-path Packages/SharedUI
 
-# Run tests
+# Run package tests
 swift test --package-path Packages/Core
 swift test --package-path Packages/Services
+
+# Run package tests with coverage
+swift test --package-path Packages/Core --enable-code-coverage
+swift test --package-path Packages/Services --enable-code-coverage
+
+# Validate entitlements
+bash scripts/validate-entitlements.sh
 
 # Full Xcode build (unsigned — no certificate required)
 xcodebuild build -project GenreUpdater.xcodeproj -scheme GenreUpdater \
@@ -233,7 +230,7 @@ The app runs in sandbox with these entitlements:
 - **Periphery false positives**: Always use `--retain-public` (phased dev) and `--retain-codable-properties` (GRDB/SwiftData models).
 - **Periphery inline ignore**: `// periphery:ignore` does NOT work for "assign-only property" warnings — use global flags instead.
 - **Periphery ignore on referenced symbols**: `// periphery:ignore` is superfluous for protocol methods with conforming implementations — use `_ paramName` in implementations instead.
-- **CI Swift toolchain drift**: GitHub `macos-15` currently uses an older Swift than local Xcode 26.5; local `just ci` can miss Swift 6.1 type-check and strict-concurrency diagnostics. Prefer CI-compatible explicit types, `Sendable` bounds in Services helpers, and compile-time guards for new SDK-only SwiftUI APIs such as Liquid Glass.
+- **CI Swift toolchain drift**: GitHub `macos-15` can differ from the local Xcode toolchain; local checks may miss CI-only type-check and strict-concurrency diagnostics. Prefer CI-compatible explicit types, `Sendable` bounds in Services helpers, and compile-time guards for new SDK-only SwiftUI APIs such as Liquid Glass.
 - **macOS CI runners lack GNU coreutils**: `timeout` command unavailable — use bash background process + kill pattern.
 - **swift test hangs on CI**: SwiftData prevents clean exit on headless runners — ci.yml uses background process with 120s kill timeout.
 
