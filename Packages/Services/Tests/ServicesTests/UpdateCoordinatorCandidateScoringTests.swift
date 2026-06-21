@@ -274,27 +274,15 @@ struct UpdateCoordinatorCandidateScoringTests {
     func skipsYearLookupWhenCachedYearMatchesTheLibrary() async throws {
         let track = subRosaTrack(year: 2008)
         let albumTracks = subRosaAlbumTracks(year: 2008)
-        let bridge = MockAppleScriptClient()
-        let cache = MockCacheService()
-        await cache.storeAlbumYear(
+        let fixture = makeProbedCoordinator()
+        await fixture.cache.storeAlbumYear(
             artist: "SubRosa",
             album: "Strega",
             year: 2008,
             confidence: 100
         )
-        let apiProbe = APIRequestProbe()
-        let api = makeAPIOrchestrator(
-            musicBrainz: UpdateCoordinatorRecordingAPIService(probe: apiProbe, yearResult: YearResult(
-                year: 1999,
-                isDefinitive: true,
-                confidence: 100
-            )),
-            discogs: UpdateCoordinatorRecordingAPIService(probe: apiProbe),
-            appleMusic: UpdateCoordinatorRecordingAPIService(probe: apiProbe)
-        )
-        let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
 
-        let changes = try await coordinator.updateTrack(
+        let changes = try await fixture.coordinator.updateTrack(
             track,
             albumTracks: albumTracks,
             options: UpdateOptions(updateGenre: false, updateYear: true),
@@ -302,37 +290,22 @@ struct UpdateCoordinatorCandidateScoringTests {
         )
 
         #expect(!changes.contains { $0.changeType == ChangeType.yearUpdate })
-        #expect(await apiProbe.requestCount == 0)
+        #expect(await fixture.apiProbe.requestCount == 0)
     }
 
     @Test("Skips year lookup for recent fallback rejections")
     func skipsYearLookupForRecentFallbackRejections() async throws {
         let track = subRosaTrack(year: 2008)
         let albumTracks = subRosaAlbumTracks(year: 2008)
-        let bridge = MockAppleScriptClient()
-        let cache = MockCacheService()
-        let apiProbe = APIRequestProbe()
-        let api = makeAPIOrchestrator(
-            musicBrainz: UpdateCoordinatorRecordingAPIService(probe: apiProbe, yearResult: YearResult(
-                year: 1999,
-                isDefinitive: true,
-                confidence: 100
-            )),
-            discogs: UpdateCoordinatorRecordingAPIService(probe: apiProbe),
-            appleMusic: UpdateCoordinatorRecordingAPIService(probe: apiProbe)
-        )
         let pendingVerification = PendingVerificationProbe(
             entry: pendingFallbackRejection(reason: "suspicious_year_change"),
             isVerificationNeeded: false
         )
-        let coordinator = makeCoordinator(
-            api: api,
-            bridge: bridge,
-            cache: cache,
+        let fixture = makeProbedCoordinator(
             pendingVerificationService: pendingVerification
         )
 
-        let changes = try await coordinator.updateTrack(
+        let changes = try await fixture.coordinator.updateTrack(
             track,
             albumTracks: albumTracks,
             options: UpdateOptions(updateGenre: false, updateYear: true),
@@ -340,7 +313,7 @@ struct UpdateCoordinatorCandidateScoringTests {
         )
 
         #expect(!changes.contains { $0.changeType == ChangeType.yearUpdate })
-        #expect(await apiProbe.requestCount == 0)
+        #expect(await fixture.apiProbe.requestCount == 0)
     }
 
     @Test("Does not skip year lookup when fallback rejection is due")
@@ -350,37 +323,22 @@ struct UpdateCoordinatorCandidateScoringTests {
             track,
             subRosaTrack(id: "subrosa-2", name: "Crucible", year: 2008, releaseYear: 1999),
         ]
-        let bridge = MockAppleScriptClient()
-        let cache = MockCacheService()
-        let apiProbe = APIRequestProbe()
-        let api = makeAPIOrchestrator(
-            musicBrainz: UpdateCoordinatorRecordingAPIService(probe: apiProbe, yearResult: YearResult(
-                year: 1999,
-                isDefinitive: true,
-                confidence: 100
-            )),
-            discogs: UpdateCoordinatorRecordingAPIService(probe: apiProbe),
-            appleMusic: UpdateCoordinatorRecordingAPIService(probe: apiProbe)
-        )
         let pendingVerification = PendingVerificationProbe(
             entry: pendingFallbackRejection(reason: "suspicious_year_change"),
             isVerificationNeeded: true
         )
-        let coordinator = makeCoordinator(
-            api: api,
-            bridge: bridge,
-            cache: cache,
+        let fixture = makeProbedCoordinator(
             pendingVerificationService: pendingVerification
         )
 
-        _ = try await coordinator.updateTrack(
+        _ = try await fixture.coordinator.updateTrack(
             track,
             albumTracks: albumTracks,
             options: UpdateOptions(updateGenre: false, updateYear: true),
             dryRun: true
         )
 
-        #expect(await apiProbe.requestCount > 0)
+        #expect(await fixture.apiProbe.requestCount > 0)
     }
 
     @Test("Skips API lookup when uncached album years are consistently valid")
@@ -390,21 +348,9 @@ struct UpdateCoordinatorCandidateScoringTests {
             track,
             subRosaTrack(id: "subrosa-2", name: "Crucible", year: 2008, releaseYear: nil),
         ]
-        let bridge = MockAppleScriptClient()
-        let cache = MockCacheService()
-        let apiProbe = APIRequestProbe()
-        let api = makeAPIOrchestrator(
-            musicBrainz: UpdateCoordinatorRecordingAPIService(probe: apiProbe, yearResult: YearResult(
-                year: 1999,
-                isDefinitive: true,
-                confidence: 100
-            )),
-            discogs: UpdateCoordinatorRecordingAPIService(probe: apiProbe),
-            appleMusic: UpdateCoordinatorRecordingAPIService(probe: apiProbe)
-        )
-        let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
+        let fixture = makeProbedCoordinator()
 
-        let changes = try await coordinator.updateTrack(
+        let changes = try await fixture.coordinator.updateTrack(
             track,
             albumTracks: albumTracks,
             options: UpdateOptions(updateGenre: false, updateYear: true),
@@ -412,7 +358,7 @@ struct UpdateCoordinatorCandidateScoringTests {
         )
 
         #expect(!changes.contains { $0.changeType == ChangeType.yearUpdate })
-        #expect(await apiProbe.requestCount == 0)
+        #expect(await fixture.apiProbe.requestCount == 0)
     }
 
     @Test("Uses API verification for recent uncached years without release year")
@@ -423,28 +369,16 @@ struct UpdateCoordinatorCandidateScoringTests {
             track,
             subRosaTrack(id: "subrosa-2", name: "Crucible", year: currentYear, releaseYear: nil),
         ]
-        let bridge = MockAppleScriptClient()
-        let cache = MockCacheService()
-        let apiProbe = APIRequestProbe()
-        let api = makeAPIOrchestrator(
-            musicBrainz: UpdateCoordinatorRecordingAPIService(probe: apiProbe, yearResult: YearResult(
-                year: 1999,
-                isDefinitive: true,
-                confidence: 100
-            )),
-            discogs: UpdateCoordinatorRecordingAPIService(probe: apiProbe),
-            appleMusic: UpdateCoordinatorRecordingAPIService(probe: apiProbe)
-        )
-        let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
+        let fixture = makeProbedCoordinator()
 
-        _ = try await coordinator.updateTrack(
+        _ = try await fixture.coordinator.updateTrack(
             track,
             albumTracks: albumTracks,
             options: UpdateOptions(updateGenre: false, updateYear: true),
             dryRun: true
         )
 
-        #expect(await apiProbe.requestCount > 0)
+        #expect(await fixture.apiProbe.requestCount > 0)
     }
 
     @Test("Skips year lookup when every album track was already processed")
@@ -738,6 +672,35 @@ struct UpdateCoordinatorCandidateScoringTests {
             discogs: MockAPIService(),
             appleMusic: MockAPIService()
         )
+    }
+
+    private func makeProbedCoordinator(
+        definitiveYear year: Int = 1999,
+        pendingVerificationService: (any PendingVerificationService)? = nil
+    ) -> (
+        cache: MockCacheService,
+        apiProbe: APIRequestProbe,
+        coordinator: UpdateCoordinator
+    ) {
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        let apiProbe = APIRequestProbe()
+        let api = makeAPIOrchestrator(
+            musicBrainz: UpdateCoordinatorRecordingAPIService(probe: apiProbe, yearResult: YearResult(
+                year: year,
+                isDefinitive: true,
+                confidence: 100
+            )),
+            discogs: UpdateCoordinatorRecordingAPIService(probe: apiProbe),
+            appleMusic: UpdateCoordinatorRecordingAPIService(probe: apiProbe)
+        )
+        let coordinator = makeCoordinator(
+            api: api,
+            bridge: bridge,
+            cache: cache,
+            pendingVerificationService: pendingVerificationService
+        )
+        return (cache, apiProbe, coordinator)
     }
 
     private func pendingFallbackRejection(reason: String) -> PendingAlbumEntry {
