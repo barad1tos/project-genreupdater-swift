@@ -53,25 +53,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
         )
         let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
         await fixture.bridge.setFetchedTracks([track])
-        let proposals = [
-            ProposedChange(
-                track: track,
-                changeType: .genreUpdate,
-                oldValue: "Rock",
-                newValue: "Stoner Rock",
-                confidence: 90,
-                source: "Library",
-                isAccepted: true
-            ),
-            ProposedChange(
-                track: track,
-                changeType: .yearUpdate,
-                oldValue: "1999",
-                newValue: "2001",
-                confidence: 95,
-                source: "MusicBrainz",
-                isAccepted: true
-            ),
+        let proposals = acceptedGenreAndYearProposals(for: track) + [
             ProposedChange(
                 track: track,
                 changeType: .trackCleaning,
@@ -108,26 +90,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
         await fixture.bridge.setBatchMutationEnabled(false)
         let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
         await fixture.bridge.setFetchedTracks([track])
-        let proposals = [
-            ProposedChange(
-                track: track,
-                changeType: .genreUpdate,
-                oldValue: "Rock",
-                newValue: "Stoner Rock",
-                confidence: 90,
-                source: "Library",
-                isAccepted: true
-            ),
-            ProposedChange(
-                track: track,
-                changeType: .yearUpdate,
-                oldValue: "1999",
-                newValue: "2001",
-                confidence: 95,
-                source: "MusicBrainz",
-                isAccepted: true
-            ),
-        ]
+        let proposals = acceptedGenreAndYearProposals(for: track)
 
         let result = try await fixture.coordinator.applyAcceptedChanges(
             proposals,
@@ -146,26 +109,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
     func defaultReviewedWritesKeepSingleWriteBehavior() async throws {
         let fixture = await makeCoordinator()
         let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
-        let proposals = [
-            ProposedChange(
-                track: track,
-                changeType: .genreUpdate,
-                oldValue: "Rock",
-                newValue: "Stoner Rock",
-                confidence: 90,
-                source: "Library",
-                isAccepted: true
-            ),
-            ProposedChange(
-                track: track,
-                changeType: .yearUpdate,
-                oldValue: "1999",
-                newValue: "2001",
-                confidence: 95,
-                source: "MusicBrainz",
-                isAccepted: true
-            ),
-        ]
+        let proposals = acceptedGenreAndYearProposals(for: track)
 
         let result = try await fixture.coordinator.applyAcceptedChanges(
             proposals,
@@ -189,26 +133,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
         )
         await fixture.bridge.setBatchThrowMode(true)
         let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
-        let proposals = [
-            ProposedChange(
-                track: track,
-                changeType: .genreUpdate,
-                oldValue: "Rock",
-                newValue: "Stoner Rock",
-                confidence: 90,
-                source: "Library",
-                isAccepted: true
-            ),
-            ProposedChange(
-                track: track,
-                changeType: .yearUpdate,
-                oldValue: "1999",
-                newValue: "2001",
-                confidence: 95,
-                source: "MusicBrainz",
-                isAccepted: true
-            ),
-        ]
+        let proposals = acceptedGenreAndYearProposals(for: track)
 
         let result = try await fixture.coordinator.applyAcceptedChanges(
             proposals,
@@ -403,6 +328,29 @@ struct UpdateCoordinatorApplyAcceptedTests {
         )
 
         return AcceptedApplyFixture(coordinator: coordinator, bridge: bridge)
+    }
+
+    private func acceptedGenreAndYearProposals(for track: Track) -> [ProposedChange] {
+        [
+            ProposedChange(
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Stoner Rock",
+                confidence: 90,
+                source: "Library",
+                isAccepted: true
+            ),
+            ProposedChange(
+                track: track,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz",
+                isAccepted: true
+            ),
+        ]
     }
 
     private func makeEditableTrack(
