@@ -171,6 +171,7 @@ final class WorkflowViewModel {
     let featureGate: FeatureGate?
     let recordProcessedTracks: (Int) -> Void
     let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
+    let updateIncrementalRunTimestamp: (() async -> Void)?
     var defaultUpdateGenre: Bool
     var defaultUpdateYear: Bool
     var defaultPreviewOnly: Bool
@@ -189,6 +190,7 @@ final class WorkflowViewModel {
         featureGate = dependencies.featureGate
         recordProcessedTracks = dependencies.recordProcessedTracks
         runMaintenancePreflight = dependencies.runMaintenancePreflight
+        updateIncrementalRunTimestamp = dependencies.updateIncrementalRunTimestamp
         defaultUpdateGenre = defaults.updateGenre
         defaultUpdateYear = defaults.updateYear
         defaultPreviewOnly = defaults.previewOnly

@@ -48,6 +48,9 @@ extension WorkflowViewModel {
 
                 finalizeBatchStatuses(for: tracksByIndex)
                 completedEntries = entries
+                if failedTracks.isEmpty {
+                    await updateIncrementalRunTimestamp?()
+                }
                 currentTrackID = nil
                 phase = .done
                 progress = nil

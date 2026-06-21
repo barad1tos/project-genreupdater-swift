@@ -181,6 +181,9 @@ extension MainView {
                 },
                 runMaintenancePreflight: {
                     await dependencies.runMaintenancePreflight()
+                },
+                updateIncrementalRunTimestamp: {
+                    await dependencies.incrementalRunTracker?.updateLastRunTimestamp()
                 }
             ),
             defaults: WorkflowViewModel.Defaults(

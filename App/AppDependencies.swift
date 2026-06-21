@@ -117,6 +117,7 @@ final class AppDependencies {
     private(set) var maintenanceCoordinator: MaintenanceCoordinator?
     var maintenancePreflightResult: MaintenancePreflightResult?
     private(set) var changePreviewPipeline: ChangePreviewPipeline?
+    private(set) var incrementalRunTracker: IncrementalRunTracker?
     private(set) var discogsCredentialIssue: DiscogsCredentialIssue?
 
     // MARK: - Init
@@ -387,6 +388,7 @@ final class AppDependencies {
     private func initializeWorkflowServices(bridge: AppleScriptBridge, gate: FeatureGate) async {
         let checkpoint = CheckpointManager()
         checkpointManager = checkpoint
+        incrementalRunTracker = Self.makeIncrementalRunTracker(configuration: config)
 
         guard let logStore = changeLogStore,
               let store = trackStore,
@@ -455,6 +457,7 @@ final class AppDependencies {
 extension AppDependencies {
     func applyRuntimeConfiguration() {
         let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
+        incrementalRunTracker = Self.makeIncrementalRunTracker(configuration: config)
         let configuredPendingVerificationService = modelContainer.map {
             SwiftDataPendingVerificationService(modelContainer: $0, configuration: config)
         }
@@ -523,6 +526,13 @@ extension AppDependencies {
             libraryModificationDateProvider: makeLibraryModificationDateProvider(
                 path: configuration.paths.musicLibraryPath
             )
+        )
+    }
+
+    private static func makeIncrementalRunTracker(configuration: AppConfiguration) -> IncrementalRunTracker {
+        IncrementalRunTracker(
+            logsBaseDirectory: configuration.paths.effectiveLogsBaseDirectory,
+            lastIncrementalRunFile: configuration.logging.lastIncrementalRunFile
         )
     }
 
