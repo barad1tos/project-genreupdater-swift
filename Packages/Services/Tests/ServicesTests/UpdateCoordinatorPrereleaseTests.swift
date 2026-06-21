@@ -148,7 +148,9 @@ struct UpdateCoordinatorPrereleaseTests {
             nil
         }
 
-        func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {}
+        func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
+            await Task.yield()
+        }
 
         func hasMappingFor(musicKitID _: String) async -> Bool {
             false

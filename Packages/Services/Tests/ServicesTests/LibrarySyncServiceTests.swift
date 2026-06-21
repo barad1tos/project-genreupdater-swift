@@ -39,9 +39,13 @@ actor SyncMockScriptClient: AppleScriptClient {
         return libraryTrackIDs
     }
 
-    func updateTrackProperty(trackID: String, property: String, value: String) async throws {}
+    func updateTrackProperty(trackID _: String, property _: String, value _: String) async throws {
+        try Task.checkCancellation()
+    }
 
-    func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {}
+    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
+        try Task.checkCancellation()
+    }
 
     func lastFetchTracksRequest() -> (batchSize: Int, timeout: Duration?)? {
         guard let request = fetchTracksRequests.last else { return nil }

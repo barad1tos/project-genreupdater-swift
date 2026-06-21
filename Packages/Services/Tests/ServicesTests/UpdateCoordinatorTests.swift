@@ -394,7 +394,7 @@ struct UpdateCoordinatorTests {
         let result = try await fixture.coordinator.updateTracks(
             albumTracks,
             options: UpdateOptions(updateGenre: false, updateYear: true),
-            progressHandler: { _ in }
+            progressHandler: Self.ignoreProgress
         )
 
         let written = await fixture.bridge.writtenProperties

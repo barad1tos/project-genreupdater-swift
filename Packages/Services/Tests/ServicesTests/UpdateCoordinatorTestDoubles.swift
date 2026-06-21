@@ -60,7 +60,9 @@ actor PendingVerificationProbe: PendingVerificationService {
         isVerificationNeededResult = isVerificationNeeded
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        try Task.checkCancellation()
+    }
 
     func markForVerification(
         artist: String,
@@ -106,7 +108,9 @@ actor PendingVerificationProbe: PendingVerificationService {
         false
     }
 
-    func updateVerificationTimestamp() async throws {}
+    func updateVerificationTimestamp() async throws {
+        try Task.checkCancellation()
+    }
 }
 
 struct PendingVerificationMark {
