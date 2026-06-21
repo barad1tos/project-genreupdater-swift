@@ -359,9 +359,31 @@ public protocol PendingVerificationService: Actor, Sendable {
     func getAttemptCount(artist: String, album: String) async -> Int
     func isVerificationNeeded(artist: String, album: String) async -> Bool
     func getAllPendingAlbums() async -> [PendingAlbumEntry]
+    func getPendingAlbums(reason: String) async -> [PendingAlbumEntry]
     func generateProblematicAlbumsReport(minAttempts: Int, reportURL: URL?) async throws -> Int
     func shouldAutoVerify() async -> Bool
     func updateVerificationTimestamp() async throws
+}
+
+extension PendingVerificationService {
+    public func getPendingAlbums(reason: String) async -> [PendingAlbumEntry] {
+        let normalizedReason = normalizedPendingVerificationReason(reason)
+        return await getAllPendingAlbums().filter {
+            normalizedPendingVerificationReason($0.reason) == normalizedReason
+        }
+    }
+}
+
+private func normalizedPendingVerificationReason(_ reason: String) -> String {
+    let normalizedReason = reason
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .replacingOccurrences(of: "-", with: "_")
+        .lowercased()
+
+    if normalizedReason == "pre_release" {
+        return "prerelease"
+    }
+    return normalizedReason
 }
 
 // MARK: - Rate Limiter
