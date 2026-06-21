@@ -16,7 +16,7 @@ extension UpdateCoordinator {
         }
 
         var renamedTrack = track
-        renamedTrack.originalArtist = currentArtist
+        renamedTrack.originalArtist = track.originalArtist ?? currentArtist
         renamedTrack.artist = newArtist
 
         return ProposedChange(
