@@ -182,6 +182,124 @@ struct UpdateTrackScopeResolverTests {
         #expect(resolved.map(\.id) == ["new-missing", "old-missing"])
     }
 
+    @Test("incremental scope includes tracks changed since previous snapshot")
+    func incrementalScopeIncludesTracksChangedSincePreviousSnapshot() {
+        let lastRunTime = Date(timeIntervalSince1970: 1000)
+
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(
+            makeSnapshotChangedTracks(),
+            lastRunTime: lastRunTime,
+            previousTracks: makePreviousSnapshotTracks(),
+            options: IncrementalTrackScopeOptions(updateGenre: false)
+        )
+
+        #expect(resolved.map(\.id) == ["status-changed", "genre-changed", "year-changed"])
+    }
+
+    @Test("incremental scope ignores status changes without a stored status")
+    func incrementalScopeIgnoresStatusChangesWithoutStoredStatus() {
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(
+            [
+                Track(
+                    id: "new-status-only",
+                    name: "New Status Only",
+                    artist: "Alpha",
+                    album: "First",
+                    genre: "Rock",
+                    year: 2001,
+                    dateAdded: Date(timeIntervalSince1970: 500),
+                    trackStatus: "subscription"
+                ),
+            ],
+            lastRunTime: Date(timeIntervalSince1970: 1000),
+            previousTracks: [
+                Track(
+                    id: "new-status-only",
+                    name: "New Status Only",
+                    artist: "Alpha",
+                    album: "First",
+                    genre: "Rock",
+                    year: 2001,
+                    dateAdded: Date(timeIntervalSince1970: 500),
+                    trackStatus: nil
+                ),
+            ],
+            options: IncrementalTrackScopeOptions(updateGenre: false)
+        )
+
+        #expect(resolved.isEmpty)
+    }
+
+    private func makeSnapshotChangedTracks() -> [Track] {
+        [
+            Track(
+                id: "status-changed",
+                name: "Status Changed",
+                artist: "Alpha",
+                album: "First",
+                genre: "Rock",
+                year: 2001,
+                dateAdded: Date(timeIntervalSince1970: 500),
+                trackStatus: "subscription"
+            ),
+            Track(
+                id: "genre-changed",
+                name: "Genre Changed",
+                artist: "Beta",
+                album: "Second",
+                genre: "Pop",
+                year: 2002,
+                dateAdded: Date(timeIntervalSince1970: 500),
+                trackStatus: "purchased"
+            ),
+            Track(
+                id: "year-changed",
+                name: "Year Changed",
+                artist: "Gamma",
+                album: "Third",
+                genre: "Jazz",
+                year: 2003,
+                dateAdded: Date(timeIntervalSince1970: 500),
+                trackStatus: "purchased"
+            ),
+        ]
+    }
+
+    private func makePreviousSnapshotTracks() -> [Track] {
+        [
+            Track(
+                id: "status-changed",
+                name: "Status Changed",
+                artist: "Alpha",
+                album: "First",
+                genre: "Rock",
+                year: 2001,
+                dateAdded: Date(timeIntervalSince1970: 500),
+                trackStatus: "prerelease"
+            ),
+            Track(
+                id: "genre-changed",
+                name: "Genre Changed",
+                artist: "Beta",
+                album: "Second",
+                genre: "Rock",
+                year: 2002,
+                dateAdded: Date(timeIntervalSince1970: 500),
+                trackStatus: "purchased"
+            ),
+            Track(
+                id: "year-changed",
+                name: "Year Changed",
+                artist: "Gamma",
+                album: "Third",
+                genre: "Jazz",
+                year: 1999,
+                dateAdded: Date(timeIntervalSince1970: 500),
+                trackStatus: "purchased"
+            ),
+        ]
+    }
+
     private func makeTracks() -> [Track] {
         [
             Track(id: "one", name: "One", artist: "Alpha", album: "First"),

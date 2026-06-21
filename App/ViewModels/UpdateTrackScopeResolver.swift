@@ -50,6 +50,7 @@ enum UpdateTrackScopeResolver {
     static func incrementalTracks(
         _ tracks: [Track],
         lastRunTime: Date?,
+        previousTracks: [Track] = [],
         options: IncrementalTrackScopeOptions = IncrementalTrackScopeOptions()
     ) -> [Track] {
         guard let lastRunTime else { return tracks }
@@ -64,8 +65,12 @@ enum UpdateTrackScopeResolver {
         } else {
             [Track]()
         }
+        let changedTracks = tracksChangedSincePreviousSnapshot(
+            tracks,
+            previousTracks: previousTracks
+        )
 
-        return deduplicated(newTracks + missingGenreTracks + genreMismatchTracks)
+        return deduplicated(newTracks + missingGenreTracks + genreMismatchTracks + changedTracks)
     }
 
     private static func deduplicated(_ tracks: [Track]) -> [Track] {
@@ -99,6 +104,39 @@ enum UpdateTrackScopeResolver {
             }
             return artistTracks.filter { hasGenreMismatch(track: $0, dominantGenre: dominantGenre) }
         }
+    }
+
+    private static func tracksChangedSincePreviousSnapshot(
+        _ tracks: [Track],
+        previousTracks: [Track]
+    ) -> [Track] {
+        guard !previousTracks.isEmpty else { return [] }
+
+        var previousTracksByID = [String: Track]()
+        for previousTrack in previousTracks where !previousTrack.id.isEmpty {
+            previousTracksByID[previousTrack.id] = previousTrack
+        }
+
+        return tracks.filter { track in
+            guard let previousTrack = previousTracksByID[track.id] else { return false }
+            return hasRelevantMetadataChange(current: track, previous: previousTrack)
+        }
+    }
+
+    private static func hasRelevantMetadataChange(current: Track, previous: Track) -> Bool {
+        hasMeaningfulStatusChange(current.trackStatus, previous.trackStatus)
+            || hasMeaningfulChange(current.genre, previous.genre)
+            || hasMeaningfulChange(current.year.map(String.init), previous.year.map(String.init))
+    }
+
+    private static func hasMeaningfulStatusChange(_ current: String?, _ previous: String?) -> Bool {
+        guard let current, !current.isEmpty, let previous, !previous.isEmpty else { return false }
+        return current != previous
+    }
+
+    private static func hasMeaningfulChange(_ current: String?, _ previous: String?) -> Bool {
+        guard let current, !current.isEmpty else { return false }
+        return current != (previous ?? "")
     }
 
     private static func hasGenreMismatch(track: Track, dominantGenre: String) -> Bool {
