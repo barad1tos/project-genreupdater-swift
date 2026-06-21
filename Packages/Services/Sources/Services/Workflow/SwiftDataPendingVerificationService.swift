@@ -168,10 +168,11 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
         guard let entry = (try? fetchEntry(id: albumKey(artist: artist, album: album)))?.toPendingAlbumEntry() else {
             return false
         }
-        guard entry.recheckInterval > 0 else {
+        let recheckInterval = effectiveRecheckInterval(for: entry)
+        guard recheckInterval > 0 else {
             return true
         }
-        return currentDate() >= entry.lastAttempt.addingTimeInterval(entry.recheckInterval)
+        return currentDate() >= entry.lastAttempt.addingTimeInterval(recheckInterval)
     }
 
     public func getAllPendingAlbums() async -> [PendingAlbumEntry] {
@@ -356,17 +357,18 @@ extension SwiftDataPendingVerificationService {
 
     private func totalAttempts(for entry: PendingAlbumEntry, now: Date) -> Int {
         let recordedAttempts = max(0, entry.attemptCount)
-        guard entry.recheckInterval > 0 else {
+        let recheckInterval = effectiveRecheckInterval(for: entry)
+        guard recheckInterval > 0 else {
             return max(1, recordedAttempts)
         }
 
-        let elapsedAttempts = max(0, Int(now.timeIntervalSince(entry.lastAttempt) / entry.recheckInterval)) + 1
+        let elapsedAttempts = max(0, Int(now.timeIntervalSince(entry.lastAttempt) / recheckInterval)) + 1
         return max(recordedAttempts, elapsedAttempts)
     }
 
     private func resolvedRecheckDays(reason: String, recheckDays: Int?) -> Int? {
-        if let recheckDays {
-            return max(0, recheckDays)
+        if let recheckDays = Self.positiveRecheckDays(recheckDays) {
+            return recheckDays
         }
         guard Self.isPrereleaseReason(reason) else { return nil }
         return prereleaseRecheckDays
@@ -384,6 +386,24 @@ extension SwiftDataPendingVerificationService {
             .replacingOccurrences(of: "-", with: "_")
             .lowercased()
         return normalizedReason == "prerelease" || normalizedReason == "pre_release"
+    }
+
+    private func effectiveRecheckInterval(for entry: PendingAlbumEntry) -> TimeInterval {
+        guard Self.isPrereleaseReason(entry.reason) else {
+            return entry.recheckInterval
+        }
+        let recheckDays = Self.positiveRecheckDays(entry.metadata["recheck_days"]) ?? prereleaseRecheckDays
+        return TimeInterval(recheckDays) * 86400
+    }
+
+    private static func positiveRecheckDays(_ value: Int?) -> Int? {
+        guard let value, value > 0 else { return nil }
+        return value
+    }
+
+    private static func positiveRecheckDays(_ value: String?) -> Int? {
+        guard let value else { return nil }
+        return positiveRecheckDays(Int(value.trimmingCharacters(in: .whitespacesAndNewlines)))
     }
 
     private static func normalizedKeyPart(_ value: String) -> String {
