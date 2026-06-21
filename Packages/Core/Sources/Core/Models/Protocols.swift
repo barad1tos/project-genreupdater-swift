@@ -156,6 +156,36 @@ public struct PendingAlbumEntry: Sendable, Codable, Identifiable {
     }
 }
 
+/// Typed row for albums that repeatedly failed pending verification.
+public struct ProblematicPendingAlbum: Sendable, Codable, Identifiable {
+    public let entry: PendingAlbumEntry
+    public let totalAttempts: Int
+    public let firstAttempt: Date
+    public let lastAttempt: Date
+    public let daysSinceFirstAttempt: Int
+    public let status: String
+
+    public var id: String {
+        entry.id
+    }
+
+    public init(
+        entry: PendingAlbumEntry,
+        totalAttempts: Int,
+        firstAttempt: Date,
+        lastAttempt: Date,
+        daysSinceFirstAttempt: Int,
+        status: String = "Pending verification"
+    ) {
+        self.entry = entry
+        self.totalAttempts = totalAttempts
+        self.firstAttempt = firstAttempt
+        self.lastAttempt = lastAttempt
+        self.daysSinceFirstAttempt = daysSinceFirstAttempt
+        self.status = status
+    }
+}
+
 // MARK: - Cache Service
 
 /// Protocol for cache operations (in-memory + persistent).
@@ -362,6 +392,7 @@ public protocol PendingVerificationService: Actor, Sendable {
     func getPendingAlbums(reason: String) async -> [PendingAlbumEntry]
     func getDuePendingAlbums() async -> [PendingAlbumEntry]
     func getPendingVerificationSnapshot() async -> (all: [PendingAlbumEntry], due: [PendingAlbumEntry])
+    func getProblematicPendingAlbums(minAttempts: Int) async -> [ProblematicPendingAlbum]
     func generateProblematicAlbumsReport(minAttempts: Int, reportURL: URL?) async throws -> Int
     func shouldAutoVerify() async -> Bool
     func updateVerificationTimestamp() async throws
@@ -384,6 +415,10 @@ extension PendingVerificationService {
         return await getAllPendingAlbums().filter {
             normalizedPendingVerificationReason($0.reason) == normalizedReason
         }
+    }
+
+    public func getProblematicPendingAlbums(minAttempts _: Int) async -> [ProblematicPendingAlbum] {
+        []
     }
 
     private func duePendingAlbums(from entries: [PendingAlbumEntry]) async -> [PendingAlbumEntry] {
