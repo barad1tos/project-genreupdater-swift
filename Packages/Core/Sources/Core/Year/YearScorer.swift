@@ -196,16 +196,17 @@ public struct YearScorer: Sendable {
 
         (finalYear, finalScore) = applyFutureYearPreference(
             year: finalYear, score: finalScore,
-            bestPerYear: bestPerYear,
             sortedYears: sortedYears,
             calendarYear: calendarYear
         )
 
-        (finalYear, finalScore) = applyOriginalReleasePreference(
-            year: finalYear, score: finalScore,
-            scored: scored,
-            existingYearBoosted: existingYearBoosted
-        )
+        if finalYear <= calendarYear {
+            (finalYear, finalScore) = applyOriginalReleasePreference(
+                year: finalYear, score: finalScore,
+                scored: scored,
+                existingYearBoosted: existingYearBoosted
+            )
+        }
 
         let hasScoreConflict = checkScoreConflict(
             finalYear: finalYear,
@@ -255,22 +256,22 @@ public struct YearScorer: Sendable {
 
     private func applyFutureYearPreference(
         year: Int, score: Int,
-        bestPerYear: [Int: Int],
         sortedYears: [(key: Int, value: Int)],
         calendarYear: Int
     ) -> (year: Int, score: Int) {
         guard year > calendarYear else {
             return (year, score)
         }
-        guard let nonFuture = sortedYears.first(
-            where: { $0.key <= calendarYear }
-        ) else {
+        guard sortedYears.count > 1 else {
             return (year, score)
         }
-        let futureScore = bestPerYear[year] ?? 0
-        if Double(nonFuture.value)
-            >= Double(futureScore) * 0.9 {
-            return (nonFuture.key, nonFuture.value)
+        let secondBestYear = sortedYears[1]
+        guard secondBestYear.key <= calendarYear else {
+            return (year, score)
+        }
+        let scoreDifference = score - secondBestYear.value
+        if scoreDifference < yearLogic.definitiveScoreDiff {
+            return (secondBestYear.key, secondBestYear.value)
         }
         return (year, score)
     }

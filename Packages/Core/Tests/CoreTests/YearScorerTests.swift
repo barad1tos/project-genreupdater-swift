@@ -471,6 +471,39 @@ struct YearScorerResolutionTests {
         #expect(result.year == 2005)
     }
 
+    @Test("Future year preference uses definitive score diff")
+    func futureYearPreferenceUsesDefinitiveScoreDiff() {
+        let calendarYear = Calendar.current.component(
+            Calendar.Component.year,
+            from: Date()
+        )
+        let scored = [
+            makeScoredRelease(year: calendarYear + 1, score: 100),
+            makeScoredRelease(year: calendarYear, score: 89),
+        ]
+
+        let result = scorer.resolveScores(scored)
+
+        #expect(result.year == calendarYear)
+    }
+
+    @Test("Future year preference only compares the next ranked year")
+    func futureYearPreferenceOnlyComparesNextRankedYear() {
+        let calendarYear = Calendar.current.component(
+            Calendar.Component.year,
+            from: Date()
+        )
+        let scored = [
+            makeScoredRelease(year: calendarYear + 2, score: 100),
+            makeScoredRelease(year: calendarYear + 1, score: 94),
+            makeScoredRelease(year: calendarYear, score: 93),
+        ]
+
+        let result = scorer.resolveScores(scored)
+
+        #expect(result.year == calendarYear + 2)
+    }
+
     @Test("Original release preferred over reissue when close")
     func originalReleasePreferred() {
         let scored = [
