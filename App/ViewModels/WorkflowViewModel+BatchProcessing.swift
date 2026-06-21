@@ -22,6 +22,7 @@ extension WorkflowViewModel {
         let options = UpdateOptions(
             updateGenre: updateGenre,
             updateYear: updateYear,
+            repairExistingGenreMismatches: mode == .fullLibrary,
             forceYearLookup: forceYearLookup,
             cleanTrackNames: cleanTrackNames,
             cleanAlbumNames: cleanAlbumNames,
