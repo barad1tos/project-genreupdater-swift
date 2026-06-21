@@ -91,7 +91,47 @@ public struct CleaningConfig: Sendable, Codable, Equatable {
     /// Example: `{"Electronica": "Electronic", "Hip Hop": "Hip-Hop"}`
     public var genreMappings: [String: String] = [:]
 
+    private enum CodingKeys: String, CodingKey {
+        case editionKeywords = "remasterKeywords"
+        case legacyEditionKeywords = "remaster_keywords"
+        case albumSuffixesToRemove
+        case legacyAlbumSuffixesToRemove = "album_suffixes_to_remove"
+        case trackCleaningExceptions
+        case legacyTrackCleaningExceptions = "track_cleaning"
+        case genreMappings
+        case legacyGenreMappings = "genre_mappings"
+    }
+
     public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let defaults = Self()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        remasterKeywords = try container.decodeIfPresent([String].self, forKey: .editionKeywords)
+            ?? container.decodeIfPresent([String].self, forKey: .legacyEditionKeywords)
+            ?? defaults.remasterKeywords
+        albumSuffixesToRemove = try container.decodeIfPresent([String].self, forKey: .albumSuffixesToRemove)
+            ?? container.decodeIfPresent([String].self, forKey: .legacyAlbumSuffixesToRemove)
+            ?? defaults.albumSuffixesToRemove
+        trackCleaningExceptions = try container.decodeIfPresent(
+            [TrackCleaningException].self,
+            forKey: .trackCleaningExceptions
+        )
+            ?? container.decodeIfPresent([TrackCleaningException].self, forKey: .legacyTrackCleaningExceptions)
+            ?? defaults.trackCleaningExceptions
+        genreMappings = try container.decodeIfPresent([String: String].self, forKey: .genreMappings)
+            ?? container.decodeIfPresent([String: String].self, forKey: .legacyGenreMappings)
+            ?? defaults.genreMappings
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(remasterKeywords, forKey: .editionKeywords)
+        try container.encode(albumSuffixesToRemove, forKey: .albumSuffixesToRemove)
+        try container.encode(trackCleaningExceptions, forKey: .trackCleaningExceptions)
+        try container.encode(genreMappings, forKey: .genreMappings)
+    }
 }
 
 public struct TrackCleaningException: Sendable, Codable, Equatable {
