@@ -305,4 +305,44 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(csv.contains(",3,"))
         #expect(!csv.contains("HEY WHAT"))
     }
+
+    @Test("Problematic prerelease report uses the effective prerelease interval")
+    func problematicPrereleaseReportUsesEffectiveRecheckInterval() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
+        let legacyURL = directory.appendingPathComponent("pending.json")
+        let reportURL = directory.appendingPathComponent("exports/problematic.csv")
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let lastAttempt = baseDate.addingTimeInterval(21 * day)
+        let entry = PendingAlbumEntry(
+            id: "legacy-prerelease-report",
+            artist: "Slowdive",
+            album: "Everything Is Alive",
+            reason: "prerelease",
+            attemptCount: 4,
+            lastAttempt: lastAttempt,
+            recheckInterval: 30 * day
+        )
+        let envelope = LegacyPendingVerificationTestStore(entries: [entry], lastAutoVerification: nil)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(envelope).write(to: legacyURL, options: .atomic)
+
+        let service = SwiftDataPendingVerificationService(
+            modelContainer: container,
+            legacyStorageURL: legacyURL,
+            problematicReportURL: reportURL,
+            verificationIntervalDays: 30,
+            prereleaseRecheckDays: 7,
+            currentDate: { lastAttempt }
+        )
+        try await service.initialize()
+
+        let count = try await service.generateProblematicAlbumsReport(minAttempts: 4, reportURL: reportURL)
+        let csv = try String(contentsOf: reportURL, encoding: .utf8)
+
+        #expect(count == 1)
+        #expect(csv.contains(",4,21,Pending verification"))
+    }
 }

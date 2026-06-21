@@ -206,7 +206,7 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
         let rows = entries.compactMap { entry -> ProblematicAlbumReportRow? in
             let attempts = totalAttempts(for: entry, now: now)
             guard attempts >= threshold else { return nil }
-            let interval = max(1, entry.recheckInterval)
+            let interval = max(1, effectiveRecheckInterval(for: entry))
             let firstAttempt = entry.lastAttempt.addingTimeInterval(-Double(max(0, attempts - 1)) * interval)
             return ProblematicAlbumReportRow(
                 entry: entry,
