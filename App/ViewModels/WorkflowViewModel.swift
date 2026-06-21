@@ -171,6 +171,7 @@ final class WorkflowViewModel {
     let featureGate: FeatureGate?
     let recordProcessedTracks: (Int) -> Void
     let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
+    let resolveIncrementalTracks: ([Track]) async -> [Track]
     let updateIncrementalRunTimestamp: (() async -> Void)?
     var defaultUpdateGenre: Bool
     var defaultUpdateYear: Bool
@@ -190,6 +191,7 @@ final class WorkflowViewModel {
         featureGate = dependencies.featureGate
         recordProcessedTracks = dependencies.recordProcessedTracks
         runMaintenancePreflight = dependencies.runMaintenancePreflight
+        resolveIncrementalTracks = dependencies.resolveIncrementalTracks
         updateIncrementalRunTimestamp = dependencies.updateIncrementalRunTimestamp
         defaultUpdateGenre = defaults.updateGenre
         defaultUpdateYear = defaults.updateYear
@@ -248,7 +250,7 @@ final class WorkflowViewModel {
 
     // MARK: - Dry Run (Selected + Smart Filter modes)
 
-    private func startDryRun(tracks: [Track]) {
+    private func startDryRun(tracks: [Track], contextTracks: [Track]? = nil) {
         phase = .scanning
         processedCount = 0
         trackStatuses = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, TrackProcessingStatus.queued) })
@@ -268,7 +270,7 @@ final class WorkflowViewModel {
 
                 var allChanges: [ProposedChange] = []
                 let total = tracks.count
-                let albumGroups = Self.groupTracksByAlbum(tracks)
+                let albumGroups = Self.groupTracksByAlbum(contextTracks ?? tracks)
 
                 for (index, track) in tracks.enumerated() {
                     try Task.checkCancellation()
@@ -411,6 +413,20 @@ final class WorkflowViewModel {
         )
 
         processingTask = Task { [runMaintenancePreflight] in
+            let processingTracks = await tracksForProcessing(tracks)
+            if Task.isCancelled {
+                phase = .configure
+                progress = nil
+                return
+            }
+
+            totalCount = processingTracks.count
+            computeScopePreview(tracks: processingTracks)
+            guard !processingTracks.isEmpty else {
+                finishEmptyProcessingRun()
+                return
+            }
+
             let preflightResult = await runMaintenancePreflight?()
             if Task.isCancelled {
                 phase = .configure
@@ -420,11 +436,29 @@ final class WorkflowViewModel {
             maintenancePreflightResult = preflightResult
 
             if shouldRunBatchProcessing {
-                startBatchProcessing(tracks: tracks)
+                startBatchProcessing(tracks: processingTracks, contextTracks: tracks)
             } else {
-                startDryRun(tracks: tracks)
+                startDryRun(tracks: processingTracks, contextTracks: tracks)
             }
         }
+    }
+
+    private func tracksForProcessing(_ tracks: [Track]) async -> [Track] {
+        guard mode == .fullLibrary else { return tracks }
+        return await resolveIncrementalTracks(tracks)
+    }
+
+    private func finishEmptyProcessingRun() {
+        result = BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
+        completedEntries = []
+        proposedChanges = []
+        dryRunReport = previewOnly ? DryRunReport(proposedChanges: []) : nil
+        processedCount = 0
+        failedCount = 0
+        trackStatuses = [:]
+        currentTrackID = nil
+        phase = .done
+        progress = nil
     }
 
     var shouldRunBatchProcessing: Bool {

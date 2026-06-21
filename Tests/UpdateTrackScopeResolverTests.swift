@@ -1,4 +1,5 @@
 import Core
+import Foundation
 import Testing
 @testable import Genre_Updater
 
@@ -107,11 +108,94 @@ struct UpdateTrackScopeResolverTests {
         #expect(reconciled?.map(\.name) == ["Three"])
     }
 
+    @Test("incremental scope without last run processes all tracks")
+    func incrementalScopeWithoutLastRunProcessesAllTracks() {
+        let tracks = makeIncrementalTracks()
+
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(tracks, lastRunTime: nil)
+
+        #expect(resolved.map(\.id) == ["old-complete", "new-complete", "old-missing", "old-unknown"])
+    }
+
+    @Test("incremental scope keeps new tracks and tracks with missing genres")
+    func incrementalScopeKeepsNewTracksAndTracksWithMissingGenres() {
+        let tracks = makeIncrementalTracks()
+        let lastRunTime = Date(timeIntervalSince1970: 1000)
+
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(tracks, lastRunTime: lastRunTime)
+
+        #expect(resolved.map(\.id) == ["new-complete", "old-missing", "old-unknown"])
+    }
+
+    @Test("incremental scope deduplicates new tracks that also have missing genres")
+    func incrementalScopeDeduplicatesNewTracksWithMissingGenres() {
+        let lastRunTime = Date(timeIntervalSince1970: 1000)
+        let tracks = [
+            Track(
+                id: "new-missing",
+                name: "New Missing",
+                artist: "Alpha",
+                album: "First",
+                genre: nil,
+                dateAdded: Date(timeIntervalSince1970: 2000)
+            ),
+            Track(
+                id: "old-missing",
+                name: "Old Missing",
+                artist: "Alpha",
+                album: "First",
+                genre: " ",
+                dateAdded: Date(timeIntervalSince1970: 500)
+            ),
+        ]
+
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(tracks, lastRunTime: lastRunTime)
+
+        #expect(resolved.map(\.id) == ["new-missing", "old-missing"])
+    }
+
     private func makeTracks() -> [Track] {
         [
             Track(id: "one", name: "One", artist: "Alpha", album: "First"),
             Track(id: "two", name: "Two", artist: "Alpha", album: "First"),
             Track(id: "three", name: "Three", artist: "Beta", album: "Second"),
+        ]
+    }
+
+    private func makeIncrementalTracks() -> [Track] {
+        [
+            Track(
+                id: "old-complete",
+                name: "Old Complete",
+                artist: "Alpha",
+                album: "First",
+                genre: "Rock",
+                dateAdded: Date(timeIntervalSince1970: 500)
+            ),
+            Track(
+                id: "new-complete",
+                name: "New Complete",
+                artist: "Alpha",
+                album: "First",
+                genre: "Rock",
+                dateAdded: Date(timeIntervalSince1970: 2000)
+            ),
+            Track(
+                id: "old-missing",
+                name: "Old Missing",
+                artist: "Alpha",
+                album: "First",
+                genre: nil,
+                dateAdded: Date(timeIntervalSince1970: 500)
+            ),
+            Track(
+                id: "old-unknown",
+                name: "Old Unknown",
+                artist: "Beta",
+                album: "Second",
+                genre: " unknown ",
+                dateAdded: Date(timeIntervalSince1970: 500)
+            ),
         ]
     }
 }

@@ -4,7 +4,7 @@ import Services
 extension WorkflowViewModel {
     // MARK: - Batch Processing (Full Library mode)
 
-    func startBatchProcessing(tracks: [Track]) {
+    func startBatchProcessing(tracks: [Track], contextTracks: [Track]? = nil) {
         let tracksByIndex = Self.sortedForBatchProcessing(tracks)
         guard !tracksByIndex.isEmpty else {
             phase = .error("No tracks in the current scope")
@@ -29,7 +29,7 @@ extension WorkflowViewModel {
             autoAccept: true
         )
 
-        let context = Self.batchContext(for: tracksByIndex)
+        let context = Self.batchContext(for: tracksByIndex, contextTracks: contextTracks ?? tracksByIndex)
         let operation = makeBatchTrackOperation(
             updateCoordinator: updateCoordinator,
             options: options,
@@ -70,10 +70,11 @@ extension WorkflowViewModel {
     }
 
     private static func batchContext(
-        for tracks: [Track]
+        for tracks: [Track],
+        contextTracks: [Track]
     ) -> (albums: [String: [Track]], artists: [String: [Track]]) {
-        let albumGroups = groupTracksByAlbum(tracks)
-        let artistGroups = groupTracksByArtist(tracks)
+        let albumGroups = groupTracksByAlbum(contextTracks)
+        let artistGroups = groupTracksByArtist(contextTracks)
         return (
             albums: Dictionary(uniqueKeysWithValues: tracks.map {
                 ($0.id, albumGroups[albumKey(for: $0)] ?? [])
