@@ -85,7 +85,7 @@ struct WorkflowRunTrackerTests {
         let newTrack = Track(id: "new-track", name: "New", artist: "Clutch", album: "New Album", year: 1999)
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2001, confidence: 90),
-            resolveIncrementalTracks: { tracks in
+            resolveIncrementalTracks: { tracks, _ in
                 tracks.filter { $0.id == newTrack.id }
             }
         )
@@ -122,7 +122,7 @@ struct WorkflowRunTrackerTests {
             dateAdded: Date(timeIntervalSince1970: 2000)
         )
         let fixture = makeWorkflowFixture(
-            resolveIncrementalTracks: { tracks in
+            resolveIncrementalTracks: { tracks, _ in
                 tracks.filter { $0.id == missingGenre.id }
             }
         )
@@ -154,7 +154,7 @@ struct WorkflowRunTrackerTests {
         let timestampUpdates = RunTimestampUpdateCounter()
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2001, confidence: 90),
-            resolveIncrementalTracks: { _ in [] },
+            resolveIncrementalTracks: { _, _ in [] },
             updateIncrementalRunTimestamp: {
                 await timestampUpdates.record()
             }

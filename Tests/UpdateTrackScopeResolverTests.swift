@@ -127,6 +127,34 @@ struct UpdateTrackScopeResolverTests {
         #expect(resolved.map(\.id) == ["new-complete", "old-missing", "old-unknown"])
     }
 
+    @Test("incremental scope includes existing genre mismatches when genre updates are enabled")
+    func incrementalScopeIncludesGenreMismatchesWhenGenreUpdatesAreEnabled() {
+        let tracks = makeGenreMismatchTracks()
+        let lastRunTime = Date(timeIntervalSince1970: 1000)
+
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(
+            tracks,
+            lastRunTime: lastRunTime,
+            options: IncrementalTrackScopeOptions(updateGenre: true)
+        )
+
+        #expect(resolved.map(\.id) == ["old-mismatch"])
+    }
+
+    @Test("incremental scope skips existing genre mismatches when genre updates are disabled")
+    func incrementalScopeSkipsGenreMismatchesWhenGenreUpdatesAreDisabled() {
+        let tracks = makeGenreMismatchTracks()
+        let lastRunTime = Date(timeIntervalSince1970: 1000)
+
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(
+            tracks,
+            lastRunTime: lastRunTime,
+            options: IncrementalTrackScopeOptions(updateGenre: false)
+        )
+
+        #expect(resolved.isEmpty)
+    }
+
     @Test("incremental scope deduplicates new tracks that also have missing genres")
     func incrementalScopeDeduplicatesNewTracksWithMissingGenres() {
         let lastRunTime = Date(timeIntervalSince1970: 1000)
@@ -195,6 +223,35 @@ struct UpdateTrackScopeResolverTests {
                 album: "Second",
                 genre: " unknown ",
                 dateAdded: Date(timeIntervalSince1970: 500)
+            ),
+        ]
+    }
+
+    private func makeGenreMismatchTracks() -> [Track] {
+        [
+            Track(
+                id: "dominant-source",
+                name: "First",
+                artist: "Alpha",
+                album: "First Album",
+                genre: "Rock",
+                dateAdded: Date(timeIntervalSince1970: 100)
+            ),
+            Track(
+                id: "old-mismatch",
+                name: "Second",
+                artist: "Alpha",
+                album: "Second Album",
+                genre: "Pop",
+                dateAdded: Date(timeIntervalSince1970: 500)
+            ),
+            Track(
+                id: "old-match",
+                name: "Third",
+                artist: "Alpha",
+                album: "Third Album",
+                genre: "Rock",
+                dateAdded: Date(timeIntervalSince1970: 700)
             ),
         ]
     }

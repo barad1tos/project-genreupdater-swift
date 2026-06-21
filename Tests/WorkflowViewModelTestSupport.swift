@@ -14,7 +14,10 @@ func makeWorkflowFixture(
     apiService: DashboardStateAPIService = DashboardStateAPIService(),
     tier: Tier = .pro,
     failingWriteTrackIDs: Set<String> = [],
-    resolveIncrementalTracks: @escaping ([Track]) async -> [Track] = { $0 },
+    resolveIncrementalTracks: @escaping (
+        [Track],
+        IncrementalTrackScopeOptions
+    ) async -> [Track] = { tracks, _ in tracks },
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {
     let scriptClient = DashboardStateScriptClient(failingTrackIDs: failingWriteTrackIDs)
