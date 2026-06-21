@@ -29,6 +29,7 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
     private let legacyStorageURL: URL?
     private let defaultReportURL: URL
     private let verificationInterval: TimeInterval
+    private let prereleaseRecheckDays: Int
     private let autoVerificationInterval: TimeInterval
     private let currentDate: @Sendable () -> Date
     private let fileManager: FileManager
@@ -56,8 +57,13 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
             relativeTo: logsDirectory
         )
         let verificationDays = max(0, configuration.processing.pendingVerificationIntervalDays)
+        let prereleaseRecheckDays = Self.resolvedPrereleaseRecheckDays(
+            configuration.processing.prereleaseRecheckDays,
+            fallbackDays: verificationDays
+        )
         let autoVerificationDays = max(0, configuration.pendingVerification.autoVerifyDays)
         self.verificationInterval = TimeInterval(verificationDays) * 86400
+        self.prereleaseRecheckDays = prereleaseRecheckDays
         self.autoVerificationInterval = TimeInterval(autoVerificationDays) * 86400
         self.currentDate = currentDate
         self.fileManager = .default
@@ -68,6 +74,7 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
         legacyStorageURL: URL? = nil,
         problematicReportURL: URL,
         verificationIntervalDays: Int = 30,
+        prereleaseRecheckDays: Int? = nil,
         autoVerifyDays: Int = 14,
         currentDate: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -77,7 +84,12 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
 
         self.legacyStorageURL = legacyStorageURL
         self.defaultReportURL = problematicReportURL
-        self.verificationInterval = TimeInterval(max(0, verificationIntervalDays)) * 86400
+        let verificationDays = max(0, verificationIntervalDays)
+        self.verificationInterval = TimeInterval(verificationDays) * 86400
+        self.prereleaseRecheckDays = Self.resolvedPrereleaseRecheckDays(
+            prereleaseRecheckDays ?? verificationDays,
+            fallbackDays: verificationDays
+        )
         self.autoVerificationInterval = TimeInterval(max(0, autoVerifyDays)) * 86400
         self.currentDate = currentDate
         self.fileManager = .default
@@ -99,13 +111,14 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
 
         let key = albumKey(artist: artist, album: album)
         let existing = (try? fetchEntry(id: key))?.toPendingAlbumEntry()
-        let interval = recheckDays.map { TimeInterval(max(0, $0)) * 86400 } ?? verificationInterval
+        let resolvedRecheckDays = resolvedRecheckDays(reason: reason, recheckDays: recheckDays)
+        let interval = resolvedRecheckDays.map { TimeInterval($0) * 86400 } ?? verificationInterval
         var mergedMetadata = existing?.metadata ?? [:]
         if let metadata {
             mergedMetadata.merge(metadata) { _, new in new }
         }
-        if let recheckDays {
-            mergedMetadata["recheck_days"] = String(max(0, recheckDays))
+        if let resolvedRecheckDays {
+            mergedMetadata["recheck_days"] = String(resolvedRecheckDays)
         }
 
         let entry = PendingAlbumEntry(
@@ -349,6 +362,28 @@ extension SwiftDataPendingVerificationService {
 
         let elapsedAttempts = max(0, Int(now.timeIntervalSince(entry.lastAttempt) / entry.recheckInterval)) + 1
         return max(recordedAttempts, elapsedAttempts)
+    }
+
+    private func resolvedRecheckDays(reason: String, recheckDays: Int?) -> Int? {
+        if let recheckDays {
+            return max(0, recheckDays)
+        }
+        guard Self.isPrereleaseReason(reason) else { return nil }
+        return prereleaseRecheckDays
+    }
+
+    private static func resolvedPrereleaseRecheckDays(_ days: Int, fallbackDays: Int) -> Int {
+        let normalizedDays = max(0, days)
+        guard normalizedDays > 0 else { return fallbackDays }
+        return normalizedDays
+    }
+
+    private static func isPrereleaseReason(_ reason: String) -> Bool {
+        let normalizedReason = reason
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "_")
+            .lowercased()
+        return normalizedReason == "prerelease" || normalizedReason == "pre_release"
     }
 
     private static func normalizedKeyPart(_ value: String) -> String {
