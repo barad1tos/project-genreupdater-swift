@@ -316,6 +316,36 @@ struct UpdateCoordinatorTests {
         #expect(yearChange?.source == "Dominant")
     }
 
+    @Test("Batch year updates use album context by default")
+    func batchYearUpdatesUseAlbumContextByDefault() async throws {
+        let fixture = await makeCoordinator(year: nil, confidence: 0)
+
+        let targetTrack = makeEditableTrack(
+            id: "target",
+            artist: "Album Artist",
+            album: "Context Album",
+            year: nil
+        )
+        let albumTracks = [
+            targetTrack,
+            makeEditableTrack(id: "sibling-1", artist: "Album Artist", album: "Context Album", year: 1970),
+            makeEditableTrack(id: "sibling-2", artist: "Album Artist", album: "Context Album", year: 1970),
+            makeEditableTrack(id: "sibling-3", artist: "Album Artist", album: "Context Album", year: 1970),
+        ]
+
+        let result = try await fixture.coordinator.updateTracks(
+            albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            progressHandler: { _ in }
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(written.contains { property in
+            property.trackID == "target" && property.property == "year" && property.value == "1970"
+        })
+    }
+
     @Test("Changes recorded in undo coordinator after write")
     func changesRecordedInUndo() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)

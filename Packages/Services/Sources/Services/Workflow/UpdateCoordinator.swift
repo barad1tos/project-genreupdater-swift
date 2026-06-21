@@ -400,7 +400,7 @@ public actor UpdateCoordinator {
     public func updateTracks(
         _ tracks: [Track],
         options: UpdateOptions,
-        albumTracksProvider: @Sendable (Track) -> [Track] = { _ in [] },
+        albumTracksProvider: (@Sendable (Track) -> [Track])? = nil,
         artistTracksProvider: (@Sendable (Track) -> [Track])? = nil,
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> BatchUpdateResult {
@@ -410,6 +410,9 @@ public actor UpdateCoordinator {
         var entries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
+        let resolvedAlbumTracksProvider = albumTracksProvider ?? Self.albumTracksProvider(
+            Self.albumTracksByTrackID(for: tracks)
+        )
         let resolvedArtistTracksProvider = artistTracksProvider ?? Self.artistTracksProvider(
             Self.artistTracksByTrackID(for: tracks)
         )
@@ -419,7 +422,7 @@ public actor UpdateCoordinator {
                 let trackEntries = try await applyGeneratedAcceptedChanges(
                     for: track,
                     options: options,
-                    albumTracksProvider: albumTracksProvider,
+                    albumTracksProvider: resolvedAlbumTracksProvider,
                     artistTracksProvider: resolvedArtistTracksProvider
                 )
                 entries.append(contentsOf: trackEntries)
@@ -519,6 +522,30 @@ public actor UpdateCoordinator {
             }
         }
         return entries
+    }
+
+    private static func albumTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
+        let tracksByAlbum = Dictionary(grouping: tracks.filter(isTrackAvailableForProcessing)) { track in
+            albumContextKey(for: track)
+        }
+        return Dictionary(uniqueKeysWithValues: tracks.map { track in
+            (track.id, tracksByAlbum[albumContextKey(for: track)] ?? [])
+        })
+    }
+
+    private static func albumTracksProvider(
+        _ albumTracksByTrackID: [String: [Track]]
+    ) -> @Sendable (Track) -> [Track] {
+        { track in
+            albumTracksByTrackID[track.id] ?? []
+        }
+    }
+
+    private static func albumContextKey(for track: Track) -> String {
+        [
+            normalizeForMatching(track.effectiveArtist),
+            normalizeForMatching(track.album),
+        ].joined(separator: "\u{1F}")
     }
 
     private static func artistTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
