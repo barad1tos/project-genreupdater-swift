@@ -29,8 +29,7 @@ buildServer.json
 # Build artifacts
 build/
 
-# Override global gitignore: track project docs and Claude Code config
-!CLAUDE.md
+# Override global gitignore: track project docs
 !docs/
 !docs/plans/
 !docs/tasks/
