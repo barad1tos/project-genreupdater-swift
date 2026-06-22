@@ -191,6 +191,9 @@ extension MainView {
                         options: options
                     )
                 },
+                invalidateAlbumYearCache: {
+                    await dependencies.cacheService?.invalidateAllAlbumYears()
+                },
                 updateIncrementalRunTimestamp: {
                     await dependencies.incrementalRunTracker?.updateLastRunTimestamp()
                 }

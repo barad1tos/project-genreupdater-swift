@@ -172,6 +172,7 @@ final class WorkflowViewModel {
     let recordProcessedTracks: (Int) -> Void
     let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
     let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
+    let invalidateAlbumYearCache: (() async -> Void)?
     let updateIncrementalRunTimestamp: (() async -> Void)?
     var defaultUpdateGenre: Bool
     var defaultUpdateYear: Bool
@@ -192,6 +193,7 @@ final class WorkflowViewModel {
         recordProcessedTracks = dependencies.recordProcessedTracks
         runMaintenancePreflight = dependencies.runMaintenancePreflight
         resolveIncrementalTracks = dependencies.resolveIncrementalTracks
+        invalidateAlbumYearCache = dependencies.invalidateAlbumYearCache
         updateIncrementalRunTimestamp = dependencies.updateIncrementalRunTimestamp
         defaultUpdateGenre = defaults.updateGenre
         defaultUpdateYear = defaults.updateYear

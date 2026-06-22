@@ -222,6 +222,10 @@ actor MockCacheService: CacheService {
         albumYears.removeValue(forKey: albumYearKey(artist: artist, album: album))
     }
 
+    func invalidateAllAlbumYears() async {
+        albumYears.removeAll()
+    }
+
     func getCachedAPIResult(artist: String, album: String, source: String) async -> CachedAPIResult? {
         apiResults[apiResultKey(artist: artist, album: album, source: source)]
     }

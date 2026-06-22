@@ -11,6 +11,7 @@ extension WorkflowViewModel {
         let recordProcessedTracks: (Int) -> Void
         let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
         let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
+        let invalidateAlbumYearCache: (() async -> Void)?
         let updateIncrementalRunTimestamp: (() async -> Void)?
 
         init(
@@ -27,6 +28,7 @@ extension WorkflowViewModel {
                 [Track],
                 IncrementalTrackScopeOptions
             ) async -> [Track] = { tracks, _ in tracks },
+            invalidateAlbumYearCache: (() async -> Void)? = nil,
             updateIncrementalRunTimestamp: (() async -> Void)? = nil
         ) {
             self.updateCoordinator = updateCoordinator
@@ -37,6 +39,7 @@ extension WorkflowViewModel {
             self.recordProcessedTracks = recordProcessedTracks
             self.runMaintenancePreflight = runMaintenancePreflight
             self.resolveIncrementalTracks = resolveIncrementalTracks
+            self.invalidateAlbumYearCache = invalidateAlbumYearCache
             self.updateIncrementalRunTimestamp = updateIncrementalRunTimestamp
         }
     }

@@ -144,6 +144,36 @@ struct GRDBCacheServiceTests {
         #expect(entry == nil)
     }
 
+    @Test("Album year full invalidation preserves other cache layers")
+    func albumYearFullInvalidationPreservesOtherCacheLayers() async throws {
+        let service = try await makeService()
+        let apiResult = CachedAPIResult(
+            artist: "Test Artist",
+            album: "Test Album",
+            year: 2001,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: 3600
+        )
+
+        await service.storeAlbumYear(artist: "Test Artist", album: "Stale Album", year: 1999, confidence: 80)
+        await service.set(key: "generic-key", value: "generic-value", ttl: nil)
+        await service.setCachedAPIResult(apiResult)
+
+        await service.invalidateAllAlbumYears()
+
+        let albumYear = await service.getAlbumYear(artist: "Test Artist", album: "Stale Album")
+        let genericValue: String? = await service.get(key: "generic-key")
+        let cachedAPIResult = await service.getCachedAPIResult(
+            artist: "Test Artist",
+            album: "Test Album",
+            source: "musicbrainz"
+        )
+        #expect(albumYear == nil)
+        #expect(genericValue == "generic-value")
+        #expect(cachedAPIResult?.year == 2001)
+    }
+
     @Test("Album year upsert updates existing entry")
     func albumYearUpsert() async throws {
         let service = try await makeService()

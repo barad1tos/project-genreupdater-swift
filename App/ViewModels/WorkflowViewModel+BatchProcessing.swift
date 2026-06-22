@@ -41,6 +41,8 @@ extension WorkflowViewModel {
 
         processingTask = Task {
             do {
+                await invalidateAlbumYearCacheIfNeeded()
+
                 let entries = try await batchProcessor.process(
                     tracks: tracksByIndex,
                     operation: operation,
@@ -68,6 +70,11 @@ extension WorkflowViewModel {
                 progress = nil
             }
         }
+    }
+
+    private func invalidateAlbumYearCacheIfNeeded() async {
+        guard updateYear, forceYearLookup else { return }
+        await invalidateAlbumYearCache?()
     }
 
     private static func batchContext(
