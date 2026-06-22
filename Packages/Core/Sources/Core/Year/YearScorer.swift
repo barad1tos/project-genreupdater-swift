@@ -289,8 +289,11 @@ public struct YearScorer: Sendable {
             return (year, score)
         }
 
-        guard let earliestYear = scored.map(\.candidate.year).min(),
-              earliestYear < year else {
+        let validReleaseYears = scored.map(\.candidate.year).filter { $0 >= yearLogic.minValidYear }
+        let minimumOriginalReleaseYear = year.addingReportingOverflow(-2)
+        guard let earliestYear = validReleaseYears.min(),
+              !minimumOriginalReleaseYear.overflow,
+              earliestYear <= minimumOriginalReleaseYear.partialValue else {
             return (year, score)
         }
 
