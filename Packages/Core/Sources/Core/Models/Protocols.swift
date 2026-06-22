@@ -360,11 +360,41 @@ extension AppleScriptClient {
         batchSize: Int = 1000,
         timeout: Duration? = nil
     ) async throws -> [Track] {
-        try await fetchTracksByIDs(trackIDs, batchSize: batchSize, timeout: timeout)
+        guard !trackIDs.isEmpty else { return [] }
+
+        let effectiveBatchSize = max(1, batchSize)
+        var tracks: [Track] = []
+        for startIndex in stride(from: 0, to: trackIDs.count, by: effectiveBatchSize) {
+            let endIndex = Swift.min(startIndex + effectiveBatchSize, trackIDs.count)
+            let batchIDs = trackIDs[startIndex ..< endIndex]
+            let output = try await runScript(
+                name: "fetch_tracks_by_ids",
+                arguments: [batchIDs.joined(separator: ",")],
+                timeout: timeout
+            )
+            guard let output, output != "NO_TRACKS_FOUND" else { continue }
+            tracks.append(contentsOf: output.split(separator: Track.recordSeparator).compactMap {
+                Track.fromAppleScriptOutput(String($0))
+            })
+        }
+        return tracks
     }
 
     public func fetchAllTrackIDs(timeout: Duration? = nil) async throws -> [String] {
-        try await fetchAllTrackIDs(timeout: timeout)
+        let output = try await runScript(
+            name: "fetch_track_ids",
+            arguments: [],
+            timeout: timeout
+        )
+        guard let output else { return [] }
+
+        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedOutput.isEmpty, trimmedOutput != "NO_TRACKS_FOUND" else { return [] }
+
+        return output
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     public func fetchTracks(artist: String? = nil, timeout: Duration? = nil) async throws -> [Track] {
