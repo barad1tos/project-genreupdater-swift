@@ -7,6 +7,7 @@
 import Foundation
 
 private let veryHighScoreThreshold = 75
+private let existingYearDefinitiveScoreThreshold = 75
 private let singleResultMaxSuspiciousYearDifference = 3
 private let singleResultConfidentScoreThreshold = 85
 
@@ -186,16 +187,25 @@ public struct YearScorer: Sendable {
             Calendar.Component.year, from: Date()
         )
 
-        // Steps 3-5: Apply adjustments
-        var (finalYear, finalScore) = applyExistingYearBoost(
-            year: bestYear, score: bestScore,
+        // Step 3: Prefer a supported existing library year before other adjustments.
+        if let existingYearResult = applyExistingYearBoost(
+            bestScore: bestScore,
             bestPerYear: bestPerYear,
             existingYear: existingYear,
             calendarYear: calendarYear
-        )
+        ) {
+            let confidence = min(100, max(0, existingYearResult.score))
+            return YearResult(
+                year: existingYearResult.score > 0 ? existingYearResult.year : nil,
+                isDefinitive: existingYearResult.isDefinitive,
+                confidence: confidence,
+                rawScore: existingYearResult.score,
+                yearScores: bestPerYear
+            )
+        }
 
-        let existingYearBoosted = (finalYear != bestYear)
-
+        // Steps 4-5: Apply adjustments
+        var (finalYear, finalScore) = (bestYear, bestScore)
         (finalYear, finalScore) = applyFutureYearPreference(
             year: finalYear, score: finalScore,
             sortedYears: sortedYears,
@@ -205,8 +215,7 @@ public struct YearScorer: Sendable {
         if finalYear <= calendarYear {
             (finalYear, finalScore) = applyOriginalReleasePreference(
                 year: finalYear, score: finalScore,
-                scored: scored,
-                existingYearBoosted: existingYearBoosted
+                scored: scored
             )
         }
 
@@ -232,22 +241,26 @@ public struct YearScorer: Sendable {
     // MARK: - Resolution Helpers
 
     private func applyExistingYearBoost(
-        year: Int, score: Int,
+        bestScore: Int,
         bestPerYear: [Int: Int],
         existingYear: Int?,
         calendarYear: Int
-    ) -> (year: Int, score: Int) {
+    ) -> (year: Int, score: Int, isDefinitive: Bool)? {
         guard let existing = existingYear,
               existing <= calendarYear,
-              let existingScore = bestPerYear[existing],
-              existing != year else {
-            return (year, score)
+              let existingScore = bestPerYear[existing] else {
+            return nil
         }
-        let threshold = Double(score) * 0.9
-        if Double(existingScore) >= threshold {
-            return (existing, existingScore)
+        let threshold = Double(bestScore) * 0.9
+        guard Double(existingScore) >= threshold else {
+            return nil
         }
-        return (year, score)
+
+        return (
+            existing,
+            existingScore,
+            existingScore >= existingYearDefinitiveScoreThreshold
+        )
     }
 
     private func applyFutureYearPreference(
@@ -277,13 +290,8 @@ public struct YearScorer: Sendable {
     /// to avoid undoing that preference.
     private func applyOriginalReleasePreference(
         year: Int, score: Int,
-        scored: [ScoredRelease],
-        existingYearBoosted: Bool
+        scored: [ScoredRelease]
     ) -> (year: Int, score: Int) {
-        guard !existingYearBoosted else {
-            return (year, score)
-        }
-
         let validReleaseYears = scored.map(\.candidate.year).filter { $0 >= yearLogic.minValidYear }
         let minimumOriginalReleaseYear = year.addingReportingOverflow(-2)
         guard let earliestYear = validReleaseYears.min(),

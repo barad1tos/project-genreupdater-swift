@@ -460,6 +460,26 @@ struct YearScorerResolutionTests {
         #expect(result.year == 2000)
     }
 
+    @Test("Existing single year remains definitive when API support is stable")
+    func existingSingleYearRemainsDefinitiveWhenAPISupportIsStable() {
+        var yearLogic = YearLogicConfig()
+        yearLogic.definitiveScoreThreshold = 90
+        let scorer = YearScorer(yearLogic: yearLogic)
+        let calendarYear = Calendar.current.component(
+            Calendar.Component.year,
+            from: Date()
+        )
+        let existingYear = calendarYear - 4
+        let scored = [
+            makeScoredRelease(year: existingYear, score: 80),
+        ]
+
+        let result = scorer.resolveScores(scored, existingYear: existingYear)
+
+        #expect(result.year == existingYear)
+        #expect(result.isDefinitive == true)
+    }
+
     @Test("Existing year NOT boosted when much lower score")
     func existingYearNotBoosted() {
         let scored = [
