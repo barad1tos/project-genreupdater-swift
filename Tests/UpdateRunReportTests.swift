@@ -216,6 +216,49 @@ struct UpdateRunReportTests {
         #expect(report.plainTextSummary.contains("- Year: 2 changes, 2 tracks, 1 album"))
     }
 
+    @Test("plain text report sorts changed albums by artist and album")
+    func plainTextReportSortsChangedAlbumsByArtistAndAlbum() throws {
+        var zetaEntry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "zeta-track",
+            artist: "Zeta",
+            trackName: "Second",
+            albumName: "Later Album"
+        )
+        zetaEntry.oldYear = 2000
+        zetaEntry.newYear = 2001
+
+        var alphaEntry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "alpha-track",
+            artist: "Alpha",
+            trackName: "First",
+            albumName: "Early Album"
+        )
+        alphaEntry.oldYear = 1990
+        alphaEntry.newYear = 1991
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [zetaEntry, alphaEntry],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: []
+        )
+
+        #expect(report.albumGroups.map(\.title) == [
+            "Alpha - Early Album",
+            "Zeta - Later Album",
+        ])
+        let alphaPosition = try #require(report.plainTextSummary.range(of: "- Alpha - Early Album"))
+        let zetaPosition = try #require(report.plainTextSummary.range(of: "- Zeta - Later Album"))
+        #expect(alphaPosition.lowerBound < zetaPosition.lowerBound)
+    }
+
     @Test("filters no-op changes from run report")
     func filtersNoOpChangesFromRunReport() {
         var unchangedGenre = ChangeLogEntry(
