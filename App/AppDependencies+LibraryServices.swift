@@ -66,6 +66,8 @@ extension AppDependencies {
 
     func persistLoadedLibraryTracks(_ tracks: [Track]) async {
         guard !tracks.isEmpty else { return }
+        let previousTracks = await loadPreviousIncrementalScopeTracks()
+        replacePreviousIncrementalScopeTracks(previousTracks)
 
         do {
             try await trackStore?.saveTracks(tracks)
@@ -78,6 +80,18 @@ extension AppDependencies {
         } catch {
             libraryServicesLog
                 .warning("Failed to save library snapshot: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func loadPreviousIncrementalScopeTracks() async -> [Track] {
+        guard let trackStore else { return [] }
+        do {
+            return try await trackStore.loadAllTracks()
+        } catch {
+            libraryServicesLog.warning(
+                "Failed to load previous incremental scope tracks: \(error.localizedDescription, privacy: .public)"
+            )
+            return []
         }
     }
 

@@ -118,6 +118,7 @@ final class AppDependencies {
     var maintenancePreflightResult: MaintenancePreflightResult?
     private(set) var changePreviewPipeline: ChangePreviewPipeline?
     private(set) var incrementalRunTracker: IncrementalRunTracker?
+    @ObservationIgnored private(set) var previousIncrementalScopeTracks: [Track] = []
     private(set) var discogsCredentialIssue: DiscogsCredentialIssue?
 
     // MARK: - Init
@@ -220,6 +221,10 @@ final class AppDependencies {
     func onboardingComplete() async {
         log.info("Onboarding complete — reinitializing")
         await initialize()
+    }
+
+    func replacePreviousIncrementalScopeTracks(_ tracks: [Track]) {
+        previousIncrementalScopeTracks = tracks
     }
 
     /// Refresh library data (triggered by Cmd+R).

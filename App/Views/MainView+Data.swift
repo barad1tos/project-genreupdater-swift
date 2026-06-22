@@ -187,6 +187,7 @@ extension MainView {
                     return UpdateTrackScopeResolver.incrementalTracks(
                         tracks,
                         lastRunTime: lastRunTime,
+                        previousTracks: dependencies.previousIncrementalScopeTracks,
                         options: options
                     )
                 },
