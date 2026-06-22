@@ -290,7 +290,7 @@ public struct YearScorer: Sendable {
         }
 
         guard let earliestYear = scored.map(\.candidate.year).min(),
-              earliestYear < year else {
+              year - earliestYear >= 2 else {
             return (year, score)
         }
 

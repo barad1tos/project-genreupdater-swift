@@ -534,6 +534,19 @@ struct YearScorerResolutionTests {
         #expect(result.year == 1997)
     }
 
+    @Test("Original release preference requires a multi-year reissue gap")
+    func originalReleasePreferenceRequiresMultiYearReissueGap() {
+        let scorer = YearScorer(editionKeywords: ["remaster"])
+        let scored = [
+            makeScoredRelease(year: 2021, score: 85, isReissue: true, album: "Album Remastered"),
+            makeScoredRelease(year: 2020, score: 80, isReissue: false, album: "Album"),
+        ]
+
+        let result = scorer.resolveScores(scored)
+
+        #expect(result.year == 2021)
+    }
+
     @Test("Original release preference skips when best title lacks edition keywords")
     func originalReleasePreferenceRequiresEditionKeywordWhenConfigured() {
         let scorer = YearScorer(editionKeywords: ["remaster", "deluxe"])
