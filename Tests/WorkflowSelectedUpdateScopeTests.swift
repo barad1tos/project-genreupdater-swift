@@ -282,6 +282,36 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
+    @Test("release year restore with no candidates completes without crashing")
+    func releaseYearRestoreWithNoCandidatesCompletesWithoutCrashing() async {
+        let fixture = makeWorkflowFixture()
+        let viewModel = fixture.viewModel
+        viewModel.mode = .releaseYearRestore
+        viewModel.releaseYearRestoreThreshold = 5
+
+        viewModel.start(tracks: [
+            Track(
+                id: "near-match",
+                name: "Near Match",
+                artist: "The Cure",
+                album: "Wish",
+                year: 1992,
+                releaseYear: 1991
+            ),
+        ])
+        await viewModel.processingTask?.value
+        await Task.yield()
+
+        guard case .done = viewModel.phase else {
+            #expect(Bool(false), "release-year restore with no candidates should complete")
+            return
+        }
+        #expect(viewModel.totalCount == 0)
+        #expect(viewModel.processedCount == 0)
+        #expect(viewModel.result?.entries.isEmpty == true)
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+    }
+
     @Test("full library empty effective scope is not runnable")
     func fullLibraryEmptyEffectiveScopeIsNotRunnable() {
         let viewModel = makeWorkflowViewModel()
