@@ -228,19 +228,29 @@ struct UpdateRunReportTests {
         zetaEntry.oldYear = 2000
         zetaEntry.newYear = 2001
 
-        var alphaEntry = ChangeLogEntry(
+        var alphaYearEntry = ChangeLogEntry(
             changeType: .yearUpdate,
-            trackID: "alpha-track",
+            trackID: "alpha-year-track",
             artist: "Alpha",
             trackName: "First",
             albumName: "Early Album"
         )
-        alphaEntry.oldYear = 1990
-        alphaEntry.newYear = 1991
+        alphaYearEntry.oldYear = 1990
+        alphaYearEntry.newYear = 1991
+
+        var alphaGenreEntry = ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "alpha-genre-track",
+            artist: "Alpha",
+            trackName: "Third",
+            albumName: "Early Album"
+        )
+        alphaGenreEntry.oldGenre = "Alternative"
+        alphaGenreEntry.newGenre = "Rock"
 
         let report = UpdateRunReport(
             result: BatchUpdateResult(
-                entries: [zetaEntry, alphaEntry],
+                entries: [zetaEntry, alphaYearEntry, alphaGenreEntry],
                 failedTrackIDs: [],
                 errorDescriptions: []
             ),
@@ -252,9 +262,11 @@ struct UpdateRunReportTests {
 
         #expect(report.albumGroups.map(\.title) == [
             "Alpha - Early Album",
+            "Alpha - Early Album",
             "Zeta - Later Album",
         ])
-        let alphaPosition = try #require(report.plainTextSummary.range(of: "- Alpha - Early Album"))
+        #expect(report.albumGroups.map(\.changeType) == [.yearUpdate, .genreUpdate, .yearUpdate])
+        let alphaPosition = try #require(report.plainTextSummary.range(of: "- Alpha - Early Album: Year"))
         let zetaPosition = try #require(report.plainTextSummary.range(of: "- Zeta - Later Album"))
         #expect(alphaPosition.lowerBound < zetaPosition.lowerBound)
     }

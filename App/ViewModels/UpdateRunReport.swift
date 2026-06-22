@@ -122,17 +122,17 @@ struct UpdateRunReport: Equatable {
             return albumOrder == .orderedAscending
         }
 
+        if left.sortIndex != right.sortIndex {
+            return left.sortIndex < right.sortIndex
+        }
+
         let typeOrder = left.changeType.displayLabel.localizedStandardCompare(right.changeType.displayLabel)
         if typeOrder != .orderedSame {
             return typeOrder == .orderedAscending
         }
 
         let valueOrder = left.changeSummary.localizedStandardCompare(right.changeSummary)
-        if valueOrder != .orderedSame {
-            return valueOrder == .orderedAscending
-        }
-
-        return left.sortIndex < right.sortIndex
+        return valueOrder == .orderedAscending
     }
 
     private static func makeFailures(
