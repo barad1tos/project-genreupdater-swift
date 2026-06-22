@@ -82,8 +82,15 @@ struct WorkflowRunTrackerTests {
     @Test("force year lookup clears album-year cache before full-library writes")
     func forceYearLookupClearsAlbumYearCacheBeforeFullLibraryWrites() async throws {
         let cacheInvalidations = AlbumYearCacheInvalidationCounter()
+        let invalidationsObservedAtYearLookup = AlbumYearCacheInvalidationCounter()
         let fixture = makeWorkflowFixture(
-            apiService: DashboardStateAPIService(year: 2001, confidence: 90),
+            apiService: DashboardStateAPIService(
+                year: 2001,
+                confidence: 90,
+                beforeAlbumYearLookup: {
+                    await invalidationsObservedAtYearLookup.set(cacheInvalidations.count())
+                }
+            ),
             invalidateAlbumYearCache: {
                 await cacheInvalidations.record()
             }
@@ -102,6 +109,7 @@ struct WorkflowRunTrackerTests {
         try await waitForWorkflowToLeaveScanning(viewModel)
 
         #expect(await cacheInvalidations.count() == 1)
+        #expect(await invalidationsObservedAtYearLookup.count() == 1)
     }
 
     @Test("force year lookup does not clear album-year cache during dry run")
@@ -289,6 +297,10 @@ private actor AlbumYearCacheInvalidationCounter {
 
     func record() {
         invalidations += 1
+    }
+
+    func set(_ count: Int) {
+        invalidations = count
     }
 
     func count() -> Int {

@@ -106,10 +106,16 @@ private func temporaryDirectory() -> URL {
 struct DashboardStateAPIService: ExternalAPIService {
     let year: Int?
     let confidence: Int
+    let beforeAlbumYearLookup: (@Sendable () async -> Void)?
 
-    init(year: Int? = nil, confidence: Int = 0) {
+    init(
+        year: Int? = nil,
+        confidence: Int = 0,
+        beforeAlbumYearLookup: (@Sendable () async -> Void)? = nil
+    ) {
         self.year = year
         self.confidence = confidence
+        self.beforeAlbumYearLookup = beforeAlbumYearLookup
     }
 
     func getAlbumYear(
@@ -118,7 +124,8 @@ struct DashboardStateAPIService: ExternalAPIService {
         currentLibraryYear _: Int?,
         earliestTrackAddedYear _: Int?
     ) async throws -> YearResult {
-        YearResult(
+        await beforeAlbumYearLookup?()
+        return YearResult(
             year: year,
             confidence: confidence,
             yearScores: year.map { [$0: confidence] } ?? [:]
