@@ -134,6 +134,71 @@ struct UpdateRunReportTests {
         #expect(trackResult.proposedSummary == "1999 -> 2001")
     }
 
+    @Test("plain text summary respects compact and detailed display modes")
+    func plainTextSummaryRespectsCompactAndDetailedDisplayModes() {
+        var entry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "pure-rock-1",
+            artist: "Clutch",
+            trackName: "American Sleep",
+            albumName: "Pure Rock Fury"
+        )
+        entry.oldYear = 1999
+        entry.newYear = 2001
+
+        let compactReport = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [entry],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
+            completedEntries: [],
+            trackStatuses: ["pure-rock-1": .done],
+            tracks: [
+                Track(
+                    id: "pure-rock-1",
+                    name: "American Sleep",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury",
+                    year: nil,
+                    releaseYear: 2001
+                ),
+            ],
+            testArtists: ["Clutch"],
+            displayMode: .compact
+        )
+        let detailedReport = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [entry],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
+            completedEntries: [],
+            trackStatuses: ["pure-rock-1": .done],
+            tracks: [
+                Track(
+                    id: "pure-rock-1",
+                    name: "American Sleep",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury",
+                    year: nil,
+                    releaseYear: 2001
+                ),
+            ],
+            testArtists: ["Clutch"],
+            displayMode: .detailed
+        )
+
+        #expect(compactReport.plainTextSummary.contains("Changed Albums"))
+        #expect(compactReport.plainTextSummary.contains("Track Details") == false)
+        #expect(compactReport.plainTextSummary.contains("proposed 1999 -> 2001") == false)
+        #expect(detailedReport.plainTextSummary.contains("Track Details"))
+        #expect(
+            detailedReport.plainTextSummary
+                .contains("American Sleep: Year 1999; proposed 1999 -> 2001")
+        )
+    }
+
     @Test("falls back to completed entries when batch result is unavailable")
     func fallsBackToCompletedEntriesWhenBatchResultIsUnavailable() {
         var unchangedEntry = ChangeLogEntry(

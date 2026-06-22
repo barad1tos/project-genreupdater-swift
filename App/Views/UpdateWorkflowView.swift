@@ -10,6 +10,7 @@ struct UpdateWorkflowView: View {
     @Bindable var viewModel: WorkflowViewModel
     let tracks: [Track]
     let testArtists: [String]
+    let reportDisplayMode: ChangeDisplayMode
     let credentialIssue: DiscogsCredentialIssue?
     let isLibraryReadyForUpdates: Bool
     @Binding var noticeMessage: String?
@@ -95,7 +96,8 @@ struct UpdateWorkflowView: View {
             UpdateDoneSection(
                 viewModel: viewModel,
                 tracks: tracks,
-                testArtists: testArtists
+                testArtists: testArtists,
+                displayMode: reportDisplayMode
             )
         case .paused:
             pausedView
