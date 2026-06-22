@@ -7,10 +7,7 @@ import Testing
 struct APIReleaseCandidateAdapterTests {
     @Test("MusicBrainz returns release candidates from release groups")
     func musicBrainzReleaseCandidates() async throws {
-        let client = MusicBrainzClient(
-            appName: "GenreUpdaterTests",
-            contactEmail: "tests@example.invalid",
-            session: makeMockSession(json: """
+        let client = makeMockMusicBrainzClient(json: """
             {
               "release-groups": [
                 {
@@ -27,7 +24,7 @@ struct APIReleaseCandidateAdapterTests {
                 }
               ]
             }
-            """)
+            """
         )
 
         let candidates = try await client.getReleaseCandidates(
@@ -42,6 +39,91 @@ struct APIReleaseCandidateAdapterTests {
         #expect(candidates.allSatisfy { $0.source == .musicBrainz })
         #expect(firstCandidate.mbReleaseGroupID == "rg-1")
         #expect(firstCandidate.mbReleaseGroupFirstYear == 1998)
+    }
+
+    @Test("MusicBrainz retries non-Latin release group search with canonical artist")
+    func musicBrainzCanonicalArtistFallbackForNonLatinArtist() async throws {
+        APIReleaseCandidateMockURLProtocol.requestedQueries = []
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            let (url, query) = try musicBrainzQuery(from: request)
+            APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
+
+            let json: String
+            if url.path == "/ws/2/release-group", query.contains("artist:\"паліндром\"") {
+                json = #"{"release-groups":[]}"#
+            } else if url.path == "/ws/2/artist", query.contains("artist:\"паліндром\"") {
+                json = #"{"artists":[{"id":"artist-pal","name":"Palindrom","type":"Person"}]}"#
+            } else if url.path == "/ws/2/release-group", query.contains("artist:\"palindrom\"") {
+                json = """
+                {
+                  "release-groups": [
+                    {
+                      "id": "rg-pal",
+                      "title": "Придумано в черзі",
+                      "first-release-date": "2021-01-01",
+                      "primary-type": "Album"
+                    }
+                  ]
+                }
+                """
+            } else {
+                throw URLError(.badURL)
+            }
+
+            return try (jsonResponse(url: url), Data(json.utf8))
+        }
+        defer {
+            APIReleaseCandidateMockURLProtocol.requestHandler = nil
+            APIReleaseCandidateMockURLProtocol.requestedQueries = []
+        }
+
+        let client = makeMockMusicBrainzClient()
+
+        let candidates = try await client.getReleaseCandidates(
+            artist: "паліндром",
+            album: "Придумано в черзі",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.map(\.year) == [2021])
+        let requestedQueries = APIReleaseCandidateMockURLProtocol.requestedQueries
+        #expect(requestedQueries.count == 3)
+        if requestedQueries.count == 3 {
+            #expect(requestedQueries[1].contains("artist:\"паліндром\""))
+            #expect(requestedQueries[2].contains("artist:\"palindrom\""))
+        }
+    }
+
+    @Test("MusicBrainz skips canonical artist lookup for Latin artist aliases")
+    func musicBrainzSkipsCanonicalArtistFallbackForLatinArtist() async throws {
+        APIReleaseCandidateMockURLProtocol.requestedQueries = []
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            let (url, query) = try musicBrainzQuery(from: request)
+            APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
+
+            guard url.path == "/ws/2/release-group" else {
+                throw URLError(.badURL)
+            }
+            return try (jsonResponse(url: url), Data(#"{"release-groups":[]}"#.utf8))
+        }
+        defer {
+            APIReleaseCandidateMockURLProtocol.requestHandler = nil
+            APIReleaseCandidateMockURLProtocol.requestedQueries = []
+        }
+
+        let client = makeMockMusicBrainzClient()
+
+        let candidates = try await client.getReleaseCandidates(
+            artist: "Björk",
+            album: "Debut",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.isEmpty)
+        #expect(APIReleaseCandidateMockURLProtocol.requestedQueries.count == 1)
+        #expect(APIReleaseCandidateMockURLProtocol.requestedQueries.first?.contains("artist:\"Björk\"") == true)
     }
 
     @Test("Discogs returns release candidates from search results")
@@ -93,9 +175,41 @@ private func makeMockSession(json: String) -> URLSession {
     return URLSession(configuration: configuration)
 }
 
+private func makeMockMusicBrainzClient(json: String = "{}") -> MusicBrainzClient {
+    MusicBrainzClient(
+        appName: "GenreUpdaterTests",
+        contactEmail: "tests@example.invalid",
+        session: makeMockSession(json: json)
+    )
+}
+
+private func musicBrainzQuery(from request: URLRequest) throws -> (url: URL, query: String) {
+    guard let url = request.url,
+          let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+          let query = components.queryItems?.first(where: { $0.name == "query" })?.value
+    else {
+        throw URLError(.badURL)
+    }
+    return (url, query)
+}
+
+private func jsonResponse(url: URL) throws -> HTTPURLResponse {
+    guard let response = HTTPURLResponse(
+        url: url,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+    ) else {
+        throw URLError(.badServerResponse)
+    }
+    return response
+}
+
 private final class APIReleaseCandidateMockURLProtocol: URLProtocol {
     // Safety: each test configures this static response before constructing its isolated URLSession.
     nonisolated(unsafe) static var responseData = Data()
+    nonisolated(unsafe) static var requestedQueries: [String] = []
+    nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
     override static func canInit(with request: URLRequest) -> Bool {
         request.url?.host != nil
@@ -110,6 +224,19 @@ private final class APIReleaseCandidateMockURLProtocol: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
+
+        if let requestHandler = Self.requestHandler {
+            do {
+                let (response, data) = try requestHandler(request)
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: data)
+                client?.urlProtocolDidFinishLoading(self)
+            } catch {
+                client?.urlProtocol(self, didFailWithError: error)
+            }
+            return
+        }
+
         guard let response = HTTPURLResponse(
             url: url,
             statusCode: 200,

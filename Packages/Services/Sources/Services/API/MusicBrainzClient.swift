@@ -107,20 +107,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     public func getArtistActivityPeriod(
         normalizedArtist: String
     ) async throws -> (start: Int?, end: Int?) {
-        guard let url = Self.buildArtistSearchURL(
-            artist: normalizedArtist
-        ) else {
-            log.warning("Failed to build artist search URL for \(normalizedArtist, privacy: .private)")
-            return (nil, nil)
-        }
-
-        let data = try await fetchWithRateLimit(url: url)
-        let response = try JSONDecoder().decode(
-            MBArtistSearchResponse.self,
-            from: data
-        )
-
-        guard let artist = response.artists.first else {
+        guard let artist = try await fetchFirstArtist(named: normalizedArtist) else {
             log.debug("No artist results for \(normalizedArtist, privacy: .private)")
             return (nil, nil)
         }
@@ -203,6 +190,34 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         album: String,
         limit: Int
     ) async throws -> [MBReleaseGroup] {
+        let releaseGroups = try await fetchReleaseGroups(artist: artist, album: album, limit: limit)
+        guard releaseGroups.isEmpty else { return releaseGroups }
+
+        guard Self.shouldRetryWithCanonicalArtist(for: artist),
+              let canonicalArtist = try await canonicalArtistName(for: artist)
+        else {
+            return []
+        }
+
+        let normalizedArtist = normalizeForMatching(artist)
+        let normalizedCanonicalArtist = normalizeForMatching(canonicalArtist)
+        guard !normalizedCanonicalArtist.isEmpty,
+              normalizedCanonicalArtist != normalizedArtist
+        else {
+            return []
+        }
+
+        log.debug(
+            "MusicBrainz canonical fallback for \(artist, privacy: .private) -> \(normalizedCanonicalArtist, privacy: .private)"
+        )
+        return try await fetchReleaseGroups(artist: normalizedCanonicalArtist, album: album, limit: limit)
+    }
+
+    private func fetchReleaseGroups(
+        artist: String,
+        album: String,
+        limit: Int
+    ) async throws -> [MBReleaseGroup] {
         guard let url = Self.buildReleaseGroupSearchURL(
             artist: artist,
             album: album,
@@ -217,6 +232,32 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             MBReleaseGroupSearchResponse.self,
             from: data
         ).releaseGroups
+    }
+
+    private func canonicalArtistName(for artist: String) async throws -> String? {
+        try await fetchFirstArtist(named: artist)?.name
+    }
+
+    private func fetchFirstArtist(named artist: String) async throws -> MBArtist? {
+        guard let url = Self.buildArtistSearchURL(artist: artist) else {
+            log.warning("Failed to build artist search URL for \(artist, privacy: .private)")
+            return nil
+        }
+
+        let data = try await fetchWithRateLimit(url: url)
+        let response = try JSONDecoder().decode(
+            MBArtistSearchResponse.self,
+            from: data
+        )
+        return response.artists.first
+    }
+
+    private static func shouldRetryWithCanonicalArtist(for artist: String) -> Bool {
+        let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedArtist.isEmpty else { return false }
+
+        let script = dominantScript(of: trimmedArtist)
+        return script != .latin && script != .unknown
     }
 
     private static func releaseType(from primaryType: String?) -> ReleaseType {
