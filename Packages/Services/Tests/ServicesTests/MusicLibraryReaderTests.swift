@@ -41,7 +41,7 @@ struct MusicLibraryReaderTests {
     }
 
     @Test("Test artists resolve to scoped fetch targets")
-    func testArtistsResolveToScopedFetchTargets() {
+    func artistsResolveToScopedFetchTargets() {
         let targets = MusicLibraryReader.fetchTargets(
             requestedArtist: nil,
             testArtists: ["In Flames", "  ", "in flames", "Beatles"],
