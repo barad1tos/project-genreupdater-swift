@@ -95,6 +95,41 @@ struct AppleScriptBridgeConfigurationTests {
         }
     }
 
+    @Test("Single update output accepts script success and no-change responses")
+    func singleUpdateOutputAcceptsSuccessAndNoChangeResponses() throws {
+        try AppleScriptBridge.validateUpdatePropertyOutput(
+            "Success: Updated track 10 genre from 'Rock' to 'Metal'",
+            trackID: "10",
+            property: "genre"
+        )
+        try AppleScriptBridge.validateUpdatePropertyOutput(
+            "No Change: Track 10 genre already set to Metal",
+            trackID: "10",
+            property: "genre"
+        )
+    }
+
+    @Test("Single update output rejects errors, empty response, and unknown text")
+    func singleUpdateOutputRejectsFailures() throws {
+        #expect(throws: AppleScriptBridgeError.self) {
+            try AppleScriptBridge.validateUpdatePropertyOutput(
+                "Error: Track 10 not found",
+                trackID: "10",
+                property: "genre"
+            )
+        }
+        #expect(throws: AppleScriptBridgeError.self) {
+            try AppleScriptBridge.validateUpdatePropertyOutput(nil, trackID: "10", property: "genre")
+        }
+        #expect(throws: AppleScriptBridgeError.self) {
+            try AppleScriptBridge.validateUpdatePropertyOutput(
+                "Updated track 10",
+                trackID: "10",
+                property: "genre"
+            )
+        }
+    }
+
     @Test("Batch update output rejects per-track AppleScript failures")
     func batchUpdateOutputRejectsPerTrackFailures() throws {
         try AppleScriptBridge.validateBatchUpdateOutput(
