@@ -3,8 +3,8 @@ import Testing
 @testable import Core
 @testable import Services
 
-private let musicBrainzArtistPathComponents = ["/", "ws", "2", "artist"]
-private let musicBrainzReleaseGroupPathComponents = ["/", "ws", "2", "release-group"]
+private let musicBrainzArtistPathComponents = ["ws", "2", "artist"]
+private let musicBrainzReleaseGroupPathComponents = ["ws", "2", "release-group"]
 
 @Suite("API release candidate adapters", .serialized)
 struct APIReleaseCandidateAdapterTests {
@@ -52,11 +52,12 @@ struct APIReleaseCandidateAdapterTests {
             APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
 
             let json: String
-            let isOriginalReleaseGroupQuery = url.pathComponents == musicBrainzReleaseGroupPathComponents
+            let requestPathComponents = Array(url.pathComponents.dropFirst())
+            let isOriginalReleaseGroupQuery = requestPathComponents == musicBrainzReleaseGroupPathComponents
                 && query.contains("artist:\"паліндром\"")
-            let isCanonicalArtistQuery = url.pathComponents == musicBrainzArtistPathComponents
+            let isCanonicalArtistQuery = requestPathComponents == musicBrainzArtistPathComponents
                 && query.contains("artist:\"паліндром\"")
-            let isCanonicalReleaseGroupQuery = url.pathComponents == musicBrainzReleaseGroupPathComponents
+            let isCanonicalReleaseGroupQuery = requestPathComponents == musicBrainzReleaseGroupPathComponents
                 && query.contains("artist:\"palindrom\"")
 
             if isOriginalReleaseGroupQuery {
@@ -112,7 +113,8 @@ struct APIReleaseCandidateAdapterTests {
             let (url, query) = try musicBrainzQuery(from: request)
             APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
 
-            guard url.pathComponents == musicBrainzReleaseGroupPathComponents else {
+            let requestPathComponents = Array(url.pathComponents.dropFirst())
+            guard requestPathComponents == musicBrainzReleaseGroupPathComponents else {
                 throw URLError(.badURL)
             }
             return try (jsonResponse(url: url), Data(#"{"release-groups":[]}"#.utf8))
