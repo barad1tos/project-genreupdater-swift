@@ -48,4 +48,30 @@ struct TrackFingerprintTests {
 
         #expect(TrackFingerprint.hash(first) != TrackFingerprint.hash(second))
     }
+
+    @Test("timestamp-only changes do not affect fingerprint")
+    func timestampOnlyChangesDoNotAffectFingerprint() {
+        let first = Track(
+            id: "track-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 1998,
+            dateAdded: Date(timeIntervalSince1970: 100),
+            lastModified: Date(timeIntervalSince1970: 200)
+        )
+        let second = Track(
+            id: "track-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 1998,
+            dateAdded: Date(timeIntervalSince1970: 300),
+            lastModified: Date(timeIntervalSince1970: 400)
+        )
+
+        #expect(TrackFingerprint.hash(first) == TrackFingerprint.hash(second))
+    }
 }

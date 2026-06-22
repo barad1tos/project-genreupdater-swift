@@ -257,8 +257,8 @@ struct LibrarySyncServiceTests {
         #expect(try await store.trackCount() == 1)
     }
 
-    @Test("Detect modified tracks via lastModified change")
-    func detectModifiedTracks() async throws {
+    @Test("Ignore timestamp-only metadata churn during force scan")
+    func ignoreTimestampOnlyMetadataChurnDuringForceScan() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let gate = await FeatureGate(fixedTier: .free)
@@ -267,10 +267,30 @@ struct LibrarySyncServiceTests {
         let newDate = Date()
 
         await bridge.setLibrary(ids: ["T1"], tracks: [
-            "T1": Track(id: "T1", name: "Track", artist: "A", album: "B", lastModified: newDate),
+            "T1": Track(
+                id: "T1",
+                name: "Track",
+                artist: "A",
+                album: "B",
+                genre: "Rock",
+                year: 2001,
+                dateAdded: newDate,
+                lastModified: newDate,
+                trackStatus: "matched"
+            ),
         ])
         await store.setStored([
-            Track(id: "T1", name: "Track", artist: "A", album: "B", lastModified: oldDate),
+            Track(
+                id: "T1",
+                name: "Track",
+                artist: "A",
+                album: "B",
+                genre: "Rock",
+                year: 2001,
+                dateAdded: oldDate,
+                lastModified: oldDate,
+                trackStatus: "matched"
+            ),
         ])
 
         let service = LibrarySyncService(
@@ -280,16 +300,45 @@ struct LibrarySyncServiceTests {
         )
 
         let result = try await service.detectChanges(forceMetadataRefresh: true)
-        #expect(result.modifiedTracks.count == 1)
-        #expect(result.modifiedTracks.first?.id == "T1")
+        #expect(result.modifiedTracks.isEmpty)
     }
 
-    @Test("Detect modified tracks by fingerprint when lastModified is unchanged")
-    func detectModifiedTracksWithSameLastModifiedAndMetadataChange() async throws {
+    @Test("Persisted release metadata does not repeat force-scan deltas")
+    func persistedReleaseMetadataDoesNotRepeatForceScanDeltas() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = try SwiftDataTrackStore.createInMemory()
+        let gate = await FeatureGate(fixedTier: .free)
+        let track = Track(
+            id: "T1",
+            name: "Track",
+            artist: "A",
+            album: "B",
+            genre: "Rock",
+            year: 2001,
+            trackStatus: "matched",
+            releaseYear: 2001
+        )
+
+        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": track])
+        try await store.saveTracks([track])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        let result = try await service.detectChanges(forceMetadataRefresh: true)
+        #expect(result.modifiedTracks.isEmpty)
+    }
+
+    @Test("Detect modified tracks by processing metadata even when lastModified is older")
+    func detectModifiedTracksByProcessingMetadataWhenLastModifiedIsOlder() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let gate = await FeatureGate(fixedTier: .free)
-        let modifiedDate = Date()
+        let storedDate = Date()
+        let currentDate = storedDate.addingTimeInterval(-3600)
 
         await bridge.setLibrary(ids: ["T1"], tracks: [
             "T1": Track(
@@ -297,12 +346,23 @@ struct LibrarySyncServiceTests {
                 name: "Track",
                 artist: "A",
                 album: "B",
-                lastModified: modifiedDate,
-                releaseYear: 2001
+                genre: "Stoner Rock",
+                year: 2001,
+                lastModified: currentDate,
+                trackStatus: "matched"
             ),
         ])
         await store.setStored([
-            Track(id: "T1", name: "Track", artist: "A", album: "B", lastModified: modifiedDate, releaseYear: 1998),
+            Track(
+                id: "T1",
+                name: "Track",
+                artist: "A",
+                album: "B",
+                genre: "Rock",
+                year: 1999,
+                lastModified: storedDate,
+                trackStatus: "uploaded"
+            ),
         ])
 
         let service = LibrarySyncService(

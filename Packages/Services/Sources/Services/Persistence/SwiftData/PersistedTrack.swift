@@ -29,6 +29,8 @@ public final class PersistedTrack {
     public var lastError: String?
     public var dateAdded: Date?
     public var albumArtist: String?
+    public var trackStatus: String?
+    public var releaseYear: Int?
 
     @Relationship(deleteRule: .cascade, inverse: \PersistedChangeLogEntry.track)
     public var changeLog: [PersistedChangeLogEntry] = []
@@ -45,7 +47,9 @@ public final class PersistedTrack {
         processedDate: Date? = nil,
         lastError: String? = nil,
         dateAdded: Date? = nil,
-        albumArtist: String? = nil
+        albumArtist: String? = nil,
+        trackStatus: String? = nil,
+        releaseYear: Int? = nil
     ) {
         self.trackID = trackID
         self.name = name
@@ -59,6 +63,8 @@ public final class PersistedTrack {
         self.lastError = lastError
         self.dateAdded = dateAdded
         self.albumArtist = albumArtist
+        self.trackStatus = trackStatus
+        self.releaseYear = releaseYear
     }
 }
 
@@ -75,7 +81,9 @@ extension PersistedTrack {
             genre: track.genre,
             year: track.year,
             dateAdded: track.dateAdded,
-            albumArtist: track.albumArtist
+            albumArtist: track.albumArtist,
+            trackStatus: track.trackStatus,
+            releaseYear: track.releaseYear
         )
     }
 
@@ -89,6 +97,8 @@ extension PersistedTrack {
             genre: genre,
             year: year,
             dateAdded: dateAdded,
+            trackStatus: trackStatus,
+            releaseYear: releaseYear,
             albumArtist: albumArtist
         )
     }
@@ -102,5 +112,7 @@ extension PersistedTrack {
         year = track.year
         dateAdded = track.dateAdded
         albumArtist = track.albumArtist
+        trackStatus = track.trackStatus
+        releaseYear = track.releaseYear
     }
 }

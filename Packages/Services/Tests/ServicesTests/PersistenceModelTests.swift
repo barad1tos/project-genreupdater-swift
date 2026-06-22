@@ -20,7 +20,9 @@ struct PersistedTrackTests {
         album: String = "Album",
         genre: String? = "Rock",
         year: Int? = 2020,
-        albumArtist: String? = "AlbumArtist"
+        albumArtist: String? = "AlbumArtist",
+        trackStatus: String? = "matched",
+        releaseYear: Int? = 2019
     ) -> Core.Track {
         Core.Track(
             id: id,
@@ -30,6 +32,8 @@ struct PersistedTrackTests {
             genre: genre,
             year: year,
             dateAdded: fixedDate,
+            trackStatus: trackStatus,
+            releaseYear: releaseYear,
             albumArtist: albumArtist
         )
     }
@@ -47,6 +51,8 @@ struct PersistedTrackTests {
         #expect(persisted.year == 2020)
         #expect(persisted.dateAdded == fixedDate)
         #expect(persisted.albumArtist == "AlbumArtist")
+        #expect(persisted.trackStatus == "matched")
+        #expect(persisted.releaseYear == 2019)
         #expect(persisted.genreUpdated == false)
         #expect(persisted.yearUpdated == false)
         #expect(persisted.processedDate == nil)
@@ -61,6 +67,8 @@ struct PersistedTrackTests {
         #expect(persisted.year == nil)
         #expect(persisted.dateAdded == nil)
         #expect(persisted.albumArtist == nil)
+        #expect(persisted.trackStatus == nil)
+        #expect(persisted.releaseYear == nil)
     }
 
     @Test("toTrack() converts back to matching domain Track")
@@ -76,6 +84,8 @@ struct PersistedTrackTests {
         #expect(result.year == 2020)
         #expect(result.dateAdded == fixedDate)
         #expect(result.albumArtist == "AlbumArtist")
+        #expect(result.trackStatus == "matched")
+        #expect(result.releaseYear == 2019)
     }
 
     @Test("Round-trip Track -> PersistedTrack -> Track preserves all mapped fields")
@@ -91,6 +101,8 @@ struct PersistedTrackTests {
         #expect(roundTripped.year == original.year)
         #expect(roundTripped.dateAdded == original.dateAdded)
         #expect(roundTripped.albumArtist == original.albumArtist)
+        #expect(roundTripped.trackStatus == original.trackStatus)
+        #expect(roundTripped.releaseYear == original.releaseYear)
     }
 
     @Test("update(from:) updates mutable fields but preserves processing state")
@@ -112,6 +124,8 @@ struct PersistedTrackTests {
             album: "New Album",
             genre: "Pop",
             year: 2025,
+            trackStatus: "uploaded",
+            releaseYear: 2024,
             albumArtist: "New AlbumArtist"
         )
         persisted.update(from: newTrack)
@@ -123,6 +137,8 @@ struct PersistedTrackTests {
         #expect(persisted.genre == "Pop")
         #expect(persisted.year == 2025)
         #expect(persisted.albumArtist == "New AlbumArtist")
+        #expect(persisted.trackStatus == "uploaded")
+        #expect(persisted.releaseYear == 2024)
 
         // Processing state preserved
         #expect(persisted.genreUpdated == true)
@@ -143,6 +159,8 @@ struct PersistedTrackTests {
         #expect(persisted.genre == nil)
         #expect(persisted.year == nil)
         #expect(persisted.albumArtist == nil)
+        #expect(persisted.trackStatus == nil)
+        #expect(persisted.releaseYear == nil)
     }
 }
 

@@ -334,16 +334,7 @@ public actor LibrarySyncService {
     // MARK: Helpers
 
     private func hasTrackChanged(current: Track, stored: Track) -> Bool {
-        if let currentMod = current.lastModified, let storedMod = stored.lastModified {
-            if currentMod > storedMod {
-                return true
-            }
-            if currentMod < storedMod {
-                return false
-            }
-        }
-
-        return TrackFingerprint.hash(current) != TrackFingerprint.hash(stored)
+        TrackFingerprint.hash(current) != TrackFingerprint.hash(stored)
     }
 
     private func shouldRefreshCommonTrackMetadata(force: Bool) async throws -> Bool {
