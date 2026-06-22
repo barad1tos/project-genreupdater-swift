@@ -220,8 +220,11 @@ extension WorkflowViewModel {
     }
 
     static func tracksMatchingPendingEntries(_ tracks: [Track], entries: [PendingAlbumEntry]) -> [Track] {
-        let pendingKeys = Set(entries.map { albumKey(artist: $0.artist, album: $0.album) })
-        return tracks.filter { pendingKeys.contains(albumKey(for: $0)) }
+        let pendingKeys = Set(entries.flatMap { AlbumIdentity.lookupKeys(artist: $0.artist, album: $0.album) })
+        return tracks.filter { track in
+            let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
+            return !pendingKeys.isDisjoint(with: trackKeys)
+        }
     }
 
     static func groupTracksByAlbum(_ tracks: [Track]) -> [String: [Track]] {
@@ -245,7 +248,7 @@ extension WorkflowViewModel {
     }
 
     static func albumKey(artist: String, album: String) -> String {
-        AlbumIdentity.key(for: Track(id: "", name: "", artist: artist, album: album))
+        AlbumIdentity.key(artist: artist, album: album)
     }
 
     static func artistKey(for track: Track) -> String {

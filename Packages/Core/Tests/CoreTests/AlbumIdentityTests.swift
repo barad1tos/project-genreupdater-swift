@@ -35,6 +35,24 @@ struct AlbumIdentityTests {
         #expect(identity.key == "daft punk\u{1F}random access memories")
     }
 
+    @Test("includes legacy artist aliases for lookup")
+    func includesLegacyArtistAliasesForLookup() {
+        let track = Track(
+            id: "1",
+            name: "Get Lucky",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            albumArtist: "Daft Punk"
+        )
+
+        let keys = AlbumIdentity.lookupKeys(for: track)
+
+        #expect(keys == [
+            "daft punk\u{1F}random access memories",
+            "daft punk feat. pharrell williams\u{1F}random access memories",
+        ])
+    }
+
     @Test("keeps solo artist unchanged")
     func keepsSoloArtistUnchanged() {
         let track = Track(

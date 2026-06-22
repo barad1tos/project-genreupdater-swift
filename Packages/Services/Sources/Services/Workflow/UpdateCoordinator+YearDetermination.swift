@@ -167,22 +167,24 @@ extension UpdateCoordinator {
 
     private func shouldSkipRecentFallbackRejection(track: Track) async -> Bool {
         guard let pendingVerificationService else { return false }
-        let identity = track.albumIdentity
-        guard let entry = await pendingVerificationService.getEntry(
-            artist: identity.artist,
-            album: identity.album
-        ) else {
-            return false
-        }
-        guard Self.fallbackRejectionReasons.contains(entry.reason) else {
-            return false
-        }
+        for identity in AlbumIdentity.lookupCandidates(for: track) {
+            guard let entry = await pendingVerificationService.getEntry(
+                artist: identity.artist,
+                album: identity.album
+            ) else {
+                continue
+            }
+            guard Self.fallbackRejectionReasons.contains(entry.reason) else {
+                return false
+            }
 
-        let isVerificationNeeded = await pendingVerificationService.isVerificationNeeded(
-            artist: identity.artist,
-            album: identity.album
-        )
-        return !isVerificationNeeded
+            let isVerificationNeeded = await pendingVerificationService.isVerificationNeeded(
+                artist: identity.artist,
+                album: identity.album
+            )
+            return !isVerificationNeeded
+        }
+        return false
     }
 
     private func shouldSkipYearLookupFromCachedAlbumYear(

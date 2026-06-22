@@ -24,9 +24,8 @@ extension UpdateCoordinator {
             return false
         }
 
-        guard let artistStartYear = await apiOrchestrator.getArtistStartYear(
-            normalizedArtist: track.effectiveArtist
-        ) else {
+        let normalizedArtist = normalizeForMatching(track.albumIdentity.artist)
+        guard let artistStartYear = await apiOrchestrator.getArtistStartYear(normalizedArtist: normalizedArtist) else {
             return false
         }
 

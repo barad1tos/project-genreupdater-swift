@@ -36,6 +36,36 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         ].joined(separator: "\u{1F}")
     }
 
+    public static func lookupCandidates(for track: Track) -> [Self] {
+        lookupCandidates(
+            artists: [
+                groupingArtist(for: track),
+                track.effectiveArtist,
+                track.artist,
+                extractMainArtist(track.artist),
+            ],
+            album: track.album
+        )
+    }
+
+    public static func lookupCandidates(artist: String, album: String) -> [Self] {
+        lookupCandidates(
+            artists: [
+                artist,
+                extractMainArtist(artist),
+            ],
+            album: album
+        )
+    }
+
+    public static func lookupKeys(for track: Track) -> [String] {
+        lookupCandidates(for: track).map(\.key)
+    }
+
+    public static func lookupKeys(artist: String, album: String) -> [String] {
+        lookupCandidates(artist: artist, album: album).map(\.key)
+    }
+
     public static func groupingArtist(for track: Track) -> String {
         let albumArtist = track.albumArtist?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let albumArtist, !albumArtist.isEmpty {
@@ -43,6 +73,17 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         }
 
         return extractMainArtist(track.artist)
+    }
+
+    private static func lookupCandidates(artists: [String], album: String) -> [Self] {
+        var seenKeys: Set<String> = []
+        return artists.compactMap { artist in
+            let identity = Self(artist: artist, album: album)
+            guard identity.isComplete, seenKeys.insert(identity.key).inserted else {
+                return nil
+            }
+            return identity
+        }
     }
 }
 

@@ -112,4 +112,36 @@ struct WorkflowAlbumIdentityTests {
 
         #expect(Set(matchingTracks.map(\.id)) == ["one", "two"])
     }
+
+    @Test("matches legacy pending entries with album identity aliases")
+    func matchesLegacyPendingEntriesWithAlbumIdentityAliases() {
+        let tracks = [
+            Track(
+                id: "one",
+                name: "Get Lucky",
+                artist: "Daft Punk feat. Pharrell Williams",
+                album: "Random Access Memories",
+                albumArtist: "Daft Punk"
+            ),
+            Track(
+                id: "two",
+                name: "Instant Crush",
+                artist: "Daft Punk feat. Julian Casablancas",
+                album: "Random Access Memories",
+                albumArtist: "Daft Punk"
+            ),
+        ]
+        let entries = [
+            PendingAlbumEntry(
+                id: "daft-punk-feat-pharrell-williams-random-access-memories",
+                artist: "Daft Punk feat. Pharrell Williams",
+                album: "Random Access Memories",
+                reason: "suspicious_year_change"
+            ),
+        ]
+
+        let matchingTracks = WorkflowViewModel.tracksMatchingPendingEntries(tracks, entries: entries)
+
+        #expect(Set(matchingTracks.map(\.id)) == ["one", "two"])
+    }
 }

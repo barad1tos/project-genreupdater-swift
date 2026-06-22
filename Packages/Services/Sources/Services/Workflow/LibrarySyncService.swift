@@ -436,14 +436,15 @@ public actor LibrarySyncService {
     ) async throws {
         guard let pendingVerificationService else { return }
 
-        let transitionedAlbums = modifiedTracks.compactMap { current -> (artist: String, album: String)? in
+        let transitionedAlbums = modifiedTracks.flatMap { current -> [(artist: String, album: String)] in
             guard let previous = previousTracksByID[current.id],
                   previous.kind == .prerelease,
                   current.kind?.isAvailableForProcessing == true
             else {
-                return nil
+                return []
             }
-            return (artist: previous.effectiveArtist, album: previous.album)
+            return (AlbumIdentity.lookupCandidates(for: current) + AlbumIdentity.lookupCandidates(for: previous))
+                .map { (artist: $0.artist, album: $0.album) }
         }
         let targets = normalizedCacheInvalidationTargets(transitionedAlbums)
         guard !targets.isEmpty else { return }
@@ -455,10 +456,11 @@ public actor LibrarySyncService {
     }
 
     private func hasPrereleaseTrack(in tracks: [Track], artist: String, album: String) -> Bool {
-        tracks.contains { track in
-            normalizeForMatching(track.effectiveArtist) == normalizeForMatching(artist)
-                && normalizeForMatching(track.album) == normalizeForMatching(album)
-                && track.kind == .prerelease
+        let targetKeys = Set(AlbumIdentity.lookupKeys(artist: artist, album: album))
+        return tracks.contains { track in
+            guard track.kind == .prerelease else { return false }
+            let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
+            return !targetKeys.isDisjoint(with: trackKeys)
         }
     }
 

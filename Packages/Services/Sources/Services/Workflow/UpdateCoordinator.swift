@@ -437,11 +437,10 @@ public actor UpdateCoordinator {
         var entries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
-        let resolvedAlbumTracksProvider = albumTracksProvider ?? Self.albumTracksProvider(
-            Self.albumTracksByTrackID(for: tracks)
-        )
-        let resolvedArtistTracksProvider = artistTracksProvider ?? Self.artistTracksProvider(
-            Self.artistTracksByTrackID(for: tracks)
+        let trackProviders = await makeUpdateTrackProviders(
+            tracks: tracks,
+            albumTracksProvider: albumTracksProvider,
+            artistTracksProvider: artistTracksProvider
         )
 
         for (index, track) in tracks.enumerated() {
@@ -449,8 +448,8 @@ public actor UpdateCoordinator {
                 let trackEntries = try await applyGeneratedAcceptedChanges(
                     for: track,
                     options: options,
-                    albumTracksProvider: resolvedAlbumTracksProvider,
-                    artistTracksProvider: resolvedArtistTracksProvider
+                    albumTracksProvider: trackProviders.album,
+                    artistTracksProvider: trackProviders.artist
                 )
                 entries.append(contentsOf: trackEntries)
             } catch let error as UpdateCoordinatorError {
@@ -494,6 +493,25 @@ public actor UpdateCoordinator {
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions
         )
+    }
+
+    private func makeUpdateTrackProviders(
+        tracks: [Track],
+        albumTracksProvider: (@Sendable (Track) -> [Track])?,
+        artistTracksProvider: (@Sendable (Track) -> [Track])?
+    ) async -> (album: @Sendable (Track) -> [Track], artist: @Sendable (Track) -> [Track]) {
+        let contextTracks = if albumTracksProvider == nil || artistTracksProvider == nil {
+            await availableTracksWithMutationMetadata(tracks)
+        } else {
+            tracks
+        }
+        let resolvedAlbumTracksProvider = albumTracksProvider ?? Self.albumTracksProvider(
+            Self.albumTracksByTrackID(for: contextTracks)
+        )
+        let resolvedArtistTracksProvider = artistTracksProvider ?? Self.artistTracksProvider(
+            Self.artistTracksByTrackID(for: contextTracks)
+        )
+        return (resolvedAlbumTracksProvider, resolvedArtistTracksProvider)
     }
 
     private static func reportUpdateProgress(

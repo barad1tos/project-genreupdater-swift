@@ -15,9 +15,9 @@ actor SyncMockScriptClient: AppleScriptClient {
     func initialize() async throws {}
 
     func runScript(
-        name: String,
-        arguments: [String],
-        timeout: Duration?
+        name _: String,
+        arguments _: [String],
+        timeout _: Duration?
     ) async throws -> String? {
         nil
     }
@@ -104,9 +104,9 @@ actor SyncMockTrackStore: TrackStateStore {
     }
 
     func updateTrackProcessingState(
-        id: String,
-        genreUpdated: Bool?,
-        yearUpdated: Bool?
+        id _: String,
+        genreUpdated _: Bool?,
+        yearUpdated _: Bool?
     ) async throws {}
 
     func getUnprocessedTracks() async throws -> [Track] {

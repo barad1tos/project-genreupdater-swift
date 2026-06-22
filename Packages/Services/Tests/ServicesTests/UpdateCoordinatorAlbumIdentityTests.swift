@@ -199,6 +199,40 @@ struct UpdateCoordinatorAlbumIdentityTests {
         #expect(await apiProbe.requestCount == 0)
     }
 
+    @Test("Recent fallback rejection lookup accepts legacy artist aliases")
+    func recentFallbackRejectionLookupAcceptsLegacyArtistAliases() async throws {
+        let apiProbe = APIRequestProbe()
+        let apiService = UpdateCoordinatorRecordingAPIService(probe: apiProbe)
+        let pendingEntry = PendingAlbumEntry(
+            id: "daft-punk-feat-pharrell-williams-random-access-memories",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            reason: "suspicious_year_change"
+        )
+        let pending = PendingVerificationProbe(entries: [pendingEntry], isVerificationNeeded: false)
+        let coordinator = makeCoordinator(
+            apiService: apiService,
+            pendingVerification: pending
+        )
+        let track = makeTrack(
+            id: "ram-rejected-legacy",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            year: 2012,
+            albumArtist: "Daft Punk"
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            albumTracks: [track],
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(!changes.contains { $0.changeType == .yearUpdate })
+        #expect(await apiProbe.requestCount == 0)
+    }
+
     @Test("Year write batching groups tracks by album identity")
     func yearWriteBatchingGroupsTracksByAlbumIdentity() async throws {
         let bridge = MockAppleScriptClient()
@@ -269,6 +303,56 @@ struct UpdateCoordinatorAlbumIdentityTests {
         #expect(result.entries.map(\.trackID) == ["ram-1"])
     }
 
+    @Test("Default update context groups tracks after AppleScript album artist enrichment")
+    func defaultUpdateContextGroupsTracksAfterAppleScriptAlbumArtistEnrichment() async throws {
+        let bridge = MockAppleScriptClient()
+        let mapper = TrackIDMapper()
+        let coordinator = makeCoordinator(script: bridge, idMapper: mapper)
+        let firstMusicKitTrack = makeTrack(
+            id: "mk-1",
+            name: "Get Lucky",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories"
+        )
+        let secondMusicKitTrack = makeTrack(
+            id: "mk-2",
+            name: "Instant Crush",
+            artist: "Julian Casablancas",
+            album: "Random Access Memories",
+            year: 2001
+        )
+        let firstAppleScriptTrack = makeTrack(
+            id: "as-1",
+            name: "Get Lucky",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories",
+            albumArtist: "Daft Punk"
+        )
+        let secondAppleScriptTrack = makeTrack(
+            id: "as-2",
+            name: "Instant Crush",
+            artist: "Julian Casablancas",
+            album: "Random Access Memories",
+            year: 2001,
+            albumArtist: "Daft Punk"
+        )
+        await mapper.refreshMapping(
+            musicKitTracks: [firstMusicKitTrack, secondMusicKitTrack],
+            appleScriptTracks: [firstAppleScriptTrack, secondAppleScriptTrack]
+        )
+
+        let result = try await coordinator.updateTracks(
+            [firstMusicKitTrack, secondMusicKitTrack],
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            progressHandler: ignoreAlbumIdentityProgress
+        )
+
+        let writes = await bridge.writtenProperties
+        #expect(writes.map(\.trackID) == ["as-1"])
+        #expect(writes.first?.value == "2001")
+        #expect(result.entries.map(\.trackID) == ["mk-1"])
+    }
+
     @Test("Write invalidation clears canonical and legacy album keys")
     func writeInvalidationClearsCanonicalAndLegacyAlbumKeys() async throws {
         let cache = MockCacheService()
@@ -336,6 +420,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
         apiService: any ExternalAPIService = MockAPIService(),
         script: MockAppleScriptClient = MockAppleScriptClient(),
         cache: MockCacheService = MockCacheService(),
+        idMapper: (any TrackIDMapping)? = nil,
         pendingVerification: (any PendingVerificationService)? = nil,
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
         disabledSources: Set<APISource> = []
@@ -356,6 +441,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
                 trackStore: MockTrackStore(),
                 cache: cache,
                 undoCoordinator: UndoCoordinator(scriptBridge: script, directory: undoDirectory),
+                idMapper: idMapper,
                 pendingVerificationService: pendingVerification
             ),
             genreDeterminator: GenreDeterminator(),
@@ -366,6 +452,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
 
     private func makeTrack(
         id: String,
+        name: String? = nil,
         artist: String,
         album: String,
         year: Int? = nil,
@@ -376,7 +463,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
     ) -> Track {
         Track(
             id: id,
-            name: "Track \(id)",
+            name: name ?? "Track \(id)",
             artist: artist,
             album: album,
             year: year,
