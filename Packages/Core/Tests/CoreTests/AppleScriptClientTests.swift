@@ -37,14 +37,64 @@ struct AppleScriptClientTests {
         #expect(call.timeout == nil)
         #expect(tracks.isEmpty)
     }
+
+    @Test("Default fetchAllTrackIDs runs lightweight ID script")
+    func defaultFetchAllTrackIDsRunsLightweightIDScript() async throws {
+        let client = ScriptOutputClient(output: " 10, 20,, 30, ")
+
+        let trackIDs = try await client.fetchAllTrackIDs(timeout: .seconds(5))
+
+        let call = try #require(await client.calls.first)
+        #expect(call.name == "fetch_track_ids")
+        #expect(call.arguments.isEmpty)
+        #expect(call.timeout == .seconds(5))
+        #expect(trackIDs == ["10", "20", "30"])
+    }
+
+    @Test("Default fetchTracksByIDs batches IDs and parses AppleScript output")
+    func defaultFetchTracksByIDsBatchesIDsAndParsesAppleScriptOutput() async throws {
+        let fieldSeparator = String(Track.fieldSeparator)
+        let firstBatchOutput = [
+            "101", "American Sleep", "Clutch", "Clutch", "Pure Rock Fury",
+            "Rock", "", "", "matched", "1999", "2001", "",
+        ].joined(separator: fieldSeparator)
+        let secondBatchOutput = [
+            "103", "Зимно", "Паліндром", "Паліндром", "Найліпші питання собі",
+            "Rap", "", "", "purchased", "2024", "2024", "",
+        ].joined(separator: fieldSeparator)
+        let client = ScriptOutputClient(outputs: [
+            firstBatchOutput,
+            "NO_TRACKS_FOUND",
+            secondBatchOutput,
+        ])
+
+        let tracks = try await client.fetchTracksByIDs(
+            ["101", "102", "103"],
+            batchSize: 1,
+            timeout: .seconds(7)
+        )
+
+        let calls = await client.calls
+        #expect(calls.map(\.name) == ["fetch_tracks_by_ids", "fetch_tracks_by_ids", "fetch_tracks_by_ids"])
+        #expect(calls.map(\.arguments) == [["101"], ["102"], ["103"]])
+        #expect(calls.map(\.timeout) == [.seconds(7), .seconds(7), .seconds(7)])
+        #expect(tracks.map(\.id) == ["101", "103"])
+        #expect(tracks.first?.year == 1999)
+        #expect(tracks.first?.releaseYear == 2001)
+        #expect(tracks.last?.artist == "Паліндром")
+    }
 }
 
 private actor ScriptOutputClient: AppleScriptClient {
-    private let output: String?
+    private var outputs: [String?]
     private(set) var calls: [ScriptCall] = []
 
     init(output: String?) {
-        self.output = output
+        outputs = [output]
+    }
+
+    init(outputs: [String?]) {
+        self.outputs = outputs
     }
 
     func initialize() async throws {
@@ -61,7 +111,8 @@ private actor ScriptOutputClient: AppleScriptClient {
             arguments: arguments,
             timeout: timeout
         ))
-        return output
+        guard !outputs.isEmpty else { return nil }
+        return outputs.removeFirst()
     }
 
     func updateTrackProperty(
