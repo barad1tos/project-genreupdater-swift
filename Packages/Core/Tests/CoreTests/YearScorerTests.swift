@@ -8,6 +8,17 @@ import Testing
 struct YearScorerScoringTests {
     let scorer = YearScorer()
 
+    private func scoreArtistPeriod(forYear year: Int) -> Int {
+        let candidate = makeCandidate(artist: "X", album: "X", year: year)
+        let result = scorer.scoreRelease(
+            candidate,
+            queryArtist: "X",
+            queryAlbum: "X",
+            artistActivityPeriod: (start: 2000, end: 2020)
+        )
+        return result.breakdown.artistPeriod
+    }
+
     // MARK: - Base Score
 
     @Test("Base score is always applied")
@@ -113,6 +124,20 @@ struct YearScorerScoringTests {
         #expect(result.breakdown.releaseType == scorer.config.typeCompilationLivePenalty)
     }
 
+    @Test("Remix type gets compilation live penalty")
+    func releaseTypeRemix() {
+        let candidate = makeCandidate(artist: "X", album: "X", year: 2000, releaseType: .remix)
+        let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
+        #expect(result.breakdown.releaseType == scorer.config.typeCompilationLivePenalty)
+    }
+
+    @Test("Other type has no release type adjustment")
+    func releaseTypeOther() {
+        let candidate = makeCandidate(artist: "X", album: "X", year: 2000, releaseType: .other)
+        let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
+        #expect(result.breakdown.releaseType == 0)
+    }
+
     // MARK: - Release Status
 
     @Test("Official status gets bonus")
@@ -200,38 +225,32 @@ struct YearScorerScoringTests {
 
     @Test("Year before artist start gets penalty")
     func yearBeforeArtistStart() {
-        let candidate = makeCandidate(artist: "X", album: "X", year: 1990)
-        let result = scorer.scoreRelease(
-            candidate,
-            queryArtist: "X",
-            queryAlbum: "X",
-            artistActivityPeriod: (start: 2000, end: 2020)
-        )
-        #expect(result.breakdown.artistPeriod == scorer.config.yearBeforeStartPenalty)
+        #expect(scoreArtistPeriod(forYear: 1990) == scorer.config.yearBeforeStartPenalty)
+    }
+
+    @Test("Year one year before artist start is allowed")
+    func yearOneYearBeforeArtistStartAllowed() {
+        #expect(scoreArtistPeriod(forYear: 1999) == 0)
     }
 
     @Test("Year after artist end gets penalty")
     func yearAfterArtistEnd() {
-        let candidate = makeCandidate(artist: "X", album: "X", year: 2025)
-        let result = scorer.scoreRelease(
-            candidate,
-            queryArtist: "X",
-            queryAlbum: "X",
-            artistActivityPeriod: (start: 2000, end: 2020)
-        )
-        #expect(result.breakdown.artistPeriod == scorer.config.yearAfterEndPenalty)
+        #expect(scoreArtistPeriod(forYear: 2025) == scorer.config.yearAfterEndPenalty)
+    }
+
+    @Test("Year within three years after artist end is allowed")
+    func yearWithinGraceAfterArtistEndAllowed() {
+        #expect(scoreArtistPeriod(forYear: 2023) == 0)
     }
 
     @Test("Year near artist start gets bonus")
     func yearNearArtistStart() {
-        let candidate = makeCandidate(artist: "X", album: "X", year: 2001)
-        let result = scorer.scoreRelease(
-            candidate,
-            queryArtist: "X",
-            queryAlbum: "X",
-            artistActivityPeriod: (start: 2000, end: 2020)
-        )
-        #expect(result.breakdown.artistPeriod == scorer.config.yearNearStartBonus)
+        #expect(scoreArtistPeriod(forYear: 2001) == scorer.config.yearNearStartBonus)
+    }
+
+    @Test("Year more than one year after artist start gets no near-start bonus")
+    func yearOutsideNearArtistStartWindowGetsNoBonus() {
+        #expect(scoreArtistPeriod(forYear: 2003) == 0)
     }
 
     // MARK: - Country

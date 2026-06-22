@@ -533,10 +533,10 @@ extension YearScorer {
             config.typeAlbumBonus
         case .ep, .single:
             config.typeEPSinglePenalty
-        case .compilation, .live, .soundtrack:
+        case .compilation, .live, .soundtrack, .remix:
             config.typeCompilationLivePenalty
-        case .remix, .other:
-            config.typeEPSinglePenalty
+        case .other:
+            0
         }
     }
 
@@ -571,16 +571,15 @@ extension YearScorer {
         guard let period else { return 0 }
 
         if let start = period.start {
-            if candidateYear < start {
+            if candidateYear < start - 1 {
                 return config.yearBeforeStartPenalty
             }
-            // Near start bonus: within 3 years of start
-            if candidateYear >= start, candidateYear <= start + 3 {
+            if candidateYear >= start, candidateYear <= start + 1 {
                 return config.yearNearStartBonus
             }
         }
 
-        if let end = period.end, candidateYear > end {
+        if let end = period.end, candidateYear > end + 3 {
             return config.yearAfterEndPenalty
         }
 
