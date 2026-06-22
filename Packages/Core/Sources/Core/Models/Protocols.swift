@@ -205,6 +205,7 @@ public protocol CacheService: Actor, Sendable {
     func getAlbumYear(artist: String, album: String) async -> AlbumCacheEntry?
     func storeAlbumYear(artist: String, album: String, year: Int, confidence: Int) async
     func invalidateAlbum(artist: String, album: String) async
+    func invalidateAllAlbumYears() async
 
     // API result cache
     func getCachedAPIResult(artist: String, album: String, source: String) async -> CachedAPIResult?

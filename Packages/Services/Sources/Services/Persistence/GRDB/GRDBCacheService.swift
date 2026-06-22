@@ -224,6 +224,16 @@ public actor GRDBCacheService: CacheService {
         }
     }
 
+    public func invalidateAllAlbumYears() async {
+        do {
+            _ = try await dbWriter.write { database in
+                try AlbumYearRow.deleteAll(database)
+            }
+        } catch {
+            log.error("invalidateAllAlbumYears failed: \(error, privacy: .public)")
+        }
+    }
+
     // MARK: - API Result Cache
 
     public func getCachedAPIResult(artist: String, album: String, source: String) async -> CachedAPIResult? {

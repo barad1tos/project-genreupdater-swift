@@ -79,6 +79,56 @@ struct WorkflowRunTrackerTests {
         #expect(await timestampUpdates.count() == 0)
     }
 
+    @Test("force year lookup clears album-year cache before full-library writes")
+    func forceYearLookupClearsAlbumYearCacheBeforeFullLibraryWrites() async throws {
+        let cacheInvalidations = AlbumYearCacheInvalidationCounter()
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2001, confidence: 90),
+            invalidateAlbumYearCache: {
+                await cacheInvalidations.record()
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+        viewModel.forceYearLookup = true
+
+        viewModel.start(tracks: [
+            Track(id: "stale-year", name: "Track", artist: "Clutch", album: "Pure Rock Fury", year: 1999),
+        ])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        #expect(await cacheInvalidations.count() == 1)
+    }
+
+    @Test("force year lookup does not clear album-year cache during dry run")
+    func forceYearLookupDoesNotClearAlbumYearCacheDuringDryRun() async throws {
+        let cacheInvalidations = AlbumYearCacheInvalidationCounter()
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2001, confidence: 90),
+            invalidateAlbumYearCache: {
+                await cacheInvalidations.record()
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = true
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+        viewModel.forceYearLookup = true
+
+        viewModel.start(tracks: [
+            Track(id: "dry-run-year", name: "Track", artist: "Clutch", album: "Pure Rock Fury", year: 1999),
+        ])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        #expect(await cacheInvalidations.count() == 0)
+    }
+
     @Test("full-library write processes only resolved incremental candidates")
     func fullLibraryWriteProcessesOnlyResolvedIncrementalCandidates() async throws {
         let oldTrack = Track(id: "old-track", name: "Old", artist: "Clutch", album: "Old Album", year: 1999)
@@ -231,5 +281,17 @@ private actor RunTimestampUpdateCounter {
 
     func count() -> Int {
         updates
+    }
+}
+
+private actor AlbumYearCacheInvalidationCounter {
+    private var invalidations = 0
+
+    func record() {
+        invalidations += 1
+    }
+
+    func count() -> Int {
+        invalidations
     }
 }

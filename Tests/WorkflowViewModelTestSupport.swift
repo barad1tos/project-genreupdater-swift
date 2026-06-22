@@ -18,6 +18,7 @@ func makeWorkflowFixture(
         [Track],
         IncrementalTrackScopeOptions
     ) async -> [Track] = { tracks, _ in tracks },
+    invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {
     let scriptClient = DashboardStateScriptClient(failingTrackIDs: failingWriteTrackIDs)
@@ -57,6 +58,7 @@ func makeWorkflowFixture(
             changePreviewPipeline: ChangePreviewPipeline(),
             featureGate: featureGate,
             resolveIncrementalTracks: resolveIncrementalTracks,
+            invalidateAlbumYearCache: invalidateAlbumYearCache,
             updateIncrementalRunTimestamp: updateIncrementalRunTimestamp
         )
     )
@@ -279,6 +281,10 @@ private actor DashboardStateCacheService: CacheService {
     }
 
     func invalidateAlbum(artist _: String, album _: String) async {
+        // These tests do not assert album cache invalidation.
+    }
+
+    func invalidateAllAlbumYears() async {
         // These tests do not assert album cache invalidation.
     }
 
