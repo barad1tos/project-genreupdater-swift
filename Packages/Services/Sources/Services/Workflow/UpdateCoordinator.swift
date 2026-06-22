@@ -291,7 +291,9 @@ public actor UpdateCoordinator {
     }
 
     private static func isMissingGenre(_ genre: String?) -> Bool {
-        genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+        guard let genre else { return true }
+        let normalizedGenre = genre.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalizedGenre.isEmpty || normalizedGenre == "unknown"
     }
 
     private static func hasGenreValueChanged(currentGenre: String?, newGenre: String) -> Bool {

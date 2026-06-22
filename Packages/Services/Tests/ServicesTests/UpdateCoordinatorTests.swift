@@ -291,6 +291,40 @@ struct UpdateCoordinatorTests {
         #expect(genreChange.newValue == "AppleScript Punk")
     }
 
+    @Test("Unknown genre is repaired like missing genre")
+    func unknownGenreIsRepairedLikeMissingGenre() async throws {
+        let fixture = await makeCoordinator()
+        let sourceTrack = makeEditableTrack(
+            id: "source",
+            name: "Source Song",
+            artist: "Artist",
+            album: "First Album",
+            genre: "Post-Punk",
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 100)
+        )
+        let targetTrack = makeEditableTrack(
+            id: "target",
+            name: "Unknown Genre Song",
+            artist: "Artist",
+            album: "Later Album",
+            genre: "Unknown",
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 200)
+        )
+
+        let changes = try await fixture.coordinator.updateTrack(
+            targetTrack,
+            artistTracks: [sourceTrack, targetTrack],
+            options: UpdateOptions(updateGenre: true, updateYear: false),
+            dryRun: true
+        )
+
+        let genreChange = try #require(changes.first { $0.changeType == .genreUpdate })
+        #expect(genreChange.oldValue == "Unknown")
+        #expect(genreChange.newValue == "Post-Punk")
+    }
+
     @Test("Write mode applies changes to Music.app")
     func writeAppliesChanges() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)
