@@ -81,7 +81,7 @@ extension WorkflowViewModel {
                 try Task.checkCancellation()
                 updatePendingProgress(entry: entry, index: index, total: dueEntries.count)
 
-                let albumTracks = albumGroups[Self.albumKey(artist: entry.artist, album: entry.album)] ?? []
+                let albumTracks = Self.pendingAlbumTracks(for: entry, in: albumGroups)
                 let entryOutcome = await processPendingEntry(
                     entry,
                     albumTracks: albumTracks,
@@ -225,6 +225,20 @@ extension WorkflowViewModel {
             let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
             return !pendingKeys.isDisjoint(with: trackKeys)
         }
+    }
+
+    static func pendingAlbumTracks(
+        for entry: PendingAlbumEntry,
+        in albumGroups: [String: [Track]]
+    ) -> [Track] {
+        var matchedTracks: [Track] = []
+        var seenTrackIDs: Set<String> = []
+        for key in AlbumIdentity.lookupKeys(artist: entry.artist, album: entry.album) {
+            for track in albumGroups[key] ?? [] where seenTrackIDs.insert(track.id).inserted {
+                matchedTracks.append(track)
+            }
+        }
+        return matchedTracks
     }
 
     static func groupTracksByAlbum(_ tracks: [Track]) -> [String: [Track]] {

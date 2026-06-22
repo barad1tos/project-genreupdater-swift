@@ -175,14 +175,16 @@ extension UpdateCoordinator {
                 continue
             }
             guard Self.fallbackRejectionReasons.contains(entry.reason) else {
-                return false
+                continue
             }
 
             let isVerificationNeeded = await pendingVerificationService.isVerificationNeeded(
                 artist: identity.artist,
                 album: identity.album
             )
-            return !isVerificationNeeded
+            if !isVerificationNeeded {
+                return true
+            }
         }
         return false
     }

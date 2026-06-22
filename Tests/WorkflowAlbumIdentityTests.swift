@@ -144,4 +144,35 @@ struct WorkflowAlbumIdentityTests {
 
         #expect(Set(matchingTracks.map(\.id)) == ["one", "two"])
     }
+
+    @Test("resolves legacy pending entry to canonical album group")
+    func resolvesLegacyPendingEntryToCanonicalAlbumGroup() {
+        let tracks = [
+            Track(
+                id: "one",
+                name: "Get Lucky",
+                artist: "Daft Punk feat. Pharrell Williams",
+                album: "Random Access Memories",
+                albumArtist: "Daft Punk"
+            ),
+            Track(
+                id: "two",
+                name: "Instant Crush",
+                artist: "Daft Punk feat. Julian Casablancas",
+                album: "Random Access Memories",
+                albumArtist: "Daft Punk"
+            ),
+        ]
+        let entry = PendingAlbumEntry(
+            id: "daft-punk-feat-pharrell-williams-random-access-memories",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            reason: "suspicious_year_change"
+        )
+        let groups = WorkflowViewModel.groupTracksByAlbum(tracks)
+
+        let albumTracks = WorkflowViewModel.pendingAlbumTracks(for: entry, in: groups)
+
+        #expect(Set(albumTracks.map(\.id)) == ["one", "two"])
+    }
 }

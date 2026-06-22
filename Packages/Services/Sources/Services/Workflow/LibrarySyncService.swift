@@ -408,8 +408,8 @@ public actor LibrarySyncService {
             else {
                 continue
             }
-            candidates.append((artist: stored.artist, album: stored.album))
-            candidates.append((artist: current.artist, album: current.album))
+            candidates.append(contentsOf: cacheInvalidationTargets(for: stored))
+            candidates.append(contentsOf: cacheInvalidationTargets(for: current))
         }
 
         let removedIDSet = Set(removedTrackIDs)
@@ -421,13 +421,18 @@ public actor LibrarySyncService {
 
     private func cacheInvalidationTargets(removedTracks: [Track]) -> [(artist: String, album: String)] {
         normalizedCacheInvalidationTargets(
-            removedTracks.map { (artist: $0.artist, album: $0.album) }
+            removedTracks.flatMap { cacheInvalidationTargets(for: $0) }
         )
     }
 
     private func hasIdentityChanged(current: Track, stored: Track) -> Bool {
-        normalizeForMatching(current.artist) != normalizeForMatching(stored.artist)
-            || normalizeForMatching(current.album) != normalizeForMatching(stored.album)
+        Set(AlbumIdentity.lookupKeys(for: current)) != Set(AlbumIdentity.lookupKeys(for: stored))
+    }
+
+    private func cacheInvalidationTargets(for track: Track) -> [(artist: String, album: String)] {
+        AlbumIdentity.lookupCandidates(for: track).map { identity in
+            (artist: identity.artist, album: identity.album)
+        }
     }
 
     private func removeResolvedPrereleasePendingEntries(

@@ -233,6 +233,49 @@ struct UpdateCoordinatorAlbumIdentityTests {
         #expect(await apiProbe.requestCount == 0)
     }
 
+    @Test("Recent fallback rejection checks legacy aliases after non-fallback canonical entry")
+    func recentFallbackRejectionChecksLegacyAliasesAfterNonFallbackCanonicalEntry() async throws {
+        let apiProbe = APIRequestProbe()
+        let apiService = UpdateCoordinatorRecordingAPIService(probe: apiProbe)
+        let canonicalEntry = PendingAlbumEntry(
+            id: "daft-punk-random-access-memories",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            reason: "prerelease"
+        )
+        let legacyEntry = PendingAlbumEntry(
+            id: "daft-punk-feat-pharrell-williams-random-access-memories",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            reason: "suspicious_year_change"
+        )
+        let pending = PendingVerificationProbe(
+            entries: [canonicalEntry, legacyEntry],
+            isVerificationNeeded: false
+        )
+        let coordinator = makeCoordinator(
+            apiService: apiService,
+            pendingVerification: pending
+        )
+        let track = makeTrack(
+            id: "ram-rejected-mixed",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            year: 2012,
+            albumArtist: "Daft Punk"
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            albumTracks: [track],
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(!changes.contains { $0.changeType == .yearUpdate })
+        #expect(await apiProbe.requestCount == 0)
+    }
+
     @Test("Year write batching groups tracks by album identity")
     func yearWriteBatchingGroupsTracksByAlbumIdentity() async throws {
         let bridge = MockAppleScriptClient()
