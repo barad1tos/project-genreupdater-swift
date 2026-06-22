@@ -3,6 +3,9 @@ import Testing
 @testable import Core
 @testable import Services
 
+private let musicBrainzArtistPath = "/ws/2/artist"
+private let musicBrainzReleaseGroupPath = "/ws/2/release-group"
+
 @Suite("API release candidate adapters", .serialized)
 struct APIReleaseCandidateAdapterTests {
     @Test("MusicBrainz returns release candidates from release groups")
@@ -49,11 +52,11 @@ struct APIReleaseCandidateAdapterTests {
             APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
 
             let json: String
-            if url.path == "/ws/2/release-group", query.contains("artist:\"паліндром\"") {
+            if url.path == musicBrainzReleaseGroupPath, query.contains("artist:\"паліндром\"") {
                 json = #"{"release-groups":[]}"#
-            } else if url.path == "/ws/2/artist", query.contains("artist:\"паліндром\"") {
+            } else if url.path == musicBrainzArtistPath, query.contains("artist:\"паліндром\"") {
                 json = #"{"artists":[{"id":"artist-pal","name":"Palindrom","type":"Person"}]}"#
-            } else if url.path == "/ws/2/release-group", query.contains("artist:\"palindrom\"") {
+            } else if url.path == musicBrainzReleaseGroupPath, query.contains("artist:\"palindrom\"") {
                 json = """
                 {
                   "release-groups": [
@@ -102,7 +105,7 @@ struct APIReleaseCandidateAdapterTests {
             let (url, query) = try musicBrainzQuery(from: request)
             APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
 
-            guard url.path == "/ws/2/release-group" else {
+            guard url.path == musicBrainzReleaseGroupPath else {
                 throw URLError(.badURL)
             }
             return try (jsonResponse(url: url), Data(#"{"release-groups":[]}"#.utf8))
