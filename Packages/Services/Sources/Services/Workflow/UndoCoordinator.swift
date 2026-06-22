@@ -132,7 +132,7 @@ public actor UndoCoordinator {
 
         let writeID = await resolveWriteID(for: entry.trackID)
 
-        try await scriptBridge.updateTrackProperty(
+        _ = try await scriptBridge.updateTrackProperty(
             trackID: writeID,
             property: oldValue.property,
             value: oldValue.value
@@ -255,7 +255,7 @@ public actor UndoCoordinator {
 
             do {
                 let writeID = await resolveWriteID(for: track.id)
-                try await scriptBridge.updateTrackProperty(
+                _ = try await scriptBridge.updateTrackProperty(
                     trackID: writeID,
                     property: "year",
                     value: String(target.year)

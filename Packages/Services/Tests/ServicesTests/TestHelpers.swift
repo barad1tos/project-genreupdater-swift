@@ -48,6 +48,7 @@ actor MockAppleScriptClient: AppleScriptClient {
     var shouldThrow = false
     var shouldThrowBatch = false
     var shouldApplyBatchUpdates = true
+    var singleWriteResult: AppleScriptWriteResult = .changed
 
     func initialize() async throws {}
 
@@ -71,12 +72,19 @@ actor MockAppleScriptClient: AppleScriptClient {
         trackIDsToFetch
     }
 
-    func updateTrackProperty(trackID: String, property: String, value: String) async throws {
+    func updateTrackProperty(
+        trackID: String,
+        property: String,
+        value: String
+    ) async throws -> AppleScriptWriteResult {
         if shouldThrow {
             throw MockScriptError.intentional
         }
         writtenProperties.append((trackID, property, value))
-        apply(property: property, value: value, toTrackWithID: trackID)
+        if singleWriteResult == .changed {
+            apply(property: property, value: value, toTrackWithID: trackID)
+        }
+        return singleWriteResult
     }
 
     func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
@@ -100,6 +108,10 @@ actor MockAppleScriptClient: AppleScriptClient {
 
     func setBatchMutationEnabled(_ isEnabled: Bool) {
         shouldApplyBatchUpdates = isEnabled
+    }
+
+    func setSingleWriteResult(_ result: AppleScriptWriteResult) {
+        singleWriteResult = result
     }
 
     func setFetchedTracks(_ tracks: [Track]) {

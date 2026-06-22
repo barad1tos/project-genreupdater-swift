@@ -123,6 +123,47 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
     }
 
+    @Test("Reviewed no-change write does not record an applied change")
+    func reviewedNoChangeWriteDoesNotRecordAppliedChange() async throws {
+        let fixture = await makeCoordinator()
+        await fixture.bridge.setSingleWriteResult(.noChange)
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.cache.storeAlbumYear(artist: track.artist, album: track.album, year: 1999, confidence: 90)
+        await fixture.cache.setCachedAPIResult(CachedAPIResult(
+            artist: track.artist,
+            album: track.album,
+            year: 2001,
+            source: "MusicBrainz",
+            timestamp: Date(),
+            ttl: 3600
+        ))
+        let change = ProposedChange(
+            track: track,
+            changeType: .yearUpdate,
+            oldValue: "1999",
+            newValue: "2001",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            [change],
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.map(\.property) == ["year"])
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
+        #expect(await fixture.cache.getCachedAPIResult(
+            artist: track.artist,
+            album: track.album,
+            source: "MusicBrainz"
+        ) == nil)
+    }
+
     @Test("Batch failure falls back to single reviewed writes")
     func batchFailureFallsBackToSingleReviewedWrites() async throws {
         let fixture = await makeCoordinator(
@@ -312,13 +353,14 @@ struct UpdateCoordinatorApplyAcceptedTests {
         )
         let undoDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("UpdateCoordinatorApplyAcceptedTests-\(UUID().uuidString)")
+        let cache = MockCacheService()
         let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
         let coordinator = UpdateCoordinator(
             dependencies: UpdateCoordinatorDependencies(
                 apiOrchestrator: orchestrator,
                 scriptBridge: bridge,
                 trackStore: MockTrackStore(),
-                cache: MockCacheService(),
+                cache: cache,
                 undoCoordinator: undo,
                 idMapper: idMapper
             ),
@@ -327,7 +369,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
             runtimeConfiguration: runtimeConfiguration
         )
 
-        return AcceptedApplyFixture(coordinator: coordinator, bridge: bridge)
+        return AcceptedApplyFixture(coordinator: coordinator, bridge: bridge, cache: cache)
     }
 
     private func acceptedGenreAndYearProposals(for track: Track) -> [ProposedChange] {
@@ -377,4 +419,5 @@ private func ignoreAcceptedChangeProgress(_ update: ProgressUpdate) {
 private struct AcceptedApplyFixture {
     let coordinator: UpdateCoordinator
     let bridge: MockAppleScriptClient
+    let cache: MockCacheService
 }

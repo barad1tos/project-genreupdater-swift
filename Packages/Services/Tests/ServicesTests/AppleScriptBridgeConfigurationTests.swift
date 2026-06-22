@@ -97,16 +97,19 @@ struct AppleScriptBridgeConfigurationTests {
 
     @Test("Single update output accepts script success and no-change responses")
     func singleUpdateOutputAcceptsSuccessAndNoChangeResponses() throws {
-        try AppleScriptBridge.validateUpdatePropertyOutput(
+        let changed = try AppleScriptBridge.validateUpdatePropertyOutput(
             "Success: Updated track 10 genre from 'Rock' to 'Metal'",
             trackID: "10",
             property: "genre"
         )
-        try AppleScriptBridge.validateUpdatePropertyOutput(
+        let noChange = try AppleScriptBridge.validateUpdatePropertyOutput(
             "No Change: Track 10 genre already set to Metal",
             trackID: "10",
             property: "genre"
         )
+
+        #expect(changed == .changed)
+        #expect(noChange == .noChange)
     }
 
     @Test("Single update output rejects errors, empty response, and unknown text")

@@ -39,8 +39,13 @@ actor SyncMockScriptClient: AppleScriptClient {
         return libraryTrackIDs
     }
 
-    func updateTrackProperty(trackID _: String, property _: String, value _: String) async throws {
+    func updateTrackProperty(
+        trackID _: String,
+        property _: String,
+        value _: String
+    ) async throws -> AppleScriptWriteResult {
         try Task.checkCancellation()
+        return .changed
     }
 
     func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
