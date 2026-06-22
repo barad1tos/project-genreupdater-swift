@@ -194,6 +194,77 @@ struct UpdateRunReportTests {
         #expect(report.plainTextSummary.contains("- Year: 2 changes, 2 tracks, 1 album"))
     }
 
+    @Test("filters no-op changes from run report")
+    func filtersNoOpChangesFromRunReport() {
+        var unchangedGenre = ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "genre-1",
+            artist: "Clutch",
+            trackName: "American Sleep",
+            albumName: "Pure Rock Fury"
+        )
+        unchangedGenre.oldGenre = "Rock"
+        unchangedGenre.newGenre = "Rock"
+
+        var changedYear = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "year-1",
+            artist: "Clutch",
+            trackName: "Pure Rock Fury",
+            albumName: "Pure Rock Fury"
+        )
+        changedYear.oldYear = 1999
+        changedYear.newYear = 2001
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [unchangedGenre, changedYear],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: ["Clutch"]
+        )
+
+        #expect(report.changedEntries.map(\.trackID) == ["year-1"])
+        #expect(report.changedTrackCount == 1)
+        #expect(report.changeBreakdown.map(\.changeType) == [.yearUpdate])
+        #expect(report.plainTextSummary.contains("- Year: 1 change, 1 track, 1 album"))
+        #expect(!report.plainTextSummary.contains("Genre:"))
+    }
+
+    @Test("prints no-change summary when all entries are no-ops")
+    func printsNoChangeSummaryWhenAllEntriesAreNoOps() {
+        var unchangedYear = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "year-1",
+            artist: "Clutch",
+            trackName: "Pure Rock Fury",
+            albumName: "Pure Rock Fury"
+        )
+        unchangedYear.oldYear = 2001
+        unchangedYear.newYear = 2001
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [unchangedYear],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: ["Clutch"]
+        )
+
+        #expect(report.changedEntries.isEmpty)
+        #expect(report.changeBreakdown.isEmpty)
+        #expect(report.albumGroups.isEmpty)
+        #expect(report.plainTextSummary.contains("No changes were made during this run."))
+    }
+
     private func makeEntries(
         album: String,
         count: Int,
