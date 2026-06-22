@@ -55,7 +55,7 @@ extension WorkflowViewModel {
         progress = update
         processedCount = update.current
 
-        if update.current <= tracksByIndex.count {
+        if update.current > 0, update.current <= tracksByIndex.count {
             let currentTrack = tracksByIndex[update.current - 1]
             currentTrackID = currentTrack.id
             trackStatuses[currentTrack.id] = .writing
