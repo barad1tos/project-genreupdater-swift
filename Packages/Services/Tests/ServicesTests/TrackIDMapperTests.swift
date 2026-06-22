@@ -262,6 +262,35 @@ struct TrackIDMapperTests {
         #expect(await mapper.appleScriptID(forMusicKitID: "MK2") == "AS-HEX-2")
     }
 
+    @Test("Unscoped refresh fetches AppleScript IDs before metadata details")
+    func unscopedRefreshFetchesAppleScriptIDsBeforeMetadataDetails() async throws {
+        let mapper = TrackIDMapper()
+        let bridge = MockAppleScriptClient()
+        let musicKitTracks = [
+            makeTrack(id: "MK-CLUTCH", name: "Immortal", artist: "Clutch", album: "Pure Rock Fury"),
+        ]
+        let appleScriptTracks = [
+            makeTrack(id: "AS-CLUTCH", name: "Immortal", artist: "Clutch", album: "Pure Rock Fury"),
+        ]
+        await bridge.setFetchedTracks(appleScriptTracks)
+
+        let mappedCount = try await mapper.refreshMapping(
+            musicKitTracks: musicKitTracks,
+            appleScriptClient: bridge,
+            batchSize: 37,
+            allTrackIDsTimeout: .seconds(4),
+            tracksByIDsTimeout: .seconds(9)
+        )
+
+        let detailsFetch = try #require(await bridge.fetchTracksByIDsCalls().first)
+        #expect(mappedCount == 1)
+        #expect(await bridge.fetchAllTrackIDsTimeouts() == [.seconds(4)])
+        #expect(detailsFetch.trackIDs == ["AS-CLUTCH"])
+        #expect(detailsFetch.batchSize == 37)
+        #expect(detailsFetch.timeout == .seconds(9))
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK-CLUTCH") == "AS-CLUTCH")
+    }
+
     @Test("Refresh with test artists fetches scoped AppleScript tracks")
     func refreshWithTestArtistsFetchesScopedAppleScriptTracks() async throws {
         let mapper = TrackIDMapper()
