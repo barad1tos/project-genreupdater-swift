@@ -144,8 +144,9 @@ extension UpdateCoordinator {
             return nil
         }
 
+        let writeResult: AppleScriptWriteResult
         do {
-            try await scriptBridge.updateTrackProperty(
+            writeResult = try await scriptBridge.updateTrackProperty(
                 trackID: preparedWrite.trackID,
                 property: preparedWrite.property,
                 value: preparedWrite.value
@@ -156,6 +157,15 @@ extension UpdateCoordinator {
                 property: preparedWrite.property,
                 reason: error.localizedDescription
             )
+        }
+
+        guard writeResult == .changed else {
+            await invalidateCaches(for: change)
+            log
+                .info(
+                    "Skipped applied-change record for no-op \(change.changeType.rawValue, privacy: .public) on track \(change.track.id, privacy: .private)"
+                )
+            return nil
         }
 
         return await recordAppliedChange(change)

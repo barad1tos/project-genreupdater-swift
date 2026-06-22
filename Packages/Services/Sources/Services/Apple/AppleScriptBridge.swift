@@ -208,17 +208,22 @@ public actor AppleScriptBridge: AppleScriptClient {
     // MARK: - Music.app Write Operations
 
     /// Update a property of a track in Music.app.
-    public func updateTrackProperty(trackID: String, property: String, value: String) async throws {
+    public func updateTrackProperty(
+        trackID: String,
+        property: String,
+        value: String
+    ) async throws -> AppleScriptWriteResult {
         let output = try await runScript(
             name: "update_property",
             arguments: [trackID, property, value]
         )
-        try Self.validateUpdatePropertyOutput(output, trackID: trackID, property: property)
+        let result = try Self.validateUpdatePropertyOutput(output, trackID: trackID, property: property)
 
         log
             .info(
                 "Completed update_property for \(property, privacy: .public) on track \(trackID, privacy: .private): \(value, privacy: .private)"
             )
+        return result
     }
 
     /// Batch update multiple tracks' properties.
@@ -309,7 +314,11 @@ public actor AppleScriptBridge: AppleScriptClient {
         }
     }
 
-    static func validateUpdatePropertyOutput(_ output: String?, trackID: String, property: String) throws {
+    static func validateUpdatePropertyOutput(
+        _ output: String?,
+        trackID: String,
+        property: String
+    ) throws -> AppleScriptWriteResult {
         guard let output else {
             throw AppleScriptBridgeError.executionFailed(
                 scriptName: "update_property",
@@ -319,14 +328,17 @@ public actor AppleScriptBridge: AppleScriptClient {
 
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercasedOutput = trimmedOutput.lowercased()
-        guard lowercasedOutput.hasPrefix("success:")
-            || lowercasedOutput.hasPrefix("no change:")
-        else {
-            throw AppleScriptBridgeError.executionFailed(
-                scriptName: "update_property",
-                detail: "Track=\(trackID), property=\(property), response=\(String(trimmedOutput.prefix(200)))"
-            )
+        if lowercasedOutput.hasPrefix("success:") {
+            return .changed
         }
+        if lowercasedOutput.hasPrefix("no change:") {
+            return .noChange
+        }
+
+        throw AppleScriptBridgeError.executionFailed(
+            scriptName: "update_property",
+            detail: "Track=\(trackID), property=\(property), response=\(String(trimmedOutput.prefix(200)))"
+        )
     }
 
     /// Parse AppleScript output into Track objects.

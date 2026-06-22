@@ -309,6 +309,12 @@ extension ExternalAPIService {
 
 // MARK: - AppleScript Client
 
+/// Result of a single Music.app metadata write.
+public enum AppleScriptWriteResult: Sendable, Equatable {
+    case changed
+    case noChange
+}
+
 /// Protocol for interacting with Music.app via AppleScript.
 ///
 /// The actor requirement ensures serial access to AppleScript execution,
@@ -338,7 +344,7 @@ public protocol AppleScriptClient: Actor {
     func fetchTracks(artist: String?, timeout: Duration?) async throws -> [Track]
 
     /// Update a single property on a track in Music.app.
-    func updateTrackProperty(trackID: String, property: String, value: String) async throws
+    func updateTrackProperty(trackID: String, property: String, value: String) async throws -> AppleScriptWriteResult
 
     /// Update multiple track properties in one Music.app script call.
     func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws

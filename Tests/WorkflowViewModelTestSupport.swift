@@ -190,11 +190,12 @@ actor DashboardStateScriptClient: AppleScriptClient {
         []
     }
 
-    func updateTrackProperty(trackID: String, property: String, value: String) async throws {
+    func updateTrackProperty(trackID: String, property: String, value: String) async throws -> AppleScriptWriteResult {
         if failingTrackIDs.contains(trackID) {
             throw DashboardStateScriptWriteError(trackID: trackID)
         }
         writes.append((trackID: trackID, property: property, value: value))
+        return .changed
     }
 
     func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {

@@ -64,7 +64,11 @@ private actor ScriptOutputClient: AppleScriptClient {
         return output
     }
 
-    func updateTrackProperty(trackID _: String, property _: String, value _: String) async throws {
+    func updateTrackProperty(
+        trackID _: String,
+        property _: String,
+        value _: String
+    ) async throws -> AppleScriptWriteResult {
         throw ScriptOutputClientError.unsupportedWrite
     }
 
