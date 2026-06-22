@@ -33,7 +33,8 @@ extension UpdateCoordinator {
             return sameTrackGroup
         }
 
-        guard runtimeConfiguration.maxBatchUpdateSize > 1,
+        guard runtimeConfiguration.areBatchUpdatesEnabled,
+              runtimeConfiguration.maxBatchUpdateSize > 1,
               let firstChange = changes[safe: startIndex],
               Self.isAlbumYearBatchCandidate(firstChange)
         else {

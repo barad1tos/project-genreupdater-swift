@@ -137,6 +137,42 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.entries.map(\.changeType) == [.yearUpdate, .yearUpdate])
     }
 
+    @Test("Disabled batch setting leaves reviewed album year proposals ungrouped")
+    func disabledBatchSettingLeavesReviewedAlbumYearProposalsUngrouped() async {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: false,
+                maxBatchUpdateSize: 5
+            )
+        )
+        let firstTrack = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        let secondTrack = makeEditableTrack(id: "MK2", genre: "Rock", year: 1998)
+        let proposals = [
+            ProposedChange(
+                track: firstTrack,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz",
+                isAccepted: true
+            ),
+            ProposedChange(
+                track: secondTrack,
+                changeType: .yearUpdate,
+                oldValue: "1998",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz",
+                isAccepted: true
+            ),
+        ]
+
+        let group = await fixture.coordinator.reviewedChangeGroup(in: proposals, startingAt: 0)
+
+        #expect(group.map(\.track.id) == ["MK1"])
+    }
+
     @Test("Verified batch no-op writes do not record applied changes")
     func verifiedBatchNoOpWritesDoNotRecordAppliedChanges() async throws {
         let fixture = await makeCoordinator(
