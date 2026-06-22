@@ -11,6 +11,7 @@ struct UpdateDoneSection: View {
     @Bindable var viewModel: WorkflowViewModel
     let tracks: [Track]
     let testArtists: [String]
+    let displayMode: ChangeDisplayMode
 
     @State private var selectedAlbumID: String?
     @State private var selectedFilter = UpdateRunAlbumFilter.all
@@ -23,7 +24,8 @@ struct UpdateDoneSection: View {
             completedEntries: viewModel.completedEntries,
             trackStatuses: viewModel.trackStatuses,
             tracks: tracks,
-            testArtists: testArtists
+            testArtists: testArtists,
+            displayMode: displayMode
         )
     }
 

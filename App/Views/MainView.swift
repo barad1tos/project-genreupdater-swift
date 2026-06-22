@@ -450,6 +450,7 @@ struct MainView: View {
                 viewModel: viewModel,
                 tracks: updateWorkflowTracks,
                 testArtists: dependencies.config.development.testArtists,
+                reportDisplayMode: dependencies.config.reporting.changeDisplayMode,
                 credentialIssue: dependencies.discogsCredentialIssue,
                 isLibraryReadyForUpdates: !isLoading && isMutationMetadataReady,
                 noticeMessage: $workflowNoticeMessage

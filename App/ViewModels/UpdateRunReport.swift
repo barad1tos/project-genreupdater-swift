@@ -10,13 +10,15 @@ struct UpdateRunReport: Equatable {
     let failures: [UpdateRunFailure]
     let skippedCount: Int
     let scannedTrackCount: Int
+    let displayMode: ChangeDisplayMode
 
     init(
         result: BatchUpdateResult?,
         completedEntries: [ChangeLogEntry],
         trackStatuses: [String: TrackProcessingStatus],
         tracks: [Track],
-        testArtists: [String]
+        testArtists: [String],
+        displayMode: ChangeDisplayMode = .compact
     ) {
         let entries = (result?.entries ?? completedEntries).filter(Self.isRealChange)
         let trackLookup = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
@@ -41,6 +43,7 @@ struct UpdateRunReport: Equatable {
             return false
         }
         scannedTrackCount = trackStatuses.isEmpty ? tracks.count : trackStatuses.count
+        self.displayMode = displayMode
         scopeTitle = Self.makeScopeTitle(testArtists: testArtists)
     }
 
@@ -421,6 +424,7 @@ struct UpdateRunReport: Equatable {
         appendFailures(to: &lines)
         appendChangeBreakdown(to: &lines)
         appendAlbumGroups(to: &lines)
+        appendDetailedTrackResults(to: &lines)
         return lines.joined(separator: "\n")
     }
 
@@ -460,6 +464,35 @@ struct UpdateRunReport: Equatable {
             for entry in group.entries {
                 lines.append("  - \(entry.trackName)")
             }
+        }
+    }
+
+    private func appendDetailedTrackResults(to lines: inout [String]) {
+        guard displayMode == .detailed else { return }
+
+        let albumsWithDetails = albumResults.filter { album in
+            album.tracks.contains { track in
+                track.hasChanges || track.hasFailure
+            }
+        }
+        guard !albumsWithDetails.isEmpty else { return }
+
+        lines.append("")
+        lines.append("Track Details")
+        for album in albumsWithDetails {
+            lines.append("- \(album.artist) - \(album.album)")
+            for track in album.tracks where track.hasChanges || track.hasFailure {
+                appendTrackDetail(track, to: &lines)
+            }
+        }
+    }
+
+    private func appendTrackDetail(_ track: UpdateRunTrackResult, to lines: inout [String]) {
+        if track.hasChanges {
+            lines.append("  - \(track.title): \(track.currentMetadataSummary); proposed \(track.proposedSummary)")
+        }
+        if let failureMessage = track.failureMessage {
+            lines.append("  - \(track.title): failed \(failureMessage)")
         }
     }
 }
