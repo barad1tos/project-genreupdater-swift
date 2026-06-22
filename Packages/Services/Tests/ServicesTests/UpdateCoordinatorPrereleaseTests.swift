@@ -16,20 +16,14 @@ struct UpdateCoordinatorPrereleaseTests {
             dryRun: true
         )
 
-        let markedAlbums = await context.pendingVerification.markedAlbums
         #expect(changes.isEmpty)
         #expect(await context.apiProbe.requestCount == 0)
-        let markedAlbum = try #require(markedAlbums.first)
-        #expect(markedAlbums.count == 1)
-        #expect(markedAlbum.artist == PrereleaseFixture.artist)
-        #expect(markedAlbum.album == PrereleaseFixture.album)
-        #expect(markedAlbum.reason == "prerelease")
+        let markedAlbum = try await requireSinglePrereleaseMark(in: context)
         #expect(markedAlbum.metadata == [
             "all_prerelease": "true",
             "prerelease_count": "1",
             "track_count": "1",
         ])
-        #expect(markedAlbum.recheckDays == 30)
     }
 
     @Test("Marks mixed prerelease albums pending while processing editable tracks")
@@ -51,23 +45,17 @@ struct UpdateCoordinatorPrereleaseTests {
             dryRun: true
         )
 
-        let markedAlbums = await context.pendingVerification.markedAlbums
         let yearChange = try #require(changes.first { $0.changeType == .yearUpdate })
         #expect(yearChange.track.id == PrereleaseFixture.editableTrackID)
         #expect(yearChange.newValue == "2001")
         #expect(await context.apiProbe.requestCount == 0)
-        let markedAlbum = try #require(markedAlbums.first)
-        #expect(markedAlbums.count == 1)
-        #expect(markedAlbum.artist == PrereleaseFixture.artist)
-        #expect(markedAlbum.album == PrereleaseFixture.album)
-        #expect(markedAlbum.reason == "prerelease")
+        let markedAlbum = try await requireSinglePrereleaseMark(in: context)
         #expect(markedAlbum.metadata == [
             "editable_count": "1",
             "mixed_album": "true",
             "prerelease_count": "1",
             "track_count": "2",
         ])
-        #expect(markedAlbum.recheckDays == 30)
     }
 
     @Test("Skip-all mode skips prerelease albums without marking pending")
@@ -108,21 +96,28 @@ struct UpdateCoordinatorPrereleaseTests {
             dryRun: true
         )
 
-        let markedAlbums = await context.pendingVerification.markedAlbums
         #expect(changes.isEmpty)
         #expect(await context.apiProbe.requestCount == 0)
-        let markedAlbum = try #require(markedAlbums.first)
-        #expect(markedAlbums.count == 1)
-        #expect(markedAlbum.artist == PrereleaseFixture.artist)
-        #expect(markedAlbum.album == PrereleaseFixture.album)
-        #expect(markedAlbum.reason == "prerelease")
+        let markedAlbum = try await requireSinglePrereleaseMark(in: context)
         #expect(markedAlbum.metadata == [
             "editable_count": "1",
             "mode": "mark_only",
             "prerelease_count": "1",
             "track_count": "2",
         ])
+    }
+
+    private func requireSinglePrereleaseMark(
+        in context: PrereleaseTestContext
+    ) async throws -> PendingVerificationMark {
+        let markedAlbums = await context.pendingVerification.markedAlbums
+        let markedAlbum = try #require(markedAlbums.first)
+        #expect(markedAlbums.count == 1)
+        #expect(markedAlbum.artist == PrereleaseFixture.artist)
+        #expect(markedAlbum.album == PrereleaseFixture.album)
+        #expect(markedAlbum.reason == "prerelease")
         #expect(markedAlbum.recheckDays == 30)
+        return markedAlbum
     }
 
     private func makePrereleaseContext(
