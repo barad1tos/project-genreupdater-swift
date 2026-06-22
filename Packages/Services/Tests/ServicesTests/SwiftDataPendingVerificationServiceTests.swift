@@ -230,6 +230,46 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(await afterRecheck.isVerificationNeeded(artist: "Slowdive", album: "Everything Is Alive"))
     }
 
+    @Test("Invalid prerelease recheck metadata falls back to configured interval")
+    func invalidPrereleaseRecheckMetadataFallsBackToConfiguredInterval() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
+        let legacyURL = directory.appendingPathComponent("pending_year_verification.csv")
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let csv = """
+        artist,album,timestamp,reason,metadata,attempt_count
+        Slowdive,Everything Is Alive,2023-11-14 22:13:20,prerelease,"{""recheck_days"":0}",1
+        """
+        try csv.write(to: legacyURL, atomically: true, encoding: .utf8)
+
+        let beforeRecheck = SwiftDataPendingVerificationService(
+            modelContainer: container,
+            legacyStorageURL: legacyURL,
+            problematicReportURL: directory.appendingPathComponent("problematic.csv"),
+            verificationIntervalDays: 30,
+            prereleaseRecheckDays: 7,
+            currentDate: { baseDate.addingTimeInterval(6 * day) }
+        )
+        try await beforeRecheck.initialize()
+
+        let imported = try #require(await beforeRecheck.getEntry(artist: "Slowdive", album: "Everything Is Alive"))
+        #expect(imported.metadata["recheck_days"] == "0")
+        #expect(imported.recheckInterval == 7 * day)
+        #expect(await !(beforeRecheck.isVerificationNeeded(artist: "Slowdive", album: "Everything Is Alive")))
+        #expect(await !(beforeRecheck.isVerificationNeeded(artist: "Missing", album: "Album")))
+
+        let afterRecheck = SwiftDataPendingVerificationService(
+            modelContainer: container,
+            legacyStorageURL: legacyURL,
+            problematicReportURL: directory.appendingPathComponent("problematic.csv"),
+            verificationIntervalDays: 30,
+            prereleaseRecheckDays: 7,
+            currentDate: { baseDate.addingTimeInterval(7 * day) }
+        )
+        #expect(await afterRecheck.isVerificationNeeded(artist: "Slowdive", album: "Everything Is Alive"))
+    }
+
     @Test("Marking an album does not create a pending JSON file")
     func markForVerificationDoesNotCreateJSONStore() async throws {
         let directory = try makeTempDirectory()
