@@ -271,6 +271,55 @@ struct UpdateRunReportTests {
         #expect(alphaPosition.lowerBound < zetaPosition.lowerBound)
     }
 
+    @Test("plain text report includes detailed non-year change values")
+    func plainTextReportIncludesDetailedNonYearChangeValues() {
+        var trackCleaningEntry = ChangeLogEntry(
+            changeType: .trackCleaning,
+            trackID: "track-cleaning",
+            artist: "Archive",
+            trackName: "Demo (Remastered)",
+            albumName: "Noise"
+        )
+        trackCleaningEntry.oldTrackName = "Demo (Remastered)"
+        trackCleaningEntry.newTrackName = "Demo"
+
+        var albumCleaningEntry = ChangeLogEntry(
+            changeType: .albumCleaning,
+            trackID: "album-cleaning",
+            artist: "Archive",
+            trackName: "Noisy Track",
+            albumName: "Noise EP"
+        )
+        albumCleaningEntry.oldAlbumName = "Noise EP"
+        albumCleaningEntry.newAlbumName = "Noise"
+
+        var artistRenameEntry = ChangeLogEntry(
+            changeType: .artistRename,
+            trackID: "artist-rename",
+            artist: "Old Name",
+            trackName: "Alias",
+            albumName: "Alias"
+        )
+        artistRenameEntry.oldArtist = "Old Name"
+        artistRenameEntry.newArtist = "New Name"
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [trackCleaningEntry, albumCleaningEntry, artistRenameEntry],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: []
+        )
+
+        #expect(report.plainTextSummary.contains("- Archive - Noise: Track Demo (Remastered) -> Demo"))
+        #expect(report.plainTextSummary.contains("- Archive - Noise EP: Album Noise EP -> Noise"))
+        #expect(report.plainTextSummary.contains("- Old Name - Alias: Artist Old Name -> New Name"))
+    }
+
     @Test("filters no-op changes from run report")
     func filtersNoOpChangesFromRunReport() {
         var unchangedGenre = ChangeLogEntry(
