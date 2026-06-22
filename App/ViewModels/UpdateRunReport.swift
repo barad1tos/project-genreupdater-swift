@@ -112,9 +112,14 @@ struct UpdateRunReport: Equatable {
     }
 
     private static func albumGroupSort(_ left: UpdateRunAlbumGroup, _ right: UpdateRunAlbumGroup) -> Bool {
-        let titleOrder = left.title.localizedStandardCompare(right.title)
-        if titleOrder != .orderedSame {
-            return titleOrder == .orderedAscending
+        let artistOrder = left.artist.localizedStandardCompare(right.artist)
+        if artistOrder != .orderedSame {
+            return artistOrder == .orderedAscending
+        }
+
+        let albumOrder = left.album.localizedStandardCompare(right.album)
+        if albumOrder != .orderedSame {
+            return albumOrder == .orderedAscending
         }
 
         let typeOrder = left.changeType.displayLabel.localizedStandardCompare(right.changeType.displayLabel)
