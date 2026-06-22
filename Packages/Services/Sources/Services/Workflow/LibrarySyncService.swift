@@ -334,7 +334,7 @@ public actor LibrarySyncService {
     // MARK: Helpers
 
     private func hasTrackChanged(current: Track, stored: Track) -> Bool {
-        TrackFingerprint.hash(current) != TrackFingerprint.hash(stored)
+        TrackFingerprint.hasProcessingMetadataChanged(current: current, stored: stored)
     }
 
     private func shouldRefreshCommonTrackMetadata(force: Bool) async throws -> Bool {

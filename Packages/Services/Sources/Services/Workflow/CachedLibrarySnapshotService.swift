@@ -157,7 +157,7 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
         let commonIDs = oldIDs.intersection(newIDs)
         let modifiedIDs = commonIDs.filter { id in
             guard let oldTrack = oldByID[id], let newTrack = newByID[id] else { return false }
-            return TrackFingerprint.hash(oldTrack) != TrackFingerprint.hash(newTrack)
+            return TrackFingerprint.hasProcessingMetadataChanged(current: newTrack, stored: oldTrack)
         }
 
         return LibraryDeltaCache(

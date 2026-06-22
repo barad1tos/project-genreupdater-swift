@@ -303,6 +303,44 @@ struct LibrarySyncServiceTests {
         #expect(result.modifiedTracks.isEmpty)
     }
 
+    @Test("Ignore newly populated track status during force scan")
+    func ignoreNewlyPopulatedTrackStatusDuringForceScan() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+
+        await bridge.setLibrary(ids: ["T1"], tracks: [
+            "T1": Track(
+                id: "T1",
+                name: "Track",
+                artist: "A",
+                album: "B",
+                genre: "Rock",
+                year: 2001,
+                trackStatus: "matched"
+            ),
+        ])
+        await store.setStored([
+            Track(
+                id: "T1",
+                name: "Track",
+                artist: "A",
+                album: "B",
+                genre: "Rock",
+                year: 2001
+            ),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        let result = try await service.detectChanges(forceMetadataRefresh: true)
+        #expect(result.modifiedTracks.isEmpty)
+    }
+
     @Test("Persisted release metadata does not repeat force-scan deltas")
     func persistedReleaseMetadataDoesNotRepeatForceScanDeltas() async throws {
         let bridge = SyncMockScriptClient()

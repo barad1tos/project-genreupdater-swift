@@ -49,6 +49,39 @@ struct TrackFingerprintTests {
         #expect(TrackFingerprint.hash(first) != TrackFingerprint.hash(second))
     }
 
+    @Test("empty track status does not create a processing metadata change")
+    func emptyTrackStatusDoesNotCreateProcessingMetadataChange() {
+        let storedWithoutStatus = Track(
+            id: "track-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 1998
+        )
+        let currentWithStatus = Track(
+            id: "track-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 1998,
+            trackStatus: "matched"
+        )
+        let storedWithStatus = Track(
+            id: "track-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 1998,
+            trackStatus: "uploaded"
+        )
+
+        #expect(!TrackFingerprint.hasProcessingMetadataChanged(current: currentWithStatus, stored: storedWithoutStatus))
+        #expect(TrackFingerprint.hasProcessingMetadataChanged(current: currentWithStatus, stored: storedWithStatus))
+    }
+
     @Test("timestamp-only changes do not affect fingerprint")
     func timestampOnlyChangesDoNotAffectFingerprint() {
         let first = Track(
