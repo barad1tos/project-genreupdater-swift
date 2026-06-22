@@ -108,12 +108,31 @@ struct UpdateRunReport: Equatable {
                     sortIndex: bucket.firstIndex
                 )
             }
-            .sorted { left, right in
-                if left.sortIndex == right.sortIndex {
-                    return left.title.localizedStandardCompare(right.title) == .orderedAscending
-                }
-                return left.sortIndex < right.sortIndex
-            }
+            .sorted(by: albumGroupSort)
+    }
+
+    private static func albumGroupSort(_ left: UpdateRunAlbumGroup, _ right: UpdateRunAlbumGroup) -> Bool {
+        let artistOrder = left.artist.localizedStandardCompare(right.artist)
+        if artistOrder != .orderedSame {
+            return artistOrder == .orderedAscending
+        }
+
+        let albumOrder = left.album.localizedStandardCompare(right.album)
+        if albumOrder != .orderedSame {
+            return albumOrder == .orderedAscending
+        }
+
+        if left.sortIndex != right.sortIndex {
+            return left.sortIndex < right.sortIndex
+        }
+
+        let typeOrder = left.changeType.displayLabel.localizedStandardCompare(right.changeType.displayLabel)
+        if typeOrder != .orderedSame {
+            return typeOrder == .orderedAscending
+        }
+
+        let valueOrder = left.changeSummary.localizedStandardCompare(right.changeSummary)
+        return valueOrder == .orderedAscending
     }
 
     private static func makeFailures(

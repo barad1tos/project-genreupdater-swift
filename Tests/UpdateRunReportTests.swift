@@ -216,6 +216,61 @@ struct UpdateRunReportTests {
         #expect(report.plainTextSummary.contains("- Year: 2 changes, 2 tracks, 1 album"))
     }
 
+    @Test("plain text report sorts changed albums by artist and album")
+    func plainTextReportSortsChangedAlbumsByArtistAndAlbum() throws {
+        var zetaEntry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "zeta-track",
+            artist: "Zeta",
+            trackName: "Second",
+            albumName: "Later Album"
+        )
+        zetaEntry.oldYear = 2000
+        zetaEntry.newYear = 2001
+
+        var alphaYearEntry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "alpha-year-track",
+            artist: "Alpha",
+            trackName: "First",
+            albumName: "Early Album"
+        )
+        alphaYearEntry.oldYear = 1990
+        alphaYearEntry.newYear = 1991
+
+        var alphaGenreEntry = ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "alpha-genre-track",
+            artist: "Alpha",
+            trackName: "Third",
+            albumName: "Early Album"
+        )
+        alphaGenreEntry.oldGenre = "Alternative"
+        alphaGenreEntry.newGenre = "Rock"
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [zetaEntry, alphaYearEntry, alphaGenreEntry],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: []
+        )
+
+        #expect(report.albumGroups.map(\.title) == [
+            "Alpha - Early Album",
+            "Alpha - Early Album",
+            "Zeta - Later Album",
+        ])
+        #expect(report.albumGroups.map(\.changeType) == [.yearUpdate, .genreUpdate, .yearUpdate])
+        let alphaPosition = try #require(report.plainTextSummary.range(of: "- Alpha - Early Album: Year"))
+        let zetaPosition = try #require(report.plainTextSummary.range(of: "- Zeta - Later Album"))
+        #expect(alphaPosition.lowerBound < zetaPosition.lowerBound)
+    }
+
     @Test("filters no-op changes from run report")
     func filtersNoOpChangesFromRunReport() {
         var unchangedGenre = ChangeLogEntry(
