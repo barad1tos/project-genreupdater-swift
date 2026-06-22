@@ -79,6 +79,100 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
     }
 
+    @Test("Batch writes accepted same-album year proposals when enabled")
+    func batchWritesAcceptedSameAlbumYearProposalsWhenEnabled() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            )
+        )
+        let firstTrack = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        let secondTrack = makeEditableTrack(id: "MK2", genre: "Rock", year: 1998)
+        await fixture.bridge.setFetchedTracks([firstTrack, secondTrack])
+        let proposals = [
+            ProposedChange(
+                track: firstTrack,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz",
+                isAccepted: true
+            ),
+            ProposedChange(
+                track: firstTrack,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Stoner Rock",
+                confidence: 90,
+                source: "Library",
+                isAccepted: false
+            ),
+            ProposedChange(
+                track: secondTrack,
+                changeType: .yearUpdate,
+                oldValue: "1998",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz",
+                isAccepted: true
+            ),
+        ]
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let batches = await fixture.bridge.batchUpdates
+        let written = await fixture.bridge.writtenProperties
+        #expect(batches.count == 1)
+        let batch = try #require(batches.first)
+        #expect(batch.map(\.trackID) == ["MK1", "MK2"])
+        #expect(batch.map(\.property) == ["year", "year"])
+        #expect(batch.map(\.value) == ["2001", "2001"])
+        #expect(written.isEmpty)
+        #expect(result.entries.map(\.trackID) == ["MK1", "MK2"])
+        #expect(result.entries.map(\.changeType) == [.yearUpdate, .yearUpdate])
+    }
+
+    @Test("Disabled batch setting leaves reviewed album year proposals ungrouped")
+    func disabledBatchSettingLeavesReviewedAlbumYearProposalsUngrouped() async {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: false,
+                maxBatchUpdateSize: 5
+            )
+        )
+        let firstTrack = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        let secondTrack = makeEditableTrack(id: "MK2", genre: "Rock", year: 1998)
+        let proposals = [
+            ProposedChange(
+                track: firstTrack,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz",
+                isAccepted: true
+            ),
+            ProposedChange(
+                track: secondTrack,
+                changeType: .yearUpdate,
+                oldValue: "1998",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz",
+                isAccepted: true
+            ),
+        ]
+
+        let group = await fixture.coordinator.reviewedChangeGroup(in: proposals, startingAt: 0)
+
+        #expect(group.map(\.track.id) == ["MK1"])
+    }
+
     @Test("Verified batch no-op writes do not record applied changes")
     func verifiedBatchNoOpWritesDoNotRecordAppliedChanges() async throws {
         let fixture = await makeCoordinator(

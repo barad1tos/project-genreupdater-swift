@@ -24,6 +24,36 @@ extension UpdateCoordinator {
         return group
     }
 
+    func reviewedChangeGroup(
+        in changes: [ProposedChange],
+        startingAt startIndex: Int
+    ) -> [ProposedChange] {
+        let sameTrackGroup = consecutiveChangesForSameTrack(in: changes, startingAt: startIndex)
+        if sameTrackGroup.count > 1 {
+            return sameTrackGroup
+        }
+
+        guard runtimeConfiguration.areBatchUpdatesEnabled,
+              runtimeConfiguration.maxBatchUpdateSize > 1,
+              let firstChange = changes[safe: startIndex],
+              Self.isAlbumYearBatchCandidate(firstChange)
+        else {
+            return sameTrackGroup
+        }
+
+        var group: [ProposedChange] = []
+        for change in changes[startIndex...] {
+            guard group.count < runtimeConfiguration.maxBatchUpdateSize,
+                  Self.isAlbumYearBatchCandidate(change, matching: firstChange)
+            else {
+                break
+            }
+            group.append(change)
+        }
+
+        return group.count > 1 ? group : sameTrackGroup
+    }
+
     func applyReviewedChangeGroup(
         _ changes: [ProposedChange],
         failedTrackIDs: inout [String],
@@ -277,6 +307,31 @@ extension UpdateCoordinator {
         case .albumCleaning: "album"
         case .artistRename: "artist"
         }
+    }
+
+    private static func isAlbumYearBatchCandidate(
+        _ change: ProposedChange,
+        matching firstChange: ProposedChange
+    ) -> Bool {
+        isAlbumYearBatchCandidate(change)
+            && change.newValue == firstChange.newValue
+            && albumBatchKey(for: change.track) == albumBatchKey(for: firstChange.track)
+    }
+
+    private static func isAlbumYearBatchCandidate(_ change: ProposedChange) -> Bool {
+        switch change.changeType {
+        case .yearUpdate, .yearRevert:
+            change.newValue != nil
+        case .genreUpdate, .trackCleaning, .albumCleaning, .artistRename:
+            false
+        }
+    }
+
+    private static func albumBatchKey(for track: Track) -> String {
+        [
+            normalizeForMatching(track.effectiveArtist),
+            normalizeForMatching(track.album),
+        ].joined(separator: "\u{1F}")
     }
 
     private static func value(forAppleScriptProperty property: String, in track: Track) -> String? {

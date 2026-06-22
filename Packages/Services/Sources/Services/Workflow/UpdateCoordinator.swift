@@ -610,7 +610,7 @@ public actor UpdateCoordinator {
 
         var index = 0
         while index < accepted.count {
-            let changeGroup = consecutiveChangesForSameTrack(in: accepted, startingAt: index)
+            let changeGroup = reviewedChangeGroup(in: accepted, startingAt: index)
             let groupEntries = await applyReviewedChangeGroup(
                 changeGroup,
                 failedTrackIDs: &failedTrackIDs,
