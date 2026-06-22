@@ -5,6 +5,7 @@ private struct PreparedAppleScriptWrite {
     let change: ProposedChange
     let trackID: String
     let property: String
+    let currentValue: String?
     let value: String
 }
 
@@ -112,6 +113,15 @@ extension UpdateCoordinator {
 
         var entries: [ChangeLogEntry] = []
         for preparedWrite in preparedWrites {
+            guard preparedWrite.currentValue != preparedWrite.value else {
+                await invalidateCaches(for: preparedWrite.change)
+                log
+                    .info(
+                        "Skipped applied-change record for verified batch no-op \(preparedWrite.change.changeType.rawValue, privacy: .public) on track \(preparedWrite.change.track.id, privacy: .private)"
+                    )
+                continue
+            }
+
             let entry = await recordAppliedChange(preparedWrite.change)
             entries.append(entry)
         }
@@ -208,6 +218,7 @@ extension UpdateCoordinator {
             change: change,
             trackID: writeID,
             property: property,
+            currentValue: Self.value(forAppleScriptProperty: property, in: mutationTrack),
             value: newValue
         )
     }

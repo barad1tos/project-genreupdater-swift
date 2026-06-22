@@ -79,6 +79,47 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
     }
 
+    @Test("Verified batch no-op writes do not record applied changes")
+    func verifiedBatchNoOpWritesDoNotRecordAppliedChanges() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            )
+        )
+        let track = makeEditableTrack(id: "MK1", genre: "Stoner Rock", year: 2001)
+        await fixture.bridge.setFetchedTracks([track])
+        await fixture.cache.storeAlbumYear(artist: track.artist, album: track.album, year: 2001, confidence: 90)
+        await fixture.cache.setCachedAPIResult(CachedAPIResult(
+            artist: track.artist,
+            album: track.album,
+            year: 2001,
+            source: "MusicBrainz",
+            timestamp: Date(),
+            ttl: 3600
+        ))
+        let proposals = acceptedGenreAndYearProposals(for: track)
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let batches = await fixture.bridge.batchUpdates
+        let written = await fixture.bridge.writtenProperties
+        #expect(batches.count == 1)
+        #expect(batches[0].map(\.property) == ["genre", "year"])
+        #expect(written.isEmpty)
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
+        #expect(await fixture.cache.getCachedAPIResult(
+            artist: track.artist,
+            album: track.album,
+            source: "MusicBrainz"
+        ) == nil)
+    }
+
     @Test("Unverified batch success falls back to single reviewed writes")
     func unverifiedBatchSuccessFallsBackToSingleReviewedWrites() async throws {
         let fixture = await makeCoordinator(
