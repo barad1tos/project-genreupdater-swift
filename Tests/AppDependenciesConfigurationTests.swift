@@ -123,6 +123,31 @@ struct AppDependenciesConfigurationTests {
             .appendingPathComponent("last_incremental_run.log")
         #expect(FileManager.default.fileExists(atPath: expectedTimestampFile.path))
     }
+
+    @Test("Runtime apply wires cleaning edition keywords into year scoring")
+    func runtimeApplyWiresCleaningEditionKeywordsIntoYearScoring() {
+        var didSaveConfiguration = false
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                didSaveConfiguration = true
+            }
+        )
+        dependencies.config.cleaning.remasterKeywords = ["Anniversary", "Deluxe"]
+
+        #expect(dependencies.saveConfigurationAndApplyRuntime())
+        #expect(didSaveConfiguration)
+
+        let scorer = dependencies.yearDeterminator?.scorer
+        let scored = [
+            makeScoredRelease(year: 2020, score: 94, album: "Clayman (20th Anniversary Edition)"),
+            makeScoredRelease(year: 2000, score: 82, album: "Clayman"),
+        ]
+
+        let result = scorer?.resolveScores(scored)
+
+        #expect(result?.year == 2000)
+    }
 }
 
 private enum StubConfigurationError: LocalizedError {
@@ -164,4 +189,22 @@ private func temporaryConfigurationTestDirectory() -> URL {
     FileManager.default.temporaryDirectory
         .appendingPathComponent("GenreUpdaterAppDependenciesConfigurationTests", isDirectory: true)
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
+}
+
+private func makeScoredRelease(
+    year: Int,
+    score: Int,
+    album: String
+) -> ScoredRelease {
+    let candidate = ReleaseCandidate(
+        artist: "Test",
+        album: album,
+        year: year,
+        source: .musicBrainz
+    )
+    return ScoredRelease(
+        candidate: candidate,
+        totalScore: score,
+        breakdown: ScoreBreakdown()
+    )
 }
