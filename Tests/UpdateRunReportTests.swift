@@ -86,6 +86,11 @@ struct UpdateRunReportTests {
         #expect(report.albumResults.first?.artist == "Unknown artist")
         #expect(report.albumResults.first?.album == "Unknown album")
         #expect(report.albumResults.first?.failureCount == 1)
+        #expect(report.plainTextSummary.contains("Needs Attention"))
+        #expect(
+            report.plainTextSummary
+                .contains("- Unknown track (Track ID: raw-id): No failure details were captured for this run.")
+        )
     }
 
     @Test("changed year rows show original editable year instead of release metadata")
