@@ -49,6 +49,8 @@ actor MockAppleScriptClient: AppleScriptClient {
     var shouldThrowBatch = false
     var shouldApplyBatchUpdates = true
     var singleWriteResult: AppleScriptWriteResult = .changed
+    private var fetchedTracksByIDsCalls: [(trackIDs: [String], batchSize: Int, timeout: Duration?)] = []
+    private var fetchedAllTrackIDsTimeouts: [Duration?] = []
 
     func initialize() async throws {}
 
@@ -62,14 +64,16 @@ actor MockAppleScriptClient: AppleScriptClient {
 
     func fetchTracksByIDs(
         _ trackIDs: [String],
-        batchSize _: Int,
-        timeout _: Duration?
+        batchSize: Int,
+        timeout: Duration?
     ) async throws -> [Track] {
-        trackIDs.compactMap { tracksByID[$0] }
+        fetchedTracksByIDsCalls.append((trackIDs, batchSize, timeout))
+        return trackIDs.compactMap { tracksByID[$0] }
     }
 
-    func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
-        trackIDsToFetch
+    func fetchAllTrackIDs(timeout: Duration?) async throws -> [String] {
+        fetchedAllTrackIDsTimeouts.append(timeout)
+        return trackIDsToFetch
     }
 
     func updateTrackProperty(
@@ -117,6 +121,14 @@ actor MockAppleScriptClient: AppleScriptClient {
     func setFetchedTracks(_ tracks: [Track]) {
         trackIDsToFetch = tracks.map(\.id)
         tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+    }
+
+    func fetchTracksByIDsCalls() -> [(trackIDs: [String], batchSize: Int, timeout: Duration?)] {
+        fetchedTracksByIDsCalls
+    }
+
+    func fetchAllTrackIDsTimeouts() -> [Duration?] {
+        fetchedAllTrackIDsTimeouts
     }
 
     private func apply(property: String, value: String, toTrackWithID trackID: String) {
