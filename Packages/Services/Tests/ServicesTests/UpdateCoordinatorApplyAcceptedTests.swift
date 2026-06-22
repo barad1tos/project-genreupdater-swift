@@ -120,6 +120,33 @@ struct UpdateCoordinatorApplyAcceptedTests {
         ) == nil)
     }
 
+    @Test("Verified batch no-op uses refreshed AppleScript metadata")
+    func verifiedBatchNoOpUsesRefreshedAppleScriptMetadata() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            )
+        )
+        let staleTrack = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        let freshTrack = makeEditableTrack(id: "MK1", genre: "Stoner Rock", year: 2001)
+        await fixture.bridge.setFetchedTracks([freshTrack])
+        let proposals = acceptedGenreAndYearProposals(for: staleTrack)
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let batches = await fixture.bridge.batchUpdates
+        let written = await fixture.bridge.writtenProperties
+        #expect(batches.count == 1)
+        #expect(batches[0].map(\.property) == ["genre", "year"])
+        #expect(written.isEmpty)
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+    }
+
     @Test("Unverified batch success falls back to single reviewed writes")
     func unverifiedBatchSuccessFallsBackToSingleReviewedWrites() async throws {
         let fixture = await makeCoordinator(
@@ -215,6 +242,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
         )
         await fixture.bridge.setBatchThrowMode(true)
         let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.bridge.setFetchedTracks([track])
         let proposals = acceptedGenreAndYearProposals(for: track)
 
         let result = try await fixture.coordinator.applyAcceptedChanges(
