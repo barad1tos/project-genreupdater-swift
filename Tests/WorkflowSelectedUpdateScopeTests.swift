@@ -62,6 +62,36 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(viewModel.result == nil)
     }
 
+    @Test("reviewed apply writes only accepted proposed changes")
+    func reviewedApplyWritesOnlyAcceptedProposedChanges() async throws {
+        let fixture = makeWorkflowFixture()
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [
+            makeProposedChange(id: "accepted", isAccepted: true),
+            makeProposedChange(id: "rejected", isAccepted: false),
+        ]
+
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+        await Task.yield()
+
+        guard case .done = viewModel.phase else {
+            #expect(Bool(false), "reviewed apply should complete after writing accepted proposals")
+            return
+        }
+
+        let writes = await fixture.scriptClient.updatedProperties()
+        let write = try #require(writes.first)
+        #expect(writes.count == 1)
+        #expect(write.trackID == "accepted")
+        #expect(write.property == "genre")
+        #expect(write.value == "Rock")
+        #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
+        #expect(viewModel.result?.entries.count == 1)
+    }
+
     @Test("full library preview only avoids batch writes")
     func fullLibraryPreviewOnlyAvoidsBatchWrites() {
         let viewModel = makeWorkflowViewModel()
