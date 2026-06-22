@@ -131,21 +131,43 @@ struct UpdateRunReportTests {
 
     @Test("falls back to completed entries when batch result is unavailable")
     func fallsBackToCompletedEntriesWhenBatchResultIsUnavailable() {
+        var unchangedEntry = ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "foregone-unchanged",
+            artist: "In Flames",
+            trackName: "Foregone Unchanged",
+            albumName: "Foregone"
+        )
+        unchangedEntry.oldGenre = "Metal"
+        unchangedEntry.newGenre = "Metal"
+
+        var literalNoneEntry = ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "foregone-none",
+            artist: "In Flames",
+            trackName: "Foregone None",
+            albumName: "Foregone"
+        )
+        literalNoneEntry.oldGenre = nil
+        literalNoneEntry.newGenre = "none"
+
         let report = UpdateRunReport(
             result: nil,
-            completedEntries: makeEntries(
-                album: "Foregone",
-                count: 1,
-                oldYear: 2021,
-                newYear: 2023
-            ),
+            completedEntries: [unchangedEntry, literalNoneEntry]
+                + makeEntries(
+                    album: "Foregone",
+                    count: 1,
+                    oldYear: 2021,
+                    newYear: 2023
+                ),
             trackStatuses: ["foregone-1": .done, "skipped": .skipped],
             tracks: [],
             testArtists: []
         )
 
         #expect(report.title == "Update Complete")
-        #expect(report.changedTrackCount == 1)
+        #expect(report.changedEntries.map(\.trackID) == ["foregone-none", "Foregone-1"])
+        #expect(report.changedTrackCount == 2)
         #expect(report.skippedCount == 1)
         #expect(report.scannedTrackCount == 2)
     }
@@ -206,6 +228,16 @@ struct UpdateRunReportTests {
         unchangedGenre.oldGenre = "Rock"
         unchangedGenre.newGenre = "Rock"
 
+        var literalNoneGenre = ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "genre-none",
+            artist: "Clutch",
+            trackName: "Big News I",
+            albumName: "Clutch"
+        )
+        literalNoneGenre.oldGenre = nil
+        literalNoneGenre.newGenre = "none"
+
         var changedYear = ChangeLogEntry(
             changeType: .yearUpdate,
             trackID: "year-1",
@@ -218,7 +250,7 @@ struct UpdateRunReportTests {
 
         let report = UpdateRunReport(
             result: BatchUpdateResult(
-                entries: [unchangedGenre, changedYear],
+                entries: [unchangedGenre, literalNoneGenre, changedYear],
                 failedTrackIDs: [],
                 errorDescriptions: []
             ),
@@ -228,11 +260,12 @@ struct UpdateRunReportTests {
             testArtists: ["Clutch"]
         )
 
-        #expect(report.changedEntries.map(\.trackID) == ["year-1"])
-        #expect(report.changedTrackCount == 1)
-        #expect(report.changeBreakdown.map(\.changeType) == [.yearUpdate])
+        #expect(report.changedEntries.map(\.trackID) == ["genre-none", "year-1"])
+        #expect(report.changedTrackCount == 2)
+        #expect(report.changeBreakdown.map(\.changeType) == [.genreUpdate, .yearUpdate])
+        #expect(report.plainTextSummary.contains("- Genre: 1 change, 1 track, 1 album"))
         #expect(report.plainTextSummary.contains("- Year: 1 change, 1 track, 1 album"))
-        #expect(!report.plainTextSummary.contains("Genre:"))
+        #expect(report.plainTextSummary.contains("Genre none -> none"))
     }
 
     @Test("prints no-change summary when all entries are no-ops")

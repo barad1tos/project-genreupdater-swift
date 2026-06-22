@@ -368,8 +368,18 @@ struct UpdateRunReport: Equatable {
     }
 
     private static func isRealChange(_ entry: ChangeLogEntry) -> Bool {
-        let values = valuePair(for: entry)
-        return values.old != values.new
+        switch entry.changeType {
+        case .genreUpdate:
+            entry.oldGenre != entry.newGenre
+        case .yearUpdate, .yearRevert:
+            entry.oldYear != entry.newYear
+        case .trackCleaning:
+            entry.oldTrackName != entry.newTrackName
+        case .albumCleaning:
+            entry.oldAlbumName != entry.newAlbumName
+        case .artistRename:
+            entry.oldArtist != entry.newArtist
+        }
     }
 
     private static func issueNoun(_ count: Int) -> String {
