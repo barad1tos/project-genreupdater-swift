@@ -241,14 +241,11 @@ extension WorkflowViewModel {
     }
 
     static func albumKey(for track: Track) -> String {
-        albumKey(artist: track.artist, album: track.album)
+        AlbumIdentity.key(for: track)
     }
 
     static func albumKey(artist: String, album: String) -> String {
-        [
-            artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-            album.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-        ].joined(separator: "\u{1F}")
+        AlbumIdentity.key(for: Track(id: "", name: "", artist: artist, album: album))
     }
 
     static func artistKey(for track: Track) -> String {

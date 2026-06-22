@@ -42,7 +42,8 @@ private func makeReleaseYearTrack(
     artist: String = "Crematory",
     album: String = "Awake",
     year: Int?,
-    releaseYear: Int?
+    releaseYear: Int?,
+    albumArtist: String? = nil
 ) -> Track {
     Track(
         id: id,
@@ -50,7 +51,8 @@ private func makeReleaseYearTrack(
         artist: artist,
         album: album,
         year: year,
-        releaseYear: releaseYear
+        releaseYear: releaseYear,
+        albumArtist: albumArtist
     )
 }
 
@@ -114,6 +116,61 @@ struct UpdateCoordinatorReleaseYearRestoreTests {
         let written = await fixture.bridge.writtenProperties
         #expect(result.entries.count == 1)
         #expect(written.first?.value == "1997")
+    }
+
+    @Test("Release-year restore consensus groups guest tracks by album artist")
+    func releaseYearRestoreConsensusGroupsGuestTracksByAlbumArtist() {
+        let tracks = [
+            makeReleaseYearTrack(
+                id: "T1",
+                artist: "Daft Punk",
+                album: "Random Access Memories",
+                year: 1999,
+                releaseYear: 2013,
+                albumArtist: "Daft Punk"
+            ),
+            makeReleaseYearTrack(
+                id: "T2",
+                artist: "Daft Punk & Pharrell Williams",
+                album: "Random Access Memories",
+                year: 1999,
+                releaseYear: 2013,
+                albumArtist: "Daft Punk"
+            ),
+        ]
+
+        let consensus = UpdateCoordinator.releaseYearConsensusByAlbum(for: tracks)
+
+        #expect(consensus.count == 1)
+        #expect(consensus[AlbumIdentity.key(artist: "Daft Punk", album: "Random Access Memories")] == 2013)
+    }
+
+    @Test("Release-year restore consensus keeps different album artists separate")
+    func releaseYearRestoreConsensusKeepsDifferentAlbumArtistsSeparate() {
+        let tracks = [
+            makeReleaseYearTrack(
+                id: "T1",
+                artist: "Featured Singer",
+                album: "Greatest Hits",
+                year: 2005,
+                releaseYear: 1998,
+                albumArtist: "Original Artist"
+            ),
+            makeReleaseYearTrack(
+                id: "T2",
+                artist: "Featured Singer",
+                album: "Greatest Hits",
+                year: 2005,
+                releaseYear: 2004,
+                albumArtist: "Compilation Artist"
+            ),
+        ]
+
+        let consensus = UpdateCoordinator.releaseYearConsensusByAlbum(for: tracks)
+
+        #expect(consensus.count == 2)
+        #expect(consensus[AlbumIdentity.key(artist: "Original Artist", album: "Greatest Hits")] == 1998)
+        #expect(consensus[AlbumIdentity.key(artist: "Compilation Artist", album: "Greatest Hits")] == 2004)
     }
 
     @Test("Skips out-of-scope restore without recording success")

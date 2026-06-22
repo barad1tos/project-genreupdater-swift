@@ -328,10 +328,7 @@ extension UpdateCoordinator {
     }
 
     private static func albumBatchKey(for track: Track) -> String {
-        [
-            normalizeForMatching(track.effectiveArtist),
-            normalizeForMatching(track.album),
-        ].joined(separator: "\u{1F}")
+        AlbumIdentity.key(for: track)
     }
 
     private static func value(forAppleScriptProperty property: String, in track: Track) -> String? {
@@ -364,27 +361,28 @@ extension UpdateCoordinator {
     }
 
     private func cacheInvalidationTargets(for change: ProposedChange) -> [(artist: String, album: String)] {
-        var candidates = [(artist: change.track.artist, album: change.track.album)]
+        var candidates = [change.track.albumIdentity]
+        candidates.append(AlbumIdentity(artist: change.track.artist, album: change.track.album))
 
         if let originalArtist = change.track.originalArtist {
-            candidates.append((artist: originalArtist, album: change.track.album))
+            candidates.append(AlbumIdentity(artist: originalArtist, album: change.track.album))
         }
         if change.changeType == .artistRename, let oldArtist = change.oldValue {
-            candidates.append((artist: oldArtist, album: change.track.album))
+            candidates.append(AlbumIdentity(artist: oldArtist, album: change.track.album))
         }
         if change.changeType == .albumCleaning, let newAlbum = change.newValue {
-            candidates.append((artist: change.track.artist, album: newAlbum))
+            candidates.append(AlbumIdentity(artist: change.track.albumIdentity.artist, album: newAlbum))
+            candidates.append(AlbumIdentity(artist: change.track.artist, album: newAlbum))
+            if let originalArtist = change.track.originalArtist {
+                candidates.append(AlbumIdentity(artist: originalArtist, album: newAlbum))
+            }
         }
 
         var seenKeys: Set<String> = []
-        return candidates.compactMap { candidate in
-            let artist = candidate.artist.trimmingCharacters(in: .whitespacesAndNewlines)
-            let album = candidate.album.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !artist.isEmpty, !album.isEmpty else { return nil }
-
-            let key = "\(normalizeForMatching(artist))\u{1F}\(normalizeForMatching(album))"
-            guard seenKeys.insert(key).inserted else { return nil }
-            return (artist: artist, album: album)
+        return candidates.compactMap { identity in
+            guard identity.isComplete else { return nil }
+            guard seenKeys.insert(identity.key).inserted else { return nil }
+            return (artist: identity.artist, album: identity.album)
         }
     }
 }

@@ -379,9 +379,10 @@ public actor UpdateCoordinator {
         track: Track,
         metadata: [String: String]
     ) async {
+        let identity = track.albumIdentity
         await pendingVerificationService?.markForVerification(
-            artist: track.effectiveArtist,
-            album: track.album,
+            artist: identity.artist,
+            album: identity.album,
             reason: "prerelease",
             metadata: metadata,
             recheckDays: runtimeConfiguration.prereleaseRecheckDays
@@ -568,10 +569,7 @@ public actor UpdateCoordinator {
     }
 
     private static func albumContextKey(for track: Track) -> String {
-        [
-            normalizeForMatching(track.effectiveArtist),
-            normalizeForMatching(track.album),
-        ].joined(separator: "\u{1F}")
+        AlbumIdentity.key(for: track)
     }
 
     private static func artistTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
