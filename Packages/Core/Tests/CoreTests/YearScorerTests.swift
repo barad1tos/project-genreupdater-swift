@@ -547,6 +547,18 @@ struct YearScorerResolutionTests {
         #expect(result.year == 2021)
     }
 
+    @Test("Original release preference handles extreme candidate years without overflow")
+    func originalReleasePreferenceHandlesExtremeCandidateYearsWithoutOverflow() {
+        let scored = [
+            makeScoredRelease(year: 2021, score: 85),
+            makeScoredRelease(year: Int.min, score: 80),
+        ]
+
+        let result = scorer.resolveScores(scored)
+
+        #expect(result.year == 2021)
+    }
+
     @Test("Original release preference skips when best title lacks edition keywords")
     func originalReleasePreferenceRequiresEditionKeywordWhenConfigured() {
         let scorer = YearScorer(editionKeywords: ["remaster", "deluxe"])
