@@ -271,7 +271,7 @@ public actor UpdateCoordinator {
         }
 
         let genreResult = genreDeterminator.determineDominantGenre(
-            artistTracks: artistTracks,
+            artistTracks: Self.genreSourceTracks(artistTracks),
             genreMappings: runtimeConfiguration.genreMappings
         )
         guard let newGenre = genreResult.genre,
@@ -294,6 +294,10 @@ public actor UpdateCoordinator {
         guard let genre else { return true }
         let normalizedGenre = genre.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalizedGenre.isEmpty || normalizedGenre == "unknown"
+    }
+
+    private static func genreSourceTracks(_ tracks: [Track]) -> [Track] {
+        tracks.filter { !isMissingGenre($0.genre) }
     }
 
     private static func hasGenreValueChanged(currentGenre: String?, newGenre: String) -> Bool {
