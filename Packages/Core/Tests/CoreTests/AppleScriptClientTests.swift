@@ -47,7 +47,9 @@ private actor ScriptOutputClient: AppleScriptClient {
         self.output = output
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // No setup needed: these tests exercise the protocol-default fetch helper.
+    }
 
     func runScript(
         name: String,
@@ -62,11 +64,17 @@ private actor ScriptOutputClient: AppleScriptClient {
         return output
     }
 
-    func updateTrackProperty(trackID _: String, property _: String, value _: String) async throws {}
-
-    func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
-        _ = updates
+    func updateTrackProperty(trackID _: String, property _: String, value _: String) async throws {
+        throw ScriptOutputClientError.unsupportedWrite
     }
+
+    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
+        throw ScriptOutputClientError.unsupportedWrite
+    }
+}
+
+private enum ScriptOutputClientError: Error {
+    case unsupportedWrite
 }
 
 private struct ScriptCall {
