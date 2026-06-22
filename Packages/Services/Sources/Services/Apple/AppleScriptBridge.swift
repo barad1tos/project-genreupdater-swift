@@ -213,17 +213,12 @@ public actor AppleScriptBridge: AppleScriptClient {
             name: "update_property",
             arguments: [trackID, property, value]
         )
+        try Self.validateUpdatePropertyOutput(output, trackID: trackID, property: property)
+
         log
             .info(
-                "Updated \(property, privacy: .public) for track \(trackID, privacy: .private): \(value, privacy: .private)"
+                "Completed update_property for \(property, privacy: .public) on track \(trackID, privacy: .private): \(value, privacy: .private)"
             )
-
-        if let output, output.lowercased().contains("error") {
-            throw AppleScriptBridgeError.executionFailed(
-                scriptName: "update_property",
-                detail: "Track=\(trackID), property=\(property), response=\(output)"
-            )
-        }
     }
 
     /// Batch update multiple tracks' properties.
@@ -310,6 +305,26 @@ public actor AppleScriptBridge: AppleScriptClient {
             throw AppleScriptBridgeError.executionFailed(
                 scriptName: "batch_update_tracks",
                 detail: "Batch of \(updateCount) updates, response=\(String(trimmedOutput.prefix(200)))"
+            )
+        }
+    }
+
+    static func validateUpdatePropertyOutput(_ output: String?, trackID: String, property: String) throws {
+        guard let output else {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: "update_property",
+                detail: "Track=\(trackID), property=\(property), response=<empty>"
+            )
+        }
+
+        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercasedOutput = trimmedOutput.lowercased()
+        guard lowercasedOutput.hasPrefix("success:")
+            || lowercasedOutput.hasPrefix("no change:")
+        else {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: "update_property",
+                detail: "Track=\(trackID), property=\(property), response=\(String(trimmedOutput.prefix(200)))"
             )
         }
     }
