@@ -303,6 +303,35 @@ struct LibrarySyncServiceTests {
         #expect(result.modifiedTracks.isEmpty)
     }
 
+    @Test("Persisted release metadata does not repeat force-scan deltas")
+    func persistedReleaseMetadataDoesNotRepeatForceScanDeltas() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = try SwiftDataTrackStore.createInMemory()
+        let gate = await FeatureGate(fixedTier: .free)
+        let track = Track(
+            id: "T1",
+            name: "Track",
+            artist: "A",
+            album: "B",
+            genre: "Rock",
+            year: 2001,
+            trackStatus: "matched",
+            releaseYear: 2001
+        )
+
+        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": track])
+        try await store.saveTracks([track])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+
+        let result = try await service.detectChanges(forceMetadataRefresh: true)
+        #expect(result.modifiedTracks.isEmpty)
+    }
+
     @Test("Detect modified tracks by processing metadata even when lastModified is older")
     func detectModifiedTracksByProcessingMetadataWhenLastModifiedIsOlder() async throws {
         let bridge = SyncMockScriptClient()
