@@ -460,6 +460,26 @@ struct YearScorerResolutionTests {
         #expect(result.year == 2000)
     }
 
+    @Test("Existing single year remains definitive when API support is stable")
+    func existingSingleYearRemainsDefinitiveWhenAPISupportIsStable() {
+        var yearLogic = YearLogicConfig()
+        yearLogic.definitiveScoreThreshold = 90
+        let scorer = YearScorer(yearLogic: yearLogic)
+        let calendarYear = Calendar.current.component(
+            Calendar.Component.year,
+            from: Date()
+        )
+        let existingYear = calendarYear - 4
+        let scored = [
+            makeScoredRelease(year: existingYear, score: 80),
+        ]
+
+        let result = scorer.resolveScores(scored, existingYear: existingYear)
+
+        #expect(result.year == existingYear)
+        #expect(result.isDefinitive == true)
+    }
+
     @Test("Existing year NOT boosted when much lower score")
     func existingYearNotBoosted() {
         let scored = [
@@ -591,6 +611,44 @@ struct YearScorerResolutionTests {
         let result = scorer.resolveScores(scored)
         // 40 < default threshold(50)
         #expect(result.isDefinitive == false)
+    }
+
+    @Test("Single old medium-score result is not definitive")
+    func singleOldMediumScoreResultIsNotDefinitive() {
+        var yearLogic = YearLogicConfig()
+        yearLogic.definitiveScoreThreshold = 70
+        let scorer = YearScorer(yearLogic: yearLogic)
+        let calendarYear = Calendar.current.component(
+            Calendar.Component.year,
+            from: Date()
+        )
+        let scored = [
+            makeScoredRelease(year: calendarYear - 4, score: 80),
+        ]
+
+        let result = scorer.resolveScores(scored)
+
+        #expect(result.year == calendarYear - 4)
+        #expect(result.isDefinitive == false)
+    }
+
+    @Test("Single recent medium-score result remains definitive")
+    func singleRecentMediumScoreResultRemainsDefinitive() {
+        var yearLogic = YearLogicConfig()
+        yearLogic.definitiveScoreThreshold = 70
+        let scorer = YearScorer(yearLogic: yearLogic)
+        let calendarYear = Calendar.current.component(
+            Calendar.Component.year,
+            from: Date()
+        )
+        let scored = [
+            makeScoredRelease(year: calendarYear - 1, score: 80),
+        ]
+
+        let result = scorer.resolveScores(scored)
+
+        #expect(result.year == calendarYear - 1)
+        #expect(result.isDefinitive == true)
     }
 
     @Test("Definitive when very high score overrides score conflict")
