@@ -593,6 +593,44 @@ struct YearScorerResolutionTests {
         #expect(result.isDefinitive == false)
     }
 
+    @Test("Single old medium-score result is not definitive")
+    func singleOldMediumScoreResultIsNotDefinitive() {
+        var yearLogic = YearLogicConfig()
+        yearLogic.definitiveScoreThreshold = 70
+        let scorer = YearScorer(yearLogic: yearLogic)
+        let calendarYear = Calendar.current.component(
+            Calendar.Component.year,
+            from: Date()
+        )
+        let scored = [
+            makeScoredRelease(year: calendarYear - 4, score: 80),
+        ]
+
+        let result = scorer.resolveScores(scored)
+
+        #expect(result.year == calendarYear - 4)
+        #expect(result.isDefinitive == false)
+    }
+
+    @Test("Single recent medium-score result remains definitive")
+    func singleRecentMediumScoreResultRemainsDefinitive() {
+        var yearLogic = YearLogicConfig()
+        yearLogic.definitiveScoreThreshold = 70
+        let scorer = YearScorer(yearLogic: yearLogic)
+        let calendarYear = Calendar.current.component(
+            Calendar.Component.year,
+            from: Date()
+        )
+        let scored = [
+            makeScoredRelease(year: calendarYear - 1, score: 80),
+        ]
+
+        let result = scorer.resolveScores(scored)
+
+        #expect(result.year == calendarYear - 1)
+        #expect(result.isDefinitive == true)
+    }
+
     @Test("Definitive when very high score overrides score conflict")
     func definitiveWhenVeryHighScoreOverridesScoreConflict() {
         let scored = [

@@ -7,6 +7,8 @@
 import Foundation
 
 private let veryHighScoreThreshold = 75
+private let singleResultMaxSuspiciousYearDifference = 3
+private let singleResultConfidentScoreThreshold = 85
 
 // MARK: - YearScorer
 
@@ -208,19 +210,12 @@ public struct YearScorer: Sendable {
             )
         }
 
-        let hasScoreConflict = checkScoreConflict(
+        // Step 6: Determine definitiveness
+        let isDefinitive = determineDefinitiveness(
             finalYear: finalYear,
             finalScore: finalScore,
             sortedYears: sortedYears,
             calendarYear: calendarYear
-        )
-
-        // Step 6: Determine definitiveness
-        let isDefinitive = checkDefinitiveness(
-            finalScore: finalScore,
-            finalYear: finalYear,
-            calendarYear: calendarYear,
-            hasScoreConflict: hasScoreConflict
         )
 
         let confidence = min(100, max(0, finalScore))
@@ -357,16 +352,66 @@ public struct YearScorer: Sendable {
         return true
     }
 
+    private func determineDefinitiveness(
+        finalYear: Int,
+        finalScore: Int,
+        sortedYears: [(key: Int, value: Int)],
+        calendarYear: Int
+    ) -> Bool {
+        let hasScoreConflict = checkScoreConflict(
+            finalYear: finalYear,
+            finalScore: finalScore,
+            sortedYears: sortedYears,
+            calendarYear: calendarYear
+        )
+        let hasSuspiciousSingleResult = checkSuspiciousSingleResult(
+            finalYear: finalYear,
+            finalScore: finalScore,
+            sortedYears: sortedYears,
+            calendarYear: calendarYear
+        )
+        return checkDefinitiveness(
+            finalScore: finalScore,
+            finalYear: finalYear,
+            calendarYear: calendarYear,
+            hasScoreConflict: hasScoreConflict,
+            hasSuspiciousSingleResult: hasSuspiciousSingleResult
+        )
+    }
+
+    private func checkSuspiciousSingleResult(
+        finalYear: Int,
+        finalScore: Int,
+        sortedYears: [(key: Int, value: Int)],
+        calendarYear: Int
+    ) -> Bool {
+        guard sortedYears.count == 1,
+              finalScore < singleResultConfidentScoreThreshold else {
+            return false
+        }
+
+        let oldestRecentYear = calendarYear.addingReportingOverflow(
+            -singleResultMaxSuspiciousYearDifference
+        )
+        guard !oldestRecentYear.overflow else {
+            return false
+        }
+
+        return finalYear < oldestRecentYear.partialValue
+    }
+
     /// Python parity: definitiveness requires the configured score threshold,
     /// a non-future year, and either a very high score or no close-score conflict.
     private func checkDefinitiveness(
         finalScore: Int,
         finalYear: Int,
         calendarYear: Int,
-        hasScoreConflict: Bool
+        hasScoreConflict: Bool,
+        hasSuspiciousSingleResult: Bool
     ) -> Bool {
         finalScore >= yearLogic.definitiveScoreThreshold
             && finalYear <= calendarYear
+            && !hasSuspiciousSingleResult
             && (finalScore >= veryHighScoreThreshold || !hasScoreConflict)
     }
 }
