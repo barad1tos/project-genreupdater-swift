@@ -8,13 +8,16 @@ import Testing
 struct YearScorerScoringTests {
     let scorer = YearScorer()
 
-    private func scoreArtistPeriod(forYear year: Int) -> Int {
+    private func scoreArtistPeriod(
+        forYear year: Int,
+        period: (start: Int?, end: Int?) = (start: 2000, end: 2020)
+    ) -> Int {
         let candidate = makeCandidate(artist: "X", album: "X", year: year)
         let result = scorer.scoreRelease(
             candidate,
             queryArtist: "X",
             queryAlbum: "X",
-            artistActivityPeriod: (start: 2000, end: 2020)
+            artistActivityPeriod: period
         )
         return result.breakdown.artistPeriod
     }
@@ -228,6 +231,11 @@ struct YearScorerScoringTests {
         #expect(scoreArtistPeriod(forYear: 1990) == scorer.config.yearBeforeStartPenalty)
     }
 
+    @Test("First year before artist start grace gets penalty")
+    func firstYearBeforeArtistStartGraceGetsPenalty() {
+        #expect(scoreArtistPeriod(forYear: 1998) == scorer.config.yearBeforeStartPenalty)
+    }
+
     @Test("Year one year before artist start is allowed")
     func yearOneYearBeforeArtistStartAllowed() {
         #expect(scoreArtistPeriod(forYear: 1999) == 0)
@@ -243,14 +251,34 @@ struct YearScorerScoringTests {
         #expect(scoreArtistPeriod(forYear: 2023) == 0)
     }
 
+    @Test("First year after artist end grace gets penalty")
+    func firstYearAfterArtistEndGraceGetsPenalty() {
+        #expect(scoreArtistPeriod(forYear: 2024) == scorer.config.yearAfterEndPenalty)
+    }
+
     @Test("Year near artist start gets bonus")
     func yearNearArtistStart() {
         #expect(scoreArtistPeriod(forYear: 2001) == scorer.config.yearNearStartBonus)
     }
 
+    @Test("First year after near-start window gets no bonus")
+    func firstYearAfterNearStartWindowGetsNoBonus() {
+        #expect(scoreArtistPeriod(forYear: 2002) == 0)
+    }
+
     @Test("Year more than one year after artist start gets no near-start bonus")
     func yearOutsideNearArtistStartWindowGetsNoBonus() {
         #expect(scoreArtistPeriod(forYear: 2003) == 0)
+    }
+
+    @Test("Extreme artist start year does not overflow scoring")
+    func extremeArtistStartYearDoesNotOverflowScoring() {
+        #expect(scoreArtistPeriod(forYear: 2000, period: (start: Int.min, end: nil)) == 0)
+    }
+
+    @Test("Extreme artist end year does not overflow scoring")
+    func extremeArtistEndYearDoesNotOverflowScoring() {
+        #expect(scoreArtistPeriod(forYear: 2000, period: (start: nil, end: Int.max)) == 0)
     }
 
     // MARK: - Country
