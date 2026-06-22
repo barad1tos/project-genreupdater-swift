@@ -89,20 +89,12 @@ extension UpdateCoordinator {
             }
         }
 
+        let currentTracksByID: [String: Track]
         do {
-            try await scriptBridge.batchUpdateTracks(
-                preparedWrites.map { preparedWrite in
-                    (
-                        trackID: preparedWrite.trackID,
-                        property: preparedWrite.property,
-                        value: preparedWrite.value
-                    )
-                }
-            )
-            guard try await verifyBatchWrites(preparedWrites) else {
-                log.warning("Batch AppleScript write could not be verified; falling back to single writes")
+            guard let fetchedCurrentTracksByID = try await performVerifiedBatchWrite(preparedWrites) else {
                 return nil
             }
+            currentTracksByID = fetchedCurrentTracksByID
         } catch {
             log.warning(
                 "Batch AppleScript write failed; falling back to single writes: \(error.localizedDescription, privacy: .public)"
@@ -112,22 +104,68 @@ extension UpdateCoordinator {
 
         var entries: [ChangeLogEntry] = []
         for preparedWrite in preparedWrites {
+            let currentValue = currentTracksByID[preparedWrite.trackID].flatMap { currentTrack in
+                Self.value(forAppleScriptProperty: preparedWrite.property, in: currentTrack)
+            }
+            guard currentValue != preparedWrite.value else {
+                await invalidateCaches(for: preparedWrite.change)
+                log
+                    .info(
+                        "Skipped applied-change record for verified batch no-op \(preparedWrite.change.changeType.rawValue, privacy: .public) on track \(preparedWrite.change.track.id, privacy: .private)"
+                    )
+                continue
+            }
+
             let entry = await recordAppliedChange(preparedWrite.change)
             entries.append(entry)
         }
         return entries
     }
 
-    private func verifyBatchWrites(_ preparedWrites: [PreparedAppleScriptWrite]) async throws -> Bool {
+    private func performVerifiedBatchWrite(
+        _ preparedWrites: [PreparedAppleScriptWrite]
+    ) async throws -> [String: Track]? {
+        guard let currentTracksByID = try await fetchBatchWriteTracks(preparedWrites) else {
+            log.warning(
+                "Batch AppleScript write preflight could not fetch current tracks; falling back to single writes"
+            )
+            return nil
+        }
+
+        try await scriptBridge.batchUpdateTracks(
+            preparedWrites.map { preparedWrite in
+                (
+                    trackID: preparedWrite.trackID,
+                    property: preparedWrite.property,
+                    value: preparedWrite.value
+                )
+            }
+        )
+        guard try await verifyBatchWrites(preparedWrites) != nil else {
+            log.warning("Batch AppleScript write could not be verified; falling back to single writes")
+            return nil
+        }
+        return currentTracksByID
+    }
+
+    private func fetchBatchWriteTracks(_ preparedWrites: [PreparedAppleScriptWrite]) async throws -> [String: Track]? {
         let trackIDs = Array(Set(preparedWrites.map(\.trackID)))
-        let refreshedTracks = try await scriptBridge.fetchTracksByIDs(
+        let fetchedTracks = try await scriptBridge.fetchTracksByIDs(
             trackIDs,
             batchSize: max(trackIDs.count, 1),
             timeout: nil
         )
-        let refreshedTracksByID = Dictionary(uniqueKeysWithValues: refreshedTracks.map { ($0.id, $0) })
+        let fetchedTracksByID = Dictionary(uniqueKeysWithValues: fetchedTracks.map { ($0.id, $0) })
+        let hasAllTracks = trackIDs.allSatisfy { fetchedTracksByID[$0] != nil }
+        return hasAllTracks ? fetchedTracksByID : nil
+    }
 
-        return preparedWrites.allSatisfy { preparedWrite in
+    private func verifyBatchWrites(_ preparedWrites: [PreparedAppleScriptWrite]) async throws -> [String: Track]? {
+        guard let refreshedTracksByID = try await fetchBatchWriteTracks(preparedWrites) else {
+            return nil
+        }
+
+        let isVerified = preparedWrites.allSatisfy { preparedWrite in
             guard let refreshedTrack = refreshedTracksByID[preparedWrite.trackID] else {
                 return false
             }
@@ -136,6 +174,7 @@ extension UpdateCoordinator {
                 in: refreshedTrack
             ) == preparedWrite.value
         }
+        return isVerified ? refreshedTracksByID : nil
     }
 
     @discardableResult
