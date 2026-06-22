@@ -10,6 +10,8 @@ private let veryHighScoreThreshold = 75
 private let existingYearDefinitiveScoreThreshold = 75
 private let singleResultMaxSuspiciousYearDifference = 3
 private let singleResultConfidentScoreThreshold = 85
+private let minimumValidOriginalCandidateScore = 10
+private let minimumOriginalReleaseYearDifference = 2
 
 // MARK: - YearScorer
 
@@ -215,6 +217,7 @@ public struct YearScorer: Sendable {
         if finalYear <= calendarYear {
             (finalYear, finalScore) = applyOriginalReleasePreference(
                 year: finalYear, score: finalScore,
+                sortedYears: sortedYears,
                 scored: scored
             )
         }
@@ -285,36 +288,40 @@ public struct YearScorer: Sendable {
         return (year, score)
     }
 
-    /// Python parity: prefer the earliest year (likely original release) when its
-    /// score is within 90% of the best. Skip if existing year was already boosted
-    /// to avoid undoing that preference.
+    /// Python parity: prefer the earliest valid original-release candidate when
+    /// its score is within the configured definitive score difference.
     private func applyOriginalReleasePreference(
         year: Int, score: Int,
+        sortedYears: [(key: Int, value: Int)],
         scored: [ScoredRelease]
     ) -> (year: Int, score: Int) {
-        let validReleaseYears = scored.map(\.candidate.year).filter { $0 >= yearLogic.minValidYear }
-        let minimumOriginalReleaseYear = year.addingReportingOverflow(-2)
-        guard let earliestYear = validReleaseYears.min(),
-              !minimumOriginalReleaseYear.overflow,
-              earliestYear <= minimumOriginalReleaseYear.partialValue else {
-            return (year, score)
-        }
-
         guard shouldApplyOriginalReleasePreference(bestYear: year, scored: scored) else {
             return (year, score)
         }
 
-        guard let earliestScore = scored
-            .filter({ $0.candidate.year == earliestYear })
-            .max(by: { $0.totalScore < $1.totalScore })?
-            .totalScore else {
+        let validCandidates = sortedYears.dropFirst().compactMap { candidate -> (year: Int, score: Int)? in
+            guard candidate.key >= yearLogic.minValidYear,
+                  candidate.value >= minimumValidOriginalCandidateScore else {
+                return nil
+            }
+
+            let scoreDifference = score.addingReportingOverflow(-candidate.value)
+            let yearDifference = year.addingReportingOverflow(-candidate.key)
+            guard !scoreDifference.overflow,
+                  !yearDifference.overflow,
+                  scoreDifference.partialValue <= yearLogic.definitiveScoreDiff,
+                  yearDifference.partialValue >= minimumOriginalReleaseYearDifference else {
+                return nil
+            }
+
+            return (candidate.key, candidate.value)
+        }
+
+        guard let earliestCandidate = validCandidates.min(by: { $0.year < $1.year }) else {
             return (year, score)
         }
 
-        if Double(earliestScore) >= Double(score) * 0.9 {
-            return (earliestYear, earliestScore)
-        }
-        return (year, score)
+        return earliestCandidate
     }
 
     private func shouldApplyOriginalReleasePreference(bestYear: Int, scored: [ScoredRelease]) -> Bool {
