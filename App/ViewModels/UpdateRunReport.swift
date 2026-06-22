@@ -18,7 +18,7 @@ struct UpdateRunReport: Equatable {
         tracks: [Track],
         testArtists: [String]
     ) {
-        let entries = result?.entries ?? completedEntries
+        let entries = (result?.entries ?? completedEntries).filter(Self.isRealChange)
         let trackLookup = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
         let failureItems = Self.makeFailures(
             result: result,
@@ -367,6 +367,21 @@ struct UpdateRunReport: Equatable {
         }
     }
 
+    private static func isRealChange(_ entry: ChangeLogEntry) -> Bool {
+        switch entry.changeType {
+        case .genreUpdate:
+            entry.oldGenre != entry.newGenre
+        case .yearUpdate, .yearRevert:
+            entry.oldYear != entry.newYear
+        case .trackCleaning:
+            entry.oldTrackName != entry.newTrackName
+        case .albumCleaning:
+            entry.oldAlbumName != entry.newAlbumName
+        case .artistRename:
+            entry.oldArtist != entry.newArtist
+        }
+    }
+
     private static func issueNoun(_ count: Int) -> String {
         count == 1 ? "issue" : "issues"
     }
@@ -383,10 +398,18 @@ struct UpdateRunReport: Equatable {
             "",
         ]
 
+        appendNoChangesSummary(to: &lines)
         appendFailures(to: &lines)
         appendChangeBreakdown(to: &lines)
         appendAlbumGroups(to: &lines)
         return lines.joined(separator: "\n")
+    }
+
+    private func appendNoChangesSummary(to lines: inout [String]) {
+        guard changedEntries.isEmpty else { return }
+
+        lines.append("No changes were made during this run.")
+        lines.append("")
     }
 
     private func appendFailures(to lines: inout [String]) {
