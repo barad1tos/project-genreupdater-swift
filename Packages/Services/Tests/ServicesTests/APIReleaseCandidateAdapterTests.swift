@@ -3,8 +3,8 @@ import Testing
 @testable import Core
 @testable import Services
 
-private let musicBrainzArtistPath = "/ws/2/artist"
-private let musicBrainzReleaseGroupPath = "/ws/2/release-group"
+private let musicBrainzArtistPathComponents = ["/", "ws", "2", "artist"]
+private let musicBrainzReleaseGroupPathComponents = ["/", "ws", "2", "release-group"]
 
 @Suite("API release candidate adapters", .serialized)
 struct APIReleaseCandidateAdapterTests {
@@ -52,11 +52,18 @@ struct APIReleaseCandidateAdapterTests {
             APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
 
             let json: String
-            if url.path == musicBrainzReleaseGroupPath, query.contains("artist:\"паліндром\"") {
+            let isOriginalReleaseGroupQuery = url.pathComponents == musicBrainzReleaseGroupPathComponents
+                && query.contains("artist:\"паліндром\"")
+            let isCanonicalArtistQuery = url.pathComponents == musicBrainzArtistPathComponents
+                && query.contains("artist:\"паліндром\"")
+            let isCanonicalReleaseGroupQuery = url.pathComponents == musicBrainzReleaseGroupPathComponents
+                && query.contains("artist:\"palindrom\"")
+
+            if isOriginalReleaseGroupQuery {
                 json = #"{"release-groups":[]}"#
-            } else if url.path == musicBrainzArtistPath, query.contains("artist:\"паліндром\"") {
+            } else if isCanonicalArtistQuery {
                 json = #"{"artists":[{"id":"artist-pal","name":"Palindrom","type":"Person"}]}"#
-            } else if url.path == musicBrainzReleaseGroupPath, query.contains("artist:\"palindrom\"") {
+            } else if isCanonicalReleaseGroupQuery {
                 json = """
                 {
                   "release-groups": [
@@ -105,7 +112,7 @@ struct APIReleaseCandidateAdapterTests {
             let (url, query) = try musicBrainzQuery(from: request)
             APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
 
-            guard url.path == musicBrainzReleaseGroupPath else {
+            guard url.pathComponents == musicBrainzReleaseGroupPathComponents else {
                 throw URLError(.badURL)
             }
             return try (jsonResponse(url: url), Data(#"{"release-groups":[]}"#.utf8))
