@@ -515,13 +515,7 @@ struct UpdateRunReportTests {
 
     @Test("models operational notes for mixed run health")
     func modelsOperationalNotesForMixedRunHealth() {
-        var unchangedGenre = ChangeLogEntry(
-            changeType: .genreUpdate,
-            trackID: "done-track",
-            artist: "Clutch",
-            trackName: "Pure Rock Fury",
-            albumName: "Pure Rock Fury"
-        )
+        var unchangedGenre = makePureRockFuryChange(changeType: .genreUpdate)
         unchangedGenre.oldGenre = "Rock"
         unchangedGenre.newGenre = "Rock"
 
@@ -680,14 +674,18 @@ struct UpdateRunReportTests {
         }
     }
 
-    private func makePureRockFuryYearChange() -> ChangeLogEntry {
-        var changedYear = ChangeLogEntry(
-            changeType: .yearUpdate,
+    private func makePureRockFuryChange(changeType: ChangeType) -> ChangeLogEntry {
+        ChangeLogEntry(
+            changeType: changeType,
             trackID: "done-track",
             artist: "Clutch",
             trackName: "Pure Rock Fury",
             albumName: "Pure Rock Fury"
         )
+    }
+
+    private func makePureRockFuryYearChange() -> ChangeLogEntry {
+        var changedYear = makePureRockFuryChange(changeType: .yearUpdate)
         changedYear.oldYear = 1999
         changedYear.newYear = 2001
         return changedYear
