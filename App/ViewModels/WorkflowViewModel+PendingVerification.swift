@@ -125,6 +125,7 @@ extension WorkflowViewModel {
             if !dueEntries.isEmpty {
                 try await pendingVerificationService.updateVerificationTimestamp()
             }
+            await refreshPendingVerificationReportSummary()
             finishPendingVerification(runOutcome)
         } catch is CancellationError {
             currentTrackID = nil
@@ -278,6 +279,15 @@ extension WorkflowViewModel {
             total: snapshot.all.count,
             due: snapshot.due.count,
             problematic: problematicCount
+        )
+    }
+
+    private func refreshPendingVerificationReportSummary() async {
+        let snapshot = await pendingVerificationSnapshot()
+        let problematicCount = await problematicPendingAlbumCount()
+        updatePendingVerificationReportSummary(
+            snapshot: snapshot,
+            problematicCount: problematicCount
         )
     }
 

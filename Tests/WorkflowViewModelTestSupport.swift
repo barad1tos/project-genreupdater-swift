@@ -321,8 +321,8 @@ private actor DashboardStateTrackStore: TrackStateStore {
 
 actor WorkflowPendingVerificationService: PendingVerificationService {
     private var entries: [PendingAlbumEntry]
-    private let dueEntries: [PendingAlbumEntry]?
-    private let problematicAlbums: [ProblematicPendingAlbum]
+    private let seededDueEntries: [PendingAlbumEntry]?
+    private let seededProblematicAlbums: [ProblematicPendingAlbum]
     private var removals: [(artist: String, album: String)] = []
     private var timestampUpdates = 0
 
@@ -332,8 +332,8 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
         problematicAlbums: [ProblematicPendingAlbum] = []
     ) {
         self.entries = entries
-        self.dueEntries = dueEntries
-        self.problematicAlbums = problematicAlbums
+        self.seededDueEntries = dueEntries
+        self.seededProblematicAlbums = problematicAlbums
     }
 
     func initialize() async throws {
@@ -373,11 +373,15 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
     }
 
     func getPendingVerificationSnapshot() async -> (all: [PendingAlbumEntry], due: [PendingAlbumEntry]) {
-        (entries, dueEntries ?? entries)
+        (entries, currentDueEntries())
     }
 
     func getProblematicPendingAlbums(minAttempts: Int) async -> [ProblematicPendingAlbum] {
-        problematicAlbums.filter { $0.totalAttempts >= minAttempts }
+        let currentEntryKeys = currentEntryKeys()
+        return seededProblematicAlbums.filter { problematicAlbum in
+            problematicAlbum.totalAttempts >= minAttempts
+                && currentEntryKeys.contains(Self.key(for: problematicAlbum.entry))
+        }
     }
 
     func generateProblematicAlbumsReport(minAttempts _: Int, reportURL _: URL?) async throws -> Int {
@@ -398,6 +402,21 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
 
     func verificationTimestampUpdateCount() -> Int {
         timestampUpdates
+    }
+
+    private func currentDueEntries() -> [PendingAlbumEntry] {
+        guard let seededDueEntries else { return entries }
+
+        let currentEntryKeys = currentEntryKeys()
+        return seededDueEntries.filter { currentEntryKeys.contains(Self.key(for: $0)) }
+    }
+
+    private func currentEntryKeys() -> Set<String> {
+        Set(entries.map(Self.key(for:)))
+    }
+
+    private static func key(for entry: PendingAlbumEntry) -> String {
+        AlbumIdentity.key(artist: entry.artist, album: entry.album)
     }
 }
 

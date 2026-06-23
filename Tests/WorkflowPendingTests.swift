@@ -96,6 +96,62 @@ struct WorkflowPendingTests {
         #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
     }
 
+    @Test("refreshes pending report summary after resolved albums are cleared")
+    func refreshesPendingReportSummaryAfterResolvedAlbumsAreCleared() async throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let resolvedEntry = PendingAlbumEntry(
+            id: "daft-punk-random-access-memories",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            reason: "no_year_found"
+        )
+        let skippedEntry = PendingAlbumEntry(
+            id: "clutch-pure-rock-fury",
+            artist: "Clutch",
+            album: "Pure Rock Fury",
+            reason: "no_year_found"
+        )
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [resolvedEntry, skippedEntry],
+            dueEntries: [resolvedEntry],
+            problematicAlbums: [
+                ProblematicPendingAlbum(
+                    entry: resolvedEntry,
+                    totalAttempts: 3,
+                    firstAttempt: now,
+                    lastAttempt: now,
+                    daysSinceFirstAttempt: 14
+                ),
+            ]
+        )
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2013, confidence: 100),
+            pendingVerificationService: pendingVerification,
+            idMapper: WorkflowTrackIDMapper(
+                enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(),
+                appleScriptIDsByMusicKitID: [
+                    "ram-1": "as-ram-1",
+                    "ram-2": "as-ram-2",
+                ]
+            )
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.startPendingVerification(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let removals = await pendingVerification.removedAlbums()
+        let remainingPending = await pendingVerification.getAllPendingAlbums()
+        let summary = try #require(viewModel.pendingVerificationReportSummary)
+
+        #expect(removals.contains { $0.artist == "Daft Punk" && $0.album == "Random Access Memories" })
+        #expect(remainingPending.map(\.id) == ["clutch-pure-rock-fury"])
+        #expect(summary.total == 1)
+        #expect(summary.due == 0)
+        #expect(summary.problematic == 0)
+    }
+
     @Test("summarizes pending snapshot facts for update run reports")
     func summarizesPendingSnapshotFactsForUpdateRunReports() async throws {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
