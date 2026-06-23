@@ -81,6 +81,30 @@ struct WorkflowAlbumIdentityTests {
         #expect(groups[AlbumIdentity.key(for: tracks[1])]?.map(\.id) == ["two"])
     }
 
+    @Test("keeps ampersand artists separate when album artist is missing")
+    func keepsAmpersandArtistsSeparateWhenAlbumArtistIsMissing() {
+        let tracks = [
+            Track(
+                id: "one",
+                name: "Get Lucky",
+                artist: "Daft Punk & Pharrell Williams",
+                album: "Random Access Memories"
+            ),
+            Track(
+                id: "two",
+                name: "Instant Crush",
+                artist: "Daft Punk & Julian Casablancas",
+                album: "Random Access Memories"
+            ),
+        ]
+
+        let groups = WorkflowViewModel.groupTracksByAlbum(tracks)
+
+        #expect(groups.count == 2)
+        #expect(groups[AlbumIdentity.key(for: tracks[0])]?.map(\.id) == ["one"])
+        #expect(groups[AlbumIdentity.key(for: tracks[1])]?.map(\.id) == ["two"])
+    }
+
     @Test("matches pending entries with album identity")
     func matchesPendingEntriesWithAlbumIdentity() {
         let tracks = [
@@ -231,6 +255,39 @@ struct WorkflowAlbumIdentityTests {
         let albumTracks = WorkflowViewModel.pendingAlbumTracks(for: entry, in: groups)
 
         #expect(albumTracks.map(\.id) == ["one", "two"])
+    }
+
+    @Test("does not resolve ambiguous guest pending entry across album identities")
+    func doesNotResolveAmbiguousGuestPendingEntryAcrossAlbumIdentities() {
+        let tracks = [
+            Track(
+                id: "one",
+                name: "Shared Song",
+                artist: "Guest Singer",
+                album: "Greatest Hits",
+                albumArtist: "Original Artist"
+            ),
+            Track(
+                id: "two",
+                name: "Other Shared Song",
+                artist: "Guest Singer",
+                album: "Greatest Hits",
+                albumArtist: "Compilation Artist"
+            ),
+        ]
+        let entry = PendingAlbumEntry(
+            id: "guest-singer-greatest-hits",
+            artist: "Guest Singer",
+            album: "Greatest Hits",
+            reason: "suspicious_year_change"
+        )
+        let groups = WorkflowViewModel.groupTracksByAlbum(tracks)
+
+        let matchingTracks = WorkflowViewModel.tracksMatchingPendingEntries(tracks, entries: [entry])
+        let albumTracks = WorkflowViewModel.pendingAlbumTracks(for: entry, in: groups)
+
+        #expect(matchingTracks.isEmpty)
+        #expect(albumTracks.isEmpty)
     }
 
     @Test("pending cleanup includes entry and track album identity aliases")

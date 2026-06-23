@@ -66,6 +66,37 @@ struct UpdateCoordinatorArtistStartTests {
         #expect(changes.allSatisfy { $0.changeType != .yearUpdate })
     }
 
+    @Test("Artist start fallback uses track artist instead of album artist")
+    func artistStartFallbackUsesTrackArtistInsteadOfAlbumArtist() async throws {
+        let apiResult = YearResult(
+            year: 1990,
+            confidence: 60,
+            yearScores: [1990: 60, 2020: 10]
+        )
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(yearResult: apiResult),
+            discogs: MockAPIService(),
+            appleMusic: ArtistStartLookupAPIService(startYearsByArtist: ["modern artist": 2000])
+        )
+        let coordinator = makeCoordinator(apiOrchestrator: orchestrator)
+        let track = Track(
+            id: "T1",
+            name: "Modern Track",
+            artist: "Modern Artist",
+            album: "Compilation",
+            year: 2020,
+            albumArtist: "Various Artists"
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(changes.allSatisfy { $0.changeType != .yearUpdate })
+    }
+
     private func makeCoordinator(apiOrchestrator: APIOrchestrator) -> UpdateCoordinator {
         let bridge = MockAppleScriptClient()
         let store = MockTrackStore()

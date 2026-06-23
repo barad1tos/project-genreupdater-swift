@@ -328,9 +328,9 @@ extension UpdateCoordinator {
     }
 
     private static func hasMatchingAlbumBatchIdentity(_ track: Track, _ otherTrack: Track) -> Bool {
-        let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
-        let otherTrackKeys = Set(AlbumIdentity.lookupKeys(for: otherTrack))
-        return !trackKeys.isDisjoint(with: otherTrackKeys)
+        let identity = track.albumIdentity
+        guard identity.isComplete else { return false }
+        return identity.key == otherTrack.albumIdentity.key
     }
 
     private static func value(forAppleScriptProperty property: String, in track: Track) -> String? {
@@ -363,20 +363,33 @@ extension UpdateCoordinator {
     }
 
     private func cacheInvalidationTargets(for change: ProposedChange) -> [(artist: String, album: String)] {
-        var candidates = [change.track.albumIdentity]
-        candidates.append(AlbumIdentity(artist: change.track.artist, album: change.track.album))
+        var candidates = Self.cacheInvalidationIdentities(
+            for: change.track,
+            album: change.track.album
+        )
 
         if let originalArtist = change.track.originalArtist {
-            candidates.append(AlbumIdentity(artist: originalArtist, album: change.track.album))
+            candidates.append(contentsOf: AlbumIdentity.lookupCandidates(
+                artist: originalArtist,
+                album: change.track.album
+            ))
         }
         if change.changeType == .artistRename, let oldArtist = change.oldValue {
-            candidates.append(AlbumIdentity(artist: oldArtist, album: change.track.album))
+            candidates.append(contentsOf: AlbumIdentity.lookupCandidates(
+                artist: oldArtist,
+                album: change.track.album
+            ))
         }
         if change.changeType == .albumCleaning, let newAlbum = change.newValue {
-            candidates.append(AlbumIdentity(artist: change.track.albumIdentity.artist, album: newAlbum))
-            candidates.append(AlbumIdentity(artist: change.track.artist, album: newAlbum))
+            candidates.append(contentsOf: Self.cacheInvalidationIdentities(
+                for: change.track,
+                album: newAlbum
+            ))
             if let originalArtist = change.track.originalArtist {
-                candidates.append(AlbumIdentity(artist: originalArtist, album: newAlbum))
+                candidates.append(contentsOf: AlbumIdentity.lookupCandidates(
+                    artist: originalArtist,
+                    album: newAlbum
+                ))
             }
         }
 
@@ -385,6 +398,16 @@ extension UpdateCoordinator {
             guard identity.isComplete else { return nil }
             guard seenKeys.insert(identity.key).inserted else { return nil }
             return (artist: identity.artist, album: identity.album)
+        }
+    }
+
+    private static func cacheInvalidationIdentities(for track: Track, album: String) -> [AlbumIdentity] {
+        [
+            track.albumIdentity.artist,
+            track.effectiveArtist,
+            track.artist,
+        ].flatMap { artist in
+            AlbumIdentity.lookupCandidates(artist: artist, album: album)
         }
     }
 }

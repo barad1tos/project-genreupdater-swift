@@ -83,8 +83,8 @@ struct AlbumIdentityTests {
         ])
     }
 
-    @Test("keeps extracted artist as lookup alias when album artist is absent")
-    func keepsExtractedArtistAsLookupAliasWhenAlbumArtistIsAbsent() {
+    @Test("keeps broad ampersand artist out of lookup aliases when album artist is absent")
+    func keepsBroadAmpersandArtistOutOfLookupAliasesWhenAlbumArtistIsAbsent() {
         let track = Track(
             id: "1",
             name: "Get Lucky",
@@ -96,7 +96,22 @@ struct AlbumIdentityTests {
 
         #expect(keys == [
             "daft punk & pharrell williams\u{1F}random access memories",
-            "daft punk\u{1F}random access memories",
+        ])
+    }
+
+    @Test("keeps legal ampersand artist names out of broad lookup aliases")
+    func keepsLegalAmpersandArtistNamesOutOfBroadLookupAliases() {
+        let track = Track(
+            id: "1",
+            name: "The Cave",
+            artist: "Mumford & Sons",
+            album: "Sigh No More"
+        )
+
+        let keys = AlbumIdentity.lookupKeys(for: track)
+
+        #expect(keys == [
+            "mumford & sons\u{1F}sigh no more",
         ])
     }
 

@@ -42,7 +42,7 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
                 groupingArtist(for: track),
                 track.effectiveArtist,
                 track.artist,
-                extractMainArtist(track.artist),
+                explicitPrimaryArtist(track.artist),
             ],
             album: track.album
         )
@@ -52,7 +52,7 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         lookupCandidates(
             artists: [
                 artist,
-                extractMainArtist(artist),
+                explicitPrimaryArtist(artist),
             ],
             album: album
         )
@@ -73,6 +73,10 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         }
 
         return explicitPrimaryArtist(track.artist)
+    }
+
+    public static func primaryArtist(for track: Track) -> String {
+        explicitPrimaryArtist(track.artist)
     }
 
     private static func lookupCandidates(artists: [String], album: String) -> [Self] {

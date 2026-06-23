@@ -354,6 +354,11 @@ public actor UpdateCoordinator {
         albumTracks.contains { $0.id == track.id } ? albumTracks : albumTracks + [track]
     }
 
+    public func albumContextTracksByTrackID(for tracks: [Track]) async -> [String: [Track]] {
+        let contextTracks = await availableTracksWithMutationMetadata(tracks)
+        return Self.albumTracksByTrackID(for: contextTracks)
+    }
+
     private static func genreContextTracks(
         track: Track,
         artistTracks: [Track],
@@ -570,9 +575,11 @@ public actor UpdateCoordinator {
     }
 
     private static func albumTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
-        let tracksByAlbumAlias = albumTracksByAlias(for: tracks.filter(isTrackAvailableForProcessing))
+        let tracksByAlbum = Dictionary(grouping: tracks.filter(isTrackAvailableForProcessing)) { track in
+            AlbumIdentity.key(for: track)
+        }
         return Dictionary(uniqueKeysWithValues: tracks.map { track in
-            (track.id, albumTracks(for: track, tracksByAlbumAlias: tracksByAlbumAlias))
+            (track.id, tracksByAlbum[AlbumIdentity.key(for: track)] ?? [])
         })
     }
 
@@ -582,30 +589,6 @@ public actor UpdateCoordinator {
         { track in
             albumTracksByTrackID[track.id] ?? []
         }
-    }
-
-    private static func albumTracksByAlias(for tracks: [Track]) -> [String: [Track]] {
-        var tracksByAlias: [String: [Track]] = [:]
-        for track in tracks {
-            for key in AlbumIdentity.lookupKeys(for: track) {
-                tracksByAlias[key, default: []].append(track)
-            }
-        }
-        return tracksByAlias
-    }
-
-    private static func albumTracks(
-        for track: Track,
-        tracksByAlbumAlias: [String: [Track]]
-    ) -> [Track] {
-        var seenTrackIDs: Set<String> = []
-        var contextTracks: [Track] = []
-        for key in AlbumIdentity.lookupKeys(for: track) {
-            for albumTrack in tracksByAlbumAlias[key] ?? [] where seenTrackIDs.insert(albumTrack.id).inserted {
-                contextTracks.append(albumTrack)
-            }
-        }
-        return contextTracks
     }
 
     private static func artistTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {

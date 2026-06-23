@@ -30,18 +30,19 @@ extension WorkflowViewModel {
             autoAccept: true
         )
 
-        let context = Self.batchContext(for: tracksByIndex, contextTracks: contextTracks ?? tracksByIndex)
-        let operation = makeBatchTrackOperation(
-            updateCoordinator: updateCoordinator,
-            options: options,
-            albumTracksByTrackID: context.albums,
-            artistTracksByTrackID: context.artists
-        )
         let progressHandler = makeBatchProgressHandler(tracksByIndex: tracksByIndex)
 
         processingTask = Task {
             do {
                 await invalidateAlbumYearCacheIfNeeded()
+
+                let context = await batchContext(for: tracksByIndex, contextTracks: contextTracks ?? tracksByIndex)
+                let operation = makeBatchTrackOperation(
+                    updateCoordinator: updateCoordinator,
+                    options: options,
+                    albumTracksByTrackID: context.albums,
+                    artistTracksByTrackID: context.artists
+                )
 
                 let entries = try await batchProcessor.process(
                     tracks: tracksByIndex,
@@ -77,18 +78,18 @@ extension WorkflowViewModel {
         await invalidateAlbumYearCache?()
     }
 
-    private static func batchContext(
+    private func batchContext(
         for tracks: [Track],
         contextTracks: [Track]
-    ) -> (albums: [String: [Track]], artists: [String: [Track]]) {
-        let albumGroups = groupTracksByAlbum(contextTracks)
-        let artistGroups = groupTracksByArtist(contextTracks)
+    ) async -> (albums: [String: [Track]], artists: [String: [Track]]) {
+        let albumTracksByTrackID = await updateCoordinator.albumContextTracksByTrackID(for: contextTracks)
+        let artistGroups = Self.groupTracksByArtist(contextTracks)
         return (
             albums: Dictionary(uniqueKeysWithValues: tracks.map {
-                ($0.id, albumGroups[albumKey(for: $0)] ?? [])
+                ($0.id, albumTracksByTrackID[$0.id] ?? [])
             }),
             artists: Dictionary(uniqueKeysWithValues: tracks.map {
-                ($0.id, artistGroups[artistKey(for: $0)] ?? [])
+                ($0.id, artistGroups[Self.artistKey(for: $0)] ?? [])
             })
         )
     }

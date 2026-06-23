@@ -222,20 +222,28 @@ extension WorkflowViewModel {
     }
 
     static func tracksMatchingPendingEntries(_ tracks: [Track], entries: [PendingAlbumEntry]) -> [Track] {
-        let pendingKeys = Set(entries.flatMap { AlbumIdentity.lookupKeys(artist: $0.artist, album: $0.album) })
-        return tracks.filter { track in
-            let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
-            return !pendingKeys.isDisjoint(with: trackKeys)
+        let albumGroups = groupTracksByAlbum(tracks)
+        var seenTrackIDs: Set<String> = []
+        var matchedTracks: [Track] = []
+        for entry in entries {
+            for track in pendingAlbumTracks(for: entry, in: albumGroups) where seenTrackIDs.insert(track.id).inserted {
+                matchedTracks.append(track)
+            }
         }
+        return sortedForBatchProcessing(matchedTracks)
     }
 
     static func pendingAlbumTracks(
         for entry: PendingAlbumEntry,
         in albumGroups: [String: [Track]]
     ) -> [Track] {
+        let primaryPendingKey = AlbumIdentity.key(artist: entry.artist, album: entry.album)
         let pendingKeys = Set(AlbumIdentity.lookupKeys(artist: entry.artist, album: entry.album))
-        var matchedTracks: [Track] = []
-        var seenTrackIDs: Set<String> = []
+        if let exactTracks = albumGroups[primaryPendingKey] {
+            return sortedForBatchProcessing(exactTracks)
+        }
+
+        var matchedGroups: [[Track]] = []
         for tracks in albumGroups.values {
             let groupMatchesEntry = tracks.contains { track in
                 let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
@@ -244,12 +252,11 @@ extension WorkflowViewModel {
             guard groupMatchesEntry else {
                 continue
             }
-            for track in tracks {
-                guard seenTrackIDs.insert(track.id).inserted else {
-                    continue
-                }
-                matchedTracks.append(track)
-            }
+            matchedGroups.append(tracks)
+        }
+
+        guard matchedGroups.count == 1, let matchedTracks = matchedGroups.first else {
+            return []
         }
         return sortedForBatchProcessing(matchedTracks)
     }

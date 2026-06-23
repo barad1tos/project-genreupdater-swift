@@ -84,7 +84,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
         let coordinator = makeCoordinator(cache: cache)
         let track = makeTrack(
             id: "ram-1",
-            artist: "Daft Punk & Pharrell Williams",
+            artist: "Daft Punk feat. Pharrell Williams",
             album: "Random Access Memories",
             year: 2012
         )
@@ -99,6 +99,33 @@ struct UpdateCoordinatorAlbumIdentityTests {
         let yearChange = try #require(changes.first { $0.changeType == .yearUpdate })
         #expect(yearChange.newValue == "2013")
         #expect(yearChange.source == "Cache")
+    }
+
+    @Test("Year cache lookup does not use broad ampersand aliases without album artist")
+    func yearCacheLookupDoesNotUseBroadAmpersandAliasesWithoutAlbumArtist() async throws {
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            year: 2013,
+            confidence: 100
+        )
+        let coordinator = makeCoordinator(cache: cache)
+        let track = makeTrack(
+            id: "ram-ampersand",
+            artist: "Daft Punk & Pharrell Williams",
+            album: "Random Access Memories",
+            year: 2012
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            albumTracks: [track],
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(!changes.contains { $0.changeType == .yearUpdate })
     }
 
     @Test("Year cache store uses album identity artist")
@@ -328,7 +355,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
         )
         let secondTrack = makeTrack(
             id: "ram-2",
-            artist: "Daft Punk & Pharrell Williams",
+            artist: "Daft Punk feat. Pharrell Williams",
             album: "Random Access Memories",
             year: 2012
         )
@@ -362,7 +389,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
         )
         let secondTrack = makeTrack(
             id: "ram-2",
-            artist: "Daft Punk & Julian Casablancas",
+            artist: "Daft Punk feat. Julian Casablancas",
             album: "Random Access Memories",
             year: 2013
         )
@@ -378,6 +405,80 @@ struct UpdateCoordinatorAlbumIdentityTests {
         #expect(writes.map(\.trackID) == ["ram-1"])
         #expect(writes.first?.value == "2013")
         #expect(result.entries.map(\.trackID) == ["ram-1"])
+    }
+
+    @Test("Default update context keeps shared guest aliases in separate album identities")
+    func defaultUpdateContextKeepsSharedGuestAliasesInSeparateAlbumIdentities() async throws {
+        let bridge = MockAppleScriptClient()
+        let coordinator = makeCoordinator(script: bridge)
+        let firstTrack = makeTrack(
+            id: "first-guest",
+            artist: "Guest Singer",
+            album: "Greatest Hits",
+            albumArtist: "Original Artist"
+        )
+        let secondTrack = makeTrack(
+            id: "second-guest",
+            artist: "Guest Singer",
+            album: "Greatest Hits",
+            year: 1990,
+            albumArtist: "Compilation Artist"
+        )
+        await bridge.setFetchedTracks([firstTrack, secondTrack])
+
+        let result = try await coordinator.updateTracks(
+            [firstTrack, secondTrack],
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            progressHandler: ignoreAlbumIdentityProgress
+        )
+
+        let writes = await bridge.writtenProperties
+        #expect(writes.isEmpty)
+        #expect(result.entries.isEmpty)
+    }
+
+    @Test("Album context helper enriches MusicKit tracks before grouping")
+    func albumContextHelperEnrichesMusicKitTracksBeforeGrouping() async {
+        let bridge = MockAppleScriptClient()
+        let mapper = TrackIDMapper()
+        let coordinator = makeCoordinator(script: bridge, idMapper: mapper)
+        let firstMusicKitTrack = makeTrack(
+            id: "mk-1",
+            name: "Get Lucky",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories"
+        )
+        let secondMusicKitTrack = makeTrack(
+            id: "mk-2",
+            name: "Instant Crush",
+            artist: "Julian Casablancas",
+            album: "Random Access Memories"
+        )
+        let firstAppleScriptTrack = makeTrack(
+            id: "as-1",
+            name: "Get Lucky",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories",
+            albumArtist: "Daft Punk"
+        )
+        let secondAppleScriptTrack = makeTrack(
+            id: "as-2",
+            name: "Instant Crush",
+            artist: "Julian Casablancas",
+            album: "Random Access Memories",
+            albumArtist: "Daft Punk"
+        )
+        await mapper.refreshMapping(
+            musicKitTracks: [firstMusicKitTrack, secondMusicKitTrack],
+            appleScriptTracks: [firstAppleScriptTrack, secondAppleScriptTrack]
+        )
+
+        let context = await coordinator.albumContextTracksByTrackID(
+            for: [firstMusicKitTrack, secondMusicKitTrack]
+        )
+
+        #expect(Set(context["mk-1"]?.map(\.id) ?? []) == ["mk-1", "mk-2"])
+        #expect(Set(context["mk-2"]?.map(\.id) ?? []) == ["mk-1", "mk-2"])
     }
 
     @Test("Default update context groups tracks after AppleScript album artist enrichment")
