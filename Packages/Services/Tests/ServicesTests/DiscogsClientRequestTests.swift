@@ -81,6 +81,49 @@ struct DiscogsClientRequestTests {
         #expect(result.year == 1984)
         #expect(result.yearScores[0] == nil)
     }
+
+    @Test("getAlbumYear ignores invalid canonical and search years")
+    func getAlbumYearIgnoresInvalidCanonicalAndSearchYears() async throws {
+        let session = makeDiscogsMockSession { request in
+            let url = try #require(request.url)
+            let json = switch url.path {
+            case "/database/search":
+                discogsInvalidSearchResponseJSON
+            case "/masters/12345":
+                discogsInvalidReleaseResponseJSON
+            default:
+                throw URLError(.badURL)
+            }
+            let response = try #require(HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            return (response, Data(json.utf8))
+        }
+        defer {
+            DiscogsRequestMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+
+        let baseURL = try #require(URL(string: "https://sandbox.discogs.com"))
+        let client = DiscogsClient(
+            token: "test-token-123",
+            session: session,
+            baseURL: baseURL
+        )
+
+        let result = try await client.getAlbumYear(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == nil)
+        #expect(result.yearScores[0] == nil)
+    }
 }
 
 private final class DiscogsRequestRecorder: @unchecked Sendable {
@@ -167,6 +210,21 @@ private let discogsSearchResponseJSON = """
       "master_id": 12345,
       "title": "Iron Maiden - Powerslave",
       "year": "1984"
+    }
+  ]
+}
+"""
+
+private let discogsInvalidSearchResponseJSON = """
+{
+  "pagination": { "page": 1, "pages": 1, "per_page": 5, "items": 1 },
+  "results": [
+    {
+      "id": 42,
+      "type": "master",
+      "master_id": 12345,
+      "title": "Iron Maiden - Powerslave",
+      "year": "0"
     }
   ]
 }
