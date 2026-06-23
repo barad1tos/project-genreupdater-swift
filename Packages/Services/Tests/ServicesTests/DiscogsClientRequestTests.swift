@@ -71,6 +71,57 @@ struct DiscogsClientRequestTests {
         #expect(result.yearScores[0] == nil)
     }
 
+    @Test("getAlbumYear falls back when canonical detail returns HTTP error")
+    func getAlbumYearFallsBackFromCanonicalDetailHTTPError() async throws {
+        try await assertGetAlbumYearFallsBackFromCanonicalDetailFailure { url in
+            try makeDiscogsJSONResponse(url: url, json: "{}", statusCode: 500)
+        }
+    }
+
+    @Test("getAlbumYear falls back when canonical detail transport fails")
+    func getAlbumYearFallsBackFromCanonicalDetailTransportFailure() async throws {
+        try await assertGetAlbumYearFallsBackFromCanonicalDetailFailure { _ in
+            throw URLError(.timedOut)
+        }
+    }
+
+    private func assertGetAlbumYearFallsBackFromCanonicalDetailFailure(
+        canonicalResponse: @escaping (URL) throws -> (HTTPURLResponse, Data)
+    ) async throws {
+        let session = makeDiscogsMockSession { request in
+            let url = try #require(request.url)
+            switch url.path {
+            case discogsSearchPath:
+                return try makeDiscogsJSONResponse(url: url, json: discogsSearchResponseJSON)
+            case discogsCanonicalPath:
+                return try canonicalResponse(url)
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        defer {
+            DiscogsRequestMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+
+        let baseURL = try makeDiscogsSandboxBaseURL()
+        let client = DiscogsClient(
+            token: "test-token-123",
+            session: session,
+            baseURL: baseURL
+        )
+
+        let result = try await client.getAlbumYear(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == 1984)
+        #expect(result.yearScores[1984] == 60)
+    }
+
     @Test("getAlbumYear ignores invalid canonical and search years")
     func getAlbumYearIgnoresInvalidCanonicalAndSearchYears() async throws {
         let session = makeDiscogsMockSession { request in

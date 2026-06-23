@@ -368,7 +368,32 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     }
 
     private func fetchCanonicalYear(releaseID: Int) async throws -> YearResult {
-        guard let canonicalRelease = try await fetchCanonicalRelease(releaseID: releaseID),
+        let canonicalRelease: DiscogsMasterRelease?
+        do {
+            canonicalRelease = try await fetchCanonicalRelease(releaseID: releaseID)
+        } catch let error as DiscogsError {
+            switch error {
+            case .httpError:
+                log.debug(
+                    "Discogs canonical release \(releaseID, privacy: .public) unavailable for year lookup: \(error.localizedDescription, privacy: .public)"
+                )
+                return YearResult()
+            case .noToken, .invalidResponse, .unauthorized, .rateLimited:
+                throw error
+            }
+        } catch let error as DecodingError {
+            log.debug(
+                "Discogs canonical release \(releaseID, privacy: .public) year lookup decoding failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return YearResult()
+        } catch let error as URLError {
+            log.debug(
+                "Discogs canonical release \(releaseID, privacy: .public) year lookup transport failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return YearResult()
+        }
+
+        guard let canonicalRelease,
               let year = canonicalRelease.year,
               year > 0 else {
             return YearResult()
