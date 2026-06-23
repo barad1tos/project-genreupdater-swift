@@ -176,8 +176,8 @@ struct APIReleaseCandidateAdapterTests {
         #expect(candidates.map(\.year) == [2011, 2012, 2013, 1998])
     }
 
-    @Test("MusicBrainz release detail HTTP failure is surfaced")
-    func musicBrainzReleaseDetailHTTPFailureIsSurfaced() async throws {
+    @Test("MusicBrainz release detail HTTP failure keeps release group candidates")
+    func musicBrainzReleaseDetailHTTPFailureKeepsReleaseGroupCandidates() async throws {
         APIReleaseCandidateMockURLProtocol.requestHandler = { request in
             guard let url = request.url else { throw URLError(.badURL) }
             let requestPathComponents = Array(url.pathComponents.dropFirst())
@@ -208,19 +208,15 @@ struct APIReleaseCandidateAdapterTests {
 
         let client = makeMockMusicBrainzClient()
 
-        do {
-            _ = try await client.getReleaseCandidates(
-                artist: "Test Artist",
-                album: "Test Album",
-                currentLibraryYear: nil,
-                earliestTrackAddedYear: nil
-            )
-            Issue.record("Expected MusicBrainz serviceUnavailable")
-        } catch MusicBrainzError.serviceUnavailable {
-            return
-        } catch {
-            Issue.record("Expected MusicBrainz serviceUnavailable, got \(error)")
-        }
+        let candidates = try await client.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Test Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.map(\.year) == [1998])
+        #expect(candidates.map(\.mbReleaseGroupID) == ["rg-1"])
     }
 
     @Test("MusicBrainz retries non-Latin release group search with canonical artist")
@@ -544,6 +540,50 @@ struct APIReleaseCandidateAdapterTests {
         )
 
         #expect(candidates.map(\.year) == [2020, 1998])
+    }
+
+    @Test("Discogs release candidates fall back when canonical detail times out")
+    func discogsReleaseCandidatesFallbackFromCanonicalDetailTimeout() async throws {
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            let pathComponents = Array(url.pathComponents.dropFirst())
+
+            if pathComponents == ["database", "search"] {
+                let json = """
+                {
+                  "results": [
+                    {
+                      "id": 2,
+                      "title": "Test Artist - Test Album",
+                      "year": 2020,
+                      "type": "release",
+                      "master_id": 42,
+                      "country": "US",
+                      "format": ["Album"]
+                    }
+                  ]
+                }
+                """
+                return try (jsonResponse(url: url), Data(json.utf8))
+            }
+
+            if pathComponents == ["masters", "42"] {
+                throw URLError(.timedOut)
+            }
+
+            throw URLError(.badURL)
+        }
+        defer { APIReleaseCandidateMockURLProtocol.requestHandler = nil }
+
+        let client = DiscogsClient(token: "test-token", session: makeMockSession(json: "{}"))
+        let candidates = try await client.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Test Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.map(\.year) == [2020])
     }
 
     @Test("Discogs canonical detail rate limit is surfaced")

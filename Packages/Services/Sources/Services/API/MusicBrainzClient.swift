@@ -91,7 +91,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         var candidates: [ReleaseCandidate] = []
 
         for (index, group) in releaseGroups.enumerated() {
-            let releases = index < 3 ? try await fetchReleases(for: group.id) : []
+            let releases = index < 3 ? await fetchReleaseDetailsIfAvailable(for: group.id) : []
             candidates.append(contentsOf: Self.releaseCandidates(
                 from: group,
                 releases: releases,
@@ -257,6 +257,17 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             MBReleaseSearchResponse.self,
             from: data
         ).releases
+    }
+
+    private func fetchReleaseDetailsIfAvailable(for releaseGroupID: String) async -> [MBRelease] {
+        do {
+            return try await fetchReleases(for: releaseGroupID)
+        } catch {
+            log.debug(
+                "MusicBrainz release detail lookup failed for release group \(releaseGroupID, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            return []
+        }
     }
 
     private func canonicalArtistName(for artist: String) async throws -> String? {

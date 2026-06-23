@@ -359,6 +359,11 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
                 "Discogs canonical release \(canonicalID, privacy: .public) decoding failed: \(error.localizedDescription, privacy: .public)"
             )
             return nil
+        } catch let error as URLError {
+            log.debug(
+                "Discogs canonical release \(canonicalID, privacy: .public) transport failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
         }
     }
 
