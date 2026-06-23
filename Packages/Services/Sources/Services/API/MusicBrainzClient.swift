@@ -302,7 +302,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     ) -> [ReleaseCandidate] {
         var candidates = groupOnlyCandidate(from: group, queryArtist: queryArtist).map { [$0] } ?? []
         let detailedCandidates = releases.compactMap { release -> ReleaseCandidate? in
-            guard let year = release.releaseYear else { return nil }
+            guard let year = group.releaseYear ?? release.releaseYear else { return nil }
             let candidate = ReleaseCandidate(
                 artist: queryArtist,
                 album: albumTitle(releaseTitle: release.title, groupTitle: group.title),

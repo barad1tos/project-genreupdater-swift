@@ -77,6 +77,9 @@ struct APIReleaseCandidateAdapterTests {
             let queryItems = components.queryItems ?? []
             if requestPathComponents == musicBrainzReleasePathComponents,
                queryItems.contains(where: { $0.name == "release-group" && $0.value == "rg-1" }) {
+                #expect(queryItems.contains(where: { $0.name == "fmt" && $0.value == "json" }))
+                #expect(queryItems.contains(where: { $0.name == "inc" && $0.value == "media+artist-credits" }))
+                #expect(queryItems.contains(where: { $0.name == "limit" && $0.value == "100" }))
                 return try (jsonResponse(url: url), Data(musicBrainzPromotionalReleaseJSON.utf8))
             }
 
@@ -94,14 +97,17 @@ struct APIReleaseCandidateAdapterTests {
 
         let groupCandidate = try #require(candidates.first)
         let releaseCandidate = try #require(candidates.dropFirst().first)
+        let datelessReleaseCandidate = try #require(candidates.dropFirst(2).first)
         #expect(groupCandidate.year == 1998)
         #expect(groupCandidate.status == .official)
         #expect(groupCandidate.country == nil)
-        #expect(releaseCandidate.year == 1999)
+        #expect(releaseCandidate.year == 1998)
         #expect(releaseCandidate.country == "gb")
         #expect(releaseCandidate.status == .promotional)
         #expect(releaseCandidate.mbReleaseGroupID == "rg-1")
         #expect(releaseCandidate.mbReleaseGroupFirstYear == 1998)
+        #expect(datelessReleaseCandidate.year == 1998)
+        #expect(datelessReleaseCandidate.country == "us")
     }
 
     @Test("MusicBrainz release candidates keep groups beyond detail lookup cap")
@@ -323,9 +329,17 @@ struct APIReleaseCandidateAdapterTests {
 
     @Test("Discogs returns release candidates from search results")
     func discogsReleaseCandidates() async throws {
-        let client = DiscogsClient(
-            token: "test-token",
-            session: makeMockSession(json: """
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url,
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                throw URLError(.badURL)
+            }
+
+            #expect(Array(url.pathComponents.dropFirst()) == ["database", "search"])
+            #expect(components.queryItems?.contains(where: { $0.name == "type" }) == false)
+            #expect(components.queryItems?.contains(where: { $0.name == "per_page" && $0.value == "10" }) == true)
+
+            let json = """
             {
               "results": [
                 {
@@ -346,8 +360,12 @@ struct APIReleaseCandidateAdapterTests {
                 }
               ]
             }
-            """)
-        )
+            """
+            return try (jsonResponse(url: url), Data(json.utf8))
+        }
+        defer { APIReleaseCandidateMockURLProtocol.requestHandler = nil }
+
+        let client = DiscogsClient(token: "test-token", session: makeMockSession(json: "{}"))
 
         let candidates = try await client.getReleaseCandidates(
             artist: "Test Artist",
@@ -476,6 +494,58 @@ struct APIReleaseCandidateAdapterTests {
         #expect(candidate.year == 2020)
     }
 
+    @Test("Discogs release candidates fall back when canonical detail fails")
+    func discogsReleaseCandidatesFallbackFromCanonicalDetailFailure() async throws {
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            let pathComponents = Array(url.pathComponents.dropFirst())
+
+            if pathComponents == ["database", "search"] {
+                let json = """
+                {
+                  "results": [
+                    {
+                      "id": 2,
+                      "title": "Test Artist - Test Album",
+                      "year": 2020,
+                      "type": "release",
+                      "master_id": 42,
+                      "country": "US",
+                      "format": ["Album"]
+                    },
+                    {
+                      "id": 3,
+                      "title": "Test Artist - Test Album",
+                      "year": 1998,
+                      "type": "release",
+                      "country": "US",
+                      "format": ["Album"]
+                    }
+                  ]
+                }
+                """
+                return try (jsonResponse(url: url), Data(json.utf8))
+            }
+
+            if pathComponents == ["masters", "42"] {
+                return try (jsonResponse(url: url, statusCode: 500), Data("{}".utf8))
+            }
+
+            throw URLError(.badURL)
+        }
+        defer { APIReleaseCandidateMockURLProtocol.requestHandler = nil }
+
+        let client = DiscogsClient(token: "test-token", session: makeMockSession(json: "{}"))
+        let candidates = try await client.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Test Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.map(\.year) == [2020, 1998])
+    }
+
     @Test("Discogs canonical detail rate limit is surfaced")
     func discogsCanonicalDetailRateLimitIsSurfaced() async throws {
         APIReleaseCandidateMockURLProtocol.requestHandler = { request in
@@ -587,6 +657,14 @@ private let musicBrainzPromotionalReleaseJSON = """
       "country": "GB",
       "status": "Promotion",
       "media": [{ "format": "CD" }],
+      "artist-credit": [{ "name": "Test Artist" }]
+    },
+    {
+      "id": "rel-2",
+      "title": "Test Album Promo",
+      "country": "US",
+      "status": "Official",
+      "media": [{ "format": "Digital Media" }],
       "artist-credit": [{ "name": "Test Artist" }]
     }
   ]

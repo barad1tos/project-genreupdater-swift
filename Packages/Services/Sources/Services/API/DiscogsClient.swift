@@ -342,7 +342,24 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         for result: DiscogsSearchResult
     ) async throws -> DiscogsMasterRelease? {
         guard let canonicalID = result.masterID else { return nil }
-        return try await fetchCanonicalRelease(releaseID: canonicalID)
+        do {
+            return try await fetchCanonicalRelease(releaseID: canonicalID)
+        } catch let error as DiscogsError {
+            switch error {
+            case .httpError:
+                log.debug(
+                    "Discogs canonical release \(canonicalID, privacy: .public) unavailable: \(error.localizedDescription, privacy: .public)"
+                )
+                return nil
+            case .noToken, .invalidResponse, .unauthorized, .rateLimited:
+                throw error
+            }
+        } catch let error as DecodingError {
+            log.debug(
+                "Discogs canonical release \(canonicalID, privacy: .public) decoding failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
     }
 
     private func fetchCanonicalYear(releaseID: Int) async throws -> YearResult {

@@ -42,22 +42,11 @@ struct DiscogsClientRequestTests {
     @Test("getAlbumYear falls back when canonical year is invalid")
     func getAlbumYearFallsBackFromInvalidCanonicalYear() async throws {
         let session = makeDiscogsMockSession { request in
-            let url = try #require(request.url)
-            let json = switch url.path {
-            case discogsSearchPath:
-                discogsSearchWithInvalidFirstYearResponseJSON
-            case discogsCanonicalPath:
-                discogsInvalidReleaseResponseJSON
-            default:
-                throw URLError(.badURL)
-            }
-            let response = try #require(HTTPURLResponse(
-                url: url,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            ))
-            return (response, Data(json.utf8))
+            try makeDiscogsResponse(
+                for: request,
+                searchJSON: discogsSearchWithInvalidFirstYearResponseJSON,
+                canonicalJSON: discogsInvalidReleaseResponseJSON
+            )
         }
         defer {
             DiscogsRequestMockURLProtocol.requestHandler = nil
@@ -85,22 +74,11 @@ struct DiscogsClientRequestTests {
     @Test("getAlbumYear ignores invalid canonical and search years")
     func getAlbumYearIgnoresInvalidCanonicalAndSearchYears() async throws {
         let session = makeDiscogsMockSession { request in
-            let url = try #require(request.url)
-            let json = switch url.path {
-            case discogsSearchPath:
-                discogsInvalidSearchResponseJSON
-            case discogsCanonicalPath:
-                discogsInvalidReleaseResponseJSON
-            default:
-                throw URLError(.badURL)
-            }
-            let response = try #require(HTTPURLResponse(
-                url: url,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            ))
-            return (response, Data(json.utf8))
+            try makeDiscogsResponse(
+                for: request,
+                searchJSON: discogsInvalidSearchResponseJSON,
+                canonicalJSON: discogsInvalidReleaseResponseJSON
+            )
         }
         defer {
             DiscogsRequestMockURLProtocol.requestHandler = nil
@@ -158,18 +136,38 @@ private func makeDiscogsSandboxBaseURL() throws -> URL {
 }
 
 private func makeDiscogsResponse(for request: URLRequest) throws -> (HTTPURLResponse, Data) {
+    try makeDiscogsResponse(
+        for: request,
+        searchJSON: discogsSearchResponseJSON,
+        canonicalJSON: discogsReleaseResponseJSON
+    )
+}
+
+private func makeDiscogsResponse(
+    for request: URLRequest,
+    searchJSON: String,
+    canonicalJSON: String
+) throws -> (HTTPURLResponse, Data) {
     let url = try #require(request.url)
     let json = switch url.path {
     case discogsSearchPath:
-        discogsSearchResponseJSON
+        searchJSON
     case discogsCanonicalPath:
-        discogsReleaseResponseJSON
+        canonicalJSON
     default:
         throw URLError(.badURL)
     }
+    return try makeDiscogsJSONResponse(url: url, json: json)
+}
+
+private func makeDiscogsJSONResponse(
+    url: URL,
+    json: String,
+    statusCode: Int = 200
+) throws -> (HTTPURLResponse, Data) {
     let response = try #require(HTTPURLResponse(
         url: url,
-        statusCode: 200,
+        statusCode: statusCode,
         httpVersion: nil,
         headerFields: ["Content-Type": "application/json"]
     ))
