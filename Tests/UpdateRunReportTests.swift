@@ -127,6 +127,66 @@ struct UpdateRunReportTests {
         #expect(result.tracks.map(\.id).sorted() == ["ram-1", "ram-2"])
     }
 
+    @Test("groups known report rows by normalized album identity key")
+    func groupsKnownReportRowsByNormalizedAlbumIdentityKey() throws {
+        var firstEntry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "ram-1",
+            artist: "Daft Punk",
+            trackName: "Get Lucky",
+            albumName: "Random Access Memories"
+        )
+        firstEntry.oldYear = 2012
+        firstEntry.newYear = 2013
+        var secondEntry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "ram-2",
+            artist: "daft punk",
+            trackName: "Instant Crush",
+            albumName: "random access memories"
+        )
+        secondEntry.oldYear = 2012
+        secondEntry.newYear = 2013
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [firstEntry, secondEntry],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
+            completedEntries: [],
+            trackStatuses: [
+                "ram-1": .done,
+                "ram-2": .done,
+            ],
+            tracks: [
+                Track(
+                    id: "ram-1",
+                    name: "Get Lucky",
+                    artist: "Daft Punk",
+                    album: "Random Access Memories"
+                ),
+                Track(
+                    id: "ram-2",
+                    name: "Instant Crush",
+                    artist: "daft punk",
+                    album: "random access memories"
+                ),
+            ],
+            testArtists: []
+        )
+
+        let group = try #require(report.albumGroups.first)
+        let result = try #require(report.albumResults.first)
+        #expect(report.albumGroups.count == 1)
+        #expect(group.changedTrackCount == 2)
+        #expect(report.affectedAlbumCount == 1)
+        #expect(report.affectedArtistCount == 1)
+        #expect(report.changeBreakdown.map(\.albumCount) == [1])
+        #expect(report.albumResults.count == 1)
+        #expect(result.tracks.map(\.id).sorted() == ["ram-1", "ram-2"])
+    }
+
     @Test("keeps unknown failures visible with technical fallback")
     func keepsUnknownFailuresVisibleWithTechnicalFallback() {
         let report = UpdateRunReport(

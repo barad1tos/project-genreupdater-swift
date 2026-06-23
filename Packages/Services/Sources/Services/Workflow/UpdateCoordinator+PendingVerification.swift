@@ -46,9 +46,16 @@ extension UpdateCoordinator {
         albumTracks: [Track]
     ) -> AlbumIdentity? {
         let pendingKeys = Set(AlbumIdentity.lookupKeys(artist: entry.artist, album: entry.album))
-        return albumTracks.first { track in
+        guard let identity = albumTracks.first(where: { track in
             let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
             return !pendingKeys.isDisjoint(with: trackKeys)
-        }?.albumIdentity
+        })?.albumIdentity else {
+            return nil
+        }
+
+        guard albumTracks.allSatisfy({ $0.albumIdentity == identity }) else {
+            return nil
+        }
+        return identity
     }
 }

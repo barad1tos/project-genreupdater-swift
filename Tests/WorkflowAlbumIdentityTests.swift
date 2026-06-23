@@ -345,6 +345,29 @@ struct WorkflowAlbumIdentityTests {
         #expect(identityPairs.contains("Daft Punk|Random Access Memories"))
     }
 
+    @Test("pending cleanup does not remove guest aliases for canonical albums")
+    func pendingCleanupDoesNotRemoveGuestAliasesForCanonicalAlbums() {
+        let track = Track(
+            id: "one",
+            name: "Shared Song",
+            artist: "Guest Singer",
+            album: "Greatest Hits",
+            albumArtist: "Original Artist"
+        )
+        let entry = PendingAlbumEntry(
+            id: "original-artist-greatest-hits",
+            artist: "Original Artist",
+            album: "Greatest Hits",
+            reason: "suspicious_year_change"
+        )
+
+        let identities = WorkflowViewModel.pendingRemovalIdentities(entry: entry, albumTracks: [track])
+        let identityPairs = Set(identities.map { "\($0.artist)|\($0.album)" })
+
+        #expect(identityPairs.contains("Original Artist|Greatest Hits"))
+        #expect(identityPairs.contains("Guest Singer|Greatest Hits") == false)
+    }
+
     @Test("pending verification processes duplicate identity aliases once")
     func pendingVerificationProcessesDuplicateIdentityAliasesOnce() async throws {
         let canonicalEntry = PendingAlbumEntry(

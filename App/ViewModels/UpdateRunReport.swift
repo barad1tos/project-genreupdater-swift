@@ -56,7 +56,7 @@ struct UpdateRunReport: Equatable {
     }
 
     var affectedArtistCount: Int {
-        Set(albumGroups.map(\.artist)).count
+        Set(albumGroups.map { normalizeForMatching($0.artist) }).count
     }
 
     var hasFailures: Bool {
@@ -89,8 +89,7 @@ struct UpdateRunReport: Equatable {
             let values = valuePair(for: entry)
             let identity = albumIdentity(for: entry, trackLookup: trackLookup)
             let key = UpdateRunAlbumGroupKey(
-                artist: identity.artist,
-                album: identity.album,
+                identity: identity,
                 changeType: entry.changeType,
                 oldValue: values.old,
                 newValue: values.new
@@ -272,8 +271,7 @@ struct UpdateRunReport: Equatable {
         let missingFailureRows = failures
             .filter { failure in
                 trackLookup[failure.id] == nil
-                    && failure.artist == key.artist
-                    && failure.album == key.album
+                    && UpdateRunAlbumIdentity(artist: failure.artist, album: failure.album) == key
             }
             .map { failure in
                 makeFallbackTrackResult(failure: failure)
@@ -344,7 +342,7 @@ struct UpdateRunReport: Equatable {
 
     private static func albumIdentity(for track: Track) -> UpdateRunAlbumIdentity {
         let identity = AlbumIdentity(track: track)
-        return UpdateRunAlbumIdentity(artist: identity.artist, album: identity.album)
+        return UpdateRunAlbumIdentity(identity: identity)
     }
 
     private static func albumIdentity(
@@ -699,14 +697,62 @@ struct UpdateRunChangeSummary: Equatable, Hashable {
 }
 
 private struct UpdateRunAlbumIdentity: Hashable {
+    let key: String
     let artist: String
     let album: String
+
+    init(artist: String, album: String) {
+        self.init(identity: AlbumIdentity(artist: artist, album: album))
+    }
+
+    init(identity: AlbumIdentity) {
+        key = identity.key
+        artist = identity.artist
+        album = identity.album
+    }
+
+    static func == (leftIdentity: Self, rightIdentity: Self) -> Bool {
+        leftIdentity.key == rightIdentity.key
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(key)
+    }
 }
 
 private struct UpdateRunAlbumGroupKey: Hashable {
+    let identityKey: String
     let artist: String
     let album: String
     let changeType: ChangeType
     let oldValue: String
     let newValue: String
+
+    init(
+        identity: UpdateRunAlbumIdentity,
+        changeType: ChangeType,
+        oldValue: String,
+        newValue: String
+    ) {
+        identityKey = identity.key
+        artist = identity.artist
+        album = identity.album
+        self.changeType = changeType
+        self.oldValue = oldValue
+        self.newValue = newValue
+    }
+
+    static func == (leftKey: Self, rightKey: Self) -> Bool {
+        leftKey.identityKey == rightKey.identityKey
+            && leftKey.changeType == rightKey.changeType
+            && leftKey.oldValue == rightKey.oldValue
+            && leftKey.newValue == rightKey.newValue
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(identityKey)
+        hasher.combine(changeType)
+        hasher.combine(oldValue)
+        hasher.combine(newValue)
+    }
 }

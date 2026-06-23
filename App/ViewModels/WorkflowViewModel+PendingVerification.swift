@@ -275,9 +275,17 @@ extension WorkflowViewModel {
     static func pendingRemovalIdentities(entry: PendingAlbumEntry, albumTracks: [Track]) -> [AlbumIdentity] {
         var seenKeys: Set<String> = []
         let candidates = AlbumIdentity.lookupCandidates(artist: entry.artist, album: entry.album)
-            + albumTracks.flatMap { AlbumIdentity.lookupCandidates(for: $0) }
+            + albumTracks.flatMap(pendingTrackRemovalIdentities)
         return candidates.filter { identity in
             seenKeys.insert(identity.key).inserted
+        }
+    }
+
+    private static func pendingTrackRemovalIdentities(for track: Track) -> [AlbumIdentity] {
+        let canonicalIdentity = track.albumIdentity
+        return AlbumIdentity.lookupCandidates(for: track).filter { identity in
+            let identityKeys = Set(AlbumIdentity.lookupKeys(artist: identity.artist, album: identity.album))
+            return identity == canonicalIdentity || identityKeys.contains(canonicalIdentity.key)
         }
     }
 

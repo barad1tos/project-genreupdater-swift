@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Core
 
@@ -137,5 +138,30 @@ struct AlbumIdentityTests {
         #expect(identity.artist == "Bjork")
         #expect(identity.album == "Debut")
         #expect(identity.key == "bjork\u{1F}debut")
+    }
+
+    @Test("decoding preserves album identity normalization")
+    func decodingPreservesAlbumIdentityNormalization() throws {
+        let data = Data(
+            """
+            {"artist":"  Bjork  ","album":"  Debut  "}
+            """.utf8
+        )
+
+        let identity = try JSONDecoder().decode(AlbumIdentity.self, from: data)
+
+        #expect(identity.artist == "Bjork")
+        #expect(identity.album == "Debut")
+        #expect(identity.isComplete == true)
+    }
+
+    @Test("hashing uses normalized album identity key")
+    func hashingUsesNormalizedAlbumIdentityKey() {
+        let identities: Set<AlbumIdentity> = [
+            AlbumIdentity(artist: "Bjork", album: "Debut"),
+            AlbumIdentity(artist: "  bjork  ", album: "  debut  "),
+        ]
+
+        #expect(identities.count == 1)
     }
 }

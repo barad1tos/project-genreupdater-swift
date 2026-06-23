@@ -7,10 +7,41 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
     /// Canonical album title used for album-level decisions.
     public let album: String
 
+    private enum CodingKeys: String, CodingKey {
+        case artist
+        case album
+    }
+
     /// Creates an identity from already-resolved artist and album values.
     public init(artist: String, album: String) {
         self.artist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
         self.album = album.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Decodes a persisted identity and reapplies the canonical trimming rules.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            artist: container.decode(String.self, forKey: .artist),
+            album: container.decode(String.self, forKey: .album)
+        )
+    }
+
+    /// Encodes the canonical display values for persistence.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(artist, forKey: .artist)
+        try container.encode(album, forKey: .album)
+    }
+
+    /// Compares album identities by their normalized stable key.
+    public static func == (leftIdentity: Self, rightIdentity: Self) -> Bool {
+        leftIdentity.key == rightIdentity.key
+    }
+
+    /// Hashes the normalized stable key so lookup containers share workflow identity semantics.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(key)
     }
 
     /// Creates an identity from writable track metadata.
