@@ -38,6 +38,40 @@ struct UpdateCoordinatorAlbumIdentityTests {
         #expect(requests.allSatisfy { $0.album == "Random Access Memories" })
     }
 
+    @Test("Candidate scoring uses album identity artist activity period")
+    func candidateScoringUsesAlbumIdentityArtistActivityPeriod() async throws {
+        let apiProbe = APIRequestProbe()
+        let apiService = UpdateCoordinatorRecordingAPIService(
+            probe: apiProbe,
+            releaseCandidates: [
+                ReleaseCandidate(
+                    artist: "Daft Punk",
+                    album: "Random Access Memories",
+                    year: 2013,
+                    source: .musicBrainz
+                ),
+            ]
+        )
+        let coordinator = makeCoordinator(apiService: apiService)
+        let track = makeTrack(
+            id: "ram-activity",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            year: 2012,
+            albumArtist: "Daft Punk"
+        )
+
+        _ = try await coordinator.updateTrack(
+            track,
+            albumTracks: [track],
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        let activityRequests = await apiProbe.activityPeriodRequests
+        #expect(activityRequests == ["daft punk"])
+    }
+
     @Test("Year cache lookup uses album identity artist")
     func yearCacheLookupUsesAlbumIdentityArtist() async throws {
         let cache = MockCacheService()
@@ -434,8 +468,8 @@ struct UpdateCoordinatorAlbumIdentityTests {
         ) == nil)
     }
 
-    @Test("Album cleaning invalidates original artist with cleaned album")
-    func albumCleaningInvalidatesOriginalArtistWithCleanedAlbum() async throws {
+    @Test("Album cleaning invalidates identity aliases with cleaned album")
+    func albumCleaningInvalidatesIdentityAliasesWithCleanedAlbum() async throws {
         let cache = MockCacheService()
         await seedOriginalArtistCleanedAlbumCache(cache)
         let bridge = MockAppleScriptClient()
@@ -452,8 +486,25 @@ struct UpdateCoordinatorAlbumIdentityTests {
         ], progressHandler: ignoreAlbumIdentityProgress)
 
         #expect(await cache.getAlbumYear(artist: "The Robots", album: "Random Access Memories") == nil)
+        #expect(await cache.getAlbumYear(artist: "Daft Punk", album: "Random Access Memories") == nil)
+        #expect(
+            await cache.getAlbumYear(
+                artist: "Daft Punk feat. Pharrell Williams",
+                album: "Random Access Memories"
+            ) == nil
+        )
         #expect(await cache.getCachedAPIResult(
             artist: "The Robots",
+            album: "Random Access Memories",
+            source: "MusicBrainz"
+        ) == nil)
+        #expect(await cache.getCachedAPIResult(
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            source: "MusicBrainz"
+        ) == nil)
+        #expect(await cache.getCachedAPIResult(
+            artist: "Daft Punk feat. Pharrell Williams",
             album: "Random Access Memories",
             source: "MusicBrainz"
         ) == nil)
@@ -580,11 +631,39 @@ struct UpdateCoordinatorAlbumIdentityTests {
 
     private func seedOriginalArtistCleanedAlbumCache(_ cache: MockCacheService) async {
         await cache.storeAlbumYear(
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            year: 2013,
+            confidence: 100
+        )
+        await cache.storeAlbumYear(
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            year: 2013,
+            confidence: 100
+        )
+        await cache.storeAlbumYear(
             artist: "The Robots",
             album: "Random Access Memories",
             year: 2013,
             confidence: 100
         )
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            year: 2013,
+            source: "MusicBrainz",
+            timestamp: Date(),
+            ttl: 3600
+        ))
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            year: 2013,
+            source: "MusicBrainz",
+            timestamp: Date(),
+            ttl: 3600
+        ))
         await cache.setCachedAPIResult(CachedAPIResult(
             artist: "The Robots",
             album: "Random Access Memories",

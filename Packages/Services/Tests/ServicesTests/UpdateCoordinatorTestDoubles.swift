@@ -4,10 +4,15 @@ import Foundation
 actor APIRequestProbe {
     private(set) var requestCount = 0
     private(set) var albumRequests: [(artist: String, album: String)] = []
+    private(set) var activityPeriodRequests: [String] = []
 
     func recordRequest(artist: String, album: String) {
         requestCount += 1
         albumRequests.append((artist: artist, album: album))
+    }
+
+    func recordActivityPeriodRequest(normalizedArtist: String) {
+        activityPeriodRequests.append(normalizedArtist)
     }
 }
 
@@ -44,6 +49,11 @@ struct UpdateCoordinatorRecordingAPIService: ExternalAPIService {
     ) async throws -> [ReleaseCandidate] {
         await probe.recordRequest(artist: artist, album: album)
         return releaseCandidates
+    }
+
+    func getArtistActivityPeriod(normalizedArtist: String) async throws -> (start: Int?, end: Int?) {
+        await probe.recordActivityPeriodRequest(normalizedArtist: normalizedArtist)
+        return (nil, nil)
     }
 
     func initialize(force _: Bool) async throws {

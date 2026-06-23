@@ -193,10 +193,12 @@ extension WorkflowViewModel {
         pendingVerificationService: any PendingVerificationService
     ) async -> PendingEntryOutcome {
         if verification.didResolveYear {
-            await pendingVerificationService.removeFromPending(
-                artist: entry.artist,
-                album: entry.album
-            )
+            for identity in Self.pendingRemovalIdentities(entry: entry, albumTracks: albumTracks) {
+                await pendingVerificationService.removeFromPending(
+                    artist: identity.artist,
+                    album: identity.album
+                )
+            }
             markPendingAlbumTracks(albumTracks, as: .done)
             return PendingEntryOutcome(
                 completed: verification.entries,
@@ -231,14 +233,31 @@ extension WorkflowViewModel {
         for entry: PendingAlbumEntry,
         in albumGroups: [String: [Track]]
     ) -> [Track] {
+        let pendingKeys = Set(AlbumIdentity.lookupKeys(artist: entry.artist, album: entry.album))
         var matchedTracks: [Track] = []
         var seenTrackIDs: Set<String> = []
-        for key in AlbumIdentity.lookupKeys(artist: entry.artist, album: entry.album) {
-            for track in albumGroups[key] ?? [] where seenTrackIDs.insert(track.id).inserted {
+        for tracks in albumGroups.values {
+            for track in tracks {
+                let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
+                guard !pendingKeys.isDisjoint(with: trackKeys) else {
+                    continue
+                }
+                guard seenTrackIDs.insert(track.id).inserted else {
+                    continue
+                }
                 matchedTracks.append(track)
             }
         }
-        return matchedTracks
+        return sortedForBatchProcessing(matchedTracks)
+    }
+
+    static func pendingRemovalIdentities(entry: PendingAlbumEntry, albumTracks: [Track]) -> [AlbumIdentity] {
+        var seenKeys: Set<String> = []
+        let candidates = AlbumIdentity.lookupCandidates(artist: entry.artist, album: entry.album)
+            + albumTracks.flatMap { AlbumIdentity.lookupCandidates(for: $0) }
+        return candidates.filter { identity in
+            seenKeys.insert(identity.key).inserted
+        }
     }
 
     static func groupTracksByAlbum(_ tracks: [Track]) -> [String: [Track]] {

@@ -175,4 +175,53 @@ struct WorkflowAlbumIdentityTests {
 
         #expect(Set(albumTracks.map(\.id)) == ["one", "two"])
     }
+
+    @Test("resolves guest pending entry through track-side album artist aliases")
+    func resolvesGuestPendingEntryThroughTrackSideAlbumArtistAliases() {
+        let tracks = [
+            Track(
+                id: "one",
+                name: "Get Lucky",
+                artist: "Pharrell Williams",
+                album: "Random Access Memories",
+                albumArtist: "Daft Punk"
+            ),
+        ]
+        let entry = PendingAlbumEntry(
+            id: "pharrell-williams-random-access-memories",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories",
+            reason: "suspicious_year_change"
+        )
+        let groups = WorkflowViewModel.groupTracksByAlbum(tracks)
+
+        let matchingTracks = WorkflowViewModel.tracksMatchingPendingEntries(tracks, entries: [entry])
+        let albumTracks = WorkflowViewModel.pendingAlbumTracks(for: entry, in: groups)
+
+        #expect(matchingTracks.map(\.id) == ["one"])
+        #expect(albumTracks.map(\.id) == ["one"])
+    }
+
+    @Test("pending cleanup includes entry and track album identity aliases")
+    func pendingCleanupIncludesEntryAndTrackAlbumIdentityAliases() {
+        let track = Track(
+            id: "one",
+            name: "Get Lucky",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories",
+            albumArtist: "Daft Punk"
+        )
+        let entry = PendingAlbumEntry(
+            id: "pharrell-williams-random-access-memories",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories",
+            reason: "suspicious_year_change"
+        )
+
+        let identities = WorkflowViewModel.pendingRemovalIdentities(entry: entry, albumTracks: [track])
+        let identityPairs = Set(identities.map { "\($0.artist)|\($0.album)" })
+
+        #expect(identityPairs.contains("Pharrell Williams|Random Access Memories"))
+        #expect(identityPairs.contains("Daft Punk|Random Access Memories"))
+    }
 }

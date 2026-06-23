@@ -12,12 +12,6 @@ private func makePendingCoordinator(
     year: Int?,
     confidence: Int
 ) async -> PendingCoordinatorFixture {
-    let bridge = MockAppleScriptClient()
-    let store = MockTrackStore()
-    let cache = MockCacheService()
-    let undoDir = FileManager.default.temporaryDirectory
-        .appendingPathComponent("UpdateCoordinatorPendingTests-\(UUID().uuidString)")
-    let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
     let yearScores: [Int: Int] = if let year {
         [year: confidence]
     } else {
@@ -29,6 +23,16 @@ private func makePendingCoordinator(
         yearScores: yearScores
     )
     let apiService = MockAPIService(yearResult: yearResult)
+    return await makePendingCoordinator(apiService: apiService)
+}
+
+private func makePendingCoordinator(apiService: any ExternalAPIService) async -> PendingCoordinatorFixture {
+    let bridge = MockAppleScriptClient()
+    let store = MockTrackStore()
+    let cache = MockCacheService()
+    let undoDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("UpdateCoordinatorPendingTests-\(UUID().uuidString)")
+    let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
     let orchestrator = makeAPIOrchestrator(
         musicBrainz: apiService,
         discogs: apiService,
@@ -53,15 +57,45 @@ private func makePendingTrack(
     name: String = "Track",
     artist: String,
     album: String,
-    year: Int?
+    year: Int?,
+    albumArtist: String? = nil
 ) -> Track {
     Track(
         id: id,
         name: name,
         artist: artist,
         album: album,
-        year: year
+        year: year,
+        albumArtist: albumArtist
     )
+}
+
+private struct PendingCanonicalAPIService: ExternalAPIService {
+    let probe: APIRequestProbe
+    let canonicalArtist: String
+    let canonicalAlbum: String
+    let year: Int
+
+    func getAlbumYear(
+        artist: String,
+        album: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> YearResult {
+        await probe.recordRequest(artist: artist, album: album)
+        guard artist == canonicalArtist, album == canonicalAlbum else {
+            return YearResult()
+        }
+        return YearResult(
+            year: year,
+            confidence: 100,
+            yearScores: [year: 100]
+        )
+    }
+
+    func initialize(force _: Bool) async throws {
+        try Task.checkCancellation()
+    }
 }
 
 @Suite("UpdateCoordinator - pending verification")
@@ -99,6 +133,43 @@ struct PendingVerificationCoordinatorTests {
         #expect(result.entries.count == 2)
         #expect(written.count == 2)
         #expect(written.allSatisfy { $0.property == "year" && $0.value == "1997" })
+    }
+
+    @Test("Verifies legacy pending entry through resolved album identity artist")
+    func verifiesLegacyPendingEntryThroughResolvedAlbumIdentityArtist() async throws {
+        let apiProbe = APIRequestProbe()
+        let fixture = await makePendingCoordinator(
+            apiService: PendingCanonicalAPIService(
+                probe: apiProbe,
+                canonicalArtist: "Daft Punk",
+                canonicalAlbum: "Random Access Memories",
+                year: 2013
+            )
+        )
+        let entry = PendingAlbumEntry(
+            id: "daft-punk-feat-pharrell-williams-random-access-memories",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            reason: "no_year_found"
+        )
+        let albumTracks = [
+            makePendingTrack(
+                id: "T1",
+                name: "Get Lucky",
+                artist: "Pharrell Williams",
+                album: "Random Access Memories",
+                year: nil,
+                albumArtist: "Daft Punk"
+            ),
+        ]
+
+        let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
+
+        let requests = await apiProbe.albumRequests
+        #expect(requests.first?.artist == "Daft Punk")
+        #expect(requests.first?.album == "Random Access Memories")
+        #expect(result.resolvedYear == 2013)
+        #expect(result.entries.map(\.trackID) == ["T1"])
     }
 
     @Test("Leaves album untouched when API has no year")
