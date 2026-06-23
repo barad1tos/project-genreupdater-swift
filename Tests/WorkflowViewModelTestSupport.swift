@@ -12,6 +12,7 @@ func makeWorkflowViewModel() -> WorkflowViewModel {
 @MainActor
 func makeWorkflowFixture(
     apiService: DashboardStateAPIService = DashboardStateAPIService(),
+    apiServices: APIOrchestratorServices? = nil,
     tier: Tier = .pro,
     failingWriteTrackIDs: Set<String> = [],
     noChangeWriteTrackIDs: Set<String> = [],
@@ -32,12 +33,13 @@ func makeWorkflowFixture(
     let cache = DashboardStateCacheService()
     var apiOrchestratorConfiguration = APIOrchestratorConfiguration()
     apiOrchestratorConfiguration.cache = cache
+    let resolvedAPIServices = apiServices ?? APIOrchestratorServices(
+        musicBrainz: apiService,
+        discogs: apiService,
+        appleMusic: apiService
+    )
     let apiOrchestrator = APIOrchestrator(
-        services: APIOrchestratorServices(
-            musicBrainz: apiService,
-            discogs: apiService,
-            appleMusic: apiService
-        ),
+        services: resolvedAPIServices,
         configuration: apiOrchestratorConfiguration
     )
     let undoCoordinator = UndoCoordinator(scriptBridge: scriptClient, directory: temporaryDirectory())

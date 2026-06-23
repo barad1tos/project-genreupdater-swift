@@ -1,4 +1,5 @@
 import Core
+import Services
 import Testing
 @testable import Genre_Updater
 
@@ -63,7 +64,11 @@ struct WorkflowPendingTests {
         )
         let pendingVerification = WorkflowPendingVerificationService(entries: [pendingEntry])
         let fixture = makeWorkflowFixture(
-            apiService: DashboardStateAPIService(year: 2013, confidence: 60, isDefinitive: false),
+            apiServices: APIOrchestratorServices(
+                musicBrainz: DashboardStateAPIService(year: 2013, confidence: 60, isDefinitive: false),
+                discogs: DashboardStateAPIService(),
+                appleMusic: DashboardStateAPIService()
+            ),
             pendingVerificationService: pendingVerification,
             idMapper: WorkflowTrackIDMapper(
                 enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(year: 2013),
