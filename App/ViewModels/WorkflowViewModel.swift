@@ -176,6 +176,7 @@ final class WorkflowViewModel {
     let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
     let invalidateAlbumYearCache: (() async -> Void)?
     let updateIncrementalRunTimestamp: (() async -> Void)?
+    let problematicAlbumReportMinAttempts: () -> Int
     var defaultUpdateGenre: Bool
     var defaultUpdateYear: Bool
     var defaultPreviewOnly: Bool
@@ -197,6 +198,7 @@ final class WorkflowViewModel {
         resolveIncrementalTracks = dependencies.resolveIncrementalTracks
         invalidateAlbumYearCache = dependencies.invalidateAlbumYearCache
         updateIncrementalRunTimestamp = dependencies.updateIncrementalRunTimestamp
+        problematicAlbumReportMinAttempts = dependencies.problematicAlbumReportMinAttempts
         defaultUpdateGenre = defaults.updateGenre
         defaultUpdateYear = defaults.updateYear
         defaultPreviewOnly = defaults.previewOnly

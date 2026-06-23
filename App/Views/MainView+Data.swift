@@ -196,6 +196,9 @@ extension MainView {
                 },
                 updateIncrementalRunTimestamp: {
                     await dependencies.incrementalRunTracker?.updateLastRunTimestamp()
+                },
+                problematicAlbumReportMinAttempts: {
+                    max(1, Int(dependencies.config.reporting.minAttemptsForReport.rounded()))
                 }
             ),
             defaults: WorkflowViewModel.Defaults(

@@ -22,6 +22,7 @@ func makeWorkflowFixture(
     ) async -> [Track] = { tracks, _ in tracks },
     pendingVerificationService: (any PendingVerificationService)? = nil,
     idMapper: (any TrackIDMapping)? = nil,
+    problematicAlbumReportMinAttempts: @escaping () -> Int = { 3 },
     invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {
@@ -70,7 +71,8 @@ func makeWorkflowFixture(
             featureGate: featureGate,
             resolveIncrementalTracks: resolveIncrementalTracks,
             invalidateAlbumYearCache: invalidateAlbumYearCache,
-            updateIncrementalRunTimestamp: updateIncrementalRunTimestamp
+            updateIncrementalRunTimestamp: updateIncrementalRunTimestamp,
+            problematicAlbumReportMinAttempts: problematicAlbumReportMinAttempts
         )
     )
 
@@ -101,13 +103,13 @@ func computeDelayedPendingScopePreview(
     viewModel: WorkflowViewModel,
     tracks: [Track],
     pendingSnapshotDelay: PendingSnapshotDelay
-) async {
+) async throws {
     let recordRefreshCompletion: @Sendable () async -> Void = {
         await pendingSnapshotDelay.recordDelayedPendingScopeRefreshCompletion()
     }
     await PendingScopeRefreshInstrumentation.$onRefreshCompleted.withValue(recordRefreshCompletion) {
         viewModel.computeScopePreview(tracks: tracks)
-        await pendingSnapshotDelay.waitForCapturedFirstSnapshot()
+        try await pendingSnapshotDelay.waitForCapturedFirstSnapshot()
     }
 }
 
@@ -442,23 +444,33 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
 }
 
 actor PendingSnapshotDelay {
+    private enum Timeout: Error, CustomStringConvertible {
+        case firstSnapshot
+        case delayedRefreshCompletion
+
+        var description: String {
+            switch self {
+            case .firstSnapshot:
+                "pending scope refresh did not capture its first snapshot before timeout"
+            case .delayedRefreshCompletion:
+                "delayed pending scope refresh did not complete before timeout"
+            }
+        }
+    }
+
+    private static let maximumWaitIterations = 200
     private var shouldDelayFirstSnapshot = true
     private var hasCapturedFirstSnapshot = false
     private var isFirstSnapshotReleased = false
     private var hasReturnedDelayedSnapshot = false
-    private var hasObservedProblematicCountAfterDelayedSnapshot = false
     private var hasCompletedDelayedPendingScopeRefresh = false
-    private var captureContinuations: [CheckedContinuation<Void, Never>] = []
     private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
-    private var problematicCountContinuations: [CheckedContinuation<Void, Never>] = []
-    private var refreshCompletionContinuations: [CheckedContinuation<Void, Never>] = []
 
     func waitAfterCapturingFirstSnapshot() async {
         guard shouldDelayFirstSnapshot else { return }
 
         shouldDelayFirstSnapshot = false
         hasCapturedFirstSnapshot = true
-        resumeAll(&captureContinuations)
 
         if !isFirstSnapshotReleased {
             await withCheckedContinuation { continuation in
@@ -468,12 +480,13 @@ actor PendingSnapshotDelay {
         hasReturnedDelayedSnapshot = true
     }
 
-    func waitForCapturedFirstSnapshot() async {
-        guard !hasCapturedFirstSnapshot else { return }
-
-        await withCheckedContinuation { continuation in
-            captureContinuations.append(continuation)
+    func waitForCapturedFirstSnapshot() async throws {
+        for _ in 0 ..< Self.maximumWaitIterations {
+            if hasCapturedFirstSnapshot { return }
+            try await Task.sleep(for: .milliseconds(10))
         }
+
+        throw Timeout.firstSnapshot
     }
 
     func releaseFirstSnapshot() {
@@ -482,41 +495,22 @@ actor PendingSnapshotDelay {
     }
 
     func recordProblematicCountRequest() {
-        guard hasReturnedDelayedSnapshot else { return }
-
-        hasObservedProblematicCountAfterDelayedSnapshot = true
-        resumeAll(&problematicCountContinuations)
-    }
-
-    func waitForProblematicCountAfterDelayedSnapshot() async {
-        guard !hasObservedProblematicCountAfterDelayedSnapshot else { return }
-
-        await withCheckedContinuation { continuation in
-            problematicCountContinuations.append(continuation)
-        }
+        // Hook retained for delayed snapshot tests that need the service call to stay observable.
     }
 
     func recordDelayedPendingScopeRefreshCompletion() {
         guard hasReturnedDelayedSnapshot else { return }
 
         hasCompletedDelayedPendingScopeRefresh = true
-        resumeAll(&refreshCompletionContinuations)
     }
 
-    func waitForDelayedPendingScopeRefreshCompletion() async {
-        guard !hasCompletedDelayedPendingScopeRefresh else { return }
-
-        await withCheckedContinuation { continuation in
-            refreshCompletionContinuations.append(continuation)
+    func waitForDelayedPendingScopeRefreshCompletion() async throws {
+        for _ in 0 ..< Self.maximumWaitIterations {
+            if hasCompletedDelayedPendingScopeRefresh { return }
+            try await Task.sleep(for: .milliseconds(10))
         }
-    }
 
-    private func resumeAll(_ continuations: inout [CheckedContinuation<Void, Never>]) {
-        let pendingContinuations = continuations
-        continuations.removeAll()
-        for continuation in pendingContinuations {
-            continuation.resume()
-        }
+        throw Timeout.delayedRefreshCompletion
     }
 }
 

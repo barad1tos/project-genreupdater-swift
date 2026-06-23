@@ -116,7 +116,7 @@ extension WorkflowViewModel {
         do {
             let snapshot = await pendingVerificationSnapshot()
             let problematicCount = await pendingVerificationService
-                .getProblematicPendingAlbums(minAttempts: 3)
+                .getProblematicPendingAlbums(minAttempts: resolvedProblematicAlbumReportMinAttempts)
                 .count
             let dueEntries = snapshot.due
             let trackContext = await pendingVerificationTrackContext(from: tracks)
@@ -284,7 +284,13 @@ extension WorkflowViewModel {
 
     private func problematicPendingAlbumCount() async -> Int {
         guard let pendingVerificationService else { return 0 }
-        return await pendingVerificationService.getProblematicPendingAlbums(minAttempts: 3).count
+        return await pendingVerificationService
+            .getProblematicPendingAlbums(minAttempts: resolvedProblematicAlbumReportMinAttempts)
+            .count
+    }
+
+    private var resolvedProblematicAlbumReportMinAttempts: Int {
+        max(1, problematicAlbumReportMinAttempts())
     }
 
     private func updatePendingScope(

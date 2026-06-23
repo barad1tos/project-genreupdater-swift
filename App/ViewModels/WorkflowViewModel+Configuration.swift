@@ -13,6 +13,7 @@ extension WorkflowViewModel {
         let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
         let invalidateAlbumYearCache: (() async -> Void)?
         let updateIncrementalRunTimestamp: (() async -> Void)?
+        let problematicAlbumReportMinAttempts: () -> Int
 
         init(
             updateCoordinator: UpdateCoordinator,
@@ -29,7 +30,8 @@ extension WorkflowViewModel {
                 IncrementalTrackScopeOptions
             ) async -> [Track] = { tracks, _ in tracks },
             invalidateAlbumYearCache: (() async -> Void)? = nil,
-            updateIncrementalRunTimestamp: (() async -> Void)? = nil
+            updateIncrementalRunTimestamp: (() async -> Void)? = nil,
+            problematicAlbumReportMinAttempts: @escaping () -> Int = { 3 }
         ) {
             self.updateCoordinator = updateCoordinator
             self.batchProcessor = batchProcessor
@@ -41,6 +43,7 @@ extension WorkflowViewModel {
             self.resolveIncrementalTracks = resolveIncrementalTracks
             self.invalidateAlbumYearCache = invalidateAlbumYearCache
             self.updateIncrementalRunTimestamp = updateIncrementalRunTimestamp
+            self.problematicAlbumReportMinAttempts = problematicAlbumReportMinAttempts
         }
     }
 

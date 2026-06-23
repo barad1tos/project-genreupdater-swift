@@ -196,7 +196,7 @@ struct WorkflowPendingTests {
         let viewModel = fixture.viewModel
         viewModel.mode = .pendingVerification
 
-        await computeDelayedPendingScopePreview(
+        try await computeDelayedPendingScopePreview(
             viewModel: viewModel,
             tracks: randomAccessMemoriesMusicKitTracks(),
             pendingSnapshotDelay: pendingSnapshotDelay
@@ -210,7 +210,7 @@ struct WorkflowPendingTests {
         #expect(finalSummary.problematic == 0)
 
         await pendingSnapshotDelay.releaseFirstSnapshot()
-        await pendingSnapshotDelay.waitForDelayedPendingScopeRefreshCompletion()
+        try await pendingSnapshotDelay.waitForDelayedPendingScopeRefreshCompletion()
 
         let summary = try #require(viewModel.pendingVerificationReportSummary)
         #expect(summary.total == 1)
@@ -264,13 +264,13 @@ struct WorkflowPendingTests {
         let viewModel = makeWorkflowFixture(pendingVerificationService: pendingVerification).viewModel
         viewModel.mode = .pendingVerification
 
-        await computeDelayedPendingScopePreview(
+        try await computeDelayedPendingScopePreview(
             viewModel: viewModel,
             tracks: [],
             pendingSnapshotDelay: pendingSnapshotDelay
         )
         await pendingSnapshotDelay.releaseFirstSnapshot()
-        await pendingSnapshotDelay.waitForDelayedPendingScopeRefreshCompletion()
+        try await pendingSnapshotDelay.waitForDelayedPendingScopeRefreshCompletion()
 
         let summary = try #require(viewModel.pendingVerificationReportSummary)
         #expect(summary.total == 3)
@@ -284,5 +284,54 @@ struct WorkflowPendingTests {
         viewModel.mode = .selectedTracks
         viewModel.start(tracks: [])
         #expect(viewModel.pendingVerificationReportSummary == nil)
+    }
+
+    @Test("uses configured problematic album threshold for pending report summaries")
+    func usesConfiguredProblematicAlbumThresholdForPendingReportSummaries() async throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let dueEntry = PendingAlbumEntry(
+            id: "daft-punk-random-access-memories",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            reason: "no_year_found"
+        )
+        let retryingEntry = PendingAlbumEntry(
+            id: "clutch-pure-rock-fury",
+            artist: "Clutch",
+            album: "Pure Rock Fury",
+            reason: "no_year_found"
+        )
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [dueEntry, retryingEntry],
+            dueEntries: [dueEntry],
+            problematicAlbums: [
+                ProblematicPendingAlbum(
+                    entry: retryingEntry,
+                    totalAttempts: 4,
+                    firstAttempt: now,
+                    lastAttempt: now,
+                    daysSinceFirstAttempt: 21
+                ),
+            ]
+        )
+        let viewModel = makeWorkflowFixture(
+            pendingVerificationService: pendingVerification,
+            problematicAlbumReportMinAttempts: { 5 }
+        ).viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.computeScopePreview(tracks: [])
+
+        for _ in 0 ..< 200 {
+            if let summary = viewModel.pendingVerificationReportSummary {
+                #expect(summary.total == 2)
+                #expect(summary.due == 1)
+                #expect(summary.problematic == 0)
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(Bool(false), "pending verification summary did not refresh before timeout")
     }
 }

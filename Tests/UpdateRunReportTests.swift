@@ -515,16 +515,6 @@ struct UpdateRunReportTests {
 
     @Test("models operational notes for mixed run health")
     func modelsOperationalNotesForMixedRunHealth() {
-        var changedYear = ChangeLogEntry(
-            changeType: .yearUpdate,
-            trackID: "done-track",
-            artist: "Clutch",
-            trackName: "Pure Rock Fury",
-            albumName: "Pure Rock Fury"
-        )
-        changedYear.oldYear = 1999
-        changedYear.newYear = 2001
-
         var unchangedGenre = ChangeLogEntry(
             changeType: .genreUpdate,
             trackID: "done-track",
@@ -535,35 +525,8 @@ struct UpdateRunReportTests {
         unchangedGenre.oldGenre = "Rock"
         unchangedGenre.newGenre = "Rock"
 
-        let report = UpdateRunReport(
-            result: nil,
-            completedEntries: [changedYear, unchangedGenre],
-            trackStatuses: [
-                "done-track": .done,
-                "failed-track": .failed("Write denied"),
-                "skipped-track": .skipped,
-            ],
-            tracks: [
-                Track(
-                    id: "done-track",
-                    name: "Pure Rock Fury",
-                    artist: "Clutch",
-                    album: "Pure Rock Fury"
-                ),
-                Track(
-                    id: "failed-track",
-                    name: "American Sleep",
-                    artist: "Clutch",
-                    album: "Pure Rock Fury"
-                ),
-                Track(
-                    id: "skipped-track",
-                    name: "Immortal",
-                    artist: "Clutch",
-                    album: "Pure Rock Fury"
-                ),
-            ],
-            testArtists: ["Clutch"]
+        let report = makeMixedRunHealthReport(
+            completedEntries: [makePureRockFuryYearChange(), unchangedGenre]
         )
 
         #expect(report.scannedTrackCount == 3)
@@ -579,45 +542,8 @@ struct UpdateRunReportTests {
 
     @Test("plain text summary includes operational notes and detailed report sections")
     func plainTextSummaryIncludesOperationalNotesAndDetailedReportSections() {
-        var changedYear = ChangeLogEntry(
-            changeType: .yearUpdate,
-            trackID: "done-track",
-            artist: "Clutch",
-            trackName: "Pure Rock Fury",
-            albumName: "Pure Rock Fury"
-        )
-        changedYear.oldYear = 1999
-        changedYear.newYear = 2001
-
-        let report = UpdateRunReport(
-            result: nil,
-            completedEntries: [changedYear],
-            trackStatuses: [
-                "done-track": .done,
-                "failed-track": .failed("Write denied"),
-                "skipped-track": .skipped,
-            ],
-            tracks: [
-                Track(
-                    id: "done-track",
-                    name: "Pure Rock Fury",
-                    artist: "Clutch",
-                    album: "Pure Rock Fury"
-                ),
-                Track(
-                    id: "failed-track",
-                    name: "American Sleep",
-                    artist: "Clutch",
-                    album: "Pure Rock Fury"
-                ),
-                Track(
-                    id: "skipped-track",
-                    name: "Immortal",
-                    artist: "Clutch",
-                    album: "Pure Rock Fury"
-                ),
-            ],
-            testArtists: ["Clutch"],
+        let report = makeMixedRunHealthReport(
+            completedEntries: [makePureRockFuryYearChange()],
             displayMode: .detailed
         )
 
@@ -752,5 +678,55 @@ struct UpdateRunReportTests {
             entry.newYear = newYear
             return entry
         }
+    }
+
+    private func makePureRockFuryYearChange() -> ChangeLogEntry {
+        var changedYear = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "done-track",
+            artist: "Clutch",
+            trackName: "Pure Rock Fury",
+            albumName: "Pure Rock Fury"
+        )
+        changedYear.oldYear = 1999
+        changedYear.newYear = 2001
+        return changedYear
+    }
+
+    private func makeMixedRunHealthReport(
+        completedEntries: [ChangeLogEntry],
+        displayMode: ReportDisplayMode = .compact
+    ) -> UpdateRunReport {
+        UpdateRunReport(
+            result: nil,
+            completedEntries: completedEntries,
+            trackStatuses: [
+                "done-track": .done,
+                "failed-track": .failed("Write denied"),
+                "skipped-track": .skipped,
+            ],
+            tracks: [
+                Track(
+                    id: "done-track",
+                    name: "Pure Rock Fury",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+                Track(
+                    id: "failed-track",
+                    name: "American Sleep",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+                Track(
+                    id: "skipped-track",
+                    name: "Immortal",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+            ],
+            testArtists: ["Clutch"],
+            displayMode: displayMode
+        )
     }
 }
