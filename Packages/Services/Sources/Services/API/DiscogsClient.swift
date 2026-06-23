@@ -171,7 +171,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
 
         var candidates: [ReleaseCandidate] = []
         for result in response.results {
-            if let candidate = await releaseCandidate(from: result, artist: artist, album: album) {
+            if let candidate = try await releaseCandidate(from: result, artist: artist, album: album) {
                 candidates.append(candidate)
             }
         }
@@ -304,15 +304,20 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         from result: DiscogsSearchResult,
         artist: String,
         album: String
-    ) async -> ReleaseCandidate? {
-        let canonicalRelease = await fetchCandidateMasterRelease(for: result)
-        guard let year = canonicalRelease?.year ?? result.releaseYear,
+    ) async throws -> ReleaseCandidate? {
+        let canonicalRelease = try await fetchCandidateMasterRelease(for: result)
+        let canonicalYear = canonicalRelease?.year.flatMap { $0 > 0 ? $0 : nil }
+        guard let year = canonicalYear ?? result.releaseYear,
               year > 0 else {
             return nil
         }
 
         let formats = result.format ?? []
-        let albumTitle = Self.albumTitle(from: result.title, fallback: album)
+        let isUsingCanonicalYear = canonicalYear != nil
+        let albumTitle = Self.albumTitle(
+            from: isUsingCanonicalYear ? canonicalRelease?.title ?? result.title : result.title,
+            fallback: album
+        )
         return ReleaseCandidate(
             artist: artist,
             album: albumTitle,
@@ -321,23 +326,19 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             releaseType: Self.releaseType(from: formats),
             status: .official,
             country: result.country?.lowercased(),
-            isReissue: Self.isReissue(formats: formats, title: albumTitle),
+            isReissue: Self.isReissue(
+                formats: isUsingCanonicalYear ? [] : formats,
+                title: albumTitle
+            ),
             genre: Self.genre(from: canonicalRelease, result: result)
         )
     }
 
     private func fetchCandidateMasterRelease( // swiftlint:disable:this inclusive_language
         for result: DiscogsSearchResult
-    ) async -> DiscogsMasterRelease? {
+    ) async throws -> DiscogsMasterRelease? {
         guard let canonicalID = result.masterID else { return nil }
-        do {
-            return try await fetchMasterRelease(releaseID: canonicalID)
-        } catch {
-            log.debug(
-                "Discogs canonical lookup failed for release \(result.id, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
-            return nil
-        }
+        return try await fetchMasterRelease(releaseID: canonicalID)
     }
 
     // Fetches master release details and extracts the year.

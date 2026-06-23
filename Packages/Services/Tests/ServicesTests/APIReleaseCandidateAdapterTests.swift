@@ -11,25 +11,41 @@ private let musicBrainzReleaseGroupPathComponents = ["ws", "2", "release-group"]
 struct APIReleaseCandidateAdapterTests {
     @Test("MusicBrainz returns release candidates from release groups")
     func musicBrainzReleaseCandidates() async throws {
-        let client = makeMockMusicBrainzClient(json: """
-            {
-              "release-groups": [
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            let requestPathComponents = Array(url.pathComponents.dropFirst())
+
+            if requestPathComponents == musicBrainzReleaseGroupPathComponents {
+                let json = """
                 {
-                  "id": "rg-1",
-                  "title": "Test Album",
-                  "first-release-date": "1998-01-01",
-                  "primary-type": "Album"
-                },
-                {
-                  "id": "rg-2",
-                  "title": "Test Album (Remastered)",
-                  "first-release-date": "2020-01-01",
-                  "primary-type": "Album"
+                  "release-groups": [
+                    {
+                      "id": "rg-1",
+                      "title": "Test Album",
+                      "first-release-date": "1998-01-01",
+                      "primary-type": "Album"
+                    },
+                    {
+                      "id": "rg-2",
+                      "title": "Test Album (Remastered)",
+                      "first-release-date": "2020-01-01",
+                      "primary-type": "Album"
+                    }
+                  ]
                 }
-              ]
+                """
+                return try (jsonResponse(url: url), Data(json.utf8))
             }
-            """
-        )
+
+            if requestPathComponents == musicBrainzReleasePathComponents {
+                return try (jsonResponse(url: url), Data(#"{"releases":[]}"#.utf8))
+            }
+
+            throw URLError(.badURL)
+        }
+        defer { APIReleaseCandidateMockURLProtocol.requestHandler = nil }
+
+        let client = makeMockMusicBrainzClient()
 
         let candidates = try await client.getReleaseCandidates(
             artist: "Test Artist",
@@ -111,15 +127,133 @@ struct APIReleaseCandidateAdapterTests {
         #expect(candidate.mbReleaseGroupFirstYear == 1998)
     }
 
+    @Test("MusicBrainz release candidates keep groups beyond detail lookup cap")
+    func musicBrainzReleaseCandidatesKeepUndetailedGroups() async throws {
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url,
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                throw URLError(.badURL)
+            }
+
+            let requestPathComponents = Array(url.pathComponents.dropFirst())
+            if requestPathComponents == musicBrainzReleaseGroupPathComponents {
+                let json = """
+                {
+                  "release-groups": [
+                    {
+                      "id": "rg-1",
+                      "title": "Search Hit 1",
+                      "first-release-date": "2011-01-01",
+                      "primary-type": "Album"
+                    },
+                    {
+                      "id": "rg-2",
+                      "title": "Search Hit 2",
+                      "first-release-date": "2012-01-01",
+                      "primary-type": "Album"
+                    },
+                    {
+                      "id": "rg-3",
+                      "title": "Search Hit 3",
+                      "first-release-date": "2013-01-01",
+                      "primary-type": "Album"
+                    },
+                    {
+                      "id": "rg-4",
+                      "title": "Original Album",
+                      "first-release-date": "1998-01-01",
+                      "primary-type": "Album"
+                    }
+                  ]
+                }
+                """
+                return try (jsonResponse(url: url), Data(json.utf8))
+            }
+
+            let queryItems = components.queryItems ?? []
+            if requestPathComponents == musicBrainzReleasePathComponents,
+               let releaseGroupID = queryItems.first(where: { $0.name == "release-group" })?.value,
+               ["rg-1", "rg-2", "rg-3"].contains(releaseGroupID) {
+                return try (jsonResponse(url: url), Data(#"{"releases":[]}"#.utf8))
+            }
+
+            throw URLError(.badURL)
+        }
+        defer { APIReleaseCandidateMockURLProtocol.requestHandler = nil }
+
+        let client = makeMockMusicBrainzClient()
+        let candidates = try await client.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Original Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.map(\.mbReleaseGroupID) == ["rg-1", "rg-2", "rg-3", "rg-4"])
+        #expect(candidates.map(\.year) == [2011, 2012, 2013, 1998])
+    }
+
+    @Test("MusicBrainz release detail HTTP failure is surfaced")
+    func musicBrainzReleaseDetailHTTPFailureIsSurfaced() async throws {
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            let requestPathComponents = Array(url.pathComponents.dropFirst())
+
+            if requestPathComponents == musicBrainzReleaseGroupPathComponents {
+                let json = """
+                {
+                  "release-groups": [
+                    {
+                      "id": "rg-1",
+                      "title": "Test Album",
+                      "first-release-date": "1998-01-01",
+                      "primary-type": "Album"
+                    }
+                  ]
+                }
+                """
+                return try (jsonResponse(url: url), Data(json.utf8))
+            }
+
+            if requestPathComponents == musicBrainzReleasePathComponents {
+                return try (jsonResponse(url: url, statusCode: 503), Data("{}".utf8))
+            }
+
+            throw URLError(.badURL)
+        }
+        defer { APIReleaseCandidateMockURLProtocol.requestHandler = nil }
+
+        let client = makeMockMusicBrainzClient()
+
+        await #expect(throws: MusicBrainzError.self) {
+            try await client.getReleaseCandidates(
+                artist: "Test Artist",
+                album: "Test Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+    }
+
     @Test("MusicBrainz retries non-Latin release group search with canonical artist")
     func musicBrainzCanonicalArtistFallbackForNonLatinArtist() async throws {
         APIReleaseCandidateMockURLProtocol.requestedQueries = []
         APIReleaseCandidateMockURLProtocol.requestHandler = { request in
-            let (url, query) = try musicBrainzQuery(from: request)
+            guard let url = request.url,
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                throw URLError(.badURL)
+            }
+            let requestPathComponents = Array(url.pathComponents.dropFirst())
+
+            if requestPathComponents == musicBrainzReleasePathComponents,
+               components.queryItems?.contains(where: { $0.name == "release-group" && $0.value == "rg-pal" }) == true {
+                return try (jsonResponse(url: url), Data(#"{"releases":[]}"#.utf8))
+            }
+
+            let (_, query) = try musicBrainzQuery(from: request)
             APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
 
             let json: String
-            let requestPathComponents = Array(url.pathComponents.dropFirst())
             let isOriginalReleaseGroupQuery = requestPathComponents == musicBrainzReleaseGroupPathComponents
                 && query.contains("artist:\"паліндром\"")
             let isCanonicalArtistQuery = requestPathComponents == musicBrainzArtistPathComponents
@@ -301,8 +435,108 @@ struct APIReleaseCandidateAdapterTests {
 
         let candidate = try #require(candidates.first)
         #expect(candidate.year == 1998)
-        #expect(candidate.isReissue)
+        #expect(!candidate.isReissue)
         #expect(candidate.genre == "Rock")
+    }
+
+    @Test("Discogs release candidates fall back when canonical year is invalid")
+    func discogsReleaseCandidatesFallbackFromInvalidCanonicalYear() async throws {
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            let pathComponents = Array(url.pathComponents.dropFirst())
+
+            if pathComponents == ["database", "search"] {
+                let json = """
+                {
+                  "results": [
+                    {
+                      "id": 2,
+                      "title": "Test Artist - Test Album",
+                      "year": 2020,
+                      "type": "release",
+                      "master_id": 42,
+                      "country": "US",
+                      "format": ["Album"]
+                    }
+                  ]
+                }
+                """
+                return try (jsonResponse(url: url), Data(json.utf8))
+            }
+
+            if pathComponents == ["masters", "42"] {
+                let json = """
+                {
+                  "id": 42,
+                  "title": "Test Album",
+                  "year": 0,
+                  "genres": [],
+                  "styles": [],
+                  "artists": [{ "id": 1, "name": "Test Artist" }]
+                }
+                """
+                return try (jsonResponse(url: url), Data(json.utf8))
+            }
+
+            throw URLError(.badURL)
+        }
+        defer { APIReleaseCandidateMockURLProtocol.requestHandler = nil }
+
+        let client = DiscogsClient(token: "test-token", session: makeMockSession(json: "{}"))
+        let candidates = try await client.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Test Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        let candidate = try #require(candidates.first)
+        #expect(candidate.year == 2020)
+    }
+
+    @Test("Discogs canonical detail rate limit is surfaced")
+    func discogsCanonicalDetailRateLimitIsSurfaced() async throws {
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            let pathComponents = Array(url.pathComponents.dropFirst())
+
+            if pathComponents == ["database", "search"] {
+                let json = """
+                {
+                  "results": [
+                    {
+                      "id": 2,
+                      "title": "Test Artist - Test Album",
+                      "year": 2020,
+                      "type": "release",
+                      "master_id": 42,
+                      "country": "US",
+                      "format": ["Album"]
+                    }
+                  ]
+                }
+                """
+                return try (jsonResponse(url: url), Data(json.utf8))
+            }
+
+            if pathComponents == ["masters", "42"] {
+                return try (jsonResponse(url: url, statusCode: 429), Data("{}".utf8))
+            }
+
+            throw URLError(.badURL)
+        }
+        defer { APIReleaseCandidateMockURLProtocol.requestHandler = nil }
+
+        let client = DiscogsClient(token: "test-token", session: makeMockSession(json: "{}"))
+
+        await #expect(throws: DiscogsError.self) {
+            try await client.getReleaseCandidates(
+                artist: "Test Artist",
+                album: "Test Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
     }
 }
 
@@ -331,10 +565,10 @@ private func musicBrainzQuery(from request: URLRequest) throws -> (url: URL, que
     return (url, query)
 }
 
-private func jsonResponse(url: URL) throws -> HTTPURLResponse {
+private func jsonResponse(url: URL, statusCode: Int = 200) throws -> HTTPURLResponse {
     guard let response = HTTPURLResponse(
         url: url,
-        statusCode: 200,
+        statusCode: statusCode,
         httpVersion: nil,
         headerFields: ["Content-Type": "application/json"]
     ) else {
