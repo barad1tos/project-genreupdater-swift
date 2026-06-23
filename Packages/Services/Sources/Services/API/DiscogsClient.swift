@@ -132,7 +132,10 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             }
         }
 
-        if let year = try await firstSearchResultYear(from: response.results) {
+        if let year = try await firstSearchResultYear(
+            from: response.results,
+            allowsReleaseDetailLookup: false
+        ) {
             return YearResult(
                 year: year,
                 isDefinitive: false,
@@ -151,11 +154,10 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             return YearResult()
         }
 
-        let releaseData = try await fetchWithRateLimit(url: releaseURL)
-        let releaseResponse = try JSONDecoder().decode(
-            DiscogsSearchResponse.self,
-            from: releaseData
-        )
+        guard let releaseResponse = try await fallbackSearchResponse(url: releaseURL) else {
+            log.debug("No Discogs results for \(artist, privacy: .private) - \(album, privacy: .private)")
+            return YearResult()
+        }
 
         guard let releaseYear = try await firstSearchResultYear(from: releaseResponse.results) else {
             log.debug("No Discogs results for \(artist, privacy: .private) - \(album, privacy: .private)")
@@ -357,11 +359,18 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         result.type.localizedCaseInsensitiveCompare("release") == .orderedSame && result.id > 0
     }
 
-    private func firstSearchResultYear(from results: [DiscogsSearchResult]) async throws -> Int? {
+    private func firstSearchResultYear(
+        from results: [DiscogsSearchResult],
+        allowsReleaseDetailLookup: Bool = true
+    ) async throws -> Int? {
         var detailLookupCount = 0
         for result in results {
             if let year = Self.validYear(result.releaseYear) {
                 return year
+            }
+
+            guard allowsReleaseDetailLookup else {
+                continue
             }
 
             let detail = try await releaseDetailYearIfNeeded(
@@ -389,6 +398,34 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         }
 
         return try await (fetchReleaseDetailYear(releaseID: result.id), true)
+    }
+
+    private func fallbackSearchResponse(url: URL) async throws -> DiscogsSearchResponse? {
+        do {
+            let data = try await fetchWithRateLimit(url: url)
+            return try JSONDecoder().decode(
+                DiscogsSearchResponse.self,
+                from: data
+            )
+        } catch let error as DiscogsError {
+            switch error {
+            case .httpError:
+                log.debug("Discogs fallback search unavailable: \(error.localizedDescription, privacy: .public)")
+                return nil
+            case .noToken, .invalidResponse, .unauthorized, .rateLimited:
+                throw error
+            }
+        } catch let error as DecodingError {
+            log.debug("Discogs fallback search decoding failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        } catch let error as CancellationError {
+            throw error
+        } catch let error as URLError where error.code == .cancelled {
+            throw error
+        } catch let error as URLError {
+            log.debug("Discogs fallback search transport failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     private func releaseCandidate(
@@ -464,6 +501,10 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
                 "Discogs release detail \(releaseID, privacy: .public) decoding failed: \(error.localizedDescription, privacy: .public)"
             )
             return nil
+        } catch let error as CancellationError {
+            throw error
+        } catch let error as URLError where error.code == .cancelled {
+            throw error
         } catch let error as URLError {
             log.debug(
                 "Discogs release detail \(releaseID, privacy: .public) transport failed: \(error.localizedDescription, privacy: .public)"
