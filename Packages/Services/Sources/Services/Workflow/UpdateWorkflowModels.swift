@@ -25,9 +25,33 @@ public struct BatchUpdateResult: Sendable {
 public struct PendingAlbumVerificationResult: Sendable {
     public let entries: [ChangeLogEntry]
     public let resolvedYear: Int?
+    public let unchangedTrackIDs: [String]
+    public let failedTrackIDs: [String]
+    public let errorDescriptions: [String]
+    public let canClearPendingEntry: Bool
+
+    public init(
+        entries: [ChangeLogEntry],
+        resolvedYear: Int?,
+        unchangedTrackIDs: [String] = [],
+        failedTrackIDs: [String] = [],
+        errorDescriptions: [String] = [],
+        canClearPendingEntry: Bool = false
+    ) {
+        self.entries = entries
+        self.resolvedYear = resolvedYear
+        self.unchangedTrackIDs = unchangedTrackIDs
+        self.failedTrackIDs = failedTrackIDs
+        self.errorDescriptions = errorDescriptions
+        self.canClearPendingEntry = canClearPendingEntry
+    }
 
     public var didResolveYear: Bool {
         resolvedYear != nil
+    }
+
+    public var hasFailures: Bool {
+        !failedTrackIDs.isEmpty
     }
 }
 

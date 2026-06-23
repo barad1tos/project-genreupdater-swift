@@ -120,6 +120,11 @@ struct APISearchQuery {
     let album: String
 }
 
+struct PendingAlbumYearLookup {
+    let result: YearResult
+    let didAttemptLookup: Bool
+}
+
 func makeAPISearchQuery(artist: String, album: String) -> APISearchQuery {
     let albumWithoutQuotes = album
         .replacingOccurrences(of: "\"", with: "")
@@ -232,11 +237,44 @@ public actor APIOrchestrator {
         artist: String,
         album: String,
         currentLibraryYear: Int?,
-        earliestTrackAddedYear: Int?
+        earliestTrackAddedYear: Int?,
+        pendingRemovalAliases: [(artist: String, album: String)] = []
     ) async -> YearResult {
+        let lookup = await getAlbumYearInternal(
+            artist: artist,
+            album: album,
+            currentLibraryYear: currentLibraryYear,
+            earliestTrackAddedYear: earliestTrackAddedYear,
+            pendingRemovalAliases: pendingRemovalAliases
+        )
+        return lookup.result
+    }
+
+    func getAlbumYearForPendingVerification(
+        artist: String,
+        album: String,
+        currentLibraryYear: Int?,
+        earliestTrackAddedYear: Int?
+    ) async -> PendingAlbumYearLookup {
+        await getAlbumYearInternal(
+            artist: artist,
+            album: album,
+            currentLibraryYear: currentLibraryYear,
+            earliestTrackAddedYear: earliestTrackAddedYear,
+            pendingRemovalAliases: nil
+        )
+    }
+
+    private func getAlbumYearInternal(
+        artist: String,
+        album: String,
+        currentLibraryYear: Int?,
+        earliestTrackAddedYear: Int?,
+        pendingRemovalAliases: [(artist: String, album: String)]?
+    ) async -> PendingAlbumYearLookup {
         if let reachability, await !reachability.isConnected {
             log.info("Skipping API calls: network offline")
-            return YearResult()
+            return PendingAlbumYearLookup(result: YearResult(), didAttemptLookup: false)
         }
 
         let signpostState = AppSignpost.apiCall.beginInterval("orchestrateAlbumYear")
@@ -267,18 +305,22 @@ public actor APIOrchestrator {
 
         let results = await fetchSourceResults(sources: sources, query: query)
         let apiResult = Self.aggregateResults(results, orderedSources: activeSources)
-        await PendingVerificationSync.synchronize(
-            service: pendingVerificationService,
-            albumKey: (artist, album),
-            currentLibraryYear: currentLibraryYear,
-            maxVerificationAttempts: maxVerificationAttempts,
-            result: apiResult
-        )
-        return Self.applyingCurrentLibraryFallback(
+        if let pendingRemovalAliases {
+            await PendingVerificationSync.synchronize(
+                service: pendingVerificationService,
+                albumKey: (artist, album),
+                albumAliases: pendingRemovalAliases,
+                currentLibraryYear: currentLibraryYear,
+                maxVerificationAttempts: maxVerificationAttempts,
+                result: apiResult
+            )
+        }
+        let result = Self.applyingCurrentLibraryFallback(
             to: apiResult,
             currentLibraryYear: currentLibraryYear,
             earliestTrackAddedYear: earliestTrackAddedYear
         )
+        return PendingAlbumYearLookup(result: result, didAttemptLookup: true)
     }
 
     // MARK: - Private
@@ -665,11 +707,10 @@ private func normalizeAPIQueryName(_ name: String) -> String {
         normalized = normalized.replacingOccurrences(of: oldValue, with: newValue)
     }
 
-    normalized = replacingMatches(
-        in: normalized,
-        pattern: #"\s*\+\s+\d+.*$"#,
-        with: ""
-    )
+    if let regex = try? NSRegularExpression(pattern: "\\s*\\+\\s+\\d+.*$") {
+        let range = NSRange(normalized.startIndex ..< normalized.endIndex, in: normalized)
+        normalized = regex.stringByReplacingMatches(in: normalized, range: range, withTemplate: "")
+    }
 
     if let slashRange = normalized.range(of: " / ") {
         normalized = String(normalized[..<slashRange.lowerBound])
@@ -679,22 +720,11 @@ private func normalizeAPIQueryName(_ name: String) -> String {
 }
 
 private func stripParentheticalText(from text: String) -> String {
-    replacingMatches(
-        in: text,
-        pattern: #"\s*\([^)]*\)"#,
-        with: ""
-    )
-    .trimmingCharacters(in: .whitespacesAndNewlines)
-}
-
-private func replacingMatches(in text: String, pattern: String, with replacement: String) -> String {
+    let pattern = "\\s*\\([^)]*\\)"
     guard let regex = try? NSRegularExpression(pattern: pattern) else {
-        return text
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     let range = NSRange(text.startIndex ..< text.endIndex, in: text)
-    return regex.stringByReplacingMatches(
-        in: text,
-        range: range,
-        withTemplate: replacement
-    )
+    let strippedText = regex.stringByReplacingMatches(in: text, range: range, withTemplate: "")
+    return strippedText.trimmingCharacters(in: .whitespacesAndNewlines)
 }

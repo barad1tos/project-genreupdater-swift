@@ -153,6 +153,31 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(await afterRecheck.isVerificationNeeded(artist: "Slowdive", album: "Everything Is Alive"))
     }
 
+    @Test("Generic pending marks preserve existing prerelease reason")
+    func genericPendingMarksPreserveExistingPrereleaseReason() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let service = SwiftDataPendingVerificationService(
+            modelContainer: container,
+            legacyStorageURL: nil,
+            problematicReportURL: directory.appendingPathComponent("problematic.csv"),
+            verificationIntervalDays: 30,
+            prereleaseRecheckDays: 7,
+            currentDate: { baseDate }
+        )
+        await service.markForVerification(artist: "Daft Punk", album: "Future Memories", reason: "prerelease")
+        await service.markForVerification(artist: "Daft Punk", album: "Future Memories", reason: "no_year_found")
+
+        let entry = try #require(await service.getEntry(artist: "Daft Punk", album: "Future Memories"))
+        #expect(entry.reason == "prerelease")
+        #expect(entry.attemptCount == 2)
+        #expect(entry.recheckInterval == 7 * day)
+        #expect(entry.metadata["recheck_days"] == "7")
+    }
+
     @Test("Due pending albums use each entry's effective recheck interval")
     func duePendingAlbumsUseEffectiveRecheckInterval() async throws {
         let directory = try makeTempDirectory()

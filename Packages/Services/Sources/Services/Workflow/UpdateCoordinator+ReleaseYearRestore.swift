@@ -19,7 +19,7 @@ extension UpdateCoordinator {
                 phase: .updating,
                 current: index + 1,
                 total: candidates.count,
-                message: "\(track.artist) - \(track.album)"
+                message: "\(track.albumIdentity.artist) - \(track.album)"
             ))
 
             guard let releaseYear = consensusByAlbum[Self.albumKey(for: track)] else { continue }
@@ -73,10 +73,7 @@ extension UpdateCoordinator {
     }
 
     static func albumKey(for track: Track) -> String {
-        [
-            track.artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-            track.album.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-        ].joined(separator: "\u{1F}")
+        AlbumIdentity.key(for: track)
     }
 
     private static func shouldRestoreReleaseYear(for track: Track, threshold: Int) -> Bool {

@@ -100,7 +100,7 @@ extension UpdateCoordinator {
             return .change(localChange)
         }
 
-        let cachedAlbumYear = await cache.getAlbumYear(artist: track.artist, album: track.album)
+        let cachedAlbumYear = await cachedAlbumYear(for: track)
         if !hasAmbiguousReleaseYearSignal,
            let cachedDecision = cachedYearShortcutDecision(
                track: track,
@@ -128,6 +128,15 @@ extension UpdateCoordinator {
         }
 
         return .continueToAPI
+    }
+
+    private func cachedAlbumYear(for track: Track) async -> AlbumCacheEntry? {
+        for identity in AlbumIdentity.lookupCandidates(for: track) {
+            if let entry = await cache.getAlbumYear(artist: identity.artist, album: identity.album) {
+                return entry
+            }
+        }
+        return nil
     }
 
     private func cachedYearShortcutDecision(
@@ -166,21 +175,26 @@ extension UpdateCoordinator {
 
     private func shouldSkipRecentFallbackRejection(track: Track) async -> Bool {
         guard let pendingVerificationService else { return false }
-        guard let entry = await pendingVerificationService.getEntry(
-            artist: track.artist,
-            album: track.album
-        ) else {
-            return false
-        }
-        guard Self.fallbackRejectionReasons.contains(entry.reason) else {
-            return false
-        }
+        for identity in AlbumIdentity.lookupCandidates(for: track) {
+            guard let entry = await pendingVerificationService.getEntry(
+                artist: identity.artist,
+                album: identity.album
+            ) else {
+                continue
+            }
+            guard Self.fallbackRejectionReasons.contains(entry.reason) else {
+                continue
+            }
 
-        let isVerificationNeeded = await pendingVerificationService.isVerificationNeeded(
-            artist: track.artist,
-            album: track.album
-        )
-        return !isVerificationNeeded
+            let isVerificationNeeded = await pendingVerificationService.isVerificationNeeded(
+                artist: identity.artist,
+                album: identity.album
+            )
+            if !isVerificationNeeded {
+                return true
+            }
+        }
+        return false
     }
 
     private func shouldSkipYearLookupFromCachedAlbumYear(
@@ -291,25 +305,30 @@ extension UpdateCoordinator {
         ignoreLocalAlbumYears: Bool = false
     ) async -> (yearResult: YearResult, sourceLabel: String) {
         let earliestTrackAddedYear = earliestAddedYear(albumTracks)
+        let identity = track.albumIdentity
         let apiCandidates = await apiOrchestrator.getReleaseCandidates(
-            artist: track.artist,
-            album: track.album,
+            artist: identity.artist,
+            album: identity.album,
             currentLibraryYear: track.year,
             earliestTrackAddedYear: earliestTrackAddedYear
         )
 
         guard !apiCandidates.isEmpty else {
+            let pendingRemovalAliases = AlbumIdentity.lookupCandidates(for: track).map {
+                (artist: $0.artist, album: $0.album)
+            }
             let yearResult = await apiOrchestrator.getAlbumYear(
-                artist: track.artist,
-                album: track.album,
+                artist: identity.artist,
+                album: identity.album,
                 currentLibraryYear: track.year,
-                earliestTrackAddedYear: earliestTrackAddedYear
+                earliestTrackAddedYear: earliestTrackAddedYear,
+                pendingRemovalAliases: pendingRemovalAliases
             )
             return (yearResult, yearResult.isDefinitive ? "Definitive" : "API")
         }
 
         let artistActivityPeriod = await apiOrchestrator.getArtistActivityPeriod(
-            normalizedArtist: normalizeForMatching(track.effectiveArtist)
+            normalizedArtist: normalizeForMatching(identity.artist)
         )
         let scoringAlbumTracks = ignoreLocalAlbumYears ? [] : albumTracks
         let determination = yearDeterminator.determineYear(
@@ -357,9 +376,10 @@ extension UpdateCoordinator {
         }
 
         if apiDetermination.yearResult.confidence >= runtimeConfiguration.minimumConfidenceToCache {
+            let identity = track.albumIdentity
             await cache.storeAlbumYear(
-                artist: track.artist,
-                album: track.album,
+                artist: identity.artist,
+                album: identity.album,
                 year: year,
                 confidence: apiDetermination.yearResult.confidence
             )
@@ -390,9 +410,10 @@ extension UpdateCoordinator {
             return nil
         }
 
+        let identity = track.albumIdentity
         await pendingVerificationService?.markForVerification(
-            artist: track.artist,
-            album: track.album,
+            artist: identity.artist,
+            album: identity.album,
             reason: "stale_api_data_for_fresh_album",
             metadata: [
                 "current_year": String(currentYear),

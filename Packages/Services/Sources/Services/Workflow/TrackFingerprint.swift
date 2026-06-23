@@ -36,6 +36,7 @@ public enum TrackFingerprint {
             track.genre ?? "",
             year,
             releaseYear,
+            processingAvailabilityMarker(for: track),
         ]
         if includesTrackStatus {
             payloadFields.append(track.trackStatus ?? "")
@@ -44,5 +45,15 @@ public enum TrackFingerprint {
 
         let digest = SHA256.hash(data: Data(payload.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func processingAvailabilityMarker(for track: Track) -> String {
+        guard let kind = track.kind else {
+            return "available"
+        }
+        guard !kind.isAvailableForProcessing else {
+            return "available"
+        }
+        return kind.rawValue
     }
 }

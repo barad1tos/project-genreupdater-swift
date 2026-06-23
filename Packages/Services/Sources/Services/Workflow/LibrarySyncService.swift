@@ -408,8 +408,8 @@ public actor LibrarySyncService {
             else {
                 continue
             }
-            candidates.append((artist: stored.artist, album: stored.album))
-            candidates.append((artist: current.artist, album: current.album))
+            candidates.append(contentsOf: cacheInvalidationTargets(for: stored))
+            candidates.append(contentsOf: cacheInvalidationTargets(for: current))
         }
 
         let removedIDSet = Set(removedTrackIDs)
@@ -421,13 +421,18 @@ public actor LibrarySyncService {
 
     private func cacheInvalidationTargets(removedTracks: [Track]) -> [(artist: String, album: String)] {
         normalizedCacheInvalidationTargets(
-            removedTracks.map { (artist: $0.artist, album: $0.album) }
+            removedTracks.flatMap { cacheInvalidationTargets(for: $0) }
         )
     }
 
     private func hasIdentityChanged(current: Track, stored: Track) -> Bool {
-        normalizeForMatching(current.artist) != normalizeForMatching(stored.artist)
-            || normalizeForMatching(current.album) != normalizeForMatching(stored.album)
+        Set(AlbumIdentity.lookupKeys(for: current)) != Set(AlbumIdentity.lookupKeys(for: stored))
+    }
+
+    private func cacheInvalidationTargets(for track: Track) -> [(artist: String, album: String)] {
+        AlbumIdentity.lookupCandidates(for: track).map { identity in
+            (artist: identity.artist, album: identity.album)
+        }
     }
 
     private func removeResolvedPrereleasePendingEntries(
@@ -436,29 +441,47 @@ public actor LibrarySyncService {
     ) async throws {
         guard let pendingVerificationService else { return }
 
-        let transitionedAlbums = modifiedTracks.compactMap { current -> (artist: String, album: String)? in
+        let transitionedAlbums = modifiedTracks.flatMap { current -> [(artist: String, album: String)] in
             guard let previous = previousTracksByID[current.id],
                   previous.kind == .prerelease,
-                  current.kind?.isAvailableForProcessing == true
+                  UpdateCoordinator.isTrackAvailableForProcessing(current)
             else {
-                return nil
+                return []
             }
-            return (artist: previous.effectiveArtist, album: previous.album)
+            return (AlbumIdentity.lookupCandidates(for: current) + AlbumIdentity.lookupCandidates(for: previous))
+                .map { (artist: $0.artist, album: $0.album) }
         }
         let targets = normalizedCacheInvalidationTargets(transitionedAlbums)
         guard !targets.isEmpty else { return }
 
         let currentTracks = try await trackStore.loadAllTracks()
-        for target in targets where !hasPrereleaseTrack(in: currentTracks, artist: target.artist, album: target.album) {
+        for target in targets {
+            guard !hasPrereleaseTrack(in: currentTracks, artist: target.artist, album: target.album) else {
+                continue
+            }
+            guard let entry = await pendingVerificationService.getEntry(artist: target.artist, album: target.album),
+                  Self.isPrereleasePendingReason(entry.reason)
+            else {
+                continue
+            }
             await pendingVerificationService.removeFromPending(artist: target.artist, album: target.album)
         }
     }
 
+    private static func isPrereleasePendingReason(_ reason: String) -> Bool {
+        let normalizedReason = reason
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "_")
+            .lowercased()
+        return normalizedReason == "prerelease" || normalizedReason == "pre_release"
+    }
+
     private func hasPrereleaseTrack(in tracks: [Track], artist: String, album: String) -> Bool {
-        tracks.contains { track in
-            normalizeForMatching(track.effectiveArtist) == normalizeForMatching(artist)
-                && normalizeForMatching(track.album) == normalizeForMatching(album)
-                && track.kind == .prerelease
+        let targetKeys = Set(AlbumIdentity.lookupKeys(artist: artist, album: album))
+        return tracks.contains { track in
+            guard track.kind == .prerelease else { return false }
+            let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
+            return !targetKeys.isDisjoint(with: trackKeys)
         }
     }
 

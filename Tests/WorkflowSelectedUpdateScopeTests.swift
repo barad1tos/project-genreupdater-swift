@@ -242,6 +242,47 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
+    @Test("full library preview keeps album context after incremental narrowing")
+    func fullLibraryPreviewKeepsAlbumContextAfterIncrementalNarrowing() async throws {
+        let missingGenre = Track(
+            id: "missing-genre",
+            name: "Only for the Weak",
+            artist: "In Flames",
+            album: "Clayman",
+            dateAdded: Date(timeIntervalSince1970: 2000)
+        )
+        let genreSource = Track(
+            id: "genre-source",
+            name: "Bullet Ride",
+            artist: "In Flames",
+            album: "Clayman",
+            genre: "Melodic Death Metal",
+            dateAdded: Date(timeIntervalSince1970: 1000)
+        )
+        let fixture = makeWorkflowFixture(
+            resolveIncrementalTracks: { tracks, _ in
+                tracks.filter { $0.id == missingGenre.id }
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = true
+        viewModel.updateGenre = true
+        viewModel.updateYear = false
+        viewModel.cleanTrackNames = false
+        viewModel.cleanAlbumNames = false
+
+        viewModel.start(tracks: [missingGenre, genreSource])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        let genreChange = try #require(viewModel.proposedChanges.first { $0.changeType == .genreUpdate })
+        #expect(genreChange.track.id == missingGenre.id)
+        #expect(genreChange.newValue == "Melodic Death Metal")
+        #expect(viewModel.scopeTrackCount == 1)
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+    }
+
     @Test("full library live processing uses album context for genre updates")
     func fullLibraryLiveProcessingUsesAlbumContextForGenreUpdates() async throws {
         let fixture = makeWorkflowFixture()

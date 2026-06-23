@@ -15,9 +15,9 @@ actor SyncMockScriptClient: AppleScriptClient {
     func initialize() async throws {}
 
     func runScript(
-        name: String,
-        arguments: [String],
-        timeout: Duration?
+        name _: String,
+        arguments _: [String],
+        timeout _: Duration?
     ) async throws -> String? {
         nil
     }
@@ -104,9 +104,9 @@ actor SyncMockTrackStore: TrackStateStore {
     }
 
     func updateTrackProcessingState(
-        id: String,
-        genreUpdated: Bool?,
-        yearUpdated: Bool?
+        id _: String,
+        genreUpdated _: Bool?,
+        yearUpdated _: Bool?
     ) async throws {}
 
     func getUnprocessedTracks() async throws -> [Track] {
@@ -585,7 +585,15 @@ struct LibrarySyncServiceTests {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let gate = await FeatureGate(fixedTier: .free)
-        let pendingVerification = PendingVerificationProbe(entry: nil, isVerificationNeeded: false)
+        let pendingVerification = PendingVerificationProbe(
+            entry: PendingAlbumEntry(
+                id: "subrosa-future-album",
+                artist: "SubRosa",
+                album: "Future Album",
+                reason: "prerelease"
+            ),
+            isVerificationNeeded: false
+        )
         let modifiedDate = Date()
         let storedTrack = Track(
             id: "PRE",

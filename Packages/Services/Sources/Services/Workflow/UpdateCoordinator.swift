@@ -354,6 +354,16 @@ public actor UpdateCoordinator {
         albumTracks.contains { $0.id == track.id } ? albumTracks : albumTracks + [track]
     }
 
+    /// Returns album-level context for each track after writable metadata enrichment.
+    ///
+    /// MusicKit tracks can miss AppleScript-only fields such as `albumArtist`, persistent IDs, and write
+    /// eligibility. This helper refreshes that metadata first, filters non-processable tracks, and then groups
+    /// by `AlbumIdentity` so preview and live workflow paths use the same album context.
+    public func albumContextTracksByTrackID(for tracks: [Track]) async -> [String: [Track]] {
+        let contextTracks = await availableTracksWithMutationMetadata(tracks)
+        return Self.albumTracksByTrackID(for: contextTracks)
+    }
+
     private static func genreContextTracks(
         track: Track,
         artistTracks: [Track],
@@ -379,9 +389,10 @@ public actor UpdateCoordinator {
         track: Track,
         metadata: [String: String]
     ) async {
+        let identity = track.albumIdentity
         await pendingVerificationService?.markForVerification(
-            artist: track.effectiveArtist,
-            album: track.album,
+            artist: identity.artist,
+            album: identity.album,
             reason: "prerelease",
             metadata: metadata,
             recheckDays: runtimeConfiguration.prereleaseRecheckDays
@@ -436,11 +447,10 @@ public actor UpdateCoordinator {
         var entries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
-        let resolvedAlbumTracksProvider = albumTracksProvider ?? Self.albumTracksProvider(
-            Self.albumTracksByTrackID(for: tracks)
-        )
-        let resolvedArtistTracksProvider = artistTracksProvider ?? Self.artistTracksProvider(
-            Self.artistTracksByTrackID(for: tracks)
+        let trackProviders = await makeUpdateTrackProviders(
+            tracks: tracks,
+            albumTracksProvider: albumTracksProvider,
+            artistTracksProvider: artistTracksProvider
         )
 
         for (index, track) in tracks.enumerated() {
@@ -448,8 +458,8 @@ public actor UpdateCoordinator {
                 let trackEntries = try await applyGeneratedAcceptedChanges(
                     for: track,
                     options: options,
-                    albumTracksProvider: resolvedAlbumTracksProvider,
-                    artistTracksProvider: resolvedArtistTracksProvider
+                    albumTracksProvider: trackProviders.album,
+                    artistTracksProvider: trackProviders.artist
                 )
                 entries.append(contentsOf: trackEntries)
             } catch let error as UpdateCoordinatorError {
@@ -493,6 +503,25 @@ public actor UpdateCoordinator {
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions
         )
+    }
+
+    private func makeUpdateTrackProviders(
+        tracks: [Track],
+        albumTracksProvider: (@Sendable (Track) -> [Track])?,
+        artistTracksProvider: (@Sendable (Track) -> [Track])?
+    ) async -> (album: @Sendable (Track) -> [Track], artist: @Sendable (Track) -> [Track]) {
+        let contextTracks = if albumTracksProvider == nil || artistTracksProvider == nil {
+            await availableTracksWithMutationMetadata(tracks)
+        } else {
+            tracks
+        }
+        let resolvedAlbumTracksProvider = albumTracksProvider ?? Self.albumTracksProvider(
+            Self.albumTracksByTrackID(for: contextTracks)
+        )
+        let resolvedArtistTracksProvider = artistTracksProvider ?? Self.artistTracksProvider(
+            Self.artistTracksByTrackID(for: contextTracks)
+        )
+        return (resolvedAlbumTracksProvider, resolvedArtistTracksProvider)
     }
 
     private static func reportUpdateProgress(
@@ -552,10 +581,10 @@ public actor UpdateCoordinator {
 
     private static func albumTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
         let tracksByAlbum = Dictionary(grouping: tracks.filter(isTrackAvailableForProcessing)) { track in
-            albumContextKey(for: track)
+            AlbumIdentity.key(for: track)
         }
         return Dictionary(uniqueKeysWithValues: tracks.map { track in
-            (track.id, tracksByAlbum[albumContextKey(for: track)] ?? [])
+            (track.id, tracksByAlbum[AlbumIdentity.key(for: track)] ?? [])
         })
     }
 
@@ -565,13 +594,6 @@ public actor UpdateCoordinator {
         { track in
             albumTracksByTrackID[track.id] ?? []
         }
-    }
-
-    private static func albumContextKey(for track: Track) -> String {
-        [
-            normalizeForMatching(track.effectiveArtist),
-            normalizeForMatching(track.album),
-        ].joined(separator: "\u{1F}")
     }
 
     private static func artistTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {

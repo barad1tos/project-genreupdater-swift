@@ -49,6 +49,7 @@ actor MockAppleScriptClient: AppleScriptClient {
     var shouldThrowBatch = false
     var shouldApplyBatchUpdates = true
     var singleWriteResult: AppleScriptWriteResult = .changed
+    private var failingWriteTrackIDs: Set<String> = []
     private var fetchedTracksByIDsCalls: [(trackIDs: [String], batchSize: Int, timeout: Duration?)] = []
     private var fetchedAllTrackIDsTimeouts: [Duration?] = []
 
@@ -81,7 +82,7 @@ actor MockAppleScriptClient: AppleScriptClient {
         property: String,
         value: String
     ) async throws -> AppleScriptWriteResult {
-        if shouldThrow {
+        if shouldThrow || failingWriteTrackIDs.contains(trackID) {
             throw MockScriptError.intentional
         }
         writtenProperties.append((trackID, property, value))
@@ -116,6 +117,10 @@ actor MockAppleScriptClient: AppleScriptClient {
 
     func setSingleWriteResult(_ result: AppleScriptWriteResult) {
         singleWriteResult = result
+    }
+
+    func setFailingWriteTrackIDs(_ trackIDs: Set<String>) {
+        failingWriteTrackIDs = trackIDs
     }
 
     func setFetchedTracks(_ tracks: [Track]) {
