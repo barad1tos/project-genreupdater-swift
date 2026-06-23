@@ -22,6 +22,7 @@ func makeWorkflowFixture(
     ) async -> [Track] = { tracks, _ in tracks },
     pendingVerificationService: (any PendingVerificationService)? = nil,
     idMapper: (any TrackIDMapping)? = nil,
+    problematicAlbumReportMinAttempts: @escaping () -> Int = { 3 },
     invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {
@@ -70,7 +71,8 @@ func makeWorkflowFixture(
             featureGate: featureGate,
             resolveIncrementalTracks: resolveIncrementalTracks,
             invalidateAlbumYearCache: invalidateAlbumYearCache,
-            updateIncrementalRunTimestamp: updateIncrementalRunTimestamp
+            updateIncrementalRunTimestamp: updateIncrementalRunTimestamp,
+            problematicAlbumReportMinAttempts: problematicAlbumReportMinAttempts
         )
     )
 
@@ -94,6 +96,21 @@ func waitForWorkflowToLeaveScanning(_ viewModel: WorkflowViewModel) async throws
     }
 
     #expect(Bool(false), "workflow did not leave scanning before timeout")
+}
+
+@MainActor
+func computeDelayedPendingScopePreview(
+    viewModel: WorkflowViewModel,
+    tracks: [Track],
+    pendingSnapshotDelay: PendingSnapshotDelay
+) async throws {
+    let recordRefreshCompletion: @Sendable () async -> Void = {
+        await pendingSnapshotDelay.recordDelayedPendingScopeRefreshCompletion()
+    }
+    try await PendingScopeRefreshInstrumentation.$onRefreshCompleted.withValue(recordRefreshCompletion) {
+        viewModel.computeScopePreview(tracks: tracks)
+        try await pendingSnapshotDelay.waitForCapturedFirstSnapshot()
+    }
 }
 
 func makeProposedChange(id: String, isAccepted: Bool) -> ProposedChange {
@@ -321,11 +338,22 @@ private actor DashboardStateTrackStore: TrackStateStore {
 
 actor WorkflowPendingVerificationService: PendingVerificationService {
     private var entries: [PendingAlbumEntry]
+    private let seededDueEntries: [PendingAlbumEntry]?
+    private let seededProblematicAlbums: [ProblematicPendingAlbum]
+    private let pendingSnapshotDelay: PendingSnapshotDelay?
     private var removals: [(artist: String, album: String)] = []
     private var timestampUpdates = 0
 
-    init(entries: [PendingAlbumEntry]) {
+    init(
+        entries: [PendingAlbumEntry],
+        dueEntries: [PendingAlbumEntry]? = nil,
+        problematicAlbums: [ProblematicPendingAlbum] = [],
+        pendingSnapshotDelay: PendingSnapshotDelay? = nil
+    ) {
         self.entries = entries
+        self.seededDueEntries = dueEntries
+        self.seededProblematicAlbums = problematicAlbums
+        self.pendingSnapshotDelay = pendingSnapshotDelay
     }
 
     func initialize() async throws {
@@ -365,11 +393,18 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
     }
 
     func getPendingVerificationSnapshot() async -> (all: [PendingAlbumEntry], due: [PendingAlbumEntry]) {
-        (entries, entries)
+        let snapshot = (entries, currentDueEntries())
+        await pendingSnapshotDelay?.waitAfterCapturingFirstSnapshot()
+        return snapshot
     }
 
-    func getProblematicPendingAlbums(minAttempts _: Int) async -> [ProblematicPendingAlbum] {
-        []
+    func getProblematicPendingAlbums(minAttempts: Int) async -> [ProblematicPendingAlbum] {
+        await pendingSnapshotDelay?.recordProblematicCountRequest()
+        let currentEntryKeys = currentEntryKeys()
+        return seededProblematicAlbums.filter { problematicAlbum in
+            problematicAlbum.totalAttempts >= minAttempts
+                && currentEntryKeys.contains(Self.key(for: problematicAlbum.entry))
+        }
     }
 
     func generateProblematicAlbumsReport(minAttempts _: Int, reportURL _: URL?) async throws -> Int {
@@ -390,6 +425,100 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
 
     func verificationTimestampUpdateCount() -> Int {
         timestampUpdates
+    }
+
+    private func currentDueEntries() -> [PendingAlbumEntry] {
+        guard let seededDueEntries else { return entries }
+
+        let currentEntryKeys = currentEntryKeys()
+        return seededDueEntries.filter { currentEntryKeys.contains(Self.key(for: $0)) }
+    }
+
+    private func currentEntryKeys() -> Set<String> {
+        Set(entries.map(Self.key(for:)))
+    }
+
+    private static func key(for entry: PendingAlbumEntry) -> String {
+        AlbumIdentity.key(artist: entry.artist, album: entry.album)
+    }
+}
+
+actor PendingSnapshotDelay {
+    private enum Timeout: Error, CustomStringConvertible {
+        case firstSnapshot
+        case delayedRefreshCompletion
+
+        var description: String {
+            switch self {
+            case .firstSnapshot:
+                "pending scope refresh did not capture its first snapshot before timeout"
+            case .delayedRefreshCompletion:
+                "delayed pending scope refresh did not complete before timeout"
+            }
+        }
+    }
+
+    private static let maximumWaitIterations = 200
+    private var shouldDelayFirstSnapshot = true
+    private var hasCapturedFirstSnapshot = false
+    private var isFirstSnapshotReleased = false
+    private var hasReturnedDelayedSnapshot = false
+    private var hasCompletedDelayedPendingScopeRefresh = false
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func waitAfterCapturingFirstSnapshot() async {
+        guard shouldDelayFirstSnapshot else { return }
+
+        shouldDelayFirstSnapshot = false
+        hasCapturedFirstSnapshot = true
+
+        if !isFirstSnapshotReleased {
+            await withCheckedContinuation { continuation in
+                releaseContinuations.append(continuation)
+            }
+        }
+        hasReturnedDelayedSnapshot = true
+    }
+
+    func waitForCapturedFirstSnapshot() async throws {
+        for _ in 0 ..< Self.maximumWaitIterations {
+            if hasCapturedFirstSnapshot { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        throw Timeout.firstSnapshot
+    }
+
+    func releaseFirstSnapshot() {
+        isFirstSnapshotReleased = true
+        resumeAll(&releaseContinuations)
+    }
+
+    private func resumeAll(_ continuations: inout [CheckedContinuation<Void, Never>]) {
+        let continuationsToResume = continuations
+        continuations.removeAll()
+        for continuation in continuationsToResume {
+            continuation.resume()
+        }
+    }
+
+    func recordProblematicCountRequest() {
+        // Hook retained for delayed snapshot tests that need the service call to stay observable.
+    }
+
+    func recordDelayedPendingScopeRefreshCompletion() {
+        guard hasReturnedDelayedSnapshot else { return }
+
+        hasCompletedDelayedPendingScopeRefresh = true
+    }
+
+    func waitForDelayedPendingScopeRefreshCompletion() async throws {
+        for _ in 0 ..< Self.maximumWaitIterations {
+            if hasCompletedDelayedPendingScopeRefresh { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        throw Timeout.delayedRefreshCompletion
     }
 }
 

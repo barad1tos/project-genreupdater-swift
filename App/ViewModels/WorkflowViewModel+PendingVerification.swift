@@ -17,28 +17,51 @@ private struct PendingVerificationTrackContext {
     var missingTracks: [Track]
 }
 
+#if DEBUG
+enum PendingScopeRefreshInstrumentation {
+    @TaskLocal static var onRefreshCompleted: (@Sendable () async -> Void)?
+}
+#endif
+
 extension WorkflowViewModel {
     func startPendingVerification(tracks: [Track]) {
         guard let pendingVerificationService else {
+            invalidatePendingVerificationRefreshes()
+            pendingVerificationReportSummary = nil
             phase = .error("Pending verification service is unavailable")
             return
         }
 
-        preparePendingVerificationRun()
+        let refreshGeneration = preparePendingVerificationRun()
 
         processingTask = Task {
             await runPendingVerification(
                 tracks: tracks,
-                pendingVerificationService: pendingVerificationService
+                pendingVerificationService: pendingVerificationService,
+                refreshGeneration: refreshGeneration
             )
         }
     }
 
     func refreshPendingScope(tracks: [Track]) {
-        Task {
+        let refreshGeneration = invalidatePendingVerificationRefreshes()
+        Task { [refreshGeneration, tracks] in
+            #if DEBUG
+            defer {
+                if let onRefreshCompleted = PendingScopeRefreshInstrumentation.onRefreshCompleted {
+                    Task {
+                        await onRefreshCompleted()
+                    }
+                }
+            }
+            #endif
             let snapshot = await pendingVerificationSnapshot()
-            guard mode == .pendingVerification else { return }
+            guard isCurrentPendingVerificationRefresh(refreshGeneration) else { return }
             updatePendingScope(snapshot: snapshot, tracks: tracks)
+            await refreshPendingVerificationReportSummary(
+                snapshot: snapshot,
+                refreshGeneration: refreshGeneration
+            )
         }
     }
 
@@ -60,7 +83,18 @@ extension WorkflowViewModel {
 }
 
 extension WorkflowViewModel {
-    private func preparePendingVerificationRun() {
+    @discardableResult
+    func invalidatePendingVerificationRefreshes() -> Int {
+        pendingVerificationRefreshGeneration += 1
+        return pendingVerificationRefreshGeneration
+    }
+
+    func isCurrentPendingVerificationRefresh(_ refreshGeneration: Int) -> Bool {
+        mode == .pendingVerification && refreshGeneration == pendingVerificationRefreshGeneration
+    }
+
+    private func preparePendingVerificationRun() -> Int {
+        let refreshGeneration = invalidatePendingVerificationRefreshes()
         phase = .scanning
         processedCount = 0
         failedCount = 0
@@ -69,17 +103,29 @@ extension WorkflowViewModel {
         completedEntries = []
         result = nil
         dryRunReport = nil
+        pendingVerificationReportSummary = nil
+        return refreshGeneration
     }
 
     private func runPendingVerification(
         tracks: [Track],
-        pendingVerificationService: any PendingVerificationService
+        pendingVerificationService: any PendingVerificationService,
+        refreshGeneration: Int
     ) async {
         do {
             let snapshot = await pendingVerificationSnapshot()
+            let problematicCount = await pendingVerificationService
+                .getProblematicPendingAlbums(minAttempts: resolvedProblematicAlbumReportMinAttempts)
+                .count
             let dueEntries = snapshot.due
             let trackContext = await pendingVerificationTrackContext(from: tracks)
+            guard isCurrentPendingVerificationRefresh(refreshGeneration) else { return }
             updatePendingScope(snapshot: snapshot, tracks: trackContext.tracks)
+            guard applyPendingVerificationReportSummary(
+                snapshot: snapshot,
+                problematicCount: problematicCount,
+                refreshGeneration: refreshGeneration
+            ) else { return }
             preparePendingTrackStatuses(tracks: trackContext.tracks, dueEntries: dueEntries)
 
             let albumGroups = Self.groupTracksByAlbum(trackContext.tracks)
@@ -111,6 +157,9 @@ extension WorkflowViewModel {
             if !dueEntries.isEmpty {
                 try await pendingVerificationService.updateVerificationTimestamp()
             }
+            let finalRefreshGeneration = invalidatePendingVerificationRefreshes()
+            await refreshPendingVerificationReportSummary(refreshGeneration: finalRefreshGeneration)
+            guard isCurrentPendingVerificationRefresh(finalRefreshGeneration) else { return }
             finishPendingVerification(runOutcome)
         } catch is CancellationError {
             currentTrackID = nil
@@ -233,6 +282,17 @@ extension WorkflowViewModel {
         return await pendingVerificationService.getPendingVerificationSnapshot()
     }
 
+    private func problematicPendingAlbumCount() async -> Int {
+        guard let pendingVerificationService else { return 0 }
+        return await pendingVerificationService
+            .getProblematicPendingAlbums(minAttempts: resolvedProblematicAlbumReportMinAttempts)
+            .count
+    }
+
+    private var resolvedProblematicAlbumReportMinAttempts: Int {
+        max(1, problematicAlbumReportMinAttempts())
+    }
+
     private func updatePendingScope(
         snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
         tracks: [Track]
@@ -244,6 +304,56 @@ extension WorkflowViewModel {
         let scopedTracks = Self.tracksMatchingPendingEntries(tracks, entries: snapshot.due)
         scopeTrackCount = scopedTracks.count
         scopeArtistCount = Set(scopedTracks.map(\.artist)).count
+    }
+
+    private func updatePendingVerificationReportSummary(
+        snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
+        problematicCount: Int
+    ) {
+        guard !snapshot.all.isEmpty else {
+            pendingVerificationReportSummary = nil
+            return
+        }
+
+        pendingVerificationReportSummary = UpdateRunPendingVerificationSummary(
+            total: snapshot.all.count,
+            due: snapshot.due.count,
+            problematic: problematicCount
+        )
+    }
+
+    @discardableResult
+    private func applyPendingVerificationReportSummary(
+        snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
+        problematicCount: Int,
+        refreshGeneration: Int
+    ) -> Bool {
+        guard isCurrentPendingVerificationRefresh(refreshGeneration) else { return false }
+        updatePendingVerificationReportSummary(
+            snapshot: snapshot,
+            problematicCount: problematicCount
+        )
+        return true
+    }
+
+    private func refreshPendingVerificationReportSummary(refreshGeneration: Int) async {
+        let snapshot = await pendingVerificationSnapshot()
+        await refreshPendingVerificationReportSummary(
+            snapshot: snapshot,
+            refreshGeneration: refreshGeneration
+        )
+    }
+
+    private func refreshPendingVerificationReportSummary(
+        snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
+        refreshGeneration: Int
+    ) async {
+        let problematicCount = await problematicPendingAlbumCount()
+        applyPendingVerificationReportSummary(
+            snapshot: snapshot,
+            problematicCount: problematicCount,
+            refreshGeneration: refreshGeneration
+        )
     }
 
     private func handlePendingVerification(

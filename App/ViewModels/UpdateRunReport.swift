@@ -1,6 +1,19 @@
 import Core
 import Services
 
+struct UpdateRunOperationalNote: Identifiable, Equatable {
+    enum Severity: Equatable { case info, warning, failure }
+
+    let id: String
+    let title: String
+    let detail: String
+    let severity: Severity
+}
+struct UpdateRunPendingVerificationSummary: Equatable {
+    let total: Int
+    let due: Int
+    let problematic: Int
+}
 struct UpdateRunReport: Equatable {
     let scopeTitle: String
     let changedEntries: [ChangeLogEntry]
@@ -11,14 +24,15 @@ struct UpdateRunReport: Equatable {
     let skippedCount: Int
     let scannedTrackCount: Int
     let displayMode: ChangeDisplayMode
-
+    let pendingVerification: UpdateRunPendingVerificationSummary?
     init(
         result: BatchUpdateResult?,
         completedEntries: [ChangeLogEntry],
         trackStatuses: [String: TrackProcessingStatus],
         tracks: [Track],
         testArtists: [String],
-        displayMode: ChangeDisplayMode = .compact
+        displayMode: ChangeDisplayMode = .compact,
+        pendingVerification: UpdateRunPendingVerificationSummary? = nil
     ) {
         let entries = (result?.entries ?? completedEntries).filter(Self.isRealChange)
         let trackLookup = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
@@ -44,30 +58,65 @@ struct UpdateRunReport: Equatable {
         }
         scannedTrackCount = trackStatuses.isEmpty ? tracks.count : trackStatuses.count
         self.displayMode = displayMode
+        self.pendingVerification = pendingVerification
         scopeTitle = Self.makeScopeTitle(testArtists: testArtists)
     }
 
     var changedTrackCount: Int {
         Set(changedEntries.map(\.trackID)).count
     }
-
     var affectedAlbumCount: Int {
         albumResults.count
     }
-
     var affectedArtistCount: Int {
         Set(albumGroups.map { normalizeForMatching($0.artist) }).count
     }
-
     var hasFailures: Bool {
         !failures.isEmpty
     }
-
-    var title: String {
-        if hasFailures {
-            return "Finished with \(failures.count.formatted()) \(Self.issueNoun(failures.count))"
+    var hasOperationalNotes: Bool {
+        !operationalNotes.isEmpty
+    }
+    var operationalNotes: [UpdateRunOperationalNote] {
+        var notes: [UpdateRunOperationalNote] = []
+        if !failures.isEmpty {
+            notes.append(UpdateRunOperationalNote(
+                id: "failures",
+                title: "Needs Attention",
+                detail: "\(failures.count.formatted()) \(Self.issueNoun(failures.count)) found.",
+                severity: .failure
+            ))
         }
-        return "Update Complete"
+        if skippedCount > 0 {
+            notes.append(UpdateRunOperationalNote(
+                id: "skipped",
+                title: "Skipped",
+                detail: "Skipped tracks: \(skippedCount.formatted()).",
+                severity: .warning
+            ))
+        }
+        if let pendingVerification, pendingVerification.total > 0 {
+            notes.append(UpdateRunOperationalNote(
+                id: "pending-verification",
+                title: "Pending Verification",
+                detail: "\(pendingVerification.total.formatted()) pending, "
+                    + "\(pendingVerification.due.formatted()) due, "
+                    + "\(pendingVerification.problematic.formatted()) problematic.",
+                severity: pendingVerification.problematic > 0 ? .warning : .info
+            ))
+        }
+        if changedEntries.isEmpty, failures.isEmpty {
+            notes.append(UpdateRunOperationalNote(
+                id: "no-changes",
+                title: "No Changes",
+                detail: "No metadata changes were made during this run.",
+                severity: .info
+            ))
+        }
+        return notes
+    }
+    var title: String {
+        hasFailures ? "Finished with \(failures.count.formatted()) \(Self.issueNoun(failures.count))" : "Update Complete"
     }
 
     private static func makeScopeTitle(testArtists: [String]) -> String {
@@ -78,7 +127,6 @@ struct UpdateRunReport: Equatable {
         }
         return "Test Artists: \(normalizedArtists.count)"
     }
-
     private static func makeAlbumGroups(
         from entries: [ChangeLogEntry],
         trackLookup: [String: Track]
@@ -116,7 +164,6 @@ struct UpdateRunReport: Equatable {
             }
             .sorted(by: albumGroupSort)
     }
-
     private static func albumGroupSort(_ left: UpdateRunAlbumGroup, _ right: UpdateRunAlbumGroup) -> Bool {
         let artistOrder = left.artist.localizedStandardCompare(right.artist)
         if artistOrder != .orderedSame {
@@ -140,7 +187,6 @@ struct UpdateRunReport: Equatable {
         let valueOrder = left.changeSummary.localizedStandardCompare(right.changeSummary)
         return valueOrder == .orderedAscending
     }
-
     private static func makeFailures(
         result: BatchUpdateResult?,
         trackStatuses: [String: TrackProcessingStatus],
@@ -173,7 +219,6 @@ struct UpdateRunReport: Equatable {
                 left.title.localizedStandardCompare(right.title) == .orderedAscending
             }
     }
-
     private static func makeChangeBreakdown(
         from entries: [ChangeLogEntry],
         trackLookup: [String: Track]
@@ -192,7 +237,6 @@ struct UpdateRunReport: Equatable {
                     .localizedStandardCompare(right.changeType.displayLabel) == .orderedAscending
             }
     }
-
     private static func makeAlbumResults(
         entries: [ChangeLogEntry],
         failures: [UpdateRunFailure],
@@ -238,7 +282,6 @@ struct UpdateRunReport: Equatable {
         }
         .sorted(by: albumResultSort)
     }
-
     private static func albumResultKeys(
         entries: [ChangeLogEntry],
         failures: [UpdateRunFailure],
@@ -430,6 +473,7 @@ struct UpdateRunReport: Equatable {
             "",
         ]
 
+        appendOperationalNotes(to: &lines)
         appendNoChangesSummary(to: &lines)
         appendFailures(to: &lines)
         appendChangeBreakdown(to: &lines)
@@ -438,8 +482,16 @@ struct UpdateRunReport: Equatable {
         return lines.joined(separator: "\n")
     }
 
+    private func appendOperationalNotes(to lines: inout [String]) {
+        guard !operationalNotes.isEmpty else { return }
+
+        lines.append("Run Health")
+        lines.append(contentsOf: operationalNotes.map { "- \($0.title): \($0.detail)" })
+        lines.append("")
+    }
+
     private func appendNoChangesSummary(to lines: inout [String]) {
-        guard changedEntries.isEmpty else { return }
+        guard changedEntries.isEmpty, !operationalNotes.contains(where: { $0.id == "no-changes" }) else { return }
 
         lines.append("No changes were made during this run.")
         lines.append("")
@@ -538,15 +590,12 @@ struct UpdateRunAlbumGroup: Identifiable, Equatable {
     var id: String {
         [artist, album, changeType.rawValue, oldValue, newValue].joined(separator: "\u{1F}")
     }
-
     var title: String {
         "\(artist) - \(album)"
     }
-
     var changedTrackCount: Int {
         Set(entries.map(\.trackID)).count
     }
-
     var changeSummary: String {
         "\(oldValue) -> \(newValue)"
     }
@@ -572,23 +621,18 @@ struct UpdateRunAlbumResult: Identifiable, Equatable {
     var id: String {
         [artist, album].joined(separator: "\u{1F}")
     }
-
     var title: String {
         "\(artist) - \(album)"
     }
-
     var changedTrackCount: Int {
         tracks.count { $0.hasChanges }
     }
-
     var failureCount: Int {
         tracks.count { $0.hasFailure }
     }
-
     var trackCount: Int {
         tracks.count
     }
-
     var needsReview: Bool {
         failureCount > 0
     }
@@ -600,7 +644,6 @@ struct UpdateRunAlbumResult: Identifiable, Equatable {
     var currentYear: Int? {
         mostFrequentValue(tracks.compactMap(\.currentYear))
     }
-
     var releaseYear: Int? {
         mostFrequentValue(tracks.compactMap(\.releaseYear))
     }
@@ -639,7 +682,6 @@ struct UpdateRunTrackResult: Identifiable, Equatable {
     var hasChanges: Bool {
         !changes.isEmpty
     }
-
     var hasFailure: Bool {
         failureMessage != nil
     }

@@ -513,6 +513,62 @@ struct UpdateRunReportTests {
         #expect(report.plainTextSummary.contains("- Old Name - Alias: Artist Old Name -> New Name"))
     }
 
+    @Test("models operational notes for mixed run health")
+    func modelsOperationalNotesForMixedRunHealth() {
+        var unchangedGenre = makePureRockFuryChange(changeType: .genreUpdate)
+        unchangedGenre.oldGenre = "Rock"
+        unchangedGenre.newGenre = "Rock"
+
+        let report = makeMixedRunHealthReport(
+            completedEntries: [makePureRockFuryYearChange(), unchangedGenre]
+        )
+
+        #expect(report.scannedTrackCount == 3)
+        #expect(report.changedEntries.count == 1)
+        #expect(report.skippedCount == 1)
+        #expect(report.failures.count == 1)
+        #expect(report.hasOperationalNotes)
+
+        let noteTitles = report.operationalNotes.map(\.title)
+        #expect(noteTitles.contains("Skipped"))
+        #expect(noteTitles.contains("Needs Attention"))
+    }
+
+    @Test("plain text summary includes operational notes and detailed report sections")
+    func plainTextSummaryIncludesOperationalNotesAndDetailedReportSections() {
+        let report = makeMixedRunHealthReport(
+            completedEntries: [makePureRockFuryYearChange()],
+            displayMode: .detailed
+        )
+
+        let summary = report.plainTextSummary
+        #expect(summary.contains("Run Health"))
+        #expect(summary.contains("Needs Attention"))
+        #expect(summary.contains("Skipped"))
+        #expect(summary.contains("Change Breakdown"))
+        #expect(summary.contains("Track Details"))
+    }
+
+    @Test("plain text summary includes pending verification operational note")
+    func plainTextSummaryIncludesPendingVerificationOperationalNote() throws {
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: []),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: [],
+            pendingVerification: UpdateRunPendingVerificationSummary(total: 3, due: 1, problematic: 2)
+        )
+
+        let note = try #require(report.operationalNotes.first { $0.id == "pending-verification" })
+        #expect(note.title == "Pending Verification")
+        #expect(note.detail == "3 pending, 1 due, 2 problematic.")
+        #expect(note.severity == .warning)
+        #expect(report.plainTextSummary.contains("Pending Verification"))
+        #expect(report.plainTextSummary.contains("3 pending"))
+        #expect(report.plainTextSummary.contains("2 problematic"))
+    }
+
     @Test("filters no-op changes from run report")
     func filtersNoOpChangesFromRunReport() {
         var unchangedGenre = ChangeLogEntry(
@@ -592,7 +648,10 @@ struct UpdateRunReportTests {
         #expect(report.changedEntries.isEmpty)
         #expect(report.changeBreakdown.isEmpty)
         #expect(report.albumGroups.isEmpty)
-        #expect(report.plainTextSummary.contains("No changes were made during this run."))
+        let summary = report.plainTextSummary
+        #expect(summary.contains("No Changes"))
+        #expect(summary.contains("No metadata changes were made during this run."))
+        #expect(summary.contains("No changes were made during this run.") == false)
     }
 
     private func makeEntries(
@@ -613,5 +672,59 @@ struct UpdateRunReportTests {
             entry.newYear = newYear
             return entry
         }
+    }
+
+    private func makePureRockFuryChange(changeType: ChangeType) -> ChangeLogEntry {
+        ChangeLogEntry(
+            changeType: changeType,
+            trackID: "done-track",
+            artist: "Clutch",
+            trackName: "Pure Rock Fury",
+            albumName: "Pure Rock Fury"
+        )
+    }
+
+    private func makePureRockFuryYearChange() -> ChangeLogEntry {
+        var changedYear = makePureRockFuryChange(changeType: .yearUpdate)
+        changedYear.oldYear = 1999
+        changedYear.newYear = 2001
+        return changedYear
+    }
+
+    private func makeMixedRunHealthReport(
+        completedEntries: [ChangeLogEntry],
+        displayMode: ChangeDisplayMode = .compact
+    ) -> UpdateRunReport {
+        UpdateRunReport(
+            result: nil,
+            completedEntries: completedEntries,
+            trackStatuses: [
+                "done-track": .done,
+                "failed-track": .failed("Write denied"),
+                "skipped-track": .skipped,
+            ],
+            tracks: [
+                Track(
+                    id: "done-track",
+                    name: "Pure Rock Fury",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+                Track(
+                    id: "failed-track",
+                    name: "American Sleep",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+                Track(
+                    id: "skipped-track",
+                    name: "Immortal",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+            ],
+            testArtists: ["Clutch"],
+            displayMode: displayMode
+        )
     }
 }

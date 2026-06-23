@@ -112,6 +112,8 @@ final class WorkflowViewModel {
     var pendingAlbumCount: Int = 0
     var pendingDueAlbumCount: Int = 0
     var pendingSkippedAlbumCount: Int = 0
+    var pendingVerificationReportSummary: UpdateRunPendingVerificationSummary?
+    var pendingVerificationRefreshGeneration = 0
     var proposedChanges: [ProposedChange] = []
     var result: BatchUpdateResult?
     var completedEntries: [ChangeLogEntry] = []
@@ -174,6 +176,7 @@ final class WorkflowViewModel {
     let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
     let invalidateAlbumYearCache: (() async -> Void)?
     let updateIncrementalRunTimestamp: (() async -> Void)?
+    let problematicAlbumReportMinAttempts: () -> Int
     var defaultUpdateGenre: Bool
     var defaultUpdateYear: Bool
     var defaultPreviewOnly: Bool
@@ -195,6 +198,7 @@ final class WorkflowViewModel {
         resolveIncrementalTracks = dependencies.resolveIncrementalTracks
         invalidateAlbumYearCache = dependencies.invalidateAlbumYearCache
         updateIncrementalRunTimestamp = dependencies.updateIncrementalRunTimestamp
+        problematicAlbumReportMinAttempts = dependencies.problematicAlbumReportMinAttempts
         defaultUpdateGenre = defaults.updateGenre
         defaultUpdateYear = defaults.updateYear
         defaultPreviewOnly = defaults.previewOnly
@@ -221,6 +225,9 @@ final class WorkflowViewModel {
             startPendingVerification(tracks: tracks)
             return
         }
+
+        invalidatePendingVerificationRefreshes()
+        pendingVerificationReportSummary = nil
 
         if mode == .releaseYearRestore {
             startReleaseYearRestore(tracks: tracks)

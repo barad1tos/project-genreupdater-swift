@@ -25,7 +25,7 @@ struct UpdateDoneSection: View {
             trackStatuses: viewModel.trackStatuses,
             tracks: tracks,
             testArtists: testArtists,
-            displayMode: displayMode
+            displayMode: displayMode, pendingVerification: viewModel.pendingVerificationReportSummary
         )
     }
 
@@ -43,6 +43,7 @@ struct UpdateDoneSection: View {
     var body: some View {
         VStack(spacing: 0) {
             UpdateRunStatusStrip(report: report)
+            runHealthSection
 
             Divider()
 
@@ -72,6 +73,25 @@ struct UpdateDoneSection: View {
         }
         .onChange(of: report.albumResults) { _, _ in
             synchronizeSelection()
+        }
+    }
+
+    @ViewBuilder private var runHealthSection: some View {
+        if report.hasOperationalNotes {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text("Run Health")
+                    .font(AppFont.caption.weight(.semibold))
+                    .foregroundStyle(Ayu.fgSecondary)
+
+                VStack(spacing: Spacing.xs) {
+                    ForEach(report.operationalNotes) { note in
+                        UpdateRunHealthRow(note: note)
+                    }
+                }
+            }
+            .padding(.horizontal, Spacing.xl)
+            .padding(.bottom, Spacing.md)
+            .background(.regularMaterial)
         }
     }
 
@@ -179,6 +199,56 @@ struct UpdateDoneSection: View {
         pasteboard.clearContents()
         pasteboard.setString(report.plainTextSummary, forType: .string)
         didCopyReport = true
+    }
+}
+
+private struct UpdateRunHealthRow: View {
+    let note: UpdateRunOperationalNote
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Spacing.sm) {
+            Image(systemName: iconName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 18)
+
+            Text(note.title)
+                .font(AppFont.caption.weight(.semibold))
+                .foregroundStyle(Ayu.fgPrimary)
+                .lineLimit(1)
+
+            Text(note.detail)
+                .font(AppFont.caption)
+                .foregroundStyle(Ayu.fgSecondary)
+                .lineLimit(1)
+
+            Spacer(minLength: Spacing.sm)
+        }
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xxs)
+        .background(tint.opacity(0.1), in: .rect(cornerRadius: Radius.sm))
+    }
+
+    private var iconName: String {
+        switch note.severity {
+        case .info:
+            "info.circle"
+        case .warning:
+            "exclamationmark.triangle"
+        case .failure:
+            "xmark.octagon"
+        }
+    }
+
+    private var tint: Color {
+        switch note.severity {
+        case .info:
+            Ayu.info
+        case .warning:
+            Ayu.warning
+        case .failure:
+            Ayu.error
+        }
     }
 }
 
