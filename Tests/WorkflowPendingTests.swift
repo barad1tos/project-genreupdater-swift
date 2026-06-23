@@ -196,8 +196,11 @@ struct WorkflowPendingTests {
         let viewModel = fixture.viewModel
         viewModel.mode = .pendingVerification
 
-        viewModel.computeScopePreview(tracks: randomAccessMemoriesMusicKitTracks())
-        await pendingSnapshotDelay.waitForCapturedFirstSnapshot()
+        await computeDelayedPendingScopePreview(
+            viewModel: viewModel,
+            tracks: randomAccessMemoriesMusicKitTracks(),
+            pendingSnapshotDelay: pendingSnapshotDelay
+        )
 
         viewModel.startPendingVerification(tracks: randomAccessMemoriesMusicKitTracks())
         try await waitForWorkflowToLeaveScanning(viewModel)
@@ -207,8 +210,7 @@ struct WorkflowPendingTests {
         #expect(finalSummary.problematic == 0)
 
         await pendingSnapshotDelay.releaseFirstSnapshot()
-        await pendingSnapshotDelay.waitForProblematicCountAfterDelayedSnapshot()
-        await Task.yield()
+        await pendingSnapshotDelay.waitForDelayedPendingScopeRefreshCompletion()
 
         let summary = try #require(viewModel.pendingVerificationReportSummary)
         #expect(summary.total == 1)
@@ -262,11 +264,13 @@ struct WorkflowPendingTests {
         let viewModel = makeWorkflowFixture(pendingVerificationService: pendingVerification).viewModel
         viewModel.mode = .pendingVerification
 
-        viewModel.computeScopePreview(tracks: [])
-        await pendingSnapshotDelay.waitForCapturedFirstSnapshot()
+        await computeDelayedPendingScopePreview(
+            viewModel: viewModel,
+            tracks: [],
+            pendingSnapshotDelay: pendingSnapshotDelay
+        )
         await pendingSnapshotDelay.releaseFirstSnapshot()
-        await pendingSnapshotDelay.waitForProblematicCountAfterDelayedSnapshot()
-        await Task.yield()
+        await pendingSnapshotDelay.waitForDelayedPendingScopeRefreshCompletion()
 
         let summary = try #require(viewModel.pendingVerificationReportSummary)
         #expect(summary.total == 3)

@@ -96,6 +96,21 @@ func waitForWorkflowToLeaveScanning(_ viewModel: WorkflowViewModel) async throws
     #expect(Bool(false), "workflow did not leave scanning before timeout")
 }
 
+@MainActor
+func computeDelayedPendingScopePreview(
+    viewModel: WorkflowViewModel,
+    tracks: [Track],
+    pendingSnapshotDelay: PendingSnapshotDelay
+) async {
+    let recordRefreshCompletion: @Sendable () async -> Void = {
+        await pendingSnapshotDelay.recordDelayedPendingScopeRefreshCompletion()
+    }
+    await PendingScopeRefreshInstrumentation.$onRefreshCompleted.withValue(recordRefreshCompletion) {
+        viewModel.computeScopePreview(tracks: tracks)
+        await pendingSnapshotDelay.waitForCapturedFirstSnapshot()
+    }
+}
+
 func makeProposedChange(id: String, isAccepted: Bool) -> ProposedChange {
     ProposedChange(
         track: Track(id: id, name: "Track \(id)", artist: "Artist", album: "Album"),
@@ -432,9 +447,11 @@ actor PendingSnapshotDelay {
     private var isFirstSnapshotReleased = false
     private var hasReturnedDelayedSnapshot = false
     private var hasObservedProblematicCountAfterDelayedSnapshot = false
+    private var hasCompletedDelayedPendingScopeRefresh = false
     private var captureContinuations: [CheckedContinuation<Void, Never>] = []
     private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
     private var problematicCountContinuations: [CheckedContinuation<Void, Never>] = []
+    private var refreshCompletionContinuations: [CheckedContinuation<Void, Never>] = []
 
     func waitAfterCapturingFirstSnapshot() async {
         guard shouldDelayFirstSnapshot else { return }
@@ -476,6 +493,21 @@ actor PendingSnapshotDelay {
 
         await withCheckedContinuation { continuation in
             problematicCountContinuations.append(continuation)
+        }
+    }
+
+    func recordDelayedPendingScopeRefreshCompletion() {
+        guard hasReturnedDelayedSnapshot else { return }
+
+        hasCompletedDelayedPendingScopeRefresh = true
+        resumeAll(&refreshCompletionContinuations)
+    }
+
+    func waitForDelayedPendingScopeRefreshCompletion() async {
+        guard !hasCompletedDelayedPendingScopeRefresh else { return }
+
+        await withCheckedContinuation { continuation in
+            refreshCompletionContinuations.append(continuation)
         }
     }
 

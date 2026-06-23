@@ -17,6 +17,12 @@ private struct PendingVerificationTrackContext {
     var missingTracks: [Track]
 }
 
+#if DEBUG
+enum PendingScopeRefreshInstrumentation {
+    @TaskLocal static var onRefreshCompleted: (@Sendable () async -> Void)?
+}
+#endif
+
 extension WorkflowViewModel {
     func startPendingVerification(tracks: [Track]) {
         guard let pendingVerificationService else {
@@ -40,6 +46,15 @@ extension WorkflowViewModel {
     func refreshPendingScope(tracks: [Track]) {
         let refreshGeneration = invalidatePendingVerificationRefreshes()
         Task { [refreshGeneration, tracks] in
+            #if DEBUG
+            defer {
+                if let onRefreshCompleted = PendingScopeRefreshInstrumentation.onRefreshCompleted {
+                    Task {
+                        await onRefreshCompleted()
+                    }
+                }
+            }
+            #endif
             let snapshot = await pendingVerificationSnapshot()
             let problematicCount = await problematicPendingAlbumCount()
             guard isCurrentPendingVerificationRefresh(refreshGeneration) else { return }
