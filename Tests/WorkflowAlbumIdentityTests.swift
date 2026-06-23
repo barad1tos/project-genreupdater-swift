@@ -419,4 +419,119 @@ struct WorkflowAlbumIdentityTests {
             $0.artist == "Daft Punk feat. Pharrell Williams" && $0.album == "Random Access Memories"
         })
     }
+
+    @Test("pending verification enriches album identity before grouping")
+    func pendingVerificationEnrichesAlbumIdentityBeforeGrouping() async throws {
+        let pendingEntry = PendingAlbumEntry(
+            id: "daft-punk-random-access-memories",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            reason: "no_year_found"
+        )
+        let pendingVerification = WorkflowPendingVerificationService(entries: [pendingEntry])
+        let enrichedTracks = randomAccessMemoriesTracksWithAlbumArtist()
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2013, confidence: 100),
+            pendingVerificationService: pendingVerification,
+            idMapper: WorkflowTrackIDMapper(
+                enrichedTracks: enrichedTracks,
+                appleScriptIDsByMusicKitID: [
+                    "ram-1": "as-ram-1",
+                    "ram-2": "as-ram-2",
+                ]
+            )
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.startPendingVerification(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+
+        #expect(writes.map(\.trackID).sorted() == ["as-ram-1", "as-ram-2"])
+        #expect(viewModel.completedEntries.map(\.trackID).sorted() == ["ram-1", "ram-2"])
+        #expect(viewModel.processedCount == 2)
+    }
+
+    @Test("pending verification processes sibling guest aliases once")
+    func pendingVerificationProcessesSiblingGuestAliasesOnce() async throws {
+        let pharrellEntry = PendingAlbumEntry(
+            id: "pharrell-williams-random-access-memories",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories",
+            reason: "suspicious_year_change"
+        )
+        let julianEntry = PendingAlbumEntry(
+            id: "julian-casablancas-random-access-memories",
+            artist: "Julian Casablancas",
+            album: "Random Access Memories",
+            reason: "suspicious_year_change"
+        )
+        let pendingVerification = WorkflowPendingVerificationService(entries: [pharrellEntry, julianEntry])
+        let enrichedTracks = randomAccessMemoriesTracksWithAlbumArtist()
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2013, confidence: 100),
+            pendingVerificationService: pendingVerification,
+            idMapper: WorkflowTrackIDMapper(
+                enrichedTracks: enrichedTracks,
+                appleScriptIDsByMusicKitID: [
+                    "ram-1": "as-ram-1",
+                    "ram-2": "as-ram-2",
+                ]
+            )
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.startPendingVerification(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.map(\.trackID).sorted() == ["as-ram-1", "as-ram-2"])
+        #expect(writes.count == 2)
+        #expect(viewModel.completedEntries.map(\.trackID).sorted() == ["ram-1", "ram-2"])
+        #expect(viewModel.processedCount == 2)
+        #expect(removals.contains { $0.artist == "Pharrell Williams" && $0.album == "Random Access Memories" })
+        #expect(removals
+            .contains { $0.artist == "Julian Casablancas" && $0.album == "Random Access Memories" } == false)
+    }
+}
+
+private func randomAccessMemoriesMusicKitTracks() -> [Track] {
+    [
+        Track(
+            id: "ram-1",
+            name: "Get Lucky",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories"
+        ),
+        Track(
+            id: "ram-2",
+            name: "Instant Crush",
+            artist: "Julian Casablancas",
+            album: "Random Access Memories"
+        ),
+    ]
+}
+
+private func randomAccessMemoriesTracksWithAlbumArtist() -> [Track] {
+    [
+        Track(
+            id: "ram-1",
+            name: "Get Lucky",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories",
+            albumArtist: "Daft Punk"
+        ),
+        Track(
+            id: "ram-2",
+            name: "Instant Crush",
+            artist: "Julian Casablancas",
+            album: "Random Access Memories",
+            albumArtist: "Daft Punk"
+        ),
+    ]
 }

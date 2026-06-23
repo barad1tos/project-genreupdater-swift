@@ -19,6 +19,7 @@ func makeWorkflowFixture(
         IncrementalTrackScopeOptions
     ) async -> [Track] = { tracks, _ in tracks },
     pendingVerificationService: (any PendingVerificationService)? = nil,
+    idMapper: (any TrackIDMapping)? = nil,
     invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {
@@ -43,6 +44,7 @@ func makeWorkflowFixture(
             trackStore: trackStore,
             cache: cache,
             undoCoordinator: undoCoordinator,
+            idMapper: idMapper,
             pendingVerificationService: pendingVerificationService
         ),
         genreDeterminator: GenreDeterminator()
@@ -331,6 +333,35 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
 
     func verificationTimestampUpdateCount() -> Int {
         timestampUpdates
+    }
+}
+
+actor WorkflowTrackIDMapper: TrackIDMapping {
+    private let enrichedTracks: [String: Track]
+    private let appleScriptIDsByMusicKitID: [String: String]
+
+    init(
+        enrichedTracks: [Track],
+        appleScriptIDsByMusicKitID: [String: String]
+    ) {
+        self.enrichedTracks = Dictionary(uniqueKeysWithValues: enrichedTracks.map { ($0.id, $0) })
+        self.appleScriptIDsByMusicKitID = appleScriptIDsByMusicKitID
+    }
+
+    func appleScriptID(forMusicKitID musicKitID: String) async -> String? {
+        appleScriptIDsByMusicKitID[musicKitID]
+    }
+
+    func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track? {
+        enrichedTracks[musicKitTrack.id]
+    }
+
+    func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
+        // These tests seed mappings directly.
+    }
+
+    func hasMappingFor(musicKitID: String) async -> Bool {
+        enrichedTracks[musicKitID] != nil && appleScriptIDsByMusicKitID[musicKitID] != nil
     }
 }
 
