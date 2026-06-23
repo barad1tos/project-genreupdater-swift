@@ -585,7 +585,15 @@ struct LibrarySyncServiceTests {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let gate = await FeatureGate(fixedTier: .free)
-        let pendingVerification = PendingVerificationProbe(entry: nil, isVerificationNeeded: false)
+        let pendingVerification = PendingVerificationProbe(
+            entry: PendingAlbumEntry(
+                id: "subrosa-future-album",
+                artist: "SubRosa",
+                album: "Future Album",
+                reason: "prerelease"
+            ),
+            isVerificationNeeded: false
+        )
         let modifiedDate = Date()
         let storedTrack = Track(
             id: "PRE",

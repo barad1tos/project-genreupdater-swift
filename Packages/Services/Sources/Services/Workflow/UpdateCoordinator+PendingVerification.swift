@@ -21,6 +21,7 @@ extension UpdateCoordinator {
         )
 
         guard let year = yearResult.year else {
+            await markPendingVerificationRetry(entry: entry, lookupIdentity: identity)
             return PendingAlbumVerificationResult(entries: [], resolvedYear: nil)
         }
 
@@ -61,6 +62,19 @@ extension UpdateCoordinator {
             unchangedTrackIDs: unchangedTrackIDs,
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions
+        )
+    }
+
+    private func markPendingVerificationRetry(entry: PendingAlbumEntry, lookupIdentity: AlbumIdentity) async {
+        await pendingVerificationService?.markForVerification(
+            artist: entry.artist,
+            album: entry.album,
+            reason: entry.reason,
+            metadata: [
+                "source": "pending_verification",
+                "lookup_artist": lookupIdentity.artist,
+            ],
+            recheckDays: nil
         )
     }
 

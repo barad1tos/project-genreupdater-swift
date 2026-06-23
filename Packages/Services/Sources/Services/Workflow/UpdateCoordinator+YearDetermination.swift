@@ -314,11 +314,15 @@ extension UpdateCoordinator {
         )
 
         guard !apiCandidates.isEmpty else {
+            let pendingRemovalAliases = AlbumIdentity.lookupCandidates(for: track).map {
+                (artist: $0.artist, album: $0.album)
+            }
             let yearResult = await apiOrchestrator.getAlbumYear(
                 artist: identity.artist,
                 album: identity.album,
                 currentLibraryYear: track.year,
-                earliestTrackAddedYear: earliestTrackAddedYear
+                earliestTrackAddedYear: earliestTrackAddedYear,
+                pendingRemovalAliases: pendingRemovalAliases
             )
             return (yearResult, yearResult.isDefinitive ? "Definitive" : "API")
         }

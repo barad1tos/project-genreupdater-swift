@@ -232,14 +232,15 @@ public actor APIOrchestrator {
         artist: String,
         album: String,
         currentLibraryYear: Int?,
-        earliestTrackAddedYear: Int?
+        earliestTrackAddedYear: Int?,
+        pendingRemovalAliases: [(artist: String, album: String)] = []
     ) async -> YearResult {
-        await getAlbumYear(
+        await getAlbumYearInternal(
             artist: artist,
             album: album,
             currentLibraryYear: currentLibraryYear,
             earliestTrackAddedYear: earliestTrackAddedYear,
-            shouldSynchronizePendingVerification: true
+            pendingRemovalAliases: pendingRemovalAliases
         )
     }
 
@@ -249,21 +250,21 @@ public actor APIOrchestrator {
         currentLibraryYear: Int?,
         earliestTrackAddedYear: Int?
     ) async -> YearResult {
-        await getAlbumYear(
+        await getAlbumYearInternal(
             artist: artist,
             album: album,
             currentLibraryYear: currentLibraryYear,
             earliestTrackAddedYear: earliestTrackAddedYear,
-            shouldSynchronizePendingVerification: false
+            pendingRemovalAliases: nil
         )
     }
 
-    private func getAlbumYear(
+    private func getAlbumYearInternal(
         artist: String,
         album: String,
         currentLibraryYear: Int?,
         earliestTrackAddedYear: Int?,
-        shouldSynchronizePendingVerification: Bool
+        pendingRemovalAliases: [(artist: String, album: String)]?
     ) async -> YearResult {
         if let reachability, await !reachability.isConnected {
             log.info("Skipping API calls: network offline")
@@ -298,10 +299,11 @@ public actor APIOrchestrator {
 
         let results = await fetchSourceResults(sources: sources, query: query)
         let apiResult = Self.aggregateResults(results, orderedSources: activeSources)
-        if shouldSynchronizePendingVerification {
+        if let pendingRemovalAliases {
             await PendingVerificationSync.synchronize(
                 service: pendingVerificationService,
                 albumKey: (artist, album),
+                albumAliases: pendingRemovalAliases,
                 currentLibraryYear: currentLibraryYear,
                 maxVerificationAttempts: maxVerificationAttempts,
                 result: apiResult
@@ -712,12 +714,13 @@ private func normalizeAPIQueryName(_ name: String) -> String {
 }
 
 private func stripParentheticalText(from text: String) -> String {
-    replacingMatches(
-        in: text,
-        pattern: #"\s*\([^)]*\)"#,
-        with: ""
-    )
-    .trimmingCharacters(in: .whitespacesAndNewlines)
+    let pattern = "\\s*\\([^)]*\\)"
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    let range = NSRange(text.startIndex ..< text.endIndex, in: text)
+    let strippedText = regex.stringByReplacingMatches(in: text, range: range, withTemplate: "")
+    return strippedText.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 private func replacingMatches(in text: String, pattern: String, with replacement: String) -> String {

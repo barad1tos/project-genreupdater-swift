@@ -401,7 +401,11 @@ struct PendingVerificationCoordinatorTests {
 
     @Test("Leaves album untouched when API has no year")
     func skipsWhenNoYearResolved() async throws {
-        let fixture = await makePendingCoordinator(year: nil, confidence: 0)
+        let pendingVerification = RecordingPendingVerificationService()
+        let fixture = await makePendingCoordinator(
+            apiService: MockAPIService(yearResult: YearResult()),
+            pendingVerification: pendingVerification
+        )
         let entry = PendingAlbumEntry(
             id: "unknown-album",
             artist: "Unknown",
@@ -418,5 +422,8 @@ struct PendingVerificationCoordinatorTests {
         #expect(result.resolvedYear == nil)
         #expect(result.entries.isEmpty)
         #expect(written.isEmpty)
+        #expect(await pendingVerification.markCount() == 1)
+        #expect(await pendingVerification.firstMark()?.artist == "Unknown")
+        #expect(await pendingVerification.firstMark()?.album == "Missing")
     }
 }

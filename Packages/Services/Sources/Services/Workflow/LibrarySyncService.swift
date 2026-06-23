@@ -455,35 +455,17 @@ public actor LibrarySyncService {
         guard !targets.isEmpty else { return }
 
         let currentTracks = try await trackStore.loadAllTracks()
-        guard await !hasNonPrereleasePendingEntry(
-            in: targets,
-            pendingVerificationService: pendingVerificationService
-        ) else {
-            return
-        }
-
-        for target in targets where !hasPrereleaseTrack(
-            in: currentTracks, artist: target.artist, album: target.album
-        ) {
-            await pendingVerificationService.removeFromPending(artist: target.artist, album: target.album)
-        }
-    }
-
-    private func hasNonPrereleasePendingEntry(
-        in targets: [(artist: String, album: String)],
-        pendingVerificationService: any PendingVerificationService
-    ) async -> Bool {
         for target in targets {
-            guard let entry = await pendingVerificationService.getEntry(
-                artist: target.artist, album: target.album
-            ) else {
+            guard !hasPrereleaseTrack(in: currentTracks, artist: target.artist, album: target.album) else {
                 continue
             }
-            if !Self.isPrereleasePendingReason(entry.reason) {
-                return true
+            guard let entry = await pendingVerificationService.getEntry(artist: target.artist, album: target.album),
+                  Self.isPrereleasePendingReason(entry.reason)
+            else {
+                continue
             }
+            await pendingVerificationService.removeFromPending(artist: target.artist, album: target.album)
         }
-        return false
     }
 
     private static func isPrereleasePendingReason(_ reason: String) -> Bool {
