@@ -43,6 +43,55 @@ struct UpdateCoordinatorCandidateScoringTests {
         #expect(yearChange.source != "API")
     }
 
+    @Test("uses release candidate details when choosing original year")
+    func usesReleaseCandidateDetailsWhenChoosingOriginalYear() async throws {
+        let track = Track(
+            id: "track-1",
+            name: "Opening Track",
+            artist: "Test Artist",
+            album: "Test Album",
+            year: nil,
+            trackStatus: nil
+        )
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        let api = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(releaseCandidates: [
+                ReleaseCandidate(
+                    artist: "Test Artist",
+                    album: "Test Album",
+                    year: 2020,
+                    source: .musicBrainz,
+                    status: .promotional,
+                    isReissue: true,
+                    mbReleaseGroupID: "rg-1",
+                    mbReleaseGroupFirstYear: 1998
+                ),
+                ReleaseCandidate(
+                    artist: "Test Artist",
+                    album: "Test Album",
+                    year: 1998,
+                    source: .musicBrainz,
+                    status: .official,
+                    mbReleaseGroupID: "rg-1",
+                    mbReleaseGroupFirstYear: 1998
+                ),
+            ]),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService()
+        )
+        let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        let yearChange = try #require(changes.first { $0.changeType == .yearUpdate })
+        #expect(yearChange.newValue == "1998")
+    }
+
     @Test("Uses AppleScript editable year when scoring MusicKit tracks")
     func usesAppleScriptEditableYearWhenScoringMusicKitTracks() async throws {
         let musicKitTrack = Track(

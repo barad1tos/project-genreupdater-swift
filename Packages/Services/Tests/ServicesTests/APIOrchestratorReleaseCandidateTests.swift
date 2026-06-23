@@ -114,6 +114,44 @@ struct APIOrchestratorReleaseCandidateTests {
         #expect(await callCounter.count() == 1)
     }
 
+    @Test("Release candidate cache ignores legacy v1 entries")
+    func releaseCandidateCacheIgnoresLegacyV1Entries() async {
+        let cache = MockCacheService()
+        await cache.setRawJSON(
+            key: legacyV1MusicBrainzBattlesCacheKey,
+            json: legacyV1ReleaseCandidateCacheJSON,
+            ttl: 86400
+        )
+        let callCounter = APICallCounter()
+        let expectedCandidate = ReleaseCandidate(
+            artist: "In Flames",
+            album: "Battles",
+            year: 2016,
+            source: .musicBrainz
+        )
+        let musicBrainz = CountingReleaseCandidateService(
+            callCounter: callCounter,
+            releaseCandidates: [expectedCandidate]
+        )
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: musicBrainz,
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService(),
+            cache: cache,
+            disabledSources: [.discogs, .itunes]
+        )
+
+        let result = await orchestrator.getReleaseCandidates(
+            artist: "In Flames",
+            album: "Battles",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result == [expectedCandidate])
+        #expect(await callCounter.count() == 1)
+    }
+
     @Test("Release candidate cache uses cleaned API search album")
     func releaseCandidateCacheUsesCleanedAPISearchAlbum() async {
         let cache = MockCacheService()
@@ -446,3 +484,24 @@ private struct FlakyReleaseCandidateService: ExternalAPIService {
 private enum ReleaseCandidateTestError: Error {
     case transientFailure
 }
+
+private let legacyV1MusicBrainzBattlesCacheKey =
+    "release_candidates:2:v1|11:musicbrainz|9:in flames|7:battles|16:library_year=nil|23:earliest_added_year=nil"
+
+private let legacyV1ReleaseCandidateCacheJSON = """
+[
+  {
+    "artist": "In Flames",
+    "album": "Battles",
+    "year": 1900,
+    "source": "musicbrainz",
+    "releaseType": "album",
+    "status": "official",
+    "country": null,
+    "isReissue": false,
+    "mbReleaseGroupID": null,
+    "mbReleaseGroupFirstYear": null,
+    "genre": null
+  }
+]
+"""

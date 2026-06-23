@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Services
 
-@Suite("DiscogsClient — request execution")
+@Suite("DiscogsClient — request execution", .serialized)
 struct DiscogsClientRequestTests {
     @Test("getAlbumYear uses configured base URL for search and master requests")
     func getAlbumYearUsesConfiguredBaseURL() async throws {
@@ -16,7 +16,7 @@ struct DiscogsClientRequestTests {
             session.invalidateAndCancel()
         }
 
-        let baseURL = try #require(URL(string: "https://sandbox.discogs.com"))
+        let baseURL = try makeDiscogsSandboxBaseURL()
         let client = DiscogsClient(
             token: "test-token-123",
             session: session,
@@ -32,11 +32,126 @@ struct DiscogsClientRequestTests {
         let requests = recorder.snapshot
 
         #expect(result.year == 1984)
-        #expect(requests.map { $0.url?.host } == ["sandbox.discogs.com", "sandbox.discogs.com"])
-        #expect(requests.map { $0.url?.path } == ["/database/search", "/masters/12345"])
+        #expect(requests.map { $0.url?.host } == [discogsSandboxHost, discogsSandboxHost])
+        #expect(requests.map { $0.url?.path } == [discogsSearchPath, discogsCanonicalPath])
         #expect(requests.allSatisfy {
             $0.value(forHTTPHeaderField: "Authorization") == "Discogs token=test-token-123"
         })
+    }
+
+    @Test("getAlbumYear falls back when canonical year is invalid")
+    func getAlbumYearFallsBackFromInvalidCanonicalYear() async throws {
+        let session = makeDiscogsMockSession { request in
+            try makeDiscogsResponse(
+                for: request,
+                searchJSON: discogsSearchWithInvalidFirstYearResponseJSON,
+                canonicalJSON: discogsInvalidReleaseResponseJSON
+            )
+        }
+        defer {
+            DiscogsRequestMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+
+        let baseURL = try makeDiscogsSandboxBaseURL()
+        let client = DiscogsClient(
+            token: "test-token-123",
+            session: session,
+            baseURL: baseURL
+        )
+
+        let result = try await client.getAlbumYear(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == 1984)
+        #expect(result.yearScores[0] == nil)
+    }
+
+    @Test("getAlbumYear falls back when canonical detail returns HTTP error")
+    func getAlbumYearFallsBackFromCanonicalDetailHTTPError() async throws {
+        try await assertGetAlbumYearFallsBackFromCanonicalDetailFailure { url in
+            try makeDiscogsJSONResponse(url: url, json: "{}", statusCode: 500)
+        }
+    }
+
+    @Test("getAlbumYear falls back when canonical detail transport fails")
+    func getAlbumYearFallsBackFromCanonicalDetailTransportFailure() async throws {
+        try await assertGetAlbumYearFallsBackFromCanonicalDetailFailure { _ in
+            throw URLError(.timedOut)
+        }
+    }
+
+    private func assertGetAlbumYearFallsBackFromCanonicalDetailFailure(
+        canonicalResponse: @escaping (URL) throws -> (HTTPURLResponse, Data)
+    ) async throws {
+        let session = makeDiscogsMockSession { request in
+            let url = try #require(request.url)
+            switch url.path {
+            case discogsSearchPath:
+                return try makeDiscogsJSONResponse(url: url, json: discogsSearchResponseJSON)
+            case discogsCanonicalPath:
+                return try canonicalResponse(url)
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        defer {
+            DiscogsRequestMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+
+        let baseURL = try makeDiscogsSandboxBaseURL()
+        let client = DiscogsClient(
+            token: "test-token-123",
+            session: session,
+            baseURL: baseURL
+        )
+
+        let result = try await client.getAlbumYear(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == 1984)
+        #expect(result.yearScores[1984] == 60)
+    }
+
+    @Test("getAlbumYear ignores invalid canonical and search years")
+    func getAlbumYearIgnoresInvalidCanonicalAndSearchYears() async throws {
+        let session = makeDiscogsMockSession { request in
+            try makeDiscogsResponse(
+                for: request,
+                searchJSON: discogsInvalidSearchResponseJSON,
+                canonicalJSON: discogsInvalidReleaseResponseJSON
+            )
+        }
+        defer {
+            DiscogsRequestMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+
+        let baseURL = try makeDiscogsSandboxBaseURL()
+        let client = DiscogsClient(
+            token: "test-token-123",
+            session: session,
+            baseURL: baseURL
+        )
+
+        let result = try await client.getAlbumYear(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == nil)
+        #expect(result.yearScores[0] == nil)
     }
 }
 
@@ -64,24 +179,60 @@ private func makeDiscogsMockSession(
     return URLSession(configuration: configuration)
 }
 
+private func makeDiscogsSandboxBaseURL() throws -> URL {
+    var components = URLComponents()
+    components.scheme = "https"
+    components.host = discogsSandboxHost
+    return try #require(components.url)
+}
+
 private func makeDiscogsResponse(for request: URLRequest) throws -> (HTTPURLResponse, Data) {
+    try makeDiscogsResponse(
+        for: request,
+        searchJSON: discogsSearchResponseJSON,
+        canonicalJSON: discogsReleaseResponseJSON
+    )
+}
+
+private func makeDiscogsResponse(
+    for request: URLRequest,
+    searchJSON: String,
+    canonicalJSON: String
+) throws -> (HTTPURLResponse, Data) {
     let url = try #require(request.url)
     let json = switch url.path {
-    case "/database/search":
-        discogsSearchResponseJSON
-    case "/masters/12345":
-        discogsReleaseResponseJSON
+    case discogsSearchPath:
+        searchJSON
+    case discogsCanonicalPath:
+        canonicalJSON
     default:
         throw URLError(.badURL)
     }
+    return try makeDiscogsJSONResponse(url: url, json: json)
+}
+
+private func makeDiscogsJSONResponse(
+    url: URL,
+    json: String,
+    statusCode: Int = 200
+) throws -> (HTTPURLResponse, Data) {
     let response = try #require(HTTPURLResponse(
         url: url,
-        statusCode: 200,
+        statusCode: statusCode,
         httpVersion: nil,
         headerFields: ["Content-Type": "application/json"]
     ))
     return (response, Data(json.utf8))
 }
+
+private func makeDiscogsTestPath(_ components: String...) -> String {
+    let pathSeparator = String(Unicode.Scalar(UInt8(47)))
+    return pathSeparator + components.joined(separator: pathSeparator)
+}
+
+private let discogsSandboxHost = "sandbox.discogs.com"
+private let discogsSearchPath = makeDiscogsTestPath("database", "search")
+private let discogsCanonicalPath = makeDiscogsTestPath("masters", "12345")
 
 private final class DiscogsRequestMockURLProtocol: URLProtocol {
     // Safety: each test installs this handler before constructing its isolated URLSession.
@@ -129,11 +280,57 @@ private let discogsSearchResponseJSON = """
 }
 """
 
+private let discogsInvalidSearchResponseJSON = """
+{
+  "pagination": { "page": 1, "pages": 1, "per_page": 5, "items": 1 },
+  "results": [
+    {
+      "id": 42,
+      "type": "master",
+      "master_id": 12345,
+      "title": "Iron Maiden - Powerslave",
+      "year": "0"
+    }
+  ]
+}
+"""
+
+private let discogsSearchWithInvalidFirstYearResponseJSON = """
+{
+  "pagination": { "page": 1, "pages": 1, "per_page": 5, "items": 2 },
+  "results": [
+    {
+      "id": 42,
+      "type": "master",
+      "master_id": 12345,
+      "title": "Iron Maiden - Powerslave",
+      "year": "0"
+    },
+    {
+      "id": 43,
+      "type": "release",
+      "title": "Iron Maiden - Powerslave",
+      "year": "1984"
+    }
+  ]
+}
+"""
+
 private let discogsReleaseResponseJSON = """
 {
   "id": 12345,
   "title": "Powerslave",
   "year": 1984,
+  "genres": ["Rock"],
+  "styles": ["Heavy Metal"]
+}
+"""
+
+private let discogsInvalidReleaseResponseJSON = """
+{
+  "id": 12345,
+  "title": "Powerslave",
+  "year": 0,
   "genres": ["Rock"],
   "styles": ["Heavy Metal"]
 }

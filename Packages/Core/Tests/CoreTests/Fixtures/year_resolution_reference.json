@@ -326,5 +326,38 @@
       "isDefinitive": true,
       "confidence": 90
     }
+  },
+  {
+    "id": "resolve_suspicious_single_old_result",
+    "description": "Single old result below confident single-result threshold is not definitive",
+    "yearScores": {
+      "1990": [
+        84
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 1990,
+      "isDefinitive": false,
+      "confidence": 84
+    }
+  },
+  {
+    "id": "resolve_existing_year_at_boost_boundary",
+    "description": "Existing year is kept when it lands exactly on the boost boundary",
+    "yearScores": {
+      "2001": [
+        90
+      ],
+      "1999": [
+        81
+      ]
+    },
+    "existingYear": "1999",
+    "expected": {
+      "year": 1999,
+      "isDefinitive": true,
+      "confidence": 81
+    }
   }
 ]

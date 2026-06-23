@@ -214,7 +214,7 @@ private func cacheReleaseCandidates(
 
 private func releaseCandidateCacheKey(source: APISource, query: ReleaseCandidateQuery) -> String {
     let components = [
-        "v1",
+        "v2",
         source.rawValue,
         normalizeForMatching(query.artist),
         normalizeForMatching(query.album),

@@ -223,6 +223,11 @@ actor MockCacheService: CacheService {
         guard let data = try? JSONEncoder().encode(value) else { return }
         genericEntries[key] = MockGenericCacheEntry(data: data, timestamp: .now, ttl: ttl)
     }
+
+    func setRawJSON(key: String, json: String, ttl: TimeInterval?) async {
+        genericEntries[key] = MockGenericCacheEntry(data: Data(json.utf8), timestamp: .now, ttl: ttl)
+    }
+
     func invalidate(key: String) async {
         genericEntries.removeValue(forKey: key)
     }
