@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Services
 
-@Suite("DiscogsClient — request execution")
+@Suite("DiscogsClient — request execution", .serialized)
 struct DiscogsClientRequestTests {
     @Test("getAlbumYear uses configured base URL for search and master requests")
     func getAlbumYearUsesConfiguredBaseURL() async throws {
@@ -37,6 +37,49 @@ struct DiscogsClientRequestTests {
         #expect(requests.allSatisfy {
             $0.value(forHTTPHeaderField: "Authorization") == "Discogs token=test-token-123"
         })
+    }
+
+    @Test("getAlbumYear falls back when canonical year is invalid")
+    func getAlbumYearFallsBackFromInvalidCanonicalYear() async throws {
+        let session = makeDiscogsMockSession { request in
+            let url = try #require(request.url)
+            let json = switch url.path {
+            case "/database/search":
+                discogsSearchResponseJSON
+            case "/masters/12345":
+                discogsInvalidReleaseResponseJSON
+            default:
+                throw URLError(.badURL)
+            }
+            let response = try #require(HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            return (response, Data(json.utf8))
+        }
+        defer {
+            DiscogsRequestMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+
+        let baseURL = try #require(URL(string: "https://sandbox.discogs.com"))
+        let client = DiscogsClient(
+            token: "test-token-123",
+            session: session,
+            baseURL: baseURL
+        )
+
+        let result = try await client.getAlbumYear(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == 1984)
+        #expect(result.yearScores[0] == nil)
     }
 }
 
@@ -134,6 +177,16 @@ private let discogsReleaseResponseJSON = """
   "id": 12345,
   "title": "Powerslave",
   "year": 1984,
+  "genres": ["Rock"],
+  "styles": ["Heavy Metal"]
+}
+"""
+
+private let discogsInvalidReleaseResponseJSON = """
+{
+  "id": 12345,
+  "title": "Powerslave",
+  "year": 0,
   "genres": ["Rock"],
   "styles": ["Heavy Metal"]
 }

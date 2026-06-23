@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Core
 
@@ -47,4 +48,36 @@ struct YearDetailTests {
         #expect(scoredReissue.breakdown.reissuePenalty == scorer.config.reissuePenalty)
         #expect(result.year == 1998)
     }
+
+    @Test("Future winner stays non-definitive when selected")
+    func futureWinnerStaysNonDefinitive() {
+        let calendarYear = Calendar.current.component(
+            Calendar.Component.year,
+            from: Date()
+        )
+        let scored = [
+            makeScoredRelease(year: calendarYear + 2, score: 100),
+            makeScoredRelease(year: calendarYear - 1, score: 70),
+        ]
+
+        let result = YearScorer().resolveScores(scored)
+
+        #expect(result.year == calendarYear + 2)
+        #expect(result.isDefinitive == false)
+        #expect(result.confidence == 100)
+    }
+}
+
+private func makeScoredRelease(year: Int, score: Int) -> ScoredRelease {
+    let candidate = ReleaseCandidate(
+        artist: "Test Artist",
+        album: "Test Album",
+        year: year,
+        source: .musicBrainz
+    )
+    return ScoredRelease(
+        candidate: candidate,
+        totalScore: score,
+        breakdown: ScoreBreakdown()
+    )
 }

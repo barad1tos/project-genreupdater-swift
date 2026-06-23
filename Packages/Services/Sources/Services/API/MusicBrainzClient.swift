@@ -300,9 +300,10 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         releases: [MBRelease],
         queryArtist: String
     ) -> [ReleaseCandidate] {
+        var candidates = groupOnlyCandidate(from: group, queryArtist: queryArtist).map { [$0] } ?? []
         let detailedCandidates = releases.compactMap { release -> ReleaseCandidate? in
-            guard let year = group.releaseYear ?? release.releaseYear else { return nil }
-            return ReleaseCandidate(
+            guard let year = release.releaseYear else { return nil }
+            let candidate = ReleaseCandidate(
                 artist: queryArtist,
                 album: albumTitle(releaseTitle: release.title, groupTitle: group.title),
                 year: year,
@@ -314,12 +315,11 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
                 mbReleaseGroupID: group.id,
                 mbReleaseGroupFirstYear: group.releaseYear
             )
+            return candidates.contains(candidate) ? nil : candidate
         }
 
-        guard !detailedCandidates.isEmpty else {
-            return groupOnlyCandidate(from: group, queryArtist: queryArtist).map { [$0] } ?? []
-        }
-        return detailedCandidates
+        candidates.append(contentsOf: detailedCandidates)
+        return candidates
     }
 
     private static func groupOnlyCandidate(

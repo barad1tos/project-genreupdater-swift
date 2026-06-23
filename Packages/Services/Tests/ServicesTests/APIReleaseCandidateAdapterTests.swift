@@ -71,40 +71,13 @@ struct APIReleaseCandidateAdapterTests {
 
             let requestPathComponents = Array(url.pathComponents.dropFirst())
             if requestPathComponents == musicBrainzReleaseGroupPathComponents {
-                let json = """
-                {
-                  "release-groups": [
-                    {
-                      "id": "rg-1",
-                      "title": "Test Album",
-                      "first-release-date": "1998-01-01",
-                      "primary-type": "Album"
-                    }
-                  ]
-                }
-                """
-                return try (jsonResponse(url: url), Data(json.utf8))
+                return try (jsonResponse(url: url), Data(musicBrainzSingleReleaseGroupJSON.utf8))
             }
 
             let queryItems = components.queryItems ?? []
             if requestPathComponents == musicBrainzReleasePathComponents,
                queryItems.contains(where: { $0.name == "release-group" && $0.value == "rg-1" }) {
-                let json = """
-                {
-                  "releases": [
-                    {
-                      "id": "rel-1",
-                      "title": "Test Album",
-                      "date": "1999-05-01",
-                      "country": "GB",
-                      "status": "Promotion",
-                      "media": [{ "format": "CD" }],
-                      "artist-credit": [{ "name": "Test Artist" }]
-                    }
-                  ]
-                }
-                """
-                return try (jsonResponse(url: url), Data(json.utf8))
+                return try (jsonResponse(url: url), Data(musicBrainzPromotionalReleaseJSON.utf8))
             }
 
             throw URLError(.badURL)
@@ -119,12 +92,16 @@ struct APIReleaseCandidateAdapterTests {
             earliestTrackAddedYear: nil
         )
 
-        let candidate = try #require(candidates.first)
-        #expect(candidate.year == 1998)
-        #expect(candidate.country == "gb")
-        #expect(candidate.status == .promotional)
-        #expect(candidate.mbReleaseGroupID == "rg-1")
-        #expect(candidate.mbReleaseGroupFirstYear == 1998)
+        let groupCandidate = try #require(candidates.first)
+        let releaseCandidate = try #require(candidates.dropFirst().first)
+        #expect(groupCandidate.year == 1998)
+        #expect(groupCandidate.status == .official)
+        #expect(groupCandidate.country == nil)
+        #expect(releaseCandidate.year == 1999)
+        #expect(releaseCandidate.country == "gb")
+        #expect(releaseCandidate.status == .promotional)
+        #expect(releaseCandidate.mbReleaseGroupID == "rg-1")
+        #expect(releaseCandidate.mbReleaseGroupFirstYear == 1998)
     }
 
     @Test("MusicBrainz release candidates keep groups beyond detail lookup cap")
@@ -397,7 +374,7 @@ struct APIReleaseCandidateAdapterTests {
                       "type": "release",
                       "master_id": 42,
                       "country": "US",
-                      "format": ["Album"],
+                      "format": ["Album", "Remastered"],
                       "genre": [],
                       "style": ["Alternative Rock"]
                     }
@@ -576,6 +553,35 @@ private func jsonResponse(url: URL, statusCode: Int = 200) throws -> HTTPURLResp
     }
     return response
 }
+
+private let musicBrainzSingleReleaseGroupJSON = """
+{
+  "release-groups": [
+    {
+      "id": "rg-1",
+      "title": "Test Album",
+      "first-release-date": "1998-01-01",
+      "primary-type": "Album"
+    }
+  ]
+}
+"""
+
+private let musicBrainzPromotionalReleaseJSON = """
+{
+  "releases": [
+    {
+      "id": "rel-1",
+      "title": "Test Album",
+      "date": "1999-05-01",
+      "country": "GB",
+      "status": "Promotion",
+      "media": [{ "format": "CD" }],
+      "artist-credit": [{ "name": "Test Artist" }]
+    }
+  ]
+}
+"""
 
 private final class APIReleaseCandidateMockURLProtocol: URLProtocol {
     // Safety: each test configures this static response before constructing its isolated URLSession.

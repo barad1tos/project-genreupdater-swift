@@ -120,10 +120,13 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             from: data
         )
 
-        // Prefer master release for the original release year
+        // Prefer canonical release details for the original release year.
         if let result = response.results.first(where: { $0.masterID != nil }),
            let canonicalID = result.masterID {
-            return try await fetchMasterYear(releaseID: canonicalID)
+            let canonicalResult = try await fetchCanonicalYear(releaseID: canonicalID)
+            if canonicalResult.year != nil {
+                return canonicalResult
+            }
         }
 
         // Fallback to search result year
@@ -305,7 +308,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         artist: String,
         album: String
     ) async throws -> ReleaseCandidate? {
-        let canonicalRelease = try await fetchCandidateMasterRelease(for: result)
+        let canonicalRelease = try await fetchCandidateCanonicalRelease(for: result)
         let canonicalYear = canonicalRelease?.year.flatMap { $0 > 0 ? $0 : nil }
         guard let year = canonicalYear ?? result.releaseYear,
               year > 0 else {
@@ -334,18 +337,17 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         )
     }
 
-    private func fetchCandidateMasterRelease( // swiftlint:disable:this inclusive_language
+    private func fetchCandidateCanonicalRelease(
         for result: DiscogsSearchResult
     ) async throws -> DiscogsMasterRelease? {
         guard let canonicalID = result.masterID else { return nil }
-        return try await fetchMasterRelease(releaseID: canonicalID)
+        return try await fetchCanonicalRelease(releaseID: canonicalID)
     }
 
-    // Fetches master release details and extracts the year.
-    // swiftlint:disable:next inclusive_language
-    private func fetchMasterYear(releaseID: Int) async throws -> YearResult {
-        guard let canonicalRelease = try await fetchMasterRelease(releaseID: releaseID),
-              let year = canonicalRelease.year else {
+    private func fetchCanonicalYear(releaseID: Int) async throws -> YearResult {
+        guard let canonicalRelease = try await fetchCanonicalRelease(releaseID: releaseID),
+              let year = canonicalRelease.year,
+              year > 0 else {
             return YearResult()
         }
 
@@ -361,9 +363,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         )
     }
 
-    // swiftlint:disable:next inclusive_language
-    private func fetchMasterRelease(releaseID: Int) async throws -> DiscogsMasterRelease? {
-        guard let url = Self.buildMasterURL( // swiftlint:disable:this inclusive_language
+    private func fetchCanonicalRelease(releaseID: Int) async throws -> DiscogsMasterRelease? {
+        guard let url = Self.buildMasterURL(
             releaseID: releaseID,
             baseURL: baseURL
         ) else {

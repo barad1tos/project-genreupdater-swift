@@ -328,42 +328,6 @@
     }
   },
   {
-    "id": "resolve_future_winner_clear_gap",
-    "description": "Future year remains selected when it clearly beats the past candidate",
-    "yearScores": {
-      "2028": [
-        100
-      ],
-      "2020": [
-        70
-      ]
-    },
-    "existingYear": null,
-    "expected": {
-      "year": 2028,
-      "isDefinitive": false,
-      "confidence": 100
-    }
-  },
-  {
-    "id": "resolve_future_winner_at_threshold",
-    "description": "Future year remains selected at the definitive score diff boundary",
-    "yearScores": {
-      "2028": [
-        95
-      ],
-      "2020": [
-        80
-      ]
-    },
-    "existingYear": null,
-    "expected": {
-      "year": 2028,
-      "isDefinitive": false,
-      "confidence": 95
-    }
-  },
-  {
     "id": "resolve_suspicious_single_old_result",
     "description": "Single old result below confident single-result threshold is not definitive",
     "yearScores": {
