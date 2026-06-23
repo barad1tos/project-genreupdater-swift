@@ -152,6 +152,70 @@ struct WorkflowPendingTests {
         #expect(summary.problematic == 0)
     }
 
+    @Test("ignores stale pending scope refresh after pending run")
+    func ignoresStalePendingScopeRefreshAfterPendingRun() async throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let resolvedEntry = PendingAlbumEntry(
+            id: "daft-punk-random-access-memories",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            reason: "no_year_found"
+        )
+        let skippedEntry = PendingAlbumEntry(
+            id: "clutch-pure-rock-fury",
+            artist: "Clutch",
+            album: "Pure Rock Fury",
+            reason: "no_year_found"
+        )
+        let pendingSnapshotDelay = PendingSnapshotDelay()
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [resolvedEntry, skippedEntry],
+            dueEntries: [resolvedEntry],
+            problematicAlbums: [
+                ProblematicPendingAlbum(
+                    entry: resolvedEntry,
+                    totalAttempts: 3,
+                    firstAttempt: now,
+                    lastAttempt: now,
+                    daysSinceFirstAttempt: 14
+                ),
+            ],
+            pendingSnapshotDelay: pendingSnapshotDelay
+        )
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2013, confidence: 100),
+            pendingVerificationService: pendingVerification,
+            idMapper: WorkflowTrackIDMapper(
+                enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(),
+                appleScriptIDsByMusicKitID: [
+                    "ram-1": "as-ram-1",
+                    "ram-2": "as-ram-2",
+                ]
+            )
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.computeScopePreview(tracks: randomAccessMemoriesMusicKitTracks())
+        await pendingSnapshotDelay.waitForCapturedFirstSnapshot()
+
+        viewModel.startPendingVerification(tracks: randomAccessMemoriesMusicKitTracks())
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let finalSummary = try #require(viewModel.pendingVerificationReportSummary)
+        #expect(finalSummary.total == 1)
+        #expect(finalSummary.due == 0)
+        #expect(finalSummary.problematic == 0)
+
+        await pendingSnapshotDelay.releaseFirstSnapshot()
+        await pendingSnapshotDelay.waitForProblematicCountAfterDelayedSnapshot()
+        await Task.yield()
+
+        let summary = try #require(viewModel.pendingVerificationReportSummary)
+        #expect(summary.total == 1)
+        #expect(summary.due == 0)
+        #expect(summary.problematic == 0)
+    }
+
     @Test("summarizes pending snapshot facts for update run reports")
     func summarizesPendingSnapshotFactsForUpdateRunReports() async throws {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -173,6 +237,7 @@ struct WorkflowPendingTests {
             album: "Noise",
             reason: "no_year_found"
         )
+        let pendingSnapshotDelay = PendingSnapshotDelay()
         let pendingVerification = WorkflowPendingVerificationService(
             entries: [dueEntry, problematicEntry, skippedProblematicEntry],
             dueEntries: [dueEntry],
@@ -191,31 +256,29 @@ struct WorkflowPendingTests {
                     lastAttempt: now,
                     daysSinceFirstAttempt: 21
                 ),
-            ]
+            ],
+            pendingSnapshotDelay: pendingSnapshotDelay
         )
         let viewModel = makeWorkflowFixture(pendingVerificationService: pendingVerification).viewModel
         viewModel.mode = .pendingVerification
 
         viewModel.computeScopePreview(tracks: [])
+        await pendingSnapshotDelay.waitForCapturedFirstSnapshot()
+        await pendingSnapshotDelay.releaseFirstSnapshot()
+        await pendingSnapshotDelay.waitForProblematicCountAfterDelayedSnapshot()
+        await Task.yield()
 
-        for _ in 0 ..< 200 {
-            if let summary = viewModel.pendingVerificationReportSummary {
-                #expect(summary.total == 3)
-                #expect(summary.due == 1)
-                #expect(summary.problematic == 2)
+        let summary = try #require(viewModel.pendingVerificationReportSummary)
+        #expect(summary.total == 3)
+        #expect(summary.due == 1)
+        #expect(summary.problematic == 2)
 
-                viewModel.reset()
-                #expect(viewModel.pendingVerificationReportSummary == nil)
+        viewModel.reset()
+        #expect(viewModel.pendingVerificationReportSummary == nil)
 
-                viewModel.pendingVerificationReportSummary = summary
-                viewModel.mode = .selectedTracks
-                viewModel.start(tracks: [])
-                #expect(viewModel.pendingVerificationReportSummary == nil)
-                return
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-
-        Issue.record("pending verification report summary did not update before timeout")
+        viewModel.pendingVerificationReportSummary = summary
+        viewModel.mode = .selectedTracks
+        viewModel.start(tracks: [])
+        #expect(viewModel.pendingVerificationReportSummary == nil)
     }
 }

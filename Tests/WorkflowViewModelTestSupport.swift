@@ -323,17 +323,20 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
     private var entries: [PendingAlbumEntry]
     private let seededDueEntries: [PendingAlbumEntry]?
     private let seededProblematicAlbums: [ProblematicPendingAlbum]
+    private let pendingSnapshotDelay: PendingSnapshotDelay?
     private var removals: [(artist: String, album: String)] = []
     private var timestampUpdates = 0
 
     init(
         entries: [PendingAlbumEntry],
         dueEntries: [PendingAlbumEntry]? = nil,
-        problematicAlbums: [ProblematicPendingAlbum] = []
+        problematicAlbums: [ProblematicPendingAlbum] = [],
+        pendingSnapshotDelay: PendingSnapshotDelay? = nil
     ) {
         self.entries = entries
         self.seededDueEntries = dueEntries
         self.seededProblematicAlbums = problematicAlbums
+        self.pendingSnapshotDelay = pendingSnapshotDelay
     }
 
     func initialize() async throws {
@@ -373,10 +376,13 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
     }
 
     func getPendingVerificationSnapshot() async -> (all: [PendingAlbumEntry], due: [PendingAlbumEntry]) {
-        (entries, currentDueEntries())
+        let snapshot = (entries, currentDueEntries())
+        await pendingSnapshotDelay?.waitAfterCapturingFirstSnapshot()
+        return snapshot
     }
 
     func getProblematicPendingAlbums(minAttempts: Int) async -> [ProblematicPendingAlbum] {
+        await pendingSnapshotDelay?.recordProblematicCountRequest()
         let currentEntryKeys = currentEntryKeys()
         return seededProblematicAlbums.filter { problematicAlbum in
             problematicAlbum.totalAttempts >= minAttempts
@@ -417,6 +423,68 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
 
     private static func key(for entry: PendingAlbumEntry) -> String {
         AlbumIdentity.key(artist: entry.artist, album: entry.album)
+    }
+}
+
+actor PendingSnapshotDelay {
+    private var shouldDelayFirstSnapshot = true
+    private var hasCapturedFirstSnapshot = false
+    private var isFirstSnapshotReleased = false
+    private var hasReturnedDelayedSnapshot = false
+    private var hasObservedProblematicCountAfterDelayedSnapshot = false
+    private var captureContinuations: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+    private var problematicCountContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func waitAfterCapturingFirstSnapshot() async {
+        guard shouldDelayFirstSnapshot else { return }
+
+        shouldDelayFirstSnapshot = false
+        hasCapturedFirstSnapshot = true
+        resumeAll(&captureContinuations)
+
+        if !isFirstSnapshotReleased {
+            await withCheckedContinuation { continuation in
+                releaseContinuations.append(continuation)
+            }
+        }
+        hasReturnedDelayedSnapshot = true
+    }
+
+    func waitForCapturedFirstSnapshot() async {
+        guard !hasCapturedFirstSnapshot else { return }
+
+        await withCheckedContinuation { continuation in
+            captureContinuations.append(continuation)
+        }
+    }
+
+    func releaseFirstSnapshot() {
+        isFirstSnapshotReleased = true
+        resumeAll(&releaseContinuations)
+    }
+
+    func recordProblematicCountRequest() {
+        guard hasReturnedDelayedSnapshot else { return }
+
+        hasObservedProblematicCountAfterDelayedSnapshot = true
+        resumeAll(&problematicCountContinuations)
+    }
+
+    func waitForProblematicCountAfterDelayedSnapshot() async {
+        guard !hasObservedProblematicCountAfterDelayedSnapshot else { return }
+
+        await withCheckedContinuation { continuation in
+            problematicCountContinuations.append(continuation)
+        }
+    }
+
+    private func resumeAll(_ continuations: inout [CheckedContinuation<Void, Never>]) {
+        let pendingContinuations = continuations
+        continuations.removeAll()
+        for continuation in pendingContinuations {
+            continuation.resume()
+        }
     }
 }
 

@@ -31,6 +31,7 @@ extension WorkflowViewModel {
 
     func reset() {
         cancel()
+        invalidatePendingVerificationRefreshes()
         phase = .configure
         progress = nil
         proposedChanges = []

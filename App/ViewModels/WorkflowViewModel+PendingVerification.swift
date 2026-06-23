@@ -20,26 +20,29 @@ private struct PendingVerificationTrackContext {
 extension WorkflowViewModel {
     func startPendingVerification(tracks: [Track]) {
         guard let pendingVerificationService else {
+            invalidatePendingVerificationRefreshes()
             pendingVerificationReportSummary = nil
             phase = .error("Pending verification service is unavailable")
             return
         }
 
-        preparePendingVerificationRun()
+        let refreshGeneration = preparePendingVerificationRun()
 
         processingTask = Task {
             await runPendingVerification(
                 tracks: tracks,
-                pendingVerificationService: pendingVerificationService
+                pendingVerificationService: pendingVerificationService,
+                refreshGeneration: refreshGeneration
             )
         }
     }
 
     func refreshPendingScope(tracks: [Track]) {
-        Task {
+        let refreshGeneration = invalidatePendingVerificationRefreshes()
+        Task { [refreshGeneration, tracks] in
             let snapshot = await pendingVerificationSnapshot()
             let problematicCount = await problematicPendingAlbumCount()
-            guard mode == .pendingVerification else { return }
+            guard isCurrentPendingVerificationRefresh(refreshGeneration) else { return }
             updatePendingScope(snapshot: snapshot, tracks: tracks)
             updatePendingVerificationReportSummary(
                 snapshot: snapshot,
@@ -66,7 +69,18 @@ extension WorkflowViewModel {
 }
 
 extension WorkflowViewModel {
-    private func preparePendingVerificationRun() {
+    @discardableResult
+    func invalidatePendingVerificationRefreshes() -> Int {
+        pendingVerificationRefreshGeneration += 1
+        return pendingVerificationRefreshGeneration
+    }
+
+    func isCurrentPendingVerificationRefresh(_ refreshGeneration: Int) -> Bool {
+        mode == .pendingVerification && refreshGeneration == pendingVerificationRefreshGeneration
+    }
+
+    private func preparePendingVerificationRun() -> Int {
+        let refreshGeneration = invalidatePendingVerificationRefreshes()
         phase = .scanning
         processedCount = 0
         failedCount = 0
@@ -76,11 +90,13 @@ extension WorkflowViewModel {
         result = nil
         dryRunReport = nil
         pendingVerificationReportSummary = nil
+        return refreshGeneration
     }
 
     private func runPendingVerification(
         tracks: [Track],
-        pendingVerificationService: any PendingVerificationService
+        pendingVerificationService: any PendingVerificationService,
+        refreshGeneration: Int
     ) async {
         do {
             let snapshot = await pendingVerificationSnapshot()
@@ -89,6 +105,7 @@ extension WorkflowViewModel {
                 .count
             let dueEntries = snapshot.due
             let trackContext = await pendingVerificationTrackContext(from: tracks)
+            guard isCurrentPendingVerificationRefresh(refreshGeneration) else { return }
             updatePendingScope(snapshot: snapshot, tracks: trackContext.tracks)
             updatePendingVerificationReportSummary(
                 snapshot: snapshot,
@@ -125,7 +142,9 @@ extension WorkflowViewModel {
             if !dueEntries.isEmpty {
                 try await pendingVerificationService.updateVerificationTimestamp()
             }
-            await refreshPendingVerificationReportSummary()
+            let finalRefreshGeneration = invalidatePendingVerificationRefreshes()
+            await refreshPendingVerificationReportSummary(refreshGeneration: finalRefreshGeneration)
+            guard isCurrentPendingVerificationRefresh(finalRefreshGeneration) else { return }
             finishPendingVerification(runOutcome)
         } catch is CancellationError {
             currentTrackID = nil
@@ -282,9 +301,10 @@ extension WorkflowViewModel {
         )
     }
 
-    private func refreshPendingVerificationReportSummary() async {
+    private func refreshPendingVerificationReportSummary(refreshGeneration: Int) async {
         let snapshot = await pendingVerificationSnapshot()
         let problematicCount = await problematicPendingAlbumCount()
+        guard isCurrentPendingVerificationRefresh(refreshGeneration) else { return }
         updatePendingVerificationReportSummary(
             snapshot: snapshot,
             problematicCount: problematicCount
