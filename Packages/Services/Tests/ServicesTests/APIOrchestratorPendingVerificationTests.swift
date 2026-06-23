@@ -208,7 +208,7 @@ struct APIOrchestratorPendingVerificationTests {
             artist: "Pharrell Williams",
             album: "Random Access Memories"
         )))
-        #expect(removedAlbums.contains(.init(
+        #expect(!removedAlbums.contains(.init(
             artist: "Daft Punk",
             album: "Random Access Memories"
         )))
@@ -216,6 +216,42 @@ struct APIOrchestratorPendingVerificationTests {
             artist: "Guest Artist",
             album: "Random Access Memories"
         )))
+    }
+
+    @Test("Non-definitive current-year match keeps pending aliases")
+    func nonDefinitiveCurrentYearMatchKeepsPendingAliases() async {
+        let pendingVerification = RecordingPendingVerificationService(
+            entries: randomAccessMemoriesPendingEntries()
+        )
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(
+                yearResult: YearResult(
+                    year: 2013,
+                    isDefinitive: false,
+                    confidence: 60,
+                    yearScores: [2013: 60]
+                )
+            ),
+            discogs: MockAPIService(shouldThrow: true),
+            appleMusic: MockAPIService(shouldThrow: true)
+        ) {
+            $0.pendingVerificationService = pendingVerification
+        }
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            currentLibraryYear: 2013,
+            earliestTrackAddedYear: nil,
+            pendingRemovalAliases: [
+                (artist: "Daft Punk feat. Pharrell Williams", album: "Random Access Memories"),
+            ]
+        )
+
+        #expect(result.year == 2013)
+        #expect(result.isDefinitive == false)
+        #expect(await pendingVerification.markCount() == 0)
+        #expect(await pendingVerification.removalCount() == 0)
     }
 
     @Test("Removes album from pending when verification attempts are exhausted")
@@ -265,6 +301,12 @@ struct APIOrchestratorPendingVerificationTests {
                 artist: "Pharrell Williams",
                 album: "Random Access Memories",
                 reason: "no_year_found"
+            ),
+            PendingAlbumEntry(
+                id: "canonical-prerelease",
+                artist: "Daft Punk",
+                album: "Random Access Memories",
+                reason: "prerelease"
             ),
             PendingAlbumEntry(
                 id: "prerelease",
@@ -352,6 +394,10 @@ actor RecordingPendingVerificationService: PendingVerificationService {
 
     func firstMark() -> PendingMark? {
         marks.first
+    }
+
+    func allMarks() -> [PendingMark] {
+        marks
     }
 
     func removalCount() -> Int {

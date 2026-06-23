@@ -13,15 +13,18 @@ extension UpdateCoordinator {
         guard let identity = Self.pendingVerificationIdentity(for: entry, albumTracks: albumTracks) else {
             return PendingAlbumVerificationResult(entries: [], resolvedYear: nil)
         }
-        let yearResult = await apiOrchestrator.getAlbumYearForPendingVerification(
+        let yearLookup = await apiOrchestrator.getAlbumYearForPendingVerification(
             artist: identity.artist,
             album: identity.album,
             currentLibraryYear: nil,
             earliestTrackAddedYear: earliestAddedYear(albumTracks)
         )
+        let yearResult = yearLookup.result
 
         guard let year = yearResult.year else {
-            await markPendingVerificationRetry(entry: entry, lookupIdentity: identity)
+            if yearLookup.didAttemptLookup {
+                await markPendingVerificationRetries(entry: entry, lookupIdentity: identity)
+            }
             return PendingAlbumVerificationResult(entries: [], resolvedYear: nil)
         }
 
@@ -65,17 +68,67 @@ extension UpdateCoordinator {
         )
     }
 
-    private func markPendingVerificationRetry(entry: PendingAlbumEntry, lookupIdentity: AlbumIdentity) async {
-        await pendingVerificationService?.markForVerification(
-            artist: entry.artist,
-            album: entry.album,
-            reason: entry.reason,
-            metadata: [
-                "source": "pending_verification",
-                "lookup_artist": lookupIdentity.artist,
-            ],
-            recheckDays: nil
+    private func markPendingVerificationRetries(entry: PendingAlbumEntry, lookupIdentity: AlbumIdentity) async {
+        guard let pendingVerificationService else { return }
+
+        let retryEntries = await pendingVerificationRetryEntries(
+            entry: entry,
+            lookupIdentity: lookupIdentity,
+            pendingVerificationService: pendingVerificationService
         )
+        for retryEntry in retryEntries {
+            await pendingVerificationService.markForVerification(
+                artist: retryEntry.artist,
+                album: retryEntry.album,
+                reason: retryEntry.reason,
+                metadata: [
+                    "source": "pending_verification",
+                    "lookup_artist": lookupIdentity.artist,
+                ],
+                recheckDays: nil
+            )
+        }
+    }
+
+    private func pendingVerificationRetryEntries(
+        entry: PendingAlbumEntry,
+        lookupIdentity: AlbumIdentity,
+        pendingVerificationService: any PendingVerificationService
+    ) async -> [PendingAlbumEntry] {
+        let targetReason = Self.normalizedPendingReason(entry.reason)
+        var targetKeys = Set(AlbumIdentity.lookupKeys(artist: entry.artist, album: entry.album))
+        targetKeys.formUnion(AlbumIdentity.lookupKeys(artist: lookupIdentity.artist, album: lookupIdentity.album))
+
+        var seenKeys: Set<String> = []
+        var retryEntries: [PendingAlbumEntry] = []
+
+        func append(_ pendingEntry: PendingAlbumEntry) {
+            let key = AlbumIdentity.key(artist: pendingEntry.artist, album: pendingEntry.album)
+            guard seenKeys.insert(key).inserted else { return }
+            retryEntries.append(pendingEntry)
+        }
+
+        append(entry)
+
+        let pendingEntries = await pendingVerificationService.getAllPendingAlbums()
+        for pendingEntry in pendingEntries where Self.normalizedPendingReason(pendingEntry.reason) == targetReason {
+            let pendingKeys = Set(AlbumIdentity.lookupKeys(artist: pendingEntry.artist, album: pendingEntry.album))
+            guard !pendingKeys.isDisjoint(with: targetKeys) else { continue }
+            append(pendingEntry)
+        }
+
+        return retryEntries
+    }
+
+    private static func normalizedPendingReason(_ reason: String) -> String {
+        let normalizedReason = reason
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "_")
+            .lowercased()
+        if normalizedReason == "pre_release" {
+            return "prerelease"
+        }
+        return normalizedReason
     }
 
     private func applyPendingVerificationChange(

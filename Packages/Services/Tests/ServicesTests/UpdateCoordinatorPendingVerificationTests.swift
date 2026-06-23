@@ -30,7 +30,8 @@ private func makePendingCoordinator(
 private func makePendingCoordinator(
     apiService: any ExternalAPIService,
     runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
-    pendingVerification: RecordingPendingVerificationService? = nil
+    pendingVerification: RecordingPendingVerificationService? = nil,
+    reachability: NetworkReachabilityMonitor? = nil
 ) async -> PendingCoordinatorFixture {
     let bridge = MockAppleScriptClient()
     let store = MockTrackStore()
@@ -44,6 +45,7 @@ private func makePendingCoordinator(
         appleMusic: apiService
     ) { configuration in
         configuration.pendingVerificationService = pendingVerification
+        configuration.reachability = reachability
     }
     let coordinator = UpdateCoordinator(
         dependencies: UpdateCoordinatorDependencies(
@@ -425,5 +427,93 @@ struct PendingVerificationCoordinatorTests {
         #expect(await pendingVerification.markCount() == 1)
         #expect(await pendingVerification.firstMark()?.artist == "Unknown")
         #expect(await pendingVerification.firstMark()?.album == "Missing")
+    }
+
+    @Test("Offline pending verification does not refresh retry state")
+    func offlinePendingVerificationDoesNotRefreshRetryState() async throws {
+        let apiProbe = APIRequestProbe()
+        let pendingVerification = RecordingPendingVerificationService()
+        let fixture = await makePendingCoordinator(
+            apiService: UpdateCoordinatorRecordingAPIService(
+                probe: apiProbe,
+                yearResult: YearResult(
+                    year: 2013,
+                    confidence: 100,
+                    yearScores: [2013: 100]
+                )
+            ),
+            pendingVerification: pendingVerification,
+            reachability: NetworkReachabilityMonitor(initialIsConnected: false)
+        )
+        let entry = PendingAlbumEntry(
+            id: "daft-punk-random-access-memories",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            reason: "no_year_found"
+        )
+        let albumTracks = [
+            makePendingTrack(id: "T1", artist: "Daft Punk", album: "Random Access Memories", year: nil),
+        ]
+
+        let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
+
+        #expect(result.resolvedYear == nil)
+        #expect(result.entries.isEmpty)
+        #expect(await apiProbe.requestCount == 0)
+        #expect(await pendingVerification.markCount() == 0)
+    }
+
+    @Test("No-year pending verification refreshes matching legacy aliases")
+    func noYearPendingVerificationRefreshesMatchingLegacyAliases() async throws {
+        let pendingVerification = RecordingPendingVerificationService(entries: [
+            PendingAlbumEntry(
+                id: "legacy-no-year",
+                artist: "Daft Punk feat. Pharrell Williams",
+                album: "Random Access Memories",
+                reason: "no_year_found"
+            ),
+            PendingAlbumEntry(
+                id: "canonical-no-year",
+                artist: "Daft Punk",
+                album: "Random Access Memories",
+                reason: "no_year_found"
+            ),
+            PendingAlbumEntry(
+                id: "canonical-prerelease",
+                artist: "Daft Punk",
+                album: "Random Access Memories",
+                reason: "prerelease"
+            ),
+        ])
+        let fixture = await makePendingCoordinator(
+            apiService: MockAPIService(yearResult: YearResult()),
+            pendingVerification: pendingVerification
+        )
+        let entry = PendingAlbumEntry(
+            id: "legacy-no-year",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            reason: "no_year_found"
+        )
+        let albumTracks = [
+            makePendingTrack(
+                id: "T1",
+                artist: "Daft Punk feat. Pharrell Williams",
+                album: "Random Access Memories",
+                year: nil,
+                albumArtist: "Daft Punk"
+            ),
+        ]
+
+        let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
+
+        let marks = await pendingVerification.allMarks()
+        #expect(result.resolvedYear == nil)
+        #expect(result.entries.isEmpty)
+        #expect(marks.contains { $0.artist == "Daft Punk feat. Pharrell Williams" })
+        #expect(marks.contains { $0.artist == "Daft Punk" })
+        #expect(!marks.contains { $0.reason == "prerelease" })
+        #expect(marks.allSatisfy { $0.reason == "no_year_found" })
+        #expect(marks.allSatisfy { $0.metadata["lookup_artist"] == "Daft Punk" })
     }
 }

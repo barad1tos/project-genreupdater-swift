@@ -24,8 +24,12 @@ enum PendingVerificationSync {
             return
         }
 
-        if result.isDefinitive || resolvedYear == currentLibraryYear {
+        if result.isDefinitive {
             await removeFromPendingAliases(service: service, albumKey: albumKey, albumAliases: albumAliases)
+            return
+        }
+
+        if resolvedYear == currentLibraryYear {
             return
         }
 
@@ -76,6 +80,11 @@ enum PendingVerificationSync {
             targetKeys.formUnion(AlbumIdentity.lookupKeys(artist: artist, album: album))
             let key = AlbumIdentity.key(artist: artist, album: album)
             guard seenKeys.insert(key).inserted else { return }
+            guard !hasProtectedPendingEntry(
+                artist: artist,
+                album: album,
+                pendingEntries: pendingEntries
+            ) else { return }
             targets.append((artist: artist, album: album))
         }
 
@@ -102,7 +111,28 @@ enum PendingVerificationSync {
         _ entry: PendingAlbumEntry,
         targetKeys: Set<String>
     ) -> Bool {
+        guard isRemovablePendingEntry(entry) else { return false }
+
         let entryKeys = Set(AlbumIdentity.lookupKeys(artist: entry.artist, album: entry.album))
         return !targetKeys.isDisjoint(with: entryKeys)
+    }
+
+    private static func hasProtectedPendingEntry(
+        artist: String,
+        album: String,
+        pendingEntries: [PendingAlbumEntry]
+    ) -> Bool {
+        let key = AlbumIdentity.key(artist: artist, album: album)
+        return pendingEntries.contains { entry in
+            AlbumIdentity.key(artist: entry.artist, album: entry.album) == key && !isRemovablePendingEntry(entry)
+        }
+    }
+
+    private static func isRemovablePendingEntry(_ entry: PendingAlbumEntry) -> Bool {
+        let normalizedReason = entry.reason
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "_")
+            .lowercased()
+        return normalizedReason != "prerelease" && normalizedReason != "pre_release"
     }
 }

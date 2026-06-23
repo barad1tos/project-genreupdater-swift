@@ -58,7 +58,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
             artist: "Daft Punk feat. Pharrell Williams",
             album: "Random Access Memories",
             year: 2012,
-            albumArtist: "Daft Punk"
+            metadata: .init(albumArtist: "Daft Punk")
         )
 
         _ = try await coordinator.updateTrack(
@@ -211,7 +211,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
             artist: "Daft Punk feat. Pharrell Williams",
             album: "Random Access Memories",
             year: currentYear - 2,
-            releaseYear: currentYear
+            metadata: .init(releaseYear: currentYear)
         )
 
         _ = try await coordinator.updateTrack(
@@ -280,7 +280,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
             artist: "Daft Punk feat. Pharrell Williams",
             album: "Random Access Memories",
             year: 2012,
-            albumArtist: "Daft Punk"
+            metadata: .init(albumArtist: "Daft Punk")
         )
 
         let changes = try await coordinator.updateTrack(
@@ -323,7 +323,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
             artist: "Daft Punk feat. Pharrell Williams",
             album: "Random Access Memories",
             year: 2012,
-            albumArtist: "Daft Punk"
+            metadata: .init(albumArtist: "Daft Punk")
         )
 
         let changes = try await coordinator.updateTrack(
@@ -415,14 +415,14 @@ struct UpdateCoordinatorAlbumIdentityTests {
             id: "first-guest",
             artist: "Guest Singer",
             album: "Greatest Hits",
-            albumArtist: "Original Artist"
+            metadata: .init(albumArtist: "Original Artist")
         )
         let secondTrack = makeTrack(
             id: "second-guest",
             artist: "Guest Singer",
             album: "Greatest Hits",
             year: 1990,
-            albumArtist: "Compilation Artist"
+            metadata: .init(albumArtist: "Compilation Artist")
         )
         await bridge.setFetchedTracks([firstTrack, secondTrack])
 
@@ -459,14 +459,14 @@ struct UpdateCoordinatorAlbumIdentityTests {
             name: "Get Lucky",
             artist: "Pharrell Williams",
             album: "Random Access Memories",
-            albumArtist: "Daft Punk"
+            metadata: .init(albumArtist: "Daft Punk")
         )
         let secondAppleScriptTrack = makeTrack(
             id: "as-2",
             name: "Instant Crush",
             artist: "Julian Casablancas",
             album: "Random Access Memories",
-            albumArtist: "Daft Punk"
+            metadata: .init(albumArtist: "Daft Punk")
         )
         await mapper.refreshMapping(
             musicKitTracks: [firstMusicKitTrack, secondMusicKitTrack],
@@ -504,7 +504,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
             name: "Get Lucky",
             artist: "Pharrell Williams",
             album: "Random Access Memories",
-            albumArtist: "Daft Punk"
+            metadata: .init(albumArtist: "Daft Punk")
         )
         let secondAppleScriptTrack = makeTrack(
             id: "as-2",
@@ -512,7 +512,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
             artist: "Julian Casablancas",
             album: "Random Access Memories",
             year: 2001,
-            albumArtist: "Daft Punk"
+            metadata: .init(albumArtist: "Daft Punk")
         )
         await mapper.refreshMapping(
             musicKitTracks: [firstMusicKitTrack, secondMusicKitTrack],
@@ -542,7 +542,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
             artist: "Daft Punk feat. Pharrell Williams",
             album: "Random Access Memories",
             year: 2012,
-            originalArtist: "The Robots"
+            metadata: .init(originalArtist: "The Robots")
         )
 
         _ = try await coordinator.applyAcceptedChanges([
@@ -579,7 +579,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
             id: "ram-clean",
             artist: "Daft Punk feat. Pharrell Williams",
             album: "Random Access Memories (Deluxe Edition)",
-            originalArtist: "The Robots"
+            metadata: .init(originalArtist: "The Robots")
         )
 
         _ = try await coordinator.applyAcceptedChanges([
@@ -668,6 +668,12 @@ struct UpdateCoordinatorAlbumIdentityTests {
         )
     }
 
+    private struct TrackFixtureMetadata {
+        var originalArtist: String?
+        var releaseYear: Int?
+        var albumArtist: String?
+    }
+
     private func makeTrack(
         id: String,
         name: String? = nil,
@@ -675,9 +681,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
         album: String,
         year: Int? = nil,
         trackStatus: String? = nil,
-        originalArtist: String? = nil,
-        releaseYear: Int? = nil,
-        albumArtist: String? = nil
+        metadata: TrackFixtureMetadata = TrackFixtureMetadata()
     ) -> Track {
         Track(
             id: id,
@@ -686,9 +690,9 @@ struct UpdateCoordinatorAlbumIdentityTests {
             album: album,
             year: year,
             trackStatus: trackStatus,
-            originalArtist: originalArtist,
-            releaseYear: releaseYear,
-            albumArtist: albumArtist
+            originalArtist: metadata.originalArtist,
+            releaseYear: metadata.releaseYear,
+            albumArtist: metadata.albumArtist
         )
     }
 
