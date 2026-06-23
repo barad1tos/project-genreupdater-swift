@@ -177,7 +177,8 @@ extension WorkflowViewModel {
         guard missingEntryTracks.isEmpty else {
             let errorDescription = "Missing AppleScript metadata for \(entry.artist) - \(entry.album)"
             let failedTracks = Self.uniqueTracks(albumTracks + missingEntryTracks)
-            markPendingAlbumTracks(albumTracks, as: .failed(errorDescription))
+            markPendingAlbumTracks(failedTracks, as: .failed(errorDescription))
+            totalCount = max(totalCount, trackStatuses.count)
             return PendingEntryOutcome(
                 failedTrackIDs: failedTracks.map(\.id),
                 errorDescriptions: Array(repeating: errorDescription, count: failedTracks.count),

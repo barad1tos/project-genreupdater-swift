@@ -106,6 +106,46 @@ func makeProposedChange(id: String, isAccepted: Bool) -> ProposedChange {
     )
 }
 
+func randomAccessMemoriesMusicKitTracks(year: Int? = nil, secondArtist: String = "Julian Casablancas") -> [Track] {
+    [
+        Track(
+            id: "ram-1",
+            name: "Get Lucky",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories",
+            year: year
+        ),
+        Track(
+            id: "ram-2",
+            name: "Instant Crush",
+            artist: secondArtist,
+            album: "Random Access Memories",
+            year: year
+        ),
+    ]
+}
+
+func randomAccessMemoriesTracksWithAlbumArtist(year: Int? = nil) -> [Track] {
+    [
+        Track(
+            id: "ram-1",
+            name: "Get Lucky",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories",
+            year: year,
+            albumArtist: "Daft Punk"
+        ),
+        Track(
+            id: "ram-2",
+            name: "Instant Crush",
+            artist: "Julian Casablancas",
+            album: "Random Access Memories",
+            year: year,
+            albumArtist: "Daft Punk"
+        ),
+    ]
+}
+
 private func temporaryDirectory() -> URL {
     FileManager.default.temporaryDirectory
         .appendingPathComponent("GenreUpdaterWorkflowDashboardStateTests", isDirectory: true)
@@ -115,15 +155,18 @@ private func temporaryDirectory() -> URL {
 struct DashboardStateAPIService: ExternalAPIService {
     let year: Int?
     let confidence: Int
+    let isDefinitive: Bool
     let beforeAlbumYearLookup: (@Sendable () async -> Void)?
 
     init(
         year: Int? = nil,
         confidence: Int = 0,
+        isDefinitive: Bool = true,
         beforeAlbumYearLookup: (@Sendable () async -> Void)? = nil
     ) {
         self.year = year
         self.confidence = confidence
+        self.isDefinitive = isDefinitive
         self.beforeAlbumYearLookup = beforeAlbumYearLookup
     }
 
@@ -136,6 +179,7 @@ struct DashboardStateAPIService: ExternalAPIService {
         await beforeAlbumYearLookup?()
         return YearResult(
             year: year,
+            isDefinitive: isDefinitive,
             confidence: confidence,
             yearScores: year.map { [$0: confidence] } ?? [:]
         )

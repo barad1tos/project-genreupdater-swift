@@ -578,12 +578,22 @@ struct WorkflowAlbumIdentityTests {
         let viewModel = fixture.viewModel
         viewModel.mode = .pendingVerification
 
-        viewModel.startPendingVerification(tracks: randomAccessMemoriesMusicKitTracks())
+        viewModel
+            .startPendingVerification(
+                tracks: randomAccessMemoriesMusicKitTracks(secondArtist: "Daft Punk feat. Julian Casablancas")
+            )
 
         try await waitForWorkflowToLeaveScanning(viewModel)
         let writes = await fixture.scriptClient.updatedProperties()
         let removals = await pendingVerification.removedAlbums()
         let remainingPending = await pendingVerification.getAllPendingAlbums()
+        let report = UpdateRunReport(
+            result: viewModel.result,
+            completedEntries: viewModel.completedEntries,
+            trackStatuses: viewModel.trackStatuses,
+            tracks: randomAccessMemoriesMusicKitTracks(secondArtist: "Daft Punk feat. Julian Casablancas"),
+            testArtists: []
+        )
 
         #expect(writes.isEmpty)
         #expect(removals.isEmpty)
@@ -591,6 +601,10 @@ struct WorkflowAlbumIdentityTests {
         #expect(viewModel.trackStatuses["ram-1"] != .queued)
         #expect(Set(viewModel.result?.failedTrackIDs ?? []) == ["ram-1", "ram-2"])
         #expect(remainingPending.map(\.id) == ["daft-punk-random-access-memories"])
+        #expect(viewModel.processedCount == 2)
+        #expect(viewModel.totalCount == 2)
+        #expect(viewModel.trackStatuses.count == 2)
+        #expect(report.scannedTrackCount == 2)
     }
 
     @Test("pending verification ignores unrelated missing context with the same album title")
@@ -758,43 +772,4 @@ struct WorkflowAlbumIdentityTests {
             Issue.record("ram-2 should be marked failed")
         }
     }
-}
-
-func randomAccessMemoriesMusicKitTracks(year: Int? = nil) -> [Track] {
-    [
-        Track(
-            id: "ram-1",
-            name: "Get Lucky",
-            artist: "Pharrell Williams",
-            album: "Random Access Memories",
-            year: year
-        ),
-        Track(
-            id: "ram-2",
-            name: "Instant Crush",
-            artist: "Julian Casablancas",
-            album: "Random Access Memories",
-            year: year
-        ),
-    ]
-}
-func randomAccessMemoriesTracksWithAlbumArtist(year: Int? = nil) -> [Track] {
-    [
-        Track(
-            id: "ram-1",
-            name: "Get Lucky",
-            artist: "Pharrell Williams",
-            album: "Random Access Memories",
-            year: year,
-            albumArtist: "Daft Punk"
-        ),
-        Track(
-            id: "ram-2",
-            name: "Instant Crush",
-            artist: "Julian Casablancas",
-            album: "Random Access Memories",
-            year: year,
-            albumArtist: "Daft Punk"
-        ),
-    ]
 }

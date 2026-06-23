@@ -137,7 +137,8 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
 
         let key = albumKey(artist: artist, album: album)
         let existing = (try? fetchEntry(id: key))?.toPendingAlbumEntry()
-        let resolvedRecheckDays = resolvedRecheckDays(reason: reason, recheckDays: recheckDays)
+        let effectiveReason = pendingReason(existingReason: existing?.reason, requestedReason: reason)
+        let resolvedRecheckDays = resolvedRecheckDays(reason: effectiveReason, recheckDays: recheckDays)
         let interval = resolvedRecheckDays.map { TimeInterval($0) * 86400 } ?? verificationInterval
         var mergedMetadata = existing?.metadata ?? [:]
         if let metadata {
@@ -151,7 +152,7 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
             id: key,
             artist: artist.trimmingCharacters(in: .whitespacesAndNewlines),
             album: album.trimmingCharacters(in: .whitespacesAndNewlines),
-            reason: reason,
+            reason: effectiveReason,
             attemptCount: (existing?.attemptCount ?? 0) + 1,
             lastAttempt: currentDate(),
             recheckInterval: interval,
@@ -610,6 +611,14 @@ extension SwiftDataPendingVerificationService {
         }
         guard Self.isPrereleaseReason(reason) else { return nil }
         return prereleaseRecheckDays
+    }
+
+    private func pendingReason(existingReason: String?, requestedReason: String) -> String {
+        guard let existingReason, Self.isPrereleaseReason(existingReason),
+              !Self.isPrereleaseReason(requestedReason) else {
+            return requestedReason
+        }
+        return existingReason
     }
 
     private static func resolvedPrereleaseRecheckDays(_ days: Int, fallbackDays: Int) -> Int {

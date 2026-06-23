@@ -63,7 +63,7 @@ struct WorkflowPendingTests {
         )
         let pendingVerification = WorkflowPendingVerificationService(entries: [pendingEntry])
         let fixture = makeWorkflowFixture(
-            apiService: DashboardStateAPIService(year: 2013, confidence: 60),
+            apiService: DashboardStateAPIService(year: 2013, confidence: 60, isDefinitive: false),
             pendingVerificationService: pendingVerification,
             idMapper: WorkflowTrackIDMapper(
                 enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(year: 2013),
