@@ -62,6 +62,22 @@ struct AppDependenciesLibraryServicesTests {
 
         #expect(await fixture.snapshotService.savedSnapshotCount() == 0)
     }
+
+    @Test("MainView load persistence passes captured scope")
+    func mainViewLoadPersistencePassesCapturedScope() throws {
+        let source = try String(contentsOf: mainViewDataSourceURL(), encoding: .utf8)
+        let compactSource = source.replacingOccurrences(
+            of: "\\s+",
+            with: " ",
+            options: .regularExpression
+        )
+
+        #expect(
+            compactSource.contains(
+                "await dependencies.persistLoadedLibraryTracks(liveTracks, scopedArtists: scopedArtists)"
+            )
+        )
+    }
 }
 
 private struct LibraryPersistenceFixture {
@@ -80,7 +96,9 @@ private func makeFixture(testArtists: [String]) throws -> LibraryPersistenceFixt
             configuration.development.testArtists = testArtists
             return configuration
         },
-        configurationSaver: { _ in }
+        configurationSaver: { _ in
+            // Tests keep configuration in memory.
+        }
     )
     dependencies.configureLibraryPersistenceForTesting(
         trackStore: trackStore,
@@ -105,6 +123,21 @@ private func sampleTrack() -> Track {
     )
 }
 
+private func mainViewDataSourceURL() throws -> URL {
+    var currentURL = URL(fileURLWithPath: #filePath)
+    currentURL.deleteLastPathComponent()
+
+    for _ in 0 ..< 8 {
+        let candidate = currentURL.appendingPathComponent("App/Views/MainView+Data.swift")
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+        currentURL.deleteLastPathComponent()
+    }
+
+    throw CocoaError(.fileNoSuchFile)
+}
+
 private actor SnapshotServiceSpy: LibrarySnapshotService {
     var isEnabled = true
     var isDeltaEnabled = true
@@ -121,7 +154,9 @@ private actor SnapshotServiceSpy: LibrarySnapshotService {
         return "snapshot"
     }
 
-    func clearSnapshot() async {}
+    func clearSnapshot() async {
+        // Snapshot clearing is outside this spy's assertions.
+    }
 
     func isSnapshotValid() async -> Bool {
         true
@@ -131,13 +166,17 @@ private actor SnapshotServiceSpy: LibrarySnapshotService {
         nil
     }
 
-    func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {}
+    func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {
+        // Metadata writes are outside this spy's assertions.
+    }
 
     func loadDelta() async -> LibraryDeltaCache? {
         nil
     }
 
-    func saveDelta(_: LibraryDeltaCache) async throws {}
+    func saveDelta(_: LibraryDeltaCache) async throws {
+        // Delta writes are outside this spy's assertions.
+    }
 
     func getLibraryModificationDate() async throws -> Date {
         .distantPast
