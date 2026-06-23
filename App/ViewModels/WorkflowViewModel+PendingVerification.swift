@@ -252,7 +252,7 @@ extension WorkflowViewModel {
         albumGroups: [String: [Track]],
         pendingVerificationService: any PendingVerificationService
     ) async -> PendingEntryOutcome {
-        if verification.didResolveYear, !verification.hasFailures {
+        if verification.canClearPendingEntry, !verification.hasFailures {
             let resolvedIdentities = Self.pendingResolvedIdentities(
                 entry: entry,
                 albumTracks: albumTracks,
@@ -412,48 +412,22 @@ extension WorkflowViewModel {
     ) -> [Track] {
         let entryKeys = pendingIdentityKeys(for: entry)
         var matchedTrackKeys: Set<String> = []
-        var matchedAlbumKeys: Set<String> = []
 
         for albumTrack in albumTracks {
             matchedTrackKeys.formUnion(AlbumIdentity.lookupKeys(for: albumTrack))
-            matchedAlbumKeys.insert(normalizeForMatching(albumTrack.album))
         }
-
-        let usesCanonicalGuestContext = hasCanonicalGuestContext(
-            entryKeys: entryKeys,
-            albumTracks: albumTracks
-        )
 
         var relevantTracks: [Track] = []
         for track in missingTracks {
             let missingTrackKeys = Set(AlbumIdentity.lookupKeys(for: track))
             let matchesEntry = !entryKeys.isDisjoint(with: missingTrackKeys)
             let matchesMatchedTrack = !matchedTrackKeys.isDisjoint(with: missingTrackKeys)
-            let matchesCanonicalGuestAlbum = usesCanonicalGuestContext
-                && matchedAlbumKeys.contains(normalizeForMatching(track.album))
 
-            if matchesEntry || matchesMatchedTrack || matchesCanonicalGuestAlbum {
+            if matchesEntry || matchesMatchedTrack {
                 relevantTracks.append(track)
             }
         }
         return relevantTracks
-    }
-
-    private static func hasCanonicalGuestContext(
-        entryKeys: Set<String>,
-        albumTracks: [Track]
-    ) -> Bool {
-        for track in albumTracks {
-            let albumIdentityKeys = Set(AlbumIdentity.lookupKeys(
-                artist: track.albumIdentity.artist,
-                album: track.albumIdentity.album
-            ))
-            let rawTrackKeys = Set(AlbumIdentity.lookupKeys(artist: track.artist, album: track.album))
-            if !entryKeys.isDisjoint(with: albumIdentityKeys), entryKeys.isDisjoint(with: rawTrackKeys) {
-                return true
-            }
-        }
-        return false
     }
 
     private static func pendingHandledIdentityKeys(

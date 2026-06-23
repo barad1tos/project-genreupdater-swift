@@ -288,6 +288,53 @@ struct APIOrchestratorPendingVerificationTests {
         #expect(removal?.album == "Around the Fur")
     }
 
+    @Test("Exhausted legacy alias removes pending aliases")
+    func exhaustedLegacyAliasRemovesPendingAliases() async {
+        let pendingVerification = RecordingPendingVerificationService(entries: [
+            PendingAlbumEntry(
+                id: "daft-punk-feature",
+                artist: "Daft Punk feat. Pharrell Williams",
+                album: "Random Access Memories",
+                reason: "no_year_found",
+                attemptCount: 3
+            ),
+        ])
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(
+                yearResult: YearResult(
+                    year: 2012,
+                    isDefinitive: false,
+                    confidence: 55,
+                    yearScores: [2012: 55]
+                )
+            ),
+            discogs: MockAPIService(shouldThrow: true),
+            appleMusic: MockAPIService(shouldThrow: true)
+        ) {
+            $0.pendingVerificationService = pendingVerification
+            $0.maxVerificationAttempts = 3
+        }
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil,
+            pendingRemovalAliases: [
+                (artist: "Daft Punk feat. Pharrell Williams", album: "Random Access Memories"),
+            ]
+        )
+
+        let removedAlbums = await pendingVerification.allRemovals()
+        #expect(result.year == 2012)
+        #expect(result.isDefinitive == false)
+        #expect(await pendingVerification.markCount() == 0)
+        #expect(removedAlbums.contains(.init(
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories"
+        )))
+    }
+
     private func randomAccessMemoriesPendingEntries() -> [PendingAlbumEntry] {
         [
             PendingAlbumEntry(
@@ -366,8 +413,10 @@ actor RecordingPendingVerificationService: PendingVerificationService {
         nil
     }
 
-    func getAttemptCount(artist _: String, album _: String) async -> Int {
-        attemptCount
+    func getAttemptCount(artist: String, album: String) async -> Int {
+        entries.first {
+            AlbumIdentity.key(artist: $0.artist, album: $0.album) == AlbumIdentity.key(artist: artist, album: album)
+        }?.attemptCount ?? attemptCount
     }
 
     func isVerificationNeeded(artist _: String, album _: String) async -> Bool {

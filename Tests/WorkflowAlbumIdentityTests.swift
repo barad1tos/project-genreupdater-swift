@@ -444,7 +444,20 @@ struct WorkflowAlbumIdentityTests {
         let viewModel = fixture.viewModel
         viewModel.mode = .pendingVerification
 
-        viewModel.startPendingVerification(tracks: randomAccessMemoriesMusicKitTracks())
+        viewModel.startPendingVerification(tracks: [
+            Track(
+                id: "ram-1",
+                name: "Get Lucky",
+                artist: "Pharrell Williams",
+                album: "Random Access Memories"
+            ),
+            Track(
+                id: "ram-2",
+                name: "Instant Crush",
+                artist: "Daft Punk feat. Julian Casablancas",
+                album: "Random Access Memories"
+            ),
+        ])
 
         try await waitForWorkflowToLeaveScanning(viewModel)
         let writes = await fixture.scriptClient.updatedProperties()
@@ -747,30 +760,32 @@ struct WorkflowAlbumIdentityTests {
     }
 }
 
-private func randomAccessMemoriesMusicKitTracks() -> [Track] {
-    [
-        Track(
-            id: "ram-1",
-            name: "Get Lucky",
-            artist: "Pharrell Williams",
-            album: "Random Access Memories"
-        ),
-        Track(
-            id: "ram-2",
-            name: "Instant Crush",
-            artist: "Julian Casablancas",
-            album: "Random Access Memories"
-        ),
-    ]
-}
-
-private func randomAccessMemoriesTracksWithAlbumArtist() -> [Track] {
+func randomAccessMemoriesMusicKitTracks(year: Int? = nil) -> [Track] {
     [
         Track(
             id: "ram-1",
             name: "Get Lucky",
             artist: "Pharrell Williams",
             album: "Random Access Memories",
+            year: year
+        ),
+        Track(
+            id: "ram-2",
+            name: "Instant Crush",
+            artist: "Julian Casablancas",
+            album: "Random Access Memories",
+            year: year
+        ),
+    ]
+}
+func randomAccessMemoriesTracksWithAlbumArtist(year: Int? = nil) -> [Track] {
+    [
+        Track(
+            id: "ram-1",
+            name: "Get Lucky",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories",
+            year: year,
             albumArtist: "Daft Punk"
         ),
         Track(
@@ -778,6 +793,7 @@ private func randomAccessMemoriesTracksWithAlbumArtist() -> [Track] {
             name: "Instant Crush",
             artist: "Julian Casablancas",
             album: "Random Access Memories",
+            year: year,
             albumArtist: "Daft Punk"
         ),
     ]

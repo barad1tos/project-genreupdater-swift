@@ -64,7 +64,9 @@ extension UpdateCoordinator {
             resolvedYear: year,
             unchangedTrackIDs: unchangedTrackIDs,
             failedTrackIDs: failedTrackIDs,
-            errorDescriptions: errorDescriptions
+            errorDescriptions: errorDescriptions,
+            canClearPendingEntry: failedTrackIDs.isEmpty
+                && (yearResult.isDefinitive || !entries.isEmpty || !unchangedTrackIDs.isEmpty)
         )
     }
 

@@ -33,6 +33,24 @@ private func makePendingCoordinator(
     pendingVerification: RecordingPendingVerificationService? = nil,
     reachability: NetworkReachabilityMonitor? = nil
 ) async -> PendingCoordinatorFixture {
+    await makePendingCoordinator(
+        musicBrainz: apiService,
+        discogs: apiService,
+        appleMusic: apiService,
+        runtimeConfiguration: runtimeConfiguration,
+        pendingVerification: pendingVerification,
+        reachability: reachability
+    )
+}
+
+private func makePendingCoordinator(
+    musicBrainz: any ExternalAPIService,
+    discogs: any ExternalAPIService = MockAPIService(shouldThrow: true),
+    appleMusic: any ExternalAPIService = MockAPIService(shouldThrow: true),
+    runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
+    pendingVerification: RecordingPendingVerificationService? = nil,
+    reachability: NetworkReachabilityMonitor? = nil
+) async -> PendingCoordinatorFixture {
     let bridge = MockAppleScriptClient()
     let store = MockTrackStore()
     let cache = MockCacheService()
@@ -40,9 +58,9 @@ private func makePendingCoordinator(
         .appendingPathComponent("UpdateCoordinatorPendingTests-\(UUID().uuidString)")
     let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
     let orchestrator = makeAPIOrchestrator(
-        musicBrainz: apiService,
-        discogs: apiService,
-        appleMusic: apiService
+        musicBrainz: musicBrainz,
+        discogs: discogs,
+        appleMusic: appleMusic
     ) { configuration in
         configuration.pendingVerificationService = pendingVerification
         configuration.reachability = reachability
@@ -144,6 +162,7 @@ struct PendingVerificationCoordinatorTests {
         let written = await fixture.bridge.writtenProperties
         #expect(result.resolvedYear == 1997)
         #expect(result.entries.count == 2)
+        #expect(result.canClearPendingEntry)
         #expect(written.count == 2)
         #expect(written.allSatisfy { $0.property == "year" && $0.value == "1997" })
     }
@@ -174,7 +193,45 @@ struct PendingVerificationCoordinatorTests {
         #expect(result.resolvedYear == 1997)
         #expect(result.entries.isEmpty)
         #expect(result.failedTrackIDs.isEmpty)
+        #expect(result.canClearPendingEntry)
         #expect(written.count == 1)
+    }
+
+    @Test("Non-definitive same-year lookup does not clear pending entry")
+    func nonDefinitiveSameYearLookupDoesNotClearPendingEntry() async throws {
+        let fixture = await makePendingCoordinator(
+            musicBrainz: MockAPIService(yearResult: YearResult(
+                year: 2013,
+                isDefinitive: false,
+                confidence: 60,
+                yearScores: [2013: 60]
+            ))
+        )
+        let entry = PendingAlbumEntry(
+            id: "daft-punk-random-access-memories",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            reason: "no_year_found"
+        )
+        let albumTracks = [
+            makePendingTrack(
+                id: "T1",
+                name: "Get Lucky",
+                artist: "Pharrell Williams",
+                album: "Random Access Memories",
+                year: 2013,
+                albumArtist: "Daft Punk"
+            ),
+        ]
+
+        let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.resolvedYear == 2013)
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(result.canClearPendingEntry == false)
+        #expect(written.isEmpty)
     }
 
     @Test("Test artist skip reports pending write unresolved")
@@ -206,6 +263,7 @@ struct PendingVerificationCoordinatorTests {
         #expect(result.resolvedYear == 1997)
         #expect(result.entries.isEmpty)
         #expect(result.failedTrackIDs == ["T1"])
+        #expect(result.canClearPendingEntry == false)
         #expect(result.errorDescriptions.first?.contains("outside test artist allow-list") == true)
         #expect(written.isEmpty)
     }
@@ -354,6 +412,7 @@ struct PendingVerificationCoordinatorTests {
 
         #expect(result.resolvedYear == nil)
         #expect(result.entries.isEmpty)
+        #expect(result.canClearPendingEntry == false)
         #expect(await apiProbe.requestCount == 0)
         #expect(written.isEmpty)
     }
@@ -397,6 +456,7 @@ struct PendingVerificationCoordinatorTests {
 
         #expect(result.resolvedYear == nil)
         #expect(result.entries.isEmpty)
+        #expect(result.canClearPendingEntry == false)
         #expect(await apiProbe.requestCount == 0)
         #expect(written.isEmpty)
     }
@@ -423,6 +483,7 @@ struct PendingVerificationCoordinatorTests {
         let written = await fixture.bridge.writtenProperties
         #expect(result.resolvedYear == nil)
         #expect(result.entries.isEmpty)
+        #expect(result.canClearPendingEntry == false)
         #expect(written.isEmpty)
         #expect(await pendingVerification.markCount() == 1)
         #expect(await pendingVerification.firstMark()?.artist == "Unknown")
@@ -459,6 +520,7 @@ struct PendingVerificationCoordinatorTests {
 
         #expect(result.resolvedYear == nil)
         #expect(result.entries.isEmpty)
+        #expect(result.canClearPendingEntry == false)
         #expect(await apiProbe.requestCount == 0)
         #expect(await pendingVerification.markCount() == 0)
     }
@@ -510,6 +572,7 @@ struct PendingVerificationCoordinatorTests {
         let marks = await pendingVerification.allMarks()
         #expect(result.resolvedYear == nil)
         #expect(result.entries.isEmpty)
+        #expect(result.canClearPendingEntry == false)
         #expect(marks.contains { $0.artist == "Daft Punk feat. Pharrell Williams" })
         #expect(marks.contains { $0.artist == "Daft Punk" })
         #expect(!marks.contains { $0.reason == "prerelease" })

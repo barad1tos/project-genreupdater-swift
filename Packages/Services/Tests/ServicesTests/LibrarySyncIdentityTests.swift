@@ -6,9 +6,6 @@ import Testing
 struct LibrarySyncIdentityTests {
     @Test("Resolves prerelease pending with album identity aliases")
     func resolvesPrereleasePendingWithAlbumIdentityAliases() async throws {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let pendingVerification = PendingVerificationProbe(entries: [
             PendingAlbumEntry(
                 id: "daft-punk",
@@ -37,13 +34,10 @@ struct LibrarySyncIdentityTests {
             album: "Random Access Memories",
             trackStatus: TrackKind.subscription.rawValue
         )
-        await bridge.setLibrary(ids: ["PRE"], tracks: ["PRE": currentTrack])
-        await store.setStored([storedTrack])
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate,
-            pendingVerificationService: pendingVerification
+        let service = await makePrereleaseSyncService(
+            storedTracks: [storedTrack],
+            currentTracks: ["PRE": currentTrack],
+            pendingVerification: pendingVerification
         )
 
         _ = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -59,9 +53,6 @@ struct LibrarySyncIdentityTests {
 
     @Test("Resolves prerelease pending when current status is unknown")
     func resolvesPrereleasePendingWhenCurrentStatusIsUnknown() async throws {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let pendingVerification = PendingVerificationProbe(
             entry: PendingAlbumEntry(
                 id: "future",
@@ -85,13 +76,10 @@ struct LibrarySyncIdentityTests {
             album: "Future Album",
             trackStatus: nil
         )
-        await bridge.setLibrary(ids: ["PRE"], tracks: ["PRE": currentTrack])
-        await store.setStored([storedTrack])
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate,
-            pendingVerificationService: pendingVerification
+        let service = await makePrereleaseSyncService(
+            storedTracks: [storedTrack],
+            currentTracks: ["PRE": currentTrack],
+            pendingVerification: pendingVerification
         )
 
         _ = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -104,9 +92,6 @@ struct LibrarySyncIdentityTests {
 
     @Test("Keeps unrelated pending row after prerelease transition")
     func keepsUnrelatedPendingRowAfterPrereleaseTransition() async throws {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let pendingVerification = PendingVerificationProbe(
             entry: PendingAlbumEntry(
                 id: "pending",
@@ -130,13 +115,10 @@ struct LibrarySyncIdentityTests {
             album: "Random Access Memories",
             trackStatus: TrackKind.subscription.rawValue
         )
-        await bridge.setLibrary(ids: ["PRE"], tracks: ["PRE": currentTrack])
-        await store.setStored([storedTrack])
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate,
-            pendingVerificationService: pendingVerification
+        let service = await makePrereleaseSyncService(
+            storedTracks: [storedTrack],
+            currentTracks: ["PRE": currentTrack],
+            pendingVerification: pendingVerification
         )
 
         _ = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -147,9 +129,6 @@ struct LibrarySyncIdentityTests {
 
     @Test("Removes resolved prerelease alias without touching unrelated pending alias")
     func removesResolvedPrereleaseAliasWithoutTouchingUnrelatedPendingAlias() async throws {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let pendingVerification = PendingVerificationProbe(entries: [
             PendingAlbumEntry(
                 id: "prerelease-alias",
@@ -178,13 +157,10 @@ struct LibrarySyncIdentityTests {
             album: "Random Access Memories",
             trackStatus: TrackKind.subscription.rawValue
         )
-        await bridge.setLibrary(ids: ["PRE"], tracks: ["PRE": currentTrack])
-        await store.setStored([storedTrack])
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate,
-            pendingVerificationService: pendingVerification
+        let service = await makePrereleaseSyncService(
+            storedTracks: [storedTrack],
+            currentTracks: ["PRE": currentTrack],
+            pendingVerification: pendingVerification
         )
 
         _ = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -200,9 +176,6 @@ struct LibrarySyncIdentityTests {
 
     @Test("Keeps prerelease pending while a sibling album identity alias remains prerelease")
     func keepsPrereleasePendingWhileSiblingAlbumIdentityAliasRemainsPrerelease() async throws {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let pendingVerification = PendingVerificationProbe(entry: nil, isVerificationNeeded: false)
         let transitionedStoredTrack = Track(
             id: "PRE-1",
@@ -226,16 +199,13 @@ struct LibrarySyncIdentityTests {
             album: "Random Access Memories",
             trackStatus: TrackKind.subscription.rawValue
         )
-        await bridge.setLibrary(ids: ["PRE-1", "PRE-2"], tracks: [
-            "PRE-1": transitionedCurrentTrack,
-            "PRE-2": remainingStoredTrack,
-        ])
-        await store.setStored([transitionedStoredTrack, remainingStoredTrack])
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate,
-            pendingVerificationService: pendingVerification
+        let service = await makePrereleaseSyncService(
+            storedTracks: [transitionedStoredTrack, remainingStoredTrack],
+            currentTracks: [
+                "PRE-1": transitionedCurrentTrack,
+                "PRE-2": remainingStoredTrack,
+            ],
+            pendingVerification: pendingVerification
         )
 
         _ = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -295,5 +265,23 @@ struct LibrarySyncIdentityTests {
         await expectSyncCachesInvalidated(cache, artist: "Removed Band", album: "Removed Album")
         await expectSyncCachesInvalidated(cache, artist: "Guest Guitar", album: "Removed Album")
         #expect(await snapshotService.wasCleared())
+    }
+
+    private func makePrereleaseSyncService(
+        storedTracks: [Track],
+        currentTracks: [String: Track],
+        pendingVerification: PendingVerificationProbe
+    ) async -> LibrarySyncService {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        await bridge.setLibrary(ids: currentTracks.keys.sorted(), tracks: currentTracks)
+        await store.setStored(storedTracks)
+        return LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            pendingVerificationService: pendingVerification
+        )
     }
 }

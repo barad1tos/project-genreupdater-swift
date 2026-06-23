@@ -33,9 +33,20 @@ enum PendingVerificationSync {
             return
         }
 
-        let attemptCount = await service.getAttemptCount(artist: albumKey.artist, album: albumKey.album)
+        let pendingEntries = await service.getAllPendingAlbums()
+        let attemptCount = await attemptCount(
+            service: service,
+            albumKey: albumKey,
+            albumAliases: albumAliases,
+            pendingEntries: pendingEntries
+        )
         if attemptCount >= maxVerificationAttempts {
-            await removeFromPendingAliases(service: service, albumKey: albumKey, albumAliases: albumAliases)
+            await removeFromPendingAliases(
+                service: service,
+                albumKey: albumKey,
+                albumAliases: albumAliases,
+                pendingEntries: pendingEntries
+            )
             return
         }
 
@@ -55,13 +66,18 @@ enum PendingVerificationSync {
     private static func removeFromPendingAliases(
         service: any PendingVerificationService,
         albumKey: (artist: String, album: String),
-        albumAliases: [(artist: String, album: String)]
+        albumAliases: [(artist: String, album: String)],
+        pendingEntries: [PendingAlbumEntry]? = nil
     ) async {
-        let pendingEntries = await service.getAllPendingAlbums()
+        let effectivePendingEntries = if let pendingEntries {
+            pendingEntries
+        } else {
+            await service.getAllPendingAlbums()
+        }
         for target in removalTargets(
             albumKey: albumKey,
             albumAliases: albumAliases,
-            pendingEntries: pendingEntries
+            pendingEntries: effectivePendingEntries
         ) {
             await service.removeFromPending(artist: target.artist, album: target.album)
         }
@@ -105,6 +121,41 @@ enum PendingVerificationSync {
         }
 
         return targets
+    }
+
+    private static func attemptCount(
+        service: any PendingVerificationService,
+        albumKey: (artist: String, album: String),
+        albumAliases: [(artist: String, album: String)],
+        pendingEntries: [PendingAlbumEntry]
+    ) async -> Int {
+        let targetKeys = pendingLookupKeys(albumKey: albumKey, albumAliases: albumAliases)
+        let matchingAttemptCounts = pendingEntries.compactMap { entry -> Int? in
+            guard shouldRemovePendingEntry(entry, targetKeys: targetKeys) else { return nil }
+            return entry.attemptCount
+        }
+        if let maxMatchingAttemptCount = matchingAttemptCounts.max() {
+            return maxMatchingAttemptCount
+        }
+
+        guard pendingEntries.isEmpty else { return 0 }
+        return await service.getAttemptCount(artist: albumKey.artist, album: albumKey.album)
+    }
+
+    private static func pendingLookupKeys(
+        albumKey: (artist: String, album: String),
+        albumAliases: [(artist: String, album: String)]
+    ) -> Set<String> {
+        var targetKeys: Set<String> = []
+        for identity in AlbumIdentity.lookupCandidates(artist: albumKey.artist, album: albumKey.album) {
+            targetKeys.formUnion(AlbumIdentity.lookupKeys(artist: identity.artist, album: identity.album))
+        }
+        for alias in albumAliases {
+            for identity in AlbumIdentity.lookupCandidates(artist: alias.artist, album: alias.album) {
+                targetKeys.formUnion(AlbumIdentity.lookupKeys(artist: identity.artist, album: identity.album))
+            }
+        }
+        return targetKeys
     }
 
     private static func shouldRemovePendingEntry(
