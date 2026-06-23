@@ -169,24 +169,13 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             from: data
         )
 
-        return response.results.compactMap { result in
-            guard let year = result.releaseYear, year > 0 else {
-                return nil
+        var candidates: [ReleaseCandidate] = []
+        for result in response.results {
+            if let candidate = await releaseCandidate(from: result, artist: artist, album: album) {
+                candidates.append(candidate)
             }
-
-            let formats = result.format ?? []
-            return ReleaseCandidate(
-                artist: artist,
-                album: Self.albumTitle(from: result.title, fallback: album),
-                year: year,
-                source: .discogs,
-                releaseType: Self.releaseType(from: formats),
-                status: .official,
-                country: result.country?.lowercased(),
-                isReissue: Self.isReissue(formats: formats),
-                genre: (result.genre ?? result.style)?.first
-            )
         }
+        return candidates
     }
 
     public func getArtistActivityPeriod(
@@ -287,30 +276,75 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         return .album
     }
 
-    private static func isReissue(formats: [String]) -> Bool {
-        formats.contains { format in
-            let lowered = format.lowercased()
-            return lowered.contains("remaster") || lowered.contains("reissue")
+    private static func isReissue(formats: [String], title: String) -> Bool {
+        containsReissueMarker(in: title)
+            || formats.contains { containsReissueMarker(in: $0) }
+    }
+
+    private static func containsReissueMarker(in value: String) -> Bool {
+        let lowered = value.lowercased()
+        return lowered.contains("remaster") || lowered.contains("reissue")
+    }
+
+    private static func firstNonEmpty(_ values: [String]?) -> String? {
+        values?.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    private static func genre(
+        from canonicalRelease: DiscogsMasterRelease?,
+        result: DiscogsSearchResult
+    ) -> String? {
+        firstNonEmpty(canonicalRelease?.genres)
+            ?? firstNonEmpty(canonicalRelease?.styles)
+            ?? firstNonEmpty(result.genre)
+            ?? firstNonEmpty(result.style)
+    }
+
+    private func releaseCandidate(
+        from result: DiscogsSearchResult,
+        artist: String,
+        album: String
+    ) async -> ReleaseCandidate? {
+        let canonicalRelease = await fetchCandidateMasterRelease(for: result)
+        guard let year = canonicalRelease?.year ?? result.releaseYear,
+              year > 0 else {
+            return nil
+        }
+
+        let formats = result.format ?? []
+        let albumTitle = Self.albumTitle(from: result.title, fallback: album)
+        return ReleaseCandidate(
+            artist: artist,
+            album: albumTitle,
+            year: year,
+            source: .discogs,
+            releaseType: Self.releaseType(from: formats),
+            status: .official,
+            country: result.country?.lowercased(),
+            isReissue: Self.isReissue(formats: formats, title: albumTitle),
+            genre: Self.genre(from: canonicalRelease, result: result)
+        )
+    }
+
+    private func fetchCandidateMasterRelease( // swiftlint:disable:this inclusive_language
+        for result: DiscogsSearchResult
+    ) async -> DiscogsMasterRelease? {
+        guard let canonicalID = result.masterID else { return nil }
+        do {
+            return try await fetchMasterRelease(releaseID: canonicalID)
+        } catch {
+            log.debug(
+                "Discogs canonical lookup failed for release \(result.id, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
         }
     }
 
     // Fetches master release details and extracts the year.
     // swiftlint:disable:next inclusive_language
     private func fetchMasterYear(releaseID: Int) async throws -> YearResult {
-        guard let url = Self.buildMasterURL( // swiftlint:disable:this inclusive_language
-            releaseID: releaseID,
-            baseURL: baseURL
-        ) else {
-            return YearResult()
-        }
-
-        let data = try await fetchWithRateLimit(url: url)
-        let masterRelease = try JSONDecoder().decode( // swiftlint:disable:this inclusive_language
-            DiscogsMasterRelease.self,
-            from: data
-        )
-
-        guard let year = masterRelease.year else {
+        guard let canonicalRelease = try await fetchMasterRelease(releaseID: releaseID),
+              let year = canonicalRelease.year else {
             return YearResult()
         }
 
@@ -323,6 +357,22 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             isDefinitive: false,
             confidence: 75,
             yearScores: [year: 75]
+        )
+    }
+
+    // swiftlint:disable:next inclusive_language
+    private func fetchMasterRelease(releaseID: Int) async throws -> DiscogsMasterRelease? {
+        guard let url = Self.buildMasterURL( // swiftlint:disable:this inclusive_language
+            releaseID: releaseID,
+            baseURL: baseURL
+        ) else {
+            return nil
+        }
+
+        let data = try await fetchWithRateLimit(url: url)
+        return try JSONDecoder().decode(
+            DiscogsMasterRelease.self,
+            from: data
         )
     }
 

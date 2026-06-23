@@ -245,6 +245,65 @@ struct APIReleaseCandidateAdapterTests {
         #expect(candidates.allSatisfy { $0.source == .discogs })
         #expect(secondCandidate.isReissue)
     }
+
+    @Test("Discogs release candidates prefer canonical year details")
+    func discogsReleaseCandidatesPreferCanonicalYearDetails() async throws {
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            let pathComponents = Array(url.pathComponents.dropFirst())
+
+            if pathComponents == ["database", "search"] {
+                let json = """
+                {
+                  "results": [
+                    {
+                      "id": 2,
+                      "title": "Test Artist - Test Album (Remastered)",
+                      "year": 2020,
+                      "type": "release",
+                      "master_id": 42,
+                      "country": "US",
+                      "format": ["Album"],
+                      "genre": [],
+                      "style": ["Alternative Rock"]
+                    }
+                  ]
+                }
+                """
+                return try (jsonResponse(url: url), Data(json.utf8))
+            }
+
+            if pathComponents == ["masters", "42"] {
+                let json = """
+                {
+                  "id": 42,
+                  "title": "Test Album",
+                  "year": 1998,
+                  "genres": ["Rock"],
+                  "styles": ["Hard Rock"],
+                  "artists": [{ "id": 1, "name": "Test Artist" }]
+                }
+                """
+                return try (jsonResponse(url: url), Data(json.utf8))
+            }
+
+            throw URLError(.badURL)
+        }
+        defer { APIReleaseCandidateMockURLProtocol.requestHandler = nil }
+
+        let client = DiscogsClient(token: "test-token", session: makeMockSession(json: "{}"))
+        let candidates = try await client.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Test Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        let candidate = try #require(candidates.first)
+        #expect(candidate.year == 1998)
+        #expect(candidate.isReissue)
+        #expect(candidate.genre == "Rock")
+    }
 }
 
 private func makeMockSession(json: String) -> URLSession {
