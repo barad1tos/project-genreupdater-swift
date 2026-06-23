@@ -1,6 +1,15 @@
 import Core
 import Services
 
+struct UpdateRunOperationalNote: Identifiable, Equatable {
+    enum Severity: Equatable { case info, warning, failure }
+
+    let id: String
+    let title: String
+    let detail: String
+    let severity: Severity
+}
+
 struct UpdateRunReport: Equatable {
     let scopeTitle: String
     let changedEntries: [ChangeLogEntry]
@@ -61,6 +70,39 @@ struct UpdateRunReport: Equatable {
 
     var hasFailures: Bool {
         !failures.isEmpty
+    }
+
+    var hasOperationalNotes: Bool {
+        !operationalNotes.isEmpty
+    }
+
+    var operationalNotes: [UpdateRunOperationalNote] {
+        var notes: [UpdateRunOperationalNote] = []
+        if !failures.isEmpty {
+            notes.append(UpdateRunOperationalNote(
+                id: "failures",
+                title: "Needs Attention",
+                detail: "\(failures.count.formatted()) \(Self.issueNoun(failures.count)) found.",
+                severity: .failure
+            ))
+        }
+        if skippedCount > 0 {
+            notes.append(UpdateRunOperationalNote(
+                id: "skipped",
+                title: "Skipped",
+                detail: "Skipped tracks: \(skippedCount.formatted()).",
+                severity: .warning
+            ))
+        }
+        if changedEntries.isEmpty, failures.isEmpty {
+            notes.append(UpdateRunOperationalNote(
+                id: "no-changes",
+                title: "No Changes",
+                detail: "No metadata changes were made during this run.",
+                severity: .info
+            ))
+        }
+        return notes
     }
 
     var title: String {

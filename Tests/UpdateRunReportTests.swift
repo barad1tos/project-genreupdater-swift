@@ -513,6 +513,70 @@ struct UpdateRunReportTests {
         #expect(report.plainTextSummary.contains("- Old Name - Alias: Artist Old Name -> New Name"))
     }
 
+    @Test("models operational notes for mixed run health")
+    func modelsOperationalNotesForMixedRunHealth() {
+        var changedYear = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "done-track",
+            artist: "Clutch",
+            trackName: "Pure Rock Fury",
+            albumName: "Pure Rock Fury"
+        )
+        changedYear.oldYear = 1999
+        changedYear.newYear = 2001
+
+        var unchangedGenre = ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "done-track",
+            artist: "Clutch",
+            trackName: "Pure Rock Fury",
+            albumName: "Pure Rock Fury"
+        )
+        unchangedGenre.oldGenre = "Rock"
+        unchangedGenre.newGenre = "Rock"
+
+        let report = UpdateRunReport(
+            result: nil,
+            completedEntries: [changedYear, unchangedGenre],
+            trackStatuses: [
+                "done-track": .done,
+                "failed-track": .failed("Write denied"),
+                "skipped-track": .skipped,
+            ],
+            tracks: [
+                Track(
+                    id: "done-track",
+                    name: "Pure Rock Fury",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+                Track(
+                    id: "failed-track",
+                    name: "American Sleep",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+                Track(
+                    id: "skipped-track",
+                    name: "Immortal",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+            ],
+            testArtists: ["Clutch"]
+        )
+
+        #expect(report.scannedTrackCount == 3)
+        #expect(report.changedEntries.count == 1)
+        #expect(report.skippedCount == 1)
+        #expect(report.failures.count == 1)
+        #expect(report.hasOperationalNotes)
+
+        let noteTitles = report.operationalNotes.map(\.title)
+        #expect(noteTitles.contains("Skipped"))
+        #expect(noteTitles.contains("Needs Attention"))
+    }
+
     @Test("filters no-op changes from run report")
     func filtersNoOpChangesFromRunReport() {
         var unchangedGenre = ChangeLogEntry(
