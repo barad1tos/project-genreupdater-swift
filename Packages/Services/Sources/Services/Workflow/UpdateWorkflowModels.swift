@@ -25,17 +25,20 @@ public struct BatchUpdateResult: Sendable {
 public struct PendingAlbumVerificationResult: Sendable {
     public let entries: [ChangeLogEntry]
     public let resolvedYear: Int?
+    public let unchangedTrackIDs: [String]
     public let failedTrackIDs: [String]
     public let errorDescriptions: [String]
 
     public init(
         entries: [ChangeLogEntry],
         resolvedYear: Int?,
+        unchangedTrackIDs: [String] = [],
         failedTrackIDs: [String] = [],
         errorDescriptions: [String] = []
     ) {
         self.entries = entries
         self.resolvedYear = resolvedYear
+        self.unchangedTrackIDs = unchangedTrackIDs
         self.failedTrackIDs = failedTrackIDs
         self.errorDescriptions = errorDescriptions
     }

@@ -14,6 +14,7 @@ func makeWorkflowFixture(
     apiService: DashboardStateAPIService = DashboardStateAPIService(),
     tier: Tier = .pro,
     failingWriteTrackIDs: Set<String> = [],
+    noChangeWriteTrackIDs: Set<String> = [],
     resolveIncrementalTracks: @escaping (
         [Track],
         IncrementalTrackScopeOptions
@@ -23,7 +24,10 @@ func makeWorkflowFixture(
     invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {
-    let scriptClient = DashboardStateScriptClient(failingTrackIDs: failingWriteTrackIDs)
+    let scriptClient = DashboardStateScriptClient(
+        failingTrackIDs: failingWriteTrackIDs,
+        noChangeTrackIDs: noChangeWriteTrackIDs
+    )
     let trackStore = DashboardStateTrackStore()
     let cache = DashboardStateCacheService()
     var apiOrchestratorConfiguration = APIOrchestratorConfiguration()
@@ -165,10 +169,12 @@ struct DashboardStateAPIService: ExternalAPIService {
 
 actor DashboardStateScriptClient: AppleScriptClient {
     private let failingTrackIDs: Set<String>
+    private let noChangeTrackIDs: Set<String>
     private var writes: [(trackID: String, property: String, value: String)] = []
 
-    init(failingTrackIDs: Set<String> = []) {
+    init(failingTrackIDs: Set<String> = [], noChangeTrackIDs: Set<String> = []) {
         self.failingTrackIDs = failingTrackIDs
+        self.noChangeTrackIDs = noChangeTrackIDs
     }
 
     func initialize() async throws {
@@ -200,6 +206,9 @@ actor DashboardStateScriptClient: AppleScriptClient {
             throw DashboardStateScriptWriteError(trackID: trackID)
         }
         writes.append((trackID: trackID, property: property, value: value))
+        if noChangeTrackIDs.contains(trackID) {
+            return .noChange
+        }
         return .changed
     }
 
@@ -265,7 +274,7 @@ private actor DashboardStateTrackStore: TrackStateStore {
 }
 
 actor WorkflowPendingVerificationService: PendingVerificationService {
-    private let entries: [PendingAlbumEntry]
+    private var entries: [PendingAlbumEntry]
     private var removals: [(artist: String, album: String)] = []
     private var timestampUpdates = 0
 
@@ -289,6 +298,8 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
 
     func removeFromPending(artist: String, album: String) async {
         removals.append((artist: artist, album: album))
+        let key = AlbumIdentity.key(artist: artist, album: album)
+        entries.removeAll { AlbumIdentity.key(artist: $0.artist, album: $0.album) == key }
     }
 
     func getEntry(artist: String, album: String) async -> PendingAlbumEntry? {

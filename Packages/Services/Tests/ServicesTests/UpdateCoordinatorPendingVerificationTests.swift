@@ -10,7 +10,8 @@ private struct PendingCoordinatorFixture {
 
 private func makePendingCoordinator(
     year: Int?,
-    confidence: Int
+    confidence: Int,
+    runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
 ) async -> PendingCoordinatorFixture {
     let yearScores: [Int: Int] = if let year {
         [year: confidence]
@@ -23,10 +24,13 @@ private func makePendingCoordinator(
         yearScores: yearScores
     )
     let apiService = MockAPIService(yearResult: yearResult)
-    return await makePendingCoordinator(apiService: apiService)
+    return await makePendingCoordinator(apiService: apiService, runtimeConfiguration: runtimeConfiguration)
 }
 
-private func makePendingCoordinator(apiService: any ExternalAPIService) async -> PendingCoordinatorFixture {
+private func makePendingCoordinator(
+    apiService: any ExternalAPIService,
+    runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
+) async -> PendingCoordinatorFixture {
     let bridge = MockAppleScriptClient()
     let store = MockTrackStore()
     let cache = MockCacheService()
@@ -47,7 +51,7 @@ private func makePendingCoordinator(apiService: any ExternalAPIService) async ->
             undoCoordinator: undo
         ),
         genreDeterminator: GenreDeterminator(),
-        runtimeConfiguration: UpdateRuntimeConfiguration()
+        runtimeConfiguration: runtimeConfiguration
     )
     return PendingCoordinatorFixture(coordinator: coordinator, bridge: bridge)
 }
@@ -162,6 +166,39 @@ struct PendingVerificationCoordinatorTests {
         #expect(result.entries.isEmpty)
         #expect(result.failedTrackIDs.isEmpty)
         #expect(written.count == 1)
+    }
+
+    @Test("Test artist skip reports pending write unresolved")
+    func artistSkipReportsPendingWriteUnresolved() async throws {
+        let fixture = await makePendingCoordinator(
+            year: 1997,
+            confidence: 100,
+            runtimeConfiguration: UpdateRuntimeConfiguration(testArtists: ["Other Artist"])
+        )
+        let entry = PendingAlbumEntry(
+            id: "deftones-around-the-fur",
+            artist: "Deftones",
+            album: "Around the Fur",
+            reason: "no_year_found"
+        )
+        let albumTracks = [
+            makePendingTrack(
+                id: "T1",
+                name: "My Own Summer",
+                artist: "Deftones",
+                album: "Around the Fur",
+                year: nil
+            ),
+        ]
+
+        let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.resolvedYear == 1997)
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs == ["T1"])
+        #expect(result.errorDescriptions.first?.contains("outside test artist allow-list") == true)
+        #expect(written.isEmpty)
     }
 
     @Test("Partial pending write reports success and failure without aborting")

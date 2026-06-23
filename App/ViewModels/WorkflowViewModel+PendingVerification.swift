@@ -240,14 +240,13 @@ extension WorkflowViewModel {
         pendingVerificationService: any PendingVerificationService
     ) async -> PendingEntryOutcome {
         if verification.didResolveYear, !verification.hasFailures {
-            let resolvedIdentityKeys = Self.pendingResolvedIdentityKeys(
+            let resolvedIdentities = Self.pendingResolvedIdentities(
                 entry: entry,
                 albumTracks: albumTracks,
                 albumGroups: albumGroups
             )
-            let removalIdentities = Self.pendingRemovalIdentities(entry: entry, albumTracks: albumTracks)
-                .filter { resolvedIdentityKeys.contains($0.key) }
-            for identity in removalIdentities {
+            let resolvedIdentityKeys = Set(resolvedIdentities.map(\.key))
+            for identity in resolvedIdentities {
                 await pendingVerificationService.removeFromPending(
                     artist: identity.artist,
                     album: identity.album
@@ -282,6 +281,7 @@ extension WorkflowViewModel {
         verification: PendingAlbumVerificationResult
     ) {
         let changedTrackIDs = Set(verification.entries.map(\.trackID))
+        let unchangedTrackIDs = Set(verification.unchangedTrackIDs)
         let failedTrackIDs = Set(verification.failedTrackIDs)
         let errorDescription = verification.errorDescriptions.first ?? "Pending verification write failed"
 
@@ -289,7 +289,9 @@ extension WorkflowViewModel {
             currentTrackID = track.id
             if failedTrackIDs.contains(track.id) {
                 trackStatuses[track.id] = .failed(errorDescription)
-            } else if changedTrackIDs.contains(track.id) || verification.resolvedYear == track.year {
+            } else if changedTrackIDs.contains(track.id)
+                || unchangedTrackIDs.contains(track.id)
+                || verification.resolvedYear == track.year {
                 trackStatuses[track.id] = .done
             }
         }
@@ -346,17 +348,17 @@ extension WorkflowViewModel {
         return sortedForBatchProcessing(matchedTracks)
     }
 
-    private static func pendingResolvedIdentityKeys(
+    private static func pendingResolvedIdentities(
         entry: PendingAlbumEntry,
         albumTracks: [Track],
         albumGroups: [String: [Track]]
-    ) -> Set<String> {
-        let albumTrackIDs = Set(albumTracks.map(\.id))
+    ) -> [AlbumIdentity] {
+        let albumTrackIDs = Set(albumTracks.map { track in track.id })
         var candidates = pendingRemovalIdentities(entry: entry, albumTracks: albumTracks)
         for track in albumTracks {
             candidates.append(contentsOf: AlbumIdentity.lookupCandidates(for: track))
         }
-        var resolvedKeys: Set<String> = []
+        var resolvedIdentities: [AlbumIdentity] = []
         var seenKeys: Set<String> = []
 
         for identity in candidates
@@ -366,12 +368,12 @@ extension WorkflowViewModel {
                 album: identity.album,
                 in: albumGroups
             )
-            if Set(resolvedTracks.map(\.id)) == albumTrackIDs {
-                resolvedKeys.insert(identity.key)
+            if Set(resolvedTracks.map { track in track.id }) == albumTrackIDs {
+                resolvedIdentities.append(identity)
             }
         }
 
-        return resolvedKeys
+        return resolvedIdentities
     }
 
     private static func missingContextTracks(
@@ -379,11 +381,12 @@ extension WorkflowViewModel {
         albumTracks: [Track],
         missingTracks: [Track]
     ) -> [Track] {
-        let entryAlbumKey = normalizeForMatching(entry.album)
-        let matchedAlbumKeys = Set(albumTracks.map { normalizeForMatching($0.album) })
+        let entryKeys = pendingIdentityKeys(for: entry)
+        let matchedTrackKeys = Set(albumTracks.flatMap(AlbumIdentity.lookupKeys(for:)))
         return missingTracks.filter { track in
-            let trackAlbumKey = normalizeForMatching(track.album)
-            return trackAlbumKey == entryAlbumKey || matchedAlbumKeys.contains(trackAlbumKey)
+            let missingTrackKeys = Set(AlbumIdentity.lookupKeys(for: track))
+            return !entryKeys.isDisjoint(with: missingTrackKeys)
+                || !matchedTrackKeys.isDisjoint(with: missingTrackKeys)
         }
     }
 

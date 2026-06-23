@@ -489,18 +489,98 @@ struct WorkflowAlbumIdentityTests {
         try await waitForWorkflowToLeaveScanning(viewModel)
         let writes = await fixture.scriptClient.updatedProperties()
         let removals = await pendingVerification.removedAlbums()
+        let remainingPending = await pendingVerification.getAllPendingAlbums()
 
         #expect(writes.map(\.trackID).sorted() == ["as-ram-1", "as-ram-2"])
         #expect(writes.count == 2)
         #expect(viewModel.completedEntries.map(\.trackID).sorted() == ["ram-1", "ram-2"])
         #expect(viewModel.processedCount == 2)
         #expect(removals.contains { $0.artist == "Pharrell Williams" && $0.album == "Random Access Memories" })
-        #expect(removals
-            .contains { $0.artist == "Julian Casablancas" && $0.album == "Random Access Memories" } == false)
+        #expect(removals.contains { $0.artist == "Julian Casablancas" && $0.album == "Random Access Memories" })
+        #expect(remainingPending.isEmpty)
     }
 
     @Test("pending verification keeps album pending when AppleScript context is incomplete")
     func pendingVerificationKeepsAlbumPendingWhenAppleScriptContextIsIncomplete() async throws {
+        let pendingEntry = PendingAlbumEntry(
+            id: "deftones-around-the-fur",
+            artist: "Deftones",
+            album: "Around the Fur",
+            reason: "no_year_found"
+        )
+        let pendingVerification = WorkflowPendingVerificationService(entries: [pendingEntry])
+        let loadedTracks = [
+            Track(id: "deftones-1", name: "My Own Summer", artist: "Deftones", album: "Around the Fur"),
+            Track(id: "deftones-2", name: "Be Quiet and Drive", artist: "Deftones", album: "Around the Fur"),
+        ]
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 1997, confidence: 100),
+            pendingVerificationService: pendingVerification,
+            idMapper: WorkflowTrackIDMapper(
+                enrichedTracks: [
+                    Track(id: "deftones-1", name: "My Own Summer", artist: "Deftones", album: "Around the Fur"),
+                ],
+                appleScriptIDsByMusicKitID: [
+                    "deftones-1": "as-deftones-1",
+                ]
+            )
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.startPendingVerification(tracks: loadedTracks)
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.isEmpty)
+        #expect(removals.isEmpty)
+        #expect(viewModel.completedEntries.isEmpty)
+        #expect(viewModel.result?.failedTrackIDs == ["deftones-2"])
+    }
+
+    @Test("pending verification ignores unrelated missing context with the same album title")
+    func pendingVerificationIgnoresUnrelatedMissingContextWithSameAlbumTitle() async throws {
+        let pendingEntry = PendingAlbumEntry(
+            id: "artist-a-greatest-hits",
+            artist: "Artist A",
+            album: "Greatest Hits",
+            reason: "no_year_found"
+        )
+        let pendingVerification = WorkflowPendingVerificationService(entries: [pendingEntry])
+        let loadedTracks = [
+            Track(id: "artist-a-1", name: "Single A", artist: "Artist A", album: "Greatest Hits"),
+            Track(id: "artist-b-1", name: "Single B", artist: "Artist B", album: "Greatest Hits"),
+        ]
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2001, confidence: 100),
+            pendingVerificationService: pendingVerification,
+            idMapper: WorkflowTrackIDMapper(
+                enrichedTracks: [
+                    Track(id: "artist-a-1", name: "Single A", artist: "Artist A", album: "Greatest Hits"),
+                ],
+                appleScriptIDsByMusicKitID: [
+                    "artist-a-1": "as-artist-a-1",
+                ]
+            )
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.startPendingVerification(tracks: loadedTracks)
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.map(\.trackID) == ["as-artist-a-1"])
+        #expect(removals.contains { $0.artist == "Artist A" && $0.album == "Greatest Hits" })
+        #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
+    }
+
+    @Test("partial pending verification marks no-op tracks done")
+    func partialPendingVerificationMarksNoOpTracksDone() async throws {
         let pendingEntry = PendingAlbumEntry(
             id: "daft-punk-random-access-memories",
             artist: "Daft Punk",
@@ -508,14 +588,16 @@ struct WorkflowAlbumIdentityTests {
             reason: "no_year_found"
         )
         let pendingVerification = WorkflowPendingVerificationService(entries: [pendingEntry])
-        let enrichedTracks = Array(randomAccessMemoriesTracksWithAlbumArtist().prefix(1))
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2013, confidence: 100),
+            failingWriteTrackIDs: ["as-ram-2"],
+            noChangeWriteTrackIDs: ["as-ram-1"],
             pendingVerificationService: pendingVerification,
             idMapper: WorkflowTrackIDMapper(
-                enrichedTracks: enrichedTracks,
+                enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(),
                 appleScriptIDsByMusicKitID: [
                     "ram-1": "as-ram-1",
+                    "ram-2": "as-ram-2",
                 ]
             )
         )
@@ -525,13 +607,13 @@ struct WorkflowAlbumIdentityTests {
         viewModel.startPendingVerification(tracks: randomAccessMemoriesMusicKitTracks())
 
         try await waitForWorkflowToLeaveScanning(viewModel)
-        let writes = await fixture.scriptClient.updatedProperties()
-        let removals = await pendingVerification.removedAlbums()
 
-        #expect(writes.isEmpty)
-        #expect(removals.isEmpty)
-        #expect(viewModel.completedEntries.isEmpty)
-        #expect(viewModel.result?.failedTrackIDs == ["ram-2"])
+        #expect(viewModel.trackStatuses["ram-1"] == .done)
+        if case let .failed(message) = viewModel.trackStatuses["ram-2"] {
+            #expect(message.contains("script write failed"))
+        } else {
+            Issue.record("ram-2 should be marked failed")
+        }
     }
 }
 

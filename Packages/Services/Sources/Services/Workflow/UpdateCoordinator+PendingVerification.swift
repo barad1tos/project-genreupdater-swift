@@ -25,6 +25,7 @@ extension UpdateCoordinator {
         }
 
         var entries: [ChangeLogEntry] = []
+        var unchangedTrackIDs: [String] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
         for track in albumTracks where track.year != year {
@@ -36,18 +37,28 @@ extension UpdateCoordinator {
                 confidence: yearResult.confidence,
                 source: yearResult.isDefinitive ? "Definitive" : "API"
             )
+            guard runtimeConfiguration.allowsChange(change) else {
+                failedTrackIDs.append(track.id)
+                errorDescriptions.append(
+                    "Skipped pending verification for track \(track.id) outside test artist allow-list"
+                )
+                continue
+            }
             if let entry = try await applyPendingVerificationChange(
                 change,
                 failedTrackIDs: &failedTrackIDs,
                 errorDescriptions: &errorDescriptions
             ) {
                 entries.append(entry)
+            } else {
+                unchangedTrackIDs.append(track.id)
             }
         }
 
         return PendingAlbumVerificationResult(
             entries: entries,
             resolvedYear: year,
+            unchangedTrackIDs: unchangedTrackIDs,
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions
         )
