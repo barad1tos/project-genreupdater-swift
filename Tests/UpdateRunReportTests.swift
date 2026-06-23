@@ -577,6 +577,58 @@ struct UpdateRunReportTests {
         #expect(noteTitles.contains("Needs Attention"))
     }
 
+    @Test("plain text summary includes operational notes and detailed report sections")
+    func plainTextSummaryIncludesOperationalNotesAndDetailedReportSections() {
+        var changedYear = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "done-track",
+            artist: "Clutch",
+            trackName: "Pure Rock Fury",
+            albumName: "Pure Rock Fury"
+        )
+        changedYear.oldYear = 1999
+        changedYear.newYear = 2001
+
+        let report = UpdateRunReport(
+            result: nil,
+            completedEntries: [changedYear],
+            trackStatuses: [
+                "done-track": .done,
+                "failed-track": .failed("Write denied"),
+                "skipped-track": .skipped,
+            ],
+            tracks: [
+                Track(
+                    id: "done-track",
+                    name: "Pure Rock Fury",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+                Track(
+                    id: "failed-track",
+                    name: "American Sleep",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+                Track(
+                    id: "skipped-track",
+                    name: "Immortal",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+            ],
+            testArtists: ["Clutch"],
+            displayMode: .detailed
+        )
+
+        let summary = report.plainTextSummary
+        #expect(summary.contains("Run Health"))
+        #expect(summary.contains("Needs Attention"))
+        #expect(summary.contains("Skipped"))
+        #expect(summary.contains("Change Breakdown"))
+        #expect(summary.contains("Track Details"))
+    }
+
     @Test("filters no-op changes from run report")
     func filtersNoOpChangesFromRunReport() {
         var unchangedGenre = ChangeLogEntry(
@@ -656,7 +708,10 @@ struct UpdateRunReportTests {
         #expect(report.changedEntries.isEmpty)
         #expect(report.changeBreakdown.isEmpty)
         #expect(report.albumGroups.isEmpty)
-        #expect(report.plainTextSummary.contains("No changes were made during this run."))
+        let summary = report.plainTextSummary
+        #expect(summary.contains("No Changes"))
+        #expect(summary.contains("No metadata changes were made during this run."))
+        #expect(summary.contains("No changes were made during this run.") == false)
     }
 
     private func makeEntries(

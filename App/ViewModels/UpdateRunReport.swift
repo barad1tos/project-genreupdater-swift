@@ -59,19 +59,15 @@ struct UpdateRunReport: Equatable {
     var changedTrackCount: Int {
         Set(changedEntries.map(\.trackID)).count
     }
-
     var affectedAlbumCount: Int {
         albumResults.count
     }
-
     var affectedArtistCount: Int {
         Set(albumGroups.map { normalizeForMatching($0.artist) }).count
     }
-
     var hasFailures: Bool {
         !failures.isEmpty
     }
-
     var hasOperationalNotes: Bool {
         !operationalNotes.isEmpty
     }
@@ -106,10 +102,7 @@ struct UpdateRunReport: Equatable {
     }
 
     var title: String {
-        if hasFailures {
-            return "Finished with \(failures.count.formatted()) \(Self.issueNoun(failures.count))"
-        }
-        return "Update Complete"
+        hasFailures ? "Finished with \(failures.count.formatted()) \(Self.issueNoun(failures.count))" : "Update Complete"
     }
 
     private static func makeScopeTitle(testArtists: [String]) -> String {
@@ -472,6 +465,7 @@ struct UpdateRunReport: Equatable {
             "",
         ]
 
+        appendOperationalNotes(to: &lines)
         appendNoChangesSummary(to: &lines)
         appendFailures(to: &lines)
         appendChangeBreakdown(to: &lines)
@@ -480,8 +474,16 @@ struct UpdateRunReport: Equatable {
         return lines.joined(separator: "\n")
     }
 
+    private func appendOperationalNotes(to lines: inout [String]) {
+        guard !operationalNotes.isEmpty else { return }
+
+        lines.append("Run Health")
+        lines.append(contentsOf: operationalNotes.map { "- \($0.title): \($0.detail)" })
+        lines.append("")
+    }
+
     private func appendNoChangesSummary(to lines: inout [String]) {
-        guard changedEntries.isEmpty else { return }
+        guard changedEntries.isEmpty, !operationalNotes.contains(where: { $0.id == "no-changes" }) else { return }
 
         lines.append("No changes were made during this run.")
         lines.append("")
@@ -614,11 +616,9 @@ struct UpdateRunAlbumResult: Identifiable, Equatable {
     var id: String {
         [artist, album].joined(separator: "\u{1F}")
     }
-
     var title: String {
         "\(artist) - \(album)"
     }
-
     var changedTrackCount: Int {
         tracks.count { $0.hasChanges }
     }
