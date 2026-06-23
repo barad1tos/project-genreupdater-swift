@@ -64,7 +64,11 @@ extension AppDependencies {
         }
     }
 
-    func persistLoadedLibraryTracks(_ tracks: [Track]) async {
+    func persistLoadedLibraryTracks(
+        _ tracks: [Track],
+        scopedArtists capturedScopedArtists: [String]? = nil
+    ) async {
+        let scopedArtists = capturedScopedArtists ?? ArtistAllowList.normalized(config.development.testArtists)
         guard !tracks.isEmpty else { return }
         let previousTracks = await loadPreviousIncrementalScopeTracks()
         replacePreviousIncrementalScopeTracks(previousTracks)
@@ -75,11 +79,13 @@ extension AppDependencies {
             libraryServicesLog.error("Failed to persist loaded tracks: \(error.localizedDescription, privacy: .public)")
         }
 
-        do {
-            _ = try await librarySnapshotService?.saveSnapshot(tracks)
-        } catch {
-            libraryServicesLog
-                .warning("Failed to save library snapshot: \(error.localizedDescription, privacy: .public)")
+        if scopedArtists.isEmpty {
+            do {
+                _ = try await librarySnapshotService?.saveSnapshot(tracks)
+            } catch {
+                libraryServicesLog
+                    .warning("Failed to save library snapshot: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 

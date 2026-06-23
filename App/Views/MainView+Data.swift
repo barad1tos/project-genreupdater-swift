@@ -116,6 +116,7 @@ extension MainView {
         isLoading = true
 
         let loadStart = ContinuousClock.now
+        let scopedArtists = ArtistAllowList.normalized(dependencies.config.development.testArtists)
         var hasCachedTracks = false
 
         do {
@@ -124,7 +125,7 @@ extension MainView {
                 guard libraryLoadRequestID == requestID else { return }
                 let scopedCachedTracks = UpdateTrackScopeResolver.filteredByTestArtists(
                     cachedTracks,
-                    testArtists: dependencies.config.development.testArtists
+                    testArtists: scopedArtists
                 )
                 tracks = scopedCachedTracks
                 browseViewModel.tracks = scopedCachedTracks
@@ -135,7 +136,7 @@ extension MainView {
             try Task.checkCancellation()
             try await reader.requestAuthorization()
             try Task.checkCancellation()
-            await reader.updateTestArtists(dependencies.config.development.testArtists)
+            await reader.updateTestArtists(scopedArtists)
             let liveTracks = try await reader.fetchAllTracks()
             try Task.checkCancellation()
             guard libraryLoadRequestID == requestID else { return }
@@ -144,7 +145,7 @@ extension MainView {
             guard libraryLoadRequestID == requestID else { return }
             isMutationMetadataReady = isMappingReady
             tracks = liveTracks
-            await dependencies.persistLoadedLibraryTracks(liveTracks)
+            await dependencies.persistLoadedLibraryTracks(liveTracks, scopedArtists: scopedArtists)
             browseViewModel.tracks = liveTracks
             reconcileUpdateScope(with: liveTracks)
             lastLibraryScanDate = .now

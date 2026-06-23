@@ -569,3 +569,15 @@ extension AppDependencies {
         return (resolvedPath as NSString).expandingTildeInPath
     }
 }
+
+#if DEBUG
+extension AppDependencies {
+    func configureLibraryPersistenceForTesting(
+        trackStore: SwiftDataTrackStore? = nil,
+        librarySnapshotService: (any LibrarySnapshotService)? = nil
+    ) {
+        self.trackStore = trackStore
+        self.librarySnapshotService = librarySnapshotService
+    }
+}
+#endif
