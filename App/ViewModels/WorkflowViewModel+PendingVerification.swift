@@ -20,6 +20,7 @@ private struct PendingVerificationTrackContext {
 extension WorkflowViewModel {
     func startPendingVerification(tracks: [Track]) {
         guard let pendingVerificationService else {
+            pendingVerificationReportSummary = nil
             phase = .error("Pending verification service is unavailable")
             return
         }
@@ -37,8 +38,13 @@ extension WorkflowViewModel {
     func refreshPendingScope(tracks: [Track]) {
         Task {
             let snapshot = await pendingVerificationSnapshot()
+            let problematicCount = await problematicPendingAlbumCount()
             guard mode == .pendingVerification else { return }
             updatePendingScope(snapshot: snapshot, tracks: tracks)
+            updatePendingVerificationReportSummary(
+                snapshot: snapshot,
+                problematicCount: problematicCount
+            )
         }
     }
 
@@ -69,6 +75,7 @@ extension WorkflowViewModel {
         completedEntries = []
         result = nil
         dryRunReport = nil
+        pendingVerificationReportSummary = nil
     }
 
     private func runPendingVerification(
@@ -77,9 +84,16 @@ extension WorkflowViewModel {
     ) async {
         do {
             let snapshot = await pendingVerificationSnapshot()
+            let problematicCount = await pendingVerificationService
+                .getProblematicPendingAlbums(minAttempts: 3)
+                .count
             let dueEntries = snapshot.due
             let trackContext = await pendingVerificationTrackContext(from: tracks)
             updatePendingScope(snapshot: snapshot, tracks: trackContext.tracks)
+            updatePendingVerificationReportSummary(
+                snapshot: snapshot,
+                problematicCount: problematicCount
+            )
             preparePendingTrackStatuses(tracks: trackContext.tracks, dueEntries: dueEntries)
 
             let albumGroups = Self.groupTracksByAlbum(trackContext.tracks)
@@ -233,6 +247,11 @@ extension WorkflowViewModel {
         return await pendingVerificationService.getPendingVerificationSnapshot()
     }
 
+    private func problematicPendingAlbumCount() async -> Int {
+        guard let pendingVerificationService else { return 0 }
+        return await pendingVerificationService.getProblematicPendingAlbums(minAttempts: 3).count
+    }
+
     private func updatePendingScope(
         snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
         tracks: [Track]
@@ -244,6 +263,22 @@ extension WorkflowViewModel {
         let scopedTracks = Self.tracksMatchingPendingEntries(tracks, entries: snapshot.due)
         scopeTrackCount = scopedTracks.count
         scopeArtistCount = Set(scopedTracks.map(\.artist)).count
+    }
+
+    private func updatePendingVerificationReportSummary(
+        snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
+        problematicCount: Int
+    ) {
+        guard !snapshot.all.isEmpty else {
+            pendingVerificationReportSummary = nil
+            return
+        }
+
+        pendingVerificationReportSummary = UpdateRunPendingVerificationSummary(
+            total: snapshot.all.count,
+            due: snapshot.due.count,
+            problematic: problematicCount
+        )
     }
 
     private func handlePendingVerification(

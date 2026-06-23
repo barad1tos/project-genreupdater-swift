@@ -629,6 +629,26 @@ struct UpdateRunReportTests {
         #expect(summary.contains("Track Details"))
     }
 
+    @Test("plain text summary includes pending verification operational note")
+    func plainTextSummaryIncludesPendingVerificationOperationalNote() throws {
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: []),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: [],
+            pendingVerification: UpdateRunPendingVerificationSummary(total: 3, due: 1, problematic: 2)
+        )
+
+        let note = try #require(report.operationalNotes.first { $0.id == "pending-verification" })
+        #expect(note.title == "Pending Verification")
+        #expect(note.detail == "3 pending, 1 due, 2 problematic.")
+        #expect(note.severity == .warning)
+        #expect(report.plainTextSummary.contains("Pending Verification"))
+        #expect(report.plainTextSummary.contains("3 pending"))
+        #expect(report.plainTextSummary.contains("2 problematic"))
+    }
+
     @Test("filters no-op changes from run report")
     func filtersNoOpChangesFromRunReport() {
         var unchangedGenre = ChangeLogEntry(

@@ -321,11 +321,19 @@ private actor DashboardStateTrackStore: TrackStateStore {
 
 actor WorkflowPendingVerificationService: PendingVerificationService {
     private var entries: [PendingAlbumEntry]
+    private let dueEntries: [PendingAlbumEntry]?
+    private let problematicAlbums: [ProblematicPendingAlbum]
     private var removals: [(artist: String, album: String)] = []
     private var timestampUpdates = 0
 
-    init(entries: [PendingAlbumEntry]) {
+    init(
+        entries: [PendingAlbumEntry],
+        dueEntries: [PendingAlbumEntry]? = nil,
+        problematicAlbums: [ProblematicPendingAlbum] = []
+    ) {
         self.entries = entries
+        self.dueEntries = dueEntries
+        self.problematicAlbums = problematicAlbums
     }
 
     func initialize() async throws {
@@ -365,11 +373,11 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
     }
 
     func getPendingVerificationSnapshot() async -> (all: [PendingAlbumEntry], due: [PendingAlbumEntry]) {
-        (entries, entries)
+        (entries, dueEntries ?? entries)
     }
 
-    func getProblematicPendingAlbums(minAttempts _: Int) async -> [ProblematicPendingAlbum] {
-        []
+    func getProblematicPendingAlbums(minAttempts: Int) async -> [ProblematicPendingAlbum] {
+        problematicAlbums.filter { $0.totalAttempts >= minAttempts }
     }
 
     func generateProblematicAlbumsReport(minAttempts _: Int, reportURL _: URL?) async throws -> Int {

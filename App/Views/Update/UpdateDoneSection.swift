@@ -25,7 +25,7 @@ struct UpdateDoneSection: View {
             trackStatuses: viewModel.trackStatuses,
             tracks: tracks,
             testArtists: testArtists,
-            displayMode: displayMode
+            displayMode: displayMode, pendingVerification: viewModel.pendingVerificationReportSummary
         )
     }
 

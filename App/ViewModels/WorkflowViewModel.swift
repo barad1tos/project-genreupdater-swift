@@ -112,6 +112,7 @@ final class WorkflowViewModel {
     var pendingAlbumCount: Int = 0
     var pendingDueAlbumCount: Int = 0
     var pendingSkippedAlbumCount: Int = 0
+    var pendingVerificationReportSummary: UpdateRunPendingVerificationSummary?
     var proposedChanges: [ProposedChange] = []
     var result: BatchUpdateResult?
     var completedEntries: [ChangeLogEntry] = []
@@ -221,6 +222,8 @@ final class WorkflowViewModel {
             startPendingVerification(tracks: tracks)
             return
         }
+
+        pendingVerificationReportSummary = nil
 
         if mode == .releaseYearRestore {
             startReleaseYearRestore(tracks: tracks)

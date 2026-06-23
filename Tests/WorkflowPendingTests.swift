@@ -1,4 +1,5 @@
 import Core
+import Foundation
 import Services
 import Testing
 @testable import Genre_Updater
@@ -93,5 +94,72 @@ struct WorkflowPendingTests {
         #expect(remainingPending.map(\.id) == ["daft-punk-random-access-memories"])
         #expect(viewModel.completedEntries.isEmpty)
         #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
+    }
+
+    @Test("summarizes pending snapshot facts for update run reports")
+    func summarizesPendingSnapshotFactsForUpdateRunReports() async throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let dueEntry = PendingAlbumEntry(
+            id: "daft-punk-random-access-memories",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            reason: "no_year_found"
+        )
+        let problematicEntry = PendingAlbumEntry(
+            id: "clutch-pure-rock-fury",
+            artist: "Clutch",
+            album: "Pure Rock Fury",
+            reason: "no_year_found"
+        )
+        let skippedProblematicEntry = PendingAlbumEntry(
+            id: "archive-noise",
+            artist: "Archive",
+            album: "Noise",
+            reason: "no_year_found"
+        )
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [dueEntry, problematicEntry, skippedProblematicEntry],
+            dueEntries: [dueEntry],
+            problematicAlbums: [
+                ProblematicPendingAlbum(
+                    entry: problematicEntry,
+                    totalAttempts: 3,
+                    firstAttempt: now,
+                    lastAttempt: now,
+                    daysSinceFirstAttempt: 14
+                ),
+                ProblematicPendingAlbum(
+                    entry: skippedProblematicEntry,
+                    totalAttempts: 4,
+                    firstAttempt: now,
+                    lastAttempt: now,
+                    daysSinceFirstAttempt: 21
+                ),
+            ]
+        )
+        let viewModel = makeWorkflowFixture(pendingVerificationService: pendingVerification).viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.computeScopePreview(tracks: [])
+
+        for _ in 0 ..< 200 {
+            if let summary = viewModel.pendingVerificationReportSummary {
+                #expect(summary.total == 3)
+                #expect(summary.due == 1)
+                #expect(summary.problematic == 2)
+
+                viewModel.reset()
+                #expect(viewModel.pendingVerificationReportSummary == nil)
+
+                viewModel.pendingVerificationReportSummary = summary
+                viewModel.mode = .selectedTracks
+                viewModel.start(tracks: [])
+                #expect(viewModel.pendingVerificationReportSummary == nil)
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        Issue.record("pending verification report summary did not update before timeout")
     }
 }

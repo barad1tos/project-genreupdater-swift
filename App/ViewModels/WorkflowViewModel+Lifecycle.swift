@@ -48,6 +48,7 @@ extension WorkflowViewModel {
         pendingAlbumCount = 0
         pendingDueAlbumCount = 0
         pendingSkippedAlbumCount = 0
+        pendingVerificationReportSummary = nil
         releaseYearRestoreThreshold = defaultReleaseYearRestoreThreshold
     }
 
