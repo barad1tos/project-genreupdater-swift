@@ -14,6 +14,7 @@ import OSLog
 ///
 /// Endpoints used:
 /// - `/database/search?artist=...&release_title=...&type=master` — find master releases
+/// - `/releases/{id}` — release detail fallback when search results omit year
 /// - `/masters/{id}` — master release details (year, genres, styles)
 ///
 /// Discogs does not expose structured artist activity periods,
@@ -25,6 +26,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     public static let keychainService = "com.genreupdater.discogs"
     /// Keychain account identifier used for Discogs token storage.
     public static let keychainAccount = "personal-access-token"
+
+    private static let releaseDetailLookupLimit = 10
 
     private let userAgent: String
     private let session: URLSession
@@ -129,20 +132,43 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             }
         }
 
-        // Fallback to the first valid search result year.
-        guard let year = response.results
-            .lazy
-            .compactMap(\.releaseYear)
-            .first(where: { $0 > 0 }) else {
+        if let year = try await firstSearchResultYear(
+            from: response.results,
+            allowsReleaseDetailLookup: false
+        ) {
+            return YearResult(
+                year: year,
+                isDefinitive: false,
+                confidence: 60,
+                yearScores: [year: 60]
+            )
+        }
+
+        guard let releaseURL = Self.buildSearchURL(
+            artist: artist,
+            album: album,
+            type: "release",
+            baseURL: baseURL
+        ) else {
+            log.warning("Failed to build Discogs release search URL for \(artist, privacy: .private)")
+            return YearResult()
+        }
+
+        guard let releaseResponse = try await fallbackSearchResponse(url: releaseURL) else {
+            log.debug("No Discogs results for \(artist, privacy: .private) - \(album, privacy: .private)")
+            return YearResult()
+        }
+
+        guard let releaseYear = try await firstSearchResultYear(from: releaseResponse.results) else {
             log.debug("No Discogs results for \(artist, privacy: .private) - \(album, privacy: .private)")
             return YearResult()
         }
 
         return YearResult(
-            year: year,
+            year: releaseYear,
             isDefinitive: false,
             confidence: 60,
-            yearScores: [year: 60]
+            yearScores: [releaseYear: 60]
         )
     }
 
@@ -174,8 +200,18 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         )
 
         var candidates: [ReleaseCandidate] = []
+        var detailLookupCount = 0
         for result in response.results {
-            if let candidate = try await releaseCandidate(from: result, artist: artist, album: album) {
+            let outcome = try await releaseCandidate(
+                from: result,
+                artist: artist,
+                album: album,
+                attemptedLookupCount: detailLookupCount
+            )
+            if outcome.didAttemptDetailLookup {
+                detailLookupCount += 1
+            }
+            if let candidate = outcome.candidate {
                 candidates.append(candidate)
             }
         }
@@ -238,6 +274,16 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     ) -> URL? {
         baseURL
             .appendingPathComponent("masters")
+            .appendingPathComponent(String(releaseID))
+    }
+
+    /// Builds a URL for fetching a specific release by ID.
+    static func buildReleaseURL(
+        releaseID: Int,
+        baseURL: URL = Self.defaultBaseURL
+    ) -> URL? {
+        baseURL
+            .appendingPathComponent("releases")
             .appendingPathComponent(String(releaseID))
     }
 
@@ -304,16 +350,93 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             ?? firstNonEmpty(result.style)
     }
 
+    private static func validYear(_ year: Int?) -> Int? {
+        guard let year, year > 0 else { return nil }
+        return year
+    }
+
+    private static func hasReleaseDetailIdentifier(_ result: DiscogsSearchResult) -> Bool {
+        result.type.localizedCaseInsensitiveCompare("release") == .orderedSame && result.id > 0
+    }
+
+    private func firstSearchResultYear(
+        from results: [DiscogsSearchResult],
+        allowsReleaseDetailLookup: Bool = true
+    ) async throws -> Int? {
+        var detailLookupCount = 0
+        for result in results {
+            if let year = Self.validYear(result.releaseYear) {
+                return year
+            }
+
+            guard allowsReleaseDetailLookup else {
+                continue
+            }
+
+            let detail = try await releaseDetailYearIfNeeded(
+                for: result,
+                attemptedLookupCount: detailLookupCount
+            )
+            if detail.didAttempt {
+                detailLookupCount += 1
+            }
+            if let year = detail.year {
+                return year
+            }
+        }
+        return nil
+    }
+
+    private func releaseDetailYearIfNeeded(
+        for result: DiscogsSearchResult,
+        attemptedLookupCount: Int
+    ) async throws -> (year: Int?, didAttempt: Bool) {
+        guard Self.validYear(result.releaseYear) == nil,
+              attemptedLookupCount < Self.releaseDetailLookupLimit,
+              Self.hasReleaseDetailIdentifier(result) else {
+            return (nil, false)
+        }
+
+        return try await (fetchReleaseDetailYear(releaseID: result.id), true)
+    }
+
+    private func fallbackSearchResponse(url: URL) async throws -> DiscogsSearchResponse? {
+        do {
+            let data = try await fetchWithRateLimit(url: url)
+            return try JSONDecoder().decode(
+                DiscogsSearchResponse.self,
+                from: data
+            )
+        } catch let error as DiscogsError {
+            throw error
+        } catch let error as DecodingError {
+            log.debug("Discogs fallback search decoding failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        } catch let error as CancellationError {
+            throw error
+        } catch let error as URLError {
+            throw error
+        }
+    }
+
     private func releaseCandidate(
         from result: DiscogsSearchResult,
         artist: String,
-        album: String
-    ) async throws -> ReleaseCandidate? {
+        album: String,
+        attemptedLookupCount: Int
+    ) async throws -> (candidate: ReleaseCandidate?, didAttemptDetailLookup: Bool) {
         let canonicalRelease = try await fetchCandidateCanonicalRelease(for: result)
         let canonicalYear = canonicalRelease?.year.flatMap { $0 > 0 ? $0 : nil }
-        guard let year = canonicalYear ?? result.releaseYear,
-              year > 0 else {
-            return nil
+        let searchYear = Self.validYear(result.releaseYear)
+        var detail: (year: Int?, didAttempt: Bool) = (nil, false)
+        if canonicalYear == nil, searchYear == nil {
+            detail = try await releaseDetailYearIfNeeded(
+                for: result,
+                attemptedLookupCount: attemptedLookupCount
+            )
+        }
+        guard let year = canonicalYear ?? searchYear ?? detail.year else {
+            return (nil, detail.didAttempt)
         }
 
         let formats = result.format ?? []
@@ -322,7 +445,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             from: isUsingCanonicalYear ? canonicalRelease?.title ?? result.title : result.title,
             fallback: album
         )
-        return ReleaseCandidate(
+        let candidate = ReleaseCandidate(
             artist: artist,
             album: albumTitle,
             year: year,
@@ -336,6 +459,49 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             ),
             genre: Self.genre(from: canonicalRelease, result: result)
         )
+        return (candidate, detail.didAttempt)
+    }
+
+    private func fetchReleaseDetailYear(releaseID: Int) async throws -> Int? {
+        guard let url = Self.buildReleaseURL(
+            releaseID: releaseID,
+            baseURL: baseURL
+        ) else {
+            return nil
+        }
+
+        do {
+            let data = try await fetchWithRateLimit(url: url)
+            let releaseDetail = try JSONDecoder().decode(
+                DiscogsReleaseDetail.self,
+                from: data
+            )
+            return Self.validYear(releaseDetail.releaseYear)
+        } catch let error as DiscogsError {
+            switch error {
+            case .httpError:
+                log.debug(
+                    "Discogs release detail \(releaseID, privacy: .public) unavailable: \(error.localizedDescription, privacy: .public)"
+                )
+                return nil
+            case .noToken, .invalidResponse, .unauthorized, .rateLimited:
+                throw error
+            }
+        } catch let error as DecodingError {
+            log.debug(
+                "Discogs release detail \(releaseID, privacy: .public) decoding failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        } catch let error as CancellationError {
+            throw error
+        } catch let error as URLError where error.code == .cancelled {
+            throw error
+        } catch let error as URLError {
+            log.debug(
+                "Discogs release detail \(releaseID, privacy: .public) transport failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
     }
 
     private func fetchCandidateCanonicalRelease(

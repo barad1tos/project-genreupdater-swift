@@ -107,6 +107,58 @@ struct DiscogsPagination: Codable {
     }
 }
 
+// MARK: - Release Detail
+
+/// A Discogs release detail, fetched from `/releases/{id}`.
+///
+/// Search results can omit the year. The detail endpoint may recover it either
+/// as a numeric `year` or embedded in a released-date string.
+struct DiscogsReleaseDetail: Decodable {
+    let id: Int
+    let title: String?
+    let year: Int?
+    let released: String?
+    let releasedDate: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, year, released
+        case releasedDate = "released_date"
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        if let integerYear = try? container.decode(Int.self, forKey: .year) {
+            year = integerYear
+        } else if let stringYear = try? container.decode(String.self, forKey: .year) {
+            year = Int(stringYear)
+        } else {
+            year = nil
+        }
+        released = try container.decodeIfPresent(String.self, forKey: .released)
+        releasedDate = try container.decodeIfPresent(String.self, forKey: .releasedDate)
+    }
+
+    var releaseYear: Int? {
+        if let year, year > 0 {
+            return year
+        }
+        return Self.firstYear(in: released) ?? Self.firstYear(in: releasedDate)
+    }
+
+    private static func firstYear(in value: String?) -> Int? {
+        guard let value,
+              let range = value.range(
+                  of: #"(?<!\d)\d{4}(?!\d)"#,
+                  options: .regularExpression
+              ) else {
+            return nil
+        }
+        return Int(value[range])
+    }
+}
+
 // MARK: - Master Release
 
 /// A Discogs master release, fetched from `/masters/{id}`.
