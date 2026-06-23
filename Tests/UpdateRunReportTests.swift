@@ -693,7 +693,7 @@ struct UpdateRunReportTests {
 
     private func makeMixedRunHealthReport(
         completedEntries: [ChangeLogEntry],
-        displayMode: ReportDisplayMode = .compact
+        displayMode: ChangeDisplayMode = .compact
     ) -> UpdateRunReport {
         UpdateRunReport(
             result: nil,
