@@ -158,36 +158,37 @@ struct DiscogsClientRequestTests {
     @Test("getAlbumYear recovers missing search year from release detail year")
     func getAlbumYearRecoversMissingSearchYearFromReleaseDetailYear() async throws {
         let lookup = try await getAlbumYear { url in
-            switch url.path {
-            case discogsSearchPath:
-                return try makeDiscogsJSONResponse(url: url, json: discogsMissingSearchYearResponseJSON)
-            case discogsReleaseDetailPath:
-                return try makeDiscogsJSONResponse(url: url, json: discogsReleaseDetailYearResponseJSON)
-            default:
-                throw URLError(.badURL)
-            }
+            try makeAlbumYearReleaseFallbackResponse(url: url)
         }
 
         #expect(lookup.result.year == 1984)
         #expect(lookup.result.yearScores[1984] == 60)
-        #expect(lookup.requests.map { $0.url?.path } == [discogsSearchPath, discogsReleaseDetailPath])
+        #expect(lookup.requests.map { $0.url?.path } == [
+            discogsSearchPath,
+            discogsSearchPath,
+            discogsReleaseDetailPath,
+        ])
+        #expect(lookup.requests.compactMap { request in
+            request.url.flatMap { queryValue("type", in: $0) }
+        } == ["master", "release"])
     }
 
     @Test("getAlbumYear recovers missing search year from release detail released date")
     func getAlbumYearRecoversMissingSearchYearFromReleaseDetailReleasedDate() async throws {
         let lookup = try await getAlbumYear { url in
-            switch url.path {
-            case discogsSearchPath:
-                return try makeDiscogsJSONResponse(url: url, json: discogsMissingSearchYearResponseJSON)
-            case discogsReleaseDetailPath:
-                return try makeDiscogsJSONResponse(url: url, json: discogsReleaseDetailReleasedDateResponseJSON)
-            default:
-                throw URLError(.badURL)
-            }
+            try makeAlbumYearReleaseFallbackResponse(
+                url: url,
+                releaseDetailJSON: discogsReleaseDetailReleasedDateResponseJSON
+            )
         }
 
         #expect(lookup.result.year == 1984)
         #expect(lookup.result.yearScores[1984] == 60)
+        #expect(lookup.requests.map { $0.url?.path } == [
+            discogsSearchPath,
+            discogsSearchPath,
+            discogsReleaseDetailPath,
+        ])
     }
 
     @Test("getAlbumYear does not fetch release detail for valid search year")
@@ -208,19 +209,21 @@ struct DiscogsClientRequestTests {
     @Test("getAlbumYear tolerates release detail failure when another search year is usable")
     func getAlbumYearToleratesReleaseDetailFailureWhenAnotherSearchYearIsUsable() async throws {
         let lookup = try await getAlbumYear { url in
-            switch url.path {
-            case discogsSearchPath:
-                return try makeDiscogsJSONResponse(url: url, json: discogsInvalidThenValidSearchResponseJSON)
-            case discogsReleaseDetailPath:
-                return try makeDiscogsJSONResponse(url: url, json: "{}", statusCode: 500)
-            default:
-                throw URLError(.badURL)
-            }
+            try makeAlbumYearReleaseFallbackResponse(
+                url: url,
+                releaseSearchJSON: discogsInvalidThenValidSearchResponseJSON,
+                releaseDetailJSON: "{}",
+                releaseDetailStatusCode: 500
+            )
         }
 
         #expect(lookup.result.year == 1984)
         #expect(lookup.result.yearScores[1984] == 60)
-        #expect(lookup.requests.map { $0.url?.path } == [discogsSearchPath, discogsReleaseDetailPath])
+        #expect(lookup.requests.map { $0.url?.path } == [
+            discogsSearchPath,
+            discogsSearchPath,
+            discogsReleaseDetailPath,
+        ])
     }
 
     @Test("getAlbumYear does not fetch release detail for invalid non-release search result")
@@ -237,7 +240,15 @@ struct DiscogsClientRequestTests {
         }
 
         #expect(lookup.result.year == nil)
-        #expect(lookup.requests.map { $0.url?.path } == [discogsSearchPath, discogsCanonicalPath])
+        #expect(lookup.requests.map { $0.url?.path } == [
+            discogsSearchPath,
+            discogsCanonicalPath,
+            discogsSearchPath,
+        ])
+        #expect(lookup.requests.map { $0.url?.path }.contains(discogsReleaseDetailPath) == false)
+        #expect(lookup.requests.compactMap { request in
+            request.url.flatMap { queryValue("type", in: $0) }
+        } == ["master", "release"])
     }
 
     @Test("getAlbumYear propagates unauthorized release detail errors")
@@ -306,6 +317,47 @@ struct DiscogsClientRequestTests {
         #expect(lookup.requests.map { $0.url?.path } == [discogsSearchPath, discogsReleaseDetailPath])
     }
 
+    @Test("getReleaseCandidates prefers canonical master before release detail")
+    func getReleaseCandidatesPrefersCanonicalReleaseBeforeDetail() async throws {
+        let lookup = try await getReleaseCandidates { url in
+            switch url.path {
+            case discogsSearchPath:
+                return try makeDiscogsJSONResponse(
+                    url: url,
+                    json: discogsMissingReleaseWithCanonicalIDJSON
+                )
+            case discogsCanonicalPath:
+                return try makeDiscogsJSONResponse(url: url, json: discogsReleaseResponseJSON)
+            default:
+                throw URLError(.badURL)
+            }
+        }
+
+        #expect(lookup.candidates.map(\.year) == [1984])
+        #expect(lookup.requests.map { $0.url?.path } == [discogsSearchPath, discogsCanonicalPath])
+    }
+
+    @Test("getReleaseCandidates limits release detail recovery lookups")
+    func getReleaseCandidatesLimitsReleaseDetailRecoveryLookups() async throws {
+        let lookup = try await getReleaseCandidates { url in
+            switch url.path {
+            case discogsSearchPath:
+                return try makeDiscogsJSONResponse(
+                    url: url,
+                    json: makeDiscogsMissingReleaseSearchResponseJSON(count: 11)
+                )
+            case _ where url.path.hasPrefix("/releases/"):
+                return try makeDiscogsJSONResponse(url: url, json: discogsReleaseDetailYearResponseJSON)
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let releaseDetailPaths = lookup.requests.compactMap { $0.url?.path }.filter { $0.hasPrefix("/releases/") }
+
+        #expect(lookup.candidates.count == 10)
+        #expect(releaseDetailPaths.count == 10)
+    }
+
     private func getAlbumYear(
         response: @escaping (URL) throws -> (HTTPURLResponse, Data)
     ) async throws -> (result: YearResult, requests: [URLRequest]) {
@@ -338,14 +390,11 @@ struct DiscogsClientRequestTests {
 
     private func getAlbumYearWithReleaseDetailStatus(_ statusCode: Int) async throws {
         _ = try await getAlbumYear { url in
-            switch url.path {
-            case discogsSearchPath:
-                return try makeDiscogsJSONResponse(url: url, json: discogsMissingSearchYearResponseJSON)
-            case discogsReleaseDetailPath:
-                return try makeDiscogsJSONResponse(url: url, json: "{}", statusCode: statusCode)
-            default:
-                throw URLError(.badURL)
-            }
+            try makeAlbumYearReleaseFallbackResponse(
+                url: url,
+                releaseDetailJSON: "{}",
+                releaseDetailStatusCode: statusCode
+            )
         }
     }
 
@@ -429,6 +478,13 @@ private func makeDiscogsSandboxBaseURL() throws -> URL {
     return try #require(components.url)
 }
 
+private func queryValue(_ name: String, in url: URL) -> String? {
+    URLComponents(url: url, resolvingAgainstBaseURL: false)?
+        .queryItems?
+        .first { $0.name == name }?
+        .value
+}
+
 private func makeDiscogsResponse(for request: URLRequest) throws -> (HTTPURLResponse, Data) {
     try makeDiscogsResponse(
         for: request,
@@ -471,6 +527,50 @@ private func makeDiscogsJSONResponse(
 private func makeDiscogsTestPath(_ components: String...) -> String {
     let pathSeparator = String(Unicode.Scalar(UInt8(47)))
     return pathSeparator + components.joined(separator: pathSeparator)
+}
+
+private func makeDiscogsMissingReleaseSearchResponseJSON(count: Int) -> String {
+    let results = (0 ..< count).map { index in
+        """
+            {
+              "id": \(1000 + index),
+              "type": "release",
+              "title": "Iron Maiden - Powerslave",
+              "year": null
+            }
+        """
+    }.joined(separator: ",\n")
+
+    return """
+    {
+      "pagination": { "page": 1, "pages": 1, "per_page": \(count), "items": \(count) },
+      "results": [
+    \(results)
+      ]
+    }
+    """
+}
+
+private func makeAlbumYearReleaseFallbackResponse(
+    url: URL,
+    releaseSearchJSON: String = discogsMissingSearchYearResponseJSON,
+    releaseDetailJSON: String = discogsReleaseDetailYearResponseJSON,
+    releaseDetailStatusCode: Int = 200
+) throws -> (HTTPURLResponse, Data) {
+    switch url.path {
+    case discogsSearchPath where queryValue("type", in: url) == "master":
+        return try makeDiscogsJSONResponse(url: url, json: discogsMissingCanonicalSearchYearJSON)
+    case discogsSearchPath where queryValue("type", in: url) == "release":
+        return try makeDiscogsJSONResponse(url: url, json: releaseSearchJSON)
+    case discogsReleaseDetailPath:
+        return try makeDiscogsJSONResponse(
+            url: url,
+            json: releaseDetailJSON,
+            statusCode: releaseDetailStatusCode
+        )
+    default:
+        throw URLError(.badURL)
+    }
 }
 
 private let discogsSandboxHost = "sandbox.discogs.com"
@@ -555,6 +655,20 @@ private let discogsInvalidSearchResponseJSON = """
 }
 """
 
+private let discogsMissingCanonicalSearchYearJSON = """
+{
+  "pagination": { "page": 1, "pages": 1, "per_page": 5, "items": 1 },
+  "results": [
+    {
+      "id": 41,
+      "type": "master",
+      "title": "Iron Maiden - Powerslave",
+      "year": null
+    }
+  ]
+}
+"""
+
 private let discogsMissingSearchYearResponseJSON = """
 {
   "pagination": { "page": 1, "pages": 1, "per_page": 5, "items": 1 },
@@ -562,6 +676,21 @@ private let discogsMissingSearchYearResponseJSON = """
     {
       "id": 42,
       "type": "release",
+      "title": "Iron Maiden - Powerslave",
+      "year": null
+    }
+  ]
+}
+"""
+
+private let discogsMissingReleaseWithCanonicalIDJSON = """
+{
+  "pagination": { "page": 1, "pages": 1, "per_page": 5, "items": 1 },
+  "results": [
+    {
+      "id": 42,
+      "type": "release",
+      "master_id": 12345,
       "title": "Iron Maiden - Powerslave",
       "year": null
     }

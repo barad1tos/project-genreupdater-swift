@@ -132,16 +132,41 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             }
         }
 
-        guard let year = try await firstSearchResultYear(from: response.results) else {
+        if let year = try await firstSearchResultYear(from: response.results) {
+            return YearResult(
+                year: year,
+                isDefinitive: false,
+                confidence: 60,
+                yearScores: [year: 60]
+            )
+        }
+
+        guard let releaseURL = Self.buildSearchURL(
+            artist: artist,
+            album: album,
+            type: "release",
+            baseURL: baseURL
+        ) else {
+            log.warning("Failed to build Discogs release search URL for \(artist, privacy: .private)")
+            return YearResult()
+        }
+
+        let releaseData = try await fetchWithRateLimit(url: releaseURL)
+        let releaseResponse = try JSONDecoder().decode(
+            DiscogsSearchResponse.self,
+            from: releaseData
+        )
+
+        guard let releaseYear = try await firstSearchResultYear(from: releaseResponse.results) else {
             log.debug("No Discogs results for \(artist, privacy: .private) - \(album, privacy: .private)")
             return YearResult()
         }
 
         return YearResult(
-            year: year,
+            year: releaseYear,
             isDefinitive: false,
             confidence: 60,
-            yearScores: [year: 60]
+            yearScores: [releaseYear: 60]
         )
     }
 
@@ -175,20 +200,16 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         var candidates: [ReleaseCandidate] = []
         var detailLookupCount = 0
         for result in response.results {
-            let detail = try await releaseDetailYearIfNeeded(
-                for: result,
-                attemptedLookupCount: detailLookupCount
-            )
-            if detail.didAttempt {
-                detailLookupCount += 1
-            }
-
-            if let candidate = try await releaseCandidate(
+            let outcome = try await releaseCandidate(
                 from: result,
                 artist: artist,
                 album: album,
-                releaseDetailYear: detail.year
-            ) {
+                attemptedLookupCount: detailLookupCount
+            )
+            if outcome.didAttemptDetailLookup {
+                detailLookupCount += 1
+            }
+            if let candidate = outcome.candidate {
                 candidates.append(candidate)
             }
         }
@@ -374,12 +395,20 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         from result: DiscogsSearchResult,
         artist: String,
         album: String,
-        releaseDetailYear: Int?
-    ) async throws -> ReleaseCandidate? {
+        attemptedLookupCount: Int
+    ) async throws -> (candidate: ReleaseCandidate?, didAttemptDetailLookup: Bool) {
         let canonicalRelease = try await fetchCandidateCanonicalRelease(for: result)
         let canonicalYear = canonicalRelease?.year.flatMap { $0 > 0 ? $0 : nil }
-        guard let year = canonicalYear ?? Self.validYear(result.releaseYear) ?? releaseDetailYear else {
-            return nil
+        let searchYear = Self.validYear(result.releaseYear)
+        var detail: (year: Int?, didAttempt: Bool) = (nil, false)
+        if canonicalYear == nil, searchYear == nil {
+            detail = try await releaseDetailYearIfNeeded(
+                for: result,
+                attemptedLookupCount: attemptedLookupCount
+            )
+        }
+        guard let year = canonicalYear ?? searchYear ?? detail.year else {
+            return (nil, detail.didAttempt)
         }
 
         let formats = result.format ?? []
@@ -388,7 +417,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             from: isUsingCanonicalYear ? canonicalRelease?.title ?? result.title : result.title,
             fallback: album
         )
-        return ReleaseCandidate(
+        let candidate = ReleaseCandidate(
             artist: artist,
             album: albumTitle,
             year: year,
@@ -402,6 +431,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             ),
             genre: Self.genre(from: canonicalRelease, result: result)
         )
+        return (candidate, detail.didAttempt)
     }
 
     private func fetchReleaseDetailYear(releaseID: Int) async throws -> Int? {
