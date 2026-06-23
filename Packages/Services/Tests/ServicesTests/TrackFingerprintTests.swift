@@ -82,6 +82,29 @@ struct TrackFingerprintTests {
         #expect(TrackFingerprint.hasProcessingMetadataChanged(current: currentWithStatus, stored: storedWithStatus))
     }
 
+    @Test("processing availability changes fingerprint")
+    func processingAvailabilityChangesFingerprint() {
+        let prereleaseTrack = Track(
+            id: "track-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 1998,
+            trackStatus: TrackKind.prerelease.rawValue
+        )
+        let availableTrack = Track(
+            id: "track-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 1998
+        )
+
+        #expect(TrackFingerprint.hasProcessingMetadataChanged(current: availableTrack, stored: prereleaseTrack))
+    }
+
     @Test("timestamp-only changes do not affect fingerprint")
     func timestampOnlyChangesDoNotAffectFingerprint() {
         let first = Track(

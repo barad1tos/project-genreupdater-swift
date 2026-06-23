@@ -444,7 +444,7 @@ public actor LibrarySyncService {
         let transitionedAlbums = modifiedTracks.flatMap { current -> [(artist: String, album: String)] in
             guard let previous = previousTracksByID[current.id],
                   previous.kind == .prerelease,
-                  current.kind?.isAvailableForProcessing == true
+                  UpdateCoordinator.isTrackAvailableForProcessing(current)
             else {
                 return []
             }

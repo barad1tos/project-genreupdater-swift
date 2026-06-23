@@ -234,6 +234,37 @@ public actor APIOrchestrator {
         currentLibraryYear: Int?,
         earliestTrackAddedYear: Int?
     ) async -> YearResult {
+        await getAlbumYear(
+            artist: artist,
+            album: album,
+            currentLibraryYear: currentLibraryYear,
+            earliestTrackAddedYear: earliestTrackAddedYear,
+            shouldSynchronizePendingVerification: true
+        )
+    }
+
+    func getAlbumYearForPendingVerification(
+        artist: String,
+        album: String,
+        currentLibraryYear: Int?,
+        earliestTrackAddedYear: Int?
+    ) async -> YearResult {
+        await getAlbumYear(
+            artist: artist,
+            album: album,
+            currentLibraryYear: currentLibraryYear,
+            earliestTrackAddedYear: earliestTrackAddedYear,
+            shouldSynchronizePendingVerification: false
+        )
+    }
+
+    private func getAlbumYear(
+        artist: String,
+        album: String,
+        currentLibraryYear: Int?,
+        earliestTrackAddedYear: Int?,
+        shouldSynchronizePendingVerification: Bool
+    ) async -> YearResult {
         if let reachability, await !reachability.isConnected {
             log.info("Skipping API calls: network offline")
             return YearResult()
@@ -267,13 +298,15 @@ public actor APIOrchestrator {
 
         let results = await fetchSourceResults(sources: sources, query: query)
         let apiResult = Self.aggregateResults(results, orderedSources: activeSources)
-        await PendingVerificationSync.synchronize(
-            service: pendingVerificationService,
-            albumKey: (artist, album),
-            currentLibraryYear: currentLibraryYear,
-            maxVerificationAttempts: maxVerificationAttempts,
-            result: apiResult
-        )
+        if shouldSynchronizePendingVerification {
+            await PendingVerificationSync.synchronize(
+                service: pendingVerificationService,
+                albumKey: (artist, album),
+                currentLibraryYear: currentLibraryYear,
+                maxVerificationAttempts: maxVerificationAttempts,
+                result: apiResult
+            )
+        }
         return Self.applyingCurrentLibraryFallback(
             to: apiResult,
             currentLibraryYear: currentLibraryYear,

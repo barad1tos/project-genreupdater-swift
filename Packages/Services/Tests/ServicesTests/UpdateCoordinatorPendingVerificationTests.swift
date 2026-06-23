@@ -29,7 +29,8 @@ private func makePendingCoordinator(
 
 private func makePendingCoordinator(
     apiService: any ExternalAPIService,
-    runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
+    runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
+    pendingVerification: RecordingPendingVerificationService? = nil
 ) async -> PendingCoordinatorFixture {
     let bridge = MockAppleScriptClient()
     let store = MockTrackStore()
@@ -41,19 +42,25 @@ private func makePendingCoordinator(
         musicBrainz: apiService,
         discogs: apiService,
         appleMusic: apiService
-    )
+    ) { configuration in
+        configuration.pendingVerificationService = pendingVerification
+    }
     let coordinator = UpdateCoordinator(
         dependencies: UpdateCoordinatorDependencies(
             apiOrchestrator: orchestrator,
             scriptBridge: bridge,
             trackStore: store,
             cache: cache,
-            undoCoordinator: undo
+            undoCoordinator: undo,
+            pendingVerificationService: pendingVerification
         ),
         genreDeterminator: GenreDeterminator(),
         runtimeConfiguration: runtimeConfiguration
     )
-    return PendingCoordinatorFixture(coordinator: coordinator, bridge: bridge)
+    return PendingCoordinatorFixture(
+        coordinator: coordinator,
+        bridge: bridge
+    )
 }
 
 private func makePendingTrack(
@@ -236,6 +243,44 @@ struct PendingVerificationCoordinatorTests {
         #expect(result.failedTrackIDs == ["T2"])
         #expect(result.errorDescriptions.isEmpty == false)
         #expect(written.map(\.trackID) == ["T1"])
+    }
+
+    @Test("Pending verification API lookup has no pending-store side effects")
+    func pendingVerificationAPILookupHasNoPendingStoreSideEffects() async throws {
+        let pendingVerification = RecordingPendingVerificationService()
+        let fixture = await makePendingCoordinator(
+            apiService: MockAPIService(
+                yearResult: YearResult(
+                    year: 1997,
+                    confidence: 100,
+                    yearScores: [1997: 100]
+                )
+            ),
+            pendingVerification: pendingVerification
+        )
+        await fixture.bridge.setFailingWriteTrackIDs(["T1"])
+        let entry = PendingAlbumEntry(
+            id: "deftones-around-the-fur",
+            artist: "Deftones",
+            album: "Around the Fur",
+            reason: "no_year_found"
+        )
+        let albumTracks = [
+            makePendingTrack(
+                id: "T1",
+                name: "My Own Summer",
+                artist: "Deftones",
+                album: "Around the Fur",
+                year: nil
+            ),
+        ]
+
+        let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
+
+        #expect(result.resolvedYear == 1997)
+        #expect(result.failedTrackIDs == ["T1"])
+        #expect(await pendingVerification.removalCount() == 0)
+        #expect(await pendingVerification.markCount() == 0)
     }
 
     @Test("Verifies legacy pending entry through resolved album identity artist")

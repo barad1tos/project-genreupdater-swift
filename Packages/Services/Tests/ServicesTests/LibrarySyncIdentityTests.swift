@@ -44,6 +44,43 @@ struct LibrarySyncIdentityTests {
         })
     }
 
+    @Test("Resolves prerelease pending when current status is unknown")
+    func resolvesPrereleasePendingWhenCurrentStatusIsUnknown() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let pendingVerification = PendingVerificationProbe(entry: nil, isVerificationNeeded: false)
+        let storedTrack = Track(
+            id: "PRE",
+            name: "Future Song",
+            artist: "Daft Punk",
+            album: "Future Album",
+            trackStatus: TrackKind.prerelease.rawValue
+        )
+        let currentTrack = Track(
+            id: "PRE",
+            name: "Future Song",
+            artist: "Daft Punk",
+            album: "Future Album",
+            trackStatus: nil
+        )
+        await bridge.setLibrary(ids: ["PRE"], tracks: ["PRE": currentTrack])
+        await store.setStored([storedTrack])
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            pendingVerificationService: pendingVerification
+        )
+
+        _ = try await service.synchronizeNow(forceMetadataRefresh: true)
+
+        let removedAlbums = await pendingVerification.removedAlbums
+        #expect(removedAlbums.contains { removal in
+            removal.artist == "Daft Punk" && removal.album == "Future Album"
+        })
+    }
+
     @Test("Keeps prerelease pending while a sibling album identity alias remains prerelease")
     func keepsPrereleasePendingWhileSiblingAlbumIdentityAliasRemainsPrerelease() async throws {
         let bridge = SyncMockScriptClient()
