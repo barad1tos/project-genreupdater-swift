@@ -75,6 +75,44 @@ struct DiscogsClientTests {
         #expect(masterRelease.artists?.first?.name == "Iron Maiden")
     }
 
+    @Test("Parse release detail numeric year")
+    func parseReleaseDetailNumericYear() throws {
+        let json = """
+        {
+            "id": 42,
+            "title": "Powerslave",
+            "year": 1984,
+            "released": null
+        }
+        """
+
+        let releaseDetail = try JSONDecoder().decode(
+            DiscogsReleaseDetail.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(releaseDetail.releaseYear == 1984)
+    }
+
+    @Test("Parse release detail year from released date")
+    func parseReleaseDetailReleasedDateYear() throws {
+        let json = """
+        {
+            "id": 42,
+            "title": "Powerslave",
+            "year": 0,
+            "released": "Released 1984-09-03"
+        }
+        """
+
+        let releaseDetail = try JSONDecoder().decode(
+            DiscogsReleaseDetail.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(releaseDetail.releaseYear == 1984)
+    }
+
     @Test("Search result handles missing year")
     func searchResultMissingYear() {
         let result = DiscogsSearchResult(
