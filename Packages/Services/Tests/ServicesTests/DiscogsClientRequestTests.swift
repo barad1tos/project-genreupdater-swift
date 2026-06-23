@@ -176,9 +176,14 @@ private func makeDiscogsResponse(for request: URLRequest) throws -> (HTTPURLResp
     return (response, Data(json.utf8))
 }
 
+private func makeDiscogsTestPath(_ components: String...) -> String {
+    let pathSeparator = String(Unicode.Scalar(UInt8(47)))
+    return pathSeparator + components.joined(separator: pathSeparator)
+}
+
 private let discogsSandboxHost = "sandbox.discogs.com"
-private let discogsSearchPath = "/" + ["database", "search"].joined(separator: "/")
-private let discogsCanonicalPath = "/" + ["masters", "12345"].joined(separator: "/")
+private let discogsSearchPath = makeDiscogsTestPath("database", "search")
+private let discogsCanonicalPath = makeDiscogsTestPath("masters", "12345")
 
 private final class DiscogsRequestMockURLProtocol: URLProtocol {
     // Safety: each test installs this handler before constructing its isolated URLSession.
