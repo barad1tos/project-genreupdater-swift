@@ -16,7 +16,7 @@ struct DiscogsClientRequestTests {
             session.invalidateAndCancel()
         }
 
-        let baseURL = try #require(URL(string: "https://sandbox.discogs.com"))
+        let baseURL = try makeDiscogsSandboxBaseURL()
         let client = DiscogsClient(
             token: "test-token-123",
             session: session,
@@ -32,8 +32,8 @@ struct DiscogsClientRequestTests {
         let requests = recorder.snapshot
 
         #expect(result.year == 1984)
-        #expect(requests.map { $0.url?.host } == ["sandbox.discogs.com", "sandbox.discogs.com"])
-        #expect(requests.map { $0.url?.path } == ["/database/search", "/masters/12345"])
+        #expect(requests.map { $0.url?.host } == [discogsSandboxHost, discogsSandboxHost])
+        #expect(requests.map { $0.url?.path } == [discogsSearchPath, discogsCanonicalPath])
         #expect(requests.allSatisfy {
             $0.value(forHTTPHeaderField: "Authorization") == "Discogs token=test-token-123"
         })
@@ -44,9 +44,9 @@ struct DiscogsClientRequestTests {
         let session = makeDiscogsMockSession { request in
             let url = try #require(request.url)
             let json = switch url.path {
-            case "/database/search":
+            case discogsSearchPath:
                 discogsSearchResponseJSON
-            case "/masters/12345":
+            case discogsCanonicalPath:
                 discogsInvalidReleaseResponseJSON
             default:
                 throw URLError(.badURL)
@@ -64,7 +64,7 @@ struct DiscogsClientRequestTests {
             session.invalidateAndCancel()
         }
 
-        let baseURL = try #require(URL(string: "https://sandbox.discogs.com"))
+        let baseURL = try makeDiscogsSandboxBaseURL()
         let client = DiscogsClient(
             token: "test-token-123",
             session: session,
@@ -87,9 +87,9 @@ struct DiscogsClientRequestTests {
         let session = makeDiscogsMockSession { request in
             let url = try #require(request.url)
             let json = switch url.path {
-            case "/database/search":
+            case discogsSearchPath:
                 discogsInvalidSearchResponseJSON
-            case "/masters/12345":
+            case discogsCanonicalPath:
                 discogsInvalidReleaseResponseJSON
             default:
                 throw URLError(.badURL)
@@ -107,7 +107,7 @@ struct DiscogsClientRequestTests {
             session.invalidateAndCancel()
         }
 
-        let baseURL = try #require(URL(string: "https://sandbox.discogs.com"))
+        let baseURL = try makeDiscogsSandboxBaseURL()
         let client = DiscogsClient(
             token: "test-token-123",
             session: session,
@@ -150,12 +150,19 @@ private func makeDiscogsMockSession(
     return URLSession(configuration: configuration)
 }
 
+private func makeDiscogsSandboxBaseURL() throws -> URL {
+    var components = URLComponents()
+    components.scheme = "https"
+    components.host = discogsSandboxHost
+    return try #require(components.url)
+}
+
 private func makeDiscogsResponse(for request: URLRequest) throws -> (HTTPURLResponse, Data) {
     let url = try #require(request.url)
     let json = switch url.path {
-    case "/database/search":
+    case discogsSearchPath:
         discogsSearchResponseJSON
-    case "/masters/12345":
+    case discogsCanonicalPath:
         discogsReleaseResponseJSON
     default:
         throw URLError(.badURL)
@@ -168,6 +175,10 @@ private func makeDiscogsResponse(for request: URLRequest) throws -> (HTTPURLResp
     ))
     return (response, Data(json.utf8))
 }
+
+private let discogsSandboxHost = "sandbox.discogs.com"
+private let discogsSearchPath = "/" + ["database", "search"].joined(separator: "/")
+private let discogsCanonicalPath = "/" + ["masters", "12345"].joined(separator: "/")
 
 private final class DiscogsRequestMockURLProtocol: URLProtocol {
     // Safety: each test installs this handler before constructing its isolated URLSession.
