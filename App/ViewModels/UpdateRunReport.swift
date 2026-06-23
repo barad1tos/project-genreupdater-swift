@@ -28,8 +28,8 @@ struct UpdateRunReport: Equatable {
             trackLookup: trackLookup
         )
         changedEntries = entries
-        albumGroups = Self.makeAlbumGroups(from: entries)
-        changeBreakdown = Self.makeChangeBreakdown(from: entries)
+        albumGroups = Self.makeAlbumGroups(from: entries, trackLookup: trackLookup)
+        changeBreakdown = Self.makeChangeBreakdown(from: entries, trackLookup: trackLookup)
         failures = failureItems
         albumResults = Self.makeAlbumResults(
             entries: entries,
@@ -79,14 +79,18 @@ struct UpdateRunReport: Equatable {
         return "Test Artists: \(normalizedArtists.count)"
     }
 
-    private static func makeAlbumGroups(from entries: [ChangeLogEntry]) -> [UpdateRunAlbumGroup] {
+    private static func makeAlbumGroups(
+        from entries: [ChangeLogEntry],
+        trackLookup: [String: Track]
+    ) -> [UpdateRunAlbumGroup] {
         var buckets: [UpdateRunAlbumGroupKey: (firstIndex: Int, entries: [ChangeLogEntry])] = [:]
 
         for (index, entry) in entries.enumerated() {
             let values = valuePair(for: entry)
+            let identity = albumIdentity(for: entry, trackLookup: trackLookup)
             let key = UpdateRunAlbumGroupKey(
-                artist: entry.artist,
-                album: entry.albumName,
+                artist: identity.artist,
+                album: identity.album,
                 changeType: entry.changeType,
                 oldValue: values.old,
                 newValue: values.new
@@ -154,6 +158,7 @@ struct UpdateRunReport: Equatable {
         return failureMessages
             .map { trackID, message in
                 let track = trackLookup[trackID]
+                let identity = track.map { albumIdentity(for: $0) }
                 return UpdateRunFailure(
                     id: trackID,
                     title: track?.name ?? "Unknown track",
@@ -161,8 +166,8 @@ struct UpdateRunReport: Equatable {
                     message: message,
                     technicalID: trackID,
                     hasKnownTrack: track != nil,
-                    artist: track?.effectiveArtist ?? "Unknown artist",
-                    album: track?.album ?? "Unknown album"
+                    artist: identity?.artist ?? "Unknown artist",
+                    album: identity?.album ?? "Unknown album"
                 )
             }
             .sorted { left, right in
@@ -170,14 +175,17 @@ struct UpdateRunReport: Equatable {
             }
     }
 
-    private static func makeChangeBreakdown(from entries: [ChangeLogEntry]) -> [UpdateRunChangeBreakdown] {
+    private static func makeChangeBreakdown(
+        from entries: [ChangeLogEntry],
+        trackLookup: [String: Track]
+    ) -> [UpdateRunChangeBreakdown] {
         Dictionary(grouping: entries, by: \.changeType)
             .map { changeType, entries in
                 UpdateRunChangeBreakdown(
                     changeType: changeType,
                     changeCount: entries.count,
                     trackCount: Set(entries.map(\.trackID)).count,
-                    albumCount: Set(entries.map { [$0.artist, $0.albumName].joined(separator: "\u{1F}") }).count
+                    albumCount: Set(entries.map { albumIdentity(for: $0, trackLookup: trackLookup) }).count
                 )
             }
             .sorted { left, right in
@@ -198,9 +206,7 @@ struct UpdateRunReport: Equatable {
         let albumKeys = albumResultKeys(
             entries: entries,
             failures: failures,
-            tracks: tracks,
-            changesByTrackID: changesByTrackID,
-            failuresByTrackID: failuresByTrackID
+            trackLookup: trackLookup
         )
 
         return albumKeys.map { key in
@@ -237,19 +243,14 @@ struct UpdateRunReport: Equatable {
     private static func albumResultKeys(
         entries: [ChangeLogEntry],
         failures: [UpdateRunFailure],
-        tracks: [Track],
-        changesByTrackID: [String: [ChangeLogEntry]],
-        failuresByTrackID: [String: UpdateRunFailure]
+        trackLookup: [String: Track]
     ) -> Set<UpdateRunAlbumIdentity> {
         var keys = Set<UpdateRunAlbumIdentity>()
         for entry in entries {
-            keys.insert(UpdateRunAlbumIdentity(artist: entry.artist, album: entry.albumName))
+            keys.insert(albumIdentity(for: entry, trackLookup: trackLookup))
         }
         for failure in failures {
             keys.insert(UpdateRunAlbumIdentity(artist: failure.artist, album: failure.album))
-        }
-        for track in tracks where changesByTrackID[track.id] != nil || failuresByTrackID[track.id] != nil {
-            keys.insert(albumIdentity(for: track))
         }
         return keys
     }
@@ -263,7 +264,7 @@ struct UpdateRunReport: Equatable {
         let missingEntryRows = entries
             .filter { entry in
                 trackLookup[entry.trackID] == nil
-                    && UpdateRunAlbumIdentity(artist: entry.artist, album: entry.albumName) == key
+                    && albumIdentity(for: entry, trackLookup: trackLookup) == key
             }
             .map { entry in
                 makeFallbackTrackResult(entry: entry)
@@ -342,7 +343,18 @@ struct UpdateRunReport: Equatable {
     }
 
     private static func albumIdentity(for track: Track) -> UpdateRunAlbumIdentity {
-        UpdateRunAlbumIdentity(artist: track.effectiveArtist, album: track.album)
+        let identity = AlbumIdentity(track: track)
+        return UpdateRunAlbumIdentity(artist: identity.artist, album: identity.album)
+    }
+
+    private static func albumIdentity(
+        for entry: ChangeLogEntry,
+        trackLookup: [String: Track]
+    ) -> UpdateRunAlbumIdentity {
+        if let track = trackLookup[entry.trackID] {
+            return albumIdentity(for: track)
+        }
+        return UpdateRunAlbumIdentity(artist: entry.artist, album: entry.albumName)
     }
 
     private static func trackSort(_ left: Track, _ right: Track) -> Bool {

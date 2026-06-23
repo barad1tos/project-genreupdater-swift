@@ -172,6 +172,42 @@ struct PendingVerificationCoordinatorTests {
         #expect(result.entries.map(\.trackID) == ["T1"])
     }
 
+    @Test("Skips API lookup when pending entry does not match provided album tracks")
+    func skipsAPILookupWhenPendingEntryDoesNotMatchProvidedAlbumTracks() async throws {
+        let apiProbe = APIRequestProbe()
+        let fixture = await makePendingCoordinator(
+            apiService: PendingCanonicalAPIService(
+                probe: apiProbe,
+                canonicalArtist: "Daft Punk",
+                canonicalAlbum: "Random Access Memories",
+                year: 2013
+            )
+        )
+        let entry = PendingAlbumEntry(
+            id: "wrong-artist-wrong-album",
+            artist: "Wrong Artist",
+            album: "Wrong Album",
+            reason: "no_year_found"
+        )
+        let albumTracks = [
+            makePendingTrack(
+                id: "T1",
+                name: "Get Lucky",
+                artist: "Daft Punk",
+                album: "Random Access Memories",
+                year: nil
+            ),
+        ]
+
+        let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
+        let written = await fixture.bridge.writtenProperties
+
+        #expect(result.resolvedYear == nil)
+        #expect(result.entries.isEmpty)
+        #expect(await apiProbe.requestCount == 0)
+        #expect(written.isEmpty)
+    }
+
     @Test("Leaves album untouched when API has no year")
     func skipsWhenNoYearResolved() async throws {
         let fixture = await makePendingCoordinator(year: nil, confidence: 0)

@@ -594,6 +594,14 @@ struct UpdateCoordinatorAlbumIdentityTests {
                 album: "Random Access Memories"
             ) == nil
         )
+        #expect(await cache.getAlbumYear(artist: "The Robots", album: "Random Access Memories (Deluxe Edition)") == nil)
+        #expect(await cache.getAlbumYear(artist: "Daft Punk", album: "Random Access Memories (Deluxe Edition)") == nil)
+        #expect(
+            await cache.getAlbumYear(
+                artist: "Daft Punk feat. Pharrell Williams",
+                album: "Random Access Memories (Deluxe Edition)"
+            ) == nil
+        )
         #expect(await cache.getCachedAPIResult(
             artist: "The Robots",
             album: "Random Access Memories",
@@ -602,6 +610,21 @@ struct UpdateCoordinatorAlbumIdentityTests {
         #expect(await cache.getCachedAPIResult(
             artist: "Daft Punk",
             album: "Random Access Memories",
+            source: "MusicBrainz"
+        ) == nil)
+        #expect(await cache.getCachedAPIResult(
+            artist: "The Robots",
+            album: "Random Access Memories (Deluxe Edition)",
+            source: "MusicBrainz"
+        ) == nil)
+        #expect(await cache.getCachedAPIResult(
+            artist: "Daft Punk",
+            album: "Random Access Memories (Deluxe Edition)",
+            source: "MusicBrainz"
+        ) == nil)
+        #expect(await cache.getCachedAPIResult(
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories (Deluxe Edition)",
             source: "MusicBrainz"
         ) == nil)
         #expect(await cache.getCachedAPIResult(
@@ -731,48 +754,27 @@ struct UpdateCoordinatorAlbumIdentityTests {
     }
 
     private func seedOriginalArtistCleanedAlbumCache(_ cache: MockCacheService) async {
-        await cache.storeAlbumYear(
-            artist: "Daft Punk",
-            album: "Random Access Memories",
-            year: 2013,
-            confidence: 100
-        )
-        await cache.storeAlbumYear(
-            artist: "Daft Punk feat. Pharrell Williams",
-            album: "Random Access Memories",
-            year: 2013,
-            confidence: 100
-        )
-        await cache.storeAlbumYear(
-            artist: "The Robots",
-            album: "Random Access Memories",
-            year: 2013,
-            confidence: 100
-        )
-        await cache.setCachedAPIResult(CachedAPIResult(
-            artist: "Daft Punk",
-            album: "Random Access Memories",
-            year: 2013,
-            source: "MusicBrainz",
-            timestamp: Date(),
-            ttl: 3600
-        ))
-        await cache.setCachedAPIResult(CachedAPIResult(
-            artist: "Daft Punk feat. Pharrell Williams",
-            album: "Random Access Memories",
-            year: 2013,
-            source: "MusicBrainz",
-            timestamp: Date(),
-            ttl: 3600
-        ))
-        await cache.setCachedAPIResult(CachedAPIResult(
-            artist: "The Robots",
-            album: "Random Access Memories",
-            year: 2013,
-            source: "MusicBrainz",
-            timestamp: Date(),
-            ttl: 3600
-        ))
+        let artists = ["Daft Punk", "Daft Punk feat. Pharrell Williams", "The Robots"]
+        let albums = ["Random Access Memories", "Random Access Memories (Deluxe Edition)"]
+
+        for artist in artists {
+            for album in albums {
+                await cache.storeAlbumYear(
+                    artist: artist,
+                    album: album,
+                    year: 2013,
+                    confidence: 100
+                )
+                await cache.setCachedAPIResult(CachedAPIResult(
+                    artist: artist,
+                    album: album,
+                    year: 2013,
+                    source: "MusicBrainz",
+                    timestamp: Date(),
+                    ttl: 3600
+                ))
+            }
+        }
     }
 }
 

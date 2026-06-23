@@ -1,15 +1,22 @@
 import Foundation
 
-/// Stable album-level identity for grouping, cache keys, and pending verification.
+/// Stable album-level identity for grouping, cache keys, reports, and pending verification.
 public struct AlbumIdentity: Sendable, Hashable, Codable {
+    /// Canonical artist used for album-level decisions.
     public let artist: String
+    /// Canonical album title used for album-level decisions.
     public let album: String
 
+    /// Creates an identity from already-resolved artist and album values.
     public init(artist: String, album: String) {
         self.artist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
         self.album = album.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Creates an identity from writable track metadata.
+    ///
+    /// `albumArtist` wins when present because it is the strongest Music.app album-level grouping signal.
+    /// Without it, explicit feature suffixes such as `feat.` or `featuring` are stripped from the track artist.
     public init(track: Track) {
         self.init(
             artist: Self.groupingArtist(for: track),
@@ -17,18 +24,22 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         )
     }
 
+    /// Normalized stable key used for dictionary grouping and cache lookup.
     public var key: String {
         Self.key(artist: artist, album: album)
     }
 
+    /// Whether both artist and album are non-empty after trimming.
     public var isComplete: Bool {
         !artist.isEmpty && !album.isEmpty
     }
 
+    /// Returns the canonical grouping key for a track.
     public static func key(for track: Track) -> String {
         Self(track: track).key
     }
 
+    /// Returns the normalized lookup key for an artist and album pair.
     public static func key(artist: String, album: String) -> String {
         [
             normalizeForMatching(artist),
@@ -36,6 +47,10 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         ].joined(separator: "\u{1F}")
     }
 
+    /// Returns canonical and legacy lookup identities for a track.
+    ///
+    /// The first candidate is the canonical album identity. Later candidates preserve legacy caches and pending
+    /// rows that may have been written under effective artist, raw artist, or explicit-feature-stripped artist.
     public static func lookupCandidates(for track: Track) -> [Self] {
         lookupCandidates(
             artists: [
@@ -48,6 +63,7 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         )
     }
 
+    /// Returns canonical and legacy lookup identities for a raw artist and album pair.
     public static func lookupCandidates(artist: String, album: String) -> [Self] {
         lookupCandidates(
             artists: [
@@ -58,14 +74,17 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         )
     }
 
+    /// Returns normalized lookup keys for all track-side identity aliases.
     public static func lookupKeys(for track: Track) -> [String] {
         lookupCandidates(for: track).map(\.key)
     }
 
+    /// Returns normalized lookup keys for all raw artist identity aliases.
     public static func lookupKeys(artist: String, album: String) -> [String] {
         lookupCandidates(artist: artist, album: album).map(\.key)
     }
 
+    /// Returns the preferred album-level artist for grouping and cache writes.
     public static func groupingArtist(for track: Track) -> String {
         let albumArtist = track.albumArtist?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let albumArtist, !albumArtist.isEmpty {
@@ -75,6 +94,7 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         return explicitPrimaryArtist(track.artist)
     }
 
+    /// Returns the track artist with explicit feature suffixes removed.
     public static func primaryArtist(for track: Track) -> String {
         explicitPrimaryArtist(track.artist)
     }
@@ -115,6 +135,7 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
 }
 
 extension Track {
+    /// Album identity derived from the track's writable Music.app metadata.
     public var albumIdentity: AlbumIdentity {
         AlbumIdentity(track: self)
     }

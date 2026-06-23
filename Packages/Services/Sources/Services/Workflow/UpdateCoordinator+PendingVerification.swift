@@ -10,7 +10,9 @@ extension UpdateCoordinator {
             return PendingAlbumVerificationResult(entries: [], resolvedYear: nil)
         }
 
-        let identity = Self.pendingVerificationIdentity(for: entry, albumTracks: albumTracks)
+        guard let identity = Self.pendingVerificationIdentity(for: entry, albumTracks: albumTracks) else {
+            return PendingAlbumVerificationResult(entries: [], resolvedYear: nil)
+        }
         let yearResult = await apiOrchestrator.getAlbumYear(
             artist: identity.artist,
             album: identity.album,
@@ -42,12 +44,11 @@ extension UpdateCoordinator {
     private static func pendingVerificationIdentity(
         for entry: PendingAlbumEntry,
         albumTracks: [Track]
-    ) -> AlbumIdentity {
+    ) -> AlbumIdentity? {
         let pendingKeys = Set(AlbumIdentity.lookupKeys(artist: entry.artist, album: entry.album))
-        let matchingTrack = albumTracks.first { track in
+        return albumTracks.first { track in
             let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
             return !pendingKeys.isDisjoint(with: trackKeys)
-        }
-        return (matchingTrack ?? albumTracks[0]).albumIdentity
+        }?.albumIdentity
     }
 }

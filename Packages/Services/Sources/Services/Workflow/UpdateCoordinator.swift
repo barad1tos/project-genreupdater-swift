@@ -354,6 +354,11 @@ public actor UpdateCoordinator {
         albumTracks.contains { $0.id == track.id } ? albumTracks : albumTracks + [track]
     }
 
+    /// Returns album-level context for each track after writable metadata enrichment.
+    ///
+    /// MusicKit tracks can miss AppleScript-only fields such as `albumArtist`, persistent IDs, and write
+    /// eligibility. This helper refreshes that metadata first, filters non-processable tracks, and then groups
+    /// by `AlbumIdentity` so preview and live workflow paths use the same album context.
     public func albumContextTracksByTrackID(for tracks: [Track]) async -> [String: [Track]] {
         let contextTracks = await availableTracksWithMutationMetadata(tracks)
         return Self.albumTracksByTrackID(for: contextTracks)

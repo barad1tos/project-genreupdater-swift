@@ -18,6 +18,7 @@ func makeWorkflowFixture(
         [Track],
         IncrementalTrackScopeOptions
     ) async -> [Track] = { tracks, _ in tracks },
+    pendingVerificationService: (any PendingVerificationService)? = nil,
     invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {
@@ -41,7 +42,8 @@ func makeWorkflowFixture(
             scriptBridge: scriptClient,
             trackStore: trackStore,
             cache: cache,
-            undoCoordinator: undoCoordinator
+            undoCoordinator: undoCoordinator,
+            pendingVerificationService: pendingVerificationService
         ),
         genreDeterminator: GenreDeterminator()
     )
@@ -56,6 +58,7 @@ func makeWorkflowFixture(
             updateCoordinator: updateCoordinator,
             batchProcessor: batchProcessor,
             changePreviewPipeline: ChangePreviewPipeline(),
+            pendingVerificationService: pendingVerificationService,
             featureGate: featureGate,
             resolveIncrementalTracks: resolveIncrementalTracks,
             invalidateAlbumYearCache: invalidateAlbumYearCache,
@@ -256,6 +259,78 @@ private actor DashboardStateTrackStore: TrackStateStore {
 
     func trackCount() async throws -> Int {
         0
+    }
+}
+
+actor WorkflowPendingVerificationService: PendingVerificationService {
+    private let entries: [PendingAlbumEntry]
+    private var removals: [(artist: String, album: String)] = []
+    private var timestampUpdates = 0
+
+    init(entries: [PendingAlbumEntry]) {
+        self.entries = entries
+    }
+
+    func initialize() async throws {
+        // Test double has no external resources to initialize.
+    }
+
+    func markForVerification(
+        artist _: String,
+        album _: String,
+        reason _: String,
+        metadata _: [String: String]?,
+        recheckDays _: Int?
+    ) async {
+        // These tests seed pending entries directly.
+    }
+
+    func removeFromPending(artist: String, album: String) async {
+        removals.append((artist: artist, album: album))
+    }
+
+    func getEntry(artist: String, album: String) async -> PendingAlbumEntry? {
+        entries.first { $0.artist == artist && $0.album == album }
+    }
+
+    func getAttemptCount(artist: String, album: String) async -> Int {
+        await getEntry(artist: artist, album: album)?.attemptCount ?? 0
+    }
+
+    func isVerificationNeeded(artist: String, album: String) async -> Bool {
+        await getEntry(artist: artist, album: album) != nil
+    }
+
+    func getAllPendingAlbums() async -> [PendingAlbumEntry] {
+        entries
+    }
+
+    func getPendingVerificationSnapshot() async -> (all: [PendingAlbumEntry], due: [PendingAlbumEntry]) {
+        (entries, entries)
+    }
+
+    func getProblematicPendingAlbums(minAttempts _: Int) async -> [ProblematicPendingAlbum] {
+        []
+    }
+
+    func generateProblematicAlbumsReport(minAttempts _: Int, reportURL _: URL?) async throws -> Int {
+        0
+    }
+
+    func shouldAutoVerify() async -> Bool {
+        true
+    }
+
+    func updateVerificationTimestamp() async throws {
+        timestampUpdates += 1
+    }
+
+    func removedAlbums() -> [(artist: String, album: String)] {
+        removals
+    }
+
+    func verificationTimestampUpdateCount() -> Int {
+        timestampUpdates
     }
 }
 

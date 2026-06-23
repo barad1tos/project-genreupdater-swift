@@ -64,6 +64,69 @@ struct UpdateRunReportTests {
         #expect(report.failures.first?.technicalID == "failed-track")
     }
 
+    @Test("groups collaboration report rows by album identity")
+    func groupsCollaborationReportRowsByAlbumIdentity() throws {
+        var firstEntry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "ram-1",
+            artist: "Daft Punk feat. Pharrell Williams",
+            trackName: "Get Lucky",
+            albumName: "Random Access Memories"
+        )
+        firstEntry.oldYear = 2012
+        firstEntry.newYear = 2013
+        var secondEntry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "ram-2",
+            artist: "Daft Punk feat. Julian Casablancas",
+            trackName: "Instant Crush",
+            albumName: "Random Access Memories"
+        )
+        secondEntry.oldYear = 2012
+        secondEntry.newYear = 2013
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [firstEntry, secondEntry],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
+            completedEntries: [],
+            trackStatuses: [
+                "ram-1": .done,
+                "ram-2": .done,
+            ],
+            tracks: [
+                Track(
+                    id: "ram-1",
+                    name: "Get Lucky",
+                    artist: "Daft Punk feat. Pharrell Williams",
+                    album: "Random Access Memories"
+                ),
+                Track(
+                    id: "ram-2",
+                    name: "Instant Crush",
+                    artist: "Daft Punk feat. Julian Casablancas",
+                    album: "Random Access Memories"
+                ),
+            ],
+            testArtists: []
+        )
+
+        let group = try #require(report.albumGroups.first)
+        let result = try #require(report.albumResults.first)
+        #expect(report.albumGroups.count == 1)
+        #expect(group.artist == "Daft Punk")
+        #expect(group.album == "Random Access Memories")
+        #expect(group.changedTrackCount == 2)
+        #expect(report.affectedAlbumCount == 1)
+        #expect(report.affectedArtistCount == 1)
+        #expect(report.changeBreakdown.map(\.albumCount) == [1])
+        #expect(report.albumResults.count == 1)
+        #expect(result.artist == "Daft Punk")
+        #expect(result.tracks.map(\.id).sorted() == ["ram-1", "ram-2"])
+    }
+
     @Test("keeps unknown failures visible with technical fallback")
     func keepsUnknownFailuresVisibleWithTechnicalFallback() {
         let report = UpdateRunReport(

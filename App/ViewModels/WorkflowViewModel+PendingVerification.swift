@@ -8,6 +8,7 @@ private struct PendingEntryOutcome {
     var failedTrackIDs: [String] = []
     var errorDescriptions: [String] = []
     var processedCount = 0
+    var resolvedIdentityKeys: Set<String> = []
 }
 
 extension WorkflowViewModel {
@@ -76,10 +77,16 @@ extension WorkflowViewModel {
 
             let albumGroups = Self.groupTracksByAlbum(tracks)
             var runOutcome = PendingEntryOutcome()
+            var resolvedPendingKeys: Set<String> = []
 
             for (index, entry) in dueEntries.enumerated() {
                 try Task.checkCancellation()
                 updatePendingProgress(entry: entry, index: index, total: dueEntries.count)
+
+                let entryKeys = Self.pendingIdentityKeys(for: entry)
+                guard entryKeys.isDisjoint(with: resolvedPendingKeys) else {
+                    continue
+                }
 
                 let albumTracks = Self.pendingAlbumTracks(for: entry, in: albumGroups)
                 let entryOutcome = await processPendingEntry(
@@ -88,6 +95,7 @@ extension WorkflowViewModel {
                     pendingVerificationService: pendingVerificationService
                 )
                 runOutcome.merge(entryOutcome)
+                resolvedPendingKeys.formUnion(entryOutcome.resolvedIdentityKeys)
                 processedCount += entryOutcome.processedCount
             }
 
@@ -193,7 +201,8 @@ extension WorkflowViewModel {
         pendingVerificationService: any PendingVerificationService
     ) async -> PendingEntryOutcome {
         if verification.didResolveYear {
-            for identity in Self.pendingRemovalIdentities(entry: entry, albumTracks: albumTracks) {
+            let removalIdentities = Self.pendingRemovalIdentities(entry: entry, albumTracks: albumTracks)
+            for identity in removalIdentities {
                 await pendingVerificationService.removeFromPending(
                     artist: identity.artist,
                     album: identity.album
@@ -202,7 +211,8 @@ extension WorkflowViewModel {
             markPendingAlbumTracks(albumTracks, as: .done)
             return PendingEntryOutcome(
                 completed: verification.entries,
-                processedCount: albumTracks.count
+                processedCount: albumTracks.count,
+                resolvedIdentityKeys: Set(removalIdentities.map(\.key))
             )
         } else {
             markPendingAlbumTracks(albumTracks, as: .failed("No year resolved"))
@@ -239,17 +249,14 @@ extension WorkflowViewModel {
     ) -> [Track] {
         let primaryPendingKey = AlbumIdentity.key(artist: entry.artist, album: entry.album)
         let pendingKeys = Set(AlbumIdentity.lookupKeys(artist: entry.artist, album: entry.album))
-        if let exactTracks = albumGroups[primaryPendingKey] {
-            return sortedForBatchProcessing(exactTracks)
-        }
 
         var matchedGroups: [[Track]] = []
-        for tracks in albumGroups.values {
+        for (groupKey, tracks) in albumGroups {
             let groupMatchesEntry = tracks.contains { track in
                 let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
                 return !pendingKeys.isDisjoint(with: trackKeys)
             }
-            guard groupMatchesEntry else {
+            guard groupKey == primaryPendingKey || groupMatchesEntry else {
                 continue
             }
             matchedGroups.append(tracks)
@@ -259,6 +266,10 @@ extension WorkflowViewModel {
             return []
         }
         return sortedForBatchProcessing(matchedTracks)
+    }
+
+    private static func pendingIdentityKeys(for entry: PendingAlbumEntry) -> Set<String> {
+        Set(AlbumIdentity.lookupKeys(artist: entry.artist, album: entry.album))
     }
 
     static func pendingRemovalIdentities(entry: PendingAlbumEntry, albumTracks: [Track]) -> [AlbumIdentity] {

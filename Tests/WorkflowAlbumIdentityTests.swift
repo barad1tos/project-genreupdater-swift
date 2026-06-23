@@ -290,6 +290,38 @@ struct WorkflowAlbumIdentityTests {
         #expect(albumTracks.isEmpty)
     }
 
+    @Test("does not prefer exact pending key when aliases match another album identity")
+    func doesNotPreferExactPendingKeyWhenAliasesMatchAnotherAlbumIdentity() {
+        let tracks = [
+            Track(
+                id: "exact",
+                name: "Shared Song",
+                artist: "Guest Singer",
+                album: "Greatest Hits"
+            ),
+            Track(
+                id: "compilation",
+                name: "Compilation Song",
+                artist: "Guest Singer",
+                album: "Greatest Hits",
+                albumArtist: "Compilation Artist"
+            ),
+        ]
+        let entry = PendingAlbumEntry(
+            id: "guest-singer-greatest-hits",
+            artist: "Guest Singer",
+            album: "Greatest Hits",
+            reason: "suspicious_year_change"
+        )
+        let groups = WorkflowViewModel.groupTracksByAlbum(tracks)
+
+        let matchingTracks = WorkflowViewModel.tracksMatchingPendingEntries(tracks, entries: [entry])
+        let albumTracks = WorkflowViewModel.pendingAlbumTracks(for: entry, in: groups)
+
+        #expect(matchingTracks.isEmpty)
+        #expect(albumTracks.isEmpty)
+    }
+
     @Test("pending cleanup includes entry and track album identity aliases")
     func pendingCleanupIncludesEntryAndTrackAlbumIdentityAliases() {
         let track = Track(
@@ -311,5 +343,57 @@ struct WorkflowAlbumIdentityTests {
 
         #expect(identityPairs.contains("Pharrell Williams|Random Access Memories"))
         #expect(identityPairs.contains("Daft Punk|Random Access Memories"))
+    }
+
+    @Test("pending verification processes duplicate identity aliases once")
+    func pendingVerificationProcessesDuplicateIdentityAliasesOnce() async throws {
+        let canonicalEntry = PendingAlbumEntry(
+            id: "daft-punk-random-access-memories",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            reason: "no_year_found"
+        )
+        let legacyEntry = PendingAlbumEntry(
+            id: "daft-punk-feat-pharrell-williams-random-access-memories",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            reason: "suspicious_year_change"
+        )
+        let pendingVerification = WorkflowPendingVerificationService(entries: [canonicalEntry, legacyEntry])
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2013, confidence: 100),
+            pendingVerificationService: pendingVerification
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.startPendingVerification(tracks: [
+            Track(
+                id: "ram-1",
+                name: "Get Lucky",
+                artist: "Daft Punk feat. Pharrell Williams",
+                album: "Random Access Memories"
+            ),
+            Track(
+                id: "ram-2",
+                name: "Instant Crush",
+                artist: "Daft Punk feat. Julian Casablancas",
+                album: "Random Access Memories"
+            ),
+        ])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.map(\.trackID).sorted() == ["ram-1", "ram-2"])
+        #expect(writes.count == 2)
+        #expect(viewModel.completedEntries.map(\.trackID).sorted() == ["ram-1", "ram-2"])
+        #expect(viewModel.processedCount == 2)
+        #expect(await pendingVerification.verificationTimestampUpdateCount() == 1)
+        #expect(removals.contains { $0.artist == "Daft Punk" && $0.album == "Random Access Memories" })
+        #expect(removals.contains {
+            $0.artist == "Daft Punk feat. Pharrell Williams" && $0.album == "Random Access Memories"
+        })
     }
 }
