@@ -81,6 +81,49 @@ struct LibrarySyncIdentityTests {
         })
     }
 
+    @Test("Keeps unrelated pending row after prerelease transition")
+    func keepsUnrelatedPendingRowAfterPrereleaseTransition() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let pendingVerification = PendingVerificationProbe(
+            entry: PendingAlbumEntry(
+                id: "pending",
+                artist: "Daft Punk",
+                album: "Random Access Memories",
+                reason: "no_year_found"
+            ),
+            isVerificationNeeded: false
+        )
+        let storedTrack = Track(
+            id: "PRE",
+            name: "Get Lucky",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            trackStatus: TrackKind.prerelease.rawValue
+        )
+        let currentTrack = Track(
+            id: "PRE",
+            name: "Get Lucky",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            trackStatus: TrackKind.subscription.rawValue
+        )
+        await bridge.setLibrary(ids: ["PRE"], tracks: ["PRE": currentTrack])
+        await store.setStored([storedTrack])
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            pendingVerificationService: pendingVerification
+        )
+
+        _ = try await service.synchronizeNow(forceMetadataRefresh: true)
+
+        let removedAlbums = await pendingVerification.removedAlbums
+        #expect(removedAlbums.isEmpty)
+    }
+
     @Test("Keeps prerelease pending while a sibling album identity alias remains prerelease")
     func keepsPrereleasePendingWhileSiblingAlbumIdentityAliasRemainsPrerelease() async throws {
         let bridge = SyncMockScriptClient()

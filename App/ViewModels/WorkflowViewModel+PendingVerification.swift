@@ -411,9 +411,15 @@ extension WorkflowViewModel {
         missingTracks: [Track]
     ) -> [Track] {
         let entryKeys = pendingIdentityKeys(for: entry)
-        let matchedTrackKeys = albumIdentityKeys(for: albumTracks)
-        let matchedAlbumKeys = albumKeys(for: albumTracks)
-        let hasCanonicalGuestContext = hasCanonicalGuestContext(
+        var matchedTrackKeys: Set<String> = []
+        var matchedAlbumKeys: Set<String> = []
+
+        for albumTrack in albumTracks {
+            matchedTrackKeys.formUnion(AlbumIdentity.lookupKeys(for: albumTrack))
+            matchedAlbumKeys.insert(normalizeForMatching(albumTrack.album))
+        }
+
+        let usesCanonicalGuestContext = hasCanonicalGuestContext(
             entryKeys: entryKeys,
             albumTracks: albumTracks
         )
@@ -423,7 +429,7 @@ extension WorkflowViewModel {
             let missingTrackKeys = Set(AlbumIdentity.lookupKeys(for: track))
             let matchesEntry = !entryKeys.isDisjoint(with: missingTrackKeys)
             let matchesMatchedTrack = !matchedTrackKeys.isDisjoint(with: missingTrackKeys)
-            let matchesCanonicalGuestAlbum = hasCanonicalGuestContext
+            let matchesCanonicalGuestAlbum = usesCanonicalGuestContext
                 && matchedAlbumKeys.contains(normalizeForMatching(track.album))
 
             if matchesEntry || matchesMatchedTrack || matchesCanonicalGuestAlbum {
@@ -431,22 +437,6 @@ extension WorkflowViewModel {
             }
         }
         return relevantTracks
-    }
-
-    private static func albumIdentityKeys(for albumTracks: [Track]) -> Set<String> {
-        var keys: Set<String> = []
-        for track in albumTracks {
-            keys.formUnion(AlbumIdentity.lookupKeys(for: track))
-        }
-        return keys
-    }
-
-    private static func albumKeys(for albumTracks: [Track]) -> Set<String> {
-        var keys: Set<String> = []
-        for track in albumTracks {
-            keys.insert(normalizeForMatching(track.album))
-        }
-        return keys
     }
 
     private static func hasCanonicalGuestContext(

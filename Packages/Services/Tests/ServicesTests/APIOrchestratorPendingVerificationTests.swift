@@ -161,6 +161,49 @@ struct APIOrchestratorPendingVerificationTests {
         #expect(removal?.album == "Powerslave")
     }
 
+    @Test("Definitive API result removes legacy pending aliases")
+    func definitiveYearRemovesLegacyPendingAliases() async {
+        let pendingVerification = RecordingPendingVerificationService()
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(
+                yearResult: YearResult(
+                    year: 2013,
+                    confidence: 90,
+                    yearScores: [2013: 90]
+                )
+            ),
+            discogs: MockAPIService(
+                yearResult: YearResult(
+                    year: 2013,
+                    confidence: 85,
+                    yearScores: [2013: 85]
+                )
+            ),
+            appleMusic: MockAPIService(shouldThrow: true)
+        ) {
+            $0.pendingVerificationService = pendingVerification
+        }
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        let removedAlbums = await pendingVerification.allRemovals()
+        #expect(result.year == 2013)
+        #expect(result.isDefinitive)
+        #expect(removedAlbums.contains(.init(
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories"
+        )))
+        #expect(removedAlbums.contains(.init(
+            artist: "Daft Punk",
+            album: "Random Access Memories"
+        )))
+    }
+
     @Test("Removes album from pending when verification attempts are exhausted")
     func exhaustedVerificationAttemptsRemovePendingVerification() async {
         let pendingVerification = RecordingPendingVerificationService(attemptCount: 3)
@@ -278,5 +321,9 @@ actor RecordingPendingVerificationService: PendingVerificationService {
 
     func firstRemoval() -> PendingRemoval? {
         removals.first
+    }
+
+    func allRemovals() -> [PendingRemoval] {
+        removals
     }
 }

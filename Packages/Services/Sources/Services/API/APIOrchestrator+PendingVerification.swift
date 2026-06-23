@@ -24,13 +24,13 @@ enum PendingVerificationSync {
         }
 
         if result.isDefinitive || resolvedYear == currentLibraryYear {
-            await service.removeFromPending(artist: albumKey.artist, album: albumKey.album)
+            await removeFromPendingAliases(service: service, albumKey: albumKey)
             return
         }
 
         let attemptCount = await service.getAttemptCount(artist: albumKey.artist, album: albumKey.album)
         if attemptCount >= maxVerificationAttempts {
-            await service.removeFromPending(artist: albumKey.artist, album: albumKey.album)
+            await removeFromPendingAliases(service: service, albumKey: albumKey)
             return
         }
 
@@ -45,5 +45,14 @@ enum PendingVerificationSync {
             ],
             recheckDays: nil
         )
+    }
+
+    private static func removeFromPendingAliases(
+        service: any PendingVerificationService,
+        albumKey: (artist: String, album: String)
+    ) async {
+        for identity in AlbumIdentity.lookupCandidates(artist: albumKey.artist, album: albumKey.album) {
+            await service.removeFromPending(artist: identity.artist, album: identity.album)
+        }
     }
 }
