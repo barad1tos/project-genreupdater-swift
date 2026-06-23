@@ -50,6 +50,37 @@ struct MBReleaseGroup: Codable {
     }
 }
 
+// MARK: - Release Search
+
+/// Top-level response from MusicBrainz release search endpoint.
+///
+/// Maps to: `GET /ws/2/release?release-group=...&fmt=json`.
+struct MBReleaseSearchResponse: Codable {
+    let releases: [MBRelease]
+}
+
+/// A concrete MusicBrainz release inside a release group.
+///
+/// Release-level fields preserve status and country data that release groups do
+/// not expose, while the release group remains the source of original year.
+struct MBRelease: Codable {
+    let title: String?
+    let date: String?
+    let country: String?
+    let status: String?
+
+    /// Extracts a four-digit year from `date`.
+    ///
+    /// Handles both "YYYY" and "YYYY-MM-DD" formats.
+    var releaseYear: Int? {
+        guard let dateString = date,
+              dateString.count >= 4 else {
+            return nil
+        }
+        return Int(dateString.prefix(4))
+    }
+}
+
 /// A community-submitted tag on a MusicBrainz entity.
 struct MBTag: Codable {
     let name: String

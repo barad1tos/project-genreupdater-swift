@@ -4,6 +4,7 @@ import Testing
 @testable import Services
 
 private let musicBrainzArtistPathComponents = ["ws", "2", "artist"]
+private let musicBrainzReleasePathComponents = ["ws", "2", "release"]
 private let musicBrainzReleaseGroupPathComponents = ["ws", "2", "release-group"]
 
 @Suite("API release candidate adapters", .serialized)
@@ -42,6 +43,72 @@ struct APIReleaseCandidateAdapterTests {
         #expect(candidates.allSatisfy { $0.source == .musicBrainz })
         #expect(firstCandidate.mbReleaseGroupID == "rg-1")
         #expect(firstCandidate.mbReleaseGroupFirstYear == 1998)
+    }
+
+    @Test("MusicBrainz release candidates preserve release details")
+    func musicBrainzReleaseCandidatesPreserveReleaseDetails() async throws {
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url,
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                throw URLError(.badURL)
+            }
+
+            let requestPathComponents = Array(url.pathComponents.dropFirst())
+            if requestPathComponents == musicBrainzReleaseGroupPathComponents {
+                let json = """
+                {
+                  "release-groups": [
+                    {
+                      "id": "rg-1",
+                      "title": "Test Album",
+                      "first-release-date": "1998-01-01",
+                      "primary-type": "Album"
+                    }
+                  ]
+                }
+                """
+                return try (jsonResponse(url: url), Data(json.utf8))
+            }
+
+            let queryItems = components.queryItems ?? []
+            if requestPathComponents == musicBrainzReleasePathComponents,
+               queryItems.contains(where: { $0.name == "release-group" && $0.value == "rg-1" }) {
+                let json = """
+                {
+                  "releases": [
+                    {
+                      "id": "rel-1",
+                      "title": "Test Album",
+                      "date": "1999-05-01",
+                      "country": "GB",
+                      "status": "Promotion",
+                      "media": [{ "format": "CD" }],
+                      "artist-credit": [{ "name": "Test Artist" }]
+                    }
+                  ]
+                }
+                """
+                return try (jsonResponse(url: url), Data(json.utf8))
+            }
+
+            throw URLError(.badURL)
+        }
+        defer { APIReleaseCandidateMockURLProtocol.requestHandler = nil }
+
+        let client = makeMockMusicBrainzClient()
+        let candidates = try await client.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Test Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        let candidate = try #require(candidates.first)
+        #expect(candidate.year == 1998)
+        #expect(candidate.country == "gb")
+        #expect(candidate.status == .promotional)
+        #expect(candidate.mbReleaseGroupID == "rg-1")
+        #expect(candidate.mbReleaseGroupFirstYear == 1998)
     }
 
     @Test("MusicBrainz retries non-Latin release group search with canonical artist")

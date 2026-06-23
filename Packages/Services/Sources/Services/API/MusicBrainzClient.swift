@@ -88,20 +88,18 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         earliestTrackAddedYear _: Int?
     ) async throws -> [ReleaseCandidate] {
         let releaseGroups = try await searchReleaseGroups(artist: artist, album: album, limit: 10)
-        return releaseGroups.compactMap { group in
-            guard let year = group.releaseYear else { return nil }
-            return ReleaseCandidate(
-                artist: artist,
-                album: group.title,
-                year: year,
-                source: .musicBrainz,
-                releaseType: Self.releaseType(from: group.primaryType),
-                status: .official,
-                isReissue: false,
-                mbReleaseGroupID: group.id,
-                mbReleaseGroupFirstYear: year
-            )
+        var candidates: [ReleaseCandidate] = []
+
+        for group in releaseGroups.prefix(3) {
+            let releases = try await fetchReleases(for: group.id)
+            candidates.append(contentsOf: Self.releaseCandidates(
+                from: group,
+                releases: releases,
+                queryArtist: artist
+            ))
         }
+
+        return candidates
     }
 
     public func getArtistActivityPeriod(
@@ -148,6 +146,20 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
                 name: "query",
                 value: "artist:\"\(artist)\" AND release:\"\(album)\""
             ),
+            URLQueryItem(name: "fmt", value: "json"),
+            URLQueryItem(name: "limit", value: String(limit)),
+        ]
+        return components?.url
+    }
+
+    static func buildReleaseSearchURL(
+        releaseGroupID: String,
+        limit: Int = 100
+    ) -> URL? {
+        var components = URLComponents(string: "\(baseURL)/release")
+        components?.queryItems = [
+            URLQueryItem(name: "release-group", value: releaseGroupID),
+            URLQueryItem(name: "inc", value: "media+artist-credits"),
             URLQueryItem(name: "fmt", value: "json"),
             URLQueryItem(name: "limit", value: String(limit)),
         ]
@@ -234,6 +246,26 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         ).releaseGroups
     }
 
+    private func fetchReleases(for releaseGroupID: String) async throws -> [MBRelease] {
+        guard let url = Self.buildReleaseSearchURL(releaseGroupID: releaseGroupID) else {
+            log.warning("Failed to build release search URL for release group \(releaseGroupID, privacy: .public)")
+            return []
+        }
+
+        do {
+            let data = try await fetchWithRateLimit(url: url)
+            return try JSONDecoder().decode(
+                MBReleaseSearchResponse.self,
+                from: data
+            ).releases
+        } catch {
+            log.debug(
+                "MusicBrainz release detail lookup failed for release group \(releaseGroupID, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            return []
+        }
+    }
+
     private func canonicalArtistName(for artist: String) async throws -> String? {
         try await fetchFirstArtist(named: artist)?.name
     }
@@ -268,6 +300,90 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         case "live": .live
         default: .album
         }
+    }
+
+    private static func releaseCandidates(
+        from group: MBReleaseGroup,
+        releases: [MBRelease],
+        queryArtist: String
+    ) -> [ReleaseCandidate] {
+        let detailedCandidates = releases.compactMap { release -> ReleaseCandidate? in
+            guard let year = group.releaseYear ?? release.releaseYear else { return nil }
+            return ReleaseCandidate(
+                artist: queryArtist,
+                album: albumTitle(releaseTitle: release.title, groupTitle: group.title),
+                year: year,
+                source: .musicBrainz,
+                releaseType: releaseType(from: group.primaryType),
+                status: releaseStatus(from: release.status),
+                country: normalizedCountry(release.country),
+                isReissue: false,
+                mbReleaseGroupID: group.id,
+                mbReleaseGroupFirstYear: group.releaseYear
+            )
+        }
+
+        guard !detailedCandidates.isEmpty else {
+            return groupOnlyCandidate(from: group, queryArtist: queryArtist).map { [$0] } ?? []
+        }
+        return detailedCandidates
+    }
+
+    private static func groupOnlyCandidate(
+        from group: MBReleaseGroup,
+        queryArtist: String
+    ) -> ReleaseCandidate? {
+        guard let year = group.releaseYear else { return nil }
+        return ReleaseCandidate(
+            artist: queryArtist,
+            album: group.title,
+            year: year,
+            source: .musicBrainz,
+            releaseType: releaseType(from: group.primaryType),
+            status: .official,
+            isReissue: false,
+            mbReleaseGroupID: group.id,
+            mbReleaseGroupFirstYear: year
+        )
+    }
+
+    private static func albumTitle(releaseTitle: String?, groupTitle: String) -> String {
+        guard let title = releaseTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
+            return groupTitle
+        }
+        return title
+    }
+
+    private static func normalizedCountry(_ country: String?) -> String? {
+        guard let country = country?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !country.isEmpty else {
+            return nil
+        }
+        return country.lowercased()
+    }
+
+    private static func releaseStatus(from status: String?) -> ReleaseStatus {
+        guard let normalizedStatus = status?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            !normalizedStatus.isEmpty else {
+            return .official
+        }
+
+        if normalizedStatus == "official" {
+            return .official
+        }
+        if normalizedStatus == "bootleg" {
+            return .bootleg
+        }
+        if normalizedStatus == "pseudo-release" {
+            return .pseudoRelease
+        }
+        if normalizedStatus.contains("promotion") || normalizedStatus.contains("promo") {
+            return .promotional
+        }
+        return .other
     }
 
     /// Acquires a rate limit token, then performs the HTTP request.
