@@ -202,13 +202,18 @@ struct APIReleaseCandidateAdapterTests {
 
         let client = makeMockMusicBrainzClient()
 
-        await #expect(throws: MusicBrainzError.self) {
-            try await client.getReleaseCandidates(
+        do {
+            _ = try await client.getReleaseCandidates(
                 artist: "Test Artist",
                 album: "Test Album",
                 currentLibraryYear: nil,
                 earliestTrackAddedYear: nil
             )
+            Issue.record("Expected MusicBrainz serviceUnavailable")
+        } catch MusicBrainzError.serviceUnavailable {
+            return
+        } catch {
+            Issue.record("Expected MusicBrainz serviceUnavailable, got \(error)")
         }
     }
 
@@ -506,13 +511,18 @@ struct APIReleaseCandidateAdapterTests {
 
         let client = DiscogsClient(token: "test-token", session: makeMockSession(json: "{}"))
 
-        await #expect(throws: DiscogsError.self) {
-            try await client.getReleaseCandidates(
+        do {
+            _ = try await client.getReleaseCandidates(
                 artist: "Test Artist",
                 album: "Test Album",
                 currentLibraryYear: nil,
                 earliestTrackAddedYear: nil
             )
+            Issue.record("Expected Discogs rateLimited")
+        } catch DiscogsError.rateLimited {
+            return
+        } catch {
+            Issue.record("Expected Discogs rateLimited, got \(error)")
         }
     }
 }

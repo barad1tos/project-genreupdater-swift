@@ -129,10 +129,11 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             }
         }
 
-        // Fallback to search result year
-        guard let first = response.results.first,
-              let year = first.releaseYear,
-              year > 0 else {
+        // Fallback to the first valid search result year.
+        guard let year = response.results
+            .lazy
+            .compactMap(\.releaseYear)
+            .first(where: { $0 > 0 }) else {
             log.debug("No Discogs results for \(artist, privacy: .private) - \(album, privacy: .private)")
             return YearResult()
         }

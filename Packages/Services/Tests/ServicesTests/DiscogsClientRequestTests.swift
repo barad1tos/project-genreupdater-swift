@@ -45,7 +45,7 @@ struct DiscogsClientRequestTests {
             let url = try #require(request.url)
             let json = switch url.path {
             case discogsSearchPath:
-                discogsSearchResponseJSON
+                discogsSearchWithInvalidFirstYearResponseJSON
             case discogsCanonicalPath:
                 discogsInvalidReleaseResponseJSON
             default:
@@ -241,6 +241,27 @@ private let discogsInvalidSearchResponseJSON = """
       "master_id": 12345,
       "title": "Iron Maiden - Powerslave",
       "year": "0"
+    }
+  ]
+}
+"""
+
+private let discogsSearchWithInvalidFirstYearResponseJSON = """
+{
+  "pagination": { "page": 1, "pages": 1, "per_page": 5, "items": 2 },
+  "results": [
+    {
+      "id": 42,
+      "type": "master",
+      "master_id": 12345,
+      "title": "Iron Maiden - Powerslave",
+      "year": "0"
+    },
+    {
+      "id": 43,
+      "type": "release",
+      "title": "Iron Maiden - Powerslave",
+      "year": "1984"
     }
   ]
 }
