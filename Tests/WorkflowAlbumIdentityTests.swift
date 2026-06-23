@@ -498,6 +498,41 @@ struct WorkflowAlbumIdentityTests {
         #expect(removals
             .contains { $0.artist == "Julian Casablancas" && $0.album == "Random Access Memories" } == false)
     }
+
+    @Test("pending verification keeps album pending when AppleScript context is incomplete")
+    func pendingVerificationKeepsAlbumPendingWhenAppleScriptContextIsIncomplete() async throws {
+        let pendingEntry = PendingAlbumEntry(
+            id: "daft-punk-random-access-memories",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            reason: "no_year_found"
+        )
+        let pendingVerification = WorkflowPendingVerificationService(entries: [pendingEntry])
+        let enrichedTracks = Array(randomAccessMemoriesTracksWithAlbumArtist().prefix(1))
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2013, confidence: 100),
+            pendingVerificationService: pendingVerification,
+            idMapper: WorkflowTrackIDMapper(
+                enrichedTracks: enrichedTracks,
+                appleScriptIDsByMusicKitID: [
+                    "ram-1": "as-ram-1",
+                ]
+            )
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.startPendingVerification(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.isEmpty)
+        #expect(removals.isEmpty)
+        #expect(viewModel.completedEntries.isEmpty)
+        #expect(viewModel.result?.failedTrackIDs == ["ram-2"])
+    }
 }
 
 private func randomAccessMemoriesMusicKitTracks() -> [Track] {

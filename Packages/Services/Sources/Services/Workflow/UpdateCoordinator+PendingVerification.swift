@@ -25,6 +25,8 @@ extension UpdateCoordinator {
         }
 
         var entries: [ChangeLogEntry] = []
+        var failedTrackIDs: [String] = []
+        var errorDescriptions: [String] = []
         for track in albumTracks where track.year != year {
             let change = ProposedChange(
                 track: track,
@@ -34,11 +36,57 @@ extension UpdateCoordinator {
                 confidence: yearResult.confidence,
                 source: yearResult.isDefinitive ? "Definitive" : "API"
             )
-            try await applyChange(change)
-            entries.append(Self.changeToLogEntry(change))
+            if let entry = try await applyPendingVerificationChange(
+                change,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            ) {
+                entries.append(entry)
+            }
         }
 
-        return PendingAlbumVerificationResult(entries: entries, resolvedYear: year)
+        return PendingAlbumVerificationResult(
+            entries: entries,
+            resolvedYear: year,
+            failedTrackIDs: failedTrackIDs,
+            errorDescriptions: errorDescriptions
+        )
+    }
+
+    private func applyPendingVerificationChange(
+        _ change: ProposedChange,
+        failedTrackIDs: inout [String],
+        errorDescriptions: inout [String]
+    ) async throws -> ChangeLogEntry? {
+        do {
+            return try await applyChange(change)
+        } catch let error as CancellationError {
+            throw error
+        } catch let error as UpdateCoordinatorError {
+            if !recordKnownWorkflowFailure(
+                error,
+                fallbackTrackID: change.track.id,
+                isReviewedChange: false,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            ) {
+                recordUnexpectedWorkflowFailure(
+                    trackID: change.track.id,
+                    error: error,
+                    failedTrackIDs: &failedTrackIDs,
+                    errorDescriptions: &errorDescriptions
+                )
+            }
+            return nil
+        } catch {
+            recordUnexpectedWorkflowFailure(
+                trackID: change.track.id,
+                error: error,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            )
+            return nil
+        }
     }
 
     private static func pendingVerificationIdentity(

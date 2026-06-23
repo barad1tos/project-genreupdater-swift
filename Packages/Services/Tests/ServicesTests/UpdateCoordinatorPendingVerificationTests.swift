@@ -135,6 +135,72 @@ struct PendingVerificationCoordinatorTests {
         #expect(written.allSatisfy { $0.property == "year" && $0.value == "1997" })
     }
 
+    @Test("No-op pending write does not create a change entry")
+    func noOpPendingWriteDoesNotCreateChangeEntry() async throws {
+        let fixture = await makePendingCoordinator(year: 1997, confidence: 100)
+        await fixture.bridge.setSingleWriteResult(.noChange)
+        let entry = PendingAlbumEntry(
+            id: "deftones-around-the-fur",
+            artist: "Deftones",
+            album: "Around the Fur",
+            reason: "no_year_found"
+        )
+        let albumTracks = [
+            makePendingTrack(
+                id: "T1",
+                name: "My Own Summer",
+                artist: "Deftones",
+                album: "Around the Fur",
+                year: nil
+            ),
+        ]
+
+        let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.resolvedYear == 1997)
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(written.count == 1)
+    }
+
+    @Test("Partial pending write reports success and failure without aborting")
+    func partialPendingWriteReportsSuccessAndFailure() async throws {
+        let fixture = await makePendingCoordinator(year: 1997, confidence: 100)
+        await fixture.bridge.setFailingWriteTrackIDs(["T2"])
+        let entry = PendingAlbumEntry(
+            id: "deftones-around-the-fur",
+            artist: "Deftones",
+            album: "Around the Fur",
+            reason: "no_year_found"
+        )
+        let albumTracks = [
+            makePendingTrack(
+                id: "T1",
+                name: "My Own Summer",
+                artist: "Deftones",
+                album: "Around the Fur",
+                year: nil
+            ),
+            makePendingTrack(
+                id: "T2",
+                name: "Be Quiet and Drive",
+                artist: "Deftones",
+                album: "Around the Fur",
+                year: nil
+            ),
+        ]
+
+        let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.resolvedYear == 1997)
+        #expect(result.entries.map(\.trackID) == ["T1"])
+        #expect(result.failedTrackIDs == ["T2"])
+        #expect(result.errorDescriptions.isEmpty == false)
+        #expect(written.map(\.trackID) == ["T1"])
+    }
+
     @Test("Verifies legacy pending entry through resolved album identity artist")
     func verifiesLegacyPendingEntryThroughResolvedAlbumIdentityArtist() async throws {
         let apiProbe = APIRequestProbe()
