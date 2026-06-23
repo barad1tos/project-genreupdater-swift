@@ -408,23 +408,14 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
                 from: data
             )
         } catch let error as DiscogsError {
-            switch error {
-            case .httpError:
-                log.debug("Discogs fallback search unavailable: \(error.localizedDescription, privacy: .public)")
-                return nil
-            case .noToken, .invalidResponse, .unauthorized, .rateLimited:
-                throw error
-            }
+            throw error
         } catch let error as DecodingError {
             log.debug("Discogs fallback search decoding failed: \(error.localizedDescription, privacy: .public)")
             return nil
         } catch let error as CancellationError {
             throw error
-        } catch let error as URLError where error.code == .cancelled {
-            throw error
         } catch let error as URLError {
-            log.debug("Discogs fallback search transport failed: \(error.localizedDescription, privacy: .public)")
-            return nil
+            throw error
         }
     }
 

@@ -317,7 +317,7 @@ struct DiscogsClientRequestTests {
         #expect(lookup.requests.map { $0.url?.path } == [discogsSearchPath, discogsReleaseDetailPath])
     }
 
-    private func getAlbumYear(
+    func getAlbumYear(
         response: @escaping (URL) throws -> (HTTPURLResponse, Data)
     ) async throws -> (result: YearResult, requests: [URLRequest]) {
         let recorder = DiscogsRequestRecorder()
@@ -357,7 +357,7 @@ struct DiscogsClientRequestTests {
         }
     }
 
-    private func getReleaseCandidates(
+    func getReleaseCandidates(
         response: @escaping (URL) throws -> (HTTPURLResponse, Data)
     ) async throws -> (candidates: [ReleaseCandidate], requests: [URLRequest]) {
         let recorder = DiscogsRequestRecorder()
@@ -547,7 +547,7 @@ final class DiscogsRequestMockURLProtocol: URLProtocol {
 }
 
 extension DiscogsError {
-    fileprivate func matches(_ other: DiscogsError) -> Bool {
+    func matches(_ other: DiscogsError) -> Bool {
         switch (self, other) {
         case (.noToken, .noToken),
              (.invalidResponse, .invalidResponse),
