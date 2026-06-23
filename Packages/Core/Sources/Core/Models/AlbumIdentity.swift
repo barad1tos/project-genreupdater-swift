@@ -72,7 +72,7 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
             return albumArtist
         }
 
-        return extractMainArtist(track.artist)
+        return explicitPrimaryArtist(track.artist)
     }
 
     private static func lookupCandidates(artists: [String], album: String) -> [Self] {
@@ -85,6 +85,29 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
             return identity
         }
     }
+
+    private static func explicitPrimaryArtist(_ artist: String) -> String {
+        let trimmed = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+
+        for separator in explicitFeatureSeparators {
+            if let range = trimmed.range(of: separator, options: .caseInsensitive) {
+                let primaryArtist = trimmed[trimmed.startIndex ..< range.lowerBound]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return primaryArtist.isEmpty ? trimmed : primaryArtist
+            }
+        }
+
+        return trimmed
+    }
+
+    private static let explicitFeatureSeparators = [
+        " feat. ",
+        " feat ",
+        " ft. ",
+        " ft ",
+        " featuring ",
+    ]
 }
 
 extension Track {

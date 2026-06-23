@@ -202,6 +202,37 @@ struct WorkflowAlbumIdentityTests {
         #expect(albumTracks.map(\.id) == ["one"])
     }
 
+    @Test("resolves guest pending entry to full canonical album group")
+    func resolvesGuestPendingEntryToFullCanonicalAlbumGroup() {
+        let tracks = [
+            Track(
+                id: "one",
+                name: "Get Lucky",
+                artist: "Pharrell Williams",
+                album: "Random Access Memories",
+                albumArtist: "Daft Punk"
+            ),
+            Track(
+                id: "two",
+                name: "Instant Crush",
+                artist: "Julian Casablancas",
+                album: "Random Access Memories",
+                albumArtist: "Daft Punk"
+            ),
+        ]
+        let entry = PendingAlbumEntry(
+            id: "pharrell-williams-random-access-memories",
+            artist: "Pharrell Williams",
+            album: "Random Access Memories",
+            reason: "suspicious_year_change"
+        )
+        let groups = WorkflowViewModel.groupTracksByAlbum(tracks)
+
+        let albumTracks = WorkflowViewModel.pendingAlbumTracks(for: entry, in: groups)
+
+        #expect(albumTracks.map(\.id) == ["one", "two"])
+    }
+
     @Test("pending cleanup includes entry and track album identity aliases")
     func pendingCleanupIncludesEntryAndTrackAlbumIdentityAliases() {
         let track = Track(

@@ -315,7 +315,7 @@ extension UpdateCoordinator {
     ) -> Bool {
         isAlbumYearBatchCandidate(change)
             && change.newValue == firstChange.newValue
-            && albumBatchKey(for: change.track) == albumBatchKey(for: firstChange.track)
+            && hasMatchingAlbumBatchIdentity(change.track, firstChange.track)
     }
 
     private static func isAlbumYearBatchCandidate(_ change: ProposedChange) -> Bool {
@@ -327,8 +327,10 @@ extension UpdateCoordinator {
         }
     }
 
-    private static func albumBatchKey(for track: Track) -> String {
-        AlbumIdentity.key(for: track)
+    private static func hasMatchingAlbumBatchIdentity(_ track: Track, _ otherTrack: Track) -> Bool {
+        let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
+        let otherTrackKeys = Set(AlbumIdentity.lookupKeys(for: otherTrack))
+        return !trackKeys.isDisjoint(with: otherTrackKeys)
     }
 
     private static func value(forAppleScriptProperty property: String, in track: Track) -> String? {

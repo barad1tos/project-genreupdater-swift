@@ -570,11 +570,9 @@ public actor UpdateCoordinator {
     }
 
     private static func albumTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
-        let tracksByAlbum = Dictionary(grouping: tracks.filter(isTrackAvailableForProcessing)) { track in
-            albumContextKey(for: track)
-        }
+        let tracksByAlbumAlias = albumTracksByAlias(for: tracks.filter(isTrackAvailableForProcessing))
         return Dictionary(uniqueKeysWithValues: tracks.map { track in
-            (track.id, tracksByAlbum[albumContextKey(for: track)] ?? [])
+            (track.id, albumTracks(for: track, tracksByAlbumAlias: tracksByAlbumAlias))
         })
     }
 
@@ -586,8 +584,28 @@ public actor UpdateCoordinator {
         }
     }
 
-    private static func albumContextKey(for track: Track) -> String {
-        AlbumIdentity.key(for: track)
+    private static func albumTracksByAlias(for tracks: [Track]) -> [String: [Track]] {
+        var tracksByAlias: [String: [Track]] = [:]
+        for track in tracks {
+            for key in AlbumIdentity.lookupKeys(for: track) {
+                tracksByAlias[key, default: []].append(track)
+            }
+        }
+        return tracksByAlias
+    }
+
+    private static func albumTracks(
+        for track: Track,
+        tracksByAlbumAlias: [String: [Track]]
+    ) -> [Track] {
+        var seenTrackIDs: Set<String> = []
+        var contextTracks: [Track] = []
+        for key in AlbumIdentity.lookupKeys(for: track) {
+            for albumTrack in tracksByAlbumAlias[key] ?? [] where seenTrackIDs.insert(albumTrack.id).inserted {
+                contextTracks.append(albumTrack)
+            }
+        }
+        return contextTracks
     }
 
     private static func artistTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {

@@ -100,8 +100,7 @@ extension UpdateCoordinator {
             return .change(localChange)
         }
 
-        let identity = track.albumIdentity
-        let cachedAlbumYear = await cache.getAlbumYear(artist: identity.artist, album: identity.album)
+        let cachedAlbumYear = await cachedAlbumYear(for: track)
         if !hasAmbiguousReleaseYearSignal,
            let cachedDecision = cachedYearShortcutDecision(
                track: track,
@@ -129,6 +128,15 @@ extension UpdateCoordinator {
         }
 
         return .continueToAPI
+    }
+
+    private func cachedAlbumYear(for track: Track) async -> AlbumCacheEntry? {
+        for identity in AlbumIdentity.lookupCandidates(for: track) {
+            if let entry = await cache.getAlbumYear(artist: identity.artist, album: identity.album) {
+                return entry
+            }
+        }
+        return nil
     }
 
     private func cachedYearShortcutDecision(

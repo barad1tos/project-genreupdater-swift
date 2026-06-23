@@ -237,11 +237,14 @@ extension WorkflowViewModel {
         var matchedTracks: [Track] = []
         var seenTrackIDs: Set<String> = []
         for tracks in albumGroups.values {
-            for track in tracks {
+            let groupMatchesEntry = tracks.contains { track in
                 let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
-                guard !pendingKeys.isDisjoint(with: trackKeys) else {
-                    continue
-                }
+                return !pendingKeys.isDisjoint(with: trackKeys)
+            }
+            guard groupMatchesEntry else {
+                continue
+            }
+            for track in tracks {
                 guard seenTrackIDs.insert(track.id).inserted else {
                     continue
                 }
