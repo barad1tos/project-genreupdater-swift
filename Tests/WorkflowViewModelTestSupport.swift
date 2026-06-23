@@ -107,7 +107,7 @@ func computeDelayedPendingScopePreview(
     let recordRefreshCompletion: @Sendable () async -> Void = {
         await pendingSnapshotDelay.recordDelayedPendingScopeRefreshCompletion()
     }
-    await PendingScopeRefreshInstrumentation.$onRefreshCompleted.withValue(recordRefreshCompletion) {
+    try await PendingScopeRefreshInstrumentation.$onRefreshCompleted.withValue(recordRefreshCompletion) {
         viewModel.computeScopePreview(tracks: tracks)
         try await pendingSnapshotDelay.waitForCapturedFirstSnapshot()
     }
@@ -492,6 +492,14 @@ actor PendingSnapshotDelay {
     func releaseFirstSnapshot() {
         isFirstSnapshotReleased = true
         resumeAll(&releaseContinuations)
+    }
+
+    private func resumeAll(_ continuations: inout [CheckedContinuation<Void, Never>]) {
+        let continuationsToResume = continuations
+        continuations.removeAll()
+        for continuation in continuationsToResume {
+            continuation.resume()
+        }
     }
 
     func recordProblematicCountRequest() {
