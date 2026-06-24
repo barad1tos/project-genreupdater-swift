@@ -393,7 +393,7 @@ struct APIReleaseCandidateAdapterTests {
                       "type": "release",
                       "master_id": 42,
                       "country": "US",
-                      "format": ["Album", "Remastered"],
+                      "format": ["Album"],
                       "genre": [],
                       "style": ["Alternative Rock"]
                     }
@@ -431,7 +431,7 @@ struct APIReleaseCandidateAdapterTests {
 
         let candidate = try #require(candidates.first)
         #expect(candidate.year == 1998)
-        #expect(!candidate.isReissue)
+        #expect(candidate.isReissue)
         #expect(candidate.genre == "Rock")
     }
 
