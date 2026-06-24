@@ -220,20 +220,21 @@ public actor UpdateCoordinator {
             track: track,
             mappings: runtimeConfiguration.artistRenameMappings
         )
-        let proposalTrack = artistRenameChange?.track ?? track
-        var decisionTrack = proposalTrack
+        let policyTrack = artistRenameChange?.track ?? track
         let cleaningOutcome = Self.cleaningOutcome(
-            track: decisionTrack,
+            policyTrack: policyTrack,
+            proposalTrack: track,
             options: options,
             cleaning: runtimeConfiguration.cleaning
         )
-        proposedChanges.append(contentsOf: cleaningOutcome.changes)
-        decisionTrack = cleaningOutcome.track
 
         if let change = artistRenameChange {
             proposedChanges.append(change)
         }
+        proposedChanges.append(contentsOf: cleaningOutcome.changes)
 
+        let decisionTrack = cleaningOutcome.track
+        let proposalTrack = policyTrack
         let genreContextTracks = Self.genreContextTracks(
             track: decisionTrack,
             artistTracks: artistTracks,
