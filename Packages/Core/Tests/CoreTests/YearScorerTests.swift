@@ -601,6 +601,39 @@ struct YearScorerResolutionTests {
         #expect(result.year == 1997)
     }
 
+    @Test("Official original release beats newer promotional candidate")
+    func officialOriginalReleaseBeatsNewerPromotionalCandidate() {
+        let officialOriginal = makeCandidate(
+            artist: "Test Artist",
+            album: "Test Album",
+            year: 1998,
+            status: .official,
+            mbReleaseGroupFirstYear: 1998
+        )
+        let promotionalReissue = makeCandidate(
+            artist: "Test Artist",
+            album: "Test Album",
+            year: 1999,
+            status: .promotional,
+            isReissue: true,
+            mbReleaseGroupFirstYear: 1998
+        )
+
+        let officialScore = scorer.scoreRelease(
+            officialOriginal,
+            queryArtist: "Test Artist",
+            queryAlbum: "Test Album"
+        )
+        let promotionalScore = scorer.scoreRelease(
+            promotionalReissue,
+            queryArtist: "Test Artist",
+            queryAlbum: "Test Album"
+        )
+
+        #expect(officialScore.totalScore > promotionalScore.totalScore)
+        #expect(scorer.resolveScores([promotionalScore, officialScore]).year == 1998)
+    }
+
     @Test("Original release preference requires a multi-year reissue gap")
     func originalReleasePreferenceRequiresMultiYearReissueGap() {
         let scorer = YearScorer(editionKeywords: ["remaster"])
