@@ -220,6 +220,8 @@ extension UpdateCoordinator {
                 property: preparedWrite.property,
                 value: preparedWrite.value
             )
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw UpdateCoordinatorError.writeFailed(
                 trackID: change.track.id,

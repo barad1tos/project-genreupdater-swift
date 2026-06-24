@@ -437,7 +437,8 @@ final class WorkflowViewModel {
 
             totalCount = processingTracks.count
             computeScopePreview(tracks: processingTracks)
-            guard !processingTracks.isEmpty else {
+            let shouldRunBatch = shouldRunBatchProcessing
+            guard shouldRunBatch || !processingTracks.isEmpty else {
                 finishEmptyProcessingRun()
                 return
             }
@@ -450,16 +451,27 @@ final class WorkflowViewModel {
             }
             maintenancePreflightResult = preflightResult
 
-            if shouldRunBatchProcessing {
-                let pendingVerificationEntries = await runPendingVerificationBeforeBatchIfDue(
+            let pendingVerificationOutcome: PendingEntryOutcome
+            if shouldRunBatch {
+                pendingVerificationOutcome = await runPendingVerificationBeforeBatchIfDue(
                     preflightResult: preflightResult,
                     tracks: tracks
                 )
                 guard isProcessing else { return }
+            } else {
+                pendingVerificationOutcome = PendingEntryOutcome()
+            }
+
+            guard !processingTracks.isEmpty else {
+                finishEmptyProcessingRun(preflightOutcome: pendingVerificationOutcome)
+                return
+            }
+
+            if shouldRunBatch {
                 startBatchProcessing(
                     tracks: processingTracks,
                     contextTracks: tracks,
-                    preflightEntries: pendingVerificationEntries
+                    preflightOutcome: pendingVerificationOutcome
                 )
             } else {
                 startDryRun(tracks: processingTracks, contextTracks: tracks)
@@ -478,14 +490,20 @@ final class WorkflowViewModel {
         )
     }
 
-    private func finishEmptyProcessingRun() {
-        result = BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
-        completedEntries = []
+    private func finishEmptyProcessingRun(preflightOutcome: PendingEntryOutcome = PendingEntryOutcome()) {
+        result = BatchUpdateResult(
+            entries: preflightOutcome.completed,
+            failedTrackIDs: preflightOutcome.failedTrackIDs,
+            errorDescriptions: preflightOutcome.errorDescriptions
+        )
+        completedEntries = preflightOutcome.completed
         proposedChanges = []
         dryRunReport = previewOnly ? DryRunReport(proposedChanges: []) : nil
-        processedCount = 0
-        failedCount = 0
-        trackStatuses = [:]
+        processedCount = preflightOutcome.processedCount
+        failedCount = preflightOutcome.failedTrackIDs.count
+        if preflightOutcome.isEmpty {
+            trackStatuses = [:]
+        }
         currentTrackID = nil
         phase = .done
         progress = nil

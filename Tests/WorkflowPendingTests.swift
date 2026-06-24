@@ -168,6 +168,152 @@ struct WorkflowPendingTests {
         #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
     }
 
+    @Test("does not auto verify pending albums during selected live review")
+    func doesNotAutoVerifyPendingAlbumsDuringSelectedLiveReview() async throws {
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry()]
+        )
+        let fixture = makeRandomAccessWorkflowFixture(
+            pendingVerificationService: pendingVerification,
+            runMaintenancePreflight: { pendingDuePreflight() }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .selectedTracks
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = false
+
+        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.isEmpty)
+        #expect(removals.isEmpty)
+        #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
+    }
+
+    @Test("does not auto verify pending albums during full-library preview")
+    func doesNotAutoVerifyPendingAlbumsDuringFullLibraryPreview() async throws {
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry()]
+        )
+        let fixture = makeRandomAccessWorkflowFixture(
+            pendingVerificationService: pendingVerification,
+            runMaintenancePreflight: { pendingDuePreflight() }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = true
+        viewModel.updateGenre = false
+        viewModel.updateYear = false
+
+        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.isEmpty)
+        #expect(removals.isEmpty)
+        #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
+    }
+
+    @Test("preflight pending failures stay visible after live batch")
+    func preflightPendingFailuresStayVisibleAfterLiveBatch() async throws {
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry()]
+        )
+        let fixture = makeRandomAccessWorkflowFixture(
+            pendingVerificationService: pendingVerification,
+            failingWriteTrackIDs: ["as-ram-2"],
+            runMaintenancePreflight: { pendingDuePreflight() }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = false
+
+        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.map(\.trackID) == ["as-ram-1"])
+        #expect(removals.isEmpty)
+        #expect(viewModel.completedEntries.map(\.trackID) == ["ram-1"])
+        #expect(viewModel.result?.failedTrackIDs == ["ram-2"])
+        #expect(viewModel.failedTracks.contains { $0.id == "ram-2" })
+        #expect(viewModel.failedCount == 1)
+        #expect(await pendingVerification.verificationTimestampUpdateCount() == 1)
+    }
+
+    @Test("cancelling pending preflight does not start live batch")
+    func cancellingPendingPreflightDoesNotStartLiveBatch() async throws {
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry()]
+        )
+        let fixture = makeRandomAccessWorkflowFixture(
+            pendingVerificationService: pendingVerification,
+            cancellingWriteTrackIDs: ["as-ram-1"],
+            runMaintenancePreflight: { pendingDuePreflight() }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = false
+
+        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToReturnToConfigure(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.isEmpty)
+        #expect(removals.isEmpty)
+        #expect(viewModel.completedEntries.isEmpty)
+        #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
+    }
+
+    @Test("auto verifies due pending albums when incremental batch is empty")
+    func autoVerifiesDuePendingAlbumsWhenIncrementalBatchIsEmpty() async throws {
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry()]
+        )
+        let fixture = makeRandomAccessWorkflowFixture(
+            pendingVerificationService: pendingVerification,
+            resolveIncrementalTracks: { _, _ in [] },
+            runMaintenancePreflight: { pendingDuePreflight() }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = false
+
+        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(removals.contains { $0.artist == "Daft Punk" && $0.album == "Random Access Memories" })
+        #expect(viewModel.completedEntries.map(\.trackID) == ["ram-1", "ram-2"])
+        #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
+        #expect(viewModel.processedCount == 2)
+        #expect(await pendingVerification.verificationTimestampUpdateCount() == 1)
+    }
+
     @Test("ignores stale pending scope refresh after pending run")
     func ignoresStalePendingScopeRefreshAfterPendingRun() async throws {
         let pendingSnapshotDelay = PendingSnapshotDelay()
@@ -282,6 +428,17 @@ struct WorkflowPendingTests {
         #expect(summary.problematic == problematic)
     }
 
+    private func waitForWorkflowToReturnToConfigure(_ viewModel: WorkflowViewModel) async throws {
+        for _ in 0 ..< 500 {
+            if case .configure = viewModel.phase {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(Bool(false), "workflow did not return to configure before timeout")
+    }
+
     private func makeRandomAccessPendingViewModel(
         pendingSnapshotDelay: PendingSnapshotDelay? = nil
     ) -> RandomAccessPendingRun {
@@ -298,10 +455,19 @@ struct WorkflowPendingTests {
 
     private func makeRandomAccessWorkflowFixture(
         pendingVerificationService: WorkflowPendingVerificationService,
+        failingWriteTrackIDs: Set<String> = [],
+        cancellingWriteTrackIDs: Set<String> = [],
+        resolveIncrementalTracks: @escaping (
+            [Track],
+            IncrementalTrackScopeOptions
+        ) async -> [Track] = { tracks, _ in tracks },
         runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil
     ) -> WorkflowFixture {
         makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2013, confidence: 100),
+            failingWriteTrackIDs: failingWriteTrackIDs,
+            cancellingWriteTrackIDs: cancellingWriteTrackIDs,
+            resolveIncrementalTracks: resolveIncrementalTracks,
             pendingVerificationService: pendingVerificationService,
             idMapper: WorkflowTrackIDMapper(
                 enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(),

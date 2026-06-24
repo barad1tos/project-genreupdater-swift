@@ -7,7 +7,7 @@ extension WorkflowViewModel {
     func startBatchProcessing(
         tracks: [Track],
         contextTracks: [Track]? = nil,
-        preflightEntries: [ChangeLogEntry] = []
+        preflightOutcome: PendingEntryOutcome = PendingEntryOutcome()
     ) {
         let tracksByIndex = Self.sortedForBatchProcessing(tracks)
         guard !tracksByIndex.isEmpty else {
@@ -54,14 +54,11 @@ extension WorkflowViewModel {
                     progressHandler: progressHandler
                 )
 
-                finalizeBatchStatuses(for: tracksByIndex)
-                completedEntries = preflightEntries + entries
-                if failedTracks.isEmpty {
-                    await updateIncrementalRunTimestamp?()
-                }
-                currentTrackID = nil
-                phase = .done
-                progress = nil
+                await finishBatchProcessing(
+                    preflightOutcome: preflightOutcome,
+                    batchEntries: entries,
+                    tracks: tracksByIndex
+                )
             } catch is CancellationError {
                 currentTrackID = nil
                 phase = .configure
@@ -75,6 +72,31 @@ extension WorkflowViewModel {
                 progress = nil
             }
         }
+    }
+
+    private func finishBatchProcessing(
+        preflightOutcome: PendingEntryOutcome,
+        batchEntries: [ChangeLogEntry],
+        tracks: [Track]
+    ) async {
+        finalizeBatchStatuses(for: tracks)
+        restorePreflightFailures(preflightOutcome)
+
+        let allEntries = preflightOutcome.completed + batchEntries
+        completedEntries = allEntries
+        let currentFailures = failedTracks
+        result = BatchUpdateResult(
+            entries: allEntries,
+            failedTrackIDs: currentFailures.map(\.id),
+            errorDescriptions: currentFailures.map(\.error)
+        )
+        failedCount = currentFailures.count
+        if currentFailures.isEmpty {
+            await updateIncrementalRunTimestamp?()
+        }
+        currentTrackID = nil
+        phase = .done
+        progress = nil
     }
 
     private func invalidateAlbumYearCacheIfNeeded() async {
@@ -127,6 +149,20 @@ extension WorkflowViewModel {
     private func markBatchTrackFailed(_ track: Track, message: String) {
         trackStatuses[track.id] = .failed(message)
         failedCount = failedTracks.count
+    }
+
+    private func restorePreflightFailures(_ outcome: PendingEntryOutcome) {
+        guard !outcome.failedTrackIDs.isEmpty else { return }
+
+        let fallbackMessage = outcome.errorDescriptions.first ?? "Pending verification failed"
+        for (index, trackID) in outcome.failedTrackIDs.enumerated() {
+            let message = if outcome.errorDescriptions.indices.contains(index) {
+                outcome.errorDescriptions[index]
+            } else {
+                fallbackMessage
+            }
+            trackStatuses[trackID] = .failed(message)
+        }
     }
 
     nonisolated private static func albumTracksProvider(

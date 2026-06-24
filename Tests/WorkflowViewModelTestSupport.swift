@@ -15,6 +15,7 @@ func makeWorkflowFixture(
     apiServices: APIOrchestratorServices? = nil,
     tier: Tier = .pro,
     failingWriteTrackIDs: Set<String> = [],
+    cancellingWriteTrackIDs: Set<String> = [],
     noChangeWriteTrackIDs: Set<String> = [],
     resolveIncrementalTracks: @escaping (
         [Track],
@@ -29,6 +30,7 @@ func makeWorkflowFixture(
 ) -> WorkflowFixture {
     let scriptClient = DashboardStateScriptClient(
         failingTrackIDs: failingWriteTrackIDs,
+        cancellingTrackIDs: cancellingWriteTrackIDs,
         noChangeTrackIDs: noChangeWriteTrackIDs
     )
     let trackStore = DashboardStateTrackStore()
@@ -234,11 +236,17 @@ struct DashboardStateAPIService: ExternalAPIService {
 
 actor DashboardStateScriptClient: AppleScriptClient {
     private let failingTrackIDs: Set<String>
+    private let cancellingTrackIDs: Set<String>
     private let noChangeTrackIDs: Set<String>
     private var writes: [(trackID: String, property: String, value: String)] = []
 
-    init(failingTrackIDs: Set<String> = [], noChangeTrackIDs: Set<String> = []) {
+    init(
+        failingTrackIDs: Set<String> = [],
+        cancellingTrackIDs: Set<String> = [],
+        noChangeTrackIDs: Set<String> = []
+    ) {
         self.failingTrackIDs = failingTrackIDs
+        self.cancellingTrackIDs = cancellingTrackIDs
         self.noChangeTrackIDs = noChangeTrackIDs
     }
 
@@ -267,6 +275,9 @@ actor DashboardStateScriptClient: AppleScriptClient {
     }
 
     func updateTrackProperty(trackID: String, property: String, value: String) async throws -> AppleScriptWriteResult {
+        if cancellingTrackIDs.contains(trackID) {
+            throw CancellationError()
+        }
         if failingTrackIDs.contains(trackID) {
             throw DashboardStateScriptWriteError(trackID: trackID)
         }

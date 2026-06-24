@@ -3,13 +3,17 @@
 import Core
 import Services
 
-private struct PendingEntryOutcome {
+struct PendingEntryOutcome {
     var completed: [ChangeLogEntry] = []
     var failedTrackIDs: [String] = []
     var errorDescriptions: [String] = []
     var processedCount = 0
     var resolvedIdentityKeys: Set<String> = []
     var handledIdentityKeys: Set<String> = []
+
+    var isEmpty: Bool {
+        completed.isEmpty && failedTrackIDs.isEmpty && errorDescriptions.isEmpty && processedCount == 0
+    }
 }
 
 private struct PendingVerificationTrackContext {
@@ -150,28 +154,25 @@ extension WorkflowViewModel {
     func runPendingVerificationBeforeBatchIfDue(
         preflightResult: MaintenancePreflightResult?,
         tracks: [Track]
-    ) async -> [ChangeLogEntry] {
+    ) async -> PendingEntryOutcome {
         guard shouldRunBatchProcessing,
               preflightResult?.isPendingVerificationDue == true,
               let pendingVerificationService
         else {
-            return []
+            return PendingEntryOutcome()
         }
 
         do {
             let snapshot = await pendingVerificationSnapshot()
             let dueEntries = snapshot.due
-            guard !dueEntries.isEmpty else { return [] }
+            guard !dueEntries.isEmpty else { return PendingEntryOutcome() }
 
-            let problematicCount = await pendingVerificationService
-                .getProblematicPendingAlbums(minAttempts: resolvedProblematicAlbumReportMinAttempts)
-                .count
-            updatePendingVerificationReportSummary(
-                snapshot: snapshot,
-                problematicCount: problematicCount
-            )
+            await refreshPendingVerificationReportSummary(snapshot: snapshot)
 
             let trackContext = await pendingVerificationTrackContext(from: tracks)
+            processedCount = 0
+            failedCount = 0
+            currentTrackID = nil
             preparePendingTrackStatuses(tracks: trackContext.tracks, dueEntries: dueEntries)
             let outcome = try await performPendingVerification(
                 dueEntries: dueEntries,
@@ -179,24 +180,19 @@ extension WorkflowViewModel {
                 pendingVerificationService: pendingVerificationService
             )
             let finalSnapshot = await pendingVerificationSnapshot()
-            let finalProblematicCount = await pendingVerificationService
-                .getProblematicPendingAlbums(minAttempts: resolvedProblematicAlbumReportMinAttempts)
-                .count
-            updatePendingVerificationReportSummary(
-                snapshot: finalSnapshot,
-                problematicCount: finalProblematicCount
-            )
-            return outcome.completed
+            await refreshPendingVerificationReportSummary(snapshot: finalSnapshot)
+            failedCount = outcome.failedTrackIDs.count
+            return outcome
         } catch is CancellationError {
             currentTrackID = nil
             phase = .configure
             progress = nil
-            return []
+            return PendingEntryOutcome()
         } catch {
             currentTrackID = nil
             phase = .error(error.localizedDescription)
             progress = nil
-            return []
+            return PendingEntryOutcome()
         }
     }
 
@@ -219,7 +215,7 @@ extension WorkflowViewModel {
             }
 
             let albumTracks = Self.pendingAlbumTracks(for: entry, in: albumGroups)
-            let entryOutcome = await processPendingEntry(
+            let entryOutcome = try await processPendingEntry(
                 entry,
                 albumTracks: albumTracks,
                 albumGroups: albumGroups,
@@ -282,7 +278,7 @@ extension WorkflowViewModel {
         albumGroups: [String: [Track]],
         missingContextTracks: [Track],
         pendingVerificationService: any PendingVerificationService
-    ) async -> PendingEntryOutcome {
+    ) async throws -> PendingEntryOutcome {
         let missingEntryTracks = Self.missingContextTracks(
             for: entry,
             albumTracks: albumTracks,
@@ -327,6 +323,8 @@ extension WorkflowViewModel {
                 albumGroups: albumGroups,
                 pendingVerificationService: pendingVerificationService
             )
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             markPendingAlbumTracks(albumTracks, as: .failed(error.localizedDescription))
             return PendingEntryOutcome(
@@ -352,6 +350,16 @@ extension WorkflowViewModel {
         return await pendingVerificationService
             .getProblematicPendingAlbums(minAttempts: resolvedProblematicAlbumReportMinAttempts)
             .count
+    }
+
+    private func refreshPendingVerificationReportSummary(
+        snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry])
+    ) async {
+        let problematicCount = await problematicPendingAlbumCount()
+        updatePendingVerificationReportSummary(
+            snapshot: snapshot,
+            problematicCount: problematicCount
+        )
     }
 
     private var resolvedProblematicAlbumReportMinAttempts: Int {
