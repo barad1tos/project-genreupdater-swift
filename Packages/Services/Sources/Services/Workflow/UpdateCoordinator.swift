@@ -217,6 +217,14 @@ public actor UpdateCoordinator {
         var proposedChanges: [ProposedChange] = []
         var workingTrack = track
 
+        let cleaningChanges = Self.determineCleaningChanges(
+            track: workingTrack,
+            options: options,
+            cleaning: runtimeConfiguration.cleaning
+        )
+        proposedChanges.append(contentsOf: cleaningChanges)
+        workingTrack = Self.cleanedTrack(from: workingTrack, applying: cleaningChanges)
+
         if let change = Self.determineArtistRenameChange(
             track: workingTrack,
             mappings: runtimeConfiguration.artistRenameMappings
@@ -248,13 +256,31 @@ public actor UpdateCoordinator {
             proposedChanges.append(change)
         }
 
-        proposedChanges.append(contentsOf: Self.determineCleaningChanges(
-            track: workingTrack,
-            options: options,
-            cleaning: runtimeConfiguration.cleaning
-        ))
-
         return proposedChanges
+    }
+
+    private static func cleanedTrack(
+        from track: Track,
+        applying changes: [ProposedChange]
+    ) -> Track {
+        guard !changes.isEmpty else { return track }
+
+        var cleanedTrack = track
+        for change in changes {
+            switch change.changeType {
+            case .trackCleaning:
+                if let cleanedName = change.newValue {
+                    cleanedTrack.name = cleanedName
+                }
+            case .albumCleaning:
+                if let cleanedAlbum = change.newValue {
+                    cleanedTrack.album = cleanedAlbum
+                }
+            default:
+                continue
+            }
+        }
+        return cleanedTrack
     }
 
     private func determineGenreChange(

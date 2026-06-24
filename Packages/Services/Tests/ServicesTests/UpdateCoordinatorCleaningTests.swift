@@ -33,6 +33,67 @@ struct UpdateCoordinatorCleaningTests {
         #expect(albumCleaning?.newValue == "Album")
     }
 
+    @Test("Cleaning runs before genre and year decisions")
+    func cleaningRunsBeforeGenreAndYearDecisions() async throws {
+        let lookupRecorder = AlbumYearLookupRecorder()
+        let apiService = RecordingAlbumYearAPIService(
+            lookupRecorder: lookupRecorder,
+            yearResult: YearResult(
+                year: 1968,
+                isDefinitive: true,
+                confidence: 100,
+                yearScores: [1968: 100]
+            )
+        )
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: UpdateRuntimeConfiguration.Policies(isYearLookupEnabled: true)
+        )
+        let coordinator = await makeCoordinator(
+            runtimeConfiguration: runtimeConfiguration,
+            apiService: apiService
+        )
+        let track = makeTrack(
+            id: "target",
+            name: "Song (Remastered 2020)",
+            album: "Album Remastered",
+            genre: nil,
+            dateAdded: Date(timeIntervalSince1970: 2000)
+        )
+        let genreSource = makeTrack(
+            id: "genre-source",
+            name: "Reference",
+            album: "Album",
+            genre: "Rock",
+            dateAdded: Date(timeIntervalSince1970: 1000)
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            artistTracks: [genreSource],
+            options: UpdateOptions(
+                updateGenre: true,
+                updateYear: true,
+                forceYearLookup: true,
+                cleanTrackNames: true,
+                cleanAlbumNames: true,
+                minConfidence: 0
+            ),
+            dryRun: true
+        )
+
+        #expect(changes.map(\.changeType) == [
+            .trackCleaning,
+            .albumCleaning,
+            .genreUpdate,
+            .yearUpdate,
+        ])
+        #expect(changes.first { $0.changeType == .genreUpdate }?.track.name == "Song")
+        #expect(changes.first { $0.changeType == .yearUpdate }?.track.album == "Album")
+        let queriedAlbums = await lookupRecorder.queriedAlbums()
+        #expect(!queriedAlbums.isEmpty)
+        #expect(queriedAlbums.allSatisfy { $0 == "Album" })
+    }
+
     @Test("Cleaning exceptions suppress metadata cleaning changes")
     func cleaningExceptionsSuppressMetadataCleaningChanges() async throws {
         var cleaning = CleaningConfig()
@@ -92,9 +153,9 @@ struct UpdateCoordinatorCleaningTests {
     }
 
     private func makeCoordinator(
-        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
+        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
+        apiService: any ExternalAPIService = MockAPIService()
     ) async -> UpdateCoordinator {
-        let apiService = MockAPIService()
         let scriptBridge = MockAppleScriptClient()
         return UpdateCoordinator(
             dependencies: UpdateCoordinatorDependencies(
@@ -118,15 +179,53 @@ struct UpdateCoordinatorCleaningTests {
         )
     }
 
-    private func makeTrack(name: String, album: String) -> Track {
+    private func makeTrack(
+        id: String = "T1",
+        name: String,
+        album: String,
+        genre: String? = "Rock",
+        dateAdded: Date? = nil
+    ) -> Track {
         Track(
-            id: "T1",
+            id: id,
             name: name,
             artist: "Beatles",
             album: album,
-            genre: "Rock",
+            genre: genre,
             year: 1969,
+            dateAdded: dateAdded,
             trackStatus: nil
         )
+    }
+}
+
+private actor AlbumYearLookupRecorder {
+    private var albums: [String] = []
+
+    func record(album: String) {
+        albums.append(album)
+    }
+
+    func queriedAlbums() -> [String] {
+        albums
+    }
+}
+
+private struct RecordingAlbumYearAPIService: ExternalAPIService {
+    let lookupRecorder: AlbumYearLookupRecorder
+    let yearResult: YearResult
+
+    func getAlbumYear(
+        artist _: String,
+        album: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> YearResult {
+        await lookupRecorder.record(album: album)
+        return yearResult
+    }
+
+    func initialize(force _: Bool) async throws {
+        try Task.checkCancellation()
     }
 }
