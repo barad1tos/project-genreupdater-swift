@@ -100,6 +100,14 @@ struct FixedUndoTrackIDMapper: TrackIDMapping {
     }
 }
 
+struct RawTrackIDWriteError: LocalizedError {
+    let trackID: String
+
+    var errorDescription: String? {
+        "Track=\(trackID), AppleScript write failed"
+    }
+}
+
 // MARK: - Tests
 
 @Suite("UndoCoordinator — record and revert changes")
@@ -237,6 +245,31 @@ struct UndoCoordinatorTests {
 
         let written = await bridge.writtenProperties
         #expect(written.isEmpty)
+    }
+
+    @Test("Batch revert write failure description is public-safe")
+    func batchRevertWriteFailureDescriptionIsPublicSafe() async {
+        let bridge = MockAppleScriptClient()
+        await bridge.setCustomWriteError(RawTrackIDWriteError(trackID: "MK1"))
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        await coordinator.recordChange(entry)
+
+        do {
+            try await coordinator.revertBatch([entry])
+            Issue.record("Expected partial revert failure")
+        } catch let error as UndoCoordinatorError {
+            if case let .partialRevertFailure(succeeded, failed, descriptions) = error {
+                #expect(succeeded == 0)
+                #expect(failed == 1)
+                #expect(descriptions.first == "AppleScript write failed")
+                #expect(!error.localizedDescription.contains("MK1"))
+            } else {
+                Issue.record("Expected partialRevertFailure, got \(error)")
+            }
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 
     @Test("Revert single artist rename writes old artist")

@@ -145,4 +145,54 @@ struct UndoCoordinatorBackupCSVTests {
         let history = await coordinator.getHistory()
         #expect(history.isEmpty)
     }
+
+    @Test("Backup CSV write failure description is public-safe")
+    func backupCSVWriteFailureDescriptionIsPublicSafe() async {
+        let bridge = MockAppleScriptClient()
+        await bridge.setCustomWriteError(RawTrackIDWriteError(trackID: "MK1"))
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            directory: makeBackupTempDirectory()
+        )
+        let csv = """
+        id,name,artist,album,year_before_mgu
+        MK1,Angel,Massive Attack,Mezzanine,1998
+        """
+        let tracks = [
+            Track(
+                id: "MK1",
+                name: "Angel",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                year: 2019
+            ),
+        ]
+
+        do {
+            _ = try await coordinator.revertYearsFromBackupCSV(
+                csv,
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                currentTracks: tracks
+            )
+            Issue.record("Expected partial revert failure")
+        } catch let error as UndoCoordinatorError {
+            if case let .partialRevertFailure(succeeded, failed, descriptions) = error {
+                #expect(succeeded == 0)
+                #expect(failed == 1)
+                #expect(descriptions.first == "AppleScript write failed")
+                #expect(!error.localizedDescription.contains("MK1"))
+            } else {
+                Issue.record("Expected partialRevertFailure, got \(error)")
+            }
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        let written = await bridge.writtenProperties
+        #expect(written.isEmpty)
+
+        let history = await coordinator.getHistory()
+        #expect(history.isEmpty)
+    }
 }

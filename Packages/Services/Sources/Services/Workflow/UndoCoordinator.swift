@@ -315,7 +315,7 @@ public actor UndoCoordinator {
         if let undoError = error as? UndoCoordinatorError {
             return undoError.errorDescription ?? "Undo operation failed"
         }
-        return error.localizedDescription
+        return "AppleScript write failed"
     }
 
     // MARK: Persistence
