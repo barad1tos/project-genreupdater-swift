@@ -128,7 +128,10 @@ struct UndoCoordinatorBackupCSVTests {
             if case let .partialRevertFailure(succeeded, failed, descriptions) = error {
                 #expect(succeeded == 0)
                 #expect(failed == 1)
-                #expect(descriptions.first?.contains("Missing AppleScript ID") == true)
+                #expect(descriptions.first?.contains("AppleScript ID mapping") == true)
+                #expect(descriptions.first?.contains("MK1") == false)
+                #expect(error.localizedDescription.contains("AppleScript ID mapping"))
+                #expect(!error.localizedDescription.contains("MK1"))
             } else {
                 Issue.record("Expected partialRevertFailure, got \(error)")
             }

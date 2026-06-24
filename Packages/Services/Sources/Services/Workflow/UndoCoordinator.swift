@@ -17,13 +17,21 @@ public enum UndoCoordinatorError: Error, LocalizedError {
             "Failed to revert track \(trackID): \(reason)"
         case .noChangesToRevert:
             "No changes available to revert"
-        case let .partialRevertFailure(succeeded, failed, _):
-            "Partial revert: \(succeeded) succeeded, \(failed) failed"
+        case let .partialRevertFailure(succeeded, failed, errorDescriptions):
+            if let firstFailure = Self.firstFailureDescription(from: errorDescriptions) {
+                "Partial revert: \(succeeded) succeeded, \(failed) failed. First failure: \(firstFailure)"
+            } else {
+                "Partial revert: \(succeeded) succeeded, \(failed) failed"
+            }
         case let .invalidBackupCSV(reason):
             "Invalid backup CSV: \(reason)"
-        case let .missingAppleScriptID(trackID):
-            "Missing AppleScript ID for track \(trackID)"
+        case .missingAppleScriptID:
+            "Missing AppleScript ID mapping for a track"
         }
+    }
+
+    private static func firstFailureDescription(from errorDescriptions: [String]) -> String? {
+        errorDescriptions.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 }
 
@@ -165,10 +173,11 @@ public actor UndoCoordinator {
                 try await revertChange(entry)
                 succeeded += 1
             } catch {
-                errorDescriptions.append(error.localizedDescription)
+                let failureDescription = Self.publicFailureDescription(for: error)
+                errorDescriptions.append(failureDescription)
                 log
                     .error(
-                        "Failed to revert \(entry.changeType.rawValue, privacy: .public) for track \(entry.trackID, privacy: .private): \(error.localizedDescription, privacy: .public)"
+                        "Failed to revert \(entry.changeType.rawValue, privacy: .public) for track \(entry.trackID, privacy: .private): \(failureDescription, privacy: .public)"
                     )
             }
         }
@@ -279,9 +288,10 @@ public actor UndoCoordinator {
                 await recordChange(entry)
                 updatedCount += 1
             } catch {
-                errorDescriptions.append(error.localizedDescription)
+                let failureDescription = Self.publicFailureDescription(for: error)
+                errorDescriptions.append(failureDescription)
                 log.error(
-                    "Failed to restore backup year for track \(track.id, privacy: .private): \(error.localizedDescription, privacy: .public)"
+                    "Failed to restore backup year for track \(track.id, privacy: .private): \(failureDescription, privacy: .public)"
                 )
             }
         }
@@ -299,6 +309,13 @@ public actor UndoCoordinator {
             updatedCount: updatedCount,
             missingCount: missingCount
         )
+    }
+
+    private static func publicFailureDescription(for error: Error) -> String {
+        if let undoError = error as? UndoCoordinatorError {
+            return undoError.errorDescription ?? "Undo operation failed"
+        }
+        return error.localizedDescription
     }
 
     // MARK: Persistence

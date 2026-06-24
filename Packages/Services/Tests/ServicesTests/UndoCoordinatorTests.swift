@@ -190,6 +190,8 @@ struct UndoCoordinatorTests {
         } catch let error as UndoCoordinatorError {
             if case let .missingAppleScriptID(trackID) = error {
                 #expect(trackID == "MK1")
+                #expect(error.localizedDescription.contains("AppleScript ID mapping"))
+                #expect(!error.localizedDescription.contains("MK1"))
             } else {
                 Issue.record("Expected missingAppleScriptID, got \(error)")
             }
@@ -202,6 +204,39 @@ struct UndoCoordinatorTests {
 
         let history = await coordinator.getHistory()
         #expect(history.count == 1)
+    }
+
+    @Test("Batch revert missing AppleScript ID failure is public-safe")
+    func batchRevertMissingAppleScriptIDFailureIsPublicSafe() async {
+        let bridge = MockAppleScriptClient()
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            idMapper: MissingUndoTrackIDMapper(),
+            directory: makeTempDirectory()
+        )
+        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        await coordinator.recordChange(entry)
+
+        do {
+            try await coordinator.revertBatch([entry])
+            Issue.record("Expected partial revert failure")
+        } catch let error as UndoCoordinatorError {
+            if case let .partialRevertFailure(succeeded, failed, descriptions) = error {
+                #expect(succeeded == 0)
+                #expect(failed == 1)
+                #expect(descriptions.first?.contains("AppleScript ID mapping") == true)
+                #expect(descriptions.first?.contains("MK1") == false)
+                #expect(error.localizedDescription.contains("AppleScript ID mapping"))
+                #expect(!error.localizedDescription.contains("MK1"))
+            } else {
+                Issue.record("Expected partialRevertFailure, got \(error)")
+            }
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        let written = await bridge.writtenProperties
+        #expect(written.isEmpty)
     }
 
     @Test("Revert single artist rename writes old artist")
