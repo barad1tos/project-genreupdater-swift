@@ -104,21 +104,24 @@ func makeRandomAccessLiveBatchRun(
         entries: [randomAccessMemoriesPendingEntry()],
         dueEntries: [randomAccessMemoriesPendingEntry()]
     )
-    let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
-        options.apiService = apiService
-        options.randomAccessYear = randomAccessYear
-        options.failingWriteTrackIDs = failingWriteTrackIDs
-        options.cancellingWriteTrackIDs = cancellingWriteTrackIDs
-        options.additionalEnrichedTracks = batchTracks
-        options.additionalAppleScriptIDsByMusicKitID = scriptIDsByMusicKitID
-        options.resolveIncrementalTracks = { tracks, _ in
-            tracks.filter { batchTrackIDs.contains($0.id) }
-        }
-        options.runMaintenancePreflight = { preflightState.result }
-        options.updateIncrementalRunTimestamp = {
-            await timestampUpdates.record()
-        }
+    var options = RandomAccessWorkflowFixtureOptions()
+    options.apiService = apiService
+    options.randomAccessYear = randomAccessYear
+    options.failingWriteTrackIDs = failingWriteTrackIDs
+    options.cancellingWriteTrackIDs = cancellingWriteTrackIDs
+    options.additionalEnrichedTracks = batchTracks
+    options.additionalAppleScriptIDsByMusicKitID = scriptIDsByMusicKitID
+    options.resolveIncrementalTracks = { tracks, _ in
+        tracks.filter { batchTrackIDs.contains($0.id) }
     }
+    options.runMaintenancePreflight = { preflightState.result }
+    options.updateIncrementalRunTimestamp = {
+        await timestampUpdates.record()
+    }
+    let fixture = makeRandomAccessWorkflowFixture(
+        pendingVerificationService: pendingVerification,
+        options: options
+    )
     let viewModel = fixture.viewModel
     viewModel.mode = .fullLibrary
     viewModel.previewOnly = false
@@ -146,12 +149,22 @@ func startRandomAccessLiveYearBatch(
 @MainActor
 func makeRandomAccessWorkflowFixture(
     pendingVerificationService: WorkflowPendingVerificationService,
-    configure: (inout RandomAccessWorkflowFixtureOptions) -> Void = { _ in }
+    configure: (inout RandomAccessWorkflowFixtureOptions) -> Void
 ) -> WorkflowFixture {
     var options = RandomAccessWorkflowFixtureOptions()
     configure(&options)
+    return makeRandomAccessWorkflowFixture(
+        pendingVerificationService: pendingVerificationService,
+        options: options
+    )
+}
 
-    return makeWorkflowFixture(
+@MainActor
+func makeRandomAccessWorkflowFixture(
+    pendingVerificationService: WorkflowPendingVerificationService,
+    options: RandomAccessWorkflowFixtureOptions = RandomAccessWorkflowFixtureOptions()
+) -> WorkflowFixture {
+    makeWorkflowFixture(
         apiService: options.apiService,
         failingWriteTrackIDs: options.failingWriteTrackIDs,
         cancellingWriteTrackIDs: options.cancellingWriteTrackIDs,
