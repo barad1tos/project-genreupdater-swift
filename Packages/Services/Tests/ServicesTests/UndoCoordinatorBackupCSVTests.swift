@@ -93,4 +93,53 @@ struct UndoCoordinatorBackupCSVTests {
         #expect(history.contains { $0.trackID == "T1" && $0.oldYear == 2019 && $0.newYear == 1998 })
         #expect(history.contains { $0.trackID == "T2" && $0.oldYear == 2020 && $0.newYear == 1998 })
     }
+
+    @Test("Backup CSV revert refuses missing AppleScript ID mapping")
+    func backupCSVRevertRefusesMissingAppleScriptIDMapping() async {
+        let bridge = MockAppleScriptClient()
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            idMapper: MissingUndoTrackIDMapper(),
+            directory: makeBackupTempDirectory()
+        )
+        let csv = """
+        id,name,artist,album,year_before_mgu
+        MK1,Angel,Massive Attack,Mezzanine,1998
+        """
+        let tracks = [
+            Track(
+                id: "MK1",
+                name: "Angel",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                year: 2019
+            ),
+        ]
+
+        do {
+            _ = try await coordinator.revertYearsFromBackupCSV(
+                csv,
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                currentTracks: tracks
+            )
+            Issue.record("Expected partial revert failure")
+        } catch let error as UndoCoordinatorError {
+            if case let .partialRevertFailure(succeeded, failed, descriptions) = error {
+                #expect(succeeded == 0)
+                #expect(failed == 1)
+                #expect(descriptions.first?.contains("Missing AppleScript ID") == true)
+            } else {
+                Issue.record("Expected partialRevertFailure, got \(error)")
+            }
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        let written = await bridge.writtenProperties
+        #expect(written.isEmpty)
+
+        let history = await coordinator.getHistory()
+        #expect(history.isEmpty)
+    }
 }

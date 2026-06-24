@@ -62,6 +62,44 @@ private func makeArtistRenameEntry(
     return entry
 }
 
+struct MissingUndoTrackIDMapper: TrackIDMapping {
+    func appleScriptID(forMusicKitID _: String) async -> String? {
+        nil
+    }
+
+    func trackWithAppleScriptMetadata(for _: Track) async -> Track? {
+        nil
+    }
+
+    func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
+        await Task.yield()
+    }
+
+    func hasMappingFor(musicKitID _: String) async -> Bool {
+        false
+    }
+}
+
+struct FixedUndoTrackIDMapper: TrackIDMapping {
+    let mapping: [String: String]
+
+    func appleScriptID(forMusicKitID musicKitID: String) async -> String? {
+        mapping[musicKitID]
+    }
+
+    func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track? {
+        musicKitTrack
+    }
+
+    func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
+        await Task.yield()
+    }
+
+    func hasMappingFor(musicKitID: String) async -> Bool {
+        mapping[musicKitID] != nil
+    }
+}
+
 // MARK: - Tests
 
 @Suite("UndoCoordinator — record and revert changes")
@@ -113,6 +151,57 @@ struct UndoCoordinatorTests {
         #expect(written.count == 1)
         #expect(written[0].property == "year")
         #expect(written[0].value == "1984")
+    }
+
+    @Test("Revert writes resolved AppleScript ID when mapper is present")
+    func revertWritesResolvedAppleScriptID() async throws {
+        let bridge = MockAppleScriptClient()
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            idMapper: FixedUndoTrackIDMapper(mapping: ["MK1": "AS1"]),
+            directory: makeTempDirectory()
+        )
+        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        await coordinator.recordChange(entry)
+
+        try await coordinator.revertChange(entry)
+
+        let written = await bridge.writtenProperties
+        #expect(written.count == 1)
+        #expect(written[0].trackID == "AS1")
+        #expect(written[0].property == "year")
+        #expect(written[0].value == "1984")
+    }
+
+    @Test("Revert refuses missing AppleScript ID mapping")
+    func revertRefusesMissingAppleScriptIDMapping() async {
+        let bridge = MockAppleScriptClient()
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            idMapper: MissingUndoTrackIDMapper(),
+            directory: makeTempDirectory()
+        )
+        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        await coordinator.recordChange(entry)
+
+        do {
+            try await coordinator.revertChange(entry)
+            Issue.record("Expected missing AppleScript ID error")
+        } catch let error as UndoCoordinatorError {
+            if case let .missingAppleScriptID(trackID) = error {
+                #expect(trackID == "MK1")
+            } else {
+                Issue.record("Expected missingAppleScriptID, got \(error)")
+            }
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        let written = await bridge.writtenProperties
+        #expect(written.isEmpty)
+
+        let history = await coordinator.getHistory()
+        #expect(history.count == 1)
     }
 
     @Test("Revert single artist rename writes old artist")

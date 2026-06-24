@@ -9,6 +9,7 @@ public enum UndoCoordinatorError: Error, LocalizedError {
     case noChangesToRevert
     case partialRevertFailure(succeeded: Int, failed: Int, errorDescriptions: [String])
     case invalidBackupCSV(reason: String)
+    case missingAppleScriptID(trackID: String)
 
     public var errorDescription: String? {
         switch self {
@@ -20,6 +21,8 @@ public enum UndoCoordinatorError: Error, LocalizedError {
             "Partial revert: \(succeeded) succeeded, \(failed) failed"
         case let .invalidBackupCSV(reason):
             "Invalid backup CSV: \(reason)"
+        case let .missingAppleScriptID(trackID):
+            "Missing AppleScript ID for track \(trackID)"
         }
     }
 }
@@ -130,7 +133,7 @@ public actor UndoCoordinator {
             return
         }
 
-        let writeID = await resolveWriteID(for: entry.trackID)
+        let writeID = try await resolveWriteID(for: entry.trackID)
 
         _ = try await scriptBridge.updateTrackProperty(
             trackID: writeID,
@@ -231,9 +234,12 @@ public actor UndoCoordinator {
 
     // MARK: ID Resolution
 
-    private func resolveWriteID(for trackID: String) async -> String {
+    private func resolveWriteID(for trackID: String) async throws -> String {
         guard let idMapper else { return trackID }
-        return await idMapper.appleScriptID(forMusicKitID: trackID) ?? trackID
+        guard let appleScriptID = await idMapper.appleScriptID(forMusicKitID: trackID) else {
+            throw UndoCoordinatorError.missingAppleScriptID(trackID: trackID)
+        }
+        return appleScriptID
     }
 
     // MARK: Backup CSV Revert
@@ -254,7 +260,7 @@ public actor UndoCoordinator {
             }
 
             do {
-                let writeID = await resolveWriteID(for: track.id)
+                let writeID = try await resolveWriteID(for: track.id)
                 _ = try await scriptBridge.updateTrackProperty(
                     trackID: writeID,
                     property: "year",
