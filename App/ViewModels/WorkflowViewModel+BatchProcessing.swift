@@ -60,17 +60,14 @@ extension WorkflowViewModel {
                     tracks: tracksByIndex
                 )
             } catch is CancellationError {
-                restorePreflightStatuses(preflightOutcome)
-                currentTrackID = nil
+                finishCancelledBatch(preflightOutcome: preflightOutcome)
                 phase = .configure
                 progress = nil
             } catch let batchError as BatchProcessorError {
-                restorePreflightStatuses(preflightOutcome)
-                currentTrackID = nil
+                preserveInterruptedPreflightOutcome(preflightOutcome)
                 handleBatchError(batchError)
             } catch {
-                restorePreflightStatuses(preflightOutcome)
-                currentTrackID = nil
+                preserveInterruptedPreflightOutcome(preflightOutcome)
                 phase = .error(error.localizedDescription)
                 progress = nil
             }
@@ -154,6 +151,31 @@ extension WorkflowViewModel {
     private func markBatchTrackFailed(_ track: Track, message: String) {
         trackStatuses[track.id] = .failed(message)
         failedCount = failedTracks.count
+    }
+
+    private func finishCancelledBatch(preflightOutcome: PendingEntryOutcome) {
+        trackStatuses = [:]
+        failedCount = 0
+        preserveInterruptedPreflightOutcome(preflightOutcome)
+    }
+
+    private func preserveInterruptedPreflightOutcome(_ outcome: PendingEntryOutcome) {
+        guard !outcome.isEmpty else {
+            currentTrackID = nil
+            return
+        }
+
+        restorePreflightStatuses(outcome)
+        completedEntries = outcome.completed
+        result = BatchUpdateResult(
+            entries: outcome.completed,
+            failedTrackIDs: outcome.failedTrackIDs,
+            errorDescriptions: outcome.errorDescriptions
+        )
+        processedCount = outcome.processedCount
+        failedCount = outcome.failedTrackIDs.count
+        totalCount = max(totalCount, outcome.processedCount)
+        currentTrackID = nil
     }
 
     private func restorePreflightStatuses(_ outcome: PendingEntryOutcome) {

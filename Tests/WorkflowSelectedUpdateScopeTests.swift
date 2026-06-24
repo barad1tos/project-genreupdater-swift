@@ -112,6 +112,9 @@ struct WorkflowSelectedUpdateScopeTests {
         }
         #expect(viewModel.progress == nil)
         #expect(viewModel.result == nil)
+        #expect(viewModel.trackStatuses.isEmpty)
+        #expect(viewModel.failedTracks.isEmpty)
+        #expect(viewModel.failedCount == 0)
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
@@ -388,6 +391,9 @@ struct WorkflowSelectedUpdateScopeTests {
         }
         #expect(viewModel.progress == nil)
         #expect(viewModel.result == nil)
+        #expect(viewModel.trackStatuses.isEmpty)
+        #expect(viewModel.failedTracks.isEmpty)
+        #expect(viewModel.failedCount == 0)
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 

@@ -144,9 +144,7 @@ extension WorkflowViewModel {
             guard isCurrentPendingVerificationRefresh(finalRefreshGeneration) else { return }
             finishPendingVerification(runOutcome)
         } catch is CancellationError {
-            currentTrackID = nil
-            phase = .configure
-            progress = nil
+            finishCancelledPendingVerification()
         } catch {
             currentTrackID = nil
             phase = .error(error.localizedDescription)
@@ -188,9 +186,7 @@ extension WorkflowViewModel {
             failedCount = outcome.failedTrackIDs.count
             return outcome
         } catch is CancellationError {
-            currentTrackID = nil
-            phase = .configure
-            progress = nil
+            finishCancelledPendingVerification()
             return PendingEntryOutcome()
         } catch {
             currentTrackID = nil
@@ -282,6 +278,14 @@ extension WorkflowViewModel {
         )
         currentTrackID = nil
         phase = .done
+        progress = nil
+    }
+
+    private func finishCancelledPendingVerification() {
+        trackStatuses = [:]
+        failedCount = 0
+        currentTrackID = nil
+        phase = .configure
         progress = nil
     }
 

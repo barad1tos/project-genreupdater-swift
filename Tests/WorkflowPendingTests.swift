@@ -145,80 +145,38 @@ struct WorkflowPendingTests {
 
     @Test("skips auto verification when maintenance preflight is not due")
     func skipsAutoVerificationWhenMaintenancePreflightIsNotDue() async throws {
-        let batchTrack = batchYearTrack()
-        let timestampUpdates = PendingTimestampUpdateCounter()
-        let pendingVerification = WorkflowPendingVerificationService(
-            entries: [randomAccessMemoriesPendingEntry()],
-            dueEntries: [randomAccessMemoriesPendingEntry()]
-        )
-        let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: pendingVerification,
-            additionalEnrichedTracks: [batchTrack],
-            additionalAppleScriptIDsByMusicKitID: ["batch-year": "as-batch-year"],
-            resolveIncrementalTracks: { tracks, _ in
-                tracks.filter { $0.id == batchTrack.id }
-            },
-            runMaintenancePreflight: { pendingNotDuePreflight() },
-            updateIncrementalRunTimestamp: {
-                await timestampUpdates.record()
-            }
-        )
-        let viewModel = fixture.viewModel
-        viewModel.mode = .fullLibrary
-        viewModel.previewOnly = false
-        viewModel.updateGenre = false
-        viewModel.updateYear = true
+        let run = makeRandomAccessLiveBatchRun(preflightState: .notDue)
+        let viewModel = run.viewModel
 
-        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks() + [batchTrack])
+        startRandomAccessLiveYearBatch(run)
 
         try await waitForWorkflowToLeaveScanning(viewModel)
-        let writes = await fixture.scriptClient.updatedProperties()
-        let removals = await pendingVerification.removedAlbums()
+        let writes = await run.fixture.scriptClient.updatedProperties()
+        let removals = await run.pendingVerification.removedAlbums()
 
         #expect(writes.map(\.trackID) == ["as-batch-year"])
         #expect(removals.isEmpty)
         #expect(viewModel.completedEntries.map(\.trackID) == ["batch-year"])
-        #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
-        #expect(await timestampUpdates.count() == 1)
+        #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 0)
+        #expect(await run.timestampUpdates.count() == 1)
     }
 
     @Test("skips auto verification when maintenance preflight is unavailable")
     func skipsAutoVerificationWhenMaintenancePreflightIsUnavailable() async throws {
-        let batchTrack = batchYearTrack()
-        let timestampUpdates = PendingTimestampUpdateCounter()
-        let pendingVerification = WorkflowPendingVerificationService(
-            entries: [randomAccessMemoriesPendingEntry()],
-            dueEntries: [randomAccessMemoriesPendingEntry()]
-        )
-        let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: pendingVerification,
-            additionalEnrichedTracks: [batchTrack],
-            additionalAppleScriptIDsByMusicKitID: ["batch-year": "as-batch-year"],
-            resolveIncrementalTracks: { tracks, _ in
-                tracks.filter { $0.id == batchTrack.id }
-            },
-            runMaintenancePreflight: { nil },
-            updateIncrementalRunTimestamp: {
-                await timestampUpdates.record()
-            }
-        )
-        let viewModel = fixture.viewModel
-        viewModel.mode = .fullLibrary
-        viewModel.previewOnly = false
-        viewModel.updateGenre = false
-        viewModel.updateYear = true
+        let run = makeRandomAccessLiveBatchRun(preflightState: .unavailable)
+        let viewModel = run.viewModel
 
-        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks() + [batchTrack])
+        startRandomAccessLiveYearBatch(run)
 
         try await waitForWorkflowToLeaveScanning(viewModel)
-        let writes = await fixture.scriptClient.updatedProperties()
-        let removals = await pendingVerification.removedAlbums()
+        let writes = await run.fixture.scriptClient.updatedProperties()
+        let removals = await run.pendingVerification.removedAlbums()
 
         #expect(writes.map(\.trackID) == ["as-batch-year"])
         #expect(removals.isEmpty)
         #expect(viewModel.completedEntries.map(\.trackID) == ["batch-year"])
-        #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
-        #expect(await timestampUpdates.count() == 1)
+        #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 0)
+        #expect(await run.timestampUpdates.count() == 1)
     }
 
     @Test("does not auto verify pending albums during reviewed dry run")
@@ -302,35 +260,20 @@ struct WorkflowPendingTests {
 
     @Test("preflight pending failures stop live batch and stay visible")
     func preflightPendingFailuresStopLiveBatchAndStayVisible() async throws {
-        let batchTrack = batchYearTrack()
         let pendingVerification = WorkflowPendingVerificationService(
             entries: [randomAccessMemoriesPendingEntry()],
             dueEntries: [randomAccessMemoriesPendingEntry()]
         )
-        let timestampUpdates = PendingTimestampUpdateCounter()
-        let fixture = makeRandomAccessWorkflowFixture(
+        let run = makeRandomAccessLiveBatchRun(
             pendingVerificationService: pendingVerification,
             failingWriteTrackIDs: ["as-ram-2"],
-            additionalEnrichedTracks: [batchTrack],
-            additionalAppleScriptIDsByMusicKitID: ["batch-year": "as-batch-year"],
-            resolveIncrementalTracks: { tracks, _ in
-                tracks.filter { $0.id == batchTrack.id }
-            },
-            runMaintenancePreflight: { pendingDuePreflight() },
-            updateIncrementalRunTimestamp: {
-                await timestampUpdates.record()
-            }
         )
-        let viewModel = fixture.viewModel
-        viewModel.mode = .fullLibrary
-        viewModel.previewOnly = false
-        viewModel.updateGenre = false
-        viewModel.updateYear = true
+        let viewModel = run.viewModel
 
-        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks() + [batchTrack])
+        startRandomAccessLiveYearBatch(run)
 
         try await waitForWorkflowToLeaveScanning(viewModel)
-        let writes = await fixture.scriptClient.updatedProperties()
+        let writes = await run.fixture.scriptClient.updatedProperties()
         let removals = await pendingVerification.removedAlbums()
 
         #expect(writes.map(\.trackID) == ["as-ram-1"])
@@ -340,39 +283,18 @@ struct WorkflowPendingTests {
         #expect(viewModel.failedTracks.contains { $0.id == "ram-2" })
         #expect(viewModel.failedCount == 1)
         #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
-        #expect(await timestampUpdates.count() == 0)
+        #expect(await run.timestampUpdates.count() == 0)
     }
 
     @Test("successful preflight entries stay visible after live batch")
     func successfulPreflightEntriesStayVisibleAfterLiveBatch() async throws {
-        let batchTrack = batchYearTrack()
-        let timestampUpdates = PendingTimestampUpdateCounter()
-        let pendingVerification = WorkflowPendingVerificationService(
-            entries: [randomAccessMemoriesPendingEntry()],
-            dueEntries: [randomAccessMemoriesPendingEntry()]
-        )
-        let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: pendingVerification,
-            additionalEnrichedTracks: [batchTrack],
-            additionalAppleScriptIDsByMusicKitID: ["batch-year": "as-batch-year"],
-            resolveIncrementalTracks: { tracks, _ in
-                tracks.filter { $0.id == batchTrack.id }
-            },
-            runMaintenancePreflight: { pendingDuePreflight() },
-            updateIncrementalRunTimestamp: {
-                await timestampUpdates.record()
-            }
-        )
-        let viewModel = fixture.viewModel
-        viewModel.mode = .fullLibrary
-        viewModel.previewOnly = false
-        viewModel.updateGenre = false
-        viewModel.updateYear = true
+        let run = makeRandomAccessLiveBatchRun()
+        let viewModel = run.viewModel
 
-        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks() + [batchTrack])
+        startRandomAccessLiveYearBatch(run)
 
         try await waitForWorkflowToLeaveScanning(viewModel)
-        let writes = await fixture.scriptClient.updatedProperties()
+        let writes = await run.fixture.scriptClient.updatedProperties()
         let completedTrackIDs = viewModel.completedEntries.map(\.trackID)
 
         guard case .done = viewModel.phase else {
@@ -391,42 +313,44 @@ struct WorkflowPendingTests {
         #expect(viewModel.failedCount == 0)
         #expect(viewModel.progress == nil)
         #expect(viewModel.pendingVerificationReportSummary == nil)
-        #expect(await pendingVerification.verificationTimestampUpdateCount() == 1)
-        #expect(await timestampUpdates.count() == 1)
+        #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 1)
+        #expect(await run.timestampUpdates.count() == 1)
+    }
+
+    @Test("successful preflight entries stay visible after live batch cancellation")
+    func successfulPreflightEntriesStayVisibleAfterLiveBatchCancellation() async throws {
+        let run = makeRandomAccessLiveBatchRun(cancellingWriteTrackIDs: ["as-batch-year"])
+        let viewModel = run.viewModel
+
+        startRandomAccessLiveYearBatch(run)
+
+        try await waitForWorkflowToReturnToConfigure(viewModel)
+        let writes = await run.fixture.scriptClient.updatedProperties()
+
+        #expect(writes.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(viewModel.completedEntries.map(\.trackID) == ["ram-1", "ram-2"])
+        #expect(viewModel.result?.entries.map(\.trackID) == ["ram-1", "ram-2"])
+        #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
+        #expect(viewModel.result?.errorDescriptions.isEmpty == true)
+        #expect(viewModel.trackStatuses["ram-1"] == .done)
+        #expect(viewModel.trackStatuses["ram-2"] == .done)
+        #expect(viewModel.trackStatuses["batch-year"] == nil)
+        #expect(viewModel.failedTracks.isEmpty)
+        #expect(viewModel.failedCount == 0)
+        #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 1)
+        #expect(await run.timestampUpdates.count() == 0)
     }
 
     @Test("no-op resolved preflight statuses stay visible after live batch")
     func noOpResolvedPreflightStatusesStayVisibleAfterLiveBatch() async throws {
-        let batchTrack = batchYearTrack()
-        let timestampUpdates = PendingTimestampUpdateCounter()
-        let pendingVerification = WorkflowPendingVerificationService(
-            entries: [randomAccessMemoriesPendingEntry()],
-            dueEntries: [randomAccessMemoriesPendingEntry()]
-        )
-        let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: pendingVerification,
-            randomAccessYear: 2013,
-            additionalEnrichedTracks: [batchTrack],
-            additionalAppleScriptIDsByMusicKitID: ["batch-year": "as-batch-year"],
-            resolveIncrementalTracks: { tracks, _ in
-                tracks.filter { $0.id == batchTrack.id }
-            },
-            runMaintenancePreflight: { pendingDuePreflight() },
-            updateIncrementalRunTimestamp: {
-                await timestampUpdates.record()
-            }
-        )
-        let viewModel = fixture.viewModel
-        viewModel.mode = .fullLibrary
-        viewModel.previewOnly = false
-        viewModel.updateGenre = false
-        viewModel.updateYear = true
+        let run = makeRandomAccessLiveBatchRun(randomAccessYear: 2013)
+        let viewModel = run.viewModel
 
-        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks(year: 2013) + [batchTrack])
+        startRandomAccessLiveYearBatch(run, randomAccessYear: 2013)
 
         try await waitForWorkflowToLeaveScanning(viewModel)
-        let writes = await fixture.scriptClient.updatedProperties()
-        let removals = await pendingVerification.removedAlbums()
+        let writes = await run.fixture.scriptClient.updatedProperties()
+        let removals = await run.pendingVerification.removedAlbums()
 
         guard case .done = viewModel.phase else {
             #expect(Bool(false), "no-op preflight and live batch should finish")
@@ -439,8 +363,8 @@ struct WorkflowPendingTests {
         #expect(viewModel.trackStatuses["ram-2"] == .done)
         #expect(viewModel.trackStatuses["batch-year"] == .done)
         #expect(viewModel.processedCount == 3)
-        #expect(await pendingVerification.verificationTimestampUpdateCount() == 1)
-        #expect(await timestampUpdates.count() == 1)
+        #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 1)
+        #expect(await run.timestampUpdates.count() == 1)
     }
 
     @Test("pending-only empty incremental preflight does not update run timestamp")
@@ -499,6 +423,9 @@ struct WorkflowPendingTests {
         #expect(writes.isEmpty)
         #expect(removals.isEmpty)
         #expect(viewModel.completedEntries.isEmpty)
+        #expect(viewModel.trackStatuses.isEmpty)
+        #expect(viewModel.failedTracks.isEmpty)
+        #expect(viewModel.failedCount == 0)
         #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
     }
 
@@ -636,6 +563,39 @@ struct WorkflowPendingTests {
         let viewModel: WorkflowViewModel
     }
 
+    private struct RandomAccessLiveBatchRun {
+        let fixture: WorkflowFixture
+        let viewModel: WorkflowViewModel
+        let pendingVerification: WorkflowPendingVerificationService
+        let batchTrack: Track
+        let timestampUpdates: PendingTimestampUpdateCounter
+    }
+
+    private enum PendingPreflightState {
+        case due
+        case notDue
+        case unavailable
+
+        var result: MaintenancePreflightResult? {
+            switch self {
+            case .due:
+                MaintenancePreflightResult(
+                    databaseVerification: nil,
+                    databaseVerificationError: nil,
+                    isPendingVerificationDue: true
+                )
+            case .notDue:
+                MaintenancePreflightResult(
+                    databaseVerification: nil,
+                    databaseVerificationError: nil,
+                    isPendingVerificationDue: false
+                )
+            case .unavailable:
+                nil
+            }
+        }
+    }
+
     private func expectPendingSummary(
         _ summary: UpdateRunPendingVerificationSummary,
         total: Int,
@@ -659,6 +619,57 @@ struct WorkflowPendingTests {
         let viewModel = fixture.viewModel
         viewModel.mode = .pendingVerification
         return RandomAccessPendingRun(pendingFixture: pendingFixture, viewModel: viewModel)
+    }
+
+    private func makeRandomAccessLiveBatchRun(
+        pendingVerificationService: WorkflowPendingVerificationService? = nil,
+        randomAccessYear: Int? = nil,
+        failingWriteTrackIDs: Set<String> = [],
+        cancellingWriteTrackIDs: Set<String> = [],
+        preflightState: PendingPreflightState = .due
+    ) -> RandomAccessLiveBatchRun {
+        let batchTrack = batchYearTrack()
+        let timestampUpdates = PendingTimestampUpdateCounter()
+        let pendingVerification = pendingVerificationService ?? WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry()]
+        )
+        let fixture = makeRandomAccessWorkflowFixture(
+            pendingVerificationService: pendingVerification,
+            randomAccessYear: randomAccessYear,
+            failingWriteTrackIDs: failingWriteTrackIDs,
+            cancellingWriteTrackIDs: cancellingWriteTrackIDs,
+            additionalEnrichedTracks: [batchTrack],
+            additionalAppleScriptIDsByMusicKitID: ["batch-year": "as-batch-year"],
+            resolveIncrementalTracks: { tracks, _ in
+                tracks.filter { $0.id == batchTrack.id }
+            },
+            runMaintenancePreflight: { preflightState.result },
+            updateIncrementalRunTimestamp: {
+                await timestampUpdates.record()
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+        return RandomAccessLiveBatchRun(
+            fixture: fixture,
+            viewModel: viewModel,
+            pendingVerification: pendingVerification,
+            batchTrack: batchTrack,
+            timestampUpdates: timestampUpdates
+        )
+    }
+
+    private func startRandomAccessLiveYearBatch(
+        _ run: RandomAccessLiveBatchRun,
+        randomAccessYear: Int? = nil
+    ) {
+        run.viewModel.start(
+            tracks: randomAccessMemoriesMusicKitTracks(year: randomAccessYear) + [run.batchTrack]
+        )
     }
 
     private func makeRandomAccessWorkflowFixture(
@@ -767,14 +778,6 @@ struct WorkflowPendingTests {
             databaseVerification: nil,
             databaseVerificationError: nil,
             isPendingVerificationDue: true
-        )
-    }
-
-    private func pendingNotDuePreflight() -> MaintenancePreflightResult {
-        MaintenancePreflightResult(
-            databaseVerification: nil,
-            databaseVerificationError: nil,
-            isPendingVerificationDue: false
         )
     }
 }
