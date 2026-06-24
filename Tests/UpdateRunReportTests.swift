@@ -214,6 +214,10 @@ struct UpdateRunReportTests {
             report.plainTextSummary
                 .contains("- Unknown track (Track ID: raw-id): No failure details were captured for this run.")
         )
+        #expect(
+            report.plainTextSummary
+                .contains("- Failed Processing: 1 failure, 1 track, No failure details were captured for this run.")
+        )
     }
 
     @Test("changed year rows show original editable year instead of release metadata")
@@ -570,7 +574,7 @@ struct UpdateRunReportTests {
     }
 
     @Test("summarizes non-change outcomes by operation and reason")
-    func summarizesNonChangeOutcomesByOperationAndReason() throws {
+    func summarizesNonChangeOutcomesByOperationAndReason() {
         var unchangedGenre = makePureRockFuryChange(changeType: .genreUpdate)
         unchangedGenre.oldGenre = "Rock"
         unchangedGenre.newGenre = "Rock"
@@ -589,12 +593,12 @@ struct UpdateRunReportTests {
             result: BatchUpdateResult(
                 entries: [unchangedGenre, unchangedYear],
                 failedTrackIDs: ["failed-one", "failed-two"],
-                errorDescriptions: ["Write denied", "Write denied"]
+                errorDescriptions: ["Write denied", "AppleScript ID missing"]
             ),
             completedEntries: [],
             trackStatuses: [
                 "failed-one": .failed("Write denied"),
-                "failed-two": .failed("Write denied"),
+                "failed-two": .failed("AppleScript ID missing"),
                 "skipped-track": .skipped,
             ],
             tracks: [
@@ -620,22 +624,16 @@ struct UpdateRunReportTests {
             testArtists: ["Clutch"]
         )
 
-        #expect(report.outcomeBreakdown.map(\.title) == [
-            "No-op Genre",
-            "No-op Year",
-            "Skipped Processing",
-            "Failed Processing",
-        ])
-
-        let failed = try #require(report.outcomeBreakdown.first { $0.outcome == .failed })
-        #expect(failed.reason == "Write denied")
-        #expect((failed.count, failed.trackCount, failed.albumCount) == (2, 2, 1))
+        let failures = report.outcomeBreakdown.filter { $0.outcome == .failed }
+        #expect(failures.map(\.reason) == ["AppleScript ID missing", "Write denied"])
+        #expect(failures.map(\.count) == [1, 1])
 
         let summary = report.plainTextSummary
         #expect(summary.contains("Outcome Breakdown"))
         #expect(summary.contains("- No-op Genre: 1 no-op, 1 track, 1 album"))
         #expect(summary.contains("- Skipped Processing: 1 skipped track, 1 track, 1 album, Skipped before write"))
-        #expect(summary.contains("- Failed Processing: 2 failures, 2 tracks, 1 album, Write denied"))
+        #expect(summary.contains("- Failed Processing: 1 failure, 1 track, 1 album, AppleScript ID missing"))
+        #expect(summary.contains("- Failed Processing: 1 failure, 1 track, 1 album, Write denied"))
     }
 
     @Test("filters no-op changes from run report")

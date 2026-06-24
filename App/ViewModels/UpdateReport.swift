@@ -145,7 +145,7 @@ extension UpdateRunReport {
         guard !skippedTrackIDs.isEmpty else { return [] }
 
         let albumCount = Set(skippedTrackIDs.compactMap { trackID in
-            trackLookup[trackID].map(albumIdentity(for:))
+            trackLookup[trackID].map { albumIdentity(for: $0) }
         }).count
         return [
             UpdateRunOutcomeBreakdown(
@@ -170,7 +170,9 @@ extension UpdateRunReport {
                     reason: message,
                     count: failures.count,
                     trackCount: Set(failures.map(\.id)).count,
-                    albumCount: Set(failures.map { UpdateRunAlbumIdentity(artist: $0.artist, album: $0.album) }).count
+                    albumCount: Set(failures.filter(\.hasKnownTrack).map {
+                        UpdateRunAlbumIdentity(artist: $0.artist, album: $0.album)
+                    }).count
                 )
             }
     }
