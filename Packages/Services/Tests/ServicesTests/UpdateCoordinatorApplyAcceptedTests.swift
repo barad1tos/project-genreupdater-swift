@@ -205,6 +205,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(batches[0].map(\.property) == ["genre", "year"])
         #expect(written.isEmpty)
         #expect(result.entries.isEmpty)
+        #expect(result.noOpEntries.map(\.changeType) == [.genreUpdate, .yearUpdate])
         #expect(result.failedTrackIDs.isEmpty)
         #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
         #expect(await fixture.cache.getCachedAPIResult(
@@ -238,6 +239,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(batches[0].map(\.property) == ["genre", "year"])
         #expect(written.isEmpty)
         #expect(result.entries.isEmpty)
+        #expect(result.noOpEntries.map(\.changeType) == [.genreUpdate, .yearUpdate])
         #expect(result.failedTrackIDs.isEmpty)
     }
 
@@ -317,6 +319,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
         let written = await fixture.bridge.writtenProperties
         #expect(written.map(\.property) == ["year"])
         #expect(result.entries.isEmpty)
+        #expect(result.noOpEntries.map(\.changeType) == [.yearUpdate])
         #expect(result.failedTrackIDs.isEmpty)
         #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
         #expect(await fixture.cache.getCachedAPIResult(
@@ -540,6 +543,43 @@ struct UpdateCoordinatorApplyAcceptedTests {
 
         let written = await fixture.bridge.writtenProperties
         #expect(written.isEmpty)
+    }
+
+    @Test("Reviewed no-op plus failure returns partial result")
+    func reviewedNoOpPlusFailureReturnsPartialResult() async throws {
+        let fixture = await makeCoordinator()
+        await fixture.bridge.setSingleWriteResult(.noChange)
+        await fixture.bridge.setFailingWriteTrackIDs(["MK2"])
+        let firstTrack = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        let secondTrack = makeEditableTrack(id: "MK2", genre: "Rock", year: 1998)
+        let proposals = [
+            ProposedChange(
+                track: firstTrack,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz"
+            ),
+            ProposedChange(
+                track: secondTrack,
+                changeType: .yearUpdate,
+                oldValue: "1998",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz"
+            ),
+        ]
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        #expect(result.entries.isEmpty)
+        #expect(result.noOpEntries.map(\.trackID) == ["MK1"])
+        #expect(result.failedTrackIDs == ["MK2"])
+        #expect(result.hasPartialFailures)
     }
 
     @Test("Reviewed unavailable changes fail without writing")

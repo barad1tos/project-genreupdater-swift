@@ -30,4 +30,39 @@ extension UpdateCoordinator {
 
         return entry
     }
+
+    static func noOpLogEntry(_ change: ProposedChange) -> ChangeLogEntry {
+        var entry = ChangeLogEntry(
+            changeType: change.changeType,
+            trackID: change.track.id,
+            artist: change.track.artist,
+            trackName: change.track.name,
+            albumName: change.track.album
+        )
+
+        switch change.changeType {
+        case .genreUpdate:
+            let value = change.newValue ?? change.oldValue ?? change.track.genre
+            entry.oldGenre = value
+            entry.newGenre = value
+        case .yearUpdate, .yearRevert:
+            let value = (change.newValue ?? change.oldValue).flatMap(Int.init) ?? change.track.year
+            entry.oldYear = value
+            entry.newYear = value
+        case .trackCleaning:
+            let value = change.newValue ?? change.oldValue ?? change.track.name
+            entry.oldTrackName = value
+            entry.newTrackName = value
+        case .albumCleaning:
+            let value = change.newValue ?? change.oldValue ?? change.track.album
+            entry.oldAlbumName = value
+            entry.newAlbumName = value
+        case .artistRename:
+            let value = change.newValue ?? change.oldValue ?? change.track.artist
+            entry.oldArtist = value
+            entry.newArtist = value
+        }
+
+        return entry
+    }
 }

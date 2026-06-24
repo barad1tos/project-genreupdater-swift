@@ -3,21 +3,24 @@ import Core
 /// Result of a multi-track update, exposing both successes and failures.
 public struct BatchUpdateResult: Sendable {
     public let entries: [ChangeLogEntry]
+    public let noOpEntries: [ChangeLogEntry]
     public let failedTrackIDs: [String]
     public let errorDescriptions: [String]
 
     public init(
         entries: [ChangeLogEntry],
+        noOpEntries: [ChangeLogEntry] = [],
         failedTrackIDs: [String],
         errorDescriptions: [String]
     ) {
         self.entries = entries
+        self.noOpEntries = noOpEntries
         self.failedTrackIDs = failedTrackIDs
         self.errorDescriptions = errorDescriptions
     }
 
     public var hasPartialFailures: Bool {
-        !failedTrackIDs.isEmpty && !entries.isEmpty
+        !failedTrackIDs.isEmpty && (!entries.isEmpty || !noOpEntries.isEmpty)
     }
 }
 

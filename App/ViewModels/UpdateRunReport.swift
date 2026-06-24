@@ -37,7 +37,11 @@ struct UpdateRunReport: Equatable {
     ) {
         let allEntries = result?.entries ?? completedEntries
         let entries = allEntries.filter(Self.isRealChange)
-        let noOpEntries = allEntries.filter { !Self.isRealChange($0) }
+        let noOpEntries = if let result {
+            result.noOpEntries + result.entries.filter { !Self.isRealChange($0) }
+        } else {
+            completedEntries.filter { !Self.isRealChange($0) }
+        }
         let trackLookup = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
         let failureItems = Self.makeFailures(
             result: result,
@@ -322,7 +326,8 @@ struct UpdateRunReport: Equatable {
             }
         let missingFailureRows = failures
             .filter { failure in
-                trackLookup[failure.id] == nil
+                failure.hasKnownTrack
+                    && trackLookup[failure.id] == nil
                     && UpdateRunAlbumIdentity(artist: failure.artist, album: failure.album) == key
             }
             .map { failure in

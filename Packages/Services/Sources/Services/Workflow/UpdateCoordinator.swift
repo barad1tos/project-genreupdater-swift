@@ -461,7 +461,7 @@ public actor UpdateCoordinator {
         let signpostState = AppSignpost.batchProcessing.beginInterval("updateTracks")
         defer { AppSignpost.batchProcessing.endInterval("updateTracks", signpostState) }
 
-        var entries: [ChangeLogEntry] = []
+        var entries: [ChangeLogEntry] = [], noOpEntries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
         let trackProviders = await makeUpdateTrackProviders(
@@ -472,13 +472,14 @@ public actor UpdateCoordinator {
 
         for (index, track) in tracks.enumerated() {
             do {
-                let trackEntries = try await applyGeneratedAcceptedChanges(
+                let trackOutcome = try await applyGeneratedAcceptedChanges(
                     for: track,
                     options: options,
                     albumTracksProvider: trackProviders.album,
                     artistTracksProvider: trackProviders.artist
                 )
-                entries.append(contentsOf: trackEntries)
+                entries.append(contentsOf: trackOutcome.entries)
+                noOpEntries.append(contentsOf: trackOutcome.noOpEntries)
             } catch is CancellationError {
                 throw CancellationError()
             } catch let error as UpdateCoordinatorError {
@@ -510,7 +511,7 @@ public actor UpdateCoordinator {
 
         Self.reportUpdateComplete(total: tracks.count, progressHandler: progressHandler)
 
-        if !errorDescriptions.isEmpty, entries.isEmpty {
+        if !errorDescriptions.isEmpty, entries.isEmpty, noOpEntries.isEmpty {
             throw UpdateCoordinatorError.allTracksFailed(
                 count: errorDescriptions.count,
                 errorDescriptions: errorDescriptions
@@ -519,6 +520,7 @@ public actor UpdateCoordinator {
 
         return BatchUpdateResult(
             entries: entries,
+            noOpEntries: noOpEntries,
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions
         )
@@ -571,7 +573,7 @@ public actor UpdateCoordinator {
         options: UpdateOptions,
         albumTracksProvider: @Sendable (Track) -> [Track],
         artistTracksProvider: @Sendable (Track) -> [Track]
-    ) async throws -> [ChangeLogEntry] {
+    ) async throws -> AppliedChangeEntries {
         let albumTracksWithMutationMetadata = await availableTracksWithMutationMetadata(
             albumTracksProvider(track)
         )
@@ -585,17 +587,22 @@ public actor UpdateCoordinator {
         )
 
         let acceptedChanges = changes.filter(\.isAccepted)
-        if let entries = try await applyChangesAsBatchIfPossible(acceptedChanges) {
-            return entries
+        if let applied = try await applyChangesAsBatchIfPossible(acceptedChanges) {
+            return applied
         }
 
         var entries: [ChangeLogEntry] = []
+        var noOpEntries: [ChangeLogEntry] = []
         for change in acceptedChanges {
-            if let entry = try await applyChange(change) {
+            let outcome = try await applyChangeOutcome(change)
+            if let entry = outcome.entry {
                 entries.append(entry)
             }
+            if let noOpEntry = outcome.noOpEntry {
+                noOpEntries.append(noOpEntry)
+            }
         }
-        return entries
+        return (entries, noOpEntries)
     }
 
     private static func albumTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
@@ -646,18 +653,20 @@ public actor UpdateCoordinator {
         }
 
         var entries: [ChangeLogEntry] = []
+        var noOpEntries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
 
         var index = 0
         while index < accepted.count {
             let changeGroup = reviewedChangeGroup(in: accepted, startingAt: index)
-            let groupEntries = try await applyReviewedChangeGroup(
+            let groupOutcome = try await applyReviewedChangeGroup(
                 changeGroup,
                 failedTrackIDs: &failedTrackIDs,
                 errorDescriptions: &errorDescriptions
             )
-            entries.append(contentsOf: groupEntries)
+            entries.append(contentsOf: groupOutcome.entries)
+            noOpEntries.append(contentsOf: groupOutcome.noOpEntries)
 
             for progressOffset in changeGroup.indices {
                 progressHandler(ProgressUpdate(
@@ -675,7 +684,7 @@ public actor UpdateCoordinator {
             total: accepted.count
         ))
 
-        if !errorDescriptions.isEmpty, entries.isEmpty {
+        if !errorDescriptions.isEmpty, entries.isEmpty, noOpEntries.isEmpty {
             throw UpdateCoordinatorError.allTracksFailed(
                 count: errorDescriptions.count,
                 errorDescriptions: errorDescriptions
@@ -684,6 +693,7 @@ public actor UpdateCoordinator {
 
         return BatchUpdateResult(
             entries: entries,
+            noOpEntries: noOpEntries,
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions
         )

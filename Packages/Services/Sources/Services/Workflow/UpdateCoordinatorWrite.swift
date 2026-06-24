@@ -9,6 +9,9 @@ private struct PreparedAppleScriptWrite {
 }
 
 extension UpdateCoordinator {
+    typealias AppliedChangeEntries = (entries: [ChangeLogEntry], noOpEntries: [ChangeLogEntry])
+    typealias AppliedChangeOutcome = (entry: ChangeLogEntry?, noOpEntry: ChangeLogEntry?)
+
     func consecutiveChangesForSameTrack(
         in changes: [ProposedChange],
         startingAt startIndex: Int
@@ -58,16 +61,21 @@ extension UpdateCoordinator {
         _ changes: [ProposedChange],
         failedTrackIDs: inout [String],
         errorDescriptions: inout [String]
-    ) async throws -> [ChangeLogEntry] {
-        if let entries = try await applyChangesAsBatchIfPossible(changes) {
-            return entries
+    ) async throws -> AppliedChangeEntries {
+        if let applied = try await applyChangesAsBatchIfPossible(changes) {
+            return applied
         }
 
         var entries: [ChangeLogEntry] = []
+        var noOpEntries: [ChangeLogEntry] = []
         for change in changes {
             do {
-                if let entry = try await applyChange(change) {
+                let outcome = try await applyChangeOutcome(change)
+                if let entry = outcome.entry {
                     entries.append(entry)
+                }
+                if let noOpEntry = outcome.noOpEntry {
+                    noOpEntries.append(noOpEntry)
                 }
             } catch let error as UpdateCoordinatorError {
                 if !recordKnownWorkflowFailure(
@@ -95,10 +103,10 @@ extension UpdateCoordinator {
                 )
             }
         }
-        return entries
+        return (entries, noOpEntries)
     }
 
-    func applyChangesAsBatchIfPossible(_ changes: [ProposedChange]) async throws -> [ChangeLogEntry]? {
+    func applyChangesAsBatchIfPossible(_ changes: [ProposedChange]) async throws -> AppliedChangeEntries? {
         guard runtimeConfiguration.areBatchUpdatesEnabled,
               changes.count > 1,
               changes.count <= runtimeConfiguration.maxBatchUpdateSize
@@ -139,6 +147,7 @@ extension UpdateCoordinator {
         }
 
         var entries: [ChangeLogEntry] = []
+        var noOpEntries: [ChangeLogEntry] = []
         for preparedWrite in preparedWrites {
             let currentValue = currentTracksByID[preparedWrite.trackID].flatMap { currentTrack in
                 Self.value(forAppleScriptProperty: preparedWrite.property, in: currentTrack)
@@ -149,13 +158,14 @@ extension UpdateCoordinator {
                     .info(
                         "Skipped applied-change record for verified batch no-op \(preparedWrite.change.changeType.rawValue, privacy: .public) on track \(preparedWrite.change.track.id, privacy: .private)"
                     )
+                noOpEntries.append(Self.noOpLogEntry(preparedWrite.change))
                 continue
             }
 
             let entry = await recordAppliedChange(preparedWrite.change)
             entries.append(entry)
         }
-        return entries
+        return (entries, noOpEntries)
     }
 
     private func performVerifiedBatchWrite(
@@ -215,8 +225,12 @@ extension UpdateCoordinator {
 
     @discardableResult
     func applyChange(_ change: ProposedChange) async throws -> ChangeLogEntry? {
+        try await applyChangeOutcome(change).entry
+    }
+
+    func applyChangeOutcome(_ change: ProposedChange) async throws -> AppliedChangeOutcome {
         guard let preparedWrite = try await prepareAppleScriptWrite(for: change) else {
-            return nil
+            return (nil, nil)
         }
 
         let writeResult: AppleScriptWriteResult
@@ -242,10 +256,10 @@ extension UpdateCoordinator {
                 .info(
                     "Skipped applied-change record for no-op \(change.changeType.rawValue, privacy: .public) on track \(change.track.id, privacy: .private)"
                 )
-            return nil
+            return (nil, Self.noOpLogEntry(change))
         }
 
-        return await recordAppliedChange(change)
+        return await (recordAppliedChange(change), nil)
     }
 
     private func prepareAppleScriptWrite(for change: ProposedChange) async throws -> PreparedAppleScriptWrite? {
