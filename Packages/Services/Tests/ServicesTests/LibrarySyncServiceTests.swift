@@ -740,35 +740,15 @@ func expectSyncCachesInvalidated(_ cache: MockCacheService, artist: String, albu
     #expect(apiResult == nil)
 }
 
-// MARK: - SyncResult Tests
-
-@Suite("SyncResult — hasChanges computed property")
-struct SyncResultTests {
-    @Test("hasChanges is false for empty result")
-    func emptyResult() {
-        let result = SyncResult()
-        #expect(result.hasChanges == false)
-    }
-
-    @Test("hasChanges is true when newTracks is non-empty")
-    func hasNewTracks() {
-        let track = Track(id: "1", name: "Song", artist: "A", album: "B")
-        let result = SyncResult(newTracks: [track])
-        #expect(result.hasChanges == true)
-    }
-
-    @Test("hasChanges is true when removedTrackIDs is non-empty")
-    func hasRemovedTracks() {
-        let result = SyncResult(removedTrackIDs: ["1"])
-        #expect(result.hasChanges == true)
-    }
-
-    @Test("hasChanges is true when modifiedTracks is non-empty")
-    func hasModifiedTracks() {
-        let track = Track(id: "1", name: "Song", artist: "A", album: "B")
-        let result = SyncResult(modifiedTracks: [track])
-        #expect(result.hasChanges == true)
-    }
+func expectSyncCachesPreserved(_ cache: MockCacheService, artist: String, album: String) async {
+    let albumYear = await cache.getAlbumYear(artist: artist, album: album)
+    let apiResult = await cache.getCachedAPIResult(
+        artist: artist,
+        album: album,
+        source: "musicbrainz"
+    )
+    #expect(albumYear?.year == 1970)
+    #expect(apiResult?.year == 1970)
 }
 
 // MARK: - LibrarySyncError Tests

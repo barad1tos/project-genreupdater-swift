@@ -26,21 +26,29 @@ public struct SyncResult: Sendable {
     public let modifiedTracks: [Track]
     /// Tracks whose album lookup identity changed without a managed metadata delta.
     public let identityChangedTracks: [Track]
+    /// Tracks whose display metadata changed without managed metadata or album identity changes.
+    public let refreshedTracks: [Track]
     public let removedTrackIDs: [String]
 
     public var hasChanges: Bool {
-        !newTracks.isEmpty || !modifiedTracks.isEmpty || !identityChangedTracks.isEmpty || !removedTrackIDs.isEmpty
+        !newTracks.isEmpty
+            || !modifiedTracks.isEmpty
+            || !identityChangedTracks.isEmpty
+            || !refreshedTracks.isEmpty
+            || !removedTrackIDs.isEmpty
     }
 
     public init(
         newTracks: [Track] = [],
         modifiedTracks: [Track] = [],
         identityChangedTracks: [Track] = [],
+        refreshedTracks: [Track] = [],
         removedTrackIDs: [String] = []
     ) {
         self.newTracks = newTracks
         self.modifiedTracks = modifiedTracks
         self.identityChangedTracks = identityChangedTracks
+        self.refreshedTracks = refreshedTracks
         self.removedTrackIDs = removedTrackIDs
     }
 }
@@ -194,6 +202,7 @@ public actor LibrarySyncService {
         let commonIDs = libraryIDSet.intersection(storedIDSet)
         var modifiedTracks: [Track] = []
         var identityChangedTracks: [Track] = []
+        var refreshedTracks: [Track] = []
 
         if !commonIDs.isEmpty, try await shouldRefreshCommonTrackMetadata(force: forceMetadataRefresh) {
             let currentTracks = try await scriptBridge.fetchTracksByIDs(
@@ -207,6 +216,8 @@ public actor LibrarySyncService {
                     modifiedTracks.append(current)
                 } else if hasIdentityChanged(current: current, stored: stored) {
                     identityChangedTracks.append(current)
+                } else if hasDisplayMetadataChanged(current: current, stored: stored) {
+                    refreshedTracks.append(current)
                 }
             }
             try await updateForceScanDate()
@@ -216,6 +227,7 @@ public actor LibrarySyncService {
             newTracks: newTracks,
             modifiedTracks: modifiedTracks,
             identityChangedTracks: identityChangedTracks,
+            refreshedTracks: refreshedTracks,
             removedTrackIDs: removedIDs
         )
 
@@ -225,6 +237,7 @@ public actor LibrarySyncService {
                 Sync detected: \(result.newTracks.count, privacy: .public) new, \
                 \(result.modifiedTracks.count, privacy: .public) modified, \
                 \(result.identityChangedTracks.count, privacy: .public) identity changed, \
+                \(result.refreshedTracks.count, privacy: .public) refreshed, \
                 \(result.removedTrackIDs.count, privacy: .public) removed
                 """
             )
@@ -326,6 +339,7 @@ public actor LibrarySyncService {
                                 \(result.newTracks.count, privacy: .public) new, \
                                 \(result.modifiedTracks.count, privacy: .public) modified, \
                                 \(result.identityChangedTracks.count, privacy: .public) identity changed, \
+                                \(result.refreshedTracks.count, privacy: .public) refreshed, \
                                 \(result.removedTrackIDs.count, privacy: .public) removed
                                 """
                             )
@@ -356,6 +370,12 @@ public actor LibrarySyncService {
         TrackFingerprint.hasProcessingMetadataChanged(current: current, stored: stored)
     }
 
+    private func hasDisplayMetadataChanged(current: Track, stored: Track) -> Bool {
+        current.name != stored.name
+            || current.dateAdded != stored.dateAdded
+            || current.lastModified != stored.lastModified
+    }
+
     private func shouldRefreshCommonTrackMetadata(force: Bool) async throws -> Bool {
         if force { return true }
         guard runtimeConfiguration.forceMetadataScanIntervalDays > 0,
@@ -379,7 +399,8 @@ public actor LibrarySyncService {
     private func applyDetectedChanges(_ result: SyncResult) async throws {
         let storedTracks = try await trackStore.loadAllTracks()
         let storedByID = Dictionary(uniqueKeysWithValues: storedTracks.map { ($0.id, $0) })
-        let refreshedTracks = result.newTracks + result.modifiedTracks + result.identityChangedTracks
+        let refreshedTracks = result.newTracks + result.modifiedTracks + result.identityChangedTracks + result
+            .refreshedTracks
         if !refreshedTracks.isEmpty {
             try await trackStore.saveTracks(refreshedTracks)
         }
