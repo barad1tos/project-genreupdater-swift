@@ -130,6 +130,24 @@
     }
   },
   {
+    "id": "resolve_future_winner_clear_gap",
+    "description": "Future winner with a clear score gap remains selected but is not definitive",
+    "yearScores": {
+      "2028": [
+        100
+      ],
+      "2020": [
+        70
+      ]
+    },
+    "existingYear": null,
+    "expected": {
+      "year": 2028,
+      "isDefinitive": false,
+      "confidence": 100
+    }
+  },
+  {
     "id": "resolve_existing_year_far",
     "description": "Existing year too far from best (no boost)",
     "yearScores": {

@@ -445,6 +445,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             from: isUsingCanonicalYear ? canonicalRelease?.title ?? result.title : result.title,
             fallback: album
         )
+        let reissueTitle = Self.albumTitle(from: result.title, fallback: album)
         let candidate = ReleaseCandidate(
             artist: artist,
             album: albumTitle,
@@ -454,8 +455,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             status: .official,
             country: result.country?.lowercased(),
             isReissue: Self.isReissue(
-                formats: isUsingCanonicalYear ? [] : formats,
-                title: albumTitle
+                formats: formats,
+                title: reissueTitle
             ),
             genre: Self.genre(from: canonicalRelease, result: result)
         )
