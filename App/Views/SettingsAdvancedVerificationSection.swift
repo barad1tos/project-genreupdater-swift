@@ -1,6 +1,5 @@
 // SettingsAdvancedVerificationSection.swift — database and pending verification controls.
 
-import AppKit
 import Core
 import Services
 import SwiftUI
@@ -10,8 +9,6 @@ struct SettingsAdvancedVerificationSection: View {
 
     @State private var isVerifyingDatabase = false
     @State private var databaseVerificationStatus = ""
-    @State private var isExportingProblematicReport = false
-    @State private var problematicReportStatus = ""
 
     var body: some View {
         Section("Verification") {
@@ -60,24 +57,6 @@ struct SettingsAdvancedVerificationSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-
-            HStack(spacing: 12) {
-                Button {
-                    exportProblematicAlbumsReport()
-                } label: {
-                    Label(
-                        isExportingProblematicReport ? "Exporting" : "Export Problem Report",
-                        systemImage: "square.and.arrow.up"
-                    )
-                }
-                .disabled(isExportingProblematicReport || dependencies.pendingVerificationService == nil)
-
-                if !problematicReportStatus.isEmpty {
-                    Text(problematicReportStatus)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
         }
     }
 
@@ -114,31 +93,5 @@ struct SettingsAdvancedVerificationSection: View {
             return "Verified \(result.verifiedTrackCount) tracks"
         }
         return "Removed \(result.removedCount) stale tracks"
-    }
-
-    private func exportProblematicAlbumsReport() {
-        guard !isExportingProblematicReport else { return }
-        guard dependencies.pendingVerificationService != nil else {
-            problematicReportStatus = "Pending verification is still loading"
-            return
-        }
-
-        isExportingProblematicReport = true
-        problematicReportStatus = "Exporting report..."
-        Task {
-            do {
-                let export = try await dependencies.exportProblematicAlbumsReport()
-                await MainActor.run {
-                    problematicReportStatus = "Exported \(export.albumCount) albums"
-                    isExportingProblematicReport = false
-                    NSWorkspace.shared.activateFileViewerSelecting([export.reportURL])
-                }
-            } catch {
-                await MainActor.run {
-                    problematicReportStatus = "Export failed: \(error.localizedDescription)"
-                    isExportingProblematicReport = false
-                }
-            }
-        }
     }
 }

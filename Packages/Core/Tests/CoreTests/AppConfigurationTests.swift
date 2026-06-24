@@ -57,7 +57,6 @@ struct AppConfigurationTests {
         #expect(config.analytics.durationThresholds.mediumMax == 20)
         #expect(config.cleaning.remasterKeywords.count == 9)
         #expect(config.exceptions.trackCleaning.isEmpty)
-        #expect(config.artistRenamer.configPath == "artist-renames.yaml")
         #expect(config.artistRenamer.mappings.isEmpty)
         #expect(config.databaseVerification.autoVerifyDays == 7)
         #expect(config.databaseVerification.batchSize == 10)
@@ -117,7 +116,6 @@ struct AppConfigurationTests {
         #expect(decoded.analytics.maxEvents == original.analytics.maxEvents)
         #expect(decoded.cleaning.remasterKeywords == original.cleaning.remasterKeywords)
         #expect(decoded.databaseVerification.batchSize == original.databaseVerification.batchSize)
-        #expect(decoded.reporting.problematicAlbumsPath == original.reporting.problematicAlbumsPath)
         #expect(decoded.artistRenamer.mappings == original.artistRenamer.mappings)
         #expect(decoded.albumTypeDetection.soundtrackPatterns == original.albumTypeDetection.soundtrackPatterns)
         #expect(decoded.development.testArtists == original.development.testArtists)
@@ -149,7 +147,6 @@ struct AppConfigurationTests {
             ]
           },
           "artistRenamer": {
-            "config_path": "legacy-renames.yaml",
             "mappings": {
               "DK Energetyk": "ДК Енергетик"
             }
@@ -159,7 +156,6 @@ struct AppConfigurationTests {
         let json = Data(jsonString.utf8)
         let decoded = try JSONDecoder().decode(AppConfiguration.self, from: json)
 
-        #expect(decoded.paths.albumYearsCacheFile == "cache/album_years.csv")
         #expect(decoded.runtime.cacheTTLSeconds == 1800)
         #expect(decoded.runtime.maxRetries == 3)
         #expect(decoded.runtime.retryDelaySeconds == 1)
@@ -182,7 +178,6 @@ struct AppConfigurationTests {
         #expect(decoded.cleaning.trackCleaningExceptions == [
             TrackCleaningException(artist: "Rabbit Junk", album: "Xenospheres"),
         ])
-        #expect(decoded.artistRenamer.configPath == "legacy-renames.yaml")
         #expect(decoded.artistRenamer.mappings == ["DK Energetyk": "ДК Енергетик"])
         #expect(decoded.databaseVerification.autoVerifyDays == 7)
         #expect(decoded.reporting.changeDisplayMode == .compact)

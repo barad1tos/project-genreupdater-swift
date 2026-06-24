@@ -435,10 +435,6 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
         }
     }
 
-    func generateProblematicAlbumsReport(minAttempts _: Int, reportURL _: URL?) async throws -> Int {
-        0
-    }
-
     func shouldAutoVerify() async -> Bool {
         true
     }

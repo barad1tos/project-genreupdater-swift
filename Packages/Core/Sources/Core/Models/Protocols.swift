@@ -430,7 +430,6 @@ public protocol PendingVerificationService: Actor, Sendable {
     func getDuePendingAlbums() async -> [PendingAlbumEntry]
     func getPendingVerificationSnapshot() async -> (all: [PendingAlbumEntry], due: [PendingAlbumEntry])
     func getProblematicPendingAlbums(minAttempts: Int) async -> [ProblematicPendingAlbum]
-    func generateProblematicAlbumsReport(minAttempts: Int, reportURL: URL?) async throws -> Int
     func shouldAutoVerify() async -> Bool
     func updateVerificationTimestamp() async throws
 }

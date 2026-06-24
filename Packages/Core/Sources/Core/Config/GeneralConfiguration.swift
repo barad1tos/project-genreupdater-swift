@@ -12,7 +12,6 @@ public struct PathsConfig: Sendable, Codable {
     public var appleScriptsDirectory: String = "applescripts"
     public var logsBaseDirectory: String = Self.defaultLogsBaseDirectory
     public var apiCacheFile: String = "cache/cache.json"
-    public var albumYearsCacheFile: String = "cache/album_years.csv"
 
     public var effectiveLogsBaseDirectory: String {
         logsBaseDirectory == Self.legacyTemporaryLogsBaseDirectory
@@ -168,7 +167,6 @@ public struct DurationThresholdsConfig: Sendable, Codable {
 // MARK: - Reporting Configuration
 
 public struct ReportingConfig: Sendable, Codable {
-    public var problematicAlbumsPath: String = "reports/albums_without_year.csv"
     public var minAttemptsForReport: Double = 3
     public var changeDisplayMode: ChangeDisplayMode = .compact
 
@@ -186,8 +184,6 @@ public struct LoggingConfig: Sendable, Codable {
     public var maxRuns: Int = 3
     public var mainLogFile: String = "main/main.log"
     public var analyticsLogFile: String = "analytics/analytics.log"
-    public var csvOutputFile: String = "csv/track_list.csv"
-    public var changesReportFile: String = "csv/changes_report.csv"
     public var dryRunReportFile: String = "reports/dry_run_report.html"
     public var lastIncrementalRunFile: String = "last_incremental_run.log"
     public var pendingVerificationFile: String = "csv/pending_year_verification.csv"

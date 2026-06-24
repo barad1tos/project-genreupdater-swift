@@ -17,7 +17,7 @@ struct AppFeatureTests {
     @Test("WeekPass features require .weekPass tier")
     func weekPassFeatures() {
         let weekPassFeatures: [AppFeature] = [
-            .batchProcessing, .reportsCharts, .csvExport,
+            .batchProcessing, .reportsCharts,
             .artistAlbumCleaning, .advancedCache,
         ]
         for feature in weekPassFeatures {
@@ -30,16 +30,16 @@ struct AppFeatureTests {
         #expect(AppFeature.autoSync.minimumTier == .pro)
     }
 
-    @Test("Total feature count is 13")
+    @Test("Total feature count is 12")
     func featureCount() {
-        #expect(AppFeature.allCases.count == 13)
+        #expect(AppFeature.allCases.count == 12)
     }
 
-    @Test("Free tier count is 7, WeekPass 5, Pro 1")
+    @Test("Free tier count is 7, WeekPass 4, Pro 1")
     func tierDistribution() {
         let grouped = Dictionary(grouping: AppFeature.allCases, by: \.minimumTier)
         #expect(grouped[.free]?.count == 7)
-        #expect(grouped[.weekPass]?.count == 5)
+        #expect(grouped[.weekPass]?.count == 4)
         #expect(grouped[.pro]?.count == 1)
     }
 }

@@ -5,7 +5,7 @@
 // - Codable replaces Pydantic BaseModel (compiler-synthesized conformance)
 // - @AppStorage used in Views for persisted preferences
 // - Keychain for API keys (not config file)
-// - No YAML parsing needed — config stored as JSON in app container
+// - Config stored as JSON in app container
 // - Environment variable resolution not needed (GUI app, not CLI)
 // - Validation via Swift's type system + throwing init where needed
 
@@ -21,7 +21,7 @@ import Foundation
 /// - This struct → serialized as JSON in app container (detailed settings)
 ///
 /// Python CLI configuration values are represented as Codable Swift settings.
-/// Runtime secrets are stored in Keychain rather than imported as encrypted YAML.
+/// Runtime secrets are stored in Keychain.
 public struct AppConfiguration: Sendable, Codable {
     public var paths = PathsConfig()
     public var pythonSettings = PythonSettingsConfig()

@@ -23,7 +23,7 @@ struct FeatureGateAccessTests {
     func freeDeniedPaidFeatures() {
         let gate = FeatureGate(fixedTier: .free)
         let paidFeatures: [AppFeature] = [
-            .batchProcessing, .reportsCharts, .csvExport,
+            .batchProcessing, .reportsCharts,
             .artistAlbumCleaning, .advancedCache, .autoSync,
         ]
         for feature in paidFeatures {
@@ -37,7 +37,7 @@ struct FeatureGateAccessTests {
         let accessible: [AppFeature] = [
             .genreUpdate, .yearUpdate, .preview, .undo,
             .libraryBrowsing, .basicCaching, .reportsLog,
-            .batchProcessing, .reportsCharts, .csvExport,
+            .batchProcessing, .reportsCharts,
             .artistAlbumCleaning, .advancedCache,
         ]
         for feature in accessible {
@@ -51,7 +51,7 @@ struct FeatureGateAccessTests {
         #expect(!gate.canAccess(.autoSync))
     }
 
-    @Test("Pro tier can access all 13 features")
+    @Test("Pro tier can access all 12 features")
     func proAccessesAll() {
         let gate = FeatureGate(fixedTier: .pro)
         for feature in AppFeature.allCases {
@@ -173,24 +173,24 @@ struct FeatureGateTrackLimitTests {
 @Suite("FeatureGate — feature listing")
 @MainActor
 struct FeatureGateListingTests {
-    @Test("Free tier: 7 accessible, 6 locked")
+    @Test("Free tier: 7 accessible, 5 locked")
     func freeListings() {
         let gate = FeatureGate(fixedTier: .free)
         #expect(gate.accessibleFeatures().count == 7)
-        #expect(gate.lockedFeatures().count == 6)
+        #expect(gate.lockedFeatures().count == 5)
     }
 
-    @Test("WeekPass tier: 12 accessible, 1 locked")
+    @Test("WeekPass tier: 11 accessible, 1 locked")
     func weekPassListings() {
         let gate = FeatureGate(fixedTier: .weekPass)
-        #expect(gate.accessibleFeatures().count == 12)
+        #expect(gate.accessibleFeatures().count == 11)
         #expect(gate.lockedFeatures().count == 1)
     }
 
-    @Test("Pro tier: 13 accessible, 0 locked")
+    @Test("Pro tier: 12 accessible, 0 locked")
     func proListings() {
         let gate = FeatureGate(fixedTier: .pro)
-        #expect(gate.accessibleFeatures().count == 13)
+        #expect(gate.accessibleFeatures().count == 12)
         #expect(gate.lockedFeatures().isEmpty)
     }
 }

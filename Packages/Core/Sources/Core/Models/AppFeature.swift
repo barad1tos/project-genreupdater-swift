@@ -11,7 +11,6 @@ public enum AppFeature: String, CaseIterable, Sendable {
     case batchProcessing
     case reportsLog
     case reportsCharts
-    case csvExport
     case artistAlbumCleaning
     case advancedCache
     case autoSync
@@ -21,7 +20,7 @@ public enum AppFeature: String, CaseIterable, Sendable {
         case .genreUpdate, .yearUpdate, .preview, .undo,
              .libraryBrowsing, .basicCaching, .reportsLog:
             .free
-        case .batchProcessing, .reportsCharts, .csvExport,
+        case .batchProcessing, .reportsCharts,
              .artistAlbumCleaning, .advancedCache:
             .weekPass
         case .autoSync:

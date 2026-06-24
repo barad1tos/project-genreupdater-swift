@@ -53,7 +53,6 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
     nonisolated public let modelContainer: ModelContainer
 
     private let legacyStorageURL: URL?
-    private let defaultReportURL: URL
     private let verificationInterval: TimeInterval
     private let prereleaseRecheckDays: Int
     private let autoVerificationInterval: TimeInterval
@@ -78,10 +77,6 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
             path: configuration.logging.pendingVerificationFile,
             relativeTo: logsDirectory
         )
-        self.defaultReportURL = Self.resolvedURL(
-            path: configuration.reporting.problematicAlbumsPath,
-            relativeTo: logsDirectory
-        )
         let verificationDays = max(0, configuration.processing.pendingVerificationIntervalDays)
         let prereleaseRecheckDays = Self.resolvedPrereleaseRecheckDays(
             configuration.processing.prereleaseRecheckDays,
@@ -98,7 +93,6 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
     public init(
         modelContainer: ModelContainer,
         legacyStorageURL: URL? = nil,
-        problematicReportURL: URL,
         verificationIntervalDays: Int = 30,
         prereleaseRecheckDays: Int? = nil,
         autoVerifyDays: Int = 14,
@@ -109,7 +103,6 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
         self.modelContainer = modelContainer
 
         self.legacyStorageURL = legacyStorageURL
-        self.defaultReportURL = problematicReportURL
         let verificationDays = max(0, verificationIntervalDays)
         self.verificationInterval = TimeInterval(verificationDays) * 86400
         self.prereleaseRecheckDays = Self.resolvedPrereleaseRecheckDays(
@@ -231,23 +224,6 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
             log.warning("Failed to load problematic pending albums: \(error.localizedDescription, privacy: .public)")
             return []
         }
-    }
-
-    @discardableResult
-    public func generateProblematicAlbumsReport(
-        minAttempts: Int = 3,
-        reportURL: URL? = nil
-    ) async throws -> Int {
-        ensureInitialized()
-
-        let now = currentDate()
-        let rows = try loadProblematicPendingAlbums(minAttempts: minAttempts, now: now)
-
-        let destinationURL = reportURL ?? defaultReportURL
-        try ensureDirectoryExists(for: destinationURL)
-        let csv = Self.problematicAlbumsCSV(rows: rows)
-        try Data(csv.utf8).write(to: destinationURL, options: .atomic)
-        return rows.count
     }
 
     public func shouldAutoVerify() async -> Bool {
@@ -548,13 +524,6 @@ extension SwiftDataPendingVerificationService {
         )
     }
 
-    private func ensureDirectoryExists(for url: URL) throws {
-        let directory = url.deletingLastPathComponent()
-        if !fileManager.fileExists(atPath: directory.path) {
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
-    }
-
     private func albumKey(artist: String, album: String) -> String {
         let rawKey = "\(Self.normalizedKeyPart(artist))|\(Self.normalizedKeyPart(album))"
         let digest = SHA256.hash(data: Data(rawKey.utf8))
@@ -687,39 +656,5 @@ extension SwiftDataPendingVerificationService {
             return URL(fileURLWithPath: NSTemporaryDirectory())
         }
         return appSupport.appendingPathComponent("GenreUpdater", isDirectory: true)
-    }
-
-    private static func problematicAlbumsCSV(rows: [ProblematicPendingAlbum]) -> String {
-        var lines = [
-            "Artist,Album,First Attempt,Last Attempt,Total Attempts,Days Since First Attempt,Status",
-        ]
-        lines.append(contentsOf: rows.map { row in
-            [
-                row.entry.artist,
-                row.entry.album,
-                dateOnly(row.firstAttempt),
-                dateOnly(row.lastAttempt),
-                String(row.totalAttempts),
-                String(row.daysSinceFirstAttempt),
-                row.status,
-            ].map(escapeCSVField).joined(separator: ",")
-        })
-        return lines.joined(separator: "\r\n")
-    }
-
-    private static func dateOnly(_ date: Date) -> String {
-        date.formatted(.iso8601.year().month().day())
-    }
-
-    private static func escapeCSVField(_ value: String) -> String {
-        let needsQuoting = value.contains(",")
-            || value.contains("\"")
-            || value.contains("\n")
-            || value.contains("\r")
-
-        guard needsQuoting else { return value }
-
-        let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
-        return "\"\(escaped)\""
     }
 }

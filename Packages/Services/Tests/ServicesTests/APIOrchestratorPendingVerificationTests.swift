@@ -427,10 +427,6 @@ actor RecordingPendingVerificationService: PendingVerificationService {
         entries
     }
 
-    func generateProblematicAlbumsReport(minAttempts _: Int, reportURL _: URL?) async throws -> Int {
-        0
-    }
-
     func shouldAutoVerify() async -> Bool {
         false
     }

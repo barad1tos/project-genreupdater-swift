@@ -84,31 +84,4 @@ public struct ChangePreviewPipeline: Sendable {
     public func toggle(_ change: inout ProposedChange) {
         change.isAccepted.toggle()
     }
-
-    /// Export accepted changes to CSV format (Pro feature).
-    public func exportCSV(_ changes: [ProposedChange]) -> String {
-        var lines = ["Track ID,Artist,Album,Track,Change Type,Old Value,New Value,Confidence,Source"]
-        let accepted = changes.filter(\.isAccepted)
-        for change in accepted {
-            let row = [
-                escapeCSV(change.track.id),
-                escapeCSV(change.track.artist),
-                escapeCSV(change.track.album),
-                escapeCSV(change.track.name),
-                escapeCSV(change.changeType.rawValue),
-                escapeCSV(change.oldValue ?? ""),
-                escapeCSV(change.newValue ?? ""),
-                String(change.confidence),
-                escapeCSV(change.source),
-            ]
-            lines.append(row.joined(separator: ","))
-        }
-        return lines.joined(separator: "\n") + "\n"
-    }
-
-    private func escapeCSV(_ value: String) -> String {
-        let needsQuoting = value.contains(",") || value.contains("\"") || value.contains("\n")
-        guard needsQuoting else { return value }
-        return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
-    }
 }

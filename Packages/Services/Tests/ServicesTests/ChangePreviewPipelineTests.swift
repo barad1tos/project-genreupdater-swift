@@ -123,39 +123,4 @@ struct ChangePreviewPipelineTests {
         pipeline.toggle(&change)
         #expect(change.isAccepted)
     }
-
-    @Test("CSV export includes header and accepted rows only")
-    func exportCSV() {
-        let changes = [
-            makeChange(confidence: 80, isAccepted: true),
-            makeChange(confidence: 50, isAccepted: false),
-        ]
-        let csv = pipeline.exportCSV(changes)
-        #expect(csv.hasSuffix("\n"))
-        let lines = csv.trimmingCharacters(in: .newlines).components(separatedBy: "\n")
-        #expect(lines.count == 2) // header + 1 accepted row
-        #expect(lines[0].hasPrefix("Track ID,"))
-    }
-
-    @Test("CSV export escapes commas and quotes")
-    func exportCSVEscaping() {
-        let track = makeTrack(artist: "AC/DC", album: "Back, In Black")
-        let change = makeChange(
-            track: track,
-            oldValue: "Hard \"Rock\"",
-            newValue: "Rock"
-        )
-        let csv = pipeline.exportCSV([change])
-        let lines = csv.trimmingCharacters(in: .newlines).components(separatedBy: "\n")
-        #expect(lines.count == 2)
-        #expect(lines[1].contains("\"Back, In Black\""))
-    }
-
-    @Test("CSV export with no accepted changes returns header only")
-    func exportCSVEmpty() {
-        let changes = [makeChange(isAccepted: false)]
-        let csv = pipeline.exportCSV(changes)
-        let lines = csv.trimmingCharacters(in: .newlines).components(separatedBy: "\n")
-        #expect(lines.count == 1) // header only
-    }
 }
