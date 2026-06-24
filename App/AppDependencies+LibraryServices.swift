@@ -31,30 +31,44 @@ extension AppDependencies {
         scopedArtists: [String]? = nil,
         mergeExisting: Bool = false
     ) async -> Bool {
-        guard let mapper = trackIDMapper,
-              let bridge = applescriptBridge
-        else { return false }
-
         do {
-            let mappedCount = try await mapper.refreshMapping(
+            let mappedCount = try await refreshTrackIDMappingOrThrow(
                 musicKitTracks: musicKitTracks,
-                appleScriptClient: bridge,
-                batchSize: config.applescript.batchProcessing.idsBatchSize,
-                allTrackIDsTimeout: config.applescript.timeouts.fullLibraryFetch,
-                tracksByIDsTimeout: config.applescript.timeouts.idsBatchFetch,
-                testArtists: scopedArtists ?? config.development.testArtists,
+                scopedArtists: scopedArtists,
                 mergeExisting: mergeExisting
             )
-            libraryServicesLog
-                .info(
-                    "Track ID mapping refreshed: \(mappedCount, privacy: .public)/\(musicKitTracks.count, privacy: .public)"
-                )
             return mappedCount > 0 || musicKitTracks.isEmpty
         } catch {
             libraryServicesLog
                 .error("Track ID mapping refresh failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
+    }
+
+    @discardableResult
+    func refreshTrackIDMappingOrThrow(
+        musicKitTracks: [Track],
+        scopedArtists: [String]? = nil,
+        mergeExisting: Bool = false
+    ) async throws -> Int {
+        guard let mapper = trackIDMapper,
+              let bridge = applescriptBridge
+        else { return 0 }
+
+        let mappedCount = try await mapper.refreshMapping(
+            musicKitTracks: musicKitTracks,
+            appleScriptClient: bridge,
+            batchSize: config.applescript.batchProcessing.idsBatchSize,
+            allTrackIDsTimeout: config.applescript.timeouts.fullLibraryFetch,
+            tracksByIDsTimeout: config.applescript.timeouts.idsBatchFetch,
+            testArtists: scopedArtists ?? config.development.testArtists,
+            mergeExisting: mergeExisting
+        )
+        libraryServicesLog
+            .info(
+                "Track ID mapping refreshed: \(mappedCount, privacy: .public)/\(musicKitTracks.count, privacy: .public)"
+            )
+        return mappedCount
     }
 
     func loadLibrarySnapshot() async -> [Track]? {

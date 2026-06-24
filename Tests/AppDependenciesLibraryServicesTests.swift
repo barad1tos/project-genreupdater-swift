@@ -79,8 +79,8 @@ struct AppDependenciesLibraryServicesTests {
         )
     }
 
-    @Test("Reports backup import refreshes mapping for requested artist")
-    func reportsBackupImportRefreshesMappingForRequestedArtist() throws {
+    @Test("Reports backup import propagates mapping refresh errors")
+    func reportsBackupImportPropagatesMappingRefreshErrors() throws {
         let source = try String(contentsOf: reportsViewSourceURL(), encoding: .utf8)
         let compactSource = source.replacingOccurrences(
             of: "\\s+",
@@ -91,7 +91,7 @@ struct AppDependenciesLibraryServicesTests {
         #expect(
             compactSource.contains(
                 [
-                    "await dependencies.refreshTrackIDMapping(",
+                    "try await dependencies.refreshTrackIDMappingOrThrow(",
                     "musicKitTracks: tracks,",
                     "scopedArtists: [artist],",
                     "mergeExisting: true",

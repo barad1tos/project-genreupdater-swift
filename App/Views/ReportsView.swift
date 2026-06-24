@@ -180,7 +180,7 @@ struct ReportsView: View {
                 artist: artist,
                 ignoreTestFilter: true
             )
-            _ = await dependencies.refreshTrackIDMapping(
+            try await dependencies.refreshTrackIDMappingOrThrow(
                 musicKitTracks: tracks,
                 scopedArtists: [artist],
                 mergeExisting: true
