@@ -264,9 +264,9 @@ extension UpdateCoordinator {
         errorDescriptions: inout [String]
     ) {
         recordUnexpectedWorkflowFailure(
-            trackID: preparedWrite.trackID,
+            trackID: preparedWrite.change.track.id,
             error: UpdateCoordinatorError.writeFailed(
-                trackID: preparedWrite.trackID,
+                trackID: preparedWrite.change.track.id,
                 property: preparedWrite.property,
                 reason: "Batch write partially applied before this property was verified"
             ),

@@ -271,17 +271,24 @@ struct UpdateCoordinatorApplyAcceptedTests {
 
     @Test("Partially applied batch does not fall back to no-op reviewed writes")
     func partiallyAppliedBatchDoesNotFallBackToNoOpReviewedWrites() async throws {
+        let mapper = TrackIDMapper()
+        let musicKitTrack = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        let appleScriptTrack = makeEditableTrack(id: "AS1", genre: "Rock", year: 1999)
+        await mapper.refreshMapping(
+            musicKitTracks: [musicKitTrack],
+            appleScriptTracks: [appleScriptTrack]
+        )
         let fixture = await makeCoordinator(
             runtimeConfiguration: UpdateRuntimeConfiguration(
                 areBatchUpdatesEnabled: true,
                 maxBatchUpdateSize: 5
-            )
+            ),
+            idMapper: mapper
         )
         await fixture.bridge.setBatchMutationLimit(1)
         await fixture.bridge.setSingleWriteResult(.noChange)
-        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
-        await fixture.bridge.setFetchedTracks([track])
-        let proposals = acceptedGenreAndYearProposals(for: track)
+        await fixture.bridge.setFetchedTracks([appleScriptTrack])
+        let proposals = acceptedGenreAndYearProposals(for: musicKitTrack)
 
         let result = try await fixture.coordinator.applyAcceptedChanges(
             proposals,
@@ -291,9 +298,13 @@ struct UpdateCoordinatorApplyAcceptedTests {
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
+        #expect(batches.first?.map(\.trackID) == ["AS1", "AS1"])
         #expect(written.isEmpty)
         #expect(result.entries.map(\.changeType) == [.genreUpdate])
+        #expect(result.entries.map(\.trackID) == ["MK1"])
         #expect(result.failedTrackIDs == ["MK1"])
+        #expect(result.errorDescriptions.first?.contains("MK1") == true)
+        #expect(result.errorDescriptions.first?.contains("AS1") == false)
         #expect(result.errorDescriptions.first?.contains("partially applied") == true)
         #expect(result.hasPartialFailures)
     }
