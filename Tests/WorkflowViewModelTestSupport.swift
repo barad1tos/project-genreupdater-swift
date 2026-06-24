@@ -23,6 +23,7 @@ func makeWorkflowFixture(
     pendingVerificationService: (any PendingVerificationService)? = nil,
     idMapper: (any TrackIDMapping)? = nil,
     problematicAlbumReportMinAttempts: @escaping () -> Int = { 3 },
+    runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
     invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {
@@ -69,6 +70,7 @@ func makeWorkflowFixture(
             changePreviewPipeline: ChangePreviewPipeline(),
             pendingVerificationService: pendingVerificationService,
             featureGate: featureGate,
+            runMaintenancePreflight: runMaintenancePreflight,
             resolveIncrementalTracks: resolveIncrementalTracks,
             invalidateAlbumYearCache: invalidateAlbumYearCache,
             updateIncrementalRunTimestamp: updateIncrementalRunTimestamp,

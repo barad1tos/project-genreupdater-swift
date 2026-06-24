@@ -451,7 +451,16 @@ final class WorkflowViewModel {
             maintenancePreflightResult = preflightResult
 
             if shouldRunBatchProcessing {
-                startBatchProcessing(tracks: processingTracks, contextTracks: tracks)
+                let pendingVerificationEntries = await runPendingVerificationBeforeBatchIfDue(
+                    preflightResult: preflightResult,
+                    tracks: tracks
+                )
+                guard isProcessing else { return }
+                startBatchProcessing(
+                    tracks: processingTracks,
+                    contextTracks: tracks,
+                    preflightEntries: pendingVerificationEntries
+                )
             } else {
                 startDryRun(tracks: processingTracks, contextTracks: tracks)
             }

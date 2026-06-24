@@ -127,36 +127,11 @@ extension WorkflowViewModel {
                 refreshGeneration: refreshGeneration
             ) else { return }
             preparePendingTrackStatuses(tracks: trackContext.tracks, dueEntries: dueEntries)
-
-            let albumGroups = Self.groupTracksByAlbum(trackContext.tracks)
-            var runOutcome = PendingEntryOutcome()
-            var handledPendingKeys: Set<String> = []
-
-            for (index, entry) in dueEntries.enumerated() {
-                try Task.checkCancellation()
-                updatePendingProgress(entry: entry, index: index, total: dueEntries.count)
-
-                let entryKeys = Self.pendingIdentityKeys(for: entry)
-                guard entryKeys.isDisjoint(with: handledPendingKeys) else {
-                    continue
-                }
-
-                let albumTracks = Self.pendingAlbumTracks(for: entry, in: albumGroups)
-                let entryOutcome = await processPendingEntry(
-                    entry,
-                    albumTracks: albumTracks,
-                    albumGroups: albumGroups,
-                    missingContextTracks: trackContext.missingTracks,
-                    pendingVerificationService: pendingVerificationService
-                )
-                runOutcome.merge(entryOutcome)
-                handledPendingKeys.formUnion(entryOutcome.handledIdentityKeys)
-                processedCount += entryOutcome.processedCount
-            }
-
-            if !dueEntries.isEmpty {
-                try await pendingVerificationService.updateVerificationTimestamp()
-            }
+            let runOutcome = try await performPendingVerification(
+                dueEntries: dueEntries,
+                trackContext: trackContext,
+                pendingVerificationService: pendingVerificationService
+            )
             let finalRefreshGeneration = invalidatePendingVerificationRefreshes()
             await refreshPendingVerificationReportSummary(refreshGeneration: finalRefreshGeneration)
             guard isCurrentPendingVerificationRefresh(finalRefreshGeneration) else { return }
@@ -170,6 +145,96 @@ extension WorkflowViewModel {
             phase = .error(error.localizedDescription)
             progress = nil
         }
+    }
+
+    func runPendingVerificationBeforeBatchIfDue(
+        preflightResult: MaintenancePreflightResult?,
+        tracks: [Track]
+    ) async -> [ChangeLogEntry] {
+        guard shouldRunBatchProcessing,
+              preflightResult?.isPendingVerificationDue == true,
+              let pendingVerificationService
+        else {
+            return []
+        }
+
+        do {
+            let snapshot = await pendingVerificationSnapshot()
+            let dueEntries = snapshot.due
+            guard !dueEntries.isEmpty else { return [] }
+
+            let problematicCount = await pendingVerificationService
+                .getProblematicPendingAlbums(minAttempts: resolvedProblematicAlbumReportMinAttempts)
+                .count
+            updatePendingVerificationReportSummary(
+                snapshot: snapshot,
+                problematicCount: problematicCount
+            )
+
+            let trackContext = await pendingVerificationTrackContext(from: tracks)
+            preparePendingTrackStatuses(tracks: trackContext.tracks, dueEntries: dueEntries)
+            let outcome = try await performPendingVerification(
+                dueEntries: dueEntries,
+                trackContext: trackContext,
+                pendingVerificationService: pendingVerificationService
+            )
+            let finalSnapshot = await pendingVerificationSnapshot()
+            let finalProblematicCount = await pendingVerificationService
+                .getProblematicPendingAlbums(minAttempts: resolvedProblematicAlbumReportMinAttempts)
+                .count
+            updatePendingVerificationReportSummary(
+                snapshot: finalSnapshot,
+                problematicCount: finalProblematicCount
+            )
+            return outcome.completed
+        } catch is CancellationError {
+            currentTrackID = nil
+            phase = .configure
+            progress = nil
+            return []
+        } catch {
+            currentTrackID = nil
+            phase = .error(error.localizedDescription)
+            progress = nil
+            return []
+        }
+    }
+
+    private func performPendingVerification(
+        dueEntries: [PendingAlbumEntry],
+        trackContext: PendingVerificationTrackContext,
+        pendingVerificationService: any PendingVerificationService
+    ) async throws -> PendingEntryOutcome {
+        let albumGroups = Self.groupTracksByAlbum(trackContext.tracks)
+        var runOutcome = PendingEntryOutcome()
+        var handledPendingKeys: Set<String> = []
+
+        for (index, entry) in dueEntries.enumerated() {
+            try Task.checkCancellation()
+            updatePendingProgress(entry: entry, index: index, total: dueEntries.count)
+
+            let entryKeys = Self.pendingIdentityKeys(for: entry)
+            guard entryKeys.isDisjoint(with: handledPendingKeys) else {
+                continue
+            }
+
+            let albumTracks = Self.pendingAlbumTracks(for: entry, in: albumGroups)
+            let entryOutcome = await processPendingEntry(
+                entry,
+                albumTracks: albumTracks,
+                albumGroups: albumGroups,
+                missingContextTracks: trackContext.missingTracks,
+                pendingVerificationService: pendingVerificationService
+            )
+            runOutcome.merge(entryOutcome)
+            handledPendingKeys.formUnion(entryOutcome.handledIdentityKeys)
+            processedCount += entryOutcome.processedCount
+        }
+
+        if !dueEntries.isEmpty {
+            try await pendingVerificationService.updateVerificationTimestamp()
+        }
+        return runOutcome
     }
 
     private func pendingVerificationTrackContext(from tracks: [Track]) async -> PendingVerificationTrackContext {

@@ -113,6 +113,61 @@ struct WorkflowPendingTests {
         expectPendingSummary(summary, total: 1, due: 0, problematic: 0)
     }
 
+    @Test("auto verifies due pending albums before live full-library batch")
+    func autoVerifiesDuePendingAlbumsBeforeLiveFullLibraryBatch() async throws {
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry()]
+        )
+        let fixture = makeRandomAccessWorkflowFixture(
+            pendingVerificationService: pendingVerification,
+            runMaintenancePreflight: { pendingDuePreflight() }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = false
+
+        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(writes.map(\.property) == ["year", "year"])
+        #expect(writes.map(\.value) == ["2013", "2013"])
+        #expect(removals.contains { $0.artist == "Daft Punk" && $0.album == "Random Access Memories" })
+        #expect(await pendingVerification.verificationTimestampUpdateCount() == 1)
+        #expect(viewModel.completedEntries.map(\.trackID) == ["ram-1", "ram-2"])
+    }
+
+    @Test("does not auto verify pending albums during reviewed dry run")
+    func doesNotAutoVerifyPendingAlbumsDuringReviewedDryRun() async throws {
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry()]
+        )
+        let fixture = makeRandomAccessWorkflowFixture(
+            pendingVerificationService: pendingVerification,
+            runMaintenancePreflight: { pendingDuePreflight() }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .selectedTracks
+        viewModel.previewOnly = true
+
+        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.isEmpty)
+        #expect(removals.isEmpty)
+        #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
+    }
+
     @Test("ignores stale pending scope refresh after pending run")
     func ignoresStalePendingScopeRefreshAfterPendingRun() async throws {
         let pendingSnapshotDelay = PendingSnapshotDelay()
@@ -242,7 +297,8 @@ struct WorkflowPendingTests {
     }
 
     private func makeRandomAccessWorkflowFixture(
-        pendingVerificationService: WorkflowPendingVerificationService
+        pendingVerificationService: WorkflowPendingVerificationService,
+        runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil
     ) -> WorkflowFixture {
         makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2013, confidence: 100),
@@ -253,7 +309,8 @@ struct WorkflowPendingTests {
                     "ram-1": "as-ram-1",
                     "ram-2": "as-ram-2",
                 ]
-            )
+            ),
+            runMaintenancePreflight: runMaintenancePreflight
         )
     }
 
@@ -312,6 +369,14 @@ struct WorkflowPendingTests {
             firstAttempt: attemptDate,
             lastAttempt: attemptDate,
             daysSinceFirstAttempt: daysSinceFirstAttempt
+        )
+    }
+
+    private func pendingDuePreflight() -> MaintenancePreflightResult {
+        MaintenancePreflightResult(
+            databaseVerification: nil,
+            databaseVerificationError: nil,
+            isPendingVerificationDue: true
         )
     }
 }

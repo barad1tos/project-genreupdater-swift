@@ -4,7 +4,11 @@ import Services
 extension WorkflowViewModel {
     // MARK: - Batch Processing (Full Library mode)
 
-    func startBatchProcessing(tracks: [Track], contextTracks: [Track]? = nil) {
+    func startBatchProcessing(
+        tracks: [Track],
+        contextTracks: [Track]? = nil,
+        preflightEntries: [ChangeLogEntry] = []
+    ) {
         let tracksByIndex = Self.sortedForBatchProcessing(tracks)
         guard !tracksByIndex.isEmpty else {
             phase = .error("No tracks in the current scope")
@@ -51,7 +55,7 @@ extension WorkflowViewModel {
                 )
 
                 finalizeBatchStatuses(for: tracksByIndex)
-                completedEntries = entries
+                completedEntries = preflightEntries + entries
                 if failedTracks.isEmpty {
                     await updateIncrementalRunTimestamp?()
                 }
