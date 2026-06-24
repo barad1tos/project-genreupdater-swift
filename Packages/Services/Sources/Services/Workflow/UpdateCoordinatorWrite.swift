@@ -231,7 +231,7 @@ extension UpdateCoordinator {
         var noOpEntries: [ChangeLogEntry] = []
         for (writeIndex, preparedWrite) in preparedWrites.enumerated() {
             guard batchOutcome.appliedIndexes.contains(writeIndex) else {
-                recordUnverifiedBatchWrite(
+                await recordUnverifiedBatchWrite(
                     preparedWrite,
                     failedTrackIDs: &failedTrackIDs,
                     errorDescriptions: &errorDescriptions
@@ -262,13 +262,14 @@ extension UpdateCoordinator {
         _ preparedWrite: PreparedAppleScriptWrite,
         failedTrackIDs: inout [String],
         errorDescriptions: inout [String]
-    ) {
+    ) async {
+        await invalidateCaches(for: preparedWrite.change)
         recordUnexpectedWorkflowFailure(
             trackID: preparedWrite.change.track.id,
             error: UpdateCoordinatorError.writeFailed(
                 trackID: preparedWrite.change.track.id,
                 property: preparedWrite.property,
-                reason: "Batch write partially applied before this property was verified"
+                reason: "Batch write could not be verified after the batch script ran"
             ),
             failedTrackIDs: &failedTrackIDs,
             errorDescriptions: &errorDescriptions
@@ -315,8 +316,8 @@ extension UpdateCoordinator {
             }
         )
         guard let appliedIndexes = try await verifiedBatchWriteIndexes(preparedWrites) else {
-            log.warning("Batch AppleScript write could not be verified; falling back to single writes")
-            return nil
+            log.warning("Batch AppleScript write could not be verified; unverified writes are failures")
+            return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
         }
         guard !appliedIndexes.isEmpty else {
             log.warning("Batch AppleScript write did not apply any updates; falling back to single writes")

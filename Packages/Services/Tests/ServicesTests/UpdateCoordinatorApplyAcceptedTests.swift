@@ -305,7 +305,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.failedTrackIDs == ["MK1"])
         #expect(result.errorDescriptions.first?.contains("MK1") == true)
         #expect(result.errorDescriptions.first?.contains("AS1") == false)
-        #expect(result.errorDescriptions.first?.contains("partially applied") == true)
+        #expect(result.errorDescriptions.first?.contains("could not be verified") == true)
         #expect(result.hasPartialFailures)
     }
 
