@@ -44,14 +44,15 @@ struct WorkflowPendingCancelTests {
             }
         )
         let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: WorkflowPendingVerificationService(entries: []),
-            apiService: apiService,
-            additionalEnrichedTracks: [firstBatchTrack, secondBatchTrack],
-            additionalAppleScriptIDsByMusicKitID: [
+            pendingVerificationService: WorkflowPendingVerificationService(entries: [])
+        ) { options in
+            options.apiService = apiService
+            options.additionalEnrichedTracks = [firstBatchTrack, secondBatchTrack]
+            options.additionalAppleScriptIDsByMusicKitID = [
                 "batch-year-1": "as-batch-year-1",
                 "batch-year-2": "as-batch-year-2",
             ]
-        )
+        }
         let viewModel = fixture.viewModel
         viewModel.mode = .fullLibrary
         viewModel.previewOnly = false
@@ -202,20 +203,21 @@ struct WorkflowPendingCancelTests {
         let secondBatchTrack = batchYearTrack(id: "batch-year-2")
         let staleEntry = ChangeLogEntry(changeType: .yearUpdate, trackID: "stale", artist: "Archive")
         let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: WorkflowPendingVerificationService(entries: []),
-            apiService: DashboardStateAPIService(
+            pendingVerificationService: WorkflowPendingVerificationService(entries: [])
+        ) { options in
+            options.apiService = DashboardStateAPIService(
                 year: 2013,
                 confidence: 100,
                 beforeAlbumYearLookup: {
                     await liveBatchHold.holdOnce()
                 }
-            ),
-            additionalEnrichedTracks: [firstBatchTrack, secondBatchTrack],
-            additionalAppleScriptIDsByMusicKitID: [
+            )
+            options.additionalEnrichedTracks = [firstBatchTrack, secondBatchTrack]
+            options.additionalAppleScriptIDsByMusicKitID = [
                 "batch-year-1": "as-batch-year-1",
                 "batch-year-2": "as-batch-year-2",
             ]
-        )
+        }
         let viewModel = fixture.viewModel
         viewModel.mode = .fullLibrary
         viewModel.previewOnly = false
@@ -245,11 +247,10 @@ struct WorkflowPendingCancelTests {
             entries: [randomAccessMemoriesPendingEntry()],
             dueEntries: [randomAccessMemoriesPendingEntry()]
         )
-        let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: pendingVerification,
-            cancellingWriteTrackIDs: ["as-ram-1"],
-            runMaintenancePreflight: { pendingDuePreflight() }
-        )
+        let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
+            options.cancellingWriteTrackIDs = ["as-ram-1"]
+            options.runMaintenancePreflight = { pendingDuePreflight() }
+        }
         let viewModel = fixture.viewModel
         viewModel.mode = .fullLibrary
         viewModel.previewOnly = false

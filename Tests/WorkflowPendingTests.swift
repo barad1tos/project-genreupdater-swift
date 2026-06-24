@@ -119,10 +119,9 @@ struct WorkflowPendingTests {
             entries: [randomAccessMemoriesPendingEntry()],
             dueEntries: [randomAccessMemoriesPendingEntry()]
         )
-        let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: pendingVerification,
-            runMaintenancePreflight: { pendingDuePreflight() }
-        )
+        let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
+            options.runMaintenancePreflight = { pendingDuePreflight() }
+        }
         let viewModel = fixture.viewModel
         viewModel.mode = .fullLibrary
         viewModel.previewOnly = false
@@ -185,10 +184,9 @@ struct WorkflowPendingTests {
             entries: [randomAccessMemoriesPendingEntry()],
             dueEntries: [randomAccessMemoriesPendingEntry()]
         )
-        let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: pendingVerification,
-            runMaintenancePreflight: { pendingDuePreflight() }
-        )
+        let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
+            options.runMaintenancePreflight = { pendingDuePreflight() }
+        }
         let viewModel = fixture.viewModel
         viewModel.mode = .selectedTracks
         viewModel.previewOnly = true
@@ -210,10 +208,9 @@ struct WorkflowPendingTests {
             entries: [randomAccessMemoriesPendingEntry()],
             dueEntries: [randomAccessMemoriesPendingEntry()]
         )
-        let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: pendingVerification,
-            runMaintenancePreflight: { pendingDuePreflight() }
-        )
+        let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
+            options.runMaintenancePreflight = { pendingDuePreflight() }
+        }
         let viewModel = fixture.viewModel
         viewModel.mode = .selectedTracks
         viewModel.previewOnly = false
@@ -237,10 +234,9 @@ struct WorkflowPendingTests {
             entries: [randomAccessMemoriesPendingEntry()],
             dueEntries: [randomAccessMemoriesPendingEntry()]
         )
-        let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: pendingVerification,
-            runMaintenancePreflight: { pendingDuePreflight() }
-        )
+        let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
+            options.runMaintenancePreflight = { pendingDuePreflight() }
+        }
         let viewModel = fixture.viewModel
         viewModel.mode = .fullLibrary
         viewModel.previewOnly = true
@@ -350,14 +346,13 @@ struct WorkflowPendingTests {
             entries: [randomAccessMemoriesPendingEntry()],
             dueEntries: [randomAccessMemoriesPendingEntry()]
         )
-        let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: pendingVerification,
-            resolveIncrementalTracks: { _, _ in [] },
-            runMaintenancePreflight: { pendingDuePreflight() },
-            updateIncrementalRunTimestamp: {
+        let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
+            options.resolveIncrementalTracks = { _, _ in [] }
+            options.runMaintenancePreflight = { pendingDuePreflight() }
+            options.updateIncrementalRunTimestamp = {
                 await timestampUpdates.record()
             }
-        )
+        }
         let viewModel = fixture.viewModel
         viewModel.mode = .fullLibrary
         viewModel.previewOnly = false
@@ -379,11 +374,10 @@ struct WorkflowPendingTests {
             entries: [randomAccessMemoriesPendingEntry()],
             dueEntries: [randomAccessMemoriesPendingEntry()]
         )
-        let fixture = makeRandomAccessWorkflowFixture(
-            pendingVerificationService: pendingVerification,
-            resolveIncrementalTracks: { _, _ in [] },
-            runMaintenancePreflight: { pendingDuePreflight() }
-        )
+        let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
+            options.resolveIncrementalTracks = { _, _ in [] }
+            options.runMaintenancePreflight = { pendingDuePreflight() }
+        }
         let viewModel = fixture.viewModel
         viewModel.mode = .fullLibrary
         viewModel.previewOnly = false

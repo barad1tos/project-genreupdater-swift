@@ -21,6 +21,18 @@ struct RandomAccessLiveBatchRun {
     let timestampUpdates: PendingTimestampUpdateCounter
 }
 
+struct RandomAccessWorkflowFixtureOptions {
+    var apiService = DashboardStateAPIService(year: 2013, confidence: 100)
+    var randomAccessYear: Int?
+    var failingWriteTrackIDs: Set<String> = []
+    var cancellingWriteTrackIDs: Set<String> = []
+    var additionalEnrichedTracks: [Track] = []
+    var additionalAppleScriptIDsByMusicKitID: [String: String] = [:]
+    var resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track] = { tracks, _ in tracks }
+    var runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
+    var updateIncrementalRunTimestamp: (() async -> Void)?
+}
+
 enum PendingPreflightState {
     case due
     case notDue
@@ -92,22 +104,21 @@ func makeRandomAccessLiveBatchRun(
         entries: [randomAccessMemoriesPendingEntry()],
         dueEntries: [randomAccessMemoriesPendingEntry()]
     )
-    let fixture = makeRandomAccessWorkflowFixture(
-        pendingVerificationService: pendingVerification,
-        apiService: apiService,
-        randomAccessYear: randomAccessYear,
-        failingWriteTrackIDs: failingWriteTrackIDs,
-        cancellingWriteTrackIDs: cancellingWriteTrackIDs,
-        additionalEnrichedTracks: batchTracks,
-        additionalAppleScriptIDsByMusicKitID: scriptIDsByMusicKitID,
-        resolveIncrementalTracks: { tracks, _ in
+    let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
+        options.apiService = apiService
+        options.randomAccessYear = randomAccessYear
+        options.failingWriteTrackIDs = failingWriteTrackIDs
+        options.cancellingWriteTrackIDs = cancellingWriteTrackIDs
+        options.additionalEnrichedTracks = batchTracks
+        options.additionalAppleScriptIDsByMusicKitID = scriptIDsByMusicKitID
+        options.resolveIncrementalTracks = { tracks, _ in
             tracks.filter { batchTrackIDs.contains($0.id) }
-        },
-        runMaintenancePreflight: { preflightState.result },
-        updateIncrementalRunTimestamp: {
+        }
+        options.runMaintenancePreflight = { preflightState.result }
+        options.updateIncrementalRunTimestamp = {
             await timestampUpdates.record()
         }
-    )
+    }
     let viewModel = fixture.viewModel
     viewModel.mode = .fullLibrary
     viewModel.previewOnly = false
@@ -135,35 +146,27 @@ func startRandomAccessLiveYearBatch(
 @MainActor
 func makeRandomAccessWorkflowFixture(
     pendingVerificationService: WorkflowPendingVerificationService,
-    apiService: DashboardStateAPIService = DashboardStateAPIService(year: 2013, confidence: 100),
-    randomAccessYear: Int? = nil,
-    failingWriteTrackIDs: Set<String> = [],
-    cancellingWriteTrackIDs: Set<String> = [],
-    additionalEnrichedTracks: [Track] = [],
-    additionalAppleScriptIDsByMusicKitID: [String: String] = [:],
-    resolveIncrementalTracks: @escaping (
-        [Track],
-        IncrementalTrackScopeOptions
-    ) async -> [Track] = { tracks, _ in tracks },
-    runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
-    updateIncrementalRunTimestamp: (() async -> Void)? = nil
+    configure: (inout RandomAccessWorkflowFixtureOptions) -> Void = { _ in }
 ) -> WorkflowFixture {
-    makeWorkflowFixture(
-        apiService: apiService,
-        failingWriteTrackIDs: failingWriteTrackIDs,
-        cancellingWriteTrackIDs: cancellingWriteTrackIDs,
-        resolveIncrementalTracks: resolveIncrementalTracks,
+    var options = RandomAccessWorkflowFixtureOptions()
+    configure(&options)
+
+    return makeWorkflowFixture(
+        apiService: options.apiService,
+        failingWriteTrackIDs: options.failingWriteTrackIDs,
+        cancellingWriteTrackIDs: options.cancellingWriteTrackIDs,
+        resolveIncrementalTracks: options.resolveIncrementalTracks,
         pendingVerificationService: pendingVerificationService,
         idMapper: WorkflowTrackIDMapper(
-            enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(year: randomAccessYear)
-                + additionalEnrichedTracks,
+            enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(year: options.randomAccessYear)
+                + options.additionalEnrichedTracks,
             appleScriptIDsByMusicKitID: [
                 "ram-1": "as-ram-1",
                 "ram-2": "as-ram-2",
-            ].merging(additionalAppleScriptIDsByMusicKitID) { current, _ in current }
+            ].merging(options.additionalAppleScriptIDsByMusicKitID) { current, _ in current }
         ),
-        runMaintenancePreflight: runMaintenancePreflight,
-        updateIncrementalRunTimestamp: updateIncrementalRunTimestamp
+        runMaintenancePreflight: options.runMaintenancePreflight,
+        updateIncrementalRunTimestamp: options.updateIncrementalRunTimestamp
     )
 }
 
