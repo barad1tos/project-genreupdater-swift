@@ -326,6 +326,52 @@ struct UpdateCoordinatorApplyAcceptedTests {
         ) == nil)
     }
 
+    @Test("Reviewed year writes invalidate cleaned album cache aliases")
+    func reviewedYearWritesInvalidateCleanedAlbumCacheAliases() async throws {
+        let fixture = await makeCoordinator()
+        let track = makeEditableTrack(
+            id: "MK1",
+            genre: "Rock",
+            year: 1999,
+            album: "Album Remastered"
+        )
+        await fixture.cache.storeAlbumYear(artist: track.artist, album: track.album, year: 1999, confidence: 90)
+        await fixture.cache.storeAlbumYear(artist: track.artist, album: "Album", year: 2001, confidence: 95)
+        await fixture.cache.setCachedAPIResult(CachedAPIResult(
+            artist: track.artist,
+            album: "Album",
+            year: 2001,
+            source: "MusicBrainz",
+            timestamp: Date(),
+            ttl: 3600
+        ))
+        let change = ProposedChange(
+            track: track,
+            changeType: .yearUpdate,
+            oldValue: "1999",
+            newValue: "2001",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            [change],
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.map(\.property) == ["year"])
+        #expect(result.entries.map(\.changeType) == [.yearUpdate])
+        #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
+        #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: "Album") == nil)
+        #expect(await fixture.cache.getCachedAPIResult(
+            artist: track.artist,
+            album: "Album",
+            source: "MusicBrainz"
+        ) == nil)
+    }
+
     @Test("Batch failure falls back to single reviewed writes")
     func batchFailureFallsBackToSingleReviewedWrites() async throws {
         let fixture = await makeCoordinator(
@@ -587,13 +633,14 @@ struct UpdateCoordinatorApplyAcceptedTests {
     private func makeEditableTrack(
         id: String,
         genre: String?,
-        year: Int?
+        year: Int?,
+        album: String = "Abbey Road"
     ) -> Track {
         Track(
             id: id,
             name: "Come Together",
             artist: "Beatles",
-            album: "Abbey Road",
+            album: album,
             genre: genre,
             year: year,
             trackStatus: nil

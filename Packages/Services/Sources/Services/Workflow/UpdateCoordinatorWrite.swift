@@ -400,6 +400,21 @@ extension UpdateCoordinator {
                 ))
             }
         }
+        if let cleanedAlbum = Self.cleanedCacheInvalidationAlbum(
+            for: change.track,
+            cleaning: runtimeConfiguration.cleaning
+        ) {
+            candidates.append(contentsOf: Self.cacheInvalidationIdentities(
+                for: change.track,
+                album: cleanedAlbum
+            ))
+            if let originalArtist = change.track.originalArtist {
+                candidates.append(contentsOf: AlbumIdentity.lookupCandidates(
+                    artist: originalArtist,
+                    album: cleanedAlbum
+                ))
+            }
+        }
 
         var seenKeys: Set<String> = []
         return candidates.compactMap { identity in
@@ -417,5 +432,24 @@ extension UpdateCoordinator {
         ].flatMap { artist in
             AlbumIdentity.lookupCandidates(artist: artist, album: album)
         }
+    }
+
+    private static func cleanedCacheInvalidationAlbum(for track: Track, cleaning: CleaningConfig) -> String? {
+        let cleaned = cleanNames(
+            artist: track.artist,
+            trackName: track.name,
+            albumName: track.album,
+            config: cleaning
+        )
+        guard !cleaned.cleanedAlbum.isEmpty,
+              normalizedCacheAlbum(cleaned.cleanedAlbum) != normalizedCacheAlbum(track.album)
+        else {
+            return nil
+        }
+        return cleaned.cleanedAlbum
+    }
+
+    private static func normalizedCacheAlbum(_ value: String) -> String {
+        value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }

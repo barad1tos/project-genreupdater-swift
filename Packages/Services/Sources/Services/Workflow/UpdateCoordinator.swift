@@ -215,46 +215,63 @@ public actor UpdateCoordinator {
         options: UpdateOptions
     ) async throws -> [ProposedChange] {
         var proposedChanges: [ProposedChange] = []
-        var workingTrack = track
 
-        if let change = Self.determineArtistRenameChange(
-            track: workingTrack,
+        let artistRenameChange = Self.determineArtistRenameChange(
+            track: track,
             mappings: runtimeConfiguration.artistRenameMappings
-        ) {
-            proposedChanges.append(change)
-            workingTrack = change.track
-        }
+        )
+        let policyTrack = artistRenameChange?.track ?? track
+        let cleaningOutcome = Self.cleaningOutcome(
+            policyTrack: policyTrack,
+            proposalTrack: track,
+            options: options,
+            cleaning: runtimeConfiguration.cleaning
+        )
 
+        if let change = artistRenameChange {
+            proposedChanges.append(change)
+        }
+        proposedChanges.append(contentsOf: cleaningOutcome.changes)
+
+        let decisionTrack = cleaningOutcome.track
+        let proposalTrack = policyTrack
         let genreContextTracks = Self.genreContextTracks(
-            track: workingTrack,
+            track: decisionTrack,
             artistTracks: artistTracks,
             albumTracks: albumTracks
         )
         if let change = determineGenreChange(
-            track: workingTrack,
+            track: decisionTrack,
             artistTracks: genreContextTracks,
             options: options
         ) {
-            proposedChanges.append(change)
+            proposedChanges.append(Self.change(change, usingTrack: proposalTrack))
         }
 
         if options.updateYear,
            runtimeConfiguration.isYearLookupEnabled,
            let change = try await determineYearChange(
-               track: workingTrack,
+               track: decisionTrack,
                albumTracks: albumTracks,
                forceYearLookup: options.forceYearLookup
            ) {
-            proposedChanges.append(change)
+            proposedChanges.append(Self.change(change, usingTrack: proposalTrack))
         }
 
-        proposedChanges.append(contentsOf: Self.determineCleaningChanges(
-            track: workingTrack,
-            options: options,
-            cleaning: runtimeConfiguration.cleaning
-        ))
-
         return proposedChanges
+    }
+
+    private static func change(_ change: ProposedChange, usingTrack track: Track) -> ProposedChange {
+        ProposedChange(
+            id: change.id,
+            track: track,
+            changeType: change.changeType,
+            oldValue: change.oldValue,
+            newValue: change.newValue,
+            confidence: change.confidence,
+            source: change.source,
+            isAccepted: change.isAccepted
+        )
     }
 
     private func determineGenreChange(

@@ -1,46 +1,54 @@
 import Core
 
 extension UpdateCoordinator {
-    static func determineCleaningChanges(
-        track: Track,
+    static func cleaningOutcome(
+        policyTrack: Track,
+        proposalTrack: Track,
         options: UpdateOptions,
         cleaning: CleaningConfig
-    ) -> [ProposedChange] {
-        guard options.cleanTrackNames || options.cleanAlbumNames else { return [] }
+    ) -> (track: Track, changes: [ProposedChange]) {
+        guard options.cleanTrackNames || options.cleanAlbumNames else {
+            return (policyTrack, [])
+        }
 
         let cleaned = cleanNames(
-            artist: track.artist,
-            trackName: track.name,
-            albumName: track.album,
+            artist: policyTrack.artist,
+            trackName: policyTrack.name,
+            albumName: policyTrack.album,
             config: cleaning
         )
+        var workingTrack = policyTrack
         var changes: [ProposedChange] = []
 
         if options.cleanTrackNames,
-           cleaned.cleanedTrack != normalizedMetadataForComparison(track.name) {
+           !cleaned.cleanedTrack.isEmpty,
+           cleaned.cleanedTrack != normalizedMetadataForComparison(policyTrack.name) {
             changes.append(ProposedChange(
-                track: track,
+                track: proposalTrack,
                 changeType: .trackCleaning,
-                oldValue: track.name,
+                oldValue: proposalTrack.name,
                 newValue: cleaned.cleanedTrack,
                 confidence: 100,
                 source: "Cleaning"
             ))
+            workingTrack.name = cleaned.cleanedTrack
         }
 
         if options.cleanAlbumNames,
-           cleaned.cleanedAlbum != normalizedMetadataForComparison(track.album) {
+           !cleaned.cleanedAlbum.isEmpty,
+           cleaned.cleanedAlbum != normalizedMetadataForComparison(policyTrack.album) {
             changes.append(ProposedChange(
-                track: track,
+                track: proposalTrack,
                 changeType: .albumCleaning,
-                oldValue: track.album,
+                oldValue: proposalTrack.album,
                 newValue: cleaned.cleanedAlbum,
                 confidence: 100,
                 source: "Cleaning"
             ))
+            workingTrack.album = cleaned.cleanedAlbum
         }
 
-        return changes
+        return (workingTrack, changes)
     }
 
     private static func normalizedMetadataForComparison(_ value: String) -> String {
