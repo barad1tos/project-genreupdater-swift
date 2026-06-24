@@ -300,7 +300,7 @@ struct UpdateRunReport: Equatable {
         for entry in entries {
             keys.insert(albumIdentity(for: entry, trackLookup: trackLookup))
         }
-        for failure in failures {
+        for failure in failures where failure.hasKnownTrack {
             keys.insert(UpdateRunAlbumIdentity(artist: failure.artist, album: failure.album))
         }
         return keys

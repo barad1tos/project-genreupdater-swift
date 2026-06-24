@@ -206,9 +206,9 @@ struct UpdateRunReportTests {
         #expect(report.failures.first?.subtitle == "Track ID: raw-id")
         #expect(report.failures.first?.message == "No failure details were captured for this run.")
         #expect(report.failures.first?.hasKnownTrack == false)
-        #expect(report.albumResults.first?.artist == "Unknown artist")
-        #expect(report.albumResults.first?.album == "Unknown album")
-        #expect(report.albumResults.first?.failureCount == 1)
+        #expect(report.affectedAlbumCount == 0)
+        #expect(report.albumResults.isEmpty)
+        #expect(report.plainTextSummary.contains("Albums affected: 0"))
         #expect(report.plainTextSummary.contains("Needs Attention"))
         #expect(
             report.plainTextSummary
