@@ -377,6 +377,9 @@ final class WorkflowViewModel {
                 recordAppliedTrackUsage(from: batchResult)
                 phase = .done
                 progress = nil
+            } catch is CancellationError {
+                phase = .configure
+                progress = nil
             } catch {
                 phase = .error(error.localizedDescription)
                 progress = nil
@@ -437,7 +440,8 @@ final class WorkflowViewModel {
 
             totalCount = processingTracks.count
             computeScopePreview(tracks: processingTracks)
-            guard !processingTracks.isEmpty else {
+            let shouldRunBatch = shouldRunBatchProcessing
+            guard shouldRunBatch || !processingTracks.isEmpty else {
                 finishEmptyProcessingRun()
                 return
             }
@@ -450,12 +454,54 @@ final class WorkflowViewModel {
             }
             maintenancePreflightResult = preflightResult
 
-            if shouldRunBatchProcessing {
-                startBatchProcessing(tracks: processingTracks, contextTracks: tracks)
+            let pendingVerificationOutcome: PendingEntryOutcome
+            if shouldRunBatch {
+                pendingVerificationOutcome = await runPendingVerificationBeforeBatchIfDue(
+                    preflightResult: preflightResult,
+                    tracks: tracks
+                )
+                if Task.isCancelled {
+                    phase = .configure
+                    progress = nil
+                    return
+                }
+                guard isProcessing else { return }
+            } else {
+                pendingVerificationOutcome = PendingEntryOutcome()
+            }
+
+            guard !shouldStopAfterPendingPreflight(
+                pendingVerificationOutcome,
+                processingTracks: processingTracks
+            ) else {
+                return
+            }
+
+            if shouldRunBatch {
+                startBatchProcessing(
+                    tracks: processingTracks,
+                    contextTracks: tracks,
+                    preflightOutcome: pendingVerificationOutcome
+                )
             } else {
                 startDryRun(tracks: processingTracks, contextTracks: tracks)
             }
         }
+    }
+
+    private func shouldStopAfterPendingPreflight(
+        _ outcome: PendingEntryOutcome,
+        processingTracks: [Track]
+    ) -> Bool {
+        if !outcome.failedTrackIDs.isEmpty {
+            finishEmptyProcessingRun(preflightOutcome: outcome)
+            return true
+        }
+        if processingTracks.isEmpty {
+            finishEmptyProcessingRun(preflightOutcome: outcome)
+            return true
+        }
+        return false
     }
 
     private func tracksForProcessing(_ tracks: [Track]) async -> [Track] {
@@ -469,14 +515,20 @@ final class WorkflowViewModel {
         )
     }
 
-    private func finishEmptyProcessingRun() {
-        result = BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
-        completedEntries = []
+    private func finishEmptyProcessingRun(preflightOutcome: PendingEntryOutcome = PendingEntryOutcome()) {
+        result = BatchUpdateResult(
+            entries: preflightOutcome.completed,
+            failedTrackIDs: preflightOutcome.failedTrackIDs,
+            errorDescriptions: preflightOutcome.errorDescriptions
+        )
+        completedEntries = preflightOutcome.completed
         proposedChanges = []
         dryRunReport = previewOnly ? DryRunReport(proposedChanges: []) : nil
-        processedCount = 0
-        failedCount = 0
-        trackStatuses = [:]
+        processedCount = preflightOutcome.processedCount
+        failedCount = preflightOutcome.failedTrackIDs.count
+        if preflightOutcome.isEmpty {
+            trackStatuses = [:]
+        }
         currentTrackID = nil
         phase = .done
         progress = nil

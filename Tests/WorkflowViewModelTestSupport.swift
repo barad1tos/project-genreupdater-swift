@@ -15,6 +15,7 @@ func makeWorkflowFixture(
     apiServices: APIOrchestratorServices? = nil,
     tier: Tier = .pro,
     failingWriteTrackIDs: Set<String> = [],
+    cancellingWriteTrackIDs: Set<String> = [],
     noChangeWriteTrackIDs: Set<String> = [],
     resolveIncrementalTracks: @escaping (
         [Track],
@@ -23,11 +24,13 @@ func makeWorkflowFixture(
     pendingVerificationService: (any PendingVerificationService)? = nil,
     idMapper: (any TrackIDMapping)? = nil,
     problematicAlbumReportMinAttempts: @escaping () -> Int = { 3 },
+    runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
     invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {
     let scriptClient = DashboardStateScriptClient(
         failingTrackIDs: failingWriteTrackIDs,
+        cancellingTrackIDs: cancellingWriteTrackIDs,
         noChangeTrackIDs: noChangeWriteTrackIDs
     )
     let trackStore = DashboardStateTrackStore()
@@ -69,6 +72,7 @@ func makeWorkflowFixture(
             changePreviewPipeline: ChangePreviewPipeline(),
             pendingVerificationService: pendingVerificationService,
             featureGate: featureGate,
+            runMaintenancePreflight: runMaintenancePreflight,
             resolveIncrementalTracks: resolveIncrementalTracks,
             invalidateAlbumYearCache: invalidateAlbumYearCache,
             updateIncrementalRunTimestamp: updateIncrementalRunTimestamp,
@@ -96,6 +100,18 @@ func waitForWorkflowToLeaveScanning(_ viewModel: WorkflowViewModel) async throws
     }
 
     #expect(Bool(false), "workflow did not leave scanning before timeout")
+}
+
+@MainActor
+func waitForWorkflowToReturnToConfigure(_ viewModel: WorkflowViewModel) async throws {
+    for _ in 0 ..< 500 {
+        if case .configure = viewModel.phase {
+            return
+        }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+
+    #expect(Bool(false), "workflow did not return to configure before timeout")
 }
 
 @MainActor
@@ -232,11 +248,17 @@ struct DashboardStateAPIService: ExternalAPIService {
 
 actor DashboardStateScriptClient: AppleScriptClient {
     private let failingTrackIDs: Set<String>
+    private let cancellingTrackIDs: Set<String>
     private let noChangeTrackIDs: Set<String>
     private var writes: [(trackID: String, property: String, value: String)] = []
 
-    init(failingTrackIDs: Set<String> = [], noChangeTrackIDs: Set<String> = []) {
+    init(
+        failingTrackIDs: Set<String> = [],
+        cancellingTrackIDs: Set<String> = [],
+        noChangeTrackIDs: Set<String> = []
+    ) {
         self.failingTrackIDs = failingTrackIDs
+        self.cancellingTrackIDs = cancellingTrackIDs
         self.noChangeTrackIDs = noChangeTrackIDs
     }
 
@@ -265,6 +287,9 @@ actor DashboardStateScriptClient: AppleScriptClient {
     }
 
     func updateTrackProperty(trackID: String, property: String, value: String) async throws -> AppleScriptWriteResult {
+        if cancellingTrackIDs.contains(trackID) {
+            throw CancellationError()
+        }
         if failingTrackIDs.contains(trackID) {
             throw DashboardStateScriptWriteError(trackID: trackID)
         }
@@ -341,6 +366,7 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
     private let seededDueEntries: [PendingAlbumEntry]?
     private let seededProblematicAlbums: [ProblematicPendingAlbum]
     private let pendingSnapshotDelay: PendingSnapshotDelay?
+    private let timestampUpdateFailure: (any Error)?
     private var removals: [(artist: String, album: String)] = []
     private var timestampUpdates = 0
 
@@ -348,12 +374,14 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
         entries: [PendingAlbumEntry],
         dueEntries: [PendingAlbumEntry]? = nil,
         problematicAlbums: [ProblematicPendingAlbum] = [],
-        pendingSnapshotDelay: PendingSnapshotDelay? = nil
+        pendingSnapshotDelay: PendingSnapshotDelay? = nil,
+        timestampUpdateFailure: (any Error)? = nil
     ) {
         self.entries = entries
         self.seededDueEntries = dueEntries
         self.seededProblematicAlbums = problematicAlbums
         self.pendingSnapshotDelay = pendingSnapshotDelay
+        self.timestampUpdateFailure = timestampUpdateFailure
     }
 
     func initialize() async throws {
@@ -416,6 +444,9 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
     }
 
     func updateVerificationTimestamp() async throws {
+        if let timestampUpdateFailure {
+            throw timestampUpdateFailure
+        }
         timestampUpdates += 1
     }
 

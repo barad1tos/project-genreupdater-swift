@@ -315,6 +315,58 @@ struct BatchProcessorTests {
         #expect(changes.count == 2)
     }
 
+    @Test("Cancellation errors stop processing")
+    func cancellationErrorsStopProcessing() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let checkpoint = CheckpointManager(directory: dir)
+        let gate = await FeatureGate(fixedTier: .pro)
+
+        let processor = BatchProcessor(
+            checkpointManager: checkpoint,
+            featureGate: gate
+        )
+
+        let processedTrackIDs = Accumulator<String>()
+
+        do {
+            _ = try await processor.process(
+                tracks: makeTracks(count: 3),
+                operation: { track in
+                    processedTrackIDs.append(track.id)
+                    if track.id == "T1" { throw CancellationError() }
+                    return [ChangeLogEntry(
+                        changeType: .genreUpdate,
+                        trackID: track.id,
+                        artist: track.artist
+                    )]
+                },
+                progressHandler: { _ in
+                    // Progress is irrelevant for cancellation behavior.
+                }
+            )
+            Issue.record("Expected batch cancellation error")
+        } catch let error as BatchProcessorError {
+            guard case let .cancelled(processedCount, totalCount) = error else {
+                Issue.record("Expected cancellation error, got \(error)")
+                return
+            }
+            #expect(processedCount == 1)
+            #expect(totalCount == 3)
+        } catch {
+            Issue.record("Expected batch cancellation error, got \(error)")
+        }
+
+        #expect(processedTrackIDs.getAll() == ["T0", "T1"])
+        #expect(await processor.state == .cancelled)
+        let savedCheckpoint = try await checkpoint.loadLatest()
+        #expect(savedCheckpoint?.processedTrackIDs == ["T0"])
+        #expect(savedCheckpoint?.lastProcessedIndex == 0)
+        #expect(savedCheckpoint?.totalCount == 3)
+        #expect(savedCheckpoint?.changes.map(\.trackID) == ["T0"])
+    }
+
     @Test("Pause and resume completes processing")
     func pauseAndResume() async throws {
         let dir = FileManager.default.temporaryDirectory

@@ -352,6 +352,32 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
     }
 
+    @Test("Batch cancellation stops reviewed writes")
+    func batchCancellationStopsReviewedWrites() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            )
+        )
+        await fixture.bridge.setBatchCancellationMode(true)
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.bridge.setFetchedTracks([track])
+        let proposals = acceptedGenreAndYearProposals(for: track)
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                proposals,
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+        }
+
+        let batches = await fixture.bridge.batchUpdates
+        let written = await fixture.bridge.writtenProperties
+        #expect(batches.count == 1)
+        #expect(written.isEmpty)
+    }
+
     @Test("Test artist allow-list skips out-of-scope reviewed changes")
     func artistAllowListSkipsOutOfScopeReviewedChanges() async throws {
         let fixture = await makeCoordinator(

@@ -4,7 +4,11 @@ import Services
 extension WorkflowViewModel {
     // MARK: - Batch Processing (Full Library mode)
 
-    func startBatchProcessing(tracks: [Track], contextTracks: [Track]? = nil) {
+    func startBatchProcessing(
+        tracks: [Track],
+        contextTracks: [Track]? = nil,
+        preflightOutcome: PendingEntryOutcome = PendingEntryOutcome()
+    ) {
         let tracksByIndex = Self.sortedForBatchProcessing(tracks)
         guard !tracksByIndex.isEmpty else {
             phase = .error("No tracks in the current scope")
@@ -50,27 +54,50 @@ extension WorkflowViewModel {
                     progressHandler: progressHandler
                 )
 
-                finalizeBatchStatuses(for: tracksByIndex)
-                completedEntries = entries
-                if failedTracks.isEmpty {
-                    await updateIncrementalRunTimestamp?()
-                }
-                currentTrackID = nil
-                phase = .done
-                progress = nil
+                await finishBatchProcessing(
+                    preflightOutcome: preflightOutcome,
+                    batchEntries: entries,
+                    tracks: tracksByIndex
+                )
             } catch is CancellationError {
-                currentTrackID = nil
+                finishCancelledBatch(preflightOutcome: preflightOutcome)
                 phase = .configure
                 progress = nil
             } catch let batchError as BatchProcessorError {
-                currentTrackID = nil
-                handleBatchError(batchError)
+                handleBatchProcessingError(batchError, preflightOutcome: preflightOutcome)
             } catch {
-                currentTrackID = nil
+                preserveInterruptedPreflightOutcome(preflightOutcome)
                 phase = .error(error.localizedDescription)
                 progress = nil
             }
         }
+    }
+
+    private func finishBatchProcessing(
+        preflightOutcome: PendingEntryOutcome,
+        batchEntries: [ChangeLogEntry],
+        tracks: [Track]
+    ) async {
+        finalizeBatchStatuses(for: tracks)
+        restorePreflightStatuses(preflightOutcome)
+
+        let allEntries = preflightOutcome.completed + batchEntries
+        completedEntries = allEntries
+        let currentFailures = failedTracks
+        result = BatchUpdateResult(
+            entries: allEntries,
+            failedTrackIDs: currentFailures.map(\.id),
+            errorDescriptions: currentFailures.map(\.error)
+        )
+        failedCount = currentFailures.count
+        processedCount = preflightOutcome.processedCount + tracks.count
+        totalCount = max(totalCount, processedCount)
+        if currentFailures.isEmpty {
+            await updateIncrementalRunTimestamp?()
+        }
+        currentTrackID = nil
+        phase = .done
+        progress = nil
     }
 
     private func invalidateAlbumYearCacheIfNeeded() async {
@@ -123,6 +150,92 @@ extension WorkflowViewModel {
     private func markBatchTrackFailed(_ track: Track, message: String) {
         trackStatuses[track.id] = .failed(message)
         failedCount = failedTracks.count
+    }
+
+    private func handleBatchProcessingError(
+        _ error: BatchProcessorError,
+        preflightOutcome: PendingEntryOutcome
+    ) {
+        switch error {
+        case let .cancelled(liveProcessedCount, liveTotalCount):
+            finishCancelledBatch(
+                preflightOutcome: preflightOutcome,
+                liveProcessedCount: liveProcessedCount,
+                liveTotalCount: liveTotalCount
+            )
+            phase = .configure
+            progress = nil
+        case .featureNotAvailable, .alreadyRunning, .notRunning:
+            preserveInterruptedPreflightOutcome(preflightOutcome)
+            handleBatchError(error)
+        }
+    }
+
+    private func finishCancelledBatch(
+        preflightOutcome: PendingEntryOutcome,
+        liveProcessedCount: Int? = nil,
+        liveTotalCount: Int? = nil
+    ) {
+        trackStatuses = [:]
+        failedCount = 0
+        if preflightOutcome.isEmpty {
+            completedEntries = []
+            result = nil
+            currentTrackID = nil
+        } else {
+            preserveInterruptedPreflightOutcome(preflightOutcome)
+        }
+
+        if let liveProcessedCount {
+            processedCount = preflightOutcome.processedCount + liveProcessedCount
+        }
+        if let liveTotalCount {
+            totalCount = max(totalCount, preflightOutcome.processedCount + liveTotalCount)
+        }
+    }
+
+    private func preserveInterruptedPreflightOutcome(_ outcome: PendingEntryOutcome) {
+        guard !outcome.isEmpty else {
+            currentTrackID = nil
+            return
+        }
+
+        restorePreflightStatuses(outcome)
+        completedEntries = outcome.completed
+        result = BatchUpdateResult(
+            entries: outcome.completed,
+            failedTrackIDs: outcome.failedTrackIDs,
+            errorDescriptions: outcome.errorDescriptions
+        )
+        processedCount = outcome.processedCount
+        failedCount = outcome.failedTrackIDs.count
+        totalCount = max(totalCount, outcome.processedCount)
+        currentTrackID = nil
+    }
+
+    func restorePreflightStatuses(_ outcome: PendingEntryOutcome) {
+        let successfulTrackIDs = Set(outcome.successfulTrackIDs + outcome.completed.map(\.trackID))
+        for trackID in successfulTrackIDs {
+            if case .failed = trackStatuses[trackID] {
+                continue
+            }
+            trackStatuses[trackID] = .done
+        }
+        restorePreflightFailures(outcome)
+    }
+
+    private func restorePreflightFailures(_ outcome: PendingEntryOutcome) {
+        guard !outcome.failedTrackIDs.isEmpty else { return }
+
+        let fallbackMessage = outcome.errorDescriptions.first ?? "Pending verification failed"
+        for (index, trackID) in outcome.failedTrackIDs.enumerated() {
+            let message = if outcome.errorDescriptions.indices.contains(index) {
+                outcome.errorDescriptions[index]
+            } else {
+                fallbackMessage
+            }
+            trackStatuses[trackID] = .failed(message)
+        }
     }
 
     nonisolated private static func albumTracksProvider(

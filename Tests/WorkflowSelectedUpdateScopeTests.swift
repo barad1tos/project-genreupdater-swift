@@ -92,6 +92,32 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(viewModel.result?.entries.count == 1)
     }
 
+    @Test("reviewed apply cancellation returns to configuration")
+    func reviewedApplyCancellationReturnsToConfiguration() async {
+        let fixture = makeWorkflowFixture(cancellingWriteTrackIDs: ["accepted"])
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [
+            makeProposedChange(id: "accepted", isAccepted: true),
+        ]
+
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+        await Task.yield()
+
+        guard case .configure = viewModel.phase else {
+            #expect(Bool(false), "cancelled reviewed apply should return to configuration")
+            return
+        }
+        #expect(viewModel.progress == nil)
+        #expect(viewModel.result == nil)
+        #expect(viewModel.trackStatuses.isEmpty)
+        #expect(viewModel.failedTracks.isEmpty)
+        #expect(viewModel.failedCount == 0)
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+    }
+
     @Test("full library preview only avoids batch writes")
     func fullLibraryPreviewOnlyAvoidsBatchWrites() {
         let viewModel = makeWorkflowViewModel()
@@ -326,6 +352,49 @@ struct WorkflowSelectedUpdateScopeTests {
                 && $0.property == "genre"
                 && $0.value == "Melodic Death Metal"
         })
+    }
+
+    @Test("full library live cancellation returns to configuration")
+    func fullLibraryLiveCancellationReturnsToConfiguration() async throws {
+        let fixture = makeWorkflowFixture(cancellingWriteTrackIDs: ["missing-genre"])
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = true
+        viewModel.updateYear = false
+        viewModel.cleanTrackNames = false
+        viewModel.cleanAlbumNames = false
+
+        viewModel.start(tracks: [
+            Track(
+                id: "missing-genre",
+                name: "Only for the Weak",
+                artist: "In Flames",
+                album: "Clayman",
+                dateAdded: Date(timeIntervalSince1970: 2000)
+            ),
+            Track(
+                id: "genre-source",
+                name: "Bullet Ride",
+                artist: "In Flames",
+                album: "Clayman",
+                genre: "Melodic Death Metal",
+                dateAdded: Date(timeIntervalSince1970: 1000)
+            ),
+        ])
+
+        try await waitForWorkflowToReturnToConfigure(viewModel)
+
+        guard case .configure = viewModel.phase else {
+            #expect(Bool(false), "cancelled live batch should return to configuration")
+            return
+        }
+        #expect(viewModel.progress == nil)
+        #expect(viewModel.result == nil)
+        #expect(viewModel.trackStatuses.isEmpty)
+        #expect(viewModel.failedTracks.isEmpty)
+        #expect(viewModel.failedCount == 0)
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
     @Test("full library live processing surfaces write failures")

@@ -174,15 +174,15 @@ public actor BatchProcessor {
             try await handleCancellation(snapshot: snapshot)
             try await waitWhilePaused()
 
-            do {
-                let changes = try await operation(tracks[index])
+            let outcome = try await processTrack(
+                tracks[index],
+                operation: operation,
+                cancellationSnapshot: snapshot
+            )
+            if outcome.didProcess {
+                let changes = outcome.changes
                 resume.changes.append(contentsOf: changes)
                 resume.processedIDs.append(tracks[index].id)
-            } catch {
-                log
-                    .warning(
-                        "Failed to process track \(tracks[index].id, privacy: .private): \(error.localizedDescription, privacy: .public)"
-                    )
             }
 
             reportProgress(
@@ -213,6 +213,26 @@ public actor BatchProcessor {
             totalCount: tracks.count,
             progressHandler: progressHandler
         )
+    }
+
+    private func processTrack(
+        _ track: Track,
+        operation: @Sendable (Track) async throws -> [ChangeLogEntry],
+        cancellationSnapshot: CheckpointSnapshot
+    ) async throws -> (changes: [ChangeLogEntry], didProcess: Bool) {
+        do {
+            let changes = try await operation(track)
+            return (changes, true)
+        } catch is CancellationError {
+            try await handleCancellation(snapshot: cancellationSnapshot, force: true)
+            throw CancellationError()
+        } catch {
+            log
+                .warning(
+                    "Failed to process track \(track.id, privacy: .private): \(error.localizedDescription, privacy: .public)"
+                )
+            return ([], false)
+        }
     }
 
     // MARK: Controls
@@ -284,15 +304,17 @@ public actor BatchProcessor {
     }
 
     private func handleCancellation(
-        snapshot: CheckpointSnapshot
+        snapshot: CheckpointSnapshot,
+        force: Bool = false
     ) async throws {
-        guard cancelRequested else { return }
+        guard force || cancelRequested else { return }
         currentState = .cancelled
         let checkpoint = BatchCheckpoint(
             batchID: snapshot.batchID,
             processedTrackIDs: snapshot.processedIDs,
             totalCount: snapshot.totalCount,
-            lastProcessedIndex: snapshot.lastIndex
+            lastProcessedIndex: snapshot.lastIndex,
+            changes: snapshot.changes
         )
         try await checkpointManager.save(checkpoint)
         log.info("Batch cancelled at index \(snapshot.lastIndex, privacy: .public)")
