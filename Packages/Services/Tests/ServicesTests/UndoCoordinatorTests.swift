@@ -303,7 +303,7 @@ struct UndoCoordinatorTests {
         await bridge.setCustomWriteError(
             AppleScriptBridgeError.scriptNotFound(
                 name: "update_property",
-                searchPath: URL(fileURLWithPath: "/tmp/GenreUpdaterScripts")
+                searchPath: FileManager.default.temporaryDirectory
             )
         )
         let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
