@@ -330,7 +330,7 @@ struct BatchProcessorTests {
 
         let processedTrackIDs = Accumulator<String>()
 
-        await #expect(throws: CancellationError.self) {
+        do {
             _ = try await processor.process(
                 tracks: makeTracks(count: 3),
                 operation: { track in
@@ -342,12 +342,29 @@ struct BatchProcessorTests {
                         artist: track.artist
                     )]
                 },
-                progressHandler: { _ in }
+                progressHandler: { _ in
+                    // Progress is irrelevant for cancellation behavior.
+                }
             )
+            Issue.record("Expected batch cancellation error")
+        } catch let error as BatchProcessorError {
+            guard case let .cancelled(processedCount, totalCount) = error else {
+                Issue.record("Expected cancellation error, got \(error)")
+                return
+            }
+            #expect(processedCount == 1)
+            #expect(totalCount == 3)
+        } catch {
+            Issue.record("Expected batch cancellation error, got \(error)")
         }
 
         #expect(processedTrackIDs.getAll() == ["T0", "T1"])
         #expect(await processor.state == .cancelled)
+        let savedCheckpoint = try await checkpoint.loadLatest()
+        #expect(savedCheckpoint?.processedTrackIDs == ["T0"])
+        #expect(savedCheckpoint?.lastProcessedIndex == 0)
+        #expect(savedCheckpoint?.totalCount == 3)
+        #expect(savedCheckpoint?.changes.map(\.trackID) == ["T0"])
     }
 
     @Test("Pause and resume completes processing")

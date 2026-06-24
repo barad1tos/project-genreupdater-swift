@@ -176,7 +176,8 @@ public actor BatchProcessor {
 
             let outcome = try await processTrack(
                 tracks[index],
-                operation: operation
+                operation: operation,
+                cancellationSnapshot: snapshot
             )
             if outcome.didProcess {
                 let changes = outcome.changes
@@ -216,13 +217,14 @@ public actor BatchProcessor {
 
     private func processTrack(
         _ track: Track,
-        operation: @Sendable (Track) async throws -> [ChangeLogEntry]
+        operation: @Sendable (Track) async throws -> [ChangeLogEntry],
+        cancellationSnapshot: CheckpointSnapshot
     ) async throws -> (changes: [ChangeLogEntry], didProcess: Bool) {
         do {
             let changes = try await operation(track)
             return (changes, true)
         } catch is CancellationError {
-            currentState = .cancelled
+            try await handleCancellation(snapshot: cancellationSnapshot, force: true)
             throw CancellationError()
         } catch {
             log
@@ -302,15 +304,17 @@ public actor BatchProcessor {
     }
 
     private func handleCancellation(
-        snapshot: CheckpointSnapshot
+        snapshot: CheckpointSnapshot,
+        force: Bool = false
     ) async throws {
-        guard cancelRequested else { return }
+        guard force || cancelRequested else { return }
         currentState = .cancelled
         let checkpoint = BatchCheckpoint(
             batchID: snapshot.batchID,
             processedTrackIDs: snapshot.processedIDs,
             totalCount: snapshot.totalCount,
-            lastProcessedIndex: snapshot.lastIndex
+            lastProcessedIndex: snapshot.lastIndex,
+            changes: snapshot.changes
         )
         try await checkpointManager.save(checkpoint)
         log.info("Batch cancelled at index \(snapshot.lastIndex, privacy: .public)")

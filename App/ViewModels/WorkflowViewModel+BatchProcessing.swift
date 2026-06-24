@@ -64,8 +64,7 @@ extension WorkflowViewModel {
                 phase = .configure
                 progress = nil
             } catch let batchError as BatchProcessorError {
-                preserveInterruptedPreflightOutcome(preflightOutcome)
-                handleBatchError(batchError)
+                handleBatchProcessingError(batchError, preflightOutcome: preflightOutcome)
             } catch {
                 preserveInterruptedPreflightOutcome(preflightOutcome)
                 phase = .error(error.localizedDescription)
@@ -153,10 +152,46 @@ extension WorkflowViewModel {
         failedCount = failedTracks.count
     }
 
-    private func finishCancelledBatch(preflightOutcome: PendingEntryOutcome) {
+    private func handleBatchProcessingError(
+        _ error: BatchProcessorError,
+        preflightOutcome: PendingEntryOutcome
+    ) {
+        switch error {
+        case let .cancelled(liveProcessedCount, liveTotalCount):
+            finishCancelledBatch(
+                preflightOutcome: preflightOutcome,
+                liveProcessedCount: liveProcessedCount,
+                liveTotalCount: liveTotalCount
+            )
+            phase = .configure
+            progress = nil
+        case .featureNotAvailable, .alreadyRunning, .notRunning:
+            preserveInterruptedPreflightOutcome(preflightOutcome)
+            handleBatchError(error)
+        }
+    }
+
+    private func finishCancelledBatch(
+        preflightOutcome: PendingEntryOutcome,
+        liveProcessedCount: Int? = nil,
+        liveTotalCount: Int? = nil
+    ) {
         trackStatuses = [:]
         failedCount = 0
-        preserveInterruptedPreflightOutcome(preflightOutcome)
+        if preflightOutcome.isEmpty {
+            completedEntries = []
+            result = nil
+            currentTrackID = nil
+        } else {
+            preserveInterruptedPreflightOutcome(preflightOutcome)
+        }
+
+        if let liveProcessedCount {
+            processedCount = preflightOutcome.processedCount + liveProcessedCount
+        }
+        if let liveTotalCount {
+            totalCount = max(totalCount, preflightOutcome.processedCount + liveTotalCount)
+        }
     }
 
     private func preserveInterruptedPreflightOutcome(_ outcome: PendingEntryOutcome) {
@@ -178,7 +213,7 @@ extension WorkflowViewModel {
         currentTrackID = nil
     }
 
-    private func restorePreflightStatuses(_ outcome: PendingEntryOutcome) {
+    func restorePreflightStatuses(_ outcome: PendingEntryOutcome) {
         let successfulTrackIDs = Set(outcome.successfulTrackIDs + outcome.completed.map(\.trackID))
         for trackID in successfulTrackIDs {
             if case .failed = trackStatuses[trackID] {

@@ -366,6 +366,7 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
     private let seededDueEntries: [PendingAlbumEntry]?
     private let seededProblematicAlbums: [ProblematicPendingAlbum]
     private let pendingSnapshotDelay: PendingSnapshotDelay?
+    private let timestampUpdateFailure: (any Error)?
     private var removals: [(artist: String, album: String)] = []
     private var timestampUpdates = 0
 
@@ -373,12 +374,14 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
         entries: [PendingAlbumEntry],
         dueEntries: [PendingAlbumEntry]? = nil,
         problematicAlbums: [ProblematicPendingAlbum] = [],
-        pendingSnapshotDelay: PendingSnapshotDelay? = nil
+        pendingSnapshotDelay: PendingSnapshotDelay? = nil,
+        timestampUpdateFailure: (any Error)? = nil
     ) {
         self.entries = entries
         self.seededDueEntries = dueEntries
         self.seededProblematicAlbums = problematicAlbums
         self.pendingSnapshotDelay = pendingSnapshotDelay
+        self.timestampUpdateFailure = timestampUpdateFailure
     }
 
     func initialize() async throws {
@@ -441,6 +444,9 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
     }
 
     func updateVerificationTimestamp() async throws {
+        if let timestampUpdateFailure {
+            throw timestampUpdateFailure
+        }
         timestampUpdates += 1
     }
 
