@@ -180,6 +180,14 @@ struct ReportsView: View {
                 artist: artist,
                 ignoreTestFilter: true
             )
+            let mappedTrackCount = try await dependencies.refreshTrackIDMappingOrThrow(
+                musicKitTracks: tracks,
+                scopedArtists: [artist],
+                mergeExisting: true
+            )
+            guard mappedTrackCount > 0 || tracks.isEmpty else {
+                throw BackupCSVImportError.noWritableTrackMapping
+            }
             let result = try await undoCoordinator.revertYearsFromBackupCSV(
                 csv,
                 artist: artist,
@@ -304,11 +312,14 @@ private struct ReportsAlert: Identifiable {
 
 private enum BackupCSVImportError: LocalizedError {
     case servicesUnavailable
+    case noWritableTrackMapping
 
     var errorDescription: String? {
         switch self {
         case .servicesUnavailable:
             "Music library services are not ready yet"
+        case .noWritableTrackMapping:
+            "Imported tracks could not be matched to writable Music.app IDs"
         }
     }
 }

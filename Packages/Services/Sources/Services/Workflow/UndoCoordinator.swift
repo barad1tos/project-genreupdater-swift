@@ -9,6 +9,7 @@ public enum UndoCoordinatorError: Error, LocalizedError {
     case noChangesToRevert
     case partialRevertFailure(succeeded: Int, failed: Int, errorDescriptions: [String])
     case invalidBackupCSV(reason: String)
+    case missingAppleScriptID(trackID: String)
 
     public var errorDescription: String? {
         switch self {
@@ -16,11 +17,21 @@ public enum UndoCoordinatorError: Error, LocalizedError {
             "Failed to revert track \(trackID): \(reason)"
         case .noChangesToRevert:
             "No changes available to revert"
-        case let .partialRevertFailure(succeeded, failed, _):
-            "Partial revert: \(succeeded) succeeded, \(failed) failed"
+        case let .partialRevertFailure(succeeded, failed, errorDescriptions):
+            if let firstFailure = Self.firstFailureDescription(from: errorDescriptions) {
+                "Partial revert: \(succeeded) succeeded, \(failed) failed. First failure: \(firstFailure)"
+            } else {
+                "Partial revert: \(succeeded) succeeded, \(failed) failed"
+            }
         case let .invalidBackupCSV(reason):
             "Invalid backup CSV: \(reason)"
+        case .missingAppleScriptID:
+            "Missing AppleScript ID mapping for a track"
         }
+    }
+
+    private static func firstFailureDescription(from errorDescriptions: [String]) -> String? {
+        errorDescriptions.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 }
 
@@ -130,7 +141,7 @@ public actor UndoCoordinator {
             return
         }
 
-        let writeID = await resolveWriteID(for: entry.trackID)
+        let writeID = try await resolveWriteID(for: entry.trackID)
 
         _ = try await scriptBridge.updateTrackProperty(
             trackID: writeID,
@@ -162,10 +173,11 @@ public actor UndoCoordinator {
                 try await revertChange(entry)
                 succeeded += 1
             } catch {
-                errorDescriptions.append(error.localizedDescription)
+                let failureDescription = Self.publicFailureDescription(for: error)
+                errorDescriptions.append(failureDescription)
                 log
                     .error(
-                        "Failed to revert \(entry.changeType.rawValue, privacy: .public) for track \(entry.trackID, privacy: .private): \(error.localizedDescription, privacy: .public)"
+                        "Failed to revert \(entry.changeType.rawValue, privacy: .public) for track \(entry.trackID, privacy: .private): \(failureDescription, privacy: .public)"
                     )
             }
         }
@@ -231,9 +243,12 @@ public actor UndoCoordinator {
 
     // MARK: ID Resolution
 
-    private func resolveWriteID(for trackID: String) async -> String {
+    private func resolveWriteID(for trackID: String) async throws -> String {
         guard let idMapper else { return trackID }
-        return await idMapper.appleScriptID(forMusicKitID: trackID) ?? trackID
+        guard let appleScriptID = await idMapper.appleScriptID(forMusicKitID: trackID) else {
+            throw UndoCoordinatorError.missingAppleScriptID(trackID: trackID)
+        }
+        return appleScriptID
     }
 
     // MARK: Backup CSV Revert
@@ -254,7 +269,7 @@ public actor UndoCoordinator {
             }
 
             do {
-                let writeID = await resolveWriteID(for: track.id)
+                let writeID = try await resolveWriteID(for: track.id)
                 _ = try await scriptBridge.updateTrackProperty(
                     trackID: writeID,
                     property: "year",
@@ -273,9 +288,10 @@ public actor UndoCoordinator {
                 await recordChange(entry)
                 updatedCount += 1
             } catch {
-                errorDescriptions.append(error.localizedDescription)
+                let failureDescription = Self.publicFailureDescription(for: error)
+                errorDescriptions.append(failureDescription)
                 log.error(
-                    "Failed to restore backup year for track \(track.id, privacy: .private): \(error.localizedDescription, privacy: .public)"
+                    "Failed to restore backup year for track \(track.id, privacy: .private): \(failureDescription, privacy: .public)"
                 )
             }
         }
@@ -293,6 +309,38 @@ public actor UndoCoordinator {
             updatedCount: updatedCount,
             missingCount: missingCount
         )
+    }
+
+    private static func publicFailureDescription(for error: Error) -> String {
+        if let undoError = error as? UndoCoordinatorError {
+            return publicUndoFailureDescription(for: undoError)
+        }
+        if let appleScriptError = error as? AppleScriptBridgeError {
+            return publicAppleScriptFailureDescription(for: appleScriptError)
+        }
+        return "AppleScript write failed"
+    }
+
+    private static func publicUndoFailureDescription(for error: UndoCoordinatorError) -> String {
+        switch error {
+        case .revertFailed:
+            "Failed to revert track"
+        case .noChangesToRevert, .invalidBackupCSV, .missingAppleScriptID:
+            error.errorDescription ?? "Undo operation failed"
+        case let .partialRevertFailure(succeeded, failed, _):
+            "Partial revert: \(succeeded) succeeded, \(failed) failed"
+        }
+    }
+
+    private static func publicAppleScriptFailureDescription(for error: AppleScriptBridgeError) -> String {
+        switch error {
+        case .scriptNotFound, .scriptsNotInstalled, .musicAppNotRunning, .timeout:
+            error.errorDescription ?? "AppleScript write failed"
+        case .executionFailed:
+            "AppleScript write failed"
+        case .parseError:
+            "AppleScript output could not be parsed"
+        }
     }
 
     // MARK: Persistence
