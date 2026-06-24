@@ -91,11 +91,20 @@ struct AppDependenciesLibraryServicesTests {
         #expect(
             compactSource.contains(
                 [
-                    "try await dependencies.refreshTrackIDMappingOrThrow(",
+                    "let mappedTrackCount = try await dependencies.refreshTrackIDMappingOrThrow(",
                     "musicKitTracks: tracks,",
                     "scopedArtists: [artist],",
                     "mergeExisting: true",
                     ")",
+                ].joined(separator: " ")
+            )
+        )
+        #expect(
+            compactSource.contains(
+                [
+                    "guard mappedTrackCount > 0 || tracks.isEmpty else {",
+                    "throw BackupCSVImportError.noWritableTrackMapping",
+                    "}",
                 ].joined(separator: " ")
             )
         )
