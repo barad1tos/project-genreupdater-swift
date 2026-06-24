@@ -377,6 +377,9 @@ final class WorkflowViewModel {
                 recordAppliedTrackUsage(from: batchResult)
                 phase = .done
                 progress = nil
+            } catch is CancellationError {
+                phase = .configure
+                progress = nil
             } catch {
                 phase = .error(error.localizedDescription)
                 progress = nil

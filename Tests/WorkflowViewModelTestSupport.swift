@@ -103,6 +103,18 @@ func waitForWorkflowToLeaveScanning(_ viewModel: WorkflowViewModel) async throws
 }
 
 @MainActor
+func waitForWorkflowToReturnToConfigure(_ viewModel: WorkflowViewModel) async throws {
+    for _ in 0 ..< 500 {
+        if case .configure = viewModel.phase {
+            return
+        }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+
+    #expect(Bool(false), "workflow did not return to configure before timeout")
+}
+
+@MainActor
 func computeDelayedPendingScopePreview(
     viewModel: WorkflowViewModel,
     tracks: [Track],

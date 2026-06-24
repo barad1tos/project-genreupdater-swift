@@ -315,6 +315,41 @@ struct BatchProcessorTests {
         #expect(changes.count == 2)
     }
 
+    @Test("Cancellation errors stop processing")
+    func cancellationErrorsStopProcessing() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let checkpoint = CheckpointManager(directory: dir)
+        let gate = await FeatureGate(fixedTier: .pro)
+
+        let processor = BatchProcessor(
+            checkpointManager: checkpoint,
+            featureGate: gate
+        )
+
+        let processedTrackIDs = Accumulator<String>()
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await processor.process(
+                tracks: makeTracks(count: 3),
+                operation: { track in
+                    processedTrackIDs.append(track.id)
+                    if track.id == "T1" { throw CancellationError() }
+                    return [ChangeLogEntry(
+                        changeType: .genreUpdate,
+                        trackID: track.id,
+                        artist: track.artist
+                    )]
+                },
+                progressHandler: { _ in }
+            )
+        }
+
+        #expect(processedTrackIDs.getAll() == ["T0", "T1"])
+        #expect(await processor.state == .cancelled)
+    }
+
     @Test("Pause and resume completes processing")
     func pauseAndResume() async throws {
         let dir = FileManager.default.temporaryDirectory

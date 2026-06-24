@@ -5,6 +5,7 @@ import Services
 
 struct PendingEntryOutcome {
     var completed: [ChangeLogEntry] = []
+    var successfulTrackIDs: [String] = []
     var failedTrackIDs: [String] = []
     var errorDescriptions: [String] = []
     var processedCount = 0
@@ -12,7 +13,11 @@ struct PendingEntryOutcome {
     var handledIdentityKeys: Set<String> = []
 
     var isEmpty: Bool {
-        completed.isEmpty && failedTrackIDs.isEmpty && errorDescriptions.isEmpty && processedCount == 0
+        completed.isEmpty
+            && successfulTrackIDs.isEmpty
+            && failedTrackIDs.isEmpty
+            && errorDescriptions.isEmpty
+            && processedCount == 0
     }
 }
 
@@ -117,20 +122,18 @@ extension WorkflowViewModel {
         refreshGeneration: Int
     ) async {
         do {
-            let snapshot = await pendingVerificationSnapshot()
-            let problematicCount = await pendingVerificationService
-                .getProblematicPendingAlbums(minAttempts: resolvedProblematicAlbumReportMinAttempts)
-                .count
+            let report = await pendingVerificationReport()
+            let snapshot = report.snapshot
             let dueEntries = snapshot.due
             let trackContext = await pendingVerificationTrackContext(from: tracks)
             guard isCurrentPendingVerificationRefresh(refreshGeneration) else { return }
             updatePendingScope(snapshot: snapshot, tracks: trackContext.tracks)
             guard applyPendingVerificationReportSummary(
                 snapshot: snapshot,
-                problematicCount: problematicCount,
+                problematicCount: report.problematicCount,
                 refreshGeneration: refreshGeneration
             ) else { return }
-            preparePendingTrackStatuses(tracks: trackContext.tracks, dueEntries: dueEntries)
+            preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
             let runOutcome = try await performPendingVerification(
                 dueEntries: dueEntries,
                 trackContext: trackContext,
@@ -163,17 +166,18 @@ extension WorkflowViewModel {
         }
 
         do {
-            let snapshot = await pendingVerificationSnapshot()
+            let report = await pendingVerificationReport()
+            let snapshot = report.snapshot
             let dueEntries = snapshot.due
+
+            updatePendingVerificationReportSummary(
+                snapshot: snapshot,
+                problematicCount: report.problematicCount
+            )
             guard !dueEntries.isEmpty else { return PendingEntryOutcome() }
 
-            await refreshPendingVerificationReportSummary(snapshot: snapshot)
-
             let trackContext = await pendingVerificationTrackContext(from: tracks)
-            processedCount = 0
-            failedCount = 0
-            currentTrackID = nil
-            preparePendingTrackStatuses(tracks: trackContext.tracks, dueEntries: dueEntries)
+            preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
             let outcome = try await performPendingVerification(
                 dueEntries: dueEntries,
                 trackContext: trackContext,
@@ -227,7 +231,9 @@ extension WorkflowViewModel {
             processedCount += entryOutcome.processedCount
         }
 
-        if !dueEntries.isEmpty {
+        if !dueEntries.isEmpty,
+           runOutcome.failedTrackIDs.isEmpty,
+           runOutcome.errorDescriptions.isEmpty {
             try await pendingVerificationService.updateVerificationTimestamp()
         }
         return runOutcome
@@ -249,6 +255,13 @@ extension WorkflowViewModel {
         let scopedTracks = Self.tracksMatchingPendingEntries(tracks, entries: dueEntries)
         trackStatuses = Dictionary(uniqueKeysWithValues: scopedTracks.map { ($0.id, .queued) })
         totalCount = scopedTracks.count
+    }
+
+    private func preparePendingVerificationScope(tracks: [Track], dueEntries: [PendingAlbumEntry]) {
+        processedCount = 0
+        failedCount = 0
+        currentTrackID = nil
+        preparePendingTrackStatuses(tracks: tracks, dueEntries: dueEntries)
     }
 
     private func updatePendingProgress(entry: PendingAlbumEntry, index: Int, total: Int) {
@@ -352,6 +365,15 @@ extension WorkflowViewModel {
             .count
     }
 
+    private func pendingVerificationReport() async -> (
+        snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
+        problematicCount: Int
+    ) {
+        let snapshot = await pendingVerificationSnapshot()
+        let problematicCount = await problematicPendingAlbumCount()
+        return (snapshot, problematicCount)
+    }
+
     private func refreshPendingVerificationReportSummary(
         snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry])
     ) async {
@@ -452,6 +474,7 @@ extension WorkflowViewModel {
             markPendingAlbumTracks(albumTracks, as: .done)
             return PendingEntryOutcome(
                 completed: verification.entries,
+                successfulTrackIDs: albumTracks.map(\.id),
                 processedCount: albumTracks.count,
                 resolvedIdentityKeys: resolvedIdentityKeys,
                 handledIdentityKeys: resolvedIdentityKeys
@@ -711,6 +734,7 @@ extension WorkflowViewModel {
 extension PendingEntryOutcome {
     fileprivate mutating func merge(_ other: PendingEntryOutcome) {
         completed.append(contentsOf: other.completed)
+        successfulTrackIDs.append(contentsOf: other.successfulTrackIDs)
         failedTrackIDs.append(contentsOf: other.failedTrackIDs)
         errorDescriptions.append(contentsOf: other.errorDescriptions)
         processedCount += other.processedCount

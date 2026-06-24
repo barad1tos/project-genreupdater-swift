@@ -174,15 +174,14 @@ public actor BatchProcessor {
             try await handleCancellation(snapshot: snapshot)
             try await waitWhilePaused()
 
-            do {
-                let changes = try await operation(tracks[index])
+            let outcome = try await processTrack(
+                tracks[index],
+                operation: operation
+            )
+            if outcome.didProcess {
+                let changes = outcome.changes
                 resume.changes.append(contentsOf: changes)
                 resume.processedIDs.append(tracks[index].id)
-            } catch {
-                log
-                    .warning(
-                        "Failed to process track \(tracks[index].id, privacy: .private): \(error.localizedDescription, privacy: .public)"
-                    )
             }
 
             reportProgress(
@@ -213,6 +212,25 @@ public actor BatchProcessor {
             totalCount: tracks.count,
             progressHandler: progressHandler
         )
+    }
+
+    private func processTrack(
+        _ track: Track,
+        operation: @Sendable (Track) async throws -> [ChangeLogEntry]
+    ) async throws -> (changes: [ChangeLogEntry], didProcess: Bool) {
+        do {
+            let changes = try await operation(track)
+            return (changes, true)
+        } catch is CancellationError {
+            currentState = .cancelled
+            throw CancellationError()
+        } catch {
+            log
+                .warning(
+                    "Failed to process track \(track.id, privacy: .private): \(error.localizedDescription, privacy: .public)"
+                )
+            return ([], false)
+        }
     }
 
     // MARK: Controls

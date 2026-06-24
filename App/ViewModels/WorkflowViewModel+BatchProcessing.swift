@@ -157,11 +157,12 @@ extension WorkflowViewModel {
     }
 
     private func restorePreflightStatuses(_ outcome: PendingEntryOutcome) {
-        for entry in outcome.completed {
-            if case .failed = trackStatuses[entry.trackID] {
+        let successfulTrackIDs = Set(outcome.successfulTrackIDs + outcome.completed.map(\.trackID))
+        for trackID in successfulTrackIDs {
+            if case .failed = trackStatuses[trackID] {
                 continue
             }
-            trackStatuses[entry.trackID] = .done
+            trackStatuses[trackID] = .done
         }
         restorePreflightFailures(outcome)
     }
