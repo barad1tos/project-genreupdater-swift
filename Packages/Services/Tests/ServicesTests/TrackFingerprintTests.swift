@@ -49,6 +49,66 @@ struct TrackFingerprintTests {
         #expect(TrackFingerprint.hash(first) != TrackFingerprint.hash(second))
     }
 
+    @Test("identity and release fields do not create a processing metadata change")
+    func identityAndReleaseFieldsDoNotCreateProcessingMetadataChange() {
+        let stored = Track(
+            id: "track-1",
+            name: "Old Name",
+            artist: "Old Artist",
+            album: "Old Album",
+            genre: "Rock",
+            year: 2001,
+            releaseYear: 1999,
+            albumArtist: "Old Album Artist"
+        )
+        let current = Track(
+            id: "track-1",
+            name: "New Name",
+            artist: "New Artist",
+            album: "New Album",
+            genre: "Rock",
+            year: 2001,
+            releaseYear: 2005,
+            albumArtist: "New Album Artist"
+        )
+
+        #expect(!TrackFingerprint.hasProcessingMetadataChanged(current: current, stored: stored))
+    }
+
+    @Test("genre year and processing availability create processing metadata changes")
+    func genreYearAndProcessingAvailabilityCreateProcessingMetadataChanges() {
+        let stored = Track(id: "track-1", name: "Song", artist: "Artist", album: "Album", genre: "Rock", year: 2001)
+        let genreChanged = Track(
+            id: "track-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Metal",
+            year: 2001
+        )
+        let yearChanged = Track(
+            id: "track-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 2002
+        )
+        let prerelease = Track(
+            id: "track-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 2001,
+            trackStatus: TrackKind.prerelease.rawValue
+        )
+
+        #expect(TrackFingerprint.hasProcessingMetadataChanged(current: genreChanged, stored: stored))
+        #expect(TrackFingerprint.hasProcessingMetadataChanged(current: yearChanged, stored: stored))
+        #expect(TrackFingerprint.hasProcessingMetadataChanged(current: prerelease, stored: stored))
+    }
+
     @Test("empty track status does not create a processing metadata change")
     func emptyTrackStatusDoesNotCreateProcessingMetadataChange() {
         let storedWithoutStatus = Track(

@@ -88,17 +88,17 @@ struct LibrarySyncAutoSyncTests {
         #expect(result.modifiedTracks.count == 1)
     }
 
-    @Test("Detect modified tracks by name change")
-    func detectModifiedByNameChange() async throws {
+    @Test("Detect modified tracks by year change")
+    func detectModifiedByYearChange() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let gate = await FeatureGate(fixedTier: .free)
 
         await bridge.setLibrary(ids: ["T1"], tracks: [
-            "T1": Track(id: "T1", name: "New Name", artist: "A", album: "B"),
+            "T1": Track(id: "T1", name: "Song", artist: "A", album: "B", year: 2002),
         ])
         await store.setStored([
-            Track(id: "T1", name: "Old Name", artist: "A", album: "B"),
+            Track(id: "T1", name: "Song", artist: "A", album: "B", year: 2001),
         ])
 
         let service = LibrarySyncService(

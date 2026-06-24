@@ -267,6 +267,136 @@ struct LibrarySyncIdentityTests {
         #expect(await snapshotService.wasCleared())
     }
 
+    @Test("Persists identity-only changes and invalidates old and new caches")
+    func persistsIdentityOnlyChangesAndInvalidatesOldAndNewCaches() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let storedTrack = Track(
+            id: "IDENTITY",
+            name: "Same Song",
+            artist: "Old Artist",
+            album: "Old Album",
+            genre: "Rock",
+            year: 2001
+        )
+        let currentTrack = Track(
+            id: "IDENTITY",
+            name: "Same Song",
+            artist: "New Artist",
+            album: "New Album",
+            genre: "Rock",
+            year: 2001
+        )
+        await bridge.setLibrary(ids: ["IDENTITY"], tracks: ["IDENTITY": currentTrack])
+        await store.setStored([storedTrack])
+        await seedSyncCaches(cache, artist: "Old Artist", album: "Old Album")
+        await seedSyncCaches(cache, artist: "New Artist", album: "New Album")
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            cache: cache,
+            librarySnapshotService: snapshotService
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+        let storedTracks = await store.storedTracks
+
+        #expect(result.modifiedTracks.isEmpty)
+        #expect(result.identityChangedTracks.map(\.id) == ["IDENTITY"])
+        #expect(result.hasChanges)
+        #expect(storedTracks.first { $0.id == "IDENTITY" }?.artist == "New Artist")
+        #expect(storedTracks.first { $0.id == "IDENTITY" }?.album == "New Album")
+        await expectSyncCachesInvalidated(cache, artist: "Old Artist", album: "Old Album")
+        await expectSyncCachesInvalidated(cache, artist: "New Artist", album: "New Album")
+        #expect(await snapshotService.wasCleared())
+    }
+
+    @Test("New tracks invalidate current album caches and clear snapshot")
+    func newTracksInvalidateCurrentCachesAndClearSnapshot() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let newTrack = Track(
+            id: "NEW",
+            name: "New Song",
+            artist: "New Artist",
+            album: "New Album",
+            genre: "Rock",
+            year: 2001
+        )
+        await bridge.setLibrary(ids: ["NEW"], tracks: ["NEW": newTrack])
+        await store.setStored([])
+        await seedSyncCaches(cache, artist: "New Artist", album: "New Album")
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            cache: cache,
+            librarySnapshotService: snapshotService
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+        let storedTracks = await store.storedTracks
+
+        #expect(result.newTracks.map(\.id) == ["NEW"])
+        #expect(result.modifiedTracks.isEmpty)
+        #expect(result.identityChangedTracks.isEmpty)
+        #expect(storedTracks.map(\.id) == ["NEW"])
+        await expectSyncCachesInvalidated(cache, artist: "New Artist", album: "New Album")
+        #expect(await snapshotService.wasCleared())
+    }
+
+    @Test("Managed metadata changes stay modified and invalidate current caches")
+    func managedMetadataChangesStayModifiedAndInvalidateCurrentCaches() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let storedTrack = Track(
+            id: "MOD",
+            name: "Same Song",
+            artist: "Same Artist",
+            album: "Same Album",
+            genre: "Rock",
+            year: 2001
+        )
+        let currentTrack = Track(
+            id: "MOD",
+            name: "Same Song",
+            artist: "Same Artist",
+            album: "Same Album",
+            genre: "Alternative",
+            year: 2002
+        )
+        await bridge.setLibrary(ids: ["MOD"], tracks: ["MOD": currentTrack])
+        await store.setStored([storedTrack])
+        await seedSyncCaches(cache, artist: "Same Artist", album: "Same Album")
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            cache: cache,
+            librarySnapshotService: snapshotService
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+        let storedTracks = await store.storedTracks
+
+        #expect(result.modifiedTracks.map(\.id) == ["MOD"])
+        #expect(result.identityChangedTracks.isEmpty)
+        #expect(storedTracks.first { $0.id == "MOD" }?.genre == "Alternative")
+        #expect(storedTracks.first { $0.id == "MOD" }?.year == 2002)
+        await expectSyncCachesInvalidated(cache, artist: "Same Artist", album: "Same Album")
+        #expect(await snapshotService.wasCleared())
+    }
+
     private func makePrereleaseSyncService(
         storedTracks: [Track],
         currentTracks: [String: Track],

@@ -25,17 +25,11 @@ public enum TrackFingerprint {
 
     private static func hash(_ track: Track, includesTrackStatus: Bool) -> String {
         let year = track.year.map { String($0) } ?? ""
-        let releaseYear = track.releaseYear.map { String($0) } ?? ""
 
         var payloadFields: [String] = [
             track.id,
-            track.name,
-            track.artist,
-            track.album,
-            track.albumArtist ?? "",
             track.genre ?? "",
             year,
-            releaseYear,
             processingAvailabilityMarker(for: track),
         ]
         if includesTrackStatus {
