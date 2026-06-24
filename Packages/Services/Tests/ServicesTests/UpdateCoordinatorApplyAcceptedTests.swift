@@ -283,17 +283,19 @@ struct UpdateCoordinatorApplyAcceptedTests {
         await fixture.bridge.setFetchedTracks([track])
         let proposals = acceptedGenreAndYearProposals(for: track)
 
-        await #expect(throws: UpdateCoordinatorError.self) {
-            _ = try await fixture.coordinator.applyAcceptedChanges(
-                proposals,
-                progressHandler: ignoreAcceptedChangeProgress
-            )
-        }
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
 
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
         #expect(written.isEmpty)
+        #expect(result.entries.map(\.changeType) == [.genreUpdate])
+        #expect(result.failedTrackIDs == ["MK1"])
+        #expect(result.errorDescriptions.first?.contains("partially applied") == true)
+        #expect(result.hasPartialFailures)
     }
 
     @Test("Default reviewed writes keep single-write behavior")

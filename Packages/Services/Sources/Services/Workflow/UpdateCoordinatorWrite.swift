@@ -8,6 +8,11 @@ private struct PreparedAppleScriptWrite {
     let value: String
 }
 
+private struct BatchWriteOutcome {
+    let currentTracksByID: [String: Track]
+    let appliedIndexes: Set<Int>
+}
+
 extension UpdateCoordinator {
     typealias AppliedChangeEntries = (entries: [ChangeLogEntry], noOpEntries: [ChangeLogEntry])
     typealias AppliedChangeOutcome = (entry: ChangeLogEntry?, noOpEntry: ChangeLogEntry?)
@@ -63,7 +68,11 @@ extension UpdateCoordinator {
         failedTrackIDs: inout [String],
         errorDescriptions: inout [String]
     ) async throws -> AppliedChangeEntries {
-        if let applied = try await applyChangesAsBatchIfPossible(changes) {
+        if let applied = try await applyChangesAsBatchIfPossible(
+            changes,
+            failedTrackIDs: &failedTrackIDs,
+            errorDescriptions: &errorDescriptions
+        ) {
             return applied
         }
 
@@ -139,7 +148,11 @@ extension UpdateCoordinator {
         )
 
         let acceptedChanges = changes.filter(\.isAccepted)
-        if let applied = try await applyChangesAsBatchIfPossible(acceptedChanges) {
+        if let applied = try await applyChangesAsBatchIfPossible(
+            acceptedChanges,
+            failedTrackIDs: &failedTrackIDs,
+            errorDescriptions: &errorDescriptions
+        ) {
             return applied
         }
 
@@ -167,7 +180,11 @@ extension UpdateCoordinator {
         return (entries, noOpEntries)
     }
 
-    func applyChangesAsBatchIfPossible(_ changes: [ProposedChange]) async throws -> AppliedChangeEntries? {
+    func applyChangesAsBatchIfPossible(
+        _ changes: [ProposedChange],
+        failedTrackIDs: inout [String],
+        errorDescriptions: inout [String]
+    ) async throws -> AppliedChangeEntries? {
         guard runtimeConfiguration.areBatchUpdatesEnabled,
               changes.count > 1,
               changes.count <= runtimeConfiguration.maxBatchUpdateSize
@@ -179,12 +196,12 @@ extension UpdateCoordinator {
             return nil
         }
 
-        let currentTracksByID: [String: Track]
+        let batchOutcome: BatchWriteOutcome
         do {
-            guard let fetchedCurrentTracksByID = try await performVerifiedBatchWrite(preparedWrites) else {
+            guard let verifiedBatchOutcome = try await performVerifiedBatchWrite(preparedWrites) else {
                 return nil
             }
-            currentTracksByID = fetchedCurrentTracksByID
+            batchOutcome = verifiedBatchOutcome
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as UpdateCoordinatorError {
@@ -196,10 +213,33 @@ extension UpdateCoordinator {
             return nil
         }
 
+        return await appliedChangeEntries(
+            for: preparedWrites,
+            batchOutcome: batchOutcome,
+            failedTrackIDs: &failedTrackIDs,
+            errorDescriptions: &errorDescriptions
+        )
+    }
+
+    private func appliedChangeEntries(
+        for preparedWrites: [PreparedAppleScriptWrite],
+        batchOutcome: BatchWriteOutcome,
+        failedTrackIDs: inout [String],
+        errorDescriptions: inout [String]
+    ) async -> AppliedChangeEntries {
         var entries: [ChangeLogEntry] = []
         var noOpEntries: [ChangeLogEntry] = []
-        for preparedWrite in preparedWrites {
-            let currentValue = currentTracksByID[preparedWrite.trackID].flatMap { currentTrack in
+        for (writeIndex, preparedWrite) in preparedWrites.enumerated() {
+            guard batchOutcome.appliedIndexes.contains(writeIndex) else {
+                recordUnverifiedBatchWrite(
+                    preparedWrite,
+                    failedTrackIDs: &failedTrackIDs,
+                    errorDescriptions: &errorDescriptions
+                )
+                continue
+            }
+
+            let currentValue = batchOutcome.currentTracksByID[preparedWrite.trackID].flatMap { currentTrack in
                 Self.value(forAppleScriptProperty: preparedWrite.property, in: currentTrack)
             }
             guard currentValue != preparedWrite.value else {
@@ -216,6 +256,23 @@ extension UpdateCoordinator {
             entries.append(entry)
         }
         return (entries, noOpEntries)
+    }
+
+    private func recordUnverifiedBatchWrite(
+        _ preparedWrite: PreparedAppleScriptWrite,
+        failedTrackIDs: inout [String],
+        errorDescriptions: inout [String]
+    ) {
+        recordUnexpectedWorkflowFailure(
+            trackID: preparedWrite.trackID,
+            error: UpdateCoordinatorError.writeFailed(
+                trackID: preparedWrite.trackID,
+                property: preparedWrite.property,
+                reason: "Batch write partially applied before this property was verified"
+            ),
+            failedTrackIDs: &failedTrackIDs,
+            errorDescriptions: &errorDescriptions
+        )
     }
 
     private func prepareBatchWrites(_ changes: [ProposedChange]) async throws -> [PreparedAppleScriptWrite]? {
@@ -240,7 +297,7 @@ extension UpdateCoordinator {
 
     private func performVerifiedBatchWrite(
         _ preparedWrites: [PreparedAppleScriptWrite]
-    ) async throws -> [String: Track]? {
+    ) async throws -> BatchWriteOutcome? {
         guard let currentTracksByID = try await fetchBatchWriteTracks(preparedWrites) else {
             log.warning(
                 "Batch AppleScript write preflight could not fetch current tracks; falling back to single writes"
@@ -257,22 +314,20 @@ extension UpdateCoordinator {
                 )
             }
         )
-        guard let verification = try await verifyBatchWrites(preparedWrites) else {
+        guard let appliedIndexes = try await verifiedBatchWriteIndexes(preparedWrites) else {
             log.warning("Batch AppleScript write could not be verified; falling back to single writes")
             return nil
         }
-        guard verification.appliedCount == preparedWrites.count else {
-            if verification.appliedCount > 0 {
-                throw UpdateCoordinatorError.writeFailed(
-                    trackID: verification.firstAppliedTrackID ?? preparedWrites[0].trackID,
-                    property: "batch",
-                    reason: "Batch write partially applied before verification completed"
-                )
-            }
+        guard !appliedIndexes.isEmpty else {
             log.warning("Batch AppleScript write did not apply any updates; falling back to single writes")
             return nil
         }
-        return currentTracksByID
+        if appliedIndexes.count < preparedWrites.count {
+            log.warning(
+                "Batch AppleScript write partially verified; unverified writes are failures"
+            )
+        }
+        return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: appliedIndexes)
     }
 
     private func fetchBatchWriteTracks(_ preparedWrites: [PreparedAppleScriptWrite]) async throws -> [String: Track]? {
@@ -287,23 +342,27 @@ extension UpdateCoordinator {
         return hasAllTracks ? fetchedTracksByID : nil
     }
 
-    private func verifyBatchWrites(
+    private func verifiedBatchWriteIndexes(
         _ preparedWrites: [PreparedAppleScriptWrite]
-    ) async throws -> (refreshedTracksByID: [String: Track], appliedCount: Int, firstAppliedTrackID: String?)? {
+    ) async throws -> Set<Int>? {
         guard let refreshedTracksByID = try await fetchBatchWriteTracks(preparedWrites) else {
             return nil
         }
 
-        let appliedWrites = preparedWrites.filter { preparedWrite in
+        var appliedIndexes = Set<Int>()
+        for (index, preparedWrite) in preparedWrites.enumerated() {
             guard let refreshedTrack = refreshedTracksByID[preparedWrite.trackID] else {
-                return false
+                continue
             }
-            return Self.value(
+            let currentValue = Self.value(
                 forAppleScriptProperty: preparedWrite.property,
                 in: refreshedTrack
-            ) == preparedWrite.value
+            )
+            if currentValue == preparedWrite.value {
+                appliedIndexes.insert(index)
+            }
         }
-        return (refreshedTracksByID, appliedWrites.count, appliedWrites.first?.trackID)
+        return appliedIndexes
     }
 
     @discardableResult
