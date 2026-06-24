@@ -371,9 +371,12 @@ public actor LibrarySyncService {
     }
 
     private func hasDisplayMetadataChanged(current: Track, stored: Track) -> Bool {
+        // lastModified is AppleScript-only today; using it here would refresh the same SwiftData rows forever.
         current.name != stored.name
+            || current.artist != stored.artist
+            || current.album != stored.album
+            || current.albumArtist != stored.albumArtist
             || current.dateAdded != stored.dateAdded
-            || current.lastModified != stored.lastModified
     }
 
     private func shouldRefreshCommonTrackMetadata(force: Bool) async throws -> Bool {
