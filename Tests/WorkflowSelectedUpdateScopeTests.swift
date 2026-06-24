@@ -154,6 +154,50 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
+    @Test("full library preview reports scope and analysis progress")
+    func fullLibraryPreviewReportsScopeAndAnalysisProgress() async throws {
+        let albumYearLookupHold = LiveBatchHold()
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(
+                year: 2020,
+                confidence: 90,
+                beforeAlbumYearLookup: {
+                    await albumYearLookupHold.holdOnce()
+                }
+            )
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = true
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+
+        viewModel.start(tracks: [
+            Track(id: "1", name: "One", artist: "Alpha", album: "First", year: 1999),
+        ])
+
+        #expect(viewModel.progress?.phase == .fetching)
+        #expect(viewModel.progress?.current == 0)
+        #expect(viewModel.progress?.total == 1)
+        #expect(viewModel.progress?.message == "Checking library state")
+
+        await albumYearLookupHold.waitUntilHeld()
+
+        #expect(viewModel.progress?.phase == .analyzing)
+        #expect(viewModel.progress?.current == 1)
+        #expect(viewModel.progress?.total == 1)
+        #expect(viewModel.progress?.message == "Analyzing: One")
+
+        await albumYearLookupHold.release()
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        guard case .review = viewModel.phase else {
+            #expect(Bool(false), "preview-only full-library start should enter review after analysis")
+            return
+        }
+        #expect(viewModel.progress == nil)
+    }
+
     @Test("full library preview uses artist context for genre mismatch repair")
     func fullLibraryPreviewUsesArtistContextForGenreMismatchRepair() async throws {
         let fixture = makeWorkflowFixture()
@@ -220,11 +264,44 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(change.newValue == "1999")
     }
 
-    @Test("full library force lookup bypasses incremental scope")
-    func fullLibraryForceLookupBypassesIncrementalScope() async throws {
+    @Test("selected dry run does not use full-library incremental scope")
+    func selectedDryRunDoesNotUseFullLibraryIncrementalScope() async throws {
+        let incrementalResolverCalls = AsyncCallCounter()
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2001, confidence: 100),
-            resolveIncrementalTracks: { _, _ in [] }
+            resolveIncrementalTracks: { _, _ in
+                await incrementalResolverCalls.record()
+                return []
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .selectedTracks
+        viewModel.previewOnly = true
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+
+        viewModel.start(tracks: [
+            Track(id: "selected-year", name: "Song", artist: "Artist", album: "Album", year: 1999),
+        ])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        let change = try #require(viewModel.proposedChanges.first)
+        #expect(await incrementalResolverCalls.count() == 0)
+        #expect(change.track.id == "selected-year")
+        #expect(change.changeType == .yearUpdate)
+        #expect(change.newValue == "2001")
+    }
+
+    @Test("full library force lookup bypasses incremental scope")
+    func fullLibraryForceLookupBypassesIncrementalScope() async throws {
+        let incrementalResolverCalls = AsyncCallCounter()
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2001, confidence: 100),
+            resolveIncrementalTracks: { _, _ in
+                await incrementalResolverCalls.record()
+                return []
+            }
         )
         let viewModel = fixture.viewModel
         viewModel.mode = .fullLibrary
@@ -240,6 +317,7 @@ struct WorkflowSelectedUpdateScopeTests {
         try await waitForWorkflowToLeaveScanning(viewModel)
 
         let change = try #require(viewModel.proposedChanges.first)
+        #expect(await incrementalResolverCalls.count() == 0)
         #expect(change.track.id == "old-track")
         #expect(change.changeType == .yearUpdate)
         #expect(change.oldValue == "1999")
@@ -522,5 +600,17 @@ struct WorkflowSelectedUpdateScopeTests {
         viewModel.scopeTrackCount = 1
 
         #expect(viewModel.hasRunnableScope)
+    }
+}
+
+private actor AsyncCallCounter {
+    private var calls = 0
+
+    func record() {
+        calls += 1
+    }
+
+    func count() -> Int {
+        calls
     }
 }
