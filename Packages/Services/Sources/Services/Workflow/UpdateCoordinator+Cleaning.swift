@@ -1,12 +1,14 @@
 import Core
 
 extension UpdateCoordinator {
-    static func determineCleaningChanges(
+    static func cleaningOutcome(
         track: Track,
         options: UpdateOptions,
         cleaning: CleaningConfig
-    ) -> [ProposedChange] {
-        guard options.cleanTrackNames || options.cleanAlbumNames else { return [] }
+    ) -> (track: Track, changes: [ProposedChange]) {
+        guard options.cleanTrackNames || options.cleanAlbumNames else {
+            return (track, [])
+        }
 
         let cleaned = cleanNames(
             artist: track.artist,
@@ -14,9 +16,11 @@ extension UpdateCoordinator {
             albumName: track.album,
             config: cleaning
         )
+        var workingTrack = track
         var changes: [ProposedChange] = []
 
         if options.cleanTrackNames,
+           !cleaned.cleanedTrack.isEmpty,
            cleaned.cleanedTrack != normalizedMetadataForComparison(track.name) {
             changes.append(ProposedChange(
                 track: track,
@@ -26,9 +30,11 @@ extension UpdateCoordinator {
                 confidence: 100,
                 source: "Cleaning"
             ))
+            workingTrack.name = cleaned.cleanedTrack
         }
 
         if options.cleanAlbumNames,
+           !cleaned.cleanedAlbum.isEmpty,
            cleaned.cleanedAlbum != normalizedMetadataForComparison(track.album) {
             changes.append(ProposedChange(
                 track: track,
@@ -38,9 +44,10 @@ extension UpdateCoordinator {
                 confidence: 100,
                 source: "Cleaning"
             ))
+            workingTrack.album = cleaned.cleanedAlbum
         }
 
-        return changes
+        return (workingTrack, changes)
     }
 
     private static func normalizedMetadataForComparison(_ value: String) -> String {

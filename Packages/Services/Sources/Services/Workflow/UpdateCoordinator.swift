@@ -215,72 +215,62 @@ public actor UpdateCoordinator {
         options: UpdateOptions
     ) async throws -> [ProposedChange] {
         var proposedChanges: [ProposedChange] = []
-        var workingTrack = track
 
-        let cleaningChanges = Self.determineCleaningChanges(
-            track: workingTrack,
+        let artistRenameChange = Self.determineArtistRenameChange(
+            track: track,
+            mappings: runtimeConfiguration.artistRenameMappings
+        )
+        let proposalTrack = artistRenameChange?.track ?? track
+        var decisionTrack = proposalTrack
+        let cleaningOutcome = Self.cleaningOutcome(
+            track: decisionTrack,
             options: options,
             cleaning: runtimeConfiguration.cleaning
         )
-        proposedChanges.append(contentsOf: cleaningChanges)
-        workingTrack = Self.cleanedTrack(from: workingTrack, applying: cleaningChanges)
+        proposedChanges.append(contentsOf: cleaningOutcome.changes)
+        decisionTrack = cleaningOutcome.track
 
-        if let change = Self.determineArtistRenameChange(
-            track: workingTrack,
-            mappings: runtimeConfiguration.artistRenameMappings
-        ) {
+        if let change = artistRenameChange {
             proposedChanges.append(change)
-            workingTrack = change.track
         }
 
         let genreContextTracks = Self.genreContextTracks(
-            track: workingTrack,
+            track: decisionTrack,
             artistTracks: artistTracks,
             albumTracks: albumTracks
         )
         if let change = determineGenreChange(
-            track: workingTrack,
+            track: decisionTrack,
             artistTracks: genreContextTracks,
             options: options
         ) {
-            proposedChanges.append(change)
+            proposedChanges.append(Self.change(change, usingTrack: proposalTrack))
         }
 
         if options.updateYear,
            runtimeConfiguration.isYearLookupEnabled,
            let change = try await determineYearChange(
-               track: workingTrack,
+               track: decisionTrack,
                albumTracks: albumTracks,
                forceYearLookup: options.forceYearLookup
            ) {
-            proposedChanges.append(change)
+            proposedChanges.append(Self.change(change, usingTrack: proposalTrack))
         }
 
         return proposedChanges
     }
 
-    private static func cleanedTrack(
-        from track: Track,
-        applying changes: [ProposedChange]
-    ) -> Track {
-        guard !changes.isEmpty else { return track }
-
-        var cleanedTrack = track
-        for change in changes {
-            switch change.changeType {
-            case .trackCleaning:
-                if let cleanedName = change.newValue {
-                    cleanedTrack.name = cleanedName
-                }
-            case .albumCleaning:
-                if let cleanedAlbum = change.newValue {
-                    cleanedTrack.album = cleanedAlbum
-                }
-            default:
-                continue
-            }
-        }
-        return cleanedTrack
+    private static func change(_ change: ProposedChange, usingTrack track: Track) -> ProposedChange {
+        ProposedChange(
+            id: change.id,
+            track: track,
+            changeType: change.changeType,
+            oldValue: change.oldValue,
+            newValue: change.newValue,
+            confidence: change.confidence,
+            source: change.source,
+            isAccepted: change.isAccepted
+        )
     }
 
     private func determineGenreChange(

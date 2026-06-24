@@ -87,11 +87,88 @@ struct UpdateCoordinatorCleaningTests {
             .genreUpdate,
             .yearUpdate,
         ])
-        #expect(changes.first { $0.changeType == .genreUpdate }?.track.name == "Song")
-        #expect(changes.first { $0.changeType == .yearUpdate }?.track.album == "Album")
+        #expect(changes.first { $0.changeType == .genreUpdate }?.track.name == "Song (Remastered 2020)")
+        #expect(changes.first { $0.changeType == .yearUpdate }?.track.album == "Album Remastered")
         let queriedAlbums = await lookupRecorder.queriedAlbums()
         #expect(!queriedAlbums.isEmpty)
         #expect(queriedAlbums.allSatisfy { $0 == "Album" })
+    }
+
+    @Test("Cleaning exceptions use artist rename mappings")
+    func cleaningExceptionsUseArtistRenameMappings() async throws {
+        var cleaning = CleaningConfig()
+        cleaning.trackCleaningExceptions = [
+            TrackCleaningException(artist: "Beatles", album: "Album Remastered"),
+        ]
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            artistRenameMappings: ["The Beatles": "Beatles"],
+            policies: UpdateRuntimeConfiguration.Policies(cleaning: cleaning)
+        )
+        let coordinator = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
+        let track = makeTrack(
+            name: "Song (Remastered 2020)",
+            artist: "The Beatles",
+            album: "Album Remastered"
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(
+                updateGenre: false,
+                updateYear: false,
+                cleanTrackNames: true,
+                cleanAlbumNames: true,
+                minConfidence: 0
+            ),
+            dryRun: true
+        )
+
+        #expect(!changes.contains { $0.changeType == .trackCleaning })
+        #expect(!changes.contains { $0.changeType == .albumCleaning })
+        #expect(changes.contains { $0.changeType == .artistRename })
+    }
+
+    @Test("Empty cleaned album names do not feed year lookup")
+    func emptyCleanedAlbumNamesDoNotFeedYearLookup() async throws {
+        let lookupRecorder = AlbumYearLookupRecorder()
+        let apiService = RecordingAlbumYearAPIService(
+            lookupRecorder: lookupRecorder,
+            yearResult: YearResult(
+                year: 2001,
+                isDefinitive: true,
+                confidence: 100,
+                yearScores: [2001: 100]
+            )
+        )
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: UpdateRuntimeConfiguration.Policies(isYearLookupEnabled: true)
+        )
+        let coordinator = await makeCoordinator(
+            runtimeConfiguration: runtimeConfiguration,
+            apiService: apiService
+        )
+        let track = makeTrack(
+            name: "Song",
+            album: "Remastered",
+            dateAdded: Date(timeIntervalSince1970: 2000)
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(
+                updateGenre: false,
+                updateYear: true,
+                forceYearLookup: true,
+                cleanAlbumNames: true,
+                minConfidence: 0
+            ),
+            dryRun: true
+        )
+
+        #expect(!changes.contains { $0.changeType == .albumCleaning })
+        let queriedAlbums = await lookupRecorder.queriedAlbums()
+        #expect(!queriedAlbums.contains(""))
+        #expect(queriedAlbums.allSatisfy { $0 == "Remastered" })
     }
 
     @Test("Cleaning exceptions suppress metadata cleaning changes")
@@ -182,6 +259,7 @@ struct UpdateCoordinatorCleaningTests {
     private func makeTrack(
         id: String = "T1",
         name: String,
+        artist: String = "Beatles",
         album: String,
         genre: String? = "Rock",
         dateAdded: Date? = nil
@@ -189,7 +267,7 @@ struct UpdateCoordinatorCleaningTests {
         Track(
             id: id,
             name: name,
-            artist: "Beatles",
+            artist: artist,
             album: album,
             genre: genre,
             year: 1969,
