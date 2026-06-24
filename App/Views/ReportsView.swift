@@ -3,7 +3,6 @@
 // Uses @Query to fetch PersistedChangeLogEntry from SwiftData, converts to
 // Core.ChangeLogEntry for the SharedUI presentation components.
 // Change log is available on free tier; charts are gated behind .reportsCharts.
-// CSV export is gated behind .csvExport (Week Pass).
 
 import AppKit
 import Core
@@ -50,7 +49,6 @@ struct ReportsView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 importBackupCSVButton
-                exportCSVButton(entries: entries)
             }
         }
         .sheet(item: $backupImportRequest) { _ in
@@ -95,7 +93,7 @@ struct ReportsView: View {
         }
     }
 
-    // MARK: - Export Button
+    // MARK: - Backup Import Button
 
     private var importBackupCSVButton: some View {
         Button {
@@ -105,56 +103,6 @@ struct ReportsView: View {
         }
         .disabled(isImportingBackupCSV)
         .help("Import a backup CSV and restore years")
-    }
-
-    @ViewBuilder
-    private func exportCSVButton(
-        entries: [ChangeLogEntry]
-    ) -> some View {
-        let canExport = dependencies.featureGate?.canAccess(.csvExport) == true
-
-        Button {
-            exportCSV(entries: entries)
-        } label: {
-            Label("Export CSV", systemImage: "square.and.arrow.up")
-        }
-        .disabled(!canExport || entries.isEmpty)
-        .help(exportButtonHelpText(canExport: canExport, isEmpty: entries.isEmpty))
-    }
-
-    private func exportButtonHelpText(
-        canExport: Bool,
-        isEmpty: Bool
-    ) -> String {
-        if !canExport {
-            return "CSV export requires Week Pass or higher"
-        }
-        if isEmpty {
-            return "No entries to export"
-        }
-        return "Export change log as CSV"
-    }
-
-    // MARK: - CSV Export
-
-    private func exportCSV(entries: [ChangeLogEntry]) {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.nameFieldStringValue = "genre-updater-changes.csv"
-        panel.title = "Export Change Log"
-        panel.prompt = "Export"
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        let csv = CSVExporter.export(changes: entries)
-        do {
-            try csv.write(to: url, atomically: true, encoding: .utf8)
-        } catch {
-            reportAlert = ReportsAlert(
-                title: "Export Failed",
-                message: error.localizedDescription
-            )
-        }
     }
 
     // MARK: - Backup CSV Import

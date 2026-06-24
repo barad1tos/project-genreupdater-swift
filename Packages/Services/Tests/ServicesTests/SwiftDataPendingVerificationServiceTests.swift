@@ -22,7 +22,6 @@ struct SwiftDataPendingVerificationServiceTests {
 
     private func makeService(
         container: ModelContainer,
-        directory: URL,
         date: Date,
         verificationIntervalDays: Int = 30,
         autoVerifyDays: Int = 14,
@@ -31,7 +30,6 @@ struct SwiftDataPendingVerificationServiceTests {
         SwiftDataPendingVerificationService(
             modelContainer: container,
             legacyStorageURL: legacyStorageURL,
-            problematicReportURL: directory.appendingPathComponent("problematic.csv"),
             verificationIntervalDays: verificationIntervalDays,
             autoVerifyDays: autoVerifyDays,
             currentDate: { date }
@@ -47,7 +45,6 @@ struct SwiftDataPendingVerificationServiceTests {
 
         let service = makeService(
             container: container,
-            directory: directory,
             date: baseDate,
             verificationIntervalDays: 30
         )
@@ -79,7 +76,6 @@ struct SwiftDataPendingVerificationServiceTests {
 
         let reloaded = makeService(
             container: container,
-            directory: directory,
             date: baseDate.addingTimeInterval(8 * day),
             verificationIntervalDays: 30
         )
@@ -96,7 +92,7 @@ struct SwiftDataPendingVerificationServiceTests {
         let container = try ModelContainerFactory.createInMemory()
         let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-        let service = makeService(container: container, directory: directory, date: baseDate)
+        let service = makeService(container: container, date: baseDate)
         await service.markForVerification(artist: "Portishead", album: "Dummy", reason: "missing_year")
         await service.markForVerification(artist: "Slowdive", album: "Everything Is Alive", reason: " PRERELEASE ")
         await service.markForVerification(
@@ -163,7 +159,6 @@ struct SwiftDataPendingVerificationServiceTests {
         let service = SwiftDataPendingVerificationService(
             modelContainer: container,
             legacyStorageURL: nil,
-            problematicReportURL: directory.appendingPathComponent("problematic.csv"),
             verificationIntervalDays: 30,
             prereleaseRecheckDays: 7,
             currentDate: { baseDate }
@@ -236,7 +231,6 @@ struct SwiftDataPendingVerificationServiceTests {
         let beforeRecheck = SwiftDataPendingVerificationService(
             modelContainer: container,
             legacyStorageURL: legacyURL,
-            problematicReportURL: directory.appendingPathComponent("problematic.csv"),
             verificationIntervalDays: 30,
             prereleaseRecheckDays: 7,
             currentDate: { baseDate.addingTimeInterval(6 * day) }
@@ -247,7 +241,6 @@ struct SwiftDataPendingVerificationServiceTests {
         let afterRecheck = SwiftDataPendingVerificationService(
             modelContainer: container,
             legacyStorageURL: legacyURL,
-            problematicReportURL: directory.appendingPathComponent("problematic.csv"),
             verificationIntervalDays: 30,
             prereleaseRecheckDays: 7,
             currentDate: { baseDate.addingTimeInterval(7 * day) }
@@ -271,7 +264,6 @@ struct SwiftDataPendingVerificationServiceTests {
         let beforeRecheck = SwiftDataPendingVerificationService(
             modelContainer: container,
             legacyStorageURL: legacyURL,
-            problematicReportURL: directory.appendingPathComponent("problematic.csv"),
             verificationIntervalDays: 30,
             prereleaseRecheckDays: 7,
             currentDate: { baseDate.addingTimeInterval(6 * day) }
@@ -287,7 +279,6 @@ struct SwiftDataPendingVerificationServiceTests {
         let afterRecheck = SwiftDataPendingVerificationService(
             modelContainer: container,
             legacyStorageURL: legacyURL,
-            problematicReportURL: directory.appendingPathComponent("problematic.csv"),
             verificationIntervalDays: 30,
             prereleaseRecheckDays: 7,
             currentDate: { baseDate.addingTimeInterval(7 * day) }
@@ -304,7 +295,6 @@ struct SwiftDataPendingVerificationServiceTests {
 
         let service = makeService(
             container: container,
-            directory: directory,
             date: Date(timeIntervalSince1970: 1_700_000_000),
             legacyStorageURL: legacyURL
         )
@@ -320,13 +310,13 @@ struct SwiftDataPendingVerificationServiceTests {
         let container = try ModelContainerFactory.createInMemory()
         let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-        let service = makeService(container: container, directory: directory, date: baseDate)
+        let service = makeService(container: container, date: baseDate)
         await service.markForVerification(artist: "Portishead", album: "Dummy", reason: "missing_year")
         #expect(await service.getEntry(artist: "Portishead", album: "Dummy") != nil)
 
         await service.removeFromPending(artist: "Portishead", album: "Dummy")
 
-        let reloaded = makeService(container: container, directory: directory, date: baseDate)
+        let reloaded = makeService(container: container, date: baseDate)
         #expect(await reloaded.getEntry(artist: "Portishead", album: "Dummy") == nil)
         #expect(await reloaded.getAttemptCount(artist: "Portishead", album: "Dummy") == 0)
     }
@@ -338,7 +328,7 @@ struct SwiftDataPendingVerificationServiceTests {
         let container = try ModelContainerFactory.createInMemory()
         let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-        let initial = makeService(container: container, directory: directory, date: baseDate, autoVerifyDays: 14)
+        let initial = makeService(container: container, date: baseDate, autoVerifyDays: 14)
         #expect(await initial.shouldAutoVerify())
 
         try await initial.updateVerificationTimestamp()
@@ -346,7 +336,6 @@ struct SwiftDataPendingVerificationServiceTests {
 
         let beforeInterval = makeService(
             container: container,
-            directory: directory,
             date: baseDate.addingTimeInterval(13 * day),
             autoVerifyDays: 14
         )
@@ -354,7 +343,6 @@ struct SwiftDataPendingVerificationServiceTests {
 
         let afterInterval = makeService(
             container: container,
-            directory: directory,
             date: baseDate.addingTimeInterval(15 * day),
             autoVerifyDays: 14
         )
@@ -388,7 +376,6 @@ struct SwiftDataPendingVerificationServiceTests {
 
         let service = makeService(
             container: container,
-            directory: directory,
             date: baseDate.addingTimeInterval(day),
             autoVerifyDays: 14,
             legacyStorageURL: legacyURL
@@ -418,7 +405,6 @@ struct SwiftDataPendingVerificationServiceTests {
 
         let service = makeService(
             container: container,
-            directory: directory,
             date: baseDate.addingTimeInterval(8 * day),
             verificationIntervalDays: 30,
             legacyStorageURL: legacyURL
@@ -441,35 +427,6 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(unknownReason.reason == "no_year_found")
     }
 
-    @Test("Problematic albums report writes Python-compatible CSV columns")
-    func problematicAlbumsReportWritesCSV() async throws {
-        let directory = try makeTempDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let container = try ModelContainerFactory.createInMemory()
-        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
-        let reportURL = directory.appendingPathComponent("exports/problematic.csv")
-
-        let service = makeService(
-            container: container,
-            directory: directory,
-            date: baseDate,
-            verificationIntervalDays: 30
-        )
-        await service.markForVerification(artist: "Bjork, Solo", album: "Debut", reason: "missing_year")
-        await service.markForVerification(artist: "Bjork, Solo", album: "Debut", reason: "missing_year")
-        await service.markForVerification(artist: "Bjork, Solo", album: "Debut", reason: "missing_year")
-        await service.markForVerification(artist: "Low", album: "HEY WHAT", reason: "missing_year")
-
-        let count = try await service.generateProblematicAlbumsReport(minAttempts: 3, reportURL: reportURL)
-        let csv = try String(contentsOf: reportURL, encoding: .utf8)
-
-        #expect(count == 1)
-        #expect(csv.contains("Artist,Album,First Attempt,Last Attempt,Total Attempts,Days Since First Attempt,Status"))
-        #expect(csv.contains("\"Bjork, Solo\",Debut"))
-        #expect(csv.contains(",3,"))
-        #expect(!csv.contains("HEY WHAT"))
-    }
-
     @Test("Problematic pending albums expose typed report rows")
     func problematicPendingAlbumsExposeTypedReportRows() async throws {
         let directory = try makeTempDirectory()
@@ -479,7 +436,6 @@ struct SwiftDataPendingVerificationServiceTests {
 
         let service = makeService(
             container: container,
-            directory: directory,
             date: baseDate,
             verificationIntervalDays: 30
         )
@@ -502,13 +458,12 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(rows[0].status == "Pending verification")
     }
 
-    @Test("Problematic prerelease report uses the effective prerelease interval")
-    func problematicPrereleaseReportUsesEffectiveRecheckInterval() async throws {
+    @Test("Problematic prerelease rows use the effective prerelease interval")
+    func problematicPrereleaseRowsUseEffectiveRecheckInterval() async throws {
         let directory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let container = try ModelContainerFactory.createInMemory()
         let legacyURL = directory.appendingPathComponent("pending.json")
-        let reportURL = directory.appendingPathComponent("exports/problematic.csv")
         let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
         let lastAttempt = baseDate.addingTimeInterval(21 * day)
         let entry = PendingAlbumEntry(
@@ -528,17 +483,18 @@ struct SwiftDataPendingVerificationServiceTests {
         let service = SwiftDataPendingVerificationService(
             modelContainer: container,
             legacyStorageURL: legacyURL,
-            problematicReportURL: reportURL,
             verificationIntervalDays: 30,
             prereleaseRecheckDays: 7,
             currentDate: { lastAttempt }
         )
         try await service.initialize()
 
-        let count = try await service.generateProblematicAlbumsReport(minAttempts: 4, reportURL: reportURL)
-        let csv = try String(contentsOf: reportURL, encoding: .utf8)
+        let rows = await service.getProblematicPendingAlbums(minAttempts: 4)
 
-        #expect(count == 1)
-        #expect(csv.contains(",4,21,Pending verification"))
+        let row = try #require(rows.first)
+        #expect(rows.count == 1)
+        #expect(row.totalAttempts == 4)
+        #expect(row.daysSinceFirstAttempt == 21)
+        #expect(row.status == "Pending verification")
     }
 }

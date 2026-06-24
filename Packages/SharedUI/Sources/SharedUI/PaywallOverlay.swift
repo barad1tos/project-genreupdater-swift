@@ -225,8 +225,6 @@ extension AppFeature {
             "Reports Log"
         case .reportsCharts:
             "Reports Charts"
-        case .csvExport:
-            "CSV Export"
         case .artistAlbumCleaning:
             "Artist & Album Cleaning"
         case .advancedCache:
