@@ -95,6 +95,12 @@ extension APIAndCacheTab {
             return "Library is current"
         }
 
-        return "\(result.newTracks.count) new, \(result.modifiedTracks.count) modified, \(result.removedTrackIDs.count) removed"
+        return [
+            "\(result.newTracks.count) new",
+            "\(result.modifiedTracks.count) modified",
+            "\(result.identityChangedTracks.count) identity changed",
+            "\(result.refreshedTracks.count) refreshed",
+            "\(result.removedTrackIDs.count) removed",
+        ].joined(separator: ", ")
     }
 }

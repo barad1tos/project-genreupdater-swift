@@ -29,10 +29,6 @@ public enum TrackFingerprint {
 
         var payloadFields: [String] = [
             track.id,
-            track.name,
-            track.artist,
-            track.album,
-            track.albumArtist ?? "",
             track.genre ?? "",
             year,
             releaseYear,

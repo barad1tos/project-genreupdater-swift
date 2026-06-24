@@ -24,19 +24,31 @@ public enum LibrarySyncError: Error, LocalizedError {
 public struct SyncResult: Sendable {
     public let newTracks: [Track]
     public let modifiedTracks: [Track]
+    /// Tracks whose album lookup identity changed without a managed metadata delta.
+    public let identityChangedTracks: [Track]
+    /// Tracks whose display metadata changed without managed metadata or album identity changes.
+    public let refreshedTracks: [Track]
     public let removedTrackIDs: [String]
 
     public var hasChanges: Bool {
-        !newTracks.isEmpty || !modifiedTracks.isEmpty || !removedTrackIDs.isEmpty
+        !newTracks.isEmpty
+            || !modifiedTracks.isEmpty
+            || !identityChangedTracks.isEmpty
+            || !refreshedTracks.isEmpty
+            || !removedTrackIDs.isEmpty
     }
 
     public init(
         newTracks: [Track] = [],
         modifiedTracks: [Track] = [],
+        identityChangedTracks: [Track] = [],
+        refreshedTracks: [Track] = [],
         removedTrackIDs: [String] = []
     ) {
         self.newTracks = newTracks
         self.modifiedTracks = modifiedTracks
+        self.identityChangedTracks = identityChangedTracks
+        self.refreshedTracks = refreshedTracks
         self.removedTrackIDs = removedTrackIDs
     }
 }
@@ -189,6 +201,8 @@ public actor LibrarySyncService {
 
         let commonIDs = libraryIDSet.intersection(storedIDSet)
         var modifiedTracks: [Track] = []
+        var identityChangedTracks: [Track] = []
+        var refreshedTracks: [Track] = []
 
         if !commonIDs.isEmpty, try await shouldRefreshCommonTrackMetadata(force: forceMetadataRefresh) {
             let currentTracks = try await scriptBridge.fetchTracksByIDs(
@@ -200,6 +214,10 @@ public actor LibrarySyncService {
                 guard let stored = storedByID[current.id] else { continue }
                 if hasTrackChanged(current: current, stored: stored) {
                     modifiedTracks.append(current)
+                } else if hasIdentityChanged(current: current, stored: stored) {
+                    identityChangedTracks.append(current)
+                } else if hasDisplayMetadataChanged(current: current, stored: stored) {
+                    refreshedTracks.append(current)
                 }
             }
             try await updateForceScanDate()
@@ -208,12 +226,20 @@ public actor LibrarySyncService {
         let result = SyncResult(
             newTracks: newTracks,
             modifiedTracks: modifiedTracks,
+            identityChangedTracks: identityChangedTracks,
+            refreshedTracks: refreshedTracks,
             removedTrackIDs: removedIDs
         )
 
         log
             .info(
-                "Sync detected: \(result.newTracks.count, privacy: .public) new, \(result.modifiedTracks.count, privacy: .public) modified, \(result.removedTrackIDs.count, privacy: .public) removed"
+                """
+                Sync detected: \(result.newTracks.count, privacy: .public) new, \
+                \(result.modifiedTracks.count, privacy: .public) modified, \
+                \(result.identityChangedTracks.count, privacy: .public) identity changed, \
+                \(result.refreshedTracks.count, privacy: .public) refreshed, \
+                \(result.removedTrackIDs.count, privacy: .public) removed
+                """
             )
         return result
     }
@@ -308,7 +334,14 @@ public actor LibrarySyncService {
                     if result.hasChanges {
                         self.log
                             .info(
-                                "Auto-sync applied changes: \(result.newTracks.count, privacy: .public) new, \(result.modifiedTracks.count, privacy: .public) modified, \(result.removedTrackIDs.count, privacy: .public) removed"
+                                """
+                                Auto-sync applied changes: \
+                                \(result.newTracks.count, privacy: .public) new, \
+                                \(result.modifiedTracks.count, privacy: .public) modified, \
+                                \(result.identityChangedTracks.count, privacy: .public) identity changed, \
+                                \(result.refreshedTracks.count, privacy: .public) refreshed, \
+                                \(result.removedTrackIDs.count, privacy: .public) removed
+                                """
                             )
                     }
                 } catch {
@@ -337,6 +370,12 @@ public actor LibrarySyncService {
         TrackFingerprint.hasProcessingMetadataChanged(current: current, stored: stored)
     }
 
+    private func hasDisplayMetadataChanged(current: Track, stored: Track) -> Bool {
+        current.name != stored.name
+            || current.dateAdded != stored.dateAdded
+            || current.lastModified != stored.lastModified
+    }
+
     private func shouldRefreshCommonTrackMetadata(force: Bool) async throws -> Bool {
         if force { return true }
         guard runtimeConfiguration.forceMetadataScanIntervalDays > 0,
@@ -360,7 +399,8 @@ public actor LibrarySyncService {
     private func applyDetectedChanges(_ result: SyncResult) async throws {
         let storedTracks = try await trackStore.loadAllTracks()
         let storedByID = Dictionary(uniqueKeysWithValues: storedTracks.map { ($0.id, $0) })
-        let refreshedTracks = result.newTracks + result.modifiedTracks
+        let refreshedTracks = result.newTracks + result.modifiedTracks + result.identityChangedTracks + result
+            .refreshedTracks
         if !refreshedTracks.isEmpty {
             try await trackStore.saveTracks(refreshedTracks)
         }
@@ -372,13 +412,15 @@ public actor LibrarySyncService {
         await invalidateCachesForLibraryChanges(
             hasLibraryChanges: result.hasChanges,
             targets: cacheInvalidationTargets(
+                newTracks: result.newTracks,
                 modifiedTracks: result.modifiedTracks,
+                identityChangedTracks: result.identityChangedTracks,
                 removedTrackIDs: result.removedTrackIDs,
                 storedByID: storedByID
             )
         )
         try await removeResolvedPrereleasePendingEntries(
-            modifiedTracks: result.modifiedTracks,
+            refreshedTracks: result.modifiedTracks + result.identityChangedTracks,
             previousTracksByID: storedByID
         )
     }
@@ -396,18 +438,26 @@ public actor LibrarySyncService {
     }
 
     private func cacheInvalidationTargets(
+        newTracks: [Track] = [],
         modifiedTracks: [Track] = [],
+        identityChangedTracks: [Track] = [],
         removedTrackIDs: [String] = [],
         storedByID: [String: Track]
     ) -> [(artist: String, album: String)] {
         var candidates: [(artist: String, album: String)] = []
 
+        candidates.append(contentsOf: newTracks.flatMap { cacheInvalidationTargets(for: $0) })
+
         for current in modifiedTracks {
-            guard let stored = storedByID[current.id],
-                  hasIdentityChanged(current: current, stored: stored)
-            else {
-                continue
+            candidates.append(contentsOf: cacheInvalidationTargets(for: current))
+            if let stored = storedByID[current.id],
+               hasIdentityChanged(current: current, stored: stored) {
+                candidates.append(contentsOf: cacheInvalidationTargets(for: stored))
             }
+        }
+
+        for current in identityChangedTracks {
+            guard let stored = storedByID[current.id] else { continue }
             candidates.append(contentsOf: cacheInvalidationTargets(for: stored))
             candidates.append(contentsOf: cacheInvalidationTargets(for: current))
         }
@@ -436,12 +486,12 @@ public actor LibrarySyncService {
     }
 
     private func removeResolvedPrereleasePendingEntries(
-        modifiedTracks: [Track],
+        refreshedTracks: [Track],
         previousTracksByID: [String: Track]
     ) async throws {
         guard let pendingVerificationService else { return }
 
-        let transitionedAlbums = modifiedTracks.flatMap { current -> [(artist: String, album: String)] in
+        let transitionedAlbums = refreshedTracks.flatMap { current -> [(artist: String, album: String)] in
             guard let previous = previousTracksByID[current.id],
                   previous.kind == .prerelease,
                   UpdateCoordinator.isTrackAvailableForProcessing(current)

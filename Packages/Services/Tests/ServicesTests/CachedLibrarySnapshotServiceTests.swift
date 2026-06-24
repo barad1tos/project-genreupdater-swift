@@ -182,11 +182,13 @@ struct CachedLibrarySnapshotServiceTests {
         )
         let firstSnapshot = [
             Track(id: "A", name: "Removed", artist: "Artist", album: "Album"),
-            Track(id: "B", name: "Old", artist: "Artist", album: "Album"),
+            Track(id: "B", name: "Song", artist: "Artist", album: "Album", genre: "Rock", year: 2001),
+            Track(id: "D", name: "Song", artist: "Artist", album: "Album", genre: "Jazz", year: 2005),
         ]
         let secondSnapshot = [
-            Track(id: "B", name: "New", artist: "Artist", album: "Album"),
+            Track(id: "B", name: "Song", artist: "Artist", album: "Album", genre: "Metal", year: 2001),
             Track(id: "C", name: "Added", artist: "Artist", album: "Album"),
+            Track(id: "D", name: "Song", artist: "Artist", album: "Album", genre: "Jazz", year: 2006),
         ]
 
         _ = try await service.saveSnapshot(firstSnapshot)
@@ -195,7 +197,94 @@ struct CachedLibrarySnapshotServiceTests {
         let delta = await service.loadDelta()
         #expect(delta?.addedIDs == ["C"])
         #expect(delta?.removedIDs == ["A"])
-        #expect(delta?.modifiedIDs == ["B"])
+        #expect(delta?.modifiedIDs == ["B", "D"])
+    }
+
+    @Test("Second snapshot ignores identity-only track changes")
+    func secondSnapshotIgnoresIdentityOnlyTrackChanges() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        var configuration = LibrarySnapshotConfig()
+        configuration.deltaEnabled = true
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let service = CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: configuration,
+            currentDate: { now }
+        )
+        let firstSnapshot = [
+            Track(
+                id: "A",
+                name: "Old",
+                artist: "Old Artist",
+                album: "Old Album",
+                genre: "Rock",
+                year: 2001,
+                releaseYear: 1999
+            ),
+        ]
+        let secondSnapshot = [
+            Track(
+                id: "A",
+                name: "New",
+                artist: "New Artist",
+                album: "New Album",
+                genre: "Rock",
+                year: 2001,
+                releaseYear: 1999,
+                albumArtist: "New Album Artist"
+            ),
+        ]
+
+        _ = try await service.saveSnapshot(firstSnapshot)
+        _ = try await service.saveSnapshot(secondSnapshot)
+
+        let delta = await service.loadDelta()
+        #expect(delta?.addedIDs.isEmpty == true)
+        #expect(delta?.removedIDs.isEmpty == true)
+        #expect(delta?.modifiedIDs.isEmpty == true)
+    }
+
+    @Test("Second snapshot records release year changes")
+    func secondSnapshotRecordsReleaseYearChanges() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        var configuration = LibrarySnapshotConfig()
+        configuration.deltaEnabled = true
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let service = CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: configuration,
+            currentDate: { now }
+        )
+        let firstSnapshot = [
+            Track(
+                id: "A",
+                name: "Song",
+                artist: "Artist",
+                album: "Album",
+                genre: "Rock",
+                year: 2001,
+                releaseYear: 1999
+            ),
+        ]
+        let secondSnapshot = [
+            Track(
+                id: "A",
+                name: "Song",
+                artist: "Artist",
+                album: "Album",
+                genre: "Rock",
+                year: 2001,
+                releaseYear: 2005
+            ),
+        ]
+
+        _ = try await service.saveSnapshot(firstSnapshot)
+        _ = try await service.saveSnapshot(secondSnapshot)
+
+        let delta = await service.loadDelta()
+        #expect(delta?.modifiedIDs == ["A"])
     }
 
     @Test("Second snapshot ignores newly populated track status")
@@ -230,6 +319,25 @@ struct CachedLibrarySnapshotServiceTests {
 
         let delta = await service.loadDelta()
         #expect(delta?.modifiedIDs.isEmpty == true)
+    }
+
+    @Test("Second snapshot does not record delta when delta snapshots are disabled")
+    func secondSnapshotDoesNotRecordDeltaWhenDisabled() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        var configuration = LibrarySnapshotConfig()
+        configuration.deltaEnabled = false
+        let service = CachedLibrarySnapshotService(cache: cache, configuration: configuration)
+
+        _ = try await service.saveSnapshot([
+            Track(id: "A", name: "Song", artist: "Artist", album: "Album", genre: "Rock", year: 2001),
+        ])
+        _ = try await service.saveSnapshot([
+            Track(id: "A", name: "Song", artist: "Artist", album: "Album", genre: "Metal", year: 2001),
+        ])
+
+        let delta = await service.loadDelta()
+        #expect(delta == nil)
     }
 
     @Test("Clear snapshot removes tracks metadata and delta")

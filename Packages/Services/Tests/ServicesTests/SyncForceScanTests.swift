@@ -133,9 +133,10 @@ struct SyncForceScanTests {
     private static func track(name: String, lastModified: Date? = nil) -> Track {
         Track(
             id: "T1",
-            name: name,
+            name: "Song",
             artist: "A",
             album: "B",
+            genre: name,
             lastModified: lastModified
         )
     }
