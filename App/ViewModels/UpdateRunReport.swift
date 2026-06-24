@@ -20,6 +20,7 @@ struct UpdateRunReport: Equatable {
     let albumGroups: [UpdateRunAlbumGroup]
     let albumResults: [UpdateRunAlbumResult]
     let changeBreakdown: [UpdateRunChangeBreakdown]
+    let outcomeBreakdown: [UpdateRunOutcomeBreakdown]
     let failures: [UpdateRunFailure]
     let skippedCount: Int
     let scannedTrackCount: Int
@@ -34,7 +35,9 @@ struct UpdateRunReport: Equatable {
         displayMode: ChangeDisplayMode = .compact,
         pendingVerification: UpdateRunPendingVerificationSummary? = nil
     ) {
-        let entries = (result?.entries ?? completedEntries).filter(Self.isRealChange)
+        let allEntries = result?.entries ?? completedEntries
+        let entries = allEntries.filter(Self.isRealChange)
+        let noOpEntries = allEntries.filter { !Self.isRealChange($0) }
         let trackLookup = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
         let failureItems = Self.makeFailures(
             result: result,
@@ -45,6 +48,12 @@ struct UpdateRunReport: Equatable {
         albumGroups = Self.makeAlbumGroups(from: entries, trackLookup: trackLookup)
         changeBreakdown = Self.makeChangeBreakdown(from: entries, trackLookup: trackLookup)
         failures = failureItems
+        outcomeBreakdown = Self.makeOutcomeBreakdown(
+            noOpEntries: noOpEntries,
+            failures: failureItems,
+            trackStatuses: trackStatuses,
+            trackLookup: trackLookup
+        )
         albumResults = Self.makeAlbumResults(
             entries: entries,
             failures: failureItems,
@@ -383,12 +392,12 @@ struct UpdateRunReport: Equatable {
         )
     }
 
-    private static func albumIdentity(for track: Track) -> UpdateRunAlbumIdentity {
+    static func albumIdentity(for track: Track) -> UpdateRunAlbumIdentity {
         let identity = AlbumIdentity(track: track)
         return UpdateRunAlbumIdentity(identity: identity)
     }
 
-    private static func albumIdentity(
+    static func albumIdentity(
         for entry: ChangeLogEntry,
         trackLookup: [String: Track]
     ) -> UpdateRunAlbumIdentity {
@@ -474,6 +483,7 @@ struct UpdateRunReport: Equatable {
         ]
 
         appendOperationalNotes(to: &lines)
+        appendOutcomeBreakdown(to: &lines)
         appendNoChangesSummary(to: &lines)
         appendFailures(to: &lines)
         appendChangeBreakdown(to: &lines)
@@ -556,25 +566,6 @@ struct UpdateRunReport: Equatable {
         if let failureMessage = track.failureMessage {
             lines.append("  - \(track.title): failed \(failureMessage)")
         }
-    }
-}
-
-struct UpdateRunChangeBreakdown: Equatable {
-    let changeType: ChangeType
-    let changeCount: Int
-    let trackCount: Int
-    let albumCount: Int
-
-    var summary: String {
-        [
-            "\(changeCount.formatted()) \(Self.noun("change", count: changeCount))",
-            "\(trackCount.formatted()) \(Self.noun("track", count: trackCount))",
-            "\(albumCount.formatted()) \(Self.noun("album", count: albumCount))",
-        ].joined(separator: ", ")
-    }
-
-    private static func noun(_ singular: String, count: Int) -> String {
-        count == 1 ? singular : "\(singular)s"
     }
 }
 
@@ -738,7 +729,7 @@ struct UpdateRunChangeSummary: Equatable, Hashable {
     }
 }
 
-private struct UpdateRunAlbumIdentity: Hashable {
+struct UpdateRunAlbumIdentity: Hashable {
     let key: String
     let artist: String
     let album: String

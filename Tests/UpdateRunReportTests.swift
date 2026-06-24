@@ -569,6 +569,75 @@ struct UpdateRunReportTests {
         #expect(report.plainTextSummary.contains("2 problematic"))
     }
 
+    @Test("summarizes non-change outcomes by operation and reason")
+    func summarizesNonChangeOutcomesByOperationAndReason() throws {
+        var unchangedGenre = makePureRockFuryChange(changeType: .genreUpdate)
+        unchangedGenre.oldGenre = "Rock"
+        unchangedGenre.newGenre = "Rock"
+
+        var unchangedYear = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "year-no-op",
+            artist: "Clutch",
+            trackName: "Pure Rock Fury",
+            albumName: "Pure Rock Fury"
+        )
+        unchangedYear.oldYear = 2001
+        unchangedYear.newYear = 2001
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [unchangedGenre, unchangedYear],
+                failedTrackIDs: ["failed-one", "failed-two"],
+                errorDescriptions: ["Write denied", "Write denied"]
+            ),
+            completedEntries: [],
+            trackStatuses: [
+                "failed-one": .failed("Write denied"),
+                "failed-two": .failed("Write denied"),
+                "skipped-track": .skipped,
+            ],
+            tracks: [
+                Track(
+                    id: "failed-one",
+                    name: "American Sleep",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+                Track(
+                    id: "failed-two",
+                    name: "Brazenhead",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+                Track(
+                    id: "skipped-track",
+                    name: "Immortal",
+                    artist: "Clutch",
+                    album: "Pure Rock Fury"
+                ),
+            ],
+            testArtists: ["Clutch"]
+        )
+
+        #expect(report.outcomeBreakdown.map(\.title) == [
+            "No-op Genre",
+            "No-op Year",
+            "Skipped Processing",
+            "Failed Processing",
+        ])
+
+        let failed = try #require(report.outcomeBreakdown.first { $0.outcome == .failed })
+        #expect(failed.reason == "Write denied")
+        #expect((failed.count, failed.trackCount, failed.albumCount) == (2, 2, 1))
+
+        let summary = report.plainTextSummary
+        #expect(summary.contains("Outcome Breakdown"))
+        #expect(summary.contains("- No-op Genre: 1 no-op, 1 track, 1 album"))
+        #expect(summary.contains("- Skipped Processing: 1 skipped track, 1 track, 1 album, Skipped before write"))
+        #expect(summary.contains("- Failed Processing: 2 failures, 2 tracks, 1 album, Write denied"))
+    }
+
     @Test("filters no-op changes from run report")
     func filtersNoOpChangesFromRunReport() {
         var unchangedGenre = ChangeLogEntry(
