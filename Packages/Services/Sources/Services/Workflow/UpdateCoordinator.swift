@@ -462,6 +462,8 @@ public actor UpdateCoordinator {
                     artistTracksProvider: trackProviders.artist
                 )
                 entries.append(contentsOf: trackEntries)
+            } catch is CancellationError {
+                throw CancellationError()
             } catch let error as UpdateCoordinatorError {
                 if !recordKnownWorkflowFailure(
                     error,
@@ -566,7 +568,7 @@ public actor UpdateCoordinator {
         )
 
         let acceptedChanges = changes.filter(\.isAccepted)
-        if let entries = await applyChangesAsBatchIfPossible(acceptedChanges) {
+        if let entries = try await applyChangesAsBatchIfPossible(acceptedChanges) {
             return entries
         }
 
@@ -633,7 +635,7 @@ public actor UpdateCoordinator {
         var index = 0
         while index < accepted.count {
             let changeGroup = reviewedChangeGroup(in: accepted, startingAt: index)
-            let groupEntries = await applyReviewedChangeGroup(
+            let groupEntries = try await applyReviewedChangeGroup(
                 changeGroup,
                 failedTrackIDs: &failedTrackIDs,
                 errorDescriptions: &errorDescriptions

@@ -60,13 +60,16 @@ extension WorkflowViewModel {
                     tracks: tracksByIndex
                 )
             } catch is CancellationError {
+                restorePreflightStatuses(preflightOutcome)
                 currentTrackID = nil
                 phase = .configure
                 progress = nil
             } catch let batchError as BatchProcessorError {
+                restorePreflightStatuses(preflightOutcome)
                 currentTrackID = nil
                 handleBatchError(batchError)
             } catch {
+                restorePreflightStatuses(preflightOutcome)
                 currentTrackID = nil
                 phase = .error(error.localizedDescription)
                 progress = nil
@@ -80,7 +83,7 @@ extension WorkflowViewModel {
         tracks: [Track]
     ) async {
         finalizeBatchStatuses(for: tracks)
-        restorePreflightFailures(preflightOutcome)
+        restorePreflightStatuses(preflightOutcome)
 
         let allEntries = preflightOutcome.completed + batchEntries
         completedEntries = allEntries
@@ -91,6 +94,8 @@ extension WorkflowViewModel {
             errorDescriptions: currentFailures.map(\.error)
         )
         failedCount = currentFailures.count
+        processedCount = preflightOutcome.processedCount + tracks.count
+        totalCount = max(totalCount, processedCount)
         if currentFailures.isEmpty {
             await updateIncrementalRunTimestamp?()
         }
@@ -149,6 +154,16 @@ extension WorkflowViewModel {
     private func markBatchTrackFailed(_ track: Track, message: String) {
         trackStatuses[track.id] = .failed(message)
         failedCount = failedTracks.count
+    }
+
+    private func restorePreflightStatuses(_ outcome: PendingEntryOutcome) {
+        for entry in outcome.completed {
+            if case .failed = trackStatuses[entry.trackID] {
+                continue
+            }
+            trackStatuses[entry.trackID] = .done
+        }
+        restorePreflightFailures(outcome)
     }
 
     private func restorePreflightFailures(_ outcome: PendingEntryOutcome) {

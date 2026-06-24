@@ -457,13 +457,20 @@ final class WorkflowViewModel {
                     preflightResult: preflightResult,
                     tracks: tracks
                 )
+                if Task.isCancelled {
+                    phase = .configure
+                    progress = nil
+                    return
+                }
                 guard isProcessing else { return }
             } else {
                 pendingVerificationOutcome = PendingEntryOutcome()
             }
 
-            guard !processingTracks.isEmpty else {
-                finishEmptyProcessingRun(preflightOutcome: pendingVerificationOutcome)
+            guard !shouldStopAfterPendingPreflight(
+                pendingVerificationOutcome,
+                processingTracks: processingTracks
+            ) else {
                 return
             }
 
@@ -477,6 +484,21 @@ final class WorkflowViewModel {
                 startDryRun(tracks: processingTracks, contextTracks: tracks)
             }
         }
+    }
+
+    private func shouldStopAfterPendingPreflight(
+        _ outcome: PendingEntryOutcome,
+        processingTracks: [Track]
+    ) -> Bool {
+        if !outcome.failedTrackIDs.isEmpty {
+            finishEmptyProcessingRun(preflightOutcome: outcome)
+            return true
+        }
+        if processingTracks.isEmpty {
+            finishEmptyProcessingRun(preflightOutcome: outcome)
+            return true
+        }
+        return false
     }
 
     private func tracksForProcessing(_ tracks: [Track]) async -> [Track] {

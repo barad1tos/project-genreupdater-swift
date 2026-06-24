@@ -58,8 +58,8 @@ extension UpdateCoordinator {
         _ changes: [ProposedChange],
         failedTrackIDs: inout [String],
         errorDescriptions: inout [String]
-    ) async -> [ChangeLogEntry] {
-        if let entries = await applyChangesAsBatchIfPossible(changes) {
+    ) async throws -> [ChangeLogEntry] {
+        if let entries = try await applyChangesAsBatchIfPossible(changes) {
             return entries
         }
 
@@ -84,6 +84,8 @@ extension UpdateCoordinator {
                         errorDescriptions: &errorDescriptions
                     )
                 }
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 recordUnexpectedWorkflowFailure(
                     trackID: change.track.id,
@@ -96,7 +98,7 @@ extension UpdateCoordinator {
         return entries
     }
 
-    func applyChangesAsBatchIfPossible(_ changes: [ProposedChange]) async -> [ChangeLogEntry]? {
+    func applyChangesAsBatchIfPossible(_ changes: [ProposedChange]) async throws -> [ChangeLogEntry]? {
         guard runtimeConfiguration.areBatchUpdatesEnabled,
               changes.count > 1,
               changes.count <= runtimeConfiguration.maxBatchUpdateSize
@@ -111,6 +113,8 @@ extension UpdateCoordinator {
                     return nil
                 }
                 preparedWrites.append(preparedWrite)
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 log.warning(
                     "Batch write preparation failed; falling back to single writes: \(error.localizedDescription, privacy: .public)"
@@ -125,6 +129,8 @@ extension UpdateCoordinator {
                 return nil
             }
             currentTracksByID = fetchedCurrentTracksByID
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             log.warning(
                 "Batch AppleScript write failed; falling back to single writes: \(error.localizedDescription, privacy: .public)"

@@ -47,6 +47,7 @@ actor MockAppleScriptClient: AppleScriptClient {
     var tracksByID: [String: Track] = [:]
     var shouldThrow = false
     var shouldThrowBatch = false
+    var shouldCancelBatch = false
     var shouldApplyBatchUpdates = true
     var singleWriteResult: AppleScriptWriteResult = .changed
     private var failingWriteTrackIDs: Set<String> = []
@@ -94,6 +95,9 @@ actor MockAppleScriptClient: AppleScriptClient {
 
     func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
         batchUpdates.append(updates)
+        if shouldCancelBatch {
+            throw CancellationError()
+        }
         if shouldThrowBatch {
             throw MockScriptError.intentional
         }
@@ -109,6 +113,10 @@ actor MockAppleScriptClient: AppleScriptClient {
 
     func setBatchThrowMode(_ shouldFail: Bool) {
         shouldThrowBatch = shouldFail
+    }
+
+    func setBatchCancellationMode(_ shouldCancel: Bool) {
+        shouldCancelBatch = shouldCancel
     }
 
     func setBatchMutationEnabled(_ isEnabled: Bool) {
