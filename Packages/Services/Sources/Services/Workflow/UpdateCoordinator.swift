@@ -461,7 +461,8 @@ public actor UpdateCoordinator {
         let signpostState = AppSignpost.batchProcessing.beginInterval("updateTracks")
         defer { AppSignpost.batchProcessing.endInterval("updateTracks", signpostState) }
 
-        var entries: [ChangeLogEntry] = [], noOpEntries: [ChangeLogEntry] = []
+        var entries: [ChangeLogEntry] = []
+        var noOpEntries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
         let trackProviders = await makeUpdateTrackProviders(
