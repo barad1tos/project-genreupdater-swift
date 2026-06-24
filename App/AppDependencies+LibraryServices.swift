@@ -26,7 +26,11 @@ struct ProblematicAlbumsReportExport {
 }
 
 extension AppDependencies {
-    func refreshTrackIDMapping(musicKitTracks: [Track]) async -> Bool {
+    func refreshTrackIDMapping(
+        musicKitTracks: [Track],
+        scopedArtists: [String]? = nil,
+        mergeExisting: Bool = false
+    ) async -> Bool {
         guard let mapper = trackIDMapper,
               let bridge = applescriptBridge
         else { return false }
@@ -38,7 +42,8 @@ extension AppDependencies {
                 batchSize: config.applescript.batchProcessing.idsBatchSize,
                 allTrackIDsTimeout: config.applescript.timeouts.fullLibraryFetch,
                 tracksByIDsTimeout: config.applescript.timeouts.idsBatchFetch,
-                testArtists: config.development.testArtists
+                testArtists: scopedArtists ?? config.development.testArtists,
+                mergeExisting: mergeExisting
             )
             libraryServicesLog
                 .info(

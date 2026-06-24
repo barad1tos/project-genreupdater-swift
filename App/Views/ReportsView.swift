@@ -180,6 +180,11 @@ struct ReportsView: View {
                 artist: artist,
                 ignoreTestFilter: true
             )
+            _ = await dependencies.refreshTrackIDMapping(
+                musicKitTracks: tracks,
+                scopedArtists: [artist],
+                mergeExisting: true
+            )
             let result = try await undoCoordinator.revertYearsFromBackupCSV(
                 csv,
                 artist: artist,

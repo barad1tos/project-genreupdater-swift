@@ -320,6 +320,30 @@ struct TrackIDMapperTests {
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-OUT") == nil)
     }
 
+    @Test("Merge refresh preserves existing mappings while adding scoped tracks")
+    func mergeRefreshPreservesExistingMappings() async {
+        let mapper = TrackIDMapper()
+        let clutchTrack = makeTrack(id: "MK-CLUTCH", name: "Immortal", artist: "Clutch", album: "Pure Rock Fury")
+        let massiveAttackTrack = makeTrack(id: "MK-MA", name: "Angel", artist: "Massive Attack", album: "Mezzanine")
+
+        await mapper.refreshMapping(
+            musicKitTracks: [clutchTrack],
+            appleScriptTracks: [
+                makeTrack(id: "AS-CLUTCH", name: "Immortal", artist: "Clutch", album: "Pure Rock Fury"),
+            ]
+        )
+        await mapper.refreshMapping(
+            musicKitTracks: [massiveAttackTrack],
+            appleScriptTracks: [
+                makeTrack(id: "AS-MA", name: "Angel", artist: "Massive Attack", album: "Mezzanine"),
+            ],
+            mergeExisting: true
+        )
+
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK-CLUTCH") == "AS-CLUTCH")
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK-MA") == "AS-MA")
+    }
+
     @Test("Enrichment keeps MusicKit ID and uses AppleScript writable metadata")
     func enrichmentKeepsMusicKitIDAndUsesAppleScriptMetadata() async throws {
         let mapper = TrackIDMapper()

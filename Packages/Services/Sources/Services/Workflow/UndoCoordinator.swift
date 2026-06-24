@@ -313,9 +313,34 @@ public actor UndoCoordinator {
 
     private static func publicFailureDescription(for error: Error) -> String {
         if let undoError = error as? UndoCoordinatorError {
-            return undoError.errorDescription ?? "Undo operation failed"
+            return publicUndoFailureDescription(for: undoError)
+        }
+        if let appleScriptError = error as? AppleScriptBridgeError {
+            return publicAppleScriptFailureDescription(for: appleScriptError)
         }
         return "AppleScript write failed"
+    }
+
+    private static func publicUndoFailureDescription(for error: UndoCoordinatorError) -> String {
+        switch error {
+        case .revertFailed:
+            "Failed to revert track"
+        case .noChangesToRevert, .invalidBackupCSV, .missingAppleScriptID:
+            error.errorDescription ?? "Undo operation failed"
+        case let .partialRevertFailure(succeeded, failed, _):
+            "Partial revert: \(succeeded) succeeded, \(failed) failed"
+        }
+    }
+
+    private static func publicAppleScriptFailureDescription(for error: AppleScriptBridgeError) -> String {
+        switch error {
+        case .scriptNotFound, .scriptsNotInstalled, .musicAppNotRunning, .timeout:
+            error.errorDescription ?? "AppleScript write failed"
+        case .executionFailed:
+            "AppleScript write failed"
+        case .parseError:
+            "AppleScript output could not be parsed"
+        }
     }
 
     // MARK: Persistence

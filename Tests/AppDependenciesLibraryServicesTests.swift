@@ -78,6 +78,28 @@ struct AppDependenciesLibraryServicesTests {
             )
         )
     }
+
+    @Test("Reports backup import refreshes mapping for requested artist")
+    func reportsBackupImportRefreshesMappingForRequestedArtist() throws {
+        let source = try String(contentsOf: reportsViewSourceURL(), encoding: .utf8)
+        let compactSource = source.replacingOccurrences(
+            of: "\\s+",
+            with: " ",
+            options: .regularExpression
+        )
+
+        #expect(
+            compactSource.contains(
+                [
+                    "await dependencies.refreshTrackIDMapping(",
+                    "musicKitTracks: tracks,",
+                    "scopedArtists: [artist],",
+                    "mergeExisting: true",
+                    ")",
+                ].joined(separator: " ")
+            )
+        )
+    }
 }
 
 private struct LibraryPersistenceFixture {
@@ -129,6 +151,21 @@ private func mainViewDataSourceURL() throws -> URL {
 
     for _ in 0 ..< 8 {
         let candidate = currentURL.appendingPathComponent("App/Views/MainView+Data.swift")
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+        currentURL.deleteLastPathComponent()
+    }
+
+    throw CocoaError(.fileNoSuchFile)
+}
+
+private func reportsViewSourceURL() throws -> URL {
+    var currentURL = URL(fileURLWithPath: #filePath)
+    currentURL.deleteLastPathComponent()
+
+    for _ in 0 ..< 8 {
+        let candidate = currentURL.appendingPathComponent("App/Views/ReportsView.swift")
         if FileManager.default.fileExists(atPath: candidate.path) {
             return candidate
         }

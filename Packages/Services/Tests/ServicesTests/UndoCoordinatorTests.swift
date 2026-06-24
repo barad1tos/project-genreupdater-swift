@@ -272,6 +272,61 @@ struct UndoCoordinatorTests {
         }
     }
 
+    @Test("Batch revert domain failure description is public-safe")
+    func batchRevertDomainFailureDescriptionIsPublicSafe() async {
+        let bridge = MockAppleScriptClient()
+        await bridge.setCustomWriteError(UndoCoordinatorError.revertFailed(trackID: "MK1", reason: "boom"))
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        await coordinator.recordChange(entry)
+
+        do {
+            try await coordinator.revertBatch([entry])
+            Issue.record("Expected partial revert failure")
+        } catch let error as UndoCoordinatorError {
+            if case let .partialRevertFailure(succeeded, failed, descriptions) = error {
+                #expect(succeeded == 0)
+                #expect(failed == 1)
+                #expect(descriptions.first == "Failed to revert track")
+                #expect(!error.localizedDescription.contains("MK1"))
+            } else {
+                Issue.record("Expected partialRevertFailure, got \(error)")
+            }
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("Batch revert preserves safe AppleScript setup failure description")
+    func batchRevertPreservesSafeAppleScriptSetupFailureDescription() async {
+        let bridge = MockAppleScriptClient()
+        await bridge.setCustomWriteError(
+            AppleScriptBridgeError.scriptNotFound(
+                name: "update_property",
+                searchPath: URL(fileURLWithPath: "/tmp/GenreUpdaterScripts")
+            )
+        )
+        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        await coordinator.recordChange(entry)
+
+        do {
+            try await coordinator.revertBatch([entry])
+            Issue.record("Expected partial revert failure")
+        } catch let error as UndoCoordinatorError {
+            if case let .partialRevertFailure(succeeded, failed, descriptions) = error {
+                #expect(succeeded == 0)
+                #expect(failed == 1)
+                #expect(descriptions.first?.contains("update_property.scpt") == true)
+                #expect(!error.localizedDescription.contains("MK1"))
+            } else {
+                Issue.record("Expected partialRevertFailure, got \(error)")
+            }
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
     @Test("Revert single artist rename writes old artist")
     func revertSingleArtistRename() async throws {
         let bridge = MockAppleScriptClient()

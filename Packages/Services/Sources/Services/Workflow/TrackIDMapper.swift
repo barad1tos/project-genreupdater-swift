@@ -20,6 +20,18 @@ public actor TrackIDMapper: TrackIDMapping {
         musicKitTracks: [Track],
         appleScriptTracks: [Track]
     ) {
+        refreshMapping(
+            musicKitTracks: musicKitTracks,
+            appleScriptTracks: appleScriptTracks,
+            mergeExisting: false
+        )
+    }
+
+    public func refreshMapping(
+        musicKitTracks: [Track],
+        appleScriptTracks: [Track],
+        mergeExisting: Bool
+    ) {
         var appleScriptLookup: [String: Track] = [:]
         var ambiguousAppleScriptKeys: Set<String> = []
         for track in appleScriptTracks {
@@ -43,8 +55,8 @@ public actor TrackIDMapper: TrackIDMapping {
             count > 1 ? key : nil
         })
 
-        mapping = [:]
-        appleScriptMetadataByMusicKitID = [:]
+        var updatedMapping: [String: String] = [:]
+        var updatedAppleScriptMetadataByMusicKitID: [String: Track] = [:]
         for track in musicKitTracks {
             let candidates = normalizedKeys(track)
                 .filter { !ambiguousMusicKitKeys.contains($0) }
@@ -53,8 +65,16 @@ public actor TrackIDMapper: TrackIDMapping {
             let uniqueAppleScriptIDs = Set(candidates.map(\.id))
             guard uniqueAppleScriptIDs.count == 1, let appleScriptTrack = candidates.first else { continue }
 
-            mapping[track.id] = appleScriptTrack.id
-            appleScriptMetadataByMusicKitID[track.id] = appleScriptTrack
+            updatedMapping[track.id] = appleScriptTrack.id
+            updatedAppleScriptMetadataByMusicKitID[track.id] = appleScriptTrack
+        }
+
+        if mergeExisting {
+            mapping.merge(updatedMapping) { _, new in new }
+            appleScriptMetadataByMusicKitID.merge(updatedAppleScriptMetadataByMusicKitID) { _, new in new }
+        } else {
+            mapping = updatedMapping
+            appleScriptMetadataByMusicKitID = updatedAppleScriptMetadataByMusicKitID
         }
 
         log
@@ -70,7 +90,8 @@ public actor TrackIDMapper: TrackIDMapping {
         batchSize: Int,
         allTrackIDsTimeout: Duration?,
         tracksByIDsTimeout: Duration?,
-        testArtists: [String] = []
+        testArtists: [String] = [],
+        mergeExisting: Bool = false
     ) async throws -> Int {
         let appleScriptTracks = try await fetchAppleScriptTracks(
             client: appleScriptClient,
@@ -81,9 +102,12 @@ public actor TrackIDMapper: TrackIDMapping {
         )
         refreshMapping(
             musicKitTracks: musicKitTracks,
-            appleScriptTracks: appleScriptTracks
+            appleScriptTracks: appleScriptTracks,
+            mergeExisting: mergeExisting
         )
-        return mapping.count
+        return musicKitTracks.reduce(0) { count, track in
+            mapping[track.id] == nil ? count : count + 1
+        }
     }
 
     public func appleScriptID(forMusicKitID musicKitID: String) -> String? {
