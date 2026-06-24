@@ -431,6 +431,7 @@ struct APIReleaseCandidateAdapterTests {
 
         let candidate = try #require(candidates.first)
         #expect(candidate.year == 1998)
+        #expect(candidate.album == "Test Album")
         #expect(candidate.isReissue)
         #expect(candidate.genre == "Rock")
     }
