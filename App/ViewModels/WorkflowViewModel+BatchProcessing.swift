@@ -20,6 +20,7 @@ extension WorkflowViewModel {
         phase = .scanning
         processedCount = 0
         failedCount = 0
+        batchNoOpEntries = []
         trackStatuses = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, TrackProcessingStatus.queued) })
         currentTrackID = nil
 
@@ -86,6 +87,7 @@ extension WorkflowViewModel {
         let currentFailures = failedTracks
         result = BatchUpdateResult(
             entries: allEntries,
+            noOpEntries: batchNoOpEntries,
             failedTrackIDs: currentFailures.map(\.id),
             errorDescriptions: currentFailures.map(\.error)
         )
@@ -139,12 +141,17 @@ extension WorkflowViewModel {
                 if let failureDescription = batchResult.errorDescriptions.first {
                     await self?.markBatchTrackFailed(track, message: failureDescription)
                 }
+                await self?.appendBatchNoOpEntries(batchResult.noOpEntries)
                 return batchResult.entries
             } catch {
                 await self?.markBatchTrackFailed(track, message: error.localizedDescription)
                 throw error
             }
         }
+    }
+
+    private func appendBatchNoOpEntries(_ entries: [ChangeLogEntry]) {
+        batchNoOpEntries.append(contentsOf: entries)
     }
 
     private func markBatchTrackFailed(_ track: Track, message: String) {
@@ -178,6 +185,7 @@ extension WorkflowViewModel {
     ) {
         trackStatuses = [:]
         failedCount = 0
+        batchNoOpEntries = []
         if preflightOutcome.isEmpty {
             completedEntries = []
             result = nil

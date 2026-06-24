@@ -500,6 +500,44 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
+    @Test("full library live processing preserves no-op write outcomes")
+    func fullLibraryLiveProcessingPreservesNoOpWriteOutcomes() async throws {
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2020, confidence: 90),
+            failingWriteTrackIDs: ["failed-year"],
+            noChangeWriteTrackIDs: ["unchanged-year"]
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+        viewModel.cleanTrackNames = false
+        viewModel.cleanAlbumNames = false
+        let tracks = [
+            Track(id: "unchanged-year", name: "Track A", artist: "In Flames", album: "Clayman", year: 1999),
+            Track(id: "failed-year", name: "Track B", artist: "In Flames", album: "Clayman", year: 1998),
+        ]
+
+        viewModel.start(tracks: tracks)
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        let result = try #require(viewModel.result)
+        #expect(result.noOpEntries.map(\.trackID) == ["unchanged-year"])
+        #expect(result.failedTrackIDs == ["failed-year"])
+        #expect(result.hasPartialFailures)
+
+        let report = UpdateRunReport(
+            result: result,
+            completedEntries: viewModel.completedEntries,
+            trackStatuses: viewModel.trackStatuses,
+            tracks: tracks,
+            testArtists: []
+        )
+        #expect(report.outcomeBreakdown.contains { $0.title == "No-op Year" })
+    }
+
     @Test("release year restore with no candidates completes without crashing")
     func releaseYearRestoreWithNoCandidatesCompletesWithoutCrashing() async {
         let fixture = makeWorkflowFixture()

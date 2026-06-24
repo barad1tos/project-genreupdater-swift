@@ -1,6 +1,10 @@
 import Core
 
-/// Result of a multi-track update, exposing both successes and failures.
+/// Result of a multi-track update.
+///
+/// Applied entries represent recorded metadata writes. No-op entries represent
+/// verified write attempts that left Music.app metadata unchanged. Failures
+/// capture tracks that could not be processed or written.
 public struct BatchUpdateResult: Sendable {
     public let entries: [ChangeLogEntry]
     public let noOpEntries: [ChangeLogEntry]

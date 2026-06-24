@@ -269,6 +269,33 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
     }
 
+    @Test("Partially applied batch does not fall back to no-op reviewed writes")
+    func partiallyAppliedBatchDoesNotFallBackToNoOpReviewedWrites() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            )
+        )
+        await fixture.bridge.setBatchMutationLimit(1)
+        await fixture.bridge.setSingleWriteResult(.noChange)
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.bridge.setFetchedTracks([track])
+        let proposals = acceptedGenreAndYearProposals(for: track)
+
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                proposals,
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+        }
+
+        let batches = await fixture.bridge.batchUpdates
+        let written = await fixture.bridge.writtenProperties
+        #expect(batches.count == 1)
+        #expect(written.isEmpty)
+    }
+
     @Test("Default reviewed writes keep single-write behavior")
     func defaultReviewedWritesKeepSingleWriteBehavior() async throws {
         let fixture = await makeCoordinator()
@@ -573,6 +600,37 @@ struct UpdateCoordinatorApplyAcceptedTests {
 
         let result = try await fixture.coordinator.applyAcceptedChanges(
             proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        #expect(result.entries.isEmpty)
+        #expect(result.noOpEntries.map(\.trackID) == ["MK1"])
+        #expect(result.failedTrackIDs == ["MK2"])
+        #expect(result.hasPartialFailures)
+    }
+
+    @Test("Generated no-op plus failure returns partial result")
+    func generatedNoOpPlusFailureReturnsPartialResult() async throws {
+        let fixture = await makeCoordinator()
+        await fixture.bridge.setSingleWriteResult(.noChange)
+        await fixture.bridge.setFailingWriteTrackIDs(["MK2"])
+        let firstTrack = makeEditableTrack(id: "MK1", genre: nil, year: 1999)
+        let secondTrack = makeEditableTrack(id: "MK2", genre: nil, year: 1998)
+        let sourceTrack = Track(
+            id: "SRC",
+            name: "Source",
+            artist: "Beatles",
+            album: "Source",
+            genre: "Stoner Rock",
+            year: 1997,
+            dateAdded: Date(timeIntervalSince1970: 100),
+            trackStatus: nil
+        )
+
+        let result = try await fixture.coordinator.updateTracks(
+            [firstTrack, secondTrack],
+            options: UpdateOptions(updateGenre: true, updateYear: false),
+            artistTracksProvider: { _ in [sourceTrack] },
             progressHandler: ignoreAcceptedChangeProgress
         )
 

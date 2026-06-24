@@ -11,6 +11,7 @@ private struct PreparedAppleScriptWrite {
 extension UpdateCoordinator {
     typealias AppliedChangeEntries = (entries: [ChangeLogEntry], noOpEntries: [ChangeLogEntry])
     typealias AppliedChangeOutcome = (entry: ChangeLogEntry?, noOpEntry: ChangeLogEntry?)
+    typealias UpdateTrackProviders = (album: @Sendable (Track) -> [Track], artist: @Sendable (Track) -> [Track])
 
     func consecutiveChangesForSameTrack(
         in changes: [ProposedChange],
@@ -77,27 +78,87 @@ extension UpdateCoordinator {
                 if let noOpEntry = outcome.noOpEntry {
                     noOpEntries.append(noOpEntry)
                 }
-            } catch let error as UpdateCoordinatorError {
-                if !recordKnownWorkflowFailure(
+            } catch {
+                try recordWorkflowWriteFailure(
                     error,
-                    fallbackTrackID: change.track.id,
                     isReviewedChange: true,
+                    trackID: change.track.id,
                     failedTrackIDs: &failedTrackIDs,
                     errorDescriptions: &errorDescriptions
-                ) {
-                    recordUnexpectedWorkflowFailure(
-                        trackID: change.track.id,
-                        error: error,
-                        failedTrackIDs: &failedTrackIDs,
-                        errorDescriptions: &errorDescriptions
-                    )
+                )
+            }
+        }
+        return (entries, noOpEntries)
+    }
+
+    func recordWorkflowWriteFailure(
+        _ error: any Error,
+        isReviewedChange: Bool,
+        trackID: String,
+        failedTrackIDs: inout [String],
+        errorDescriptions: inout [String]
+    ) throws {
+        if error is CancellationError {
+            throw CancellationError()
+        }
+        if let coordinatorError = error as? UpdateCoordinatorError,
+           recordKnownWorkflowFailure(
+               coordinatorError,
+               fallbackTrackID: trackID,
+               isReviewedChange: isReviewedChange,
+               failedTrackIDs: &failedTrackIDs,
+               errorDescriptions: &errorDescriptions
+           ) {
+            return
+        }
+        recordUnexpectedWorkflowFailure(
+            trackID: trackID,
+            error: error,
+            failedTrackIDs: &failedTrackIDs,
+            errorDescriptions: &errorDescriptions
+        )
+    }
+
+    func applyGeneratedAcceptedChanges(
+        for track: Track,
+        options: UpdateOptions,
+        trackProviders: UpdateTrackProviders,
+        failedTrackIDs: inout [String],
+        errorDescriptions: inout [String]
+    ) async throws -> AppliedChangeEntries {
+        let albumTracksWithMutationMetadata = await availableTracksWithMutationMetadata(
+            trackProviders.album(track)
+        )
+        let artistTracks = trackProviders.artist(track).filter(Self.isTrackAvailableForProcessing)
+        let changes = try await updateTrack(
+            track,
+            albumTracks: albumTracksWithMutationMetadata,
+            artistTracks: artistTracks,
+            options: options,
+            dryRun: true
+        )
+
+        let acceptedChanges = changes.filter(\.isAccepted)
+        if let applied = try await applyChangesAsBatchIfPossible(acceptedChanges) {
+            return applied
+        }
+
+        var entries: [ChangeLogEntry] = []
+        var noOpEntries: [ChangeLogEntry] = []
+        for change in acceptedChanges {
+            do {
+                let outcome = try await applyChangeOutcome(change)
+                if let entry = outcome.entry {
+                    entries.append(entry)
                 }
-            } catch is CancellationError {
-                throw CancellationError()
+                if let noOpEntry = outcome.noOpEntry {
+                    noOpEntries.append(noOpEntry)
+                }
             } catch {
-                recordUnexpectedWorkflowFailure(
+                try recordWorkflowWriteFailure(
+                    error,
+                    isReviewedChange: false,
                     trackID: change.track.id,
-                    error: error,
                     failedTrackIDs: &failedTrackIDs,
                     errorDescriptions: &errorDescriptions
                 )
@@ -114,21 +175,8 @@ extension UpdateCoordinator {
             return nil
         }
 
-        var preparedWrites: [PreparedAppleScriptWrite] = []
-        for change in changes {
-            do {
-                guard let preparedWrite = try await prepareAppleScriptWrite(for: change) else {
-                    return nil
-                }
-                preparedWrites.append(preparedWrite)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                log.warning(
-                    "Batch write preparation failed; falling back to single writes: \(error.localizedDescription, privacy: .public)"
-                )
-                return nil
-            }
+        guard let preparedWrites = try await prepareBatchWrites(changes) else {
+            return nil
         }
 
         let currentTracksByID: [String: Track]
@@ -139,6 +187,8 @@ extension UpdateCoordinator {
             currentTracksByID = fetchedCurrentTracksByID
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as UpdateCoordinatorError {
+            throw error
         } catch {
             log.warning(
                 "Batch AppleScript write failed; falling back to single writes: \(error.localizedDescription, privacy: .public)"
@@ -168,6 +218,26 @@ extension UpdateCoordinator {
         return (entries, noOpEntries)
     }
 
+    private func prepareBatchWrites(_ changes: [ProposedChange]) async throws -> [PreparedAppleScriptWrite]? {
+        var preparedWrites: [PreparedAppleScriptWrite] = []
+        for change in changes {
+            do {
+                guard let preparedWrite = try await prepareAppleScriptWrite(for: change) else {
+                    return nil
+                }
+                preparedWrites.append(preparedWrite)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                log.warning(
+                    "Batch write preparation failed; falling back to single writes: \(error.localizedDescription, privacy: .public)"
+                )
+                return nil
+            }
+        }
+        return preparedWrites
+    }
+
     private func performVerifiedBatchWrite(
         _ preparedWrites: [PreparedAppleScriptWrite]
     ) async throws -> [String: Track]? {
@@ -187,8 +257,19 @@ extension UpdateCoordinator {
                 )
             }
         )
-        guard try await verifyBatchWrites(preparedWrites) != nil else {
+        guard let verification = try await verifyBatchWrites(preparedWrites) else {
             log.warning("Batch AppleScript write could not be verified; falling back to single writes")
+            return nil
+        }
+        guard verification.appliedCount == preparedWrites.count else {
+            if verification.appliedCount > 0 {
+                throw UpdateCoordinatorError.writeFailed(
+                    trackID: verification.firstAppliedTrackID ?? preparedWrites[0].trackID,
+                    property: "batch",
+                    reason: "Batch write partially applied before verification completed"
+                )
+            }
+            log.warning("Batch AppleScript write did not apply any updates; falling back to single writes")
             return nil
         }
         return currentTracksByID
@@ -206,12 +287,14 @@ extension UpdateCoordinator {
         return hasAllTracks ? fetchedTracksByID : nil
     }
 
-    private func verifyBatchWrites(_ preparedWrites: [PreparedAppleScriptWrite]) async throws -> [String: Track]? {
+    private func verifyBatchWrites(
+        _ preparedWrites: [PreparedAppleScriptWrite]
+    ) async throws -> (refreshedTracksByID: [String: Track], appliedCount: Int, firstAppliedTrackID: String?)? {
         guard let refreshedTracksByID = try await fetchBatchWriteTracks(preparedWrites) else {
             return nil
         }
 
-        let isVerified = preparedWrites.allSatisfy { preparedWrite in
+        let appliedWrites = preparedWrites.filter { preparedWrite in
             guard let refreshedTrack = refreshedTracksByID[preparedWrite.trackID] else {
                 return false
             }
@@ -220,7 +303,7 @@ extension UpdateCoordinator {
                 in: refreshedTrack
             ) == preparedWrite.value
         }
-        return isVerified ? refreshedTracksByID : nil
+        return (refreshedTracksByID, appliedWrites.count, appliedWrites.first?.trackID)
     }
 
     @discardableResult

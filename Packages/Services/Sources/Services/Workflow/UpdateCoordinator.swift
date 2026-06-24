@@ -428,7 +428,7 @@ public actor UpdateCoordinator {
         return enrichedTrack
     }
 
-    private func availableTracksWithMutationMetadata(_ tracks: [Track]) async -> [Track] {
+    func availableTracksWithMutationMetadata(_ tracks: [Track]) async -> [Track] {
         guard let idMapper else {
             return tracks.filter(Self.isTrackAvailableForProcessing)
         }
@@ -475,32 +475,17 @@ public actor UpdateCoordinator {
                 let trackOutcome = try await applyGeneratedAcceptedChanges(
                     for: track,
                     options: options,
-                    albumTracksProvider: trackProviders.album,
-                    artistTracksProvider: trackProviders.artist
+                    trackProviders: trackProviders,
+                    failedTrackIDs: &failedTrackIDs,
+                    errorDescriptions: &errorDescriptions
                 )
                 entries.append(contentsOf: trackOutcome.entries)
                 noOpEntries.append(contentsOf: trackOutcome.noOpEntries)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch let error as UpdateCoordinatorError {
-                if !recordKnownWorkflowFailure(
-                    error,
-                    fallbackTrackID: track.id,
-                    isReviewedChange: false,
-                    failedTrackIDs: &failedTrackIDs,
-                    errorDescriptions: &errorDescriptions
-                ) {
-                    recordUnexpectedWorkflowFailure(
-                        trackID: track.id,
-                        error: error,
-                        failedTrackIDs: &failedTrackIDs,
-                        errorDescriptions: &errorDescriptions
-                    )
-                }
             } catch {
-                recordUnexpectedWorkflowFailure(
+                try recordWorkflowWriteFailure(
+                    error,
+                    isReviewedChange: false,
                     trackID: track.id,
-                    error: error,
                     failedTrackIDs: &failedTrackIDs,
                     errorDescriptions: &errorDescriptions
                 )
@@ -530,7 +515,7 @@ public actor UpdateCoordinator {
         tracks: [Track],
         albumTracksProvider: (@Sendable (Track) -> [Track])?,
         artistTracksProvider: (@Sendable (Track) -> [Track])?
-    ) async -> (album: @Sendable (Track) -> [Track], artist: @Sendable (Track) -> [Track]) {
+    ) async -> UpdateTrackProviders {
         let contextTracks = if albumTracksProvider == nil || artistTracksProvider == nil {
             await availableTracksWithMutationMetadata(tracks)
         } else {
@@ -566,43 +551,6 @@ public actor UpdateCoordinator {
             current: total,
             total: total
         ))
-    }
-
-    private func applyGeneratedAcceptedChanges(
-        for track: Track,
-        options: UpdateOptions,
-        albumTracksProvider: @Sendable (Track) -> [Track],
-        artistTracksProvider: @Sendable (Track) -> [Track]
-    ) async throws -> AppliedChangeEntries {
-        let albumTracksWithMutationMetadata = await availableTracksWithMutationMetadata(
-            albumTracksProvider(track)
-        )
-        let artistTracks = artistTracksProvider(track).filter(Self.isTrackAvailableForProcessing)
-        let changes = try await updateTrack(
-            track,
-            albumTracks: albumTracksWithMutationMetadata,
-            artistTracks: artistTracks,
-            options: options,
-            dryRun: true
-        )
-
-        let acceptedChanges = changes.filter(\.isAccepted)
-        if let applied = try await applyChangesAsBatchIfPossible(acceptedChanges) {
-            return applied
-        }
-
-        var entries: [ChangeLogEntry] = []
-        var noOpEntries: [ChangeLogEntry] = []
-        for change in acceptedChanges {
-            let outcome = try await applyChangeOutcome(change)
-            if let entry = outcome.entry {
-                entries.append(entry)
-            }
-            if let noOpEntry = outcome.noOpEntry {
-                noOpEntries.append(noOpEntry)
-            }
-        }
-        return (entries, noOpEntries)
     }
 
     private static func albumTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
