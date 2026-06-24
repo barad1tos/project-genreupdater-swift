@@ -397,6 +397,99 @@ struct LibrarySyncIdentityTests {
         #expect(await snapshotService.wasCleared())
     }
 
+    @Test("Release year changes refresh persisted track metadata")
+    func releaseYearChangesRefreshPersistedTrackMetadata() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let storedTrack = Track(
+            id: "REL",
+            name: "Same Song",
+            artist: "Same Artist",
+            album: "Same Album",
+            genre: "Rock",
+            year: 2001,
+            releaseYear: 1999
+        )
+        let currentTrack = Track(
+            id: "REL",
+            name: "Same Song",
+            artist: "Same Artist",
+            album: "Same Album",
+            genre: "Rock",
+            year: 2001,
+            releaseYear: 2005
+        )
+        await bridge.setLibrary(ids: ["REL"], tracks: ["REL": currentTrack])
+        await store.setStored([storedTrack])
+        await seedSyncCaches(cache, artist: "Same Artist", album: "Same Album")
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            cache: cache,
+            librarySnapshotService: snapshotService
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+        let storedTracks = await store.storedTracks
+
+        #expect(result.modifiedTracks.map(\.id) == ["REL"])
+        #expect(result.identityChangedTracks.isEmpty)
+        #expect(storedTracks.first { $0.id == "REL" }?.releaseYear == 2005)
+        await expectSyncCachesInvalidated(cache, artist: "Same Artist", album: "Same Album")
+        #expect(await snapshotService.wasCleared())
+    }
+
+    @Test("Managed metadata and album identity changes invalidate old and new caches")
+    func managedMetadataAndAlbumIdentityChangesInvalidateOldAndNewCaches() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let storedTrack = Track(
+            id: "BOTH",
+            name: "Same Song",
+            artist: "Old Artist",
+            album: "Old Album",
+            genre: "Rock",
+            year: 2001
+        )
+        let currentTrack = Track(
+            id: "BOTH",
+            name: "Same Song",
+            artist: "New Artist",
+            album: "New Album",
+            genre: "Alternative",
+            year: 2002
+        )
+        await bridge.setLibrary(ids: ["BOTH"], tracks: ["BOTH": currentTrack])
+        await store.setStored([storedTrack])
+        await seedSyncCaches(cache, artist: "Old Artist", album: "Old Album")
+        await seedSyncCaches(cache, artist: "New Artist", album: "New Album")
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            cache: cache,
+            librarySnapshotService: snapshotService
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+        let storedTracks = await store.storedTracks
+
+        #expect(result.modifiedTracks.map(\.id) == ["BOTH"])
+        #expect(result.identityChangedTracks.isEmpty)
+        #expect(storedTracks.first { $0.id == "BOTH" }?.artist == "New Artist")
+        #expect(storedTracks.first { $0.id == "BOTH" }?.album == "New Album")
+        await expectSyncCachesInvalidated(cache, artist: "Old Artist", album: "Old Album")
+        await expectSyncCachesInvalidated(cache, artist: "New Artist", album: "New Album")
+        #expect(await snapshotService.wasCleared())
+    }
+
     private func makePrereleaseSyncService(
         storedTracks: [Track],
         currentTracks: [String: Track],

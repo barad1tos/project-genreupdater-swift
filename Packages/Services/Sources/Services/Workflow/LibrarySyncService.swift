@@ -24,6 +24,7 @@ public enum LibrarySyncError: Error, LocalizedError {
 public struct SyncResult: Sendable {
     public let newTracks: [Track]
     public let modifiedTracks: [Track]
+    /// Tracks whose album lookup identity changed without a managed metadata delta.
     public let identityChangedTracks: [Track]
     public let removedTrackIDs: [String]
 

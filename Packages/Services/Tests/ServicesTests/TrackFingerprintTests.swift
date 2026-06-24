@@ -49,8 +49,8 @@ struct TrackFingerprintTests {
         #expect(TrackFingerprint.hash(first) != TrackFingerprint.hash(second))
     }
 
-    @Test("identity and release fields do not create a processing metadata change")
-    func identityAndReleaseFieldsDoNotCreateProcessingMetadataChange() {
+    @Test("identity fields do not create a processing metadata change")
+    func identityFieldsDoNotCreateProcessingMetadataChange() {
         let stored = Track(
             id: "track-1",
             name: "Old Name",
@@ -68,11 +68,35 @@ struct TrackFingerprintTests {
             album: "New Album",
             genre: "Rock",
             year: 2001,
-            releaseYear: 2005,
+            releaseYear: 1999,
             albumArtist: "New Album Artist"
         )
 
         #expect(!TrackFingerprint.hasProcessingMetadataChanged(current: current, stored: stored))
+    }
+
+    @Test("release year changes create a processing metadata change")
+    func releaseYearChangesCreateProcessingMetadataChange() {
+        let stored = Track(
+            id: "track-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 2001,
+            releaseYear: 1999
+        )
+        let current = Track(
+            id: "track-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 2001,
+            releaseYear: 2005
+        )
+
+        #expect(TrackFingerprint.hasProcessingMetadataChanged(current: current, stored: stored))
     }
 
     @Test("genre year and processing availability create processing metadata changes")

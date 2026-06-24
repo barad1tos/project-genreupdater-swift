@@ -213,7 +213,15 @@ struct CachedLibrarySnapshotServiceTests {
             currentDate: { now }
         )
         let firstSnapshot = [
-            Track(id: "A", name: "Old", artist: "Old Artist", album: "Old Album", genre: "Rock", year: 2001),
+            Track(
+                id: "A",
+                name: "Old",
+                artist: "Old Artist",
+                album: "Old Album",
+                genre: "Rock",
+                year: 2001,
+                releaseYear: 1999
+            ),
         ]
         let secondSnapshot = [
             Track(
@@ -223,7 +231,7 @@ struct CachedLibrarySnapshotServiceTests {
                 album: "New Album",
                 genre: "Rock",
                 year: 2001,
-                releaseYear: 2005,
+                releaseYear: 1999,
                 albumArtist: "New Album Artist"
             ),
         ]
@@ -235,6 +243,48 @@ struct CachedLibrarySnapshotServiceTests {
         #expect(delta?.addedIDs.isEmpty == true)
         #expect(delta?.removedIDs.isEmpty == true)
         #expect(delta?.modifiedIDs.isEmpty == true)
+    }
+
+    @Test("Second snapshot records release year changes")
+    func secondSnapshotRecordsReleaseYearChanges() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        var configuration = LibrarySnapshotConfig()
+        configuration.deltaEnabled = true
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let service = CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: configuration,
+            currentDate: { now }
+        )
+        let firstSnapshot = [
+            Track(
+                id: "A",
+                name: "Song",
+                artist: "Artist",
+                album: "Album",
+                genre: "Rock",
+                year: 2001,
+                releaseYear: 1999
+            ),
+        ]
+        let secondSnapshot = [
+            Track(
+                id: "A",
+                name: "Song",
+                artist: "Artist",
+                album: "Album",
+                genre: "Rock",
+                year: 2001,
+                releaseYear: 2005
+            ),
+        ]
+
+        _ = try await service.saveSnapshot(firstSnapshot)
+        _ = try await service.saveSnapshot(secondSnapshot)
+
+        let delta = await service.loadDelta()
+        #expect(delta?.modifiedIDs == ["A"])
     }
 
     @Test("Second snapshot ignores newly populated track status")
