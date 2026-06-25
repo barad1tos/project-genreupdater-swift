@@ -206,10 +206,11 @@ struct UpdateRunReport: Equatable {
         trackLookup: [String: Track]
     ) -> [UpdateRunFailure] {
         var failureMessages = failureMessages(from: result)
+        let resultFailedTrackIDs = Set(result?.failedTrackIDs ?? [])
 
         for (trackID, status) in trackStatuses {
-            if case let .failed(message) = status {
-                failureMessages[trackID] = message
+            if case let .failed(message) = status, !resultFailedTrackIDs.contains(trackID) {
+                failureMessages.append((trackID: trackID, message: message))
             }
         }
 
@@ -258,7 +259,7 @@ struct UpdateRunReport: Equatable {
         trackLookup: [String: Track]
     ) -> [UpdateRunAlbumResult] {
         let changesByTrackID = Dictionary(grouping: entries, by: \.trackID)
-        let failuresByTrackID = Dictionary(uniqueKeysWithValues: failures.map { ($0.id, $0) })
+        let failuresByTrackID = Dictionary(grouping: failures, by: \.id)
         let albumKeys = albumResultKeys(
             entries: entries,
             failures: failures,
@@ -281,7 +282,7 @@ struct UpdateRunReport: Equatable {
                 makeTrackResult(
                     track: track,
                     changes: changesByTrackID[track.id] ?? [],
-                    failure: failuresByTrackID[track.id],
+                    failures: failuresByTrackID[track.id] ?? [],
                     status: trackStatuses[track.id]
                 )
             } + fallbackRows
@@ -341,7 +342,7 @@ struct UpdateRunReport: Equatable {
     private static func makeTrackResult(
         track: Track,
         changes: [ChangeLogEntry],
-        failure: UpdateRunFailure?,
+        failures: [UpdateRunFailure],
         status: TrackProcessingStatus?
     ) -> UpdateRunTrackResult {
         UpdateRunTrackResult(
@@ -353,7 +354,7 @@ struct UpdateRunReport: Equatable {
             releaseYear: track.releaseYear,
             trackStatus: track.trackStatus,
             changes: changes.map(makeChangeSummary),
-            failureMessage: failure?.message,
+            failureMessage: failures.isEmpty ? nil : failures.map(\.message).joined(separator: "\n"),
             processingStatus: status
         )
     }
@@ -431,14 +432,15 @@ struct UpdateRunReport: Equatable {
         return left.sortTitle.localizedStandardCompare(right.sortTitle) == .orderedAscending
     }
 
-    private static func failureMessages(from result: BatchUpdateResult?) -> [String: String] {
-        guard let result else { return [:] }
-        var messages: [String: String] = [:]
-        for (index, trackID) in result.failedTrackIDs.enumerated() {
-            messages[trackID] = result.errorDescriptions[safe: index]
-                ?? "No failure details were captured for this run."
+    private static func failureMessages(from result: BatchUpdateResult?) -> [(trackID: String, message: String)] {
+        guard let result else { return [] }
+        return result.failedTrackIDs.enumerated().map { index, trackID in
+            (
+                trackID: trackID,
+                message: result.errorDescriptions[safe: index]
+                    ?? "No failure details were captured for this run."
+            )
         }
-        return messages
     }
 
     private static func valuePair(for entry: ChangeLogEntry) -> (old: String, new: String) {

@@ -26,7 +26,8 @@ struct BatchWriteTests {
                 Issue.record("Expected allTracksFailed, got \(error)")
                 return
             }
-            #expect(count == 2)
+            #expect(count == 1)
+            #expect(errorDescriptions.count == 2)
             #expect(errorDescriptions.allSatisfy { $0.contains("could not be verified") })
         }
 

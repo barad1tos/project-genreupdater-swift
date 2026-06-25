@@ -320,8 +320,8 @@ extension UpdateCoordinator {
             return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
         }
         guard !appliedIndexes.isEmpty else {
-            log.warning("Batch AppleScript write did not apply any updates; falling back to single writes")
-            return nil
+            log.warning("Batch AppleScript write did not verify any updates; unverified writes are failures")
+            return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
         }
         if appliedIndexes.count < preparedWrites.count {
             log.warning(

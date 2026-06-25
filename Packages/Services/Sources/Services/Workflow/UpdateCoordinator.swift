@@ -499,7 +499,7 @@ public actor UpdateCoordinator {
 
         if !errorDescriptions.isEmpty, entries.isEmpty, noOpEntries.isEmpty {
             throw UpdateCoordinatorError.allTracksFailed(
-                count: errorDescriptions.count,
+                count: Set(failedTrackIDs).count,
                 errorDescriptions: errorDescriptions
             )
         }
@@ -635,7 +635,7 @@ public actor UpdateCoordinator {
 
         if !errorDescriptions.isEmpty, entries.isEmpty, noOpEntries.isEmpty {
             throw UpdateCoordinatorError.allTracksFailed(
-                count: errorDescriptions.count,
+                count: Set(failedTrackIDs).count,
                 errorDescriptions: errorDescriptions
             )
         }

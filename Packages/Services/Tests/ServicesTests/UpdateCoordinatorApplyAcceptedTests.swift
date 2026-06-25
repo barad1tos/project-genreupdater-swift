@@ -243,8 +243,8 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(result.failedTrackIDs.isEmpty)
     }
 
-    @Test("Unverified batch success falls back to single reviewed writes")
-    func unverifiedBatchSuccessFallsBackToSingleReviewedWrites() async throws {
+    @Test("Unverified batch success does not fall back to single reviewed writes")
+    func unverifiedBatchSuccessDoesNotFallBackToSingleReviewedWrites() async throws {
         let fixture = await makeCoordinator(
             runtimeConfiguration: UpdateRuntimeConfiguration(
                 areBatchUpdatesEnabled: true,
@@ -256,17 +256,26 @@ struct UpdateCoordinatorApplyAcceptedTests {
         await fixture.bridge.setFetchedTracks([track])
         let proposals = acceptedGenreAndYearProposals(for: track)
 
-        let result = try await fixture.coordinator.applyAcceptedChanges(
-            proposals,
-            progressHandler: ignoreAcceptedChangeProgress
-        )
+        do {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                proposals,
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+            Issue.record("Expected unverified batch writes to fail without single-write fallback")
+        } catch let error as UpdateCoordinatorError {
+            guard case let .allTracksFailed(count, errorDescriptions) = error else {
+                Issue.record("Expected allTracksFailed, got \(error)")
+                return
+            }
+            #expect(count == 1)
+            #expect(errorDescriptions.count == 2)
+            #expect(errorDescriptions.allSatisfy { $0.contains("could not be verified") })
+        }
 
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
-        #expect(written.map(\.property) == ["genre", "year"])
-        #expect(written.map(\.value) == ["Stoner Rock", "2001"])
-        #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
+        #expect(written.isEmpty)
     }
 
     @Test("Partially applied batch does not fall back to no-op reviewed writes")
