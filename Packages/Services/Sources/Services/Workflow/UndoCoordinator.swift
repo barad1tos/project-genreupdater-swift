@@ -42,19 +42,22 @@ public struct YearBackupRevertResult: Sendable, Equatable {
     public let skippedCount: Int
     public let missingCount: Int
     public let failedCount: Int
+    public let firstFailureDescription: String?
 
     public init(
         parsedCount: Int,
         updatedCount: Int,
         skippedCount: Int = 0,
         missingCount: Int,
-        failedCount: Int = 0
+        failedCount: Int = 0,
+        firstFailureDescription: String? = nil
     ) {
         self.parsedCount = parsedCount
         self.updatedCount = updatedCount
         self.skippedCount = skippedCount
         self.missingCount = missingCount
         self.failedCount = failedCount
+        self.firstFailureDescription = firstFailureDescription
     }
 }
 
@@ -411,6 +414,7 @@ public actor UndoCoordinator {
         var skippedCount = 0
         var missingCount = 0
         var failedCount = 0
+        var firstFailureDescription: String?
 
         for target in targets {
             guard let track = matcher.findTrack(for: target) else {
@@ -444,6 +448,7 @@ public actor UndoCoordinator {
             } catch {
                 failedCount += 1
                 let failureDescription = Self.publicFailureDescription(for: error)
+                firstFailureDescription = firstFailureDescription ?? failureDescription
                 log.error(
                     "Failed to restore backup year for track \(track.id, privacy: .private): \(failureDescription, privacy: .public)"
                 )
@@ -455,7 +460,8 @@ public actor UndoCoordinator {
             updatedCount: updatedCount,
             skippedCount: skippedCount,
             missingCount: missingCount,
-            failedCount: failedCount
+            failedCount: failedCount,
+            firstFailureDescription: firstFailureDescription
         )
     }
 

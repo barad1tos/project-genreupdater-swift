@@ -59,7 +59,7 @@ repos:
         entry: bash scripts/xcode-gate.sh
         language: system
         pass_filenames: false
-        files: ^(App/|Tests/|Packages/|Resources/|project\.yml$|scripts/xcode-gate\.sh$)
+        files: ^(App/|Tests/|Packages/|Resources/|project\.yml$|scripts/xcode-gate\.sh$|\.github/workflows/ci\.yml$|\.pre-commit-config\.yaml$)
 
       - id: validate-entitlements
         name: Validate Entitlements

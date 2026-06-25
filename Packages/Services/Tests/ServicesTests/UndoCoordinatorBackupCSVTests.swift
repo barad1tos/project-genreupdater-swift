@@ -213,6 +213,8 @@ struct UndoCoordinatorBackupCSVTests {
 
         #expect(result.updatedCount == 0)
         #expect(result.failedCount == 1)
+        #expect(result.firstFailureDescription?.contains("AppleScript ID mapping") == true)
+        #expect(result.firstFailureDescription?.contains("MK1") == false)
 
         let written = await bridge.writtenProperties
         #expect(written.isEmpty)
@@ -252,6 +254,7 @@ struct UndoCoordinatorBackupCSVTests {
 
         #expect(result.updatedCount == 0)
         #expect(result.failedCount == 1)
+        #expect(result.firstFailureDescription == "AppleScript write failed")
 
         let written = await bridge.writtenProperties
         #expect(written.isEmpty)

@@ -198,22 +198,6 @@ struct ReportsView: View {
         return panel.url
     }
 
-    private func backupImportMessage(for result: YearBackupRevertResult) -> String {
-        var parts = [
-            "Updated \(result.updatedCount) of \(result.parsedCount) CSV rows.",
-        ]
-        if result.skippedCount > 0 {
-            parts.append("\(result.skippedCount) rows were already current and skipped.")
-        }
-        if result.missingCount > 0 {
-            parts.append("\(result.missingCount) tracks were not found in Music.app.")
-        }
-        if result.failedCount > 0 {
-            parts.append("\(result.failedCount) tracks failed write-safety checks or writes.")
-        }
-        return parts.joined(separator: " ")
-    }
-
     // MARK: - Data Aggregation
 
     /// Build chart summary data from change log entries.
@@ -305,6 +289,25 @@ func backupImportAlertTitle(for result: YearBackupRevertResult) -> String {
         return "Revert Failed"
     }
     return "Revert Partial"
+}
+
+func backupImportMessage(for result: YearBackupRevertResult) -> String {
+    var parts = [
+        "Updated \(result.updatedCount) of \(result.parsedCount) CSV rows.",
+    ]
+    if result.skippedCount > 0 {
+        parts.append("\(result.skippedCount) rows were already current and skipped.")
+    }
+    if result.missingCount > 0 {
+        parts.append("\(result.missingCount) tracks were not found in Music.app.")
+    }
+    if result.failedCount > 0 {
+        parts.append("\(result.failedCount) tracks failed write-safety checks or writes.")
+        if let firstFailureDescription = result.firstFailureDescription {
+            parts.append("First failure: \(firstFailureDescription).")
+        }
+    }
+    return parts.joined(separator: " ")
 }
 
 private enum BackupCSVImportError: LocalizedError {
