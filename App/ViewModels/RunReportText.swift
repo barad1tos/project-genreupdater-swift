@@ -13,6 +13,7 @@ extension UpdateRunReport {
 
         appendOperationalNotes(to: &lines)
         appendDatabaseVerification(to: &lines)
+        appendRecovery(to: &lines)
         appendPendingVerificationDetails(to: &lines)
         appendOutcomeBreakdown(to: &lines)
         appendNoChangesSummary(to: &lines)
@@ -49,6 +50,18 @@ extension UpdateRunReport {
         }
         if !databaseVerification.removedTrackIDs.isEmpty {
             lines.append("- Removed IDs: \(databaseVerification.removedTrackIDs.joined(separator: ", "))")
+        }
+        lines.append("")
+    }
+
+    private func appendRecovery(to lines: inout [String]) {
+        guard let recovery else { return }
+
+        lines.append("Recovery")
+        lines.append("- Restored: \(recovery.restoredCount.formatted())")
+        lines.append("- Skipped: \(recovery.skippedCount.formatted())")
+        if recovery.failedCount > 0 {
+            lines.append("- Failed: \(recovery.failedCount.formatted())")
         }
         lines.append("")
     }

@@ -14,6 +14,7 @@ struct UpdateRunReport: Equatable {
     let displayMode: ChangeDisplayMode
     let pendingVerification: UpdateRunPendingVerificationSummary?
     let databaseVerification: UpdateRunDatabaseVerificationSummary?
+    let recovery: UpdateRunRecoverySummary?
     init(
         result: BatchUpdateResult?,
         completedEntries: [ChangeLogEntry],
@@ -62,6 +63,7 @@ struct UpdateRunReport: Equatable {
         self.displayMode = displayMode
         pendingVerification = operationalContext.pendingVerification
         databaseVerification = operationalContext.databaseVerification
+        recovery = operationalContext.recovery
         scopeTitle = Self.makeScopeTitle(testArtists: testArtists)
     }
 
@@ -99,12 +101,19 @@ struct UpdateRunReport: Equatable {
             ))
         }
         if let pendingVerification, pendingVerification.total > 0 {
+            var detail = "\(pendingVerification.total.formatted()) pending, "
+                + "\(pendingVerification.due.formatted()) due, "
+                + "\(pendingVerification.problematic.formatted()) problematic"
+            if pendingVerification.skippedByInterval > 0 {
+                detail += ", \(pendingVerification.skippedByInterval.formatted()) skipped"
+            }
+            if pendingVerification.verified > 0 {
+                detail += ", \(pendingVerification.verified.formatted()) verified"
+            }
             notes.append(UpdateRunOperationalNote(
                 id: "pending-verification",
                 title: "Pending Verification",
-                detail: "\(pendingVerification.total.formatted()) pending, "
-                    + "\(pendingVerification.due.formatted()) due, "
-                    + "\(pendingVerification.problematic.formatted()) problematic.",
+                detail: detail + ".",
                 severity: pendingVerification.problematic > 0 ? .warning : .info
             ))
         }
@@ -114,6 +123,16 @@ struct UpdateRunReport: Equatable {
                 title: "Database Verification",
                 detail: Self.databaseVerificationNote(databaseVerification),
                 severity: Self.databaseVerificationSeverity(databaseVerification)
+            ))
+        }
+        if let recovery {
+            notes.append(UpdateRunOperationalNote(
+                id: "recovery",
+                title: "Recovery",
+                detail: "\(recovery.restoredCount.formatted()) restored, "
+                    + "\(recovery.skippedCount.formatted()) skipped, "
+                    + "\(recovery.failedCount.formatted()) failed.",
+                severity: recovery.failedCount > 0 ? .warning : .info
             ))
         }
         if changedEntries.isEmpty, failures.isEmpty {

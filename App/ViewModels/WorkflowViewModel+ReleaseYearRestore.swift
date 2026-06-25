@@ -59,6 +59,7 @@ extension WorkflowViewModel {
         result = nil
         dryRunReport = nil
         maintenancePreflightResult = nil
+        recoveryReportSummary = nil
         trackStatuses = Dictionary(uniqueKeysWithValues: scopedTracks.map { ($0.id, .queued) })
         return runGeneration
     }
@@ -104,6 +105,7 @@ extension WorkflowViewModel {
 
     private func finishReleaseYearRestore(_ restoreResult: BatchUpdateResult) {
         result = restoreResult
+        recoveryReportSummary = UpdateRunRecoverySummary(result: restoreResult)
         completedEntries = restoreResult.entries
         var terminalTrackIDs = Set(restoreResult.entries.map(\.trackID))
         terminalTrackIDs.formUnion(restoreResult.noOpEntries.map(\.trackID))
