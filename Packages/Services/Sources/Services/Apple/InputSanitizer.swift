@@ -159,7 +159,7 @@ public enum InputSanitizer {
         message: "Use validateAppleEventArguments for direct argv or sanitizeString/escapeStringValue for source text."
     )
     public static func sanitizeArguments(_ arguments: [String]) throws -> [String] {
-        try validateAppleEventArguments(arguments)
+        try arguments.map { try sanitizeString($0) }
     }
 
     /// Validate a file path for safe use (no traversal attacks, valid extension).

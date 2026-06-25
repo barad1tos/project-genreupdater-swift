@@ -37,7 +37,7 @@ struct AppleScriptClientTests {
 
         let call = try #require(await client.calls.first)
         #expect(call.name == "fetch_tracks")
-        #expect(call.arguments == [""])
+        #expect(call.arguments.isEmpty)
         #expect(call.timeout == nil)
         #expect(tracks.isEmpty)
     }

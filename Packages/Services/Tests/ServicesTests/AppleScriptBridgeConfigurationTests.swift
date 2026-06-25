@@ -154,9 +154,9 @@ struct AppleScriptBridgeConfigurationTests {
     }
 
     @Test("Batch update argv preserves direct metadata payloads")
-    func batchUpdateArgvPreservesDirectMetadataPayloads() {
+    func batchUpdateArgvPreservesDirectMetadataPayloads() throws {
         let value = #"Паліндром / Альбом, Частина & "Live"\Raw (EP) [Single]"#
-        let argument = AppleScriptBridge.makeBatchUpdateArgument([
+        let argument = try AppleScriptBridge.makeBatchUpdateArgument([
             (trackID: #"T"1"#, property: "genre", value: value),
         ])
         let fields = argument
@@ -166,12 +166,29 @@ struct AppleScriptBridgeConfigurationTests {
         #expect(fields == [#"T"1"#, "genre", value])
     }
 
-    @Test("Track output parser preserves valid records and skips malformed or empty records")
-    func trackOutputParserPreservesValidRecordsAndSkipsMalformedOrEmptyRecords() throws {
+    @Test("Batch update argv rejects reserved separators and unknown properties")
+    func batchUpdateArgvRejectsReservedSeparatorsAndUnknownProperties() {
+        #expect(throws: AppleScriptBridgeError.self) {
+            _ = try AppleScriptBridge.makeBatchUpdateArgument([
+                (trackID: "T1", property: "genre", value: "Metal\(Track.fieldSeparator)Jazz"),
+            ])
+        }
+        #expect(throws: AppleScriptBridgeError.self) {
+            _ = try AppleScriptBridge.makeBatchUpdateArgument([
+                (trackID: "T1\(Track.recordSeparator)", property: "genre", value: "Metal"),
+            ])
+        }
+        #expect(throws: AppleScriptBridgeError.self) {
+            _ = try AppleScriptBridge.makeBatchUpdateArgument([
+                (trackID: "T1", property: "genre;stop", value: "Metal"),
+            ])
+        }
+    }
+
+    @Test("Track output parser preserves valid records and skips empty records")
+    func trackOutputParserPreservesValidRecordsAndSkipsEmptyRecords() throws {
         let recordSeparator = String(Track.recordSeparator)
-        let malformed = ["broken", "record", "only"].joined(separator: String(Track.fieldSeparator))
         let validFirst = appleScriptTrackOutput(id: "101", name: "American Sleep")
-        let missingID = appleScriptTrackOutput(id: "", name: "Ghost Track")
         let duplicateIdentity = appleScriptTrackOutput(id: "103", name: "American Sleep")
         let validSecond = appleScriptTrackOutput(
             id: "102",
@@ -183,8 +200,8 @@ struct AppleScriptBridgeConfigurationTests {
             status: "purchased"
         )
 
-        let tracks = AppleScriptBridge.parseTrackOutput(
-            ["", validFirst, malformed, "", missingID, duplicateIdentity, validSecond, ""]
+        let tracks = try AppleScriptBridge.parseTrackOutput(
+            ["", validFirst, "", duplicateIdentity, validSecond, ""]
                 .joined(separator: recordSeparator)
         )
 
@@ -200,6 +217,21 @@ struct AppleScriptBridgeConfigurationTests {
         #expect(cyrillicTrack.name == "Паліндром")
         #expect(cyrillicTrack.artist == "Паліндром")
         #expect(cyrillicTrack.year == 2024)
+    }
+
+    @Test("Track output parser rejects malformed non-empty records")
+    func trackOutputParserRejectsMalformedNonEmptyRecords() {
+        let recordSeparator = String(Track.recordSeparator)
+        let valid = appleScriptTrackOutput(id: "101", name: "American Sleep")
+        let malformed = malformedAppleScriptTrackOutput("broken", "record", "only")
+        let missingID = appleScriptTrackOutput(id: "", name: "Ghost Track")
+
+        #expect(throws: AppleScriptBridgeError.self) {
+            _ = try AppleScriptBridge.parseTrackOutput([valid, malformed].joined(separator: recordSeparator))
+        }
+        #expect(throws: AppleScriptBridgeError.self) {
+            _ = try AppleScriptBridge.parseTrackOutput([valid, missingID].joined(separator: recordSeparator))
+        }
     }
 
     @Test("Retry loop retries transient failures until success")
@@ -252,6 +284,10 @@ private func appleScriptTrackOutput(
         "Rock", "2024-02-21 13:45:00", "2024-03-01 10:00:00",
         status, year, releaseYear, "",
     ].joined(separator: String(Track.fieldSeparator))
+}
+
+private func malformedAppleScriptTrackOutput(_ fields: String...) -> String {
+    fields.joined(separator: String(Track.fieldSeparator))
 }
 
 private func makeRetryBridge() -> AppleScriptBridge {

@@ -168,6 +168,22 @@ struct EscapeStringValueTests {
     }
 }
 
+// MARK: - sanitizeArguments
+
+@Suite("InputSanitizer.sanitizeArguments — legacy source escaping")
+struct SanitizeArgumentsTests {
+    @Test("Preserves legacy source escaping and empty-input validation")
+    @available(*, deprecated, message: "Exercises deprecated compatibility path.")
+    func preservesLegacySourceEscapingAndEmptyInputValidation() throws {
+        let result = try InputSanitizer.sanitizeArguments(["hello", #"wor"ld"#])
+        #expect(result == ["hello", #"wor\"ld"#])
+
+        #expect(throws: SanitizationError.self) {
+            try InputSanitizer.sanitizeArguments([""])
+        }
+    }
+}
+
 // MARK: - validateScriptCode
 
 @Suite("InputSanitizer.validateScriptCode — dangerous AppleScript pattern detection")
@@ -238,7 +254,7 @@ struct ValidateAppleEventArgumentsTests {
         #expect(result == ["hello", #"wor"ld"#])
     }
 
-    @Test("Preserves empty string argv used by full-library fetch")
+    @Test("Preserves empty string argv for direct AppleEvent callers")
     func preservesEmptyStringArgv() throws {
         let result = try InputSanitizer.validateAppleEventArguments([""])
         #expect(result == [""])

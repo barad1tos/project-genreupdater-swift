@@ -244,7 +244,7 @@ extension Track {
     /// Field order (from `serializeTrack` in fetch_tracks.applescript):
     /// [0] id, [1] name, [2] artist, [3] albumArtist, [4] album,
     /// [5] genre, [6] dateAdded, [7] modDate, [8] status,
-    /// [9] year, [10] releaseYear, [11] empty placeholder
+    /// [9] year, [10] releaseYear or release date, [11] empty placeholder
     ///
     /// - Parameter raw: Single record string from AppleScript output
     /// - Returns: Parsed Track, or nil if parsing fails

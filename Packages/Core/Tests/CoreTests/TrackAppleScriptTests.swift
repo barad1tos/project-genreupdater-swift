@@ -218,6 +218,35 @@ struct TrackAppleScriptTests {
         #expect(track?.releaseYear == 2001)
     }
 
+    @Test("Maps fetch script release field variants to the same Swift fields")
+    func mapsFetchScriptReleaseFieldVariants() throws {
+        let baseFields = [
+            "48291", "Nothing Else Matters", "Metallica", "Metallica",
+            "Metallica (Remastered Deluxe Box Set)", "Metal",
+            "2019-11-03 14:22:10", "2024-01-15 09:30:45",
+            "matched", "1991",
+        ]
+        let fetchTracksRecord = (baseFields + ["1991", ""]).joined(separator: fs)
+        let fetchByIDsRecord = (baseFields + ["1991-08-12 00:00:00", ""]).joined(separator: fs)
+
+        let fetchTracksTrack = try #require(Track.fromAppleScriptOutput(fetchTracksRecord))
+        let fetchByIDsTrack = try #require(Track.fromAppleScriptOutput(fetchByIDsRecord))
+
+        for track in [fetchTracksTrack, fetchByIDsTrack] {
+            #expect(track.id == "48291")
+            #expect(track.name == "Nothing Else Matters")
+            #expect(track.artist == "Metallica")
+            #expect(track.albumArtist == "Metallica")
+            #expect(track.album == "Metallica (Remastered Deluxe Box Set)")
+            #expect(track.genre == "Metal")
+            #expect(track.year == 1991)
+            #expect(track.releaseYear == 1991)
+            #expect(track.trackStatus == "matched")
+            #expect(track.dateAdded != nil)
+            #expect(track.lastModified != nil)
+        }
+    }
+
     // MARK: - Round-Trip
 
     @Test("Known AppleScript output produces expected Track")

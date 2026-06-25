@@ -306,15 +306,30 @@ extension UpdateCoordinator {
             return nil
         }
 
-        try await scriptBridge.batchUpdateTracks(
-            preparedWrites.map { preparedWrite in
-                (
-                    trackID: preparedWrite.trackID,
-                    property: preparedWrite.property,
-                    value: preparedWrite.value
-                )
+        do {
+            try await scriptBridge.batchUpdateTracks(
+                preparedWrites.map { preparedWrite in
+                    (
+                        trackID: preparedWrite.trackID,
+                        property: preparedWrite.property,
+                        value: preparedWrite.value
+                    )
+                }
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            guard let appliedIndexes = try await verifiedBatchWriteIndexes(preparedWrites),
+                  !appliedIndexes.isEmpty
+            else {
+                throw error
             }
-        )
+            log.warning(
+                "Batch AppleScript write reported failure after partial verification; unverified writes are failures"
+            )
+            return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: appliedIndexes)
+        }
+
         guard let appliedIndexes = try await verifiedBatchWriteIndexes(preparedWrites) else {
             log.warning("Batch AppleScript write could not be verified; unverified writes are failures")
             return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])

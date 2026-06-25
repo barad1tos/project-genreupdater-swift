@@ -105,6 +105,16 @@ private actor AppleScriptConcurrencyGate {
 /// The actor applies configured retry, rate, and concurrency limits before
 /// reaching Music.app.
 public actor AppleScriptBridge: AppleScriptClient {
+    private static let batchUpdateScriptName = "batch_update_tracks"
+    private static let batchUpdateProperties: Set<String> = [
+        "genre",
+        "year",
+        "name",
+        "album",
+        "artist",
+        "album_artist",
+    ]
+
     private let installer: ScriptInstaller
     private var config: AppleScriptConfig
     private var rateLimiter: TokenBucketRateLimiter?
@@ -186,7 +196,7 @@ public actor AppleScriptBridge: AppleScriptClient {
                 continue
             }
 
-            let tracks = Self.parseTrackOutput(output)
+            let tracks = try Self.parseTrackOutput(output)
             allTracks.append(contentsOf: tracks)
         }
 
@@ -236,25 +246,102 @@ public actor AppleScriptBridge: AppleScriptClient {
 
         // Format matches batch_update_tracks.applescript:
         // Fields separated by ASCII 30 (Record Separator), commands by ASCII 29 (Group Separator).
-        let batchArg = Self.makeBatchUpdateArgument(updates)
+        guard !updates.isEmpty else { return }
+
+        let batchArg = try Self.makeBatchUpdateArgument(updates)
 
         let output = try await runScript(
-            name: "batch_update_tracks",
+            name: Self.batchUpdateScriptName,
             arguments: [batchArg],
             timeout: config.timeouts.batchUpdate
         )
 
         try Self.validateBatchUpdateOutput(output, updateCount: updates.count)
+        try await verifyBatchUpdateResult(updates)
         log.info("Batch updated \(updates.count, privacy: .public) tracks")
     }
 
-    static func makeBatchUpdateArgument(_ updates: [(trackID: String, property: String, value: String)]) -> String {
+    static func makeBatchUpdateArgument(_ updates: [(trackID: String, property: String, value: String)]) throws
+        -> String {
         let fieldSep = String(Core.Track.fieldSeparator) // \x1E — between fields
         let commandSep = String(Core.Track.recordSeparator) // \x1D — between commands
-        return updates.map { update -> String in
-            let property = InputSanitizer.sanitizeScriptCode(update.property)
+        return try updates.map { update -> String in
+            try validateBatchUpdateComponent(update.trackID, label: "track ID")
+            try validateBatchUpdateComponent(update.value, label: "value")
+            let property = try validatedBatchUpdateProperty(update.property)
             return "\(update.trackID)\(fieldSep)\(property)\(fieldSep)\(update.value)"
         }.joined(separator: commandSep)
+    }
+
+    private static func validatedBatchUpdateProperty(_ property: String) throws -> String {
+        try validateBatchUpdateComponent(property, label: "property")
+        let sanitizedProperty = InputSanitizer.sanitizeScriptCode(property)
+        guard sanitizedProperty == property,
+              batchUpdateProperties.contains(property)
+        else {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: batchUpdateScriptName,
+                detail: "Unsupported batch update property: \(property)"
+            )
+        }
+        return property
+    }
+
+    private static func validateBatchUpdateComponent(_ value: String, label: String) throws {
+        let containsReservedSeparator = value.contains(Core.Track.fieldSeparator)
+            || value.contains(Core.Track.recordSeparator)
+        guard !containsReservedSeparator else {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: batchUpdateScriptName,
+                detail: "Batch update \(label) contains a reserved separator"
+            )
+        }
+    }
+
+    private func verifyBatchUpdateResult(
+        _ updates: [(trackID: String, property: String, value: String)]
+    ) async throws {
+        let trackIDs = Array(Set(updates.map(\.trackID)))
+        let refreshedTracks = try await fetchTracksByIDs(
+            trackIDs,
+            batchSize: max(trackIDs.count, 1),
+            timeout: config.timeouts.idsBatchFetch
+        )
+        let refreshedTracksByID = Dictionary(uniqueKeysWithValues: refreshedTracks.map { ($0.id, $0) })
+        let failedUpdates = updates.filter { update in
+            guard let track = refreshedTracksByID[update.trackID],
+                  let currentValue = Self.value(forBatchUpdateProperty: update.property, in: track)
+            else {
+                return true
+            }
+            return currentValue != update.value
+        }
+
+        guard failedUpdates.isEmpty else {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: Self.batchUpdateScriptName,
+                detail: "Batch verification failed for \(failedUpdates.count) of \(updates.count) updates"
+            )
+        }
+    }
+
+    private static func value(forBatchUpdateProperty property: String, in track: Core.Track) -> String? {
+        switch property {
+        case "genre":
+            track.genre ?? ""
+        case "year":
+            track.year.map(String.init) ?? ""
+        case "name":
+            track.name
+        case "album":
+            track.album
+        case "artist":
+            track.artist
+        case "album_artist":
+            track.albumArtist ?? ""
+        default:
+            nil
+        }
     }
 
     // MARK: - Private Helpers
@@ -305,7 +392,7 @@ public actor AppleScriptBridge: AppleScriptClient {
     static func validateBatchUpdateOutput(_ output: String?, updateCount: Int) throws {
         guard let output else {
             throw AppleScriptBridgeError.executionFailed(
-                scriptName: "batch_update_tracks",
+                scriptName: batchUpdateScriptName,
                 detail: "Batch of \(updateCount) updates, response=<empty>"
             )
         }
@@ -314,7 +401,7 @@ public actor AppleScriptBridge: AppleScriptClient {
         let lowercasedOutput = trimmedOutput.lowercased()
         guard lowercasedOutput.hasPrefix("success:") else {
             throw AppleScriptBridgeError.executionFailed(
-                scriptName: "batch_update_tracks",
+                scriptName: batchUpdateScriptName,
                 detail: "Batch of \(updateCount) updates, response=\(String(trimmedOutput.prefix(200)))"
             )
         }
@@ -348,9 +435,22 @@ public actor AppleScriptBridge: AppleScriptClient {
     }
 
     /// Parse AppleScript output into Track objects.
-    static func parseTrackOutput(_ output: String) -> [Core.Track] {
-        output.split(separator: Core.Track.recordSeparator)
-            .compactMap { Core.Track.fromAppleScriptOutput(String($0)) }
+    static func parseTrackOutput(_ output: String) throws -> [Core.Track] {
+        var tracks: [Core.Track] = []
+        for record in output.split(separator: Core.Track.recordSeparator, omittingEmptySubsequences: false) {
+            let rawRecord = String(record)
+            guard !rawRecord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            guard let track = Core.Track.fromAppleScriptOutput(rawRecord) else {
+                throw AppleScriptBridgeError.parseError(
+                    scriptName: "fetch_tracks_by_ids",
+                    detail: "Malformed track record: \(String(rawRecord.prefix(200)))"
+                )
+            }
+            tracks.append(track)
+        }
+        return tracks
     }
 }
 

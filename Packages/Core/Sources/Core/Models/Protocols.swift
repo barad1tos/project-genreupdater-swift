@@ -398,9 +398,10 @@ extension AppleScriptClient {
     }
 
     public func fetchTracks(artist: String? = nil, timeout: Duration? = nil) async throws -> [Track] {
+        let arguments = artist.map { [$0] } ?? []
         let output = try await runScript(
             name: "fetch_tracks",
-            arguments: [artist ?? ""],
+            arguments: arguments,
             timeout: timeout
         )
         guard let output, output != "NO_TRACKS_FOUND" else { return [] }
