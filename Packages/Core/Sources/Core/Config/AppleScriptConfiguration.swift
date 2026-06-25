@@ -33,17 +33,50 @@ public struct AppleScriptTimeouts: Sendable, Codable {
     private enum CodingKeys: String, CodingKey {
         case defaultTimeoutSeconds, fullLibraryFetchSeconds, singleArtistFetchSeconds
         case batchUpdateSeconds, idsBatchFetchSeconds
+        case legacyDefault = "default"
+        case legacyFullLibraryFetchName = "fullLibraryFetch"
+        case legacyFullLibraryFetch = "full_library_fetch"
+        case legacySingleArtistFetchName = "singleArtistFetch"
+        case legacySingleArtistFetch = "single_artist_fetch"
+        case legacyBatchUpdateName = "batchUpdate"
+        case legacyBatchUpdate = "batch_update"
+        case legacyIdsBatchFetchName = "idsBatchFetch"
+        case legacyIdsBatchFetch = "ids_batch_fetch"
     }
 
     public init() {}
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        defaultTimeout = try .seconds(container.decodeIfPresent(Int.self, forKey: .defaultTimeoutSeconds) ?? 3600)
-        fullLibraryFetch = try .seconds(container.decodeIfPresent(Int.self, forKey: .fullLibraryFetchSeconds) ?? 3600)
-        singleArtistFetch = try .seconds(container.decodeIfPresent(Int.self, forKey: .singleArtistFetchSeconds) ?? 600)
-        batchUpdate = try .seconds(container.decodeIfPresent(Int.self, forKey: .batchUpdateSeconds) ?? 1800)
-        idsBatchFetch = try .seconds(container.decodeIfPresent(Int.self, forKey: .idsBatchFetchSeconds) ?? 120)
+        defaultTimeout = try .seconds(
+            container.decodeIfPresent(Int.self, forKey: .defaultTimeoutSeconds)
+                ?? container.decodeIfPresent(Int.self, forKey: .legacyDefault)
+                ?? 3600
+        )
+        fullLibraryFetch = try .seconds(
+            container.decodeIfPresent(Int.self, forKey: .fullLibraryFetchSeconds)
+                ?? container.decodeIfPresent(Int.self, forKey: .legacyFullLibraryFetchName)
+                ?? container.decodeIfPresent(Int.self, forKey: .legacyFullLibraryFetch)
+                ?? 3600
+        )
+        singleArtistFetch = try .seconds(
+            container.decodeIfPresent(Int.self, forKey: .singleArtistFetchSeconds)
+                ?? container.decodeIfPresent(Int.self, forKey: .legacySingleArtistFetchName)
+                ?? container.decodeIfPresent(Int.self, forKey: .legacySingleArtistFetch)
+                ?? 600
+        )
+        batchUpdate = try .seconds(
+            container.decodeIfPresent(Int.self, forKey: .batchUpdateSeconds)
+                ?? container.decodeIfPresent(Int.self, forKey: .legacyBatchUpdateName)
+                ?? container.decodeIfPresent(Int.self, forKey: .legacyBatchUpdate)
+                ?? 1800
+        )
+        idsBatchFetch = try .seconds(
+            container.decodeIfPresent(Int.self, forKey: .idsBatchFetchSeconds)
+                ?? container.decodeIfPresent(Int.self, forKey: .legacyIdsBatchFetchName)
+                ?? container.decodeIfPresent(Int.self, forKey: .legacyIdsBatchFetch)
+                ?? 120
+        )
     }
 
     public func encode(to encoder: any Encoder) throws {

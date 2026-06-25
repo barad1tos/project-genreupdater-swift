@@ -50,10 +50,29 @@ public struct AppConfiguration: Sendable, Codable {
         case albumTypeDetection, experimental, development
     }
 
+    private enum DecodingKeys: String, CodingKey {
+        case paths, pythonSettings, runtime, applescript, yearRetrieval, genreUpdate, caching
+        case processing, analytics, cleaning, exceptions, artistRenamer, databaseVerification
+        case pendingVerification, reporting, logging
+        case albumTypeDetection, experimental, development
+
+        case musicLibraryPath, appleScriptsDirectory, logsBaseDirectory, apiCacheFile
+        case appleScriptsDir, logsBaseDir
+        case dryRun, cacheTTLSeconds, incrementalIntervalMinutes, maxRetries, retryDelaySeconds, maxGenericEntries
+        case cacheTtlSeconds
+        case appleScriptConcurrency, appleScriptRateLimit, applescriptTimeoutSeconds
+        case applescriptTimeouts, applescriptRetry, batchProcessing
+        case testArtists
+    }
+
+    private enum YearRetrievalDecodingKeys: String, CodingKey {
+        case processing
+    }
+
     public init() {}
 
     public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let container = try decoder.container(keyedBy: DecodingKeys.self)
         paths = try container.decodeIfPresent(PathsConfig.self, forKey: .paths) ?? PathsConfig()
         pythonSettings = try container
             .decodeIfPresent(PythonSettingsConfig.self, forKey: .pythonSettings) ?? PythonSettingsConfig()
@@ -87,6 +106,117 @@ public struct AppConfiguration: Sendable, Codable {
         experimental = try container
             .decodeIfPresent(ExperimentalConfig.self, forKey: .experimental) ?? ExperimentalConfig()
         development = try container.decodeIfPresent(DevelopmentConfig.self, forKey: .development) ?? DevelopmentConfig()
+
+        try applyLegacyRootConfiguration(from: container)
+    }
+
+    private mutating func applyLegacyRootConfiguration(
+        from container: KeyedDecodingContainer<DecodingKeys>
+    ) throws {
+        try applyLegacyPathConfiguration(from: container)
+        try applyLegacyRuntimeConfiguration(from: container)
+        try applyLegacyAppleScriptConfiguration(from: container)
+        try applyLegacyProcessingConfiguration(from: container)
+        try applyLegacyDevelopmentConfiguration(from: container)
+    }
+
+    private mutating func applyLegacyPathConfiguration(
+        from container: KeyedDecodingContainer<DecodingKeys>
+    ) throws {
+        if let musicLibraryPath = try container.decodeIfPresent(String.self, forKey: .musicLibraryPath) {
+            paths.musicLibraryPath = musicLibraryPath
+        }
+        if let appleScriptsDirectory = try container.decodeIfPresent(String.self, forKey: .appleScriptsDirectory) {
+            paths.appleScriptsDirectory = appleScriptsDirectory
+        } else if let appleScriptsDirectory = try container.decodeIfPresent(String.self, forKey: .appleScriptsDir) {
+            paths.appleScriptsDirectory = appleScriptsDirectory
+        }
+        if let logsBaseDirectory = try container.decodeIfPresent(String.self, forKey: .logsBaseDirectory) {
+            paths.logsBaseDirectory = logsBaseDirectory
+        } else if let logsBaseDirectory = try container.decodeIfPresent(String.self, forKey: .logsBaseDir) {
+            paths.logsBaseDirectory = logsBaseDirectory
+        }
+        if let apiCacheFile = try container.decodeIfPresent(String.self, forKey: .apiCacheFile) {
+            paths.apiCacheFile = apiCacheFile
+        }
+    }
+
+    private mutating func applyLegacyRuntimeConfiguration(
+        from container: KeyedDecodingContainer<DecodingKeys>
+    ) throws {
+        if let dryRun = try container.decodeIfPresent(Bool.self, forKey: .dryRun) {
+            runtime.dryRun = dryRun
+        }
+        if let cacheTTLSeconds = try container.decodeIfPresent(Int.self, forKey: .cacheTTLSeconds) {
+            runtime.cacheTTLSeconds = cacheTTLSeconds
+        } else if let cacheTTLSeconds = try container.decodeIfPresent(Int.self, forKey: .cacheTtlSeconds) {
+            runtime.cacheTTLSeconds = cacheTTLSeconds
+        }
+        if let incrementalIntervalMinutes = try container.decodeIfPresent(
+            Int.self,
+            forKey: .incrementalIntervalMinutes
+        ) {
+            runtime.incrementalIntervalMinutes = incrementalIntervalMinutes
+        }
+        if let maxRetries = try container.decodeIfPresent(Int.self, forKey: .maxRetries) {
+            runtime.maxRetries = maxRetries
+        }
+        if let retryDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .retryDelaySeconds) {
+            runtime.retryDelaySeconds = retryDelaySeconds
+        }
+        if let maxGenericEntries = try container.decodeIfPresent(Int.self, forKey: .maxGenericEntries) {
+            runtime.maxGenericEntries = maxGenericEntries
+        }
+    }
+
+    private mutating func applyLegacyAppleScriptConfiguration(
+        from container: KeyedDecodingContainer<DecodingKeys>
+    ) throws {
+        if let concurrency = try container.decodeIfPresent(Int.self, forKey: .appleScriptConcurrency) {
+            applescript.concurrency = concurrency
+        }
+        if let rateLimit = try container.decodeIfPresent(AppleScriptRateLimit.self, forKey: .appleScriptRateLimit) {
+            applescript.rateLimit = rateLimit
+        }
+        if let defaultTimeout = try container.decodeIfPresent(Int.self, forKey: .applescriptTimeoutSeconds) {
+            applescript.timeouts.defaultTimeout = .seconds(defaultTimeout)
+        }
+        if let timeouts = try container.decodeIfPresent(AppleScriptTimeouts.self, forKey: .applescriptTimeouts) {
+            applescript.timeouts = timeouts
+        }
+        if let retry = try container.decodeIfPresent(AppleScriptRetry.self, forKey: .applescriptRetry) {
+            applescript.retry = retry
+        }
+        if let batchProcessing = try container.decodeIfPresent(BatchProcessingConfig.self, forKey: .batchProcessing) {
+            applescript.batchProcessing = batchProcessing
+        }
+    }
+
+    private mutating func applyLegacyProcessingConfiguration(
+        from container: KeyedDecodingContainer<DecodingKeys>
+    ) throws {
+        if !container.contains(.processing), container.contains(.yearRetrieval) {
+            let yearRetrievalContainer = try container.nestedContainer(
+                keyedBy: YearRetrievalDecodingKeys.self,
+                forKey: .yearRetrieval
+            )
+            if let yearRetrievalProcessing = try yearRetrievalContainer.decodeIfPresent(
+                ProcessingConfig.self,
+                forKey: .processing
+            ) {
+                processing = yearRetrievalProcessing
+            }
+        }
+    }
+
+    private mutating func applyLegacyDevelopmentConfiguration(
+        from container: KeyedDecodingContainer<DecodingKeys>
+    ) throws {
+        if development.testArtists.isEmpty,
+           let legacyTestArtists = try container.decodeIfPresent([String].self, forKey: .testArtists),
+           !legacyTestArtists.isEmpty {
+            development.testArtists = legacyTestArtists
+        }
     }
 
     /// Load configuration from the app's container.
@@ -96,7 +226,7 @@ public struct AppConfiguration: Sendable, Codable {
             return Self()
         }
         let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(Self.self, from: data)
+        return try configurationDecoder().decode(Self.self, from: data)
     }
 
     /// Save configuration to the app's container.
@@ -118,5 +248,12 @@ public struct AppConfiguration: Sendable, Codable {
         let appDir = appSupport.appendingPathComponent("GenreUpdater", isDirectory: true)
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         return appDir.appendingPathComponent("config.json")
+    }
+
+    /// Decoder for persisted and Python-era configuration keys.
+    public static func configurationDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return decoder
     }
 }

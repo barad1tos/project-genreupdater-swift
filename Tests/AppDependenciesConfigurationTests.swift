@@ -123,6 +123,29 @@ struct AppDependenciesConfigurationTests {
             .appendingPathComponent("last_incremental_run.log")
         #expect(FileManager.default.fileExists(atPath: expectedTimestampFile.path))
     }
+
+    @Test("Advanced JSON editor accepts Python-era configuration keys")
+    func advancedJSONEditorAcceptsPythonEraConfigurationKeys() throws {
+        let jsonString = """
+        {
+          "cache_ttl_seconds": 444,
+          "year_retrieval": {
+            "preferred_api": "discogs",
+            "api_auth": {
+              "musicbrainz_app_name": "GenreUpdaterTests/1.0"
+            }
+          },
+          "test_artists": ["Паліндром"]
+        }
+        """
+
+        let configuration = try AdvancedTab.decodeConfiguration(jsonString)
+
+        #expect(configuration.runtime.cacheTTLSeconds == 444)
+        #expect(configuration.yearRetrieval.preferredAPI == .discogs)
+        #expect(configuration.yearRetrieval.apiAuth.musicBrainzAppName == "GenreUpdaterTests/1.0")
+        #expect(configuration.development.testArtists == ["Паліндром"])
+    }
 }
 
 private enum StubConfigurationError: LocalizedError {

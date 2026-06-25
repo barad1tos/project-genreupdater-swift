@@ -207,5 +207,15 @@ public struct DevelopmentConfig: Sendable, Codable {
     public var testArtists: [String] = []
     public var debugMode: Bool = false
 
+    private enum CodingKeys: String, CodingKey {
+        case testArtists, debugMode
+    }
+
     public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        testArtists = try container.decodeIfPresent([String].self, forKey: .testArtists) ?? []
+        debugMode = try container.decodeIfPresent(Bool.self, forKey: .debugMode) ?? false
+    }
 }

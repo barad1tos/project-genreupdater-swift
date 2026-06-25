@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Core
 @testable import Services
@@ -53,5 +54,68 @@ struct ConfigWiringTests {
         #expect(restrictedScope.batchSize == 41)
         #expect(restrictedScope.delayBetweenBatchesMilliseconds == 0)
         #expect(restrictedScope.adaptiveDelay == false)
+    }
+
+    @Test("Python-era configuration keys feed runtime configuration owners")
+    func pythonEraConfigurationKeysFeedRuntimeConfigurationOwners() throws {
+        let jsonString = """
+        {
+          "test_artists": ["Паліндром"],
+          "batch_processing": {
+            "ids_batch_size": 22,
+            "batch_size": 44
+          },
+          "applescript_timeouts": {
+            "full_library_fetch": 321,
+            "ids_batch_fetch": 45
+          },
+          "year_retrieval": {
+            "preferred_api": "discogs",
+            "script_api_priorities": {
+              "cyrillic": {
+                "primary": ["itunes"],
+                "fallback": ["discogs"]
+              }
+            },
+            "processing": {
+              "batch_size": 13,
+              "delay_between_batches": 1.25,
+              "adaptive_delay": true,
+              "min_confidence_to_cache": 77,
+              "skip_prerelease": false,
+              "prerelease_handling": "mark_only",
+              "prerelease_recheck_days": 10
+            }
+          }
+        }
+        """
+        let configuration = try AppConfiguration.configurationDecoder().decode(
+            AppConfiguration.self,
+            from: Data(jsonString.utf8)
+        )
+
+        let updateRuntime = UpdateRuntimeConfiguration(configuration: configuration)
+        #expect(updateRuntime.testArtists == ["Паліндром"])
+        #expect(updateRuntime.minimumConfidenceToCache == 77)
+        #expect(updateRuntime.skipPrerelease == false)
+        #expect(updateRuntime.prereleaseHandling == .markOnly)
+        #expect(updateRuntime.prereleaseRecheckDays == 10)
+
+        let syncRuntime = LibrarySyncRuntimeConfiguration(configuration: configuration)
+        #expect(syncRuntime.idsBatchSize == 22)
+        #expect(syncRuntime.fullLibraryFetchTimeout == .seconds(321))
+        #expect(syncRuntime.idsBatchFetchTimeout == .seconds(45))
+
+        let sourcePriority = APISourcePriorityConfiguration(configuration: configuration)
+        #expect(sourcePriority.orderedSources(artist: "Паліндром", album: "Найліпші питання") == [
+            .itunes,
+            .discogs,
+            .musicBrainz,
+        ])
+
+        let batchProcessing = BatchProcessingConfiguration(configuration: configuration)
+        #expect(batchProcessing.batchSize == 13)
+        #expect(batchProcessing.delayBetweenBatchesMilliseconds == 0)
+        #expect(batchProcessing.adaptiveDelay == false)
     }
 }

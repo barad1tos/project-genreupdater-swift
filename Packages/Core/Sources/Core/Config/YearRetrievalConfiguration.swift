@@ -24,14 +24,26 @@ public struct YearRetrievalConfig: Sendable, Codable {
         case itunesSearch, scriptAPIPriorities
     }
 
+    private enum DecodingKeys: String, CodingKey {
+        case enabled, preferredAPI, apiAuth, rateLimits, logic, reissueDetection, scoring, fallback
+        case itunesSearch, scriptAPIPriorities
+        case preferredApi
+        case scriptApiPriorities
+        case legacyPreferredAPI = "preferred_api"
+        case legacyScriptAPIPriorities = "script_api_priorities"
+    }
+
     public init() {
         // Defaults are set on stored properties; custom decoding below preserves those defaults for omitted keys.
     }
 
     public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let container = try decoder.container(keyedBy: DecodingKeys.self)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
-        preferredAPI = try container.decodeIfPresent(PreferredAPI.self, forKey: .preferredAPI) ?? .musicbrainz
+        preferredAPI = try container.decodeIfPresent(PreferredAPI.self, forKey: .preferredAPI)
+            ?? container.decodeIfPresent(PreferredAPI.self, forKey: .preferredApi)
+            ?? container.decodeIfPresent(PreferredAPI.self, forKey: .legacyPreferredAPI)
+            ?? .musicbrainz
         apiAuth = try container.decodeIfPresent(APIAuthConfig.self, forKey: .apiAuth) ?? APIAuthConfig()
         rateLimits = try container.decodeIfPresent(APIRateLimits.self, forKey: .rateLimits) ?? APIRateLimits()
         logic = try container.decodeIfPresent(YearLogicConfig.self, forKey: .logic) ?? YearLogicConfig()
@@ -44,6 +56,12 @@ public struct YearRetrievalConfig: Sendable, Codable {
         scriptAPIPriorities = try container.decodeIfPresent(
             [String: ScriptAPIPriority].self,
             forKey: .scriptAPIPriorities
+        ) ?? container.decodeIfPresent(
+            [String: ScriptAPIPriority].self,
+            forKey: .scriptApiPriorities
+        ) ?? container.decodeIfPresent(
+            [String: ScriptAPIPriority].self,
+            forKey: .legacyScriptAPIPriorities
         ) ?? [:]
     }
 }
@@ -59,8 +77,32 @@ public struct APIRateLimits: Sendable, Codable {
     public var musicbrainzRequestsPerSecond: Double = 1.0
     public var concurrentAPICalls: Int = 2
 
+    private enum CodingKeys: String, CodingKey {
+        case discogsRequestsPerMinute, musicbrainzRequestsPerSecond, concurrentAPICalls
+    }
+
+    private enum DecodingKeys: String, CodingKey {
+        case discogsRequestsPerMinute, musicbrainzRequestsPerSecond, concurrentAPICalls
+        case concurrentApiCalls
+    }
+
     public init() {
         // Defaults are set on stored properties so callers can build rate-limit config incrementally.
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: DecodingKeys.self)
+        discogsRequestsPerMinute = try container.decodeIfPresent(
+            Int.self,
+            forKey: .discogsRequestsPerMinute
+        ) ?? 55
+        musicbrainzRequestsPerSecond = try container.decodeIfPresent(
+            Double.self,
+            forKey: .musicbrainzRequestsPerSecond
+        ) ?? 1.0
+        concurrentAPICalls = try container.decodeIfPresent(Int.self, forKey: .concurrentAPICalls)
+            ?? container.decodeIfPresent(Int.self, forKey: .concurrentApiCalls)
+            ?? 2
     }
 }
 
@@ -87,6 +129,12 @@ public struct APIAuthConfig: Sendable, Codable {
         discogsTokenReference = try container.decodeIfPresent(
             String.self,
             forKey: .discogsTokenReference
+        ) ?? container.decodeIfPresent(
+            String.self,
+            forKey: .discogsToken
+        ) ?? container.decodeIfPresent(
+            String.self,
+            forKey: .legacyDiscogsToken
         ) ?? "${DISCOGS_TOKEN}"
         if let configuredDiscogsBaseHost = try container.decodeIfPresent(
             String.self,
@@ -112,10 +160,22 @@ public struct APIAuthConfig: Sendable, Codable {
         musicBrainzAppName = try container.decodeIfPresent(
             String.self,
             forKey: .musicBrainzAppName
+        ) ?? container.decodeIfPresent(
+            String.self,
+            forKey: .musicbrainzAppName
+        ) ?? container.decodeIfPresent(
+            String.self,
+            forKey: .legacyMusicBrainzAppName
         ) ?? "MusicGenreUpdater/2.0"
         contactEmailReference = try container.decodeIfPresent(
             String.self,
             forKey: .contactEmailReference
+        ) ?? container.decodeIfPresent(
+            String.self,
+            forKey: .contactEmail
+        ) ?? container.decodeIfPresent(
+            String.self,
+            forKey: .legacyContactEmail
         ) ?? "${CONTACT_EMAIL}"
     }
 
@@ -170,6 +230,12 @@ public struct APIAuthConfig: Sendable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case discogsTokenReference, discogsBaseHost, musicBrainzAppName, contactEmailReference
+        case discogsToken
+        case musicbrainzAppName
+        case contactEmail
+        case legacyDiscogsToken = "discogs_token"
+        case legacyMusicBrainzAppName = "musicbrainz_app_name"
+        case legacyContactEmail = "contact_email"
         case legacyDiscogsBaseHost = "discogs_base_host"
     }
 

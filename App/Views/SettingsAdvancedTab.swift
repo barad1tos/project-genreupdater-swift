@@ -295,8 +295,8 @@ struct AdvancedTab: View {
         }
     }
 
-    private static func decodeConfiguration(_ jsonString: String) throws -> AppConfiguration {
-        try JSONDecoder().decode(AppConfiguration.self, from: Data(jsonString.utf8))
+    static func decodeConfiguration(_ jsonString: String) throws -> AppConfiguration {
+        try AppConfiguration.configurationDecoder().decode(AppConfiguration.self, from: Data(jsonString.utf8))
     }
 
     private static func encodeConfiguration(_ config: AppConfiguration) throws -> String {
