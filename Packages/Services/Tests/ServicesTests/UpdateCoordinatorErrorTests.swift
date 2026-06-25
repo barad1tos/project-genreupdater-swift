@@ -51,6 +51,22 @@ struct UpdateCoordinatorErrorTests {
         #expect(error.errorDescription == "Failed to write year for track T1: Year value is out of range")
     }
 
+    @Test("Single-track multi-operation allTracksFailed keeps every write failure visible")
+    func singleTrackMultiOperationAllFailedKeepsWriteFailuresVisible() {
+        let error = UpdateCoordinatorError.allTracksFailed(
+            count: 1,
+            errorDescriptions: [
+                "Failed to write genre for track T1: Genre write failed",
+                "Failed to write year for track T1: Year write failed",
+            ]
+        )
+        let description = error.errorDescription ?? ""
+
+        #expect(description.contains("2 update operations"))
+        #expect(description.contains("Failed to write genre for track T1"))
+        #expect(description.contains("Failed to write year for track T1"))
+    }
+
     @Test("writeFailed includes track ID, property, and reason in description")
     func writeFailed() {
         let error = UpdateCoordinatorError.writeFailed(

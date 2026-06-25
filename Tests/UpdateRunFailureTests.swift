@@ -74,6 +74,30 @@ struct UpdateRunFailureTests {
         #expect(failureBreakdowns.first?.trackCount == 2)
     }
 
+    @Test("keeps unknown-track failures reachable from album results")
+    func keepsUnknownTrackFailuresReachableFromAlbumResults() throws {
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [],
+                failedTrackIDs: ["raw-id"],
+                errorDescriptions: ["Missing AppleScript ID"]
+            ),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: []
+        )
+
+        let album = try #require(report.albumResults.first)
+        let failureRow = try #require(album.tracks.first)
+        #expect(report.failures.count == 1)
+        #expect(report.affectedAlbumCount == 1)
+        #expect(album.artist == "Unknown artist")
+        #expect(album.album == "Unknown album")
+        #expect(failureRow.title == "Unknown track")
+        #expect(failureRow.failureMessage == "Missing AppleScript ID")
+    }
+
     @Test("keeps no-op-only albums in report results")
     func keepsNoOpOnlyAlbumsInReportResults() throws {
         var noOpEntry = ChangeLogEntry(

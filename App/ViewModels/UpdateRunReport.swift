@@ -309,7 +309,7 @@ struct UpdateRunReport: Equatable {
         for entry in entries {
             keys.insert(albumIdentity(for: entry, trackLookup: trackLookup))
         }
-        for failure in failures where failure.hasKnownTrack {
+        for failure in failures {
             keys.insert(UpdateRunAlbumIdentity(artist: failure.artist, album: failure.album))
         }
         return keys
@@ -331,8 +331,7 @@ struct UpdateRunReport: Equatable {
             }
         let missingFailureRows = failures
             .filter { failure in
-                failure.hasKnownTrack
-                    && trackLookup[failure.technicalID] == nil
+                trackLookup[failure.technicalID] == nil
                     && UpdateRunAlbumIdentity(artist: failure.artist, album: failure.album) == key
             }
             .map { failure in

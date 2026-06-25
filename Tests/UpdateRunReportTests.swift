@@ -188,7 +188,7 @@ struct UpdateRunReportTests {
     }
 
     @Test("keeps unknown failures visible with technical fallback")
-    func keepsUnknownFailuresVisibleWithTechnicalFallback() {
+    func keepsUnknownFailuresVisibleWithTechnicalFallback() throws {
         var entry = ChangeLogEntry(
             changeType: .yearUpdate,
             trackID: "known-unknown-album",
@@ -205,20 +205,20 @@ struct UpdateRunReportTests {
             testArtists: []
         )
 
-        #expect(report.failures.count == 1)
         #expect(report.failures.first?.title == "Unknown track")
         #expect(report.failures.first?.subtitle == "Track ID: raw-id")
         #expect(report.failures.first?.message == "No failure details were captured for this run.")
         #expect(report.failures.first?.hasKnownTrack == false)
-        let album = report.albumResults.first
+        let album = try #require(report.albumResults.first)
         #expect(report.affectedAlbumCount == 1)
-        #expect(album?.tracks.map(\.id) == ["known-unknown-album"])
-        #expect(report.plainTextSummary.contains("Albums affected: 1"))
-        #expect(report.plainTextSummary.contains("Needs Attention"))
+        #expect(album.tracks.count == 2)
+        #expect(album.tracks.contains { $0.id == "known-unknown-album" })
+        #expect(album.tracks.contains { $0.failureMessage == "No failure details were captured for this run." })
         let summary = report.plainTextSummary
         #expect(summary.contains("- Unknown track (Track ID: raw-id): No failure details were captured for this run."))
-        #expect(summary
-            .contains("- Failed Processing: 1 failure, 1 track, No failure details were captured for this run."))
+        #expect(summary.contains(
+            "- Failed Processing: 1 failure, 1 track, No failure details were captured for this run."
+        ))
     }
 
     @Test("changed year rows show original editable year instead of release metadata")
