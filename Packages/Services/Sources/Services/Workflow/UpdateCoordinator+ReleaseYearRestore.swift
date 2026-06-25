@@ -101,19 +101,14 @@ extension UpdateCoordinator {
 
     private static func mostCommonReleaseYear(in tracks: [Track]) -> Int? {
         var counts: [Int: Int] = [:]
-        var firstIndex: [Int: Int] = [:]
 
-        for (index, track) in tracks.enumerated() {
+        for track in tracks {
             guard let releaseYear = track.releaseYear else { continue }
             counts[releaseYear, default: 0] += 1
-            firstIndex[releaseYear, default: index] = min(firstIndex[releaseYear, default: index], index)
         }
 
-        return counts.max { left, right in
-            if left.value == right.value {
-                return (firstIndex[left.key] ?? 0) > (firstIndex[right.key] ?? 0)
-            }
-            return left.value < right.value
-        }?.key
+        guard let maximumCount = counts.values.max() else { return nil }
+        let consensusYears = counts.filter { $0.value == maximumCount }.map(\.key)
+        return consensusYears.count == 1 ? consensusYears[0] : nil
     }
 }
