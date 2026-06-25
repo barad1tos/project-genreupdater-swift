@@ -153,6 +153,31 @@ struct AppleScriptBridgeConfigurationTests {
         }
     }
 
+    @Test("Batch update missing script remains a pre-run bridge error")
+    func batchUpdateMissingScriptRemainsPreRunBridgeError() async throws {
+        let scriptsDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppleScriptBridgeMissingScript-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: scriptsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scriptsDirectory) }
+
+        let installer = ScriptInstaller(scriptsDirectory: scriptsDirectory, bundleScriptsDirectory: nil)
+        let bridge = AppleScriptBridge(installer: installer)
+
+        do {
+            try await bridge.batchUpdateTracks([
+                (trackID: "101", property: "genre", value: "Stoner Rock"),
+            ])
+            Issue.record("Expected missing batch script to fail before AppleScript execution")
+        } catch let error as AppleScriptBridgeError {
+            guard case .scriptNotFound = error else {
+                Issue.record("Expected scriptNotFound, got \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected AppleScriptBridgeError, got \(error)")
+        }
+    }
+
     @Test("Batch update verification rejects stale or missing refreshed tracks")
     func batchUpdateVerificationRejectsStaleOrMissingRefreshedTracks() throws {
         let updates = [
@@ -179,6 +204,36 @@ struct AppleScriptBridgeConfigurationTests {
             try AppleScriptBridge.verifyBatchUpdateValues(updates, in: missingTracks)
         }
         try AppleScriptBridge.verifyBatchUpdateValues(updates, in: duplicateTracks)
+    }
+
+    @Test("Batch update verification maps album artist property")
+    func batchUpdateVerificationMapsAlbumArtistProperty() throws {
+        let updates = [
+            (trackID: "101", property: "album_artist", value: "Clutch"),
+        ]
+        let refreshedTracks = [
+            Track(
+                id: "101",
+                name: "American Sleep",
+                artist: "Clutch",
+                album: "Pure Rock Fury",
+                albumArtist: "Clutch"
+            ),
+        ]
+        let staleTracks = [
+            Track(
+                id: "101",
+                name: "American Sleep",
+                artist: "Clutch",
+                album: "Pure Rock Fury",
+                albumArtist: nil
+            ),
+        ]
+
+        try AppleScriptBridge.verifyBatchUpdateValues(updates, in: refreshedTracks)
+        #expect(throws: AppleScriptBatchVerificationError.self) {
+            try AppleScriptBridge.verifyBatchUpdateValues(updates, in: staleTracks)
+        }
     }
 
     @Test("Batch update argv preserves direct metadata payloads")

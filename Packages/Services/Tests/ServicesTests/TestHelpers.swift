@@ -93,6 +93,9 @@ actor MockAppleScriptClient: AppleScriptClient {
             throw MockScriptError.intentional
         }
         writtenProperties.append((trackID, property, value))
+        if currentValue(for: property, inTrackWithID: trackID) == value {
+            return .noChange
+        }
         if singleWriteResult == .changed {
             apply(property: property, value: value, toTrackWithID: trackID)
         }
@@ -181,10 +184,21 @@ actor MockAppleScriptClient: AppleScriptClient {
             track.album = value
         case "artist":
             track.artist = value
+        case "album_artist":
+            track.albumArtist = value
         default:
             return
         }
         tracksByID[trackID] = track
+    }
+
+    private func currentValue(for property: String, inTrackWithID trackID: String) -> String? {
+        guard let track = tracksByID[trackID],
+              let property = AppleScriptTrackProperty(rawValue: property)
+        else {
+            return nil
+        }
+        return property.currentValue(in: track)
     }
 
     private func verifyBatchUpdates(_ updates: [(trackID: String, property: String, value: String)]) throws {

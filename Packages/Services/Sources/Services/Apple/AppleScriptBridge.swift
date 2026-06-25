@@ -241,6 +241,7 @@ public actor AppleScriptBridge: AppleScriptClient {
         guard !updates.isEmpty else { return }
 
         let batchArg = try Self.makeBatchUpdateArgument(updates)
+        try await validateBatchUpdatePreconditions(arguments: [batchArg])
 
         let output: String?
         do {
@@ -270,6 +271,17 @@ public actor AppleScriptBridge: AppleScriptClient {
         }
         try await verifyBatchUpdateResult(updates)
         log.info("Batch updated \(updates.count, privacy: .public) tracks")
+    }
+
+    private func validateBatchUpdatePreconditions(arguments: [String]) async throws {
+        let scriptURL = await installer.scriptURL(for: Self.batchUpdateScriptName)
+        guard FileManager.default.fileExists(atPath: scriptURL.path) else {
+            throw AppleScriptBridgeError.scriptNotFound(
+                name: Self.batchUpdateScriptName,
+                searchPath: scriptURL.deletingLastPathComponent()
+            )
+        }
+        _ = try InputSanitizer.validateAppleEventArguments(arguments)
     }
 
     static func makeBatchUpdateArgument(_ updates: [(trackID: String, property: String, value: String)]) throws

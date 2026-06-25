@@ -86,15 +86,27 @@ struct BatchWriteTests {
 
     @Test("Pre-run batch failure falls back to single writes")
     func preRunBatchFailureFallsBackToSingleWrites() async throws {
-        try await assertPreRunBatchFailureFallsBack(existingGenre: "Rock")
+        try await assertPreRunBatchFailureFallsBack(
+            existingGenre: "Rock",
+            expectedEntries: [.genreUpdate, .yearUpdate],
+            expectedNoOpEntries: []
+        )
     }
 
     @Test("Pre-run batch failure falls back when one value already matches")
     func preRunBatchFailureFallsBackWhenOneValueAlreadyMatches() async throws {
-        try await assertPreRunBatchFailureFallsBack(existingGenre: "Stoner Rock")
+        try await assertPreRunBatchFailureFallsBack(
+            existingGenre: "Stoner Rock",
+            expectedEntries: [.yearUpdate],
+            expectedNoOpEntries: [.genreUpdate]
+        )
     }
 
-    private func assertPreRunBatchFailureFallsBack(existingGenre: String) async throws {
+    private func assertPreRunBatchFailureFallsBack(
+        existingGenre: String,
+        expectedEntries: [ChangeType],
+        expectedNoOpEntries: [ChangeType]
+    ) async throws {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
         await fixture.bridge.setBatchThrowMode(true)
         let track = makeTrack(id: "MK1", genre: existingGenre, year: 1999)
@@ -110,7 +122,8 @@ struct BatchWriteTests {
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
         #expect(written.map(\.property) == ["genre", "year"])
-        #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
+        #expect(result.entries.map(\.changeType) == expectedEntries)
+        #expect(result.noOpEntries.map(\.changeType) == expectedNoOpEntries)
         #expect(!result.hasPartialFailures)
     }
 
