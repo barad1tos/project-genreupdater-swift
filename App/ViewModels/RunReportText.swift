@@ -1,5 +1,3 @@
-import Foundation
-
 extension UpdateRunReport {
     var plainTextSummary: String {
         var lines = [
@@ -58,8 +56,9 @@ extension UpdateRunReport {
         lines.append("Problematic Pending Albums")
         for detail in pendingVerification.problematicDetails {
             lines.append("- \(detail.artist) - \(detail.album): \(detail.reason), "
-                + "\(detail.attemptCount) attempts, last checked \(detail.lastAttempt.reportDate)")
-            lines.append("  Next verification: \(detail.nextVerification.reportDate); status: \(detail.status)")
+                + "\(detail.attemptCount) attempts, last checked \(detail.lastAttempt.updateRunReportDate)")
+            lines
+                .append("  Next verification: \(detail.nextVerification.updateRunReportDate); status: \(detail.status)")
             if let lastFailure = detail.lastFailure {
                 lines.append("  Last failure: \(lastFailure)")
             }
@@ -133,11 +132,5 @@ extension UpdateRunReport {
         if let failureMessage = track.failureMessage {
             lines.append("  - \(track.title): failed \(failureMessage)")
         }
-    }
-}
-
-extension Date {
-    fileprivate var reportDate: String {
-        formatted(date: .abbreviated, time: .shortened)
     }
 }

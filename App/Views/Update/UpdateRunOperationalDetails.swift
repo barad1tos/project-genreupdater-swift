@@ -1,4 +1,3 @@
-import Foundation
 import SharedUI
 import SwiftUI
 
@@ -66,11 +65,11 @@ struct UpdateRunOperationalDetails: View {
                             .foregroundStyle(Ayu.fgPrimary)
                         Text(
                             "\(detail.reason), \(detail.attemptCount.formatted()) attempts, "
-                                + "last checked \(detail.lastAttempt.operationalDetailDate)"
+                                + "last checked \(detail.lastAttempt.updateRunReportDate)"
                         )
                         .font(.caption2)
                         .foregroundStyle(Ayu.fgSecondary)
-                        Text("Next verification \(detail.nextVerification.operationalDetailDate); \(detail.status)")
+                        Text("Next verification \(detail.nextVerification.updateRunReportDate); \(detail.status)")
                             .font(.caption2)
                             .foregroundStyle(Ayu.fgMuted)
                         if let lastFailure = detail.lastFailure {
@@ -96,11 +95,5 @@ struct UpdateRunOperationalDetails: View {
                 .foregroundStyle(Ayu.fgMuted)
                 .textSelection(.enabled)
         }
-    }
-}
-
-extension Date {
-    fileprivate var operationalDetailDate: String {
-        formatted(date: .abbreviated, time: .shortened)
     }
 }

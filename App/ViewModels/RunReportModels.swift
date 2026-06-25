@@ -120,3 +120,9 @@ struct UpdateRunPendingVerificationSummary: Equatable {
         self.problematicDetails = problematicDetails
     }
 }
+
+extension Date {
+    var updateRunReportDate: String {
+        formatted(date: .abbreviated, time: .shortened)
+    }
+}
