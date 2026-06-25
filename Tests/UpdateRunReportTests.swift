@@ -724,15 +724,14 @@ struct UpdateRunReportTests {
         #expect(summary.contains("No changes were made during this run.") == false)
     }
 
-    @Test("Pending verification summary includes skipped, verified, and removed counts")
+    @Test("Pending verification summary includes skipped and verified counts")
     func pendingSummaryIncludesLifecycleCounts() throws {
         let summary = UpdateRunPendingVerificationSummary(
             total: 10,
             due: 3,
             problematic: 1,
             skippedByInterval: 7,
-            verified: 2,
-            removed: 2
+            verified: 2
         )
         let report = UpdateRunReport(
             result: nil,
@@ -747,10 +746,11 @@ struct UpdateRunReportTests {
 
         #expect(report.pendingVerification?.skippedByInterval == 7)
         #expect(report.pendingVerification?.verified == 2)
-        #expect(report.pendingVerification?.removed == 2)
         #expect(report.plainTextSummary.contains("10 pending"))
         #expect(report.plainTextSummary.contains("3 due"))
         #expect(report.plainTextSummary.contains("1 problematic"))
+        #expect(report.plainTextSummary.contains("7 skipped"))
+        #expect(report.plainTextSummary.contains("2 verified"))
     }
 
     @Test("Recovery summary appears in report and plain text")

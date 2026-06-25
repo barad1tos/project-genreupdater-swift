@@ -481,7 +481,6 @@ extension WorkflowViewModel {
             problematic: problematicDetails.count,
             skippedByInterval: skippedByInterval,
             verified: verifiedCount,
-            removed: verifiedCount,
             problematicDetails: problematicDetails
         )
     }

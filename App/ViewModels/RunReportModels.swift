@@ -131,7 +131,6 @@ struct UpdateRunPendingVerificationSummary: Equatable {
     let problematic: Int
     let skippedByInterval: Int
     let verified: Int
-    let removed: Int
     let problematicDetails: [UpdateRunPendingVerificationDetail]
 
     init(
@@ -140,7 +139,6 @@ struct UpdateRunPendingVerificationSummary: Equatable {
         problematic: Int,
         skippedByInterval: Int = 0,
         verified: Int = 0,
-        removed: Int = 0,
         problematicDetails: [UpdateRunPendingVerificationDetail] = []
     ) {
         self.total = total
@@ -148,7 +146,6 @@ struct UpdateRunPendingVerificationSummary: Equatable {
         self.problematic = problematic
         self.skippedByInterval = skippedByInterval
         self.verified = verified
-        self.removed = removed
         self.problematicDetails = problematicDetails
     }
 }
