@@ -1,3 +1,5 @@
+// swiftlint:disable file_length
+
 import Core
 import Services
 
@@ -143,7 +145,10 @@ extension WorkflowViewModel {
                 pendingVerificationService: pendingVerificationService
             )
             let finalRefreshGeneration = invalidatePendingVerificationRefreshes()
-            await refreshPendingVerificationReportSummary(refreshGeneration: finalRefreshGeneration)
+            await refreshPendingVerificationReportSummary(
+                refreshGeneration: finalRefreshGeneration,
+                outcome: runOutcome
+            )
             guard isCurrentPendingVerificationRefresh(finalRefreshGeneration) else { return }
             finishPendingVerification(runOutcome)
         } catch let cancellation as PendingVerificationCancellation {
@@ -187,7 +192,7 @@ extension WorkflowViewModel {
                 pendingVerificationService: pendingVerificationService
             )
             let finalSnapshot = await pendingVerificationSnapshot()
-            await refreshPendingVerificationReportSummary(snapshot: finalSnapshot)
+            await refreshPendingVerificationReportSummary(snapshot: finalSnapshot, outcome: outcome)
             failedCount = outcome.failedTrackIDs.count
             return outcome
         } catch let cancellation as PendingVerificationCancellation {
@@ -429,12 +434,14 @@ extension WorkflowViewModel {
     }
 
     private func refreshPendingVerificationReportSummary(
-        snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry])
+        snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
+        outcome: PendingEntryOutcome? = nil
     ) async {
         let problematicDetails = await problematicPendingAlbumDetails()
         updatePendingVerificationReportSummary(
             snapshot: snapshot,
-            problematicDetails: problematicDetails
+            problematicDetails: problematicDetails,
+            outcome: outcome
         )
     }
 
@@ -457,17 +464,24 @@ extension WorkflowViewModel {
 
     private func updatePendingVerificationReportSummary(
         snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
-        problematicDetails: [UpdateRunPendingVerificationDetail]
+        problematicDetails: [UpdateRunPendingVerificationDetail],
+        outcome: PendingEntryOutcome? = nil
     ) {
         guard !snapshot.all.isEmpty else {
             pendingVerificationReportSummary = nil
             return
         }
 
+        let skippedByInterval = max(0, snapshot.all.count - snapshot.due.count)
+        let verifiedCount = outcome?.resolvedIdentityKeys.count ?? 0
+
         pendingVerificationReportSummary = UpdateRunPendingVerificationSummary(
             total: snapshot.all.count,
             due: snapshot.due.count,
             problematic: problematicDetails.count,
+            skippedByInterval: skippedByInterval,
+            verified: verifiedCount,
+            removed: verifiedCount,
             problematicDetails: problematicDetails
         )
     }
@@ -476,33 +490,41 @@ extension WorkflowViewModel {
     private func applyPendingVerificationReportSummary(
         snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
         problematicDetails: [UpdateRunPendingVerificationDetail],
-        refreshGeneration: Int
+        refreshGeneration: Int,
+        outcome: PendingEntryOutcome? = nil
     ) -> Bool {
         guard isCurrentPendingVerificationRefresh(refreshGeneration) else { return false }
         updatePendingVerificationReportSummary(
             snapshot: snapshot,
-            problematicDetails: problematicDetails
+            problematicDetails: problematicDetails,
+            outcome: outcome
         )
         return true
     }
 
-    private func refreshPendingVerificationReportSummary(refreshGeneration: Int) async {
+    private func refreshPendingVerificationReportSummary(
+        refreshGeneration: Int,
+        outcome: PendingEntryOutcome? = nil
+    ) async {
         let snapshot = await pendingVerificationSnapshot()
         await refreshPendingVerificationReportSummary(
             snapshot: snapshot,
-            refreshGeneration: refreshGeneration
+            refreshGeneration: refreshGeneration,
+            outcome: outcome
         )
     }
 
     private func refreshPendingVerificationReportSummary(
         snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
-        refreshGeneration: Int
+        refreshGeneration: Int,
+        outcome: PendingEntryOutcome? = nil
     ) async {
         let problematicDetails = await problematicPendingAlbumDetails()
         applyPendingVerificationReportSummary(
             snapshot: snapshot,
             problematicDetails: problematicDetails,
-            refreshGeneration: refreshGeneration
+            refreshGeneration: refreshGeneration,
+            outcome: outcome
         )
     }
 

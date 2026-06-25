@@ -30,7 +30,8 @@ struct UpdateDoneSection: View {
                 pendingVerification: viewModel.pendingVerificationReportSummary,
                 databaseVerification: UpdateRunDatabaseVerificationSummary(
                     preflightResult: viewModel.maintenancePreflightResult
-                )
+                ),
+                recovery: viewModel.recoveryReportSummary
             )
         )
     }

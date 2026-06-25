@@ -16,13 +16,36 @@ struct UpdateRunOperationalContext: Equatable {
 
     let pendingVerification: UpdateRunPendingVerificationSummary?
     let databaseVerification: UpdateRunDatabaseVerificationSummary?
+    let recovery: UpdateRunRecoverySummary?
 
     init(
         pendingVerification: UpdateRunPendingVerificationSummary? = nil,
-        databaseVerification: UpdateRunDatabaseVerificationSummary? = nil
+        databaseVerification: UpdateRunDatabaseVerificationSummary? = nil,
+        recovery: UpdateRunRecoverySummary? = nil
     ) {
         self.pendingVerification = pendingVerification
         self.databaseVerification = databaseVerification
+        self.recovery = recovery
+    }
+}
+
+struct UpdateRunRecoverySummary: Equatable {
+    let restoredCount: Int
+    let skippedCount: Int
+    let failedCount: Int
+
+    init(restoredCount: Int = 0, skippedCount: Int = 0, failedCount: Int = 0) {
+        self.restoredCount = restoredCount
+        self.skippedCount = skippedCount
+        self.failedCount = failedCount
+    }
+
+    init?(result: BatchUpdateResult) {
+        let restored = result.entries.count
+        let skipped = result.noOpEntries.count
+        let failed = result.failedTrackIDs.count
+        guard restored > 0 || skipped > 0 || failed > 0 else { return nil }
+        self.init(restoredCount: restored, skippedCount: skipped, failedCount: failed)
     }
 }
 
@@ -106,17 +129,26 @@ struct UpdateRunPendingVerificationSummary: Equatable {
     let total: Int
     let due: Int
     let problematic: Int
+    let skippedByInterval: Int
+    let verified: Int
+    let removed: Int
     let problematicDetails: [UpdateRunPendingVerificationDetail]
 
     init(
         total: Int,
         due: Int,
         problematic: Int,
+        skippedByInterval: Int = 0,
+        verified: Int = 0,
+        removed: Int = 0,
         problematicDetails: [UpdateRunPendingVerificationDetail] = []
     ) {
         self.total = total
         self.due = due
         self.problematic = problematic
+        self.skippedByInterval = skippedByInterval
+        self.verified = verified
+        self.removed = removed
         self.problematicDetails = problematicDetails
     }
 }

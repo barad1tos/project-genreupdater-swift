@@ -724,6 +724,64 @@ struct UpdateRunReportTests {
         #expect(summary.contains("No changes were made during this run.") == false)
     }
 
+    @Test("Pending verification summary includes skipped, verified, and removed counts")
+    func pendingSummaryIncludesLifecycleCounts() throws {
+        let summary = UpdateRunPendingVerificationSummary(
+            total: 10,
+            due: 3,
+            problematic: 1,
+            skippedByInterval: 7,
+            verified: 2,
+            removed: 2
+        )
+        let report = UpdateRunReport(
+            result: nil,
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: [],
+            operationalContext: UpdateRunOperationalContext(
+                pendingVerification: summary
+            )
+        )
+
+        #expect(report.pendingVerification?.skippedByInterval == 7)
+        #expect(report.pendingVerification?.verified == 2)
+        #expect(report.pendingVerification?.removed == 2)
+        #expect(report.plainTextSummary.contains("10 pending"))
+        #expect(report.plainTextSummary.contains("3 due"))
+        #expect(report.plainTextSummary.contains("1 problematic"))
+    }
+
+    @Test("Recovery summary appears in report and plain text")
+    func recoverySummaryAppearsInReportAndPlainText() throws {
+        let recovery = UpdateRunRecoverySummary(restoredCount: 5, skippedCount: 2, failedCount: 1)
+        let report = UpdateRunReport(
+            result: nil,
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: [],
+            operationalContext: UpdateRunOperationalContext(
+                recovery: recovery
+            )
+        )
+
+        #expect(report.recovery?.restoredCount == 5)
+        #expect(report.recovery?.skippedCount == 2)
+        #expect(report.recovery?.failedCount == 1)
+        #expect(report.plainTextSummary.contains("Recovery"))
+        #expect(report.plainTextSummary.contains("Restored: 5"))
+        #expect(report.plainTextSummary.contains("Skipped: 2"))
+        #expect(report.plainTextSummary.contains("Failed: 1"))
+    }
+
+    @Test("Recovery summary is nil when restore result has no outcomes")
+    func recoverySummaryIsNilForEmptyResult() {
+        let emptyResult = BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
+        #expect(UpdateRunRecoverySummary(result: emptyResult) == nil)
+    }
+
     private func makeEntries(
         album: String,
         count: Int,
