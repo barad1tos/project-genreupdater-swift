@@ -205,6 +205,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(batches[0].map(\.property) == ["genre", "year"])
         #expect(written.isEmpty)
         #expect(result.entries.isEmpty)
+        #expect(result.noOpEntries.map(\.changeType) == [.genreUpdate, .yearUpdate])
         #expect(result.failedTrackIDs.isEmpty)
         #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
         #expect(await fixture.cache.getCachedAPIResult(
@@ -238,11 +239,12 @@ struct UpdateCoordinatorApplyAcceptedTests {
         #expect(batches[0].map(\.property) == ["genre", "year"])
         #expect(written.isEmpty)
         #expect(result.entries.isEmpty)
+        #expect(result.noOpEntries.map(\.changeType) == [.genreUpdate, .yearUpdate])
         #expect(result.failedTrackIDs.isEmpty)
     }
 
-    @Test("Unverified batch success falls back to single reviewed writes")
-    func unverifiedBatchSuccessFallsBackToSingleReviewedWrites() async throws {
+    @Test("Unverified batch success does not fall back to single reviewed writes")
+    func unverifiedBatchSuccessDoesNotFallBackToSingleReviewedWrites() async throws {
         let fixture = await makeCoordinator(
             runtimeConfiguration: UpdateRuntimeConfiguration(
                 areBatchUpdatesEnabled: true,
@@ -254,6 +256,49 @@ struct UpdateCoordinatorApplyAcceptedTests {
         await fixture.bridge.setFetchedTracks([track])
         let proposals = acceptedGenreAndYearProposals(for: track)
 
+        do {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                proposals,
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+            Issue.record("Expected unverified batch writes to fail without single-write fallback")
+        } catch let error as UpdateCoordinatorError {
+            guard case let .allTracksFailed(count, errorDescriptions) = error else {
+                Issue.record("Expected allTracksFailed, got \(error)")
+                return
+            }
+            #expect(count == 1)
+            #expect(errorDescriptions.count == 2)
+            #expect(errorDescriptions.allSatisfy { $0.contains("could not be verified") })
+        }
+
+        let batches = await fixture.bridge.batchUpdates
+        let written = await fixture.bridge.writtenProperties
+        #expect(batches.count == 1)
+        #expect(written.isEmpty)
+    }
+
+    @Test("Partially applied batch does not fall back to no-op reviewed writes")
+    func partiallyAppliedBatchDoesNotFallBackToNoOpReviewedWrites() async throws {
+        let mapper = TrackIDMapper()
+        let musicKitTrack = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        let appleScriptTrack = makeEditableTrack(id: "AS1", genre: "Rock", year: 1999)
+        await mapper.refreshMapping(
+            musicKitTracks: [musicKitTrack],
+            appleScriptTracks: [appleScriptTrack]
+        )
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            ),
+            idMapper: mapper
+        )
+        await fixture.bridge.setBatchMutationLimit(1)
+        await fixture.bridge.setSingleWriteResult(.noChange)
+        await fixture.bridge.setFetchedTracks([appleScriptTrack])
+        let proposals = acceptedGenreAndYearProposals(for: musicKitTrack)
+
         let result = try await fixture.coordinator.applyAcceptedChanges(
             proposals,
             progressHandler: ignoreAcceptedChangeProgress
@@ -262,9 +307,15 @@ struct UpdateCoordinatorApplyAcceptedTests {
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
-        #expect(written.map(\.property) == ["genre", "year"])
-        #expect(written.map(\.value) == ["Stoner Rock", "2001"])
-        #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
+        #expect(batches.first?.map(\.trackID) == ["AS1", "AS1"])
+        #expect(written.isEmpty)
+        #expect(result.entries.map(\.changeType) == [.genreUpdate])
+        #expect(result.entries.map(\.trackID) == ["MK1"])
+        #expect(result.failedTrackIDs == ["MK1"])
+        #expect(result.errorDescriptions.first?.contains("MK1") == true)
+        #expect(result.errorDescriptions.first?.contains("AS1") == false)
+        #expect(result.errorDescriptions.first?.contains("could not be verified") == true)
+        #expect(result.hasPartialFailures)
     }
 
     @Test("Default reviewed writes keep single-write behavior")
@@ -317,6 +368,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
         let written = await fixture.bridge.writtenProperties
         #expect(written.map(\.property) == ["year"])
         #expect(result.entries.isEmpty)
+        #expect(result.noOpEntries.map(\.changeType) == [.yearUpdate])
         #expect(result.failedTrackIDs.isEmpty)
         #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
         #expect(await fixture.cache.getCachedAPIResult(
@@ -540,6 +592,74 @@ struct UpdateCoordinatorApplyAcceptedTests {
 
         let written = await fixture.bridge.writtenProperties
         #expect(written.isEmpty)
+    }
+
+    @Test("Reviewed no-op plus failure returns partial result")
+    func reviewedNoOpPlusFailureReturnsPartialResult() async throws {
+        let fixture = await makeCoordinator()
+        await fixture.bridge.setSingleWriteResult(.noChange)
+        await fixture.bridge.setFailingWriteTrackIDs(["MK2"])
+        let firstTrack = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        let secondTrack = makeEditableTrack(id: "MK2", genre: "Rock", year: 1998)
+        let proposals = [
+            ProposedChange(
+                track: firstTrack,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz"
+            ),
+            ProposedChange(
+                track: secondTrack,
+                changeType: .yearUpdate,
+                oldValue: "1998",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz"
+            ),
+        ]
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        #expect(result.entries.isEmpty)
+        #expect(result.noOpEntries.map(\.trackID) == ["MK1"])
+        #expect(result.failedTrackIDs == ["MK2"])
+        #expect(result.hasPartialFailures)
+    }
+
+    @Test("Generated no-op plus failure returns partial result")
+    func generatedNoOpPlusFailureReturnsPartialResult() async throws {
+        let fixture = await makeCoordinator()
+        await fixture.bridge.setSingleWriteResult(.noChange)
+        await fixture.bridge.setFailingWriteTrackIDs(["MK2"])
+        let firstTrack = makeEditableTrack(id: "MK1", genre: nil, year: 1999)
+        let secondTrack = makeEditableTrack(id: "MK2", genre: nil, year: 1998)
+        let sourceTrack = Track(
+            id: "SRC",
+            name: "Source",
+            artist: "Beatles",
+            album: "Source",
+            genre: "Stoner Rock",
+            year: 1997,
+            dateAdded: Date(timeIntervalSince1970: 100),
+            trackStatus: nil
+        )
+
+        let result = try await fixture.coordinator.updateTracks(
+            [firstTrack, secondTrack],
+            options: UpdateOptions(updateGenre: true, updateYear: false),
+            artistTracksProvider: { _ in [sourceTrack] },
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        #expect(result.entries.isEmpty)
+        #expect(result.noOpEntries.map(\.trackID) == ["MK1"])
+        #expect(result.failedTrackIDs == ["MK2"])
+        #expect(result.hasPartialFailures)
     }
 
     @Test("Reviewed unavailable changes fail without writing")

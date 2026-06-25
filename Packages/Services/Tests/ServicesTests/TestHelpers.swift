@@ -49,6 +49,8 @@ actor MockAppleScriptClient: AppleScriptClient {
     var shouldThrowBatch = false
     var shouldCancelBatch = false
     var shouldApplyBatchUpdates = true
+    var shouldClearFetchedTracksAfterBatchUpdate = false
+    var batchMutationLimit: Int?
     var singleWriteResult: AppleScriptWriteResult = .changed
     var customWriteError: Error?
     private var failingWriteTrackIDs: Set<String> = []
@@ -106,8 +108,11 @@ actor MockAppleScriptClient: AppleScriptClient {
             throw MockScriptError.intentional
         }
         guard shouldApplyBatchUpdates else { return }
-        for update in updates {
+        for update in updates.prefix(batchMutationLimit ?? updates.count) {
             apply(property: update.property, value: update.value, toTrackWithID: update.trackID)
+        }
+        if shouldClearFetchedTracksAfterBatchUpdate {
+            tracksByID.removeAll()
         }
     }
 
@@ -125,6 +130,14 @@ actor MockAppleScriptClient: AppleScriptClient {
 
     func setBatchMutationEnabled(_ isEnabled: Bool) {
         shouldApplyBatchUpdates = isEnabled
+    }
+
+    func setFetchedTracksClearedAfterBatchUpdate(_ isEnabled: Bool) {
+        shouldClearFetchedTracksAfterBatchUpdate = isEnabled
+    }
+
+    func setBatchMutationLimit(_ limit: Int?) {
+        batchMutationLimit = limit
     }
 
     func setSingleWriteResult(_ result: AppleScriptWriteResult) {

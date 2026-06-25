@@ -1,23 +1,47 @@
 import Core
 
-/// Result of a multi-track update, exposing both successes and failures.
+/// Result of a multi-track update.
+///
+/// Applied entries represent recorded metadata writes. No-op entries represent
+/// verified write attempts that left Music.app metadata unchanged. Failures
+/// capture processing/write operations that could not be completed. The same
+/// track ID may appear more than once when multiple writes fail on one track.
 public struct BatchUpdateResult: Sendable {
     public let entries: [ChangeLogEntry]
+    public let noOpEntries: [ChangeLogEntry]
     public let failedTrackIDs: [String]
     public let errorDescriptions: [String]
 
     public init(
         entries: [ChangeLogEntry],
+        noOpEntries: [ChangeLogEntry] = [],
         failedTrackIDs: [String],
         errorDescriptions: [String]
     ) {
         self.entries = entries
+        self.noOpEntries = noOpEntries
         self.failedTrackIDs = failedTrackIDs
         self.errorDescriptions = errorDescriptions
     }
 
     public var hasPartialFailures: Bool {
-        !failedTrackIDs.isEmpty && !entries.isEmpty
+        !failedTrackIDs.isEmpty && (!entries.isEmpty || !noOpEntries.isEmpty)
+    }
+
+    public var appliedOperationCount: Int {
+        entries.count
+    }
+
+    public var updatedTrackCount: Int {
+        Set(entries.map(\.trackID)).count
+    }
+
+    public var failedOperationCount: Int {
+        failedTrackIDs.count
+    }
+
+    public var failedTrackCount: Int {
+        Set(failedTrackIDs).count
     }
 }
 

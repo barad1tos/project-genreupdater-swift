@@ -30,13 +30,17 @@ public enum UpdateCoordinatorError: Error, LocalizedError {
     }
 
     private static func allTracksFailedDescription(count: Int, errorDescriptions: [String]) -> String {
-        guard let firstError = errorDescriptions.first, !firstError.isEmpty else {
+        let visibleErrors = errorDescriptions.filter { !$0.isEmpty }
+        guard !visibleErrors.isEmpty else {
             return "All \(count) tracks failed to update"
         }
-        if count == 1 {
-            return firstError
+        if count == 1, visibleErrors.count == 1 {
+            return visibleErrors[0]
         }
-        return "All \(count) tracks failed to update. First error: \(firstError)"
+        if count == 1 {
+            return "All \(visibleErrors.count) update operations failed for 1 track. Errors: \(visibleErrors.joined(separator: "; "))"
+        }
+        return "All \(count) tracks failed to update across \(visibleErrors.count) update operations. Errors: \(visibleErrors.joined(separator: "; "))"
     }
 }
 
@@ -428,7 +432,7 @@ public actor UpdateCoordinator {
         return enrichedTrack
     }
 
-    private func availableTracksWithMutationMetadata(_ tracks: [Track]) async -> [Track] {
+    func availableTracksWithMutationMetadata(_ tracks: [Track]) async -> [Track] {
         guard let idMapper else {
             return tracks.filter(Self.isTrackAvailableForProcessing)
         }
@@ -462,6 +466,7 @@ public actor UpdateCoordinator {
         defer { AppSignpost.batchProcessing.endInterval("updateTracks", signpostState) }
 
         var entries: [ChangeLogEntry] = []
+        var noOpEntries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
         let trackProviders = await makeUpdateTrackProviders(
@@ -472,34 +477,20 @@ public actor UpdateCoordinator {
 
         for (index, track) in tracks.enumerated() {
             do {
-                let trackEntries = try await applyGeneratedAcceptedChanges(
+                let trackOutcome = try await applyGeneratedAcceptedChanges(
                     for: track,
                     options: options,
-                    albumTracksProvider: trackProviders.album,
-                    artistTracksProvider: trackProviders.artist
-                )
-                entries.append(contentsOf: trackEntries)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch let error as UpdateCoordinatorError {
-                if !recordKnownWorkflowFailure(
-                    error,
-                    fallbackTrackID: track.id,
-                    isReviewedChange: false,
+                    trackProviders: trackProviders,
                     failedTrackIDs: &failedTrackIDs,
                     errorDescriptions: &errorDescriptions
-                ) {
-                    recordUnexpectedWorkflowFailure(
-                        trackID: track.id,
-                        error: error,
-                        failedTrackIDs: &failedTrackIDs,
-                        errorDescriptions: &errorDescriptions
-                    )
-                }
+                )
+                entries.append(contentsOf: trackOutcome.entries)
+                noOpEntries.append(contentsOf: trackOutcome.noOpEntries)
             } catch {
-                recordUnexpectedWorkflowFailure(
+                try recordWorkflowWriteFailure(
+                    error,
+                    isReviewedChange: false,
                     trackID: track.id,
-                    error: error,
                     failedTrackIDs: &failedTrackIDs,
                     errorDescriptions: &errorDescriptions
                 )
@@ -510,15 +501,16 @@ public actor UpdateCoordinator {
 
         Self.reportUpdateComplete(total: tracks.count, progressHandler: progressHandler)
 
-        if !errorDescriptions.isEmpty, entries.isEmpty {
+        if !errorDescriptions.isEmpty, entries.isEmpty, noOpEntries.isEmpty {
             throw UpdateCoordinatorError.allTracksFailed(
-                count: errorDescriptions.count,
+                count: Set(failedTrackIDs).count,
                 errorDescriptions: errorDescriptions
             )
         }
 
         return BatchUpdateResult(
             entries: entries,
+            noOpEntries: noOpEntries,
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions
         )
@@ -528,7 +520,7 @@ public actor UpdateCoordinator {
         tracks: [Track],
         albumTracksProvider: (@Sendable (Track) -> [Track])?,
         artistTracksProvider: (@Sendable (Track) -> [Track])?
-    ) async -> (album: @Sendable (Track) -> [Track], artist: @Sendable (Track) -> [Track]) {
+    ) async -> UpdateTrackProviders {
         let contextTracks = if albumTracksProvider == nil || artistTracksProvider == nil {
             await availableTracksWithMutationMetadata(tracks)
         } else {
@@ -564,38 +556,6 @@ public actor UpdateCoordinator {
             current: total,
             total: total
         ))
-    }
-
-    private func applyGeneratedAcceptedChanges(
-        for track: Track,
-        options: UpdateOptions,
-        albumTracksProvider: @Sendable (Track) -> [Track],
-        artistTracksProvider: @Sendable (Track) -> [Track]
-    ) async throws -> [ChangeLogEntry] {
-        let albumTracksWithMutationMetadata = await availableTracksWithMutationMetadata(
-            albumTracksProvider(track)
-        )
-        let artistTracks = artistTracksProvider(track).filter(Self.isTrackAvailableForProcessing)
-        let changes = try await updateTrack(
-            track,
-            albumTracks: albumTracksWithMutationMetadata,
-            artistTracks: artistTracks,
-            options: options,
-            dryRun: true
-        )
-
-        let acceptedChanges = changes.filter(\.isAccepted)
-        if let entries = try await applyChangesAsBatchIfPossible(acceptedChanges) {
-            return entries
-        }
-
-        var entries: [ChangeLogEntry] = []
-        for change in acceptedChanges {
-            if let entry = try await applyChange(change) {
-                entries.append(entry)
-            }
-        }
-        return entries
     }
 
     private static func albumTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
@@ -646,18 +606,20 @@ public actor UpdateCoordinator {
         }
 
         var entries: [ChangeLogEntry] = []
+        var noOpEntries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
 
         var index = 0
         while index < accepted.count {
             let changeGroup = reviewedChangeGroup(in: accepted, startingAt: index)
-            let groupEntries = try await applyReviewedChangeGroup(
+            let groupOutcome = try await applyReviewedChangeGroup(
                 changeGroup,
                 failedTrackIDs: &failedTrackIDs,
                 errorDescriptions: &errorDescriptions
             )
-            entries.append(contentsOf: groupEntries)
+            entries.append(contentsOf: groupOutcome.entries)
+            noOpEntries.append(contentsOf: groupOutcome.noOpEntries)
 
             for progressOffset in changeGroup.indices {
                 progressHandler(ProgressUpdate(
@@ -675,15 +637,16 @@ public actor UpdateCoordinator {
             total: accepted.count
         ))
 
-        if !errorDescriptions.isEmpty, entries.isEmpty {
+        if !errorDescriptions.isEmpty, entries.isEmpty, noOpEntries.isEmpty {
             throw UpdateCoordinatorError.allTracksFailed(
-                count: errorDescriptions.count,
+                count: Set(failedTrackIDs).count,
                 errorDescriptions: errorDescriptions
             )
         }
 
         return BatchUpdateResult(
             entries: entries,
+            noOpEntries: noOpEntries,
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions
         )
