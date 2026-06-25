@@ -212,6 +212,25 @@ struct UpdateCoordinatorReleaseYearRestoreTests {
         #expect(result.errorDescriptions.isEmpty)
         #expect(written.isEmpty)
     }
+
+    @Test("Records no-op release-year restore outcomes")
+    func recordsNoOpReleaseYearRestoreOutcomes() async {
+        let fixture = await makeReleaseYearRestoreFixture()
+        await fixture.bridge.setSingleWriteResult(.noChange)
+
+        let result = await fixture.coordinator.restoreReleaseYears(
+            in: [makeReleaseYearTrack(id: "T1", year: 2025, releaseYear: 1997)],
+            threshold: 5,
+            progressHandler: ignoreReleaseYearProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.entries.isEmpty)
+        #expect(result.noOpEntries.count == 1)
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(written.count == 1)
+        #expect(written.first?.value == "1997")
+    }
 }
 
 private func ignoreReleaseYearProgress(_ update: ProgressUpdate) {

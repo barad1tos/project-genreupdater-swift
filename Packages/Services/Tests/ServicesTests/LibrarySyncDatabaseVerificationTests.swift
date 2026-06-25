@@ -86,6 +86,58 @@ struct LibrarySyncDatabaseVerificationTests {
         #expect(wasCleared)
     }
 
+    @Test(
+        "Database verification removes pending prerelease row when the album disappears",
+        arguments: [
+            TrackKind.prerelease.rawValue,
+            nil,
+        ] as [String?]
+    )
+    func databaseVerificationRemovesPendingPrereleaseRowWhenAlbumDisappears(trackStatus: String?) async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let pending = PendingVerificationProbe(
+            entry: PendingAlbumEntry(
+                id: "pending-prerelease",
+                artist: "Gone Artist",
+                album: "Future Album",
+                reason: "prerelease"
+            ),
+            isVerificationNeeded: true
+        )
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
+
+        await bridge.setLibrary(ids: ["T1"], tracks: [:])
+        await store.setStored([
+            Track(id: "T1", name: "One", artist: "Artist", album: "Album"),
+            Track(
+                id: "T2",
+                name: "Future Track",
+                artist: "Gone Artist",
+                album: "Future Album",
+                trackStatus: trackStatus
+            ),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            pendingVerificationService: pending,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            )
+        )
+
+        _ = try await service.verifyAndCleanDatabase(force: true)
+
+        let removedAlbums = await pending.removedAlbums
+        #expect(removedAlbums.map(\.album) == ["Future Album"])
+    }
+
     @Test("Respects recent timestamp unless forced")
     func skipsRecentRunUnlessForced() async throws {
         let bridge = SyncMockScriptClient()
