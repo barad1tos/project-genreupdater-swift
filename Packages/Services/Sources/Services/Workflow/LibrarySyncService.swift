@@ -427,6 +427,9 @@ public actor LibrarySyncService {
             refreshedTracks: result.modifiedTracks + result.identityChangedTracks,
             previousTracksByID: storedByID
         )
+        try await removeResolvedPrereleasePendingEntries(
+            removedTracks: result.removedTrackIDs.compactMap { storedByID[$0] }
+        )
     }
 
     private func invalidateCachesForLibraryChanges(
@@ -508,13 +511,12 @@ public actor LibrarySyncService {
     }
 
     private func removeResolvedPrereleasePendingEntries(removedTracks: [Track]) async throws {
-        let removedPrereleaseAlbums = removedTracks
-            .filter { $0.kind == .prerelease }
+        let removedAlbumIdentities = removedTracks
             .flatMap { track in
                 AlbumIdentity.lookupCandidates(for: track)
                     .map { (artist: $0.artist, album: $0.album) }
             }
-        let targets = normalizedCacheInvalidationTargets(removedPrereleaseAlbums)
+        let targets = normalizedCacheInvalidationTargets(removedAlbumIdentities)
         try await removeResolvedPrereleasePendingEntries(targets: targets)
     }
 
