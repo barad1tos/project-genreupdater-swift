@@ -39,16 +39,22 @@ public enum UndoCoordinatorError: Error, LocalizedError {
 public struct YearBackupRevertResult: Sendable, Equatable {
     public let parsedCount: Int
     public let updatedCount: Int
+    public let skippedCount: Int
     public let missingCount: Int
+    public let failedCount: Int
 
     public init(
         parsedCount: Int,
         updatedCount: Int,
-        missingCount: Int
+        skippedCount: Int = 0,
+        missingCount: Int,
+        failedCount: Int = 0
     ) {
         self.parsedCount = parsedCount
         self.updatedCount = updatedCount
+        self.skippedCount = skippedCount
         self.missingCount = missingCount
+        self.failedCount = failedCount
     }
 }
 
@@ -65,6 +71,8 @@ public actor UndoCoordinator {
     private let scriptBridge: any AppleScriptClient
     private let idMapper: (any TrackIDMapping)?
     private let changeLogStore: (any ChangeLogStore)?
+    private let cache: (any CacheService)?
+    private var librarySnapshotService: (any LibrarySnapshotService)?
     private var history: [ChangeLogEntry]
     private let legacyHistoryURL: URL
     private let fileManager: FileManager
@@ -75,11 +83,15 @@ public actor UndoCoordinator {
         scriptBridge: any AppleScriptClient,
         idMapper: (any TrackIDMapping)? = nil,
         changeLogStore: (any ChangeLogStore)? = nil,
+        cache: (any CacheService)? = nil,
+        librarySnapshotService: (any LibrarySnapshotService)? = nil,
         directory: URL? = nil
     ) {
         self.scriptBridge = scriptBridge
         self.idMapper = idMapper
         self.changeLogStore = changeLogStore
+        self.cache = cache
+        self.librarySnapshotService = librarySnapshotService
         self.fileManager = .default
         let base = directory ?? Self.defaultDirectory()
         let historyURL = base.appendingPathComponent("undo-history.json")
@@ -89,6 +101,12 @@ public actor UndoCoordinator {
 
     public func initialize() async {
         await loadHistoryIfNeeded()
+    }
+
+    public func updateRuntimeDependencies(
+        librarySnapshotService: (any LibrarySnapshotService)?
+    ) {
+        self.librarySnapshotService = librarySnapshotService
     }
 
     // MARK: Record
@@ -141,10 +159,9 @@ public actor UndoCoordinator {
             return
         }
 
-        let writeID = try await resolveWriteID(for: entry.trackID)
-
-        _ = try await scriptBridge.updateTrackProperty(
-            trackID: writeID,
+        let change = revertProposal(for: entry)
+        _ = try await performRevertWrite(
+            change: change,
             property: oldValue.property,
             value: oldValue.value
         )
@@ -251,6 +268,119 @@ public actor UndoCoordinator {
         return appleScriptID
     }
 
+    private func mutationTrack(for track: Track) async throws -> Track {
+        guard let idMapper else { return track }
+        guard let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track) else {
+            throw UndoCoordinatorError.missingAppleScriptID(trackID: track.id)
+        }
+        return enrichedTrack
+    }
+
+    private func validateWriteEligibility(for track: Track) throws {
+        guard track.canEdit else {
+            throw UndoCoordinatorError.revertFailed(
+                trackID: track.id,
+                reason: UpdateCoordinatorError.trackNotEditable(trackID: track.id).localizedDescription
+            )
+        }
+        guard UpdateCoordinator.isTrackAvailableForProcessing(track) else {
+            throw UndoCoordinatorError.revertFailed(
+                trackID: track.id,
+                reason: UpdateCoordinatorError.trackNotProcessable(
+                    trackID: track.id,
+                    status: track.trackStatus ?? "unknown"
+                ).localizedDescription
+            )
+        }
+    }
+
+    private func performRevertWrite(
+        change: ProposedChange,
+        property: String,
+        value: String
+    ) async throws -> AppleScriptWriteResult {
+        let mutationTrack = try await mutationTrack(for: change.track)
+        try validateWriteEligibility(for: mutationTrack)
+        let writeID = try await resolveWriteID(for: mutationTrack.id)
+
+        do {
+            let result = try await scriptBridge.updateTrackProperty(
+                trackID: writeID,
+                property: property,
+                value: value
+            )
+            await invalidateCaches(for: change)
+            return result
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as UndoCoordinatorError {
+            throw error
+        } catch let error as AppleScriptBridgeError {
+            throw error
+        } catch {
+            throw UndoCoordinatorError.revertFailed(
+                trackID: change.track.id,
+                reason: "AppleScript write failed"
+            )
+        }
+    }
+
+    private func invalidateCaches(for change: ProposedChange) async {
+        if let cache {
+            for target in UpdateCoordinator.cacheInvalidationTargets(for: change) {
+                await cache.invalidateAlbum(artist: target.artist, album: target.album)
+                await cache.invalidateCachedAPIResults(artist: target.artist, album: target.album)
+            }
+        }
+        await librarySnapshotService?.clearSnapshot()
+    }
+
+    private func revertProposal(for entry: ChangeLogEntry) -> ProposedChange {
+        let track = Track(
+            id: entry.trackID,
+            name: entry.newTrackName ?? entry.trackName,
+            artist: entry.newArtist ?? entry.artist,
+            album: entry.newAlbumName ?? entry.albumName,
+            genre: entry.newGenre,
+            year: entry.newYear
+        )
+        let values = originalChangeValues(for: entry)
+        return ProposedChange(
+            track: track,
+            changeType: entry.changeType,
+            oldValue: values.oldValue,
+            newValue: values.newValue,
+            confidence: 100,
+            source: "undo"
+        )
+    }
+
+    private func yearRevertProposal(for track: Track, targetYear: Int) -> ProposedChange {
+        ProposedChange(
+            track: track,
+            changeType: .yearRevert,
+            oldValue: track.year.map(String.init),
+            newValue: String(targetYear),
+            confidence: 100,
+            source: "backup_csv"
+        )
+    }
+
+    private func originalChangeValues(for entry: ChangeLogEntry) -> (oldValue: String?, newValue: String?) {
+        switch entry.changeType {
+        case .genreUpdate:
+            (entry.oldGenre, entry.newGenre)
+        case .yearUpdate, .yearRevert:
+            (entry.oldYear.map(String.init), entry.newYear.map(String.init))
+        case .trackCleaning:
+            (entry.oldTrackName, entry.newTrackName)
+        case .albumCleaning:
+            (entry.oldAlbumName, entry.newAlbumName)
+        case .artistRename:
+            (entry.oldArtist, entry.newArtist)
+        }
+    }
+
     // MARK: Backup CSV Revert
 
     private func revertYearBackupTargets(
@@ -259,8 +389,9 @@ public actor UndoCoordinator {
     ) async throws -> YearBackupRevertResult {
         let matcher = YearBackupTrackMatcher(currentTracks: currentTracks)
         var updatedCount = 0
+        var skippedCount = 0
         var missingCount = 0
-        var errorDescriptions: [String] = []
+        var failedCount = 0
 
         for target in targets {
             guard let track = matcher.findTrack(for: target) else {
@@ -269,12 +400,16 @@ public actor UndoCoordinator {
             }
 
             do {
-                let writeID = try await resolveWriteID(for: track.id)
-                _ = try await scriptBridge.updateTrackProperty(
-                    trackID: writeID,
+                let change = yearRevertProposal(for: track, targetYear: target.year)
+                let writeResult = try await performRevertWrite(
+                    change: change,
                     property: "year",
                     value: String(target.year)
                 )
+                guard writeResult == .changed else {
+                    skippedCount += 1
+                    continue
+                }
 
                 var entry = ChangeLogEntry(
                     changeType: .yearRevert,
@@ -288,26 +423,20 @@ public actor UndoCoordinator {
                 await recordChange(entry)
                 updatedCount += 1
             } catch {
+                failedCount += 1
                 let failureDescription = Self.publicFailureDescription(for: error)
-                errorDescriptions.append(failureDescription)
                 log.error(
                     "Failed to restore backup year for track \(track.id, privacy: .private): \(failureDescription, privacy: .public)"
                 )
             }
         }
 
-        if !errorDescriptions.isEmpty {
-            throw UndoCoordinatorError.partialRevertFailure(
-                succeeded: updatedCount,
-                failed: errorDescriptions.count,
-                errorDescriptions: errorDescriptions
-            )
-        }
-
         return YearBackupRevertResult(
             parsedCount: targets.count,
             updatedCount: updatedCount,
-            missingCount: missingCount
+            skippedCount: skippedCount,
+            missingCount: missingCount,
+            failedCount: failedCount
         )
     }
 
@@ -323,8 +452,8 @@ public actor UndoCoordinator {
 
     private static func publicUndoFailureDescription(for error: UndoCoordinatorError) -> String {
         switch error {
-        case .revertFailed:
-            "Failed to revert track"
+        case let .revertFailed(_, reason):
+            reason == "AppleScript write failed" ? reason : "Failed to revert track"
         case .noChangesToRevert, .invalidBackupCSV, .missingAppleScriptID:
             error.errorDescription ?? "Undo operation failed"
         case let .partialRevertFailure(succeeded, failed, _):

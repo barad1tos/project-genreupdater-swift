@@ -315,6 +315,66 @@ actor MockCacheService: CacheService {
     }
 }
 
+// MARK: - MockUndoLibrarySnapshotService
+
+actor MockUndoLibrarySnapshotService: LibrarySnapshotService {
+    private var didClearSnapshot = false
+    private let isSnapshotCachingEnabled: Bool
+    private let isSnapshotDeltaCachingEnabled: Bool
+
+    init(
+        isSnapshotCachingEnabled: Bool = true,
+        isSnapshotDeltaCachingEnabled: Bool = true
+    ) {
+        self.isSnapshotCachingEnabled = isSnapshotCachingEnabled
+        self.isSnapshotDeltaCachingEnabled = isSnapshotDeltaCachingEnabled
+    }
+
+    var isEnabled: Bool {
+        isSnapshotCachingEnabled
+    }
+
+    var isDeltaEnabled: Bool {
+        isSnapshotDeltaCachingEnabled
+    }
+
+    func loadSnapshot() async throws -> [Track]? {
+        nil
+    }
+
+    func saveSnapshot(_: [Track]) async throws -> String {
+        "snapshot"
+    }
+
+    func clearSnapshot() async {
+        didClearSnapshot = true
+    }
+
+    func isSnapshotValid() async -> Bool {
+        false
+    }
+
+    func getSnapshotMetadata() async -> LibraryCacheMetadata? {
+        nil
+    }
+
+    func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {}
+
+    func loadDelta() async -> LibraryDeltaCache? {
+        nil
+    }
+
+    func saveDelta(_: LibraryDeltaCache) async throws {}
+
+    func getLibraryModificationDate() async throws -> Date {
+        .now
+    }
+
+    func wasCleared() async -> Bool {
+        didClearSnapshot
+    }
+}
+
 private struct MockGenericCacheEntry {
     let data: Data
     let timestamp: Date

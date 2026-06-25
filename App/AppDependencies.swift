@@ -412,7 +412,9 @@ final class AppDependencies {
         let undo = UndoCoordinator(
             scriptBridge: bridge,
             idMapper: mapper,
-            changeLogStore: logStore
+            changeLogStore: logStore,
+            cache: cache,
+            librarySnapshotService: librarySnapshotService
         )
         await undo.initialize()
         undoCoordinator = undo
@@ -516,6 +518,9 @@ extension AppDependencies {
                 runtimeConfiguration,
                 yearDeterminator: configuredYearDeterminator,
                 apiOrchestrator: configuredAPIOrchestrator,
+                librarySnapshotService: configuredLibrarySnapshotService
+            )
+            await undoCoordinator?.updateRuntimeDependencies(
                 librarySnapshotService: configuredLibrarySnapshotService
             )
         }

@@ -75,12 +75,12 @@ struct ReportsView: View {
                 entries: entries,
                 onUndoEntry: { entry in
                     Task {
-                        try? await dependencies.undoCoordinator?.revertChange(entry)
+                        await undoEntry(entry)
                     }
                 },
                 onUndoSession: { sessionEntries in
                     Task {
-                        try? await dependencies.undoCoordinator?.revertBatch(sessionEntries)
+                        await undoSession(sessionEntries)
                     }
                 }
             )
@@ -90,6 +90,36 @@ struct ReportsView: View {
                 ReportsCharts(data: aggregateData(from: entries))
             }
             .frame(minHeight: 250)
+        }
+    }
+
+    @MainActor
+    private func undoEntry(_ entry: ChangeLogEntry) async {
+        do {
+            guard let undoCoordinator = dependencies.undoCoordinator else {
+                throw BackupCSVImportError.servicesUnavailable
+            }
+            try await undoCoordinator.revertChange(entry)
+        } catch {
+            reportAlert = ReportsAlert(
+                title: "Undo Failed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    @MainActor
+    private func undoSession(_ entries: [ChangeLogEntry]) async {
+        do {
+            guard let undoCoordinator = dependencies.undoCoordinator else {
+                throw BackupCSVImportError.servicesUnavailable
+            }
+            try await undoCoordinator.revertBatch(entries)
+        } catch {
+            reportAlert = ReportsAlert(
+                title: "Undo Failed",
+                message: error.localizedDescription
+            )
         }
     }
 
@@ -172,8 +202,14 @@ struct ReportsView: View {
         var parts = [
             "Updated \(result.updatedCount) of \(result.parsedCount) CSV rows.",
         ]
+        if result.skippedCount > 0 {
+            parts.append("\(result.skippedCount) rows were already current and skipped.")
+        }
         if result.missingCount > 0 {
             parts.append("\(result.missingCount) tracks were not found in Music.app.")
+        }
+        if result.failedCount > 0 {
+            parts.append("\(result.failedCount) tracks failed write-safety checks or writes.")
         }
         return parts.joined(separator: " ")
     }

@@ -520,57 +520,38 @@ extension UpdateCoordinator {
     }
 
     private func invalidateCaches(for change: ProposedChange) async {
-        for target in cacheInvalidationTargets(for: change) {
+        for target in Self.cacheInvalidationTargets(for: change, cleaning: runtimeConfiguration.cleaning) {
             await cache.invalidateAlbum(artist: target.artist, album: target.album)
             await cache.invalidateCachedAPIResults(artist: target.artist, album: target.album)
         }
         await librarySnapshotService?.clearSnapshot()
     }
 
-    private func cacheInvalidationTargets(for change: ProposedChange) -> [(artist: String, album: String)] {
-        var candidates = Self.cacheInvalidationIdentities(
-            for: change.track,
-            album: change.track.album
-        )
+    static func cacheInvalidationTargets(
+        for change: ProposedChange,
+        cleaning: CleaningConfig? = nil
+    ) -> [(artist: String, album: String)] {
+        var candidates: [AlbumIdentity] = []
+        Self.appendCacheInvalidationIdentities(&candidates, for: change.track, album: change.track.album)
 
-        if let originalArtist = change.track.originalArtist {
-            candidates.append(contentsOf: AlbumIdentity.lookupCandidates(
-                artist: originalArtist,
-                album: change.track.album
-            ))
-        }
         if change.changeType == .artistRename, let oldArtist = change.oldValue {
             candidates.append(contentsOf: AlbumIdentity.lookupCandidates(
                 artist: oldArtist,
                 album: change.track.album
             ))
         }
-        if change.changeType == .albumCleaning, let newAlbum = change.newValue {
-            candidates.append(contentsOf: Self.cacheInvalidationIdentities(
-                for: change.track,
-                album: newAlbum
-            ))
-            if let originalArtist = change.track.originalArtist {
-                candidates.append(contentsOf: AlbumIdentity.lookupCandidates(
-                    artist: originalArtist,
-                    album: newAlbum
-                ))
-            }
+        if change.changeType == .albumCleaning, let oldAlbum = change.oldValue {
+            Self.appendCacheInvalidationIdentities(&candidates, for: change.track, album: oldAlbum)
         }
-        if let cleanedAlbum = Self.cleanedCacheInvalidationAlbum(
-            for: change.track,
-            cleaning: runtimeConfiguration.cleaning
-        ) {
-            candidates.append(contentsOf: Self.cacheInvalidationIdentities(
-                for: change.track,
-                album: cleanedAlbum
-            ))
-            if let originalArtist = change.track.originalArtist {
-                candidates.append(contentsOf: AlbumIdentity.lookupCandidates(
-                    artist: originalArtist,
-                    album: cleanedAlbum
-                ))
-            }
+        if change.changeType == .albumCleaning, let newAlbum = change.newValue {
+            Self.appendCacheInvalidationIdentities(&candidates, for: change.track, album: newAlbum)
+        }
+        if let cleaning,
+           let cleanedAlbum = Self.cleanedCacheInvalidationAlbum(
+               for: change.track,
+               cleaning: cleaning
+           ) {
+            Self.appendCacheInvalidationIdentities(&candidates, for: change.track, album: cleanedAlbum)
         }
 
         var seenKeys: Set<String> = []
@@ -578,6 +559,20 @@ extension UpdateCoordinator {
             guard identity.isComplete else { return nil }
             guard seenKeys.insert(identity.key).inserted else { return nil }
             return (artist: identity.artist, album: identity.album)
+        }
+    }
+
+    private static func appendCacheInvalidationIdentities(
+        _ candidates: inout [AlbumIdentity],
+        for track: Track,
+        album: String
+    ) {
+        candidates.append(contentsOf: cacheInvalidationIdentities(for: track, album: album))
+        if let originalArtist = track.originalArtist {
+            candidates.append(contentsOf: AlbumIdentity.lookupCandidates(
+                artist: originalArtist,
+                album: album
+            ))
         }
     }
 
