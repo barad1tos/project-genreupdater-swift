@@ -21,6 +21,8 @@ extension WorkflowViewModel {
         processedCount = 0
         failedCount = 0
         batchNoOpEntries = []
+        batchFailedTrackIDs = []
+        batchFailureDescriptions = []
         trackStatuses = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, TrackProcessingStatus.queued) })
         currentTrackID = nil
 
@@ -88,8 +90,8 @@ extension WorkflowViewModel {
         result = BatchUpdateResult(
             entries: allEntries,
             noOpEntries: batchNoOpEntries,
-            failedTrackIDs: currentFailures.map(\.id),
-            errorDescriptions: currentFailures.map(\.error)
+            failedTrackIDs: preflightOutcome.failedTrackIDs + batchFailedTrackIDs,
+            errorDescriptions: preflightOutcome.errorDescriptions + batchFailureDescriptions
         )
         failedCount = currentFailures.count
         processedCount = preflightOutcome.processedCount + tracks.count
@@ -138,13 +140,18 @@ extension WorkflowViewModel {
                     artistTracksProvider: Self.artistTracksProvider(artistTracksByTrackID),
                     progressHandler: Self.ignoreNestedTrackProgress
                 )
-                if let failureDescription = batchResult.errorDescriptions.first {
-                    await self?.markBatchTrackFailed(track, message: failureDescription)
-                }
+                await self?.recordBatchTrackFailures(
+                    track: track,
+                    failedTrackIDs: batchResult.failedTrackIDs,
+                    errorDescriptions: batchResult.errorDescriptions
+                )
                 await self?.appendBatchNoOpEntries(batchResult.noOpEntries)
                 return batchResult.entries
+            } catch let updateError as UpdateCoordinatorError {
+                await self?.recordBatchTrackFailure(track: track, error: updateError)
+                throw updateError
             } catch {
-                await self?.markBatchTrackFailed(track, message: error.localizedDescription)
+                await self?.recordBatchTrackFailure(track: track, error: error)
                 throw error
             }
         }
@@ -152,6 +159,54 @@ extension WorkflowViewModel {
 
     private func appendBatchNoOpEntries(_ entries: [ChangeLogEntry]) {
         batchNoOpEntries.append(contentsOf: entries)
+    }
+
+    private func recordBatchTrackFailures(
+        track: Track,
+        failedTrackIDs: [String],
+        errorDescriptions: [String]
+    ) {
+        let pairs = Self.failurePairs(
+            defaultTrackID: track.id,
+            failedTrackIDs: failedTrackIDs,
+            errorDescriptions: errorDescriptions
+        )
+        guard !pairs.isEmpty else { return }
+        batchFailedTrackIDs.append(contentsOf: pairs.map(\.trackID))
+        batchFailureDescriptions.append(contentsOf: pairs.map(\.message))
+        markBatchTrackFailed(track, message: pairs.map(\.message).joined(separator: "\n"))
+    }
+
+    private func recordBatchTrackFailure(track: Track, error: Error) {
+        if case let UpdateCoordinatorError.allTracksFailed(_, errorDescriptions) = error {
+            recordBatchTrackFailures(
+                track: track,
+                failedTrackIDs: Array(repeating: track.id, count: max(1, errorDescriptions.count)),
+                errorDescriptions: errorDescriptions.isEmpty ? [error.localizedDescription] : errorDescriptions
+            )
+            return
+        }
+
+        recordBatchTrackFailures(
+            track: track,
+            failedTrackIDs: [track.id],
+            errorDescriptions: [error.localizedDescription]
+        )
+    }
+
+    nonisolated private static func failurePairs(
+        defaultTrackID: String,
+        failedTrackIDs: [String],
+        errorDescriptions: [String]
+    ) -> [(trackID: String, message: String)] {
+        let failureCount = max(failedTrackIDs.count, errorDescriptions.count)
+        guard failureCount > 0 else { return [] }
+        return (0 ..< failureCount).map { index in
+            (
+                trackID: failedTrackIDs[safe: index] ?? defaultTrackID,
+                message: errorDescriptions[safe: index] ?? "No failure details were captured for this run."
+            )
+        }
     }
 
     private func markBatchTrackFailed(_ track: Track, message: String) {
@@ -186,6 +241,8 @@ extension WorkflowViewModel {
         trackStatuses = [:]
         failedCount = 0
         batchNoOpEntries = []
+        batchFailedTrackIDs = []
+        batchFailureDescriptions = []
         if preflightOutcome.isEmpty {
             completedEntries = []
             result = nil

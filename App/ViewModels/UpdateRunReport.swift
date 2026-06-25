@@ -215,14 +215,16 @@ struct UpdateRunReport: Equatable {
         }
 
         return failureMessages
-            .map { trackID, message in
+            .enumerated()
+            .map { index, failure in
+                let trackID = failure.trackID
                 let track = trackLookup[trackID]
                 let identity = track.map { albumIdentity(for: $0) }
                 return UpdateRunFailure(
-                    id: trackID,
+                    id: "\(trackID)\u{1F}\(index)",
                     title: track?.name ?? "Unknown track",
                     subtitle: track.map { "\($0.artist) - \($0.album)" } ?? "Track ID: \(trackID)",
-                    message: message,
+                    message: failure.message,
                     technicalID: trackID,
                     hasKnownTrack: track != nil,
                     artist: identity?.artist ?? "Unknown artist",
@@ -259,7 +261,7 @@ struct UpdateRunReport: Equatable {
         trackLookup: [String: Track]
     ) -> [UpdateRunAlbumResult] {
         let changesByTrackID = Dictionary(grouping: entries, by: \.trackID)
-        let failuresByTrackID = Dictionary(grouping: failures, by: \.id)
+        let failuresByTrackID = Dictionary(grouping: failures, by: \.technicalID)
         let albumKeys = albumResultKeys(
             entries: entries,
             failures: failures,
@@ -328,7 +330,7 @@ struct UpdateRunReport: Equatable {
         let missingFailureRows = failures
             .filter { failure in
                 failure.hasKnownTrack
-                    && trackLookup[failure.id] == nil
+                    && trackLookup[failure.technicalID] == nil
                     && UpdateRunAlbumIdentity(artist: failure.artist, album: failure.album) == key
             }
             .map { failure in

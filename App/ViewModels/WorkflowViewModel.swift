@@ -118,6 +118,8 @@ final class WorkflowViewModel {
     var result: BatchUpdateResult?
     var completedEntries: [ChangeLogEntry] = []
     var batchNoOpEntries: [ChangeLogEntry] = []
+    var batchFailedTrackIDs: [String] = []
+    var batchFailureDescriptions: [String] = []
     var dryRunReport: DryRunReport?
     var failedCount: Int = 0
     var maintenancePreflightResult: MaintenancePreflightResult?

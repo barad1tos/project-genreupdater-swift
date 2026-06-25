@@ -500,6 +500,65 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
+    @Test("full library live processing preserves repeated write failures")
+    func fullLibraryLiveProcessingPreservesRepeatedWriteFailures() async throws {
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2020, confidence: 90),
+            failingWriteTrackIDs: ["target-track"]
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = true
+        viewModel.updateYear = true
+        viewModel.cleanTrackNames = false
+        viewModel.cleanAlbumNames = false
+        let tracks = [
+            Track(
+                id: "target-track",
+                name: "Only for the Weak",
+                artist: "In Flames",
+                album: "Clayman",
+                year: 1999,
+                dateAdded: Date(timeIntervalSince1970: 2000)
+            ),
+            Track(
+                id: "genre-source",
+                name: "Bullet Ride",
+                artist: "In Flames",
+                album: "Clayman",
+                genre: "Melodic Death Metal",
+                year: 2020,
+                dateAdded: Date(timeIntervalSince1970: 1000)
+            ),
+        ]
+
+        viewModel.start(tracks: tracks)
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        let result = try #require(viewModel.result)
+        #expect(result.failedTrackIDs.count { $0 == "target-track" } == 2)
+        #expect(result.errorDescriptions.count == 2)
+
+        let report = UpdateRunReport(
+            result: result,
+            completedEntries: viewModel.completedEntries,
+            trackStatuses: viewModel.trackStatuses,
+            tracks: tracks,
+            testArtists: []
+        )
+        #expect(report.failures.count == 2)
+        #expect(report.failures.allSatisfy { failure in failure.technicalID == "target-track" })
+        #expect(Set(report.failures.map { failure in failure.id }).count == 2)
+
+        let failureBreakdowns = report.outcomeBreakdown.filter { breakdown in
+            breakdown.outcome == UpdateRunOutcome.failed
+        }
+        #expect(failureBreakdowns.map { breakdown in breakdown.count }.reduce(0, +) == 2)
+        #expect(failureBreakdowns.allSatisfy { breakdown in breakdown.trackCount == 1 })
+    }
+
     @Test("full library live processing preserves no-op write outcomes")
     func fullLibraryLiveProcessingPreservesNoOpWriteOutcomes() async throws {
         let fixture = makeWorkflowFixture(

@@ -169,7 +169,7 @@ extension UpdateRunReport {
                     operation: "Processing",
                     reason: message,
                     count: failures.count,
-                    trackCount: Set(failures.map(\.id)).count,
+                    trackCount: Set(failures.map(\.technicalID)).count,
                     albumCount: Set(failures.filter(\.hasKnownTrack).map {
                         UpdateRunAlbumIdentity(artist: $0.artist, album: $0.album)
                     }).count

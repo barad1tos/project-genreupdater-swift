@@ -34,6 +34,8 @@ struct UpdateRunFailureTests {
             "Failed to write genre",
             "Failed to write year",
         ])
+        #expect(Set(report.failures.map { failure in failure.id }).count == 2)
+        #expect(report.failures.allSatisfy { failure in failure.technicalID == "track-1" })
         let failureBreakdowns = report.outcomeBreakdown.filter { breakdown in
             breakdown.outcome == UpdateRunOutcome.failed
         }
