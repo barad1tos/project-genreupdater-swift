@@ -304,7 +304,8 @@ extension ExternalAPIService {
         try await initialize(force: force)
     }
 
-    public func close() async {}
+    public func close() async { // Default no-op implementation for clients that don't need cleanup.}
+    }
 }
 
 // MARK: - AppleScript Client
@@ -441,7 +442,7 @@ extension AppleScriptClient {
         return try Self.parseTrackRecords(output, scriptName: "fetch_tracks")
     }
 
-    static func parseTrackRecords(_ output: String, scriptName: String) throws -> [Track] {
+    public static func parseTrackRecords(_ output: String, scriptName: String) throws -> [Track] {
         var tracks: [Track] = []
         for record in output.split(separator: Track.recordSeparator, omittingEmptySubsequences: false) {
             let rawRecord = String(record)
@@ -449,9 +450,10 @@ extension AppleScriptClient {
                 continue
             }
             guard let track = Track.fromAppleScriptOutput(rawRecord) else {
+                let fieldCount = rawRecord.split(separator: Track.fieldSeparator).count
                 throw AppleScriptClientParseError(
                     scriptName: scriptName,
-                    detail: "Malformed track record: \(String(rawRecord.prefix(200)))"
+                    detail: "Malformed track record: expected 12 fields, got \(fieldCount)"
                 )
             }
             tracks.append(track)

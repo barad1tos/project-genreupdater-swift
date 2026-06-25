@@ -102,6 +102,25 @@ struct AppleScriptClientTests {
         #expect(tracks.last?.artist == "Паліндром")
     }
 
+    @Test("Parse error detail does not contain user metadata")
+    func parseErrorDetailDoesNotContainUserMetadata() async {
+        let secretName = "SECRET_TRACK_NAME"
+        let malformedRecord = [secretName, "artist", "album"]
+            .joined(separator: String(Track.fieldSeparator))
+        let output = [malformedRecord].joined(separator: String(Track.recordSeparator))
+        let client = ScriptOutputClient(output: output)
+
+        do {
+            _ = try await client.fetchTracks(artist: "Test")
+            Issue.record("Expected AppleScriptClientParseError")
+        } catch let error as AppleScriptClientParseError {
+            #expect(error is AppleScriptClientParseError)
+            #expect(!error.detail.contains(secretName))
+        } catch {
+            Issue.record("Expected AppleScriptClientParseError, got \(error)")
+        }
+    }
+
     @Test("Default fetchTracksByIDs rejects malformed non-empty records")
     func defaultFetchTracksByIDsRejectsMalformedNonEmptyRecords() async {
         let output = [

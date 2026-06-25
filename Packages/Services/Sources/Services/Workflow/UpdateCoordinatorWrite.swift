@@ -208,7 +208,7 @@ extension UpdateCoordinator {
             throw error
         } catch {
             log.warning(
-                "Batch AppleScript write failed; falling back to single writes: \(error.localizedDescription, privacy: .public)"
+                "Batch AppleScript write failed; falling back to single writes: \(error.localizedDescription, privacy: .private)"
             )
             return nil
         }
@@ -288,7 +288,7 @@ extension UpdateCoordinator {
                 throw CancellationError()
             } catch {
                 log.warning(
-                    "Batch write preparation failed; falling back to single writes: \(error.localizedDescription, privacy: .public)"
+                    "Batch write preparation failed; falling back to single writes: \(error.localizedDescription, privacy: .private)"
                 )
                 return nil
             }
@@ -342,25 +342,25 @@ extension UpdateCoordinator {
         do {
             guard let appliedIndexes = try await verifiedBatchWriteIndexes(preparedWrites) else {
                 log.warning(
-                    "Batch AppleScript write could not be verified after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .public)"
+                    "Batch AppleScript write could not be verified after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .private)"
                 )
                 return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
             }
             guard !appliedIndexes.isEmpty else {
                 log.warning(
-                    "Batch AppleScript write reported no verified updates after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .public)"
+                    "Batch AppleScript write reported no verified updates after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .private)"
                 )
                 return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
             }
             log.warning(
-                "Batch AppleScript write reported failure after partial verification; unverified writes are failures: \(error.localizedDescription, privacy: .public)"
+                "Batch AppleScript write reported failure after partial verification; unverified writes are failures: \(error.localizedDescription, privacy: .private)"
             )
             return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: appliedIndexes)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             log.warning(
-                "Batch AppleScript write verification failed after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .public)"
+                "Batch AppleScript write verification failed after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .private)"
             )
             return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
         }

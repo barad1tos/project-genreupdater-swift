@@ -153,6 +153,33 @@ struct AppleScriptBridgeConfigurationTests {
         }
     }
 
+    @Test("Batch update missing script error takes priority over argument validation")
+    func batchUpdateMissingScriptErrorTakesPriorityOverArgumentValidation() async throws {
+        let scriptsDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppleScriptBridgeMissingScript-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: scriptsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scriptsDirectory) }
+
+        let installer = ScriptInstaller(scriptsDirectory: scriptsDirectory, bundleScriptsDirectory: nil)
+        let bridge = AppleScriptBridge(installer: installer)
+
+        do {
+            // Value contains a reserved separator that would make makeBatchUpdateArgument throw
+            // if it ran before the script check. The script check must run first.
+            try await bridge.batchUpdateTracks([
+                (trackID: "101", property: "genre", value: "Metal\(Track.fieldSeparator)Jazz"),
+            ])
+            Issue.record("Expected missing batch script to fail before AppleScript execution")
+        } catch let error as AppleScriptBridgeError {
+            guard case .scriptNotFound = error else {
+                Issue.record("Expected scriptNotFound (checked before argument validation), got \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected AppleScriptBridgeError, got \(error)")
+        }
+    }
+
     @Test("Batch update missing script remains a pre-run bridge error")
     func batchUpdateMissingScriptRemainsPreRunBridgeError() async throws {
         let scriptsDirectory = FileManager.default.temporaryDirectory
@@ -300,6 +327,36 @@ struct AppleScriptBridgeConfigurationTests {
         #expect(cyrillicTrack.name == "Паліндром")
         #expect(cyrillicTrack.artist == "Паліндром")
         #expect(cyrillicTrack.year == 2024)
+    }
+
+    @Test("Parsed track output error detail does not contain user metadata")
+    func parsedTrackOutputErrorDetailDoesNotContainUserMetadata() {
+        let secretName = "SECRET_TRACK_NAME"
+        _ = String(Track.recordSeparator)
+        let malformed = malformedAppleScriptTrackOutput(secretName, "artist", "album")
+
+        do {
+            _ = try AppleScriptBridge.parseTrackOutput(malformed)
+            Issue.record("Expected AppleScriptBridgeError")
+        } catch let error as AppleScriptBridgeError {
+            guard case let .parseError(_, detail) = error else {
+                Issue.record("Expected parseError, got \(error)")
+                return
+            }
+            #expect(!detail.contains(secretName))
+        } catch {
+            Issue.record("Expected AppleScriptBridgeError, got \(error)")
+        }
+    }
+
+    @Test("Parsed track output error is still AppleScriptBridgeError")
+    func parsedTrackOutputErrorIsStillAppleScriptBridgeError() {
+        _ = String(Track.recordSeparator)
+        let malformed = malformedAppleScriptTrackOutput("only", "three", "fields")
+
+        #expect(throws: AppleScriptBridgeError.self) {
+            _ = try AppleScriptBridge.parseTrackOutput(malformed)
+        }
     }
 
     @Test("Track output parser rejects malformed non-empty records")

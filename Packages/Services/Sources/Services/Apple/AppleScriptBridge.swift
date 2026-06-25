@@ -240,8 +240,9 @@ public actor AppleScriptBridge: AppleScriptClient {
         // Fields separated by ASCII 30 (Record Separator), commands by ASCII 29 (Group Separator).
         guard !updates.isEmpty else { return }
 
+        try await ensureBatchUpdateScriptExists()
         let batchArg = try Self.makeBatchUpdateArgument(updates)
-        try await validateBatchUpdatePreconditions(arguments: [batchArg])
+        _ = try InputSanitizer.validateAppleEventArguments([batchArg])
 
         let output: String?
         do {
@@ -273,7 +274,7 @@ public actor AppleScriptBridge: AppleScriptClient {
         log.info("Batch updated \(updates.count, privacy: .public) tracks")
     }
 
-    private func validateBatchUpdatePreconditions(arguments: [String]) async throws {
+    private func ensureBatchUpdateScriptExists() async throws {
         let scriptURL = await installer.scriptURL(for: Self.batchUpdateScriptName)
         guard FileManager.default.fileExists(atPath: scriptURL.path) else {
             throw AppleScriptBridgeError.scriptNotFound(
@@ -281,7 +282,6 @@ public actor AppleScriptBridge: AppleScriptClient {
                 searchPath: scriptURL.deletingLastPathComponent()
             )
         }
-        _ = try InputSanitizer.validateAppleEventArguments(arguments)
     }
 
     static func makeBatchUpdateArgument(_ updates: [(trackID: String, property: String, value: String)]) throws
@@ -461,21 +461,11 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     /// Parse AppleScript output into Track objects.
     static func parseTrackOutput(_ output: String) throws -> [Core.Track] {
-        var tracks: [Core.Track] = []
-        for record in output.split(separator: Core.Track.recordSeparator, omittingEmptySubsequences: false) {
-            let rawRecord = String(record)
-            guard !rawRecord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                continue
-            }
-            guard let track = Core.Track.fromAppleScriptOutput(rawRecord) else {
-                throw AppleScriptBridgeError.parseError(
-                    scriptName: "fetch_tracks_by_ids",
-                    detail: "Malformed track record: \(String(rawRecord.prefix(200)))"
-                )
-            }
-            tracks.append(track)
+        do {
+            return try parseTrackRecords(output, scriptName: "fetch_tracks_by_ids")
+        } catch let error as AppleScriptClientParseError {
+            throw AppleScriptBridgeError.parseError(scriptName: error.scriptName, detail: error.detail)
         }
-        return tracks
     }
 }
 
