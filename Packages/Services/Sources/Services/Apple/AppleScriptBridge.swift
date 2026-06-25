@@ -298,10 +298,21 @@ public actor AppleScriptBridge: AppleScriptClient {
     }
 
     static func validateBatchUpdateOutput(_ output: String?, updateCount: Int) throws {
-        guard let output else { return }
+        guard let output else {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: "batch_update_tracks",
+                detail: "Batch of \(updateCount) updates, response=<empty>"
+            )
+        }
 
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercasedOutput = trimmedOutput.lowercased()
+        guard lowercasedOutput.hasPrefix("success:") else {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: "batch_update_tracks",
+                detail: "Batch of \(updateCount) updates, response=\(String(trimmedOutput.prefix(200)))"
+            )
+        }
         let containsFailure =
             lowercasedOutput.hasPrefix("error:")
                 || lowercasedOutput.contains("error updating track id")

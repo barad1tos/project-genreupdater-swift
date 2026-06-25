@@ -4,7 +4,7 @@ import Testing
 
 // MARK: - sanitizeString
 
-@Suite("InputSanitizer.sanitizeString — string escaping for AppleScript arguments")
+@Suite("InputSanitizer.sanitizeString — string escaping for AppleScript source values")
 struct SanitizeStringTests {
     @Test("Escapes backslashes before quotes (order matters)")
     func escapesBackslashesBeforeQuotes() throws {
@@ -113,6 +113,19 @@ struct SanitizeScriptCodeTests {
         #expect(!result.contains("("))
         #expect(!result.contains(")"))
     }
+
+    @Test("Strips metadata punctuation only when treating value as script code")
+    func stripsMetadataPunctuationOnlyWhenTreatingValueAsScriptCode() {
+        let value = #"Паліндром / Альбом, Частина & "Live" (EP) [Single]"#
+        let escapedValue = #"Паліндром / Альбом, Частина & \"Live\" (EP) [Single]"#
+
+        let codeSanitized = InputSanitizer.sanitizeScriptCode(value)
+
+        #expect(!codeSanitized.contains("&"))
+        #expect(!codeSanitized.contains("("))
+        #expect(!codeSanitized.contains(")"))
+        #expect(codeSanitized != escapedValue)
+    }
 }
 
 // MARK: - escapeStringValue
@@ -146,19 +159,12 @@ struct EscapeStringValueTests {
         #expect(result == #"Track (Remaster) \"2024\" [Deluxe]"#)
     }
 
-    @Test("Preserves metadata punctuation for update_property arguments")
-    func preservesMetadataPunctuationForUpdatePropertyArguments() throws {
+    @Test("Preserves metadata punctuation for source interpolation escaping")
+    func preservesMetadataPunctuationForSourceInterpolationEscaping() {
         let value = #"Паліндром / Альбом, Частина & "Live" (EP) [Single]"#
         let escapedValue = #"Паліндром / Альбом, Частина & \"Live\" (EP) [Single]"#
 
         #expect(InputSanitizer.escapeStringValue(value) == escapedValue)
-        #expect(try InputSanitizer.sanitizeArguments(["42", "name", value]) == ["42", "name", escapedValue])
-
-        let codeSanitized = InputSanitizer.sanitizeScriptCode(value)
-        #expect(!codeSanitized.contains("&"))
-        #expect(!codeSanitized.contains("("))
-        #expect(!codeSanitized.contains(")"))
-        #expect(codeSanitized != escapedValue)
     }
 }
 
@@ -224,12 +230,12 @@ struct ValidateScriptCodeTests {
 
 // MARK: - sanitizeArguments
 
-@Suite("InputSanitizer.sanitizeArguments — array argument sanitization")
+@Suite("InputSanitizer.sanitizeArguments — direct AppleEvent argv validation")
 struct SanitizeArgumentsTests {
-    @Test("Sanitizes each element in array")
-    func sanitizesEachElement() throws {
+    @Test("Validates each argv element without escaping payload text")
+    func validatesEachArgvElementWithoutEscapingPayloadText() throws {
         let result = try InputSanitizer.sanitizeArguments(["hello", #"wor"ld"#])
-        #expect(result == ["hello", #"wor\"ld"#])
+        #expect(result == ["hello", #"wor"ld"#])
     }
 
     @Test("Propagates error when an element is empty")
@@ -243,6 +249,13 @@ struct SanitizeArgumentsTests {
     func emptyArrayReturnsEmpty() throws {
         let result = try InputSanitizer.sanitizeArguments([])
         #expect(result.isEmpty)
+    }
+
+    @Test("Preserves update_property metadata argv exactly")
+    func preservesUpdatePropertyMetadataArgvExactly() throws {
+        let value = #"Паліндром / Альбом, Частина & "Live" (EP) [Single]"#
+
+        #expect(try InputSanitizer.sanitizeArguments(["42", "name", value]) == ["42", "name", value])
     }
 }
 

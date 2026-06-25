@@ -140,6 +140,15 @@ struct AppleScriptBridgeConfigurationTests {
             updateCount: 2
         )
         #expect(throws: AppleScriptBridgeError.self) {
+            try AppleScriptBridge.validateBatchUpdateOutput(nil, updateCount: 2)
+        }
+        #expect(throws: AppleScriptBridgeError.self) {
+            try AppleScriptBridge.validateBatchUpdateOutput("   ", updateCount: 2)
+        }
+        #expect(throws: AppleScriptBridgeError.self) {
+            try AppleScriptBridge.validateBatchUpdateOutput("Updated 2 tracks", updateCount: 2)
+        }
+        #expect(throws: AppleScriptBridgeError.self) {
             try AppleScriptBridge.validateBatchUpdateOutput(
                 "Error updating track ID T1: Music failed\nSuccess: Batch update process completed.",
                 updateCount: 2
@@ -155,26 +164,24 @@ struct AppleScriptBridgeConfigurationTests {
 
     @Test("Track output parser preserves valid records and skips malformed or empty records")
     func trackOutputParserPreservesValidRecordsAndSkipsMalformedOrEmptyRecords() throws {
-        let fieldSeparator = String(Track.fieldSeparator)
         let recordSeparator = String(Track.recordSeparator)
-        let validFirst = [
-            "101", "American Sleep", "Clutch", "Clutch", "Pure Rock Fury",
-            "Rock", "2024-02-21 13:45:00", "2024-03-01 10:00:00",
-            "matched", "1999", "2001", "",
-        ].joined(separator: fieldSeparator)
-        let malformed = ["broken", "record", "only"].joined(separator: fieldSeparator)
-        let duplicateIdentity = [
-            "103", "American Sleep", "Clutch", "Clutch", "Pure Rock Fury",
-            "Rock", "2024-02-22 13:45:00", "2024-03-02 10:00:00",
-            "matched", "1999", "2001", "",
-        ].joined(separator: fieldSeparator)
-        let validSecond = [
-            "102", "Паліндром", "Паліндром", "", "Найліпші питання собі",
-            "", "", "", "purchased", "2024", "2024", "",
-        ].joined(separator: fieldSeparator)
+        let malformed = ["broken", "record", "only"].joined(separator: String(Track.fieldSeparator))
+        let validFirst = appleScriptTrackOutput(id: "101", name: "American Sleep")
+        let missingID = appleScriptTrackOutput(id: "", name: "Ghost Track")
+        let duplicateIdentity = appleScriptTrackOutput(id: "103", name: "American Sleep")
+        let validSecond = appleScriptTrackOutput(
+            id: "102",
+            name: "Паліндром",
+            artist: "Паліндром",
+            album: "Найліпші питання собі",
+            year: "2024",
+            releaseYear: "2024",
+            status: "purchased"
+        )
 
         let tracks = AppleScriptBridge.parseTrackOutput(
-            ["", validFirst, malformed, "", duplicateIdentity, validSecond, ""].joined(separator: recordSeparator)
+            ["", validFirst, malformed, "", missingID, duplicateIdentity, validSecond, ""]
+                .joined(separator: recordSeparator)
         )
 
         #expect(tracks.map(\.id) == ["101", "103", "102"])
@@ -225,6 +232,22 @@ struct AppleScriptBridgeConfigurationTests {
         }
         #expect(await probe.attempts == 1)
     }
+}
+
+private func appleScriptTrackOutput(
+    id: String,
+    name: String,
+    artist: String = "Clutch",
+    album: String = "Pure Rock Fury",
+    year: String = "1999",
+    releaseYear: String = "2001",
+    status: String = "matched"
+) -> String {
+    [
+        id, name, artist, artist, album,
+        "Rock", "2024-02-21 13:45:00", "2024-03-01 10:00:00",
+        status, year, releaseYear, "",
+    ].joined(separator: String(Track.fieldSeparator))
 }
 
 private func makeRetryBridge() -> AppleScriptBridge {

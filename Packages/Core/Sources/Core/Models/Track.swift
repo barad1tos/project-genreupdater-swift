@@ -254,6 +254,7 @@ extension Track {
 
         // Minimum fields: id, name, artist, albumArtist, album
         guard fields.count >= 5 else { return nil }
+        guard !fields[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
         return Track(
             id: fields[0],

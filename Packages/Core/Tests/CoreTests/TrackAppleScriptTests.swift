@@ -66,6 +66,17 @@ struct TrackAppleScriptTests {
         #expect(Track.fromAppleScriptOutput(raw) == nil)
     }
 
+    @Test("Rejects full-width record with missing AppleScript ID")
+    func rejectMissingAppleScriptID() {
+        let raw = [
+            "", "Song", "Artist", "AlbumArtist", "Album",
+            "Rock", "2024-01-01 00:00:00", "2024-01-02 00:00:00",
+            "matched", "2024", "2024", "",
+        ].joined(separator: fs)
+
+        #expect(Track.fromAppleScriptOutput(raw) == nil)
+    }
+
     // MARK: - Empty Optional Fields
 
     @Test("Empty optional fields parse as nil")

@@ -6,11 +6,15 @@ import Testing
 struct AppleScriptClientTests {
     @Test("Default fetchTracks passes artist scope and parses AppleScript output")
     func defaultFetchTracksPassesArtistScopeAndParsesAppleScriptOutput() async throws {
-        let fieldSeparator = String(Track.fieldSeparator)
-        let output = [
-            "101", "Зимно", "Паліндром", "Паліндром", "Найліпші питання собі",
-            "Rap", "", "", "purchased", "2024", "2024", "",
-        ].joined(separator: fieldSeparator)
+        let output = appleScriptTrackOutput(
+            id: "101",
+            name: "Зимно",
+            artist: "Паліндром",
+            album: "Найліпші питання собі",
+            year: "2024",
+            releaseYear: "2024",
+            status: "purchased"
+        )
         let client = ScriptOutputClient(output: output)
 
         let tracks = try await client.fetchTracks(artist: "Паліндром", timeout: .seconds(3))
@@ -53,15 +57,16 @@ struct AppleScriptClientTests {
 
     @Test("Default fetchTracksByIDs batches IDs and parses AppleScript output")
     func defaultFetchTracksByIDsBatchesIDsAndParsesAppleScriptOutput() async throws {
-        let fieldSeparator = String(Track.fieldSeparator)
-        let firstBatchOutput = [
-            "101", "American Sleep", "Clutch", "Clutch", "Pure Rock Fury",
-            "Rock", "", "", "matched", "1999", "2001", "",
-        ].joined(separator: fieldSeparator)
-        let secondBatchOutput = [
-            "103", "Зимно", "Паліндром", "Паліндром", "Найліпші питання собі",
-            "Rap", "", "", "purchased", "2024", "2024", "",
-        ].joined(separator: fieldSeparator)
+        let firstBatchOutput = appleScriptTrackOutput(id: "101", name: "American Sleep")
+        let secondBatchOutput = appleScriptTrackOutput(
+            id: "103",
+            name: "Зимно",
+            artist: "Паліндром",
+            album: "Найліпші питання собі",
+            year: "2024",
+            releaseYear: "2024",
+            status: "purchased"
+        )
         let client = ScriptOutputClient(outputs: [
             firstBatchOutput,
             "NO_TRACKS_FOUND",
@@ -97,17 +102,10 @@ struct AppleScriptClientTests {
         #expect(emptyTracks.isEmpty)
         #expect(await emptyClient.calls.isEmpty)
 
-        let fieldSeparator = String(Track.fieldSeparator)
-        func output(id: String, name: String) -> String {
-            [
-                id, name, "Clutch", "Clutch", "Pure Rock Fury",
-                "Rock", "", "", "matched", "1999", "2001", "",
-            ].joined(separator: fieldSeparator)
-        }
         let client = ScriptOutputClient(outputs: [
-            output(id: "101", name: "American Sleep"),
-            output(id: "103", name: "Careful With That Mic..."),
-            output(id: "105", name: "Drink to the Dead"),
+            appleScriptTrackOutput(id: "101", name: "American Sleep"),
+            appleScriptTrackOutput(id: "103", name: "Careful With That Mic..."),
+            appleScriptTrackOutput(id: "105", name: "Drink to the Dead"),
         ])
 
         let tracks = try await client.fetchTracksByIDs(
@@ -122,6 +120,21 @@ struct AppleScriptClientTests {
         #expect(calls.map(\.timeout) == [.seconds(7), .seconds(7), .seconds(7)])
         #expect(tracks.map(\.id) == ["101", "103", "105"])
     }
+}
+
+private func appleScriptTrackOutput(
+    id: String,
+    name: String,
+    artist: String = "Clutch",
+    album: String = "Pure Rock Fury",
+    year: String = "1999",
+    releaseYear: String = "2001",
+    status: String = "matched"
+) -> String {
+    [
+        id, name, artist, artist, album,
+        "Rock", "", "", status, year, releaseYear, "",
+    ].joined(separator: String(Track.fieldSeparator))
 }
 
 private actor ScriptOutputClient: AppleScriptClient {
