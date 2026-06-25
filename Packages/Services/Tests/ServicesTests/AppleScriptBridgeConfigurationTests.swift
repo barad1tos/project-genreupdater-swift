@@ -133,8 +133,8 @@ struct AppleScriptBridgeConfigurationTests {
         }
     }
 
-    @Test("Batch update output rejects per-track AppleScript failures")
-    func batchUpdateOutputRejectsPerTrackFailures() throws {
+    @Test("Batch update output requires explicit script success marker")
+    func batchUpdateOutputRequiresExplicitScriptSuccessMarker() throws {
         try AppleScriptBridge.validateBatchUpdateOutput(
             "Success: Batch update process completed.",
             updateCount: 2
@@ -149,17 +149,21 @@ struct AppleScriptBridgeConfigurationTests {
             try AppleScriptBridge.validateBatchUpdateOutput("Updated 2 tracks", updateCount: 2)
         }
         #expect(throws: AppleScriptBridgeError.self) {
-            try AppleScriptBridge.validateBatchUpdateOutput(
-                "Error updating track ID T1: Music failed\nSuccess: Batch update process completed.",
-                updateCount: 2
-            )
+            try AppleScriptBridge.validateBatchUpdateOutput("Error: Track T1 not found", updateCount: 2)
         }
-        #expect(throws: AppleScriptBridgeError.self) {
-            try AppleScriptBridge.validateBatchUpdateOutput(
-                "Year 1800 out of range for track T1\nSuccess: Batch update process completed.",
-                updateCount: 2
-            )
-        }
+    }
+
+    @Test("Batch update argv preserves direct metadata payloads")
+    func batchUpdateArgvPreservesDirectMetadataPayloads() {
+        let value = #"Паліндром / Альбом, Частина & "Live"\Raw (EP) [Single]"#
+        let argument = AppleScriptBridge.makeBatchUpdateArgument([
+            (trackID: #"T"1"#, property: "genre", value: value),
+        ])
+        let fields = argument
+            .split(separator: Track.fieldSeparator, omittingEmptySubsequences: false)
+            .map(String.init)
+
+        #expect(fields == [#"T"1"#, "genre", value])
     }
 
     @Test("Track output parser preserves valid records and skips malformed or empty records")

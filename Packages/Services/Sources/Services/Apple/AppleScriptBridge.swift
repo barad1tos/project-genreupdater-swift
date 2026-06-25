@@ -147,17 +147,20 @@ public actor AppleScriptBridge: AppleScriptClient {
         let runScriptSignpost = AppSignpost.appleScriptWrite.beginInterval("runScript")
         defer { AppSignpost.appleScriptWrite.endInterval("runScript", runScriptSignpost) }
 
-        let sanitizedArgs = try InputSanitizer.sanitizeArguments(arguments)
+        let validatedArguments = try InputSanitizer.validateAppleEventArguments(arguments)
         let effectiveTimeout = timeout ?? config.timeouts.defaultTimeout
         let retryConfiguration = config.retry
 
-        log.info("Executing script: \(name, privacy: .public) with \(sanitizedArgs.count, privacy: .public) arguments")
+        log
+            .info(
+                "Executing script: \(name, privacy: .public) with \(validatedArguments.count, privacy: .public) arguments"
+            )
 
         return try await retryAppleScriptOperation(scriptName: name, retry: retryConfiguration) {
             try await self.executeScriptAttempt(
                 name: name,
                 scriptURL: scriptURL,
-                arguments: sanitizedArgs,
+                arguments: validatedArguments,
                 timeout: effectiveTimeout
             )
         }
@@ -233,14 +236,7 @@ public actor AppleScriptBridge: AppleScriptClient {
 
         // Format matches batch_update_tracks.applescript:
         // Fields separated by ASCII 30 (Record Separator), commands by ASCII 29 (Group Separator).
-        let fieldSep = String(Core.Track.fieldSeparator) // \x1E — between fields
-        let commandSep = String(Core.Track.recordSeparator) // \x1D — between commands
-        let batchArg: String = updates.map { update -> String in
-            let escapedID = InputSanitizer.escapeStringValue(update.trackID)
-            let escapedProperty = InputSanitizer.sanitizeScriptCode(update.property)
-            let escapedValue = InputSanitizer.escapeStringValue(update.value)
-            return "\(escapedID)\(fieldSep)\(escapedProperty)\(fieldSep)\(escapedValue)"
-        }.joined(separator: commandSep)
+        let batchArg = Self.makeBatchUpdateArgument(updates)
 
         let output = try await runScript(
             name: "batch_update_tracks",
@@ -250,6 +246,15 @@ public actor AppleScriptBridge: AppleScriptClient {
 
         try Self.validateBatchUpdateOutput(output, updateCount: updates.count)
         log.info("Batch updated \(updates.count, privacy: .public) tracks")
+    }
+
+    static func makeBatchUpdateArgument(_ updates: [(trackID: String, property: String, value: String)]) -> String {
+        let fieldSep = String(Core.Track.fieldSeparator) // \x1E — between fields
+        let commandSep = String(Core.Track.recordSeparator) // \x1D — between commands
+        return updates.map { update -> String in
+            let property = InputSanitizer.sanitizeScriptCode(update.property)
+            return "\(update.trackID)\(fieldSep)\(property)\(fieldSep)\(update.value)"
+        }.joined(separator: commandSep)
     }
 
     // MARK: - Private Helpers
@@ -308,16 +313,6 @@ public actor AppleScriptBridge: AppleScriptClient {
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercasedOutput = trimmedOutput.lowercased()
         guard lowercasedOutput.hasPrefix("success:") else {
-            throw AppleScriptBridgeError.executionFailed(
-                scriptName: "batch_update_tracks",
-                detail: "Batch of \(updateCount) updates, response=\(String(trimmedOutput.prefix(200)))"
-            )
-        }
-        let containsFailure =
-            lowercasedOutput.hasPrefix("error:")
-                || lowercasedOutput.contains("error updating track id")
-                || lowercasedOutput.contains(" out of range for track ")
-        guard !containsFailure else {
             throw AppleScriptBridgeError.executionFailed(
                 scriptName: "batch_update_tracks",
                 detail: "Batch of \(updateCount) updates, response=\(String(trimmedOutput.prefix(200)))"

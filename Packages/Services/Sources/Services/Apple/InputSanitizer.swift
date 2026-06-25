@@ -144,16 +144,22 @@ public enum InputSanitizer {
     }
 
     /// Validate direct AppleEvent argv values without rewriting payload text.
-    public static func sanitizeArguments(_ arguments: [String]) throws -> [String] {
+    public static func validateAppleEventArguments(_ arguments: [String]) throws -> [String] {
         try arguments.map { argument in
-            guard !argument.isEmpty else {
-                throw SanitizationError.emptyInput
-            }
             guard argument.count <= maxInputSize else {
                 throw SanitizationError.inputTooLarge(size: argument.count, maxSize: maxInputSize)
             }
             return argument
         }
+    }
+
+    @available(
+        *,
+        deprecated,
+        message: "Use validateAppleEventArguments for direct argv or sanitizeString/escapeStringValue for source text."
+    )
+    public static func sanitizeArguments(_ arguments: [String]) throws -> [String] {
+        try validateAppleEventArguments(arguments)
     }
 
     /// Validate a file path for safe use (no traversal attacks, valid extension).

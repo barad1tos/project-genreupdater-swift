@@ -228,26 +228,25 @@ struct ValidateScriptCodeTests {
     }
 }
 
-// MARK: - sanitizeArguments
+// MARK: - validateAppleEventArguments
 
-@Suite("InputSanitizer.sanitizeArguments — direct AppleEvent argv validation")
-struct SanitizeArgumentsTests {
+@Suite("InputSanitizer.validateAppleEventArguments — direct AppleEvent argv validation")
+struct ValidateAppleEventArgumentsTests {
     @Test("Validates each argv element without escaping payload text")
     func validatesEachArgvElementWithoutEscapingPayloadText() throws {
-        let result = try InputSanitizer.sanitizeArguments(["hello", #"wor"ld"#])
+        let result = try InputSanitizer.validateAppleEventArguments(["hello", #"wor"ld"#])
         #expect(result == ["hello", #"wor"ld"#])
     }
 
-    @Test("Propagates error when an element is empty")
-    func propagatesErrorOnEmpty() {
-        #expect(throws: SanitizationError.self) {
-            try InputSanitizer.sanitizeArguments(["valid", "", "also valid"])
-        }
+    @Test("Preserves empty string argv used by full-library fetch")
+    func preservesEmptyStringArgv() throws {
+        let result = try InputSanitizer.validateAppleEventArguments([""])
+        #expect(result == [""])
     }
 
     @Test("Empty array returns empty array")
     func emptyArrayReturnsEmpty() throws {
-        let result = try InputSanitizer.sanitizeArguments([])
+        let result = try InputSanitizer.validateAppleEventArguments([])
         #expect(result.isEmpty)
     }
 
@@ -255,7 +254,16 @@ struct SanitizeArgumentsTests {
     func preservesUpdatePropertyMetadataArgvExactly() throws {
         let value = #"Паліндром / Альбом, Частина & "Live" (EP) [Single]"#
 
-        #expect(try InputSanitizer.sanitizeArguments(["42", "name", value]) == ["42", "name", value])
+        #expect(try InputSanitizer.validateAppleEventArguments(["42", "name", value]) == ["42", "name", value])
+    }
+
+    @Test("Propagates error when an element exceeds max size")
+    func propagatesErrorOnOversizedElement() {
+        let oversized = String(repeating: "x", count: InputSanitizer.maxInputSize + 1)
+
+        #expect(throws: SanitizationError.self) {
+            try InputSanitizer.validateAppleEventArguments(["valid", oversized])
+        }
     }
 }
 
