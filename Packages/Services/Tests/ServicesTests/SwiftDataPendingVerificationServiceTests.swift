@@ -25,12 +25,14 @@ struct SwiftDataPendingVerificationServiceTests {
         date: Date,
         verificationIntervalDays: Int = 30,
         autoVerifyDays: Int = 14,
+        prereleaseRecheckDays: Int? = nil,
         legacyStorageURL: URL? = nil
     ) -> SwiftDataPendingVerificationService {
         SwiftDataPendingVerificationService(
             modelContainer: container,
             legacyStorageURL: legacyStorageURL,
             verificationIntervalDays: verificationIntervalDays,
+            prereleaseRecheckDays: prereleaseRecheckDays,
             autoVerifyDays: autoVerifyDays,
             currentDate: { date }
         )
@@ -347,6 +349,14 @@ struct SwiftDataPendingVerificationServiceTests {
             autoVerifyDays: 14
         )
         #expect(await afterInterval.shouldAutoVerify())
+
+        // Disabled interval (autoVerifyDays: 0) → never auto-verify, even after elapsed time
+        let disabled = makeService(
+            container: container,
+            date: baseDate.addingTimeInterval(100 * day),
+            autoVerifyDays: 0
+        )
+        #expect(await !(disabled.shouldAutoVerify()))
     }
 
     @Test("Legacy JSON imports into SwiftData once")
@@ -386,6 +396,72 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(imported.attemptCount == 2)
         #expect(imported.metadata["source"] == "legacy")
         #expect(await !(service.shouldAutoVerify()))
+    }
+
+    @Test("Legacy entries with raw artist/album keys migrate to normalized lookup keys")
+    func legacyEntriesWithRawKeysMigrateToNormalizedLookupKeys() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try ModelContainerFactory.createInMemory()
+        let legacyURL = directory.appendingPathComponent("pending.json")
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let rawEntries = [
+            PendingAlbumEntry(
+                id: "legacy-raw-1",
+                artist: "  PINK FLOYD  ",
+                album: "  The Wall  ",
+                reason: "no_year_found",
+                attemptCount: 1,
+                lastAttempt: baseDate,
+                recheckInterval: 30 * day,
+                metadata: ["source": "legacy"]
+            ),
+            PendingAlbumEntry(
+                id: "legacy-raw-2",
+                artist: "BJÖRK",
+                album: "Debut",
+                reason: "prerelease",
+                attemptCount: 2,
+                lastAttempt: baseDate,
+                recheckInterval: 7 * day,
+                metadata: [:]
+            ),
+        ]
+        let envelope = LegacyPendingVerificationTestStore(entries: rawEntries, lastAutoVerification: nil)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(envelope).write(to: legacyURL, options: .atomic)
+
+        let service = makeService(
+            container: container,
+            date: baseDate.addingTimeInterval(day),
+            verificationIntervalDays: 30,
+            prereleaseRecheckDays: 7,
+            legacyStorageURL: legacyURL
+        )
+        try await service.initialize()
+
+        // Clean lookups find raw-keyed entries after normalization
+        let pinkFloyd = try #require(await service.getEntry(artist: "Pink Floyd", album: "The Wall"))
+        #expect(pinkFloyd.reason == "no_year_found")
+        #expect(pinkFloyd.attemptCount == 1)
+        #expect(pinkFloyd.metadata["source"] == "legacy")
+        // Migration preserves raw legacy artist/album display values
+        #expect(pinkFloyd.artist == "  PINK FLOYD  ")
+        #expect(pinkFloyd.album == "  The Wall  ")
+
+        let bjork = try #require(await service.getEntry(artist: "Bjork", album: "Debut"))
+        #expect(bjork.reason == "prerelease")
+        #expect(bjork.attemptCount == 2)
+
+        // Marking with a different case/whitespace variant increments the existing entry
+        await service.markForVerification(artist: "pink floyd", album: "the wall", reason: "no_year_found")
+        let incremented = try #require(await service.getEntry(artist: "PINK FLOYD", album: "The Wall"))
+        #expect(incremented.attemptCount == 2)
+        // Re-marking with a clean variant trims and updates stored display values
+        #expect(incremented.artist == "pink floyd")
+        #expect(incremented.album == "the wall")
     }
 
     @Test("Python pending CSV imports into SwiftData")
