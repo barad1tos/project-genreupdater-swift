@@ -11,6 +11,7 @@ extension UpdateCoordinator {
         let candidates = Self.tracksNeedingReleaseYearRestore(tracks, threshold: threshold)
         let consensusByAlbum = Self.releaseYearConsensusByAlbum(for: candidates)
         var entries: [ChangeLogEntry] = []
+        var noOpEntries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
         var wasCancelled = false
@@ -39,8 +40,12 @@ extension UpdateCoordinator {
             )
 
             do {
-                if let entry = try await applyChange(change) {
+                let outcome = try await applyChangeOutcome(change)
+                if let entry = outcome.entry {
                     entries.append(entry)
+                }
+                if let noOpEntry = outcome.noOpEntry {
+                    noOpEntries.append(noOpEntry)
                 }
             } catch is CancellationError {
                 wasCancelled = true
@@ -61,6 +66,7 @@ extension UpdateCoordinator {
 
         return BatchUpdateResult(
             entries: entries,
+            noOpEntries: noOpEntries,
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions
         )

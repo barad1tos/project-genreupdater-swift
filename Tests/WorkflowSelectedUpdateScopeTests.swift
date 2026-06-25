@@ -642,6 +642,35 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
+    @Test("release year restore marks failed writes in track status")
+    func releaseYearRestoreMarksFailedWritesInTrackStatus() async {
+        let fixture = makeWorkflowFixture(failingWriteTrackIDs: ["restore-failed"])
+        let viewModel = fixture.viewModel
+        viewModel.mode = .releaseYearRestore
+        viewModel.releaseYearRestoreThreshold = 5
+
+        viewModel.start(tracks: [
+            Track(
+                id: "restore-failed",
+                name: "Failed Restore",
+                artist: "The Cure",
+                album: "Wish",
+                year: 2025,
+                releaseYear: 1992
+            ),
+        ])
+        await viewModel.processingTask?.value
+        await Task.yield()
+
+        #expect(viewModel.failedCount == 1)
+        #expect(viewModel.result?.failedTrackIDs == ["restore-failed"])
+        if case let .failed(message) = viewModel.trackStatuses["restore-failed"] {
+            #expect(message.contains("restore-failed"))
+        } else {
+            #expect(Bool(false), "failed restore should mark the track as failed")
+        }
+    }
+
     @Test("release year restore reset ignores delayed completion")
     func releaseYearRestoreResetIgnoresDelayedCompletion() async {
         let writeHold = LiveBatchHold()

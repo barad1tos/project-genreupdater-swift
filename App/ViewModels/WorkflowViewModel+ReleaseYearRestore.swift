@@ -105,7 +105,12 @@ extension WorkflowViewModel {
     private func finishReleaseYearRestore(_ restoreResult: BatchUpdateResult) {
         result = restoreResult
         completedEntries = restoreResult.entries
-        failedCount = restoreResult.failedTrackIDs.count
+        for (index, trackID) in restoreResult.failedTrackIDs.enumerated() {
+            trackStatuses[trackID] = .failed(
+                restoreResult.errorDescriptions[safe: index] ?? "No failure details were captured for this run."
+            )
+        }
+        failedCount = failedTracks.count
         currentTrackID = nil
         phase = .done
         progress = nil

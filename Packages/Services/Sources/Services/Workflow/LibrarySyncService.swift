@@ -286,6 +286,7 @@ public actor LibrarySyncService {
             hasLibraryChanges: !removedTracks.isEmpty,
             targets: cacheInvalidationTargets(removedTracks: removedTracks)
         )
+        try await removeResolvedPrereleasePendingEntries(removedTracks: removedTracks)
 
         try updateDatabaseVerificationTimestamp()
         log.info(
@@ -492,8 +493,6 @@ public actor LibrarySyncService {
         refreshedTracks: [Track],
         previousTracksByID: [String: Track]
     ) async throws {
-        guard let pendingVerificationService else { return }
-
         let transitionedAlbums = refreshedTracks.flatMap { current -> [(artist: String, album: String)] in
             guard let previous = previousTracksByID[current.id],
                   previous.kind == .prerelease,
@@ -505,6 +504,24 @@ public actor LibrarySyncService {
                 .map { (artist: $0.artist, album: $0.album) }
         }
         let targets = normalizedCacheInvalidationTargets(transitionedAlbums)
+        try await removeResolvedPrereleasePendingEntries(targets: targets)
+    }
+
+    private func removeResolvedPrereleasePendingEntries(removedTracks: [Track]) async throws {
+        let removedPrereleaseAlbums = removedTracks
+            .filter { $0.kind == .prerelease }
+            .flatMap { track in
+                AlbumIdentity.lookupCandidates(for: track)
+                    .map { (artist: $0.artist, album: $0.album) }
+            }
+        let targets = normalizedCacheInvalidationTargets(removedPrereleaseAlbums)
+        try await removeResolvedPrereleasePendingEntries(targets: targets)
+    }
+
+    private func removeResolvedPrereleasePendingEntries(
+        targets: [(artist: String, album: String)]
+    ) async throws {
+        guard let pendingVerificationService else { return }
         guard !targets.isEmpty else { return }
 
         let currentTracks = try await trackStore.loadAllTracks()
