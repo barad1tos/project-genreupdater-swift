@@ -13,8 +13,14 @@ extension UpdateCoordinator {
         var entries: [ChangeLogEntry] = []
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
+        var wasCancelled = false
 
         for (index, track) in candidates.enumerated() {
+            guard !Task.isCancelled else {
+                wasCancelled = true
+                break
+            }
+
             progressHandler(ProgressUpdate(
                 phase: .updating,
                 current: index + 1,
@@ -36,17 +42,22 @@ extension UpdateCoordinator {
                 if let entry = try await applyChange(change) {
                     entries.append(entry)
                 }
+            } catch is CancellationError {
+                wasCancelled = true
+                break
             } catch {
                 failedTrackIDs.append(track.id)
                 errorDescriptions.append(error.localizedDescription)
             }
         }
 
-        progressHandler(ProgressUpdate(
-            phase: .complete,
-            current: candidates.count,
-            total: candidates.count
-        ))
+        if !wasCancelled {
+            progressHandler(ProgressUpdate(
+                phase: .complete,
+                current: candidates.count,
+                total: candidates.count
+            ))
+        }
 
         return BatchUpdateResult(
             entries: entries,

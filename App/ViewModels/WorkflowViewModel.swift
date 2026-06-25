@@ -114,6 +114,7 @@ final class WorkflowViewModel {
     var pendingSkippedAlbumCount: Int = 0
     var pendingVerificationReportSummary: UpdateRunPendingVerificationSummary?
     var pendingVerificationRefreshGeneration = 0
+    var releaseYearRestoreRunGeneration = 0
     var proposedChanges: [ProposedChange] = []
     var result: BatchUpdateResult?
     var completedEntries: [ChangeLogEntry] = []

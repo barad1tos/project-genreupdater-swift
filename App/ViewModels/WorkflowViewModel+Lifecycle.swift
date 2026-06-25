@@ -5,6 +5,7 @@ import Services
 
 extension WorkflowViewModel {
     func cancel() {
+        invalidateReleaseYearRestoreRuns()
         processingTask?.cancel()
         processingTask = nil
         if mode == .fullLibrary {

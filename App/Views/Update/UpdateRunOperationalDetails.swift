@@ -36,11 +36,16 @@ struct UpdateRunOperationalDetails: View {
 
                 if let error = databaseVerification.error {
                     detailRow("Skipped", error)
+                } else if databaseVerification.skippedDueToRecentVerification {
+                    detailRow(
+                        "Skipped",
+                        "\(databaseVerification.verifiedTrackCount.formatted()) tracks in store"
+                    )
+                    detailRow("Reason", "Skipped after a recent verification")
                 } else {
                     detailRow("Verified", "\(databaseVerification.verifiedTrackCount.formatted()) tracks")
-                    detailRow("Removed", "\(databaseVerification.removedCount.formatted()) stale tracks")
-                    if databaseVerification.skippedDueToRecentVerification {
-                        detailRow("Reason", "Skipped after a recent verification")
+                    if databaseVerification.removedCount > 0 {
+                        detailRow("Removed", "\(databaseVerification.removedCount.formatted()) stale tracks")
                     }
                     if !databaseVerification.removedTrackIDs.isEmpty {
                         detailRow("Track IDs", databaseVerification.removedTrackIDs.joined(separator: ", "))

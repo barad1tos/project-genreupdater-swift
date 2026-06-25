@@ -194,6 +194,24 @@ struct UpdateCoordinatorReleaseYearRestoreTests {
         #expect(result.failedTrackIDs.isEmpty)
         #expect(written.isEmpty)
     }
+
+    @Test("Treats cancellation as cancellation instead of a failed track")
+    func treatsCancellationAsCancellationInsteadOfFailedTrack() async {
+        let fixture = await makeReleaseYearRestoreFixture()
+        await fixture.bridge.setCustomWriteError(CancellationError())
+
+        let result = await fixture.coordinator.restoreReleaseYears(
+            in: [makeReleaseYearTrack(id: "T1", year: 2025, releaseYear: 1997)],
+            threshold: 5,
+            progressHandler: ignoreReleaseYearProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(result.errorDescriptions.isEmpty)
+        #expect(written.isEmpty)
+    }
 }
 
 private func ignoreReleaseYearProgress(_ update: ProgressUpdate) {
