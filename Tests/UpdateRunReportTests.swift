@@ -562,7 +562,7 @@ struct UpdateRunReportTests {
             trackStatuses: [:],
             tracks: [],
             testArtists: [],
-            pendingVerification: UpdateRunPendingVerificationSummary(total: 3, due: 1, problematic: 2)
+            operationalContext: .init(pendingVerification: .init(total: 3, due: 1, problematic: 2))
         )
 
         let note = try #require(report.operationalNotes.first { $0.id == "pending-verification" })

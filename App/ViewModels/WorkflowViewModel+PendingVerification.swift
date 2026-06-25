@@ -134,7 +134,7 @@ extension WorkflowViewModel {
             updatePendingScope(snapshot: snapshot, tracks: trackContext.tracks)
             guard applyPendingVerificationReportSummary(
                 snapshot: snapshot,
-                problematicCount: report.problematicCount,
+                problematicDetails: report.problematicDetails,
                 refreshGeneration: refreshGeneration
             ) else { return }
             preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
@@ -176,7 +176,7 @@ extension WorkflowViewModel {
 
             updatePendingVerificationReportSummary(
                 snapshot: snapshot,
-                problematicCount: report.problematicCount
+                problematicDetails: report.problematicDetails
             )
             guard !dueEntries.isEmpty else { return PendingEntryOutcome() }
 
@@ -413,29 +413,29 @@ extension WorkflowViewModel {
         return await pendingVerificationService.getPendingVerificationSnapshot()
     }
 
-    private func problematicPendingAlbumCount() async -> Int {
-        guard let pendingVerificationService else { return 0 }
+    private func problematicPendingAlbumDetails() async -> [UpdateRunPendingVerificationDetail] {
+        guard let pendingVerificationService else { return [] }
         return await pendingVerificationService
             .getProblematicPendingAlbums(minAttempts: resolvedProblematicAlbumReportMinAttempts)
-            .count
+            .map(UpdateRunPendingVerificationDetail.init)
     }
 
     private func pendingVerificationReport() async -> (
         snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
-        problematicCount: Int
+        problematicDetails: [UpdateRunPendingVerificationDetail]
     ) {
         let snapshot = await pendingVerificationSnapshot()
-        let problematicCount = await problematicPendingAlbumCount()
-        return (snapshot, problematicCount)
+        let problematicDetails = await problematicPendingAlbumDetails()
+        return (snapshot, problematicDetails)
     }
 
     private func refreshPendingVerificationReportSummary(
         snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry])
     ) async {
-        let problematicCount = await problematicPendingAlbumCount()
+        let problematicDetails = await problematicPendingAlbumDetails()
         updatePendingVerificationReportSummary(
             snapshot: snapshot,
-            problematicCount: problematicCount
+            problematicDetails: problematicDetails
         )
     }
 
@@ -458,7 +458,7 @@ extension WorkflowViewModel {
 
     private func updatePendingVerificationReportSummary(
         snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
-        problematicCount: Int
+        problematicDetails: [UpdateRunPendingVerificationDetail]
     ) {
         guard !snapshot.all.isEmpty else {
             pendingVerificationReportSummary = nil
@@ -468,20 +468,21 @@ extension WorkflowViewModel {
         pendingVerificationReportSummary = UpdateRunPendingVerificationSummary(
             total: snapshot.all.count,
             due: snapshot.due.count,
-            problematic: problematicCount
+            problematic: problematicDetails.count,
+            problematicDetails: problematicDetails
         )
     }
 
     @discardableResult
     private func applyPendingVerificationReportSummary(
         snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
-        problematicCount: Int,
+        problematicDetails: [UpdateRunPendingVerificationDetail],
         refreshGeneration: Int
     ) -> Bool {
         guard isCurrentPendingVerificationRefresh(refreshGeneration) else { return false }
         updatePendingVerificationReportSummary(
             snapshot: snapshot,
-            problematicCount: problematicCount
+            problematicDetails: problematicDetails
         )
         return true
     }
@@ -498,10 +499,10 @@ extension WorkflowViewModel {
         snapshot: (all: [PendingAlbumEntry], due: [PendingAlbumEntry]),
         refreshGeneration: Int
     ) async {
-        let problematicCount = await problematicPendingAlbumCount()
+        let problematicDetails = await problematicPendingAlbumDetails()
         applyPendingVerificationReportSummary(
             snapshot: snapshot,
-            problematicCount: problematicCount,
+            problematicDetails: problematicDetails,
             refreshGeneration: refreshGeneration
         )
     }

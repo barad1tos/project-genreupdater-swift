@@ -25,7 +25,13 @@ struct UpdateDoneSection: View {
             trackStatuses: viewModel.trackStatuses,
             tracks: tracks,
             testArtists: testArtists,
-            displayMode: displayMode, pendingVerification: viewModel.pendingVerificationReportSummary
+            displayMode: displayMode,
+            operationalContext: UpdateRunOperationalContext(
+                pendingVerification: viewModel.pendingVerificationReportSummary,
+                databaseVerification: UpdateRunDatabaseVerificationSummary(
+                    preflightResult: viewModel.maintenancePreflightResult
+                )
+            )
         )
     }
 
@@ -85,6 +91,8 @@ struct UpdateDoneSection: View {
                         UpdateRunHealthRow(note: note)
                     }
                 }
+
+                UpdateRunOperationalDetails(report: report)
             }
             .padding(.horizontal, Spacing.xl)
             .padding(.bottom, Spacing.md)

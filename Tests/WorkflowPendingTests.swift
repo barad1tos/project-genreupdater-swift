@@ -452,6 +452,9 @@ struct WorkflowPendingTests {
 
         let summary = try #require(viewModel.pendingVerificationReportSummary)
         expectPendingSummary(summary, total: 3, due: 1, problematic: 2)
+        #expect(summary.problematicDetails.map(\.album) == ["Pure Rock Fury", "Noise"])
+        #expect(summary.problematicDetails.map(\.attemptCount) == [3, 4])
+        #expect(summary.problematicDetails.allSatisfy { $0.nextVerification > $0.lastAttempt })
 
         viewModel.reset()
         #expect(viewModel.pendingVerificationReportSummary == nil)

@@ -1,3 +1,5 @@
+import Foundation
+
 extension UpdateRunReport {
     var plainTextSummary: String {
         var lines = [
@@ -12,6 +14,8 @@ extension UpdateRunReport {
         ]
 
         appendOperationalNotes(to: &lines)
+        appendDatabaseVerification(to: &lines)
+        appendPendingVerificationDetails(to: &lines)
         appendOutcomeBreakdown(to: &lines)
         appendNoChangesSummary(to: &lines)
         appendFailures(to: &lines)
@@ -26,6 +30,40 @@ extension UpdateRunReport {
 
         lines.append("Run Health")
         lines.append(contentsOf: operationalNotes.map { "- \($0.title): \($0.detail)" })
+        lines.append("")
+    }
+
+    private func appendDatabaseVerification(to lines: inout [String]) {
+        guard let databaseVerification else { return }
+
+        lines.append("Database Verification")
+        if let error = databaseVerification.error {
+            lines.append("- Skipped: \(error)")
+        } else if databaseVerification.skippedDueToRecentVerification {
+            lines.append("- Skipped after recent check: \(databaseVerification.verifiedTrackCount) tracks in store")
+        } else {
+            lines.append("- Verified tracks: \(databaseVerification.verifiedTrackCount)")
+            lines.append("- Removed stale tracks: \(databaseVerification.removedCount)")
+        }
+        if !databaseVerification.removedTrackIDs.isEmpty {
+            lines.append("- Removed IDs: \(databaseVerification.removedTrackIDs.joined(separator: ", "))")
+        }
+        lines.append("")
+    }
+
+    private func appendPendingVerificationDetails(to lines: inout [String]) {
+        guard let pendingVerification,
+              !pendingVerification.problematicDetails.isEmpty else { return }
+
+        lines.append("Problematic Pending Albums")
+        for detail in pendingVerification.problematicDetails {
+            lines.append("- \(detail.artist) - \(detail.album): \(detail.reason), "
+                + "\(detail.attemptCount) attempts, last checked \(detail.lastAttempt.reportDate)")
+            lines.append("  Next verification: \(detail.nextVerification.reportDate); status: \(detail.status)")
+            if let lastFailure = detail.lastFailure {
+                lines.append("  Last failure: \(lastFailure)")
+            }
+        }
         lines.append("")
     }
 
@@ -95,5 +133,11 @@ extension UpdateRunReport {
         if let failureMessage = track.failureMessage {
             lines.append("  - \(track.title): failed \(failureMessage)")
         }
+    }
+}
+
+extension Date {
+    fileprivate var reportDate: String {
+        formatted(date: .abbreviated, time: .shortened)
     }
 }

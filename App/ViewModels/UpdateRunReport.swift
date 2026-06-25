@@ -1,19 +1,6 @@
 import Core
 import Services
 
-struct UpdateRunOperationalNote: Identifiable, Equatable {
-    enum Severity: Equatable { case info, warning, failure }
-
-    let id: String
-    let title: String
-    let detail: String
-    let severity: Severity
-}
-struct UpdateRunPendingVerificationSummary: Equatable {
-    let total: Int
-    let due: Int
-    let problematic: Int
-}
 struct UpdateRunReport: Equatable {
     let scopeTitle: String
     let changedEntries: [ChangeLogEntry]
@@ -26,6 +13,7 @@ struct UpdateRunReport: Equatable {
     let scannedTrackCount: Int
     let displayMode: ChangeDisplayMode
     let pendingVerification: UpdateRunPendingVerificationSummary?
+    let databaseVerification: UpdateRunDatabaseVerificationSummary?
     init(
         result: BatchUpdateResult?,
         completedEntries: [ChangeLogEntry],
@@ -33,7 +21,7 @@ struct UpdateRunReport: Equatable {
         tracks: [Track],
         testArtists: [String],
         displayMode: ChangeDisplayMode = .compact,
-        pendingVerification: UpdateRunPendingVerificationSummary? = nil
+        operationalContext: UpdateRunOperationalContext = .empty
     ) {
         let allEntries = result?.entries ?? completedEntries
         let entries = allEntries.filter(Self.isRealChange)
@@ -72,7 +60,8 @@ struct UpdateRunReport: Equatable {
         }
         scannedTrackCount = trackStatuses.isEmpty ? tracks.count : trackStatuses.count
         self.displayMode = displayMode
-        self.pendingVerification = pendingVerification
+        pendingVerification = operationalContext.pendingVerification
+        databaseVerification = operationalContext.databaseVerification
         scopeTitle = Self.makeScopeTitle(testArtists: testArtists)
     }
 
@@ -117,6 +106,14 @@ struct UpdateRunReport: Equatable {
                     + "\(pendingVerification.due.formatted()) due, "
                     + "\(pendingVerification.problematic.formatted()) problematic.",
                 severity: pendingVerification.problematic > 0 ? .warning : .info
+            ))
+        }
+        if let databaseVerification {
+            notes.append(UpdateRunOperationalNote(
+                id: "database-verification",
+                title: "Database Verification",
+                detail: Self.databaseVerificationNote(databaseVerification),
+                severity: Self.databaseVerificationSeverity(databaseVerification)
             ))
         }
         if changedEntries.isEmpty, failures.isEmpty {
@@ -491,6 +488,28 @@ struct UpdateRunReport: Equatable {
 
     private static func issueNoun(_ count: Int) -> String {
         count == 1 ? "issue" : "issues"
+    }
+
+    private static func databaseVerificationNote(
+        _ databaseVerification: UpdateRunDatabaseVerificationSummary
+    ) -> String {
+        if let error = databaseVerification.error {
+            return "Skipped: \(error)"
+        }
+        if databaseVerification.skippedDueToRecentVerification {
+            return "\(databaseVerification.verifiedTrackCount.formatted()) tracks in store; skipped after recent check."
+        }
+        return "\(databaseVerification.verifiedTrackCount.formatted()) verified, "
+            + "\(databaseVerification.removedCount.formatted()) removed."
+    }
+
+    private static func databaseVerificationSeverity(
+        _ databaseVerification: UpdateRunDatabaseVerificationSummary
+    ) -> UpdateRunOperationalNote.Severity {
+        if databaseVerification.error != nil || databaseVerification.removedCount > 0 {
+            return .warning
+        }
+        return .info
     }
 }
 
