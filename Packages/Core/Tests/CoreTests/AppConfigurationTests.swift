@@ -405,14 +405,10 @@ struct AppConfigurationTests {
 
     @Test("Load uses the Python-era configuration decoder")
     func loadUsesPythonEraConfigurationDecoder() throws {
-        let configURL = AppConfiguration.configFileURL
-        let originalData = try? Data(contentsOf: configURL)
+        let configURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("genreupdater-config-load-\(UUID().uuidString).json")
         defer {
-            if let originalData {
-                try? originalData.write(to: configURL, options: .atomic)
-            } else {
-                try? FileManager.default.removeItem(at: configURL)
-            }
+            try? FileManager.default.removeItem(at: configURL)
         }
 
         let jsonString = """
@@ -431,7 +427,7 @@ struct AppConfigurationTests {
         """
         try Data(jsonString.utf8).write(to: configURL, options: .atomic)
 
-        let loaded = try AppConfiguration.load()
+        let loaded = try AppConfiguration.load(from: configURL)
 
         #expect(loaded.runtime.cacheTTLSeconds == 88)
         #expect(loaded.caching.defaultTTLSeconds == 222)
