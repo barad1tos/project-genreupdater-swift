@@ -153,8 +153,8 @@ struct AppleScriptBridgeConfigurationTests {
         }
     }
 
-    @Test("Track output parser preserves valid records and skips malformed records")
-    func trackOutputParserPreservesValidRecordsAndSkipsMalformedRecords() throws {
+    @Test("Track output parser preserves valid records and skips malformed or empty records")
+    func trackOutputParserPreservesValidRecordsAndSkipsMalformedOrEmptyRecords() throws {
         let fieldSeparator = String(Track.fieldSeparator)
         let recordSeparator = String(Track.recordSeparator)
         let validFirst = [
@@ -163,19 +163,28 @@ struct AppleScriptBridgeConfigurationTests {
             "matched", "1999", "2001", "",
         ].joined(separator: fieldSeparator)
         let malformed = ["broken", "record", "only"].joined(separator: fieldSeparator)
+        let duplicateIdentity = [
+            "103", "American Sleep", "Clutch", "Clutch", "Pure Rock Fury",
+            "Rock", "2024-02-22 13:45:00", "2024-03-02 10:00:00",
+            "matched", "1999", "2001", "",
+        ].joined(separator: fieldSeparator)
         let validSecond = [
             "102", "Паліндром", "Паліндром", "", "Найліпші питання собі",
             "", "", "", "purchased", "2024", "2024", "",
         ].joined(separator: fieldSeparator)
 
         let tracks = AppleScriptBridge.parseTrackOutput(
-            [validFirst, malformed, validSecond].joined(separator: recordSeparator)
+            ["", validFirst, malformed, "", duplicateIdentity, validSecond, ""].joined(separator: recordSeparator)
         )
 
-        #expect(tracks.map(\.id) == ["101", "102"])
+        #expect(tracks.map(\.id) == ["101", "103", "102"])
         #expect(tracks.first?.name == "American Sleep")
         #expect(tracks.first?.year == 1999)
         #expect(tracks.first?.releaseYear == 2001)
+        let duplicateTrack = try #require(tracks.first { $0.id == "103" })
+        #expect(duplicateTrack.name == "American Sleep")
+        #expect(duplicateTrack.artist == "Clutch")
+        #expect(duplicateTrack.album == "Pure Rock Fury")
         let cyrillicTrack = try #require(tracks.last)
         #expect(cyrillicTrack.name == "Паліндром")
         #expect(cyrillicTrack.artist == "Паліндром")

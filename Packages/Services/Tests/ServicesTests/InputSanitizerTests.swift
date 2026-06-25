@@ -145,6 +145,21 @@ struct EscapeStringValueTests {
         let result = InputSanitizer.escapeStringValue(#"Track (Remaster) "2024" [Deluxe]"#)
         #expect(result == #"Track (Remaster) \"2024\" [Deluxe]"#)
     }
+
+    @Test("Preserves metadata punctuation for update_property arguments")
+    func preservesMetadataPunctuationForUpdatePropertyArguments() throws {
+        let value = #"Паліндром / Альбом, Частина & "Live" (EP) [Single]"#
+        let escapedValue = #"Паліндром / Альбом, Частина & \"Live\" (EP) [Single]"#
+
+        #expect(InputSanitizer.escapeStringValue(value) == escapedValue)
+        #expect(try InputSanitizer.sanitizeArguments(["42", "name", value]) == ["42", "name", escapedValue])
+
+        let codeSanitized = InputSanitizer.sanitizeScriptCode(value)
+        #expect(!codeSanitized.contains("&"))
+        #expect(!codeSanitized.contains("("))
+        #expect(!codeSanitized.contains(")"))
+        #expect(codeSanitized != escapedValue)
+    }
 }
 
 // MARK: - validateScriptCode

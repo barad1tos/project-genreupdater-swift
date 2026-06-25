@@ -83,6 +83,45 @@ struct AppleScriptClientTests {
         #expect(tracks.first?.releaseYear == 2001)
         #expect(tracks.last?.artist == "Паліндром")
     }
+
+    @Test("Default fetchTracksByIDs handles empty, exact, and overflow batches")
+    func defaultFetchTracksByIDsHandlesEmptyExactAndOverflowBatches() async throws {
+        let emptyClient = ScriptOutputClient(output: nil)
+
+        let emptyTracks = try await emptyClient.fetchTracksByIDs(
+            [],
+            batchSize: 2,
+            timeout: .seconds(7)
+        )
+
+        #expect(emptyTracks.isEmpty)
+        #expect(await emptyClient.calls.isEmpty)
+
+        let fieldSeparator = String(Track.fieldSeparator)
+        func output(id: String, name: String) -> String {
+            [
+                id, name, "Clutch", "Clutch", "Pure Rock Fury",
+                "Rock", "", "", "matched", "1999", "2001", "",
+            ].joined(separator: fieldSeparator)
+        }
+        let client = ScriptOutputClient(outputs: [
+            output(id: "101", name: "American Sleep"),
+            output(id: "103", name: "Careful With That Mic..."),
+            output(id: "105", name: "Drink to the Dead"),
+        ])
+
+        let tracks = try await client.fetchTracksByIDs(
+            ["101", "102", "103", "104", "105"],
+            batchSize: 2,
+            timeout: .seconds(7)
+        )
+
+        let calls = await client.calls
+        #expect(calls.map(\.name) == ["fetch_tracks_by_ids", "fetch_tracks_by_ids", "fetch_tracks_by_ids"])
+        #expect(calls.map(\.arguments) == [["101,102"], ["103,104"], ["105"]])
+        #expect(calls.map(\.timeout) == [.seconds(7), .seconds(7), .seconds(7)])
+        #expect(tracks.map(\.id) == ["101", "103", "105"])
+    }
 }
 
 private actor ScriptOutputClient: AppleScriptClient {
