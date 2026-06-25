@@ -42,6 +42,19 @@ struct AppleScriptClientTests {
         #expect(tracks.isEmpty)
     }
 
+    @Test("Default fetchTracks rejects malformed non-empty records")
+    func defaultFetchTracksRejectsMalformedNonEmptyRecords() async {
+        let output = [
+            appleScriptTrackOutput(id: "101", name: "American Sleep"),
+            appleScriptTrackOutput(id: "", name: "Missing ID"),
+        ].joined(separator: String(Track.recordSeparator))
+        let client = ScriptOutputClient(output: output)
+
+        await #expect(throws: AppleScriptClientParseError.self) {
+            _ = try await client.fetchTracks(artist: "Clutch")
+        }
+    }
+
     @Test("Default fetchAllTrackIDs runs lightweight ID script")
     func defaultFetchAllTrackIDsRunsLightweightIDScript() async throws {
         let client = ScriptOutputClient(output: " 10, 20,, 30, ")
@@ -87,6 +100,19 @@ struct AppleScriptClientTests {
         #expect(tracks.first?.year == 1999)
         #expect(tracks.first?.releaseYear == 2001)
         #expect(tracks.last?.artist == "Паліндром")
+    }
+
+    @Test("Default fetchTracksByIDs rejects malformed non-empty records")
+    func defaultFetchTracksByIDsRejectsMalformedNonEmptyRecords() async {
+        let output = [
+            appleScriptTrackOutput(id: "101", name: "American Sleep"),
+            appleScriptTrackOutput(id: "", name: "Missing ID"),
+        ].joined(separator: String(Track.recordSeparator))
+        let client = ScriptOutputClient(output: output)
+
+        await #expect(throws: AppleScriptClientParseError.self) {
+            _ = try await client.fetchTracksByIDs(["101", "102"], batchSize: 2)
+        }
     }
 
     @Test("Default fetchTracksByIDs handles empty, exact, and overflow batches")

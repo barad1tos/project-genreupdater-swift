@@ -315,6 +315,16 @@ public enum AppleScriptWriteResult: Sendable, Equatable {
     case noChange
 }
 
+/// Error thrown when an AppleScript read helper cannot map a non-empty record to a track.
+public struct AppleScriptClientParseError: Error, LocalizedError, Sendable, Equatable {
+    public let scriptName: String
+    public let detail: String
+
+    public var errorDescription: String? {
+        "Failed to parse output from '\(scriptName)': \(detail)"
+    }
+}
+
 /// Protocol for interacting with Music.app via AppleScript.
 ///
 /// The actor requirement ensures serial access to AppleScript execution,
@@ -373,9 +383,7 @@ extension AppleScriptClient {
                 timeout: timeout
             )
             guard let output, output != "NO_TRACKS_FOUND" else { continue }
-            tracks.append(contentsOf: output.split(separator: Track.recordSeparator).compactMap {
-                Track.fromAppleScriptOutput(String($0))
-            })
+            try tracks.append(contentsOf: Self.parseTrackRecords(output, scriptName: "fetch_tracks_by_ids"))
         }
         return tracks
     }
@@ -405,8 +413,25 @@ extension AppleScriptClient {
             timeout: timeout
         )
         guard let output, output != "NO_TRACKS_FOUND" else { return [] }
-        return output.split(separator: Track.recordSeparator)
-            .compactMap { Track.fromAppleScriptOutput(String($0)) }
+        return try Self.parseTrackRecords(output, scriptName: "fetch_tracks")
+    }
+
+    static func parseTrackRecords(_ output: String, scriptName: String) throws -> [Track] {
+        var tracks: [Track] = []
+        for record in output.split(separator: Track.recordSeparator, omittingEmptySubsequences: false) {
+            let rawRecord = String(record)
+            guard !rawRecord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            guard let track = Track.fromAppleScriptOutput(rawRecord) else {
+                throw AppleScriptClientParseError(
+                    scriptName: scriptName,
+                    detail: "Malformed track record: \(String(rawRecord.prefix(200)))"
+                )
+            }
+            tracks.append(track)
+        }
+        return tracks
     }
 }
 

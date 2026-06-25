@@ -47,6 +47,7 @@ actor MockAppleScriptClient: AppleScriptClient {
     var tracksByID: [String: Track] = [:]
     var shouldThrow = false
     var shouldThrowBatch = false
+    var shouldThrowBatchAfterMutation = false
     var shouldCancelBatch = false
     var shouldApplyBatchUpdates = true
     var shouldClearFetchedTracksAfterBatchUpdate = false
@@ -111,6 +112,13 @@ actor MockAppleScriptClient: AppleScriptClient {
         for update in updates.prefix(batchMutationLimit ?? updates.count) {
             apply(property: update.property, value: update.value, toTrackWithID: update.trackID)
         }
+        if shouldThrowBatchAfterMutation {
+            throw AppleScriptBatchVerificationError(
+                updateCount: updates.count,
+                failedCount: updates.count - (batchMutationLimit ?? updates.count),
+                reason: "test verification failure"
+            )
+        }
         if shouldClearFetchedTracksAfterBatchUpdate {
             tracksByID.removeAll()
         }
@@ -122,6 +130,10 @@ actor MockAppleScriptClient: AppleScriptClient {
 
     func setBatchThrowMode(_ shouldFail: Bool) {
         shouldThrowBatch = shouldFail
+    }
+
+    func setBatchPostRunVerificationFailureMode(_ shouldFail: Bool) {
+        shouldThrowBatchAfterMutation = shouldFail
     }
 
     func setBatchCancellationMode(_ shouldCancel: Bool) {

@@ -318,16 +318,14 @@ extension UpdateCoordinator {
             )
         } catch is CancellationError {
             throw CancellationError()
-        } catch {
-            guard let appliedIndexes = try await verifiedBatchWriteIndexes(preparedWrites),
-                  !appliedIndexes.isEmpty
-            else {
-                throw error
-            }
-            log.warning(
-                "Batch AppleScript write reported failure after partial verification; unverified writes are failures"
+        } catch let error as AppleScriptBatchVerificationError {
+            return try await batchOutcomeAfterPostRunVerificationFailure(
+                preparedWrites,
+                currentTracksByID: currentTracksByID,
+                error: error
             )
-            return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: appliedIndexes)
+        } catch {
+            throw error
         }
 
         guard let appliedIndexes = try await verifiedBatchWriteIndexes(preparedWrites) else {
@@ -344,6 +342,38 @@ extension UpdateCoordinator {
             )
         }
         return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: appliedIndexes)
+    }
+
+    private func batchOutcomeAfterPostRunVerificationFailure(
+        _ preparedWrites: [PreparedAppleScriptWrite],
+        currentTracksByID: [String: Track],
+        error: AppleScriptBatchVerificationError
+    ) async throws -> BatchWriteOutcome {
+        do {
+            guard let appliedIndexes = try await verifiedBatchWriteIndexes(preparedWrites) else {
+                log.warning(
+                    "Batch AppleScript write could not be verified after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .public)"
+                )
+                return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
+            }
+            guard !appliedIndexes.isEmpty else {
+                log.warning(
+                    "Batch AppleScript write reported no verified updates after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .public)"
+                )
+                return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
+            }
+            log.warning(
+                "Batch AppleScript write reported failure after partial verification; unverified writes are failures: \(error.localizedDescription, privacy: .public)"
+            )
+            return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: appliedIndexes)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            log.warning(
+                "Batch AppleScript write verification failed after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .public)"
+            )
+            return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
+        }
     }
 
     private func fetchBatchWriteTracks(_ preparedWrites: [PreparedAppleScriptWrite]) async throws -> [String: Track]? {

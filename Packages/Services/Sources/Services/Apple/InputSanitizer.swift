@@ -6,8 +6,10 @@
 // 2. Dangerous pattern detection (shell scripts, system events)
 // 3. Script size limits (DoS prevention)
 //
-// In the Swift app, NSUserAppleScriptTask provides additional sandboxing,
-// but input sanitization remains critical for the arguments we pass to scripts.
+// In the Swift app, NSUserAppleScriptTask provides additional sandboxing.
+// Source-text sanitization remains critical only where Swift composes script
+// code or quoted AppleScript strings; direct argv values are AppleEvent
+// descriptors and must be validated without rewriting payload text.
 
 import Core
 import Foundation
@@ -40,11 +42,11 @@ public enum SanitizationError: Error, LocalizedError {
 
 // MARK: - Input Sanitizer
 
-/// Security-focused input sanitizer for AppleScript arguments.
+/// Security-focused helpers for AppleScript source text and direct argv validation.
 ///
-/// All strings passed to AppleScript must go through this sanitizer
-/// to prevent injection attacks. The sanitizer is intentionally strict —
-/// it's better to reject valid input than to allow dangerous input.
+/// Use `sanitizeString` and `escapeStringValue` when Swift interpolates source
+/// text. Use `validateAppleEventArguments` for `NSUserAppleScriptTask` argv so
+/// user metadata is not modified before it reaches Music.app.
 public enum InputSanitizer {
     /// Maximum allowed size for any input string (10 KB).
     public static let maxInputSize = 10000
@@ -66,7 +68,10 @@ public enum InputSanitizer {
         return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
     }()
 
-    /// Sanitize a string for safe use as an AppleScript argument.
+    /// Escape a string for safe interpolation inside generated AppleScript source.
+    ///
+    /// Do not use this for direct `NSUserAppleScriptTask` argv values; call
+    /// `validateAppleEventArguments(_:)` so metadata payloads are not rewritten.
     public static func sanitizeString(_ value: String) throws -> String {
         guard !value.isEmpty else {
             throw SanitizationError.emptyInput

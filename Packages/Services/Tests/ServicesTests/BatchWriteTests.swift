@@ -84,6 +84,53 @@ struct BatchWriteTests {
         #expect(result.hasPartialFailures)
     }
 
+    @Test("Pre-run batch failure falls back to single writes")
+    func preRunBatchFailureFallsBackToSingleWrites() async throws {
+        let fixture = await makeCoordinator(batchUpdatesEnabled: true)
+        await fixture.bridge.setBatchThrowMode(true)
+        let track = makeTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.bridge.setFetchedTracks([track])
+        let proposals = acceptedGenreAndYearProposals(for: track)
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreProgress
+        )
+
+        let batches = await fixture.bridge.batchUpdates
+        let written = await fixture.bridge.writtenProperties
+        #expect(batches.count == 1)
+        #expect(written.map(\.property) == ["genre", "year"])
+        #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
+        #expect(!result.hasPartialFailures)
+    }
+
+    @Test("Post-run batch verification failure does not fall back to single writes")
+    func postRunBatchVerificationFailureDoesNotFallBackToSingleWrites() async throws {
+        let fixture = await makeCoordinator(batchUpdatesEnabled: true)
+        await fixture.bridge.setBatchMutationLimit(1)
+        await fixture.bridge.setBatchPostRunVerificationFailureMode(true)
+        await fixture.bridge.setSingleWriteResult(.noChange)
+        let track = makeTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.bridge.setFetchedTracks([track])
+        let proposals = acceptedGenreAndYearProposals(for: track)
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreProgress
+        )
+
+        let batches = await fixture.bridge.batchUpdates
+        let written = await fixture.bridge.writtenProperties
+        #expect(batches.count == 1)
+        #expect(written.isEmpty)
+        #expect(result.entries.map(\.changeType) == [.genreUpdate])
+        #expect(result.failedTrackIDs == ["MK1"])
+        #expect(result.errorDescriptions.count == 1)
+        #expect(result.errorDescriptions.first?.contains("could not be verified") == true)
+        #expect(result.hasPartialFailures)
+    }
+
     private func makeCoordinator(
         batchUpdatesEnabled: Bool,
         idMapper: (any TrackIDMapping)? = nil

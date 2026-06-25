@@ -47,6 +47,19 @@ public enum AppleScriptBridgeError: Error, LocalizedError {
     }
 }
 
+struct AppleScriptBatchVerificationError: Error, LocalizedError {
+    let updateCount: Int
+    let failedCount: Int?
+    let reason: String
+
+    var errorDescription: String? {
+        if let failedCount {
+            return "Batch verification failed for \(failedCount) of \(updateCount) updates: \(reason)"
+        }
+        return "Batch verification failed for \(updateCount) updates: \(reason)"
+    }
+}
+
 // MARK: - Sendable Wrapper
 
 // Safety: NSUserAppleScriptTask and NSAppleEventDescriptor are not Sendable
@@ -302,11 +315,20 @@ public actor AppleScriptBridge: AppleScriptClient {
         _ updates: [(trackID: String, property: String, value: String)]
     ) async throws {
         let trackIDs = Array(Set(updates.map(\.trackID)))
-        let refreshedTracks = try await fetchTracksByIDs(
-            trackIDs,
-            batchSize: max(trackIDs.count, 1),
-            timeout: config.timeouts.idsBatchFetch
-        )
+        let refreshedTracks: [Core.Track]
+        do {
+            refreshedTracks = try await fetchTracksByIDs(
+                trackIDs,
+                batchSize: max(trackIDs.count, 1),
+                timeout: config.timeouts.idsBatchFetch
+            )
+        } catch {
+            throw AppleScriptBatchVerificationError(
+                updateCount: updates.count,
+                failedCount: nil,
+                reason: "Could not refresh tracks after batch write: \(error.localizedDescription)"
+            )
+        }
         let refreshedTracksByID = Dictionary(uniqueKeysWithValues: refreshedTracks.map { ($0.id, $0) })
         let failedUpdates = updates.filter { update in
             guard let track = refreshedTracksByID[update.trackID],
@@ -318,9 +340,10 @@ public actor AppleScriptBridge: AppleScriptClient {
         }
 
         guard failedUpdates.isEmpty else {
-            throw AppleScriptBridgeError.executionFailed(
-                scriptName: Self.batchUpdateScriptName,
-                detail: "Batch verification failed for \(failedUpdates.count) of \(updates.count) updates"
+            throw AppleScriptBatchVerificationError(
+                updateCount: updates.count,
+                failedCount: failedUpdates.count,
+                reason: "Requested values were not visible after batch write"
             )
         }
     }
