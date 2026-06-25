@@ -43,6 +43,7 @@ private func makeReleaseYearTrack(
     album: String = "Awake",
     year: Int?,
     releaseYear: Int?,
+    trackStatus: String? = nil,
     albumArtist: String? = nil
 ) -> Track {
     Track(
@@ -51,6 +52,7 @@ private func makeReleaseYearTrack(
         artist: artist,
         album: album,
         year: year,
+        trackStatus: trackStatus,
         releaseYear: releaseYear,
         albumArtist: albumArtist
     )
@@ -116,6 +118,54 @@ struct UpdateCoordinatorReleaseYearRestoreTests {
         let written = await fixture.bridge.writtenProperties
         #expect(result.entries.count == 1)
         #expect(written.first?.value == "1997")
+    }
+
+    @Test("Skips prerelease tracks before release-year restore consensus")
+    func skipsPrereleaseTracksBeforeReleaseYearRestoreConsensus() async {
+        let fixture = await makeReleaseYearRestoreFixture()
+        let tracks = [
+            makeReleaseYearTrack(
+                id: "T1",
+                year: 2025,
+                releaseYear: 2001,
+                trackStatus: TrackKind.prerelease.rawValue
+            ),
+            makeReleaseYearTrack(id: "T2", year: 2025, releaseYear: 1997),
+        ]
+
+        let result = await fixture.coordinator.restoreReleaseYears(
+            in: tracks,
+            threshold: 5,
+            progressHandler: ignoreReleaseYearProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.entries.count == 1)
+        #expect(result.entries.first?.trackID == "T2")
+        #expect(written.count == 1)
+        #expect(written.first?.trackID == "T2")
+        #expect(written.first?.value == "1997")
+    }
+
+    @Test("Skips release-year restore when album consensus is tied")
+    func skipsReleaseYearRestoreWhenAlbumConsensusIsTied() async {
+        let fixture = await makeReleaseYearRestoreFixture()
+        let tracks = [
+            makeReleaseYearTrack(id: "T1", year: 2025, releaseYear: 1997),
+            makeReleaseYearTrack(id: "T2", year: 2025, releaseYear: 2001),
+        ]
+
+        let result = await fixture.coordinator.restoreReleaseYears(
+            in: tracks,
+            threshold: 5,
+            progressHandler: ignoreReleaseYearProgress
+        )
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(result.entries.isEmpty)
+        #expect(result.noOpEntries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(written.isEmpty)
     }
 
     @Test("Release-year restore consensus groups guest tracks by album artist")
