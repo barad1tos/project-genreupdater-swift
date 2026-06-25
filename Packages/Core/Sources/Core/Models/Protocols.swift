@@ -315,6 +315,36 @@ public enum AppleScriptWriteResult: Sendable, Equatable {
     case noChange
 }
 
+/// Error thrown when a batch script may have run but its final metadata state cannot be verified.
+public struct AppleScriptBatchVerificationError: Error, LocalizedError, Sendable, Equatable {
+    public let updateCount: Int
+    public let failedCount: Int?
+    public let reason: String
+
+    public init(updateCount: Int, failedCount: Int?, reason: String) {
+        self.updateCount = updateCount
+        self.failedCount = failedCount
+        self.reason = reason
+    }
+
+    public var errorDescription: String? {
+        if let failedCount {
+            return "Batch verification failed for \(failedCount) of \(updateCount) updates: \(reason)"
+        }
+        return "Batch verification failed for \(updateCount) updates: \(reason)"
+    }
+}
+
+/// Error thrown when an AppleScript read helper cannot map a non-empty record to a track.
+public struct AppleScriptClientParseError: Error, LocalizedError, Sendable, Equatable {
+    public let scriptName: String
+    public let detail: String
+
+    public var errorDescription: String? {
+        "Failed to parse output from '\(scriptName)': \(detail)"
+    }
+}
+
 /// Protocol for interacting with Music.app via AppleScript.
 ///
 /// The actor requirement ensures serial access to AppleScript execution,
@@ -347,6 +377,11 @@ public protocol AppleScriptClient: Actor {
     func updateTrackProperty(trackID: String, property: String, value: String) async throws -> AppleScriptWriteResult
 
     /// Update multiple track properties in one Music.app script call.
+    ///
+    /// A conformer must throw `AppleScriptBatchVerificationError` if the batch
+    /// script may have reached Music.app but the resulting metadata cannot be
+    /// verified. Callers use that error to avoid unsafe single-write fallback
+    /// after a potentially mutating batch execution.
     func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws
 }
 
@@ -373,9 +408,7 @@ extension AppleScriptClient {
                 timeout: timeout
             )
             guard let output, output != "NO_TRACKS_FOUND" else { continue }
-            tracks.append(contentsOf: output.split(separator: Track.recordSeparator).compactMap {
-                Track.fromAppleScriptOutput(String($0))
-            })
+            try tracks.append(contentsOf: Self.parseTrackRecords(output, scriptName: "fetch_tracks_by_ids"))
         }
         return tracks
     }
@@ -398,14 +431,34 @@ extension AppleScriptClient {
     }
 
     public func fetchTracks(artist: String? = nil, timeout: Duration? = nil) async throws -> [Track] {
+        let arguments = artist.map { [$0] } ?? []
         let output = try await runScript(
             name: "fetch_tracks",
-            arguments: [artist ?? ""],
+            arguments: arguments,
             timeout: timeout
         )
         guard let output, output != "NO_TRACKS_FOUND" else { return [] }
-        return output.split(separator: Track.recordSeparator)
-            .compactMap { Track.fromAppleScriptOutput(String($0)) }
+        return try Self.parseTrackRecords(output, scriptName: "fetch_tracks")
+    }
+
+    public static func parseTrackRecords(_ output: String, scriptName: String) throws -> [Track] {
+        var tracks: [Track] = []
+        for record in output.split(separator: Track.recordSeparator, omittingEmptySubsequences: false) {
+            let rawRecord = String(record)
+            guard !rawRecord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            guard let track = Track.fromAppleScriptOutput(rawRecord) else {
+                let fieldCount = rawRecord.split(separator: Track.fieldSeparator, omittingEmptySubsequences: false)
+                    .count
+                throw AppleScriptClientParseError(
+                    scriptName: scriptName,
+                    detail: "Malformed track record: expected 12 fields, got \(fieldCount)"
+                )
+            }
+            tracks.append(track)
+        }
+        return tracks
     }
 }
 

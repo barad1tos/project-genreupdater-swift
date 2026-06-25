@@ -6,11 +6,15 @@ import Testing
 struct AppleScriptClientTests {
     @Test("Default fetchTracks passes artist scope and parses AppleScript output")
     func defaultFetchTracksPassesArtistScopeAndParsesAppleScriptOutput() async throws {
-        let fieldSeparator = String(Track.fieldSeparator)
-        let output = [
-            "101", "Зимно", "Паліндром", "Паліндром", "Найліпші питання собі",
-            "Rap", "", "", "purchased", "2024", "2024", "",
-        ].joined(separator: fieldSeparator)
+        let output = appleScriptTrackOutput(
+            id: "101",
+            name: "Зимно",
+            artist: "Паліндром",
+            album: "Найліпші питання собі",
+            year: "2024",
+            releaseYear: "2024",
+            status: "purchased"
+        )
         let client = ScriptOutputClient(output: output)
 
         let tracks = try await client.fetchTracks(artist: "Паліндром", timeout: .seconds(3))
@@ -33,9 +37,22 @@ struct AppleScriptClientTests {
 
         let call = try #require(await client.calls.first)
         #expect(call.name == "fetch_tracks")
-        #expect(call.arguments == [""])
+        #expect(call.arguments.isEmpty)
         #expect(call.timeout == nil)
         #expect(tracks.isEmpty)
+    }
+
+    @Test("Default fetchTracks rejects malformed non-empty records")
+    func defaultFetchTracksRejectsMalformedNonEmptyRecords() async {
+        let output = [
+            appleScriptTrackOutput(id: "101", name: "American Sleep"),
+            appleScriptTrackOutput(id: "", name: "Missing ID"),
+        ].joined(separator: String(Track.recordSeparator))
+        let client = ScriptOutputClient(output: output)
+
+        await #expect(throws: AppleScriptClientParseError.self) {
+            _ = try await client.fetchTracks(artist: "Clutch")
+        }
     }
 
     @Test("Default fetchAllTrackIDs runs lightweight ID script")
@@ -53,15 +70,16 @@ struct AppleScriptClientTests {
 
     @Test("Default fetchTracksByIDs batches IDs and parses AppleScript output")
     func defaultFetchTracksByIDsBatchesIDsAndParsesAppleScriptOutput() async throws {
-        let fieldSeparator = String(Track.fieldSeparator)
-        let firstBatchOutput = [
-            "101", "American Sleep", "Clutch", "Clutch", "Pure Rock Fury",
-            "Rock", "", "", "matched", "1999", "2001", "",
-        ].joined(separator: fieldSeparator)
-        let secondBatchOutput = [
-            "103", "Зимно", "Паліндром", "Паліндром", "Найліпші питання собі",
-            "Rap", "", "", "purchased", "2024", "2024", "",
-        ].joined(separator: fieldSeparator)
+        let firstBatchOutput = appleScriptTrackOutput(id: "101", name: "American Sleep")
+        let secondBatchOutput = appleScriptTrackOutput(
+            id: "103",
+            name: "Зимно",
+            artist: "Паліндром",
+            album: "Найліпші питання собі",
+            year: "2024",
+            releaseYear: "2024",
+            status: "purchased"
+        )
         let client = ScriptOutputClient(outputs: [
             firstBatchOutput,
             "NO_TRACKS_FOUND",
@@ -83,6 +101,104 @@ struct AppleScriptClientTests {
         #expect(tracks.first?.releaseYear == 2001)
         #expect(tracks.last?.artist == "Паліндром")
     }
+
+    @Test("Parse error detail does not contain user metadata")
+    func parseErrorDetailDoesNotContainUserMetadata() async {
+        let secretName = "SECRET_TRACK_NAME"
+        let malformedRecord = [secretName, "artist", "album"]
+            .joined(separator: String(Track.fieldSeparator))
+        let output = [malformedRecord].joined(separator: String(Track.recordSeparator))
+        let client = ScriptOutputClient(output: output)
+
+        do {
+            _ = try await client.fetchTracks(artist: "Test")
+            Issue.record("Expected AppleScriptClientParseError")
+        } catch let error as AppleScriptClientParseError {
+            #expect(error is AppleScriptClientParseError)
+            #expect(!error.detail.contains(secretName))
+        } catch {
+            Issue.record("Expected AppleScriptClientParseError, got \(error)")
+        }
+    }
+
+    @Test("Parse error detail reports accurate field count with empty fields")
+    func parseErrorDetailReportsAccurateFieldCountWithEmptyFields() async {
+        // 12-field record with empty ID and empty placeholder fields — rejected by
+        // fromAppleScriptOutput for missing ID, but field count must reflect all
+        // 12 fields (omittingEmptySubsequences: false matches parser semantics).
+        let malformedRecord = appleScriptTrackOutput(id: "", name: "Missing ID")
+        let output = [malformedRecord].joined(separator: String(Track.recordSeparator))
+        let client = ScriptOutputClient(output: output)
+
+        do {
+            _ = try await client.fetchTracks(artist: "Test")
+            Issue.record("Expected AppleScriptClientParseError")
+        } catch let error as AppleScriptClientParseError {
+            #expect(error.detail.contains("got 12"))
+        } catch {
+            Issue.record("Expected AppleScriptClientParseError, got \(error)")
+        }
+    }
+
+    @Test("Default fetchTracksByIDs rejects malformed non-empty records")
+    func defaultFetchTracksByIDsRejectsMalformedNonEmptyRecords() async {
+        let output = [
+            appleScriptTrackOutput(id: "101", name: "American Sleep"),
+            appleScriptTrackOutput(id: "", name: "Missing ID"),
+        ].joined(separator: String(Track.recordSeparator))
+        let client = ScriptOutputClient(output: output)
+
+        await #expect(throws: AppleScriptClientParseError.self) {
+            _ = try await client.fetchTracksByIDs(["101", "102"], batchSize: 2)
+        }
+    }
+
+    @Test("Default fetchTracksByIDs handles empty, exact, and overflow batches")
+    func defaultFetchTracksByIDsHandlesEmptyExactAndOverflowBatches() async throws {
+        let emptyClient = ScriptOutputClient(output: nil)
+
+        let emptyTracks = try await emptyClient.fetchTracksByIDs(
+            [],
+            batchSize: 2,
+            timeout: .seconds(7)
+        )
+
+        #expect(emptyTracks.isEmpty)
+        #expect(await emptyClient.calls.isEmpty)
+
+        let client = ScriptOutputClient(outputs: [
+            appleScriptTrackOutput(id: "101", name: "American Sleep"),
+            appleScriptTrackOutput(id: "103", name: "Careful With That Mic..."),
+            appleScriptTrackOutput(id: "105", name: "Drink to the Dead"),
+        ])
+
+        let tracks = try await client.fetchTracksByIDs(
+            ["101", "102", "103", "104", "105"],
+            batchSize: 2,
+            timeout: .seconds(7)
+        )
+
+        let calls = await client.calls
+        #expect(calls.map(\.name) == ["fetch_tracks_by_ids", "fetch_tracks_by_ids", "fetch_tracks_by_ids"])
+        #expect(calls.map(\.arguments) == [["101,102"], ["103,104"], ["105"]])
+        #expect(calls.map(\.timeout) == [.seconds(7), .seconds(7), .seconds(7)])
+        #expect(tracks.map(\.id) == ["101", "103", "105"])
+    }
+}
+
+private func appleScriptTrackOutput(
+    id: String,
+    name: String,
+    artist: String = "Clutch",
+    album: String = "Pure Rock Fury",
+    year: String = "1999",
+    releaseYear: String = "2001",
+    status: String = "matched"
+) -> String {
+    [
+        id, name, artist, artist, album,
+        "Rock", "", "", status, year, releaseYear, "",
+    ].joined(separator: String(Track.fieldSeparator))
 }
 
 private actor ScriptOutputClient: AppleScriptClient {

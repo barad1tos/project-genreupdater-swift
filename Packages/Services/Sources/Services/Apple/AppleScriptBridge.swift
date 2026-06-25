@@ -105,6 +105,8 @@ private actor AppleScriptConcurrencyGate {
 /// The actor applies configured retry, rate, and concurrency limits before
 /// reaching Music.app.
 public actor AppleScriptBridge: AppleScriptClient {
+    private static let batchUpdateScriptName = "batch_update_tracks"
+
     private let installer: ScriptInstaller
     private var config: AppleScriptConfig
     private var rateLimiter: TokenBucketRateLimiter?
@@ -147,17 +149,20 @@ public actor AppleScriptBridge: AppleScriptClient {
         let runScriptSignpost = AppSignpost.appleScriptWrite.beginInterval("runScript")
         defer { AppSignpost.appleScriptWrite.endInterval("runScript", runScriptSignpost) }
 
-        let sanitizedArgs = try InputSanitizer.sanitizeArguments(arguments)
+        let validatedArguments = try InputSanitizer.validateAppleEventArguments(arguments)
         let effectiveTimeout = timeout ?? config.timeouts.defaultTimeout
         let retryConfiguration = config.retry
 
-        log.info("Executing script: \(name, privacy: .public) with \(sanitizedArgs.count, privacy: .public) arguments")
+        log
+            .info(
+                "Executing script: \(name, privacy: .public) with \(validatedArguments.count, privacy: .public) arguments"
+            )
 
         return try await retryAppleScriptOperation(scriptName: name, retry: retryConfiguration) {
             try await self.executeScriptAttempt(
                 name: name,
                 scriptURL: scriptURL,
-                arguments: sanitizedArgs,
+                arguments: validatedArguments,
                 timeout: effectiveTimeout
             )
         }
@@ -183,7 +188,7 @@ public actor AppleScriptBridge: AppleScriptClient {
                 continue
             }
 
-            let tracks = Self.parseTrackOutput(output)
+            let tracks = try Self.parseTrackOutput(output)
             allTracks.append(contentsOf: tracks)
         }
 
@@ -233,23 +238,135 @@ public actor AppleScriptBridge: AppleScriptClient {
 
         // Format matches batch_update_tracks.applescript:
         // Fields separated by ASCII 30 (Record Separator), commands by ASCII 29 (Group Separator).
+        guard !updates.isEmpty else { return }
+
+        try await ensureBatchUpdateScriptExists()
+        let batchArg = try Self.makeBatchUpdateArgument(updates)
+        _ = try InputSanitizer.validateAppleEventArguments([batchArg])
+
+        let output: String?
+        do {
+            output = try await runScript(
+                name: Self.batchUpdateScriptName,
+                arguments: [batchArg],
+                timeout: config.timeouts.batchUpdate
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw AppleScriptBatchVerificationError(
+                updateCount: updates.count,
+                failedCount: nil,
+                reason: "Batch script did not return a verifiable result: \(error.localizedDescription)"
+            )
+        }
+
+        do {
+            try Self.validateBatchUpdateOutput(output, updateCount: updates.count)
+        } catch {
+            throw AppleScriptBatchVerificationError(
+                updateCount: updates.count,
+                failedCount: nil,
+                reason: "Batch script returned an unverifiable response: \(error.localizedDescription)"
+            )
+        }
+        try await verifyBatchUpdateResult(updates)
+        log.info("Batch updated \(updates.count, privacy: .public) tracks")
+    }
+
+    private func ensureBatchUpdateScriptExists() async throws {
+        let scriptURL = await installer.scriptURL(for: Self.batchUpdateScriptName)
+        guard FileManager.default.fileExists(atPath: scriptURL.path) else {
+            throw AppleScriptBridgeError.scriptNotFound(
+                name: Self.batchUpdateScriptName,
+                searchPath: scriptURL.deletingLastPathComponent()
+            )
+        }
+    }
+
+    static func makeBatchUpdateArgument(_ updates: [(trackID: String, property: String, value: String)]) throws
+        -> String {
         let fieldSep = String(Core.Track.fieldSeparator) // \x1E — between fields
         let commandSep = String(Core.Track.recordSeparator) // \x1D — between commands
-        let batchArg: String = updates.map { update -> String in
-            let escapedID = InputSanitizer.escapeStringValue(update.trackID)
-            let escapedProperty = InputSanitizer.sanitizeScriptCode(update.property)
-            let escapedValue = InputSanitizer.escapeStringValue(update.value)
-            return "\(escapedID)\(fieldSep)\(escapedProperty)\(fieldSep)\(escapedValue)"
+        return try updates.map { update -> String in
+            try validateBatchUpdateComponent(update.trackID, label: "track ID")
+            try validateBatchUpdateComponent(update.value, label: "value")
+            let property = try validatedBatchUpdateProperty(update.property)
+            return "\(update.trackID)\(fieldSep)\(property)\(fieldSep)\(update.value)"
         }.joined(separator: commandSep)
+    }
 
-        let output = try await runScript(
-            name: "batch_update_tracks",
-            arguments: [batchArg],
-            timeout: config.timeouts.batchUpdate
+    private static func validatedBatchUpdateProperty(_ property: String) throws -> String {
+        try validateBatchUpdateComponent(property, label: "property")
+        let sanitizedProperty = InputSanitizer.sanitizeScriptCode(property)
+        guard sanitizedProperty == property,
+              AppleScriptTrackProperty.supportedNames.contains(property)
+        else {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: batchUpdateScriptName,
+                detail: "Unsupported batch update property: \(property)"
+            )
+        }
+        return property
+    }
+
+    private static func validateBatchUpdateComponent(_ value: String, label: String) throws {
+        let containsReservedSeparator = value.contains(Core.Track.fieldSeparator)
+            || value.contains(Core.Track.recordSeparator)
+        guard !containsReservedSeparator else {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: batchUpdateScriptName,
+                detail: "Batch update \(label) contains a reserved separator"
+            )
+        }
+    }
+
+    private func verifyBatchUpdateResult(
+        _ updates: [(trackID: String, property: String, value: String)]
+    ) async throws {
+        let trackIDs = Array(Set(updates.map(\.trackID)))
+        let refreshedTracks: [Core.Track]
+        do {
+            refreshedTracks = try await fetchTracksByIDs(
+                trackIDs,
+                batchSize: max(trackIDs.count, 1),
+                timeout: config.timeouts.idsBatchFetch
+            )
+        } catch {
+            throw AppleScriptBatchVerificationError(
+                updateCount: updates.count,
+                failedCount: nil,
+                reason: "Could not refresh tracks after batch write: \(error.localizedDescription)"
+            )
+        }
+        try Self.verifyBatchUpdateValues(updates, in: refreshedTracks)
+    }
+
+    static func verifyBatchUpdateValues(
+        _ updates: [(trackID: String, property: String, value: String)],
+        in refreshedTracks: [Core.Track]
+    ) throws {
+        let refreshedTracksByID = Dictionary(
+            refreshedTracks.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
+        let failedUpdates = updates.filter { update in
+            guard let track = refreshedTracksByID[update.trackID],
+                  let property = AppleScriptTrackProperty(rawValue: update.property),
+                  let currentValue = property.currentValue(in: track)
+            else {
+                return true
+            }
+            return currentValue != update.value
+        }
 
-        try Self.validateBatchUpdateOutput(output, updateCount: updates.count)
-        log.info("Batch updated \(updates.count, privacy: .public) tracks")
+        guard failedUpdates.isEmpty else {
+            throw AppleScriptBatchVerificationError(
+                updateCount: updates.count,
+                failedCount: failedUpdates.count,
+                reason: "Requested values were not visible after batch write"
+            )
+        }
     }
 
     // MARK: - Private Helpers
@@ -298,17 +415,18 @@ public actor AppleScriptBridge: AppleScriptClient {
     }
 
     static func validateBatchUpdateOutput(_ output: String?, updateCount: Int) throws {
-        guard let output else { return }
+        guard let output else {
+            throw AppleScriptBridgeError.executionFailed(
+                scriptName: batchUpdateScriptName,
+                detail: "Batch of \(updateCount) updates, response=<empty>"
+            )
+        }
 
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercasedOutput = trimmedOutput.lowercased()
-        let containsFailure =
-            lowercasedOutput.hasPrefix("error:")
-                || lowercasedOutput.contains("error updating track id")
-                || lowercasedOutput.contains(" out of range for track ")
-        guard !containsFailure else {
+        guard lowercasedOutput.hasPrefix("success:") else {
             throw AppleScriptBridgeError.executionFailed(
-                scriptName: "batch_update_tracks",
+                scriptName: batchUpdateScriptName,
                 detail: "Batch of \(updateCount) updates, response=\(String(trimmedOutput.prefix(200)))"
             )
         }
@@ -342,9 +460,12 @@ public actor AppleScriptBridge: AppleScriptClient {
     }
 
     /// Parse AppleScript output into Track objects.
-    static func parseTrackOutput(_ output: String) -> [Core.Track] {
-        output.split(separator: Core.Track.recordSeparator)
-            .compactMap { Core.Track.fromAppleScriptOutput(String($0)) }
+    static func parseTrackOutput(_ output: String) throws -> [Core.Track] {
+        do {
+            return try parseTrackRecords(output, scriptName: "fetch_tracks_by_ids")
+        } catch let error as AppleScriptClientParseError {
+            throw AppleScriptBridgeError.parseError(scriptName: error.scriptName, detail: error.detail)
+        }
     }
 }
 

@@ -93,6 +93,9 @@ actor MockAppleScriptClient: AppleScriptClient {
             throw MockScriptError.intentional
         }
         writtenProperties.append((trackID, property, value))
+        if currentValue(for: property, inTrackWithID: trackID) == value {
+            return .noChange
+        }
         if singleWriteResult == .changed {
             apply(property: property, value: value, toTrackWithID: trackID)
         }
@@ -107,13 +110,15 @@ actor MockAppleScriptClient: AppleScriptClient {
         if shouldThrowBatch {
             throw MockScriptError.intentional
         }
-        guard shouldApplyBatchUpdates else { return }
-        for update in updates.prefix(batchMutationLimit ?? updates.count) {
-            apply(property: update.property, value: update.value, toTrackWithID: update.trackID)
+        if shouldApplyBatchUpdates {
+            for update in updates.prefix(batchMutationLimit ?? updates.count) {
+                apply(property: update.property, value: update.value, toTrackWithID: update.trackID)
+            }
         }
         if shouldClearFetchedTracksAfterBatchUpdate {
             tracksByID.removeAll()
         }
+        try verifyBatchUpdates(updates)
     }
 
     func setThrowMode(_ shouldFail: Bool) {
@@ -179,10 +184,41 @@ actor MockAppleScriptClient: AppleScriptClient {
             track.album = value
         case "artist":
             track.artist = value
+        case "album_artist":
+            track.albumArtist = value
         default:
             return
         }
         tracksByID[trackID] = track
+    }
+
+    private func currentValue(for property: String, inTrackWithID trackID: String) -> String? {
+        guard let track = tracksByID[trackID],
+              let property = AppleScriptTrackProperty(rawValue: property)
+        else {
+            return nil
+        }
+        return property.currentValue(in: track)
+    }
+
+    private func verifyBatchUpdates(_ updates: [(trackID: String, property: String, value: String)]) throws {
+        let failedCount = updates.count(where: { update in
+            guard let track = tracksByID[update.trackID],
+                  let property = AppleScriptTrackProperty(rawValue: update.property),
+                  let currentValue = property.currentValue(in: track)
+            else {
+                return true
+            }
+            return currentValue != update.value
+        })
+
+        guard failedCount == 0 else {
+            throw AppleScriptBatchVerificationError(
+                updateCount: updates.count,
+                failedCount: failedCount,
+                reason: "test batch verification failure"
+            )
+        }
     }
 }
 

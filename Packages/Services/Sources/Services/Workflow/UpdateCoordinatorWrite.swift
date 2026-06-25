@@ -208,7 +208,7 @@ extension UpdateCoordinator {
             throw error
         } catch {
             log.warning(
-                "Batch AppleScript write failed; falling back to single writes: \(error.localizedDescription, privacy: .public)"
+                "Batch AppleScript write failed; falling back to single writes: \(error.localizedDescription, privacy: .private)"
             )
             return nil
         }
@@ -288,7 +288,7 @@ extension UpdateCoordinator {
                 throw CancellationError()
             } catch {
                 log.warning(
-                    "Batch write preparation failed; falling back to single writes: \(error.localizedDescription, privacy: .public)"
+                    "Batch write preparation failed; falling back to single writes: \(error.localizedDescription, privacy: .private)"
                 )
                 return nil
             }
@@ -306,29 +306,64 @@ extension UpdateCoordinator {
             return nil
         }
 
-        try await scriptBridge.batchUpdateTracks(
-            preparedWrites.map { preparedWrite in
-                (
-                    trackID: preparedWrite.trackID,
-                    property: preparedWrite.property,
-                    value: preparedWrite.value
-                )
-            }
-        )
-        guard let appliedIndexes = try await verifiedBatchWriteIndexes(preparedWrites) else {
-            log.warning("Batch AppleScript write could not be verified; unverified writes are failures")
-            return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
-        }
-        guard !appliedIndexes.isEmpty else {
-            log.warning("Batch AppleScript write did not verify any updates; unverified writes are failures")
-            return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
-        }
-        if appliedIndexes.count < preparedWrites.count {
-            log.warning(
-                "Batch AppleScript write partially verified; unverified writes are failures"
+        do {
+            try await scriptBridge.batchUpdateTracks(
+                preparedWrites.map { preparedWrite in
+                    (
+                        trackID: preparedWrite.trackID,
+                        property: preparedWrite.property,
+                        value: preparedWrite.value
+                    )
+                }
             )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as AppleScriptBatchVerificationError {
+            return try await batchOutcomeAfterPostRunVerificationFailure(
+                preparedWrites,
+                currentTracksByID: currentTracksByID,
+                error: error
+            )
+        } catch {
+            throw error
         }
-        return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: appliedIndexes)
+
+        return BatchWriteOutcome(
+            currentTracksByID: currentTracksByID,
+            appliedIndexes: Set(preparedWrites.indices)
+        )
+    }
+
+    private func batchOutcomeAfterPostRunVerificationFailure(
+        _ preparedWrites: [PreparedAppleScriptWrite],
+        currentTracksByID: [String: Track],
+        error: AppleScriptBatchVerificationError
+    ) async throws -> BatchWriteOutcome {
+        do {
+            guard let appliedIndexes = try await verifiedBatchWriteIndexes(preparedWrites) else {
+                log.warning(
+                    "Batch AppleScript write could not be verified after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .private)"
+                )
+                return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
+            }
+            guard !appliedIndexes.isEmpty else {
+                log.warning(
+                    "Batch AppleScript write reported no verified updates after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .private)"
+                )
+                return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
+            }
+            log.warning(
+                "Batch AppleScript write reported failure after partial verification; unverified writes are failures: \(error.localizedDescription, privacy: .private)"
+            )
+            return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: appliedIndexes)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            log.warning(
+                "Batch AppleScript write verification failed after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .private)"
+            )
+            return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
+        }
     }
 
     private func fetchBatchWriteTracks(_ preparedWrites: [PreparedAppleScriptWrite]) async throws -> [String: Track]? {
@@ -499,20 +534,7 @@ extension UpdateCoordinator {
     }
 
     private static func value(forAppleScriptProperty property: String, in track: Track) -> String? {
-        switch property {
-        case "genre":
-            track.genre
-        case "year":
-            track.year.map(String.init)
-        case "name":
-            track.name
-        case "album":
-            track.album
-        case "artist":
-            track.artist
-        default:
-            nil
-        }
+        AppleScriptTrackProperty(rawValue: property)?.currentValue(in: track)
     }
 
     static func isTrackAvailableForProcessing(_ track: Track) -> Bool {
