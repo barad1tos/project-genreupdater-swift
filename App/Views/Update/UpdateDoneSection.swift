@@ -468,7 +468,7 @@ private struct UpdateRunAlbumDetailPane: View {
         DisclosureGroup(isExpanded: $showsTechnicalDetails) {
             LazyVStack(alignment: .leading, spacing: Spacing.xxs) {
                 ForEach(album.tracks) { track in
-                    Text("\(track.title): \(track.id)")
+                    Text("\(track.title): \(track.technicalID)")
                         .font(.caption.monospaced())
                         .foregroundStyle(Ayu.fgMuted)
                         .lineLimit(1)
@@ -628,7 +628,7 @@ private struct UpdateRunTrackRow: View {
                 Text(resultDetail)
                     .font(AppFont.caption)
                     .foregroundStyle(resultTint)
-                    .lineLimit(2)
+                    .lineLimit(track.hasFailure ? nil : 2)
             }
             .frame(width: 220, alignment: .leading)
         }
@@ -668,7 +668,7 @@ private struct UpdateRunTrackRow: View {
     }
 
     private var helpText: String {
-        "\(track.title) - \(track.id)"
+        "\(track.title) - \(track.technicalID)"
     }
 }
 

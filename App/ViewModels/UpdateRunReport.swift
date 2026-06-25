@@ -350,6 +350,7 @@ struct UpdateRunReport: Equatable {
     ) -> UpdateRunTrackResult {
         UpdateRunTrackResult(
             id: track.id,
+            technicalID: track.id,
             title: track.name,
             trackNumber: track.originalPosition,
             currentGenre: track.genre,
@@ -365,6 +366,7 @@ struct UpdateRunReport: Equatable {
     private static func makeFallbackTrackResult(entry: ChangeLogEntry) -> UpdateRunTrackResult {
         UpdateRunTrackResult(
             id: entry.trackID,
+            technicalID: entry.trackID,
             title: entry.trackName.isEmpty ? "Unknown track" : entry.trackName,
             trackNumber: nil,
             currentGenre: entry.oldGenre,
@@ -380,6 +382,7 @@ struct UpdateRunReport: Equatable {
     private static func makeFallbackTrackResult(failure: UpdateRunFailure) -> UpdateRunTrackResult {
         UpdateRunTrackResult(
             id: failure.id,
+            technicalID: failure.technicalID,
             title: failure.title,
             trackNumber: nil,
             currentGenre: nil,
@@ -586,6 +589,7 @@ struct UpdateRunAlbumResult: Identifiable, Equatable {
 
 struct UpdateRunTrackResult: Identifiable, Equatable {
     let id: String
+    let technicalID: String
     let title: String
     let trackNumber: Int?
     let currentGenre: String?

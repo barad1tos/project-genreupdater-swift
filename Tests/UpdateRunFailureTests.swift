@@ -44,6 +44,27 @@ struct UpdateRunFailureTests {
         #expect(failureBreakdowns.allSatisfy { breakdown in breakdown.trackCount == 1 })
     }
 
+    @Test("keeps every same-track failure message in track details")
+    func keepsEverySameTrackFailureMessageInTrackDetails() throws {
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [],
+                failedTrackIDs: ["track-1", "track-1", "track-1"],
+                errorDescriptions: ["Genre failed", "Year failed", "Name failed"]
+            ),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [
+                Track(id: "track-1", name: "Song", artist: "Artist", album: "Album"),
+            ],
+            testArtists: []
+        )
+
+        let row = try #require(report.albumResults.first?.tracks.first)
+        #expect(row.failureMessage == "Genre failed\nYear failed\nName failed")
+        #expect(report.albumResults.first?.failureCount == 3)
+    }
+
     @Test("keeps shared status failure detail when result descriptions are shorter")
     func keepsSharedStatusFailureDetailWhenResultDescriptionsAreShorter() {
         let tracks = [
@@ -96,6 +117,8 @@ struct UpdateRunFailureTests {
         #expect(album.artist == "Unknown artist")
         #expect(album.album == "Unknown album")
         #expect(failureRow.title == "Unknown track")
+        #expect(failureRow.id != failureRow.technicalID)
+        #expect(failureRow.technicalID == "raw-id")
         #expect(failureRow.failureMessage == "Missing AppleScript ID")
     }
 
