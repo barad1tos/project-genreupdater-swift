@@ -304,8 +304,7 @@ extension ExternalAPIService {
         try await initialize(force: force)
     }
 
-    public func close() async { // Default no-op implementation for clients that don't need cleanup.}
-    }
+    public func close() async {}
 }
 
 // MARK: - AppleScript Client
@@ -450,7 +449,8 @@ extension AppleScriptClient {
                 continue
             }
             guard let track = Track.fromAppleScriptOutput(rawRecord) else {
-                let fieldCount = rawRecord.split(separator: Track.fieldSeparator).count
+                let fieldCount = rawRecord.split(separator: Track.fieldSeparator, omittingEmptySubsequences: false)
+                    .count
                 throw AppleScriptClientParseError(
                     scriptName: scriptName,
                     detail: "Malformed track record: expected 12 fields, got \(fieldCount)"

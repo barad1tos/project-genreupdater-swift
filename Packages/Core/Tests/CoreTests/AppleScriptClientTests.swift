@@ -121,6 +121,25 @@ struct AppleScriptClientTests {
         }
     }
 
+    @Test("Parse error detail reports accurate field count with empty fields")
+    func parseErrorDetailReportsAccurateFieldCountWithEmptyFields() async {
+        // 12-field record with empty ID and empty placeholder fields — rejected by
+        // fromAppleScriptOutput for missing ID, but field count must reflect all
+        // 12 fields (omittingEmptySubsequences: false matches parser semantics).
+        let malformedRecord = appleScriptTrackOutput(id: "", name: "Missing ID")
+        let output = [malformedRecord].joined(separator: String(Track.recordSeparator))
+        let client = ScriptOutputClient(output: output)
+
+        do {
+            _ = try await client.fetchTracks(artist: "Test")
+            Issue.record("Expected AppleScriptClientParseError")
+        } catch let error as AppleScriptClientParseError {
+            #expect(error.detail.contains("got 12"))
+        } catch {
+            Issue.record("Expected AppleScriptClientParseError, got \(error)")
+        }
+    }
+
     @Test("Default fetchTracksByIDs rejects malformed non-empty records")
     func defaultFetchTracksByIDsRejectsMalformedNonEmptyRecords() async {
         let output = [
