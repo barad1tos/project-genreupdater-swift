@@ -73,6 +73,7 @@ public actor UndoCoordinator {
     private let changeLogStore: (any ChangeLogStore)?
     private let cache: (any CacheService)?
     private var librarySnapshotService: (any LibrarySnapshotService)?
+    private var cleaning: CleaningConfig?
     private var history: [ChangeLogEntry]
     private let legacyHistoryURL: URL
     private let fileManager: FileManager
@@ -85,6 +86,7 @@ public actor UndoCoordinator {
         changeLogStore: (any ChangeLogStore)? = nil,
         cache: (any CacheService)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
+        cleaning: CleaningConfig? = nil,
         directory: URL? = nil
     ) {
         self.scriptBridge = scriptBridge
@@ -92,6 +94,7 @@ public actor UndoCoordinator {
         self.changeLogStore = changeLogStore
         self.cache = cache
         self.librarySnapshotService = librarySnapshotService
+        self.cleaning = cleaning
         self.fileManager = .default
         let base = directory ?? Self.defaultDirectory()
         let historyURL = base.appendingPathComponent("undo-history.json")
@@ -104,9 +107,11 @@ public actor UndoCoordinator {
     }
 
     public func updateRuntimeDependencies(
-        librarySnapshotService: (any LibrarySnapshotService)?
+        librarySnapshotService: (any LibrarySnapshotService)?,
+        cleaning: CleaningConfig? = nil
     ) {
         self.librarySnapshotService = librarySnapshotService
+        self.cleaning = cleaning
     }
 
     // MARK: Record
@@ -302,6 +307,7 @@ public actor UndoCoordinator {
         let mutationTrack = try await mutationTrack(for: change.track)
         try validateWriteEligibility(for: mutationTrack)
         let writeID = try await resolveWriteID(for: mutationTrack.id)
+        let mutationChange = Self.replacingTrack(in: change, with: mutationTrack)
 
         do {
             let result = try await scriptBridge.updateTrackProperty(
@@ -309,7 +315,7 @@ public actor UndoCoordinator {
                 property: property,
                 value: value
             )
-            await invalidateCaches(for: change)
+            await invalidateCaches(for: mutationChange)
             return result
         } catch is CancellationError {
             throw CancellationError()
@@ -327,12 +333,25 @@ public actor UndoCoordinator {
 
     private func invalidateCaches(for change: ProposedChange) async {
         if let cache {
-            for target in UpdateCoordinator.cacheInvalidationTargets(for: change) {
+            for target in UpdateCoordinator.cacheInvalidationTargets(for: change, cleaning: cleaning) {
                 await cache.invalidateAlbum(artist: target.artist, album: target.album)
                 await cache.invalidateCachedAPIResults(artist: target.artist, album: target.album)
             }
         }
         await librarySnapshotService?.clearSnapshot()
+    }
+
+    private static func replacingTrack(in change: ProposedChange, with track: Track) -> ProposedChange {
+        ProposedChange(
+            id: change.id,
+            track: track,
+            changeType: change.changeType,
+            oldValue: change.oldValue,
+            newValue: change.newValue,
+            confidence: change.confidence,
+            source: change.source,
+            isAccepted: change.isAccepted
+        )
     }
 
     private func revertProposal(for entry: ChangeLogEntry) -> ProposedChange {

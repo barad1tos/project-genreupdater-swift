@@ -174,7 +174,7 @@ struct ReportsView: View {
             )
 
             reportAlert = ReportsAlert(
-                title: "Revert Complete",
+                title: backupImportAlertTitle(for: result),
                 message: backupImportMessage(for: result)
             )
         } catch {
@@ -292,6 +292,19 @@ private struct ReportsAlert: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+}
+
+func backupImportAlertTitle(for result: YearBackupRevertResult) -> String {
+    let completedCount = result.updatedCount + result.skippedCount
+    let unresolvedCount = result.missingCount + result.failedCount
+
+    guard unresolvedCount > 0 else {
+        return "Revert Complete"
+    }
+    guard completedCount > 0 else {
+        return "Revert Failed"
+    }
+    return "Revert Partial"
 }
 
 private enum BackupCSVImportError: LocalizedError {

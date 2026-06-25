@@ -109,6 +109,33 @@ struct AppDependenciesLibraryServicesTests {
             )
         )
     }
+
+    @Test("Reports backup import title distinguishes failed and partial reverts")
+    func reportsBackupImportTitleDistinguishesFailedAndPartialReverts() {
+        #expect(backupImportAlertTitle(for: YearBackupRevertResult(
+            parsedCount: 1,
+            updatedCount: 0,
+            skippedCount: 0,
+            missingCount: 0,
+            failedCount: 1
+        )) == "Revert Failed")
+
+        #expect(backupImportAlertTitle(for: YearBackupRevertResult(
+            parsedCount: 2,
+            updatedCount: 1,
+            skippedCount: 0,
+            missingCount: 0,
+            failedCount: 1
+        )) == "Revert Partial")
+
+        #expect(backupImportAlertTitle(for: YearBackupRevertResult(
+            parsedCount: 1,
+            updatedCount: 1,
+            skippedCount: 0,
+            missingCount: 0,
+            failedCount: 0
+        )) == "Revert Complete")
+    }
 }
 
 private struct LibraryPersistenceFixture {

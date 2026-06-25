@@ -414,7 +414,8 @@ final class AppDependencies {
             idMapper: mapper,
             changeLogStore: logStore,
             cache: cache,
-            librarySnapshotService: librarySnapshotService
+            librarySnapshotService: librarySnapshotService,
+            cleaning: config.cleaning
         )
         await undo.initialize()
         undoCoordinator = undo
@@ -520,10 +521,17 @@ extension AppDependencies {
                 apiOrchestrator: configuredAPIOrchestrator,
                 librarySnapshotService: configuredLibrarySnapshotService
             )
-            await undoCoordinator?.updateRuntimeDependencies(
-                librarySnapshotService: configuredLibrarySnapshotService
-            )
+            await updateUndoRuntimeDependencies(librarySnapshotService: configuredLibrarySnapshotService)
         }
+    }
+
+    private func updateUndoRuntimeDependencies(
+        librarySnapshotService: (any LibrarySnapshotService)?
+    ) async {
+        await undoCoordinator?.updateRuntimeDependencies(
+            librarySnapshotService: librarySnapshotService,
+            cleaning: config.cleaning
+        )
     }
 
     private static func makeLibrarySnapshotService(
