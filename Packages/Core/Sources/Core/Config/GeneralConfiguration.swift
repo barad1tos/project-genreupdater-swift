@@ -19,7 +19,36 @@ public struct PathsConfig: Sendable, Codable {
             : logsBaseDirectory
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case musicLibraryPath, appleScriptsDirectory, logsBaseDirectory, apiCacheFile
+    }
+
+    private enum DecodingKeys: String, CodingKey {
+        case musicLibraryPath, appleScriptsDirectory, logsBaseDirectory, apiCacheFile
+        case legacyMusicLibraryPath = "music_library_path"
+        case legacyAppleScriptsDirectory = "apple_scripts_directory"
+        case legacyLogsBaseDirectory = "logs_base_directory"
+        case legacyApiCacheFile = "api_cache_file"
+    }
+
     public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let defaults = Self()
+        let container = try decoder.container(keyedBy: DecodingKeys.self)
+        musicLibraryPath = try container.decodeIfPresent(String.self, forKey: .musicLibraryPath)
+            ?? container.decodeIfPresent(String.self, forKey: .legacyMusicLibraryPath)
+            ?? defaults.musicLibraryPath
+        appleScriptsDirectory = try container.decodeIfPresent(String.self, forKey: .appleScriptsDirectory)
+            ?? container.decodeIfPresent(String.self, forKey: .legacyAppleScriptsDirectory)
+            ?? defaults.appleScriptsDirectory
+        logsBaseDirectory = try container.decodeIfPresent(String.self, forKey: .logsBaseDirectory)
+            ?? container.decodeIfPresent(String.self, forKey: .legacyLogsBaseDirectory)
+            ?? defaults.logsBaseDirectory
+        apiCacheFile = try container.decodeIfPresent(String.self, forKey: .apiCacheFile)
+            ?? container.decodeIfPresent(String.self, forKey: .legacyApiCacheFile)
+            ?? defaults.apiCacheFile
+    }
 }
 
 public struct PythonSettingsConfig: Sendable, Codable {
@@ -36,7 +65,30 @@ public struct RuntimeConfig: Sendable, Codable {
     public var retryDelaySeconds: Double = 1
     public var maxGenericEntries: Int = 10000
 
+    private enum CodingKeys: String, CodingKey {
+        case dryRun, cacheTTLSeconds, incrementalIntervalMinutes, maxRetries, retryDelaySeconds, maxGenericEntries
+    }
+
+    private enum DecodingKeys: String, CodingKey {
+        case dryRun, cacheTTLSeconds, cacheTtlSeconds, incrementalIntervalMinutes, maxRetries, retryDelaySeconds
+        case maxGenericEntries
+        case legacyCacheTTLSeconds = "cache_ttl_seconds"
+    }
+
     public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: DecodingKeys.self)
+        dryRun = try container.decodeIfPresent(Bool.self, forKey: .dryRun) ?? false
+        cacheTTLSeconds = try container.decodeIfPresent(Int.self, forKey: .cacheTTLSeconds)
+            ?? container.decodeIfPresent(Int.self, forKey: .cacheTtlSeconds)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyCacheTTLSeconds)
+            ?? 1800
+        incrementalIntervalMinutes = try container.decodeIfPresent(Int.self, forKey: .incrementalIntervalMinutes) ?? 1
+        maxRetries = try container.decodeIfPresent(Int.self, forKey: .maxRetries) ?? 3
+        retryDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .retryDelaySeconds) ?? 1
+        maxGenericEntries = try container.decodeIfPresent(Int.self, forKey: .maxGenericEntries) ?? 10000
+    }
 }
 
 // MARK: - Caching Configuration
@@ -57,6 +109,7 @@ public struct CachingConfig: Sendable, Codable {
     private enum DecodingKeys: String, CodingKey {
         case defaultTTLSeconds, albumCacheSyncInterval, cleanupErrorRetryDelay, cleanupIntervalSeconds
         case negativeResultTTL, librarySnapshot
+        case defaultTtlSeconds, negativeResultTtl
         case legacyDefaultTTLSeconds = "default_ttl_seconds"
         case legacyAlbumCacheSyncInterval = "album_cache_sync_interval"
         case legacyCleanupErrorRetryDelay = "cleanup_error_retry_delay"
@@ -70,7 +123,9 @@ public struct CachingConfig: Sendable, Codable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: DecodingKeys.self)
         defaultTTLSeconds = try container.decodeIfPresent(Int.self, forKey: .defaultTTLSeconds)
-            ?? container.decodeIfPresent(Int.self, forKey: .legacyDefaultTTLSeconds) ?? 900
+            ?? container.decodeIfPresent(Int.self, forKey: .defaultTtlSeconds)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyDefaultTTLSeconds)
+            ?? 900
         albumCacheSyncInterval = try container.decodeIfPresent(Int.self, forKey: .albumCacheSyncInterval)
             ?? container.decodeIfPresent(Int.self, forKey: .legacyAlbumCacheSyncInterval) ?? 300
         cleanupErrorRetryDelay = try container.decodeIfPresent(Int.self, forKey: .cleanupErrorRetryDelay)
@@ -78,7 +133,9 @@ public struct CachingConfig: Sendable, Codable {
         cleanupIntervalSeconds = try container.decodeIfPresent(Int.self, forKey: .cleanupIntervalSeconds)
             ?? container.decodeIfPresent(Int.self, forKey: .legacyCleanupIntervalSeconds) ?? 300
         negativeResultTTL = try container.decodeIfPresent(Double.self, forKey: .negativeResultTTL)
-            ?? container.decodeIfPresent(Double.self, forKey: .legacyNegativeResultTTL) ?? 2_592_000
+            ?? container.decodeIfPresent(Double.self, forKey: .negativeResultTtl)
+            ?? container.decodeIfPresent(Double.self, forKey: .legacyNegativeResultTTL)
+            ?? 2_592_000
         if let configuredSnapshot = try container
             .decodeIfPresent(LibrarySnapshotConfig.self, forKey: .librarySnapshot) {
             librarySnapshot = configuredSnapshot
@@ -207,5 +264,15 @@ public struct DevelopmentConfig: Sendable, Codable {
     public var testArtists: [String] = []
     public var debugMode: Bool = false
 
+    private enum CodingKeys: String, CodingKey {
+        case testArtists, debugMode
+    }
+
     public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        testArtists = try container.decodeIfPresent([String].self, forKey: .testArtists) ?? []
+        debugMode = try container.decodeIfPresent(Bool.self, forKey: .debugMode) ?? false
+    }
 }

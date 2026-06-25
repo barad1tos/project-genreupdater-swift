@@ -37,14 +37,24 @@ public struct ProcessingConfig: Sendable, Codable {
         case suspiciousManyYears
     }
 
+    private enum DecodingKeys: String, CodingKey {
+        case batchSize, delayBetweenBatches, adaptiveDelay, cacheTTLDays, pendingVerificationIntervalDays
+        case skipPrerelease, futureYearThreshold, prereleaseRecheckDays, prereleaseHandling
+        case releaseYearRestoreThreshold, incrementalIntervalMinutes, minConfidenceToCache, suspiciousAlbumMinLen
+        case suspiciousManyYears
+        case cacheTtlDays
+    }
+
     public init() {}
 
     public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let container = try decoder.container(keyedBy: DecodingKeys.self)
         batchSize = try container.decodeIfPresent(Int.self, forKey: .batchSize) ?? 25
         delayBetweenBatches = try container.decodeIfPresent(Double.self, forKey: .delayBetweenBatches) ?? 20
         adaptiveDelay = try container.decodeIfPresent(Bool.self, forKey: .adaptiveDelay) ?? true
-        cacheTTLDays = try container.decodeIfPresent(Int.self, forKey: .cacheTTLDays) ?? 36500
+        cacheTTLDays = try container.decodeIfPresent(Int.self, forKey: .cacheTTLDays)
+            ?? container.decodeIfPresent(Int.self, forKey: .cacheTtlDays)
+            ?? 36500
         pendingVerificationIntervalDays = try container.decodeIfPresent(
             Int.self,
             forKey: .pendingVerificationIntervalDays
@@ -97,6 +107,7 @@ public struct CleaningConfig: Sendable, Codable, Equatable {
         case albumSuffixesToRemove
         case legacyAlbumSuffixesToRemove = "album_suffixes_to_remove"
         case trackCleaningExceptions
+        case trackCleaning
         case legacyTrackCleaningExceptions = "track_cleaning"
         case genreMappings
         case legacyGenreMappings = "genre_mappings"
@@ -118,6 +129,7 @@ public struct CleaningConfig: Sendable, Codable, Equatable {
             [TrackCleaningException].self,
             forKey: .trackCleaningExceptions
         )
+            ?? container.decodeIfPresent([TrackCleaningException].self, forKey: .trackCleaning)
             ?? container.decodeIfPresent([TrackCleaningException].self, forKey: .legacyTrackCleaningExceptions)
             ?? defaults.trackCleaningExceptions
         genreMappings = try container.decodeIfPresent([String: String].self, forKey: .genreMappings)
