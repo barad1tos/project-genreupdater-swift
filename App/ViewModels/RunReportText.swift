@@ -35,13 +35,17 @@ extension UpdateRunReport {
         guard let databaseVerification else { return }
 
         lines.append("Database Verification")
+        let verifiedTrackCount = databaseVerification.verifiedTrackCount.formatted()
+        let removedTrackCount = databaseVerification.removedCount.formatted()
         if let error = databaseVerification.error {
             lines.append("- Skipped: \(error)")
         } else if databaseVerification.skippedDueToRecentVerification {
-            lines.append("- Skipped after recent check: \(databaseVerification.verifiedTrackCount) tracks in store")
+            lines.append("- Skipped after recent check: \(verifiedTrackCount) tracks in store")
         } else {
-            lines.append("- Verified tracks: \(databaseVerification.verifiedTrackCount)")
-            lines.append("- Removed stale tracks: \(databaseVerification.removedCount)")
+            lines.append("- Verified tracks: \(verifiedTrackCount)")
+            if databaseVerification.removedCount > 0 {
+                lines.append("- Removed stale tracks: \(removedTrackCount)")
+            }
         }
         if !databaseVerification.removedTrackIDs.isEmpty {
             lines.append("- Removed IDs: \(databaseVerification.removedTrackIDs.joined(separator: ", "))")

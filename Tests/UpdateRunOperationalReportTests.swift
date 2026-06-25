@@ -47,6 +47,20 @@ struct UpdateRunOperationalReportTests {
         #expect(report.plainTextSummary.contains("- Removed IDs: gone-1, gone-2"))
     }
 
+    @Test("plain text summary omits zero database removals")
+    func plainTextSummaryOmitsZeroDatabaseRemovals() {
+        let report = makeReport(
+            databaseVerification: UpdateRunDatabaseVerificationSummary(
+                verifiedTrackCount: 151,
+                removedTrackIDs: []
+            )
+        )
+
+        #expect(report.plainTextSummary.contains("- Verified tracks: 151"))
+        #expect(!report.plainTextSummary.contains("- Removed stale tracks: 0"))
+        #expect(!report.plainTextSummary.contains("- Removed IDs:"))
+    }
+
     @Test("database verification summary maps preflight skip and errors")
     func databaseVerificationSummaryMapsPreflightSkipAndErrors() throws {
         let skipped = UpdateRunDatabaseVerificationSummary(
