@@ -315,6 +315,26 @@ public enum AppleScriptWriteResult: Sendable, Equatable {
     case noChange
 }
 
+/// Error thrown when a batch script may have run but its final metadata state cannot be verified.
+public struct AppleScriptBatchVerificationError: Error, LocalizedError, Sendable, Equatable {
+    public let updateCount: Int
+    public let failedCount: Int?
+    public let reason: String
+
+    public init(updateCount: Int, failedCount: Int?, reason: String) {
+        self.updateCount = updateCount
+        self.failedCount = failedCount
+        self.reason = reason
+    }
+
+    public var errorDescription: String? {
+        if let failedCount {
+            return "Batch verification failed for \(failedCount) of \(updateCount) updates: \(reason)"
+        }
+        return "Batch verification failed for \(updateCount) updates: \(reason)"
+    }
+}
+
 /// Error thrown when an AppleScript read helper cannot map a non-empty record to a track.
 public struct AppleScriptClientParseError: Error, LocalizedError, Sendable, Equatable {
     public let scriptName: String
@@ -357,6 +377,11 @@ public protocol AppleScriptClient: Actor {
     func updateTrackProperty(trackID: String, property: String, value: String) async throws -> AppleScriptWriteResult
 
     /// Update multiple track properties in one Music.app script call.
+    ///
+    /// A conformer must throw `AppleScriptBatchVerificationError` if the batch
+    /// script may have reached Music.app but the resulting metadata cannot be
+    /// verified. Callers use that error to avoid unsafe single-write fallback
+    /// after a potentially mutating batch execution.
     func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws
 }
 

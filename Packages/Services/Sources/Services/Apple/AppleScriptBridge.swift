@@ -47,19 +47,6 @@ public enum AppleScriptBridgeError: Error, LocalizedError {
     }
 }
 
-struct AppleScriptBatchVerificationError: Error, LocalizedError {
-    let updateCount: Int
-    let failedCount: Int?
-    let reason: String
-
-    var errorDescription: String? {
-        if let failedCount {
-            return "Batch verification failed for \(failedCount) of \(updateCount) updates: \(reason)"
-        }
-        return "Batch verification failed for \(updateCount) updates: \(reason)"
-    }
-}
-
 // MARK: - Sendable Wrapper
 
 // Safety: NSUserAppleScriptTask and NSAppleEventDescriptor are not Sendable
@@ -119,14 +106,6 @@ private actor AppleScriptConcurrencyGate {
 /// reaching Music.app.
 public actor AppleScriptBridge: AppleScriptClient {
     private static let batchUpdateScriptName = "batch_update_tracks"
-    private static let batchUpdateProperties: Set<String> = [
-        "genre",
-        "year",
-        "name",
-        "album",
-        "artist",
-        "album_artist",
-    ]
 
     private let installer: ScriptInstaller
     private var config: AppleScriptConfig
@@ -263,13 +242,32 @@ public actor AppleScriptBridge: AppleScriptClient {
 
         let batchArg = try Self.makeBatchUpdateArgument(updates)
 
-        let output = try await runScript(
-            name: Self.batchUpdateScriptName,
-            arguments: [batchArg],
-            timeout: config.timeouts.batchUpdate
-        )
+        let output: String?
+        do {
+            output = try await runScript(
+                name: Self.batchUpdateScriptName,
+                arguments: [batchArg],
+                timeout: config.timeouts.batchUpdate
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw AppleScriptBatchVerificationError(
+                updateCount: updates.count,
+                failedCount: nil,
+                reason: "Batch script did not return a verifiable result: \(error.localizedDescription)"
+            )
+        }
 
-        try Self.validateBatchUpdateOutput(output, updateCount: updates.count)
+        do {
+            try Self.validateBatchUpdateOutput(output, updateCount: updates.count)
+        } catch {
+            throw AppleScriptBatchVerificationError(
+                updateCount: updates.count,
+                failedCount: nil,
+                reason: "Batch script returned an unverifiable response: \(error.localizedDescription)"
+            )
+        }
         try await verifyBatchUpdateResult(updates)
         log.info("Batch updated \(updates.count, privacy: .public) tracks")
     }
@@ -290,7 +288,7 @@ public actor AppleScriptBridge: AppleScriptClient {
         try validateBatchUpdateComponent(property, label: "property")
         let sanitizedProperty = InputSanitizer.sanitizeScriptCode(property)
         guard sanitizedProperty == property,
-              batchUpdateProperties.contains(property)
+              AppleScriptTrackProperty.supportedNames.contains(property)
         else {
             throw AppleScriptBridgeError.executionFailed(
                 scriptName: batchUpdateScriptName,
@@ -329,10 +327,21 @@ public actor AppleScriptBridge: AppleScriptClient {
                 reason: "Could not refresh tracks after batch write: \(error.localizedDescription)"
             )
         }
-        let refreshedTracksByID = Dictionary(uniqueKeysWithValues: refreshedTracks.map { ($0.id, $0) })
+        try Self.verifyBatchUpdateValues(updates, in: refreshedTracks)
+    }
+
+    static func verifyBatchUpdateValues(
+        _ updates: [(trackID: String, property: String, value: String)],
+        in refreshedTracks: [Core.Track]
+    ) throws {
+        let refreshedTracksByID = Dictionary(
+            refreshedTracks.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let failedUpdates = updates.filter { update in
             guard let track = refreshedTracksByID[update.trackID],
-                  let currentValue = Self.value(forBatchUpdateProperty: update.property, in: track)
+                  let property = AppleScriptTrackProperty(rawValue: update.property),
+                  let currentValue = property.currentValue(in: track)
             else {
                 return true
             }
@@ -345,25 +354,6 @@ public actor AppleScriptBridge: AppleScriptClient {
                 failedCount: failedUpdates.count,
                 reason: "Requested values were not visible after batch write"
             )
-        }
-    }
-
-    private static func value(forBatchUpdateProperty property: String, in track: Core.Track) -> String? {
-        switch property {
-        case "genre":
-            track.genre ?? ""
-        case "year":
-            track.year.map(String.init) ?? ""
-        case "name":
-            track.name
-        case "album":
-            track.album
-        case "artist":
-            track.artist
-        case "album_artist":
-            track.albumArtist ?? ""
-        default:
-            nil
         }
     }
 

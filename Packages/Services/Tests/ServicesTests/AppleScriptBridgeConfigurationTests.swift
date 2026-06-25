@@ -153,6 +153,34 @@ struct AppleScriptBridgeConfigurationTests {
         }
     }
 
+    @Test("Batch update verification rejects stale or missing refreshed tracks")
+    func batchUpdateVerificationRejectsStaleOrMissingRefreshedTracks() throws {
+        let updates = [
+            (trackID: "101", property: "genre", value: "Stoner Rock"),
+            (trackID: "102", property: "year", value: "2001"),
+        ]
+        let staleTracks = [
+            Track(id: "101", name: "American Sleep", artist: "Clutch", album: "Pure Rock Fury", genre: "Rock"),
+            Track(id: "102", name: "Pure Rock Fury", artist: "Clutch", album: "Pure Rock Fury", year: 2001),
+        ]
+        let missingTracks = [
+            Track(id: "101", name: "American Sleep", artist: "Clutch", album: "Pure Rock Fury", genre: "Stoner Rock"),
+        ]
+        let duplicateTracks = [
+            Track(id: "101", name: "American Sleep", artist: "Clutch", album: "Pure Rock Fury", genre: "Stoner Rock"),
+            Track(id: "101", name: "American Sleep", artist: "Clutch", album: "Pure Rock Fury", genre: "Rock"),
+            Track(id: "102", name: "Pure Rock Fury", artist: "Clutch", album: "Pure Rock Fury", year: 2001),
+        ]
+
+        #expect(throws: AppleScriptBatchVerificationError.self) {
+            try AppleScriptBridge.verifyBatchUpdateValues(updates, in: staleTracks)
+        }
+        #expect(throws: AppleScriptBatchVerificationError.self) {
+            try AppleScriptBridge.verifyBatchUpdateValues(updates, in: missingTracks)
+        }
+        try AppleScriptBridge.verifyBatchUpdateValues(updates, in: duplicateTracks)
+    }
+
     @Test("Batch update argv preserves direct metadata payloads")
     func batchUpdateArgvPreservesDirectMetadataPayloads() throws {
         let value = #"Паліндром / Альбом, Частина & "Live"\Raw (EP) [Single]"#

@@ -328,20 +328,10 @@ extension UpdateCoordinator {
             throw error
         }
 
-        guard let appliedIndexes = try await verifiedBatchWriteIndexes(preparedWrites) else {
-            log.warning("Batch AppleScript write could not be verified; unverified writes are failures")
-            return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
-        }
-        guard !appliedIndexes.isEmpty else {
-            log.warning("Batch AppleScript write did not verify any updates; unverified writes are failures")
-            return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: [])
-        }
-        if appliedIndexes.count < preparedWrites.count {
-            log.warning(
-                "Batch AppleScript write partially verified; unverified writes are failures"
-            )
-        }
-        return BatchWriteOutcome(currentTracksByID: currentTracksByID, appliedIndexes: appliedIndexes)
+        return BatchWriteOutcome(
+            currentTracksByID: currentTracksByID,
+            appliedIndexes: Set(preparedWrites.indices)
+        )
     }
 
     private func batchOutcomeAfterPostRunVerificationFailure(
@@ -544,20 +534,7 @@ extension UpdateCoordinator {
     }
 
     private static func value(forAppleScriptProperty property: String, in track: Track) -> String? {
-        switch property {
-        case "genre":
-            track.genre
-        case "year":
-            track.year.map(String.init)
-        case "name":
-            track.name
-        case "album":
-            track.album
-        case "artist":
-            track.artist
-        default:
-            nil
-        }
+        AppleScriptTrackProperty(rawValue: property)?.currentValue(in: track)
     }
 
     static func isTrackAvailableForProcessing(_ track: Track) -> Bool {
