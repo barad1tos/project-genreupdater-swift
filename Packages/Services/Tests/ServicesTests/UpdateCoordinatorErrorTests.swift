@@ -115,6 +115,17 @@ struct BatchUpdateResultTests {
         )
         #expect(result.hasPartialFailures == false)
     }
+
+    @Test("failed counts separate operations from tracks")
+    func failedCountsSeparateOperationsFromTracks() {
+        let result = BatchUpdateResult(
+            entries: [],
+            failedTrackIDs: ["T1", "T1", "T2"],
+            errorDescriptions: ["Genre failed", "Year failed", "Genre failed"]
+        )
+        #expect(result.failedOperationCount == 3)
+        #expect(result.failedTrackCount == 2)
+    }
 }
 
 // MARK: - UpdateOptions Tests

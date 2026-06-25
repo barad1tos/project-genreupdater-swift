@@ -4,7 +4,8 @@ import Core
 ///
 /// Applied entries represent recorded metadata writes. No-op entries represent
 /// verified write attempts that left Music.app metadata unchanged. Failures
-/// capture tracks that could not be processed or written.
+/// capture processing/write operations that could not be completed. The same
+/// track ID may appear more than once when multiple writes fail on one track.
 public struct BatchUpdateResult: Sendable {
     public let entries: [ChangeLogEntry]
     public let noOpEntries: [ChangeLogEntry]
@@ -25,6 +26,14 @@ public struct BatchUpdateResult: Sendable {
 
     public var hasPartialFailures: Bool {
         !failedTrackIDs.isEmpty && (!entries.isEmpty || !noOpEntries.isEmpty)
+    }
+
+    public var failedOperationCount: Int {
+        failedTrackIDs.count
+    }
+
+    public var failedTrackCount: Int {
+        Set(failedTrackIDs).count
     }
 }
 

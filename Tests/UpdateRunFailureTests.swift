@@ -42,4 +42,81 @@ struct UpdateRunFailureTests {
         #expect(failureBreakdowns.map { breakdown in breakdown.count }.reduce(0, +) == 2)
         #expect(failureBreakdowns.allSatisfy { breakdown in breakdown.trackCount == 1 })
     }
+
+    @Test("keeps shared status failure detail when result descriptions are shorter")
+    func keepsSharedStatusFailureDetailWhenResultDescriptionsAreShorter() {
+        let tracks = [
+            Track(id: "track-1", name: "One", artist: "Artist", album: "Album"),
+            Track(id: "track-2", name: "Two", artist: "Artist", album: "Album"),
+        ]
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [],
+                failedTrackIDs: ["track-1", "track-2"],
+                errorDescriptions: ["Shared failure"]
+            ),
+            completedEntries: [],
+            trackStatuses: [
+                "track-1": .failed("Shared failure"),
+                "track-2": .failed("Shared failure"),
+            ],
+            tracks: tracks,
+            testArtists: []
+        )
+
+        #expect(report.failures.map { failure in failure.message } == ["Shared failure", "Shared failure"])
+        #expect(!report.plainTextSummary.contains("No failure details were captured"))
+        let failureBreakdowns = report.outcomeBreakdown.filter { breakdown in
+            breakdown.outcome == UpdateRunOutcome.failed
+        }
+        #expect(failureBreakdowns.count == 1)
+        #expect(failureBreakdowns.first?.count == 2)
+        #expect(failureBreakdowns.first?.trackCount == 2)
+    }
+
+    @Test("keeps no-op-only albums in report results")
+    func keepsNoOpOnlyAlbumsInReportResults() throws {
+        var noOpEntry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "noop-track",
+            artist: "In Flames",
+            trackName: "Only for the Weak",
+            albumName: "Clayman"
+        )
+        noOpEntry.oldYear = 2020
+        noOpEntry.newYear = 2020
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [],
+                noOpEntries: [noOpEntry],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
+            completedEntries: [],
+            trackStatuses: ["noop-track": .done],
+            tracks: [
+                Track(
+                    id: "noop-track",
+                    name: "Only for the Weak",
+                    artist: "In Flames",
+                    album: "Clayman",
+                    year: 2020
+                ),
+            ],
+            testArtists: []
+        )
+
+        let album = try #require(report.albumResults.first)
+        #expect(report.changedTrackCount == 0)
+        #expect(report.affectedAlbumCount == 1)
+        #expect(report.affectedArtistCount == 1)
+        #expect(album.trackCount == 1)
+        #expect(album.changedTrackCount == 0)
+        #expect(report.outcomeBreakdown.contains { breakdown in
+            breakdown.outcome == UpdateRunOutcome.noChange
+                && breakdown.operation == "Year"
+                && breakdown.albumCount == 1
+        })
+    }
 }

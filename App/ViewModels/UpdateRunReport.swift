@@ -42,6 +42,7 @@ struct UpdateRunReport: Equatable {
         } else {
             completedEntries.filter { !Self.isRealChange($0) }
         }
+        let resultEntries = entries + noOpEntries
         let trackLookup = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
         let failureItems = Self.makeFailures(
             result: result,
@@ -60,10 +61,10 @@ struct UpdateRunReport: Equatable {
         )
         albumResults = Self.makeAlbumResults(
             entries: entries,
+            resultEntries: resultEntries,
             failures: failureItems,
             tracks: tracks,
-            trackStatuses: trackStatuses,
-            trackLookup: trackLookup
+            trackStatuses: trackStatuses
         )
         skippedCount = trackStatuses.values.count { status in
             if case .skipped = status { return true }
@@ -82,7 +83,7 @@ struct UpdateRunReport: Equatable {
         albumResults.count
     }
     var affectedArtistCount: Int {
-        Set(albumGroups.map { normalizeForMatching($0.artist) }).count
+        Set(albumResults.map { normalizeForMatching($0.artist) }).count
     }
     var hasFailures: Bool {
         !failures.isEmpty
@@ -205,7 +206,7 @@ struct UpdateRunReport: Equatable {
         trackStatuses: [String: TrackProcessingStatus],
         trackLookup: [String: Track]
     ) -> [UpdateRunFailure] {
-        var failureMessages = failureMessages(from: result)
+        var failureMessages = failureMessages(from: result, trackStatuses: trackStatuses)
         let resultFailedTrackIDs = Set(result?.failedTrackIDs ?? [])
 
         for (trackID, status) in trackStatuses {
@@ -255,15 +256,16 @@ struct UpdateRunReport: Equatable {
     }
     private static func makeAlbumResults(
         entries: [ChangeLogEntry],
+        resultEntries: [ChangeLogEntry],
         failures: [UpdateRunFailure],
         tracks: [Track],
-        trackStatuses: [String: TrackProcessingStatus],
-        trackLookup: [String: Track]
+        trackStatuses: [String: TrackProcessingStatus]
     ) -> [UpdateRunAlbumResult] {
+        let trackLookup = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
         let changesByTrackID = Dictionary(grouping: entries, by: \.trackID)
         let failuresByTrackID = Dictionary(grouping: failures, by: \.technicalID)
         let albumKeys = albumResultKeys(
-            entries: entries,
+            entries: resultEntries,
             failures: failures,
             trackLookup: trackLookup
         )
@@ -276,7 +278,7 @@ struct UpdateRunReport: Equatable {
                 .sorted(by: trackSort)
             let fallbackRows = fallbackRowsForMissingTracks(
                 key: key,
-                entries: entries,
+                entries: resultEntries,
                 failures: failures,
                 trackLookup: trackLookup
             )
@@ -434,15 +436,25 @@ struct UpdateRunReport: Equatable {
         return left.sortTitle.localizedStandardCompare(right.sortTitle) == .orderedAscending
     }
 
-    private static func failureMessages(from result: BatchUpdateResult?) -> [(trackID: String, message: String)] {
+    private static func failureMessages(
+        from result: BatchUpdateResult?,
+        trackStatuses: [String: TrackProcessingStatus]
+    ) -> [(trackID: String, message: String)] {
         guard let result else { return [] }
         return result.failedTrackIDs.enumerated().map { index, trackID in
-            (
+            let message = result.errorDescriptions[safe: index]
+                ?? statusFailureMessage(trackStatuses[trackID])
+                ?? "No failure details were captured for this run."
+            return (
                 trackID: trackID,
-                message: result.errorDescriptions[safe: index]
-                    ?? "No failure details were captured for this run."
+                message: message
             )
         }
+    }
+
+    private static func statusFailureMessage(_ status: TrackProcessingStatus?) -> String? {
+        guard case let .failed(message) = status else { return nil }
+        return message
     }
 
     private static func valuePair(for entry: ChangeLogEntry) -> (old: String, new: String) {
@@ -477,104 +489,6 @@ struct UpdateRunReport: Equatable {
 
     private static func issueNoun(_ count: Int) -> String {
         count == 1 ? "issue" : "issues"
-    }
-
-    var plainTextSummary: String {
-        var lines = [
-            title,
-            "Scope: \(scopeTitle)",
-            "Tracks scanned: \(scannedTrackCount)",
-            "Track changes: \(changedEntries.count)",
-            "Tracks changed: \(changedTrackCount)",
-            "Albums affected: \(affectedAlbumCount)",
-            "Failures: \(failures.count)",
-            "",
-        ]
-
-        appendOperationalNotes(to: &lines)
-        appendOutcomeBreakdown(to: &lines)
-        appendNoChangesSummary(to: &lines)
-        appendFailures(to: &lines)
-        appendChangeBreakdown(to: &lines)
-        appendAlbumGroups(to: &lines)
-        appendDetailedTrackResults(to: &lines)
-        return lines.joined(separator: "\n")
-    }
-
-    private func appendOperationalNotes(to lines: inout [String]) {
-        guard !operationalNotes.isEmpty else { return }
-
-        lines.append("Run Health")
-        lines.append(contentsOf: operationalNotes.map { "- \($0.title): \($0.detail)" })
-        lines.append("")
-    }
-
-    private func appendNoChangesSummary(to lines: inout [String]) {
-        guard changedEntries.isEmpty, !operationalNotes.contains(where: { $0.id == "no-changes" }) else { return }
-
-        lines.append("No changes were made during this run.")
-        lines.append("")
-    }
-
-    private func appendFailures(to lines: inout [String]) {
-        guard !failures.isEmpty else { return }
-
-        lines.append("Needs Attention")
-        for failure in failures {
-            lines.append("- \(failure.title) (\(failure.subtitle)): \(failure.message)")
-        }
-        lines.append("")
-    }
-
-    private func appendChangeBreakdown(to lines: inout [String]) {
-        guard !changeBreakdown.isEmpty else { return }
-
-        lines.append("Change Breakdown")
-        for item in changeBreakdown {
-            lines.append("- \(item.changeType.displayLabel): \(item.summary)")
-        }
-        lines.append("")
-    }
-
-    private func appendAlbumGroups(to lines: inout [String]) {
-        guard !albumGroups.isEmpty else { return }
-
-        lines.append("Changed Albums")
-        for group in albumGroups {
-            lines.append("- \(group.title): \(group.changeType.displayLabel) \(group.changeSummary)")
-            for entry in group.entries {
-                lines.append("  - \(entry.trackName)")
-            }
-        }
-    }
-
-    private func appendDetailedTrackResults(to lines: inout [String]) {
-        guard displayMode == .detailed else { return }
-
-        let albumsWithDetails = albumResults.filter { album in
-            album.tracks.contains { track in
-                track.hasChanges || track.hasFailure
-            }
-        }
-        guard !albumsWithDetails.isEmpty else { return }
-
-        lines.append("")
-        lines.append("Track Details")
-        for album in albumsWithDetails {
-            lines.append("- \(album.artist) - \(album.album)")
-            for track in album.tracks where track.hasChanges || track.hasFailure {
-                appendTrackDetail(track, to: &lines)
-            }
-        }
-    }
-
-    private func appendTrackDetail(_ track: UpdateRunTrackResult, to lines: inout [String]) {
-        if track.hasChanges {
-            lines.append("  - \(track.title): \(track.currentMetadataSummary); proposed \(track.proposedSummary)")
-        }
-        if let failureMessage = track.failureMessage {
-            lines.append("  - \(track.title): failed \(failureMessage)")
-        }
     }
 }
 

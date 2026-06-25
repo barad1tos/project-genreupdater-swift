@@ -351,7 +351,7 @@ struct UpdateView: View {
                 .font(.body)
 
             if !result.failedTrackIDs.isEmpty {
-                Text("\(result.failedTrackIDs.count) tracks failed")
+                Text("\(result.failedTrackCount) tracks failed")
                     .font(.body)
                     .foregroundStyle(.red)
             }
