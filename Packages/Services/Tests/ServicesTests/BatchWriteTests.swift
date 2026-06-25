@@ -86,30 +86,18 @@ struct BatchWriteTests {
 
     @Test("Pre-run batch failure falls back to single writes")
     func preRunBatchFailureFallsBackToSingleWrites() async throws {
-        let fixture = await makeCoordinator(batchUpdatesEnabled: true)
-        await fixture.bridge.setBatchThrowMode(true)
-        let track = makeTrack(id: "MK1", genre: "Rock", year: 1999)
-        await fixture.bridge.setFetchedTracks([track])
-        let proposals = acceptedGenreAndYearProposals(for: track)
-
-        let result = try await fixture.coordinator.applyAcceptedChanges(
-            proposals,
-            progressHandler: ignoreProgress
-        )
-
-        let batches = await fixture.bridge.batchUpdates
-        let written = await fixture.bridge.writtenProperties
-        #expect(batches.count == 1)
-        #expect(written.map(\.property) == ["genre", "year"])
-        #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
-        #expect(!result.hasPartialFailures)
+        try await assertPreRunBatchFailureFallsBack(existingGenre: "Rock")
     }
 
     @Test("Pre-run batch failure falls back when one value already matches")
     func preRunBatchFailureFallsBackWhenOneValueAlreadyMatches() async throws {
+        try await assertPreRunBatchFailureFallsBack(existingGenre: "Stoner Rock")
+    }
+
+    private func assertPreRunBatchFailureFallsBack(existingGenre: String) async throws {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
         await fixture.bridge.setBatchThrowMode(true)
-        let track = makeTrack(id: "MK1", genre: "Stoner Rock", year: 1999)
+        let track = makeTrack(id: "MK1", genre: existingGenre, year: 1999)
         await fixture.bridge.setFetchedTracks([track])
         let proposals = acceptedGenreAndYearProposals(for: track)
 
