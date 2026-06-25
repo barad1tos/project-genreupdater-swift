@@ -39,6 +39,8 @@ struct UpdateCoordinatorErrorTests {
         )
         let description = error.errorDescription ?? ""
         #expect(description.contains("5"))
+        #expect(description.contains("error1"))
+        #expect(description.contains("error2"))
     }
 
     @Test("Single-track allTracksFailed exposes underlying write failure")
@@ -141,6 +143,21 @@ struct BatchUpdateResultTests {
         )
         #expect(result.failedOperationCount == 3)
         #expect(result.failedTrackCount == 2)
+    }
+
+    @Test("applied counts separate operations from tracks")
+    func appliedCountsSeparateOperationsFromTracks() {
+        let result = BatchUpdateResult(
+            entries: [
+                ChangeLogEntry(changeType: .genreUpdate, trackID: "T1", artist: "Artist"),
+                ChangeLogEntry(changeType: .yearUpdate, trackID: "T1", artist: "Artist"),
+                ChangeLogEntry(changeType: .genreUpdate, trackID: "T2", artist: "Artist"),
+            ],
+            failedTrackIDs: [],
+            errorDescriptions: []
+        )
+        #expect(result.appliedOperationCount == 3)
+        #expect(result.updatedTrackCount == 2)
     }
 }
 

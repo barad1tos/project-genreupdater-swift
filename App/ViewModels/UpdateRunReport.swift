@@ -541,7 +541,11 @@ struct UpdateRunAlbumResult: Identifiable, Equatable {
         tracks.count { $0.hasChanges }
     }
     var failureCount: Int {
-        tracks.count { $0.hasFailure }
+        tracks.reduce(0) { count, track in
+            count + (track.failureMessage.map { failureMessage in
+                max(1, failureMessage.components(separatedBy: "\n").count)
+            } ?? 0)
+        }
     }
     var trackCount: Int {
         tracks.count

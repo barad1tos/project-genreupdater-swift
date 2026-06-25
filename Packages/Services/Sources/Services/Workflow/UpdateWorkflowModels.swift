@@ -28,6 +28,14 @@ public struct BatchUpdateResult: Sendable {
         !failedTrackIDs.isEmpty && (!entries.isEmpty || !noOpEntries.isEmpty)
     }
 
+    public var appliedOperationCount: Int {
+        entries.count
+    }
+
+    public var updatedTrackCount: Int {
+        Set(entries.map(\.trackID)).count
+    }
+
     public var failedOperationCount: Int {
         failedTrackIDs.count
     }

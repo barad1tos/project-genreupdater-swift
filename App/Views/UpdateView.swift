@@ -347,11 +347,11 @@ struct UpdateView: View {
 
     private func resultSummary(for result: BatchUpdateResult) -> some View {
         VStack(spacing: Spacing.xs) {
-            Text("\(result.entries.count) tracks updated successfully")
+            Text(trackCountSummary(result.updatedTrackCount, action: "updated successfully"))
                 .font(.body)
 
             if !result.failedTrackIDs.isEmpty {
-                Text("\(result.failedTrackCount) tracks failed")
+                Text(trackCountSummary(result.failedTrackCount, action: "failed"))
                     .font(.body)
                     .foregroundStyle(.red)
             }
@@ -364,6 +364,10 @@ struct UpdateView: View {
                     .padding(.horizontal, 40)
             }
         }
+    }
+
+    private func trackCountSummary(_ count: Int, action: String) -> String {
+        "\(count) \(count == 1 ? "track" : "tracks") \(action)"
     }
 }
 

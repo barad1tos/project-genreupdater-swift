@@ -31,16 +31,16 @@ public enum UpdateCoordinatorError: Error, LocalizedError {
 
     private static func allTracksFailedDescription(count: Int, errorDescriptions: [String]) -> String {
         let visibleErrors = errorDescriptions.filter { !$0.isEmpty }
-        guard let firstError = visibleErrors.first else {
+        guard !visibleErrors.isEmpty else {
             return "All \(count) tracks failed to update"
         }
         if count == 1, visibleErrors.count == 1 {
-            return firstError
+            return visibleErrors[0]
         }
         if count == 1 {
             return "All \(visibleErrors.count) update operations failed for 1 track. Errors: \(visibleErrors.joined(separator: "; "))"
         }
-        return "All \(count) tracks failed to update. First error: \(firstError)"
+        return "All \(count) tracks failed to update across \(visibleErrors.count) update operations. Errors: \(visibleErrors.joined(separator: "; "))"
     }
 }
 
