@@ -412,7 +412,10 @@ final class AppDependencies {
         let undo = UndoCoordinator(
             scriptBridge: bridge,
             idMapper: mapper,
-            changeLogStore: logStore
+            changeLogStore: logStore,
+            cache: cache,
+            librarySnapshotService: librarySnapshotService,
+            cleaning: config.cleaning
         )
         await undo.initialize()
         undoCoordinator = undo
@@ -518,7 +521,17 @@ extension AppDependencies {
                 apiOrchestrator: configuredAPIOrchestrator,
                 librarySnapshotService: configuredLibrarySnapshotService
             )
+            await updateUndoRuntimeDependencies(librarySnapshotService: configuredLibrarySnapshotService)
         }
+    }
+
+    private func updateUndoRuntimeDependencies(
+        librarySnapshotService: (any LibrarySnapshotService)?
+    ) async {
+        await undoCoordinator?.updateRuntimeDependencies(
+            librarySnapshotService: librarySnapshotService,
+            cleaning: config.cleaning
+        )
     }
 
     private static func makeLibrarySnapshotService(

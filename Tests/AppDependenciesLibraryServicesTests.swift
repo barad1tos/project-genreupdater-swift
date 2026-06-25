@@ -109,6 +109,50 @@ struct AppDependenciesLibraryServicesTests {
             )
         )
     }
+
+    @Test("Reports backup import title distinguishes failed and partial reverts")
+    func reportsBackupImportTitleDistinguishesFailedAndPartialReverts() {
+        #expect(backupImportAlertTitle(for: YearBackupRevertResult(
+            parsedCount: 1,
+            updatedCount: 0,
+            skippedCount: 0,
+            missingCount: 0,
+            failedCount: 1
+        )) == "Revert Failed")
+
+        #expect(backupImportAlertTitle(for: YearBackupRevertResult(
+            parsedCount: 2,
+            updatedCount: 1,
+            skippedCount: 0,
+            missingCount: 0,
+            failedCount: 1
+        )) == "Revert Partial")
+
+        #expect(backupImportAlertTitle(for: YearBackupRevertResult(
+            parsedCount: 1,
+            updatedCount: 1,
+            skippedCount: 0,
+            missingCount: 0,
+            failedCount: 0
+        )) == "Revert Complete")
+    }
+
+    @Test("Reports backup import message includes safe first failure")
+    func reportsBackupImportMessageIncludesSafeFirstFailure() {
+        let result = YearBackupRevertResult(
+            parsedCount: 1,
+            updatedCount: 0,
+            skippedCount: 0,
+            missingCount: 0,
+            failedCount: 1,
+            firstFailureDescription: "Missing AppleScript ID mapping for a track"
+        )
+
+        let message = backupImportMessage(for: result)
+
+        #expect(message.contains("First failure: Missing AppleScript ID mapping for a track."))
+        #expect(!message.contains("MK1"))
+    }
 }
 
 private struct LibraryPersistenceFixture {

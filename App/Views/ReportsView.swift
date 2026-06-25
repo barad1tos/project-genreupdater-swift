@@ -75,12 +75,12 @@ struct ReportsView: View {
                 entries: entries,
                 onUndoEntry: { entry in
                     Task {
-                        try? await dependencies.undoCoordinator?.revertChange(entry)
+                        await undoEntry(entry)
                     }
                 },
                 onUndoSession: { sessionEntries in
                     Task {
-                        try? await dependencies.undoCoordinator?.revertBatch(sessionEntries)
+                        await undoSession(sessionEntries)
                     }
                 }
             )
@@ -90,6 +90,36 @@ struct ReportsView: View {
                 ReportsCharts(data: aggregateData(from: entries))
             }
             .frame(minHeight: 250)
+        }
+    }
+
+    @MainActor
+    private func undoEntry(_ entry: ChangeLogEntry) async {
+        do {
+            guard let undoCoordinator = dependencies.undoCoordinator else {
+                throw BackupCSVImportError.servicesUnavailable
+            }
+            try await undoCoordinator.revertChange(entry)
+        } catch {
+            reportAlert = ReportsAlert(
+                title: "Undo Failed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    @MainActor
+    private func undoSession(_ entries: [ChangeLogEntry]) async {
+        do {
+            guard let undoCoordinator = dependencies.undoCoordinator else {
+                throw BackupCSVImportError.servicesUnavailable
+            }
+            try await undoCoordinator.revertBatch(entries)
+        } catch {
+            reportAlert = ReportsAlert(
+                title: "Undo Failed",
+                message: error.localizedDescription
+            )
         }
     }
 
@@ -144,7 +174,7 @@ struct ReportsView: View {
             )
 
             reportAlert = ReportsAlert(
-                title: "Revert Complete",
+                title: backupImportAlertTitle(for: result),
                 message: backupImportMessage(for: result)
             )
         } catch {
@@ -166,16 +196,6 @@ struct ReportsView: View {
 
         guard panel.runModal() == .OK else { return nil }
         return panel.url
-    }
-
-    private func backupImportMessage(for result: YearBackupRevertResult) -> String {
-        var parts = [
-            "Updated \(result.updatedCount) of \(result.parsedCount) CSV rows.",
-        ]
-        if result.missingCount > 0 {
-            parts.append("\(result.missingCount) tracks were not found in Music.app.")
-        }
-        return parts.joined(separator: " ")
     }
 
     // MARK: - Data Aggregation
@@ -256,6 +276,38 @@ private struct ReportsAlert: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+}
+
+func backupImportAlertTitle(for result: YearBackupRevertResult) -> String {
+    let completedCount = result.updatedCount + result.skippedCount
+    let unresolvedCount = result.missingCount + result.failedCount
+
+    guard unresolvedCount > 0 else {
+        return "Revert Complete"
+    }
+    guard completedCount > 0 else {
+        return "Revert Failed"
+    }
+    return "Revert Partial"
+}
+
+func backupImportMessage(for result: YearBackupRevertResult) -> String {
+    var parts = [
+        "Updated \(result.updatedCount) of \(result.parsedCount) CSV rows.",
+    ]
+    if result.skippedCount > 0 {
+        parts.append("\(result.skippedCount) rows were already current and skipped.")
+    }
+    if result.missingCount > 0 {
+        parts.append("\(result.missingCount) tracks were not found in Music.app.")
+    }
+    if result.failedCount > 0 {
+        parts.append("\(result.failedCount) tracks failed write-safety checks or writes.")
+        if let firstFailureDescription = result.firstFailureDescription {
+            parts.append("First failure: \(firstFailureDescription).")
+        }
+    }
+    return parts.joined(separator: " ")
 }
 
 private enum BackupCSVImportError: LocalizedError {

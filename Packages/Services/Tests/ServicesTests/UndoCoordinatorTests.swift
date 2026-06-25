@@ -30,15 +30,17 @@ private func makeGenreEntry(
 
 private func makeYearEntry(
     trackID: String = "T1",
+    artist: String = "Artist",
+    album: String = "Album",
     oldYear: Int = 1984,
     newYear: Int = 2000
 ) -> ChangeLogEntry {
     var entry = ChangeLogEntry(
         changeType: .yearUpdate,
         trackID: trackID,
-        artist: "Artist",
+        artist: artist,
         trackName: "Track",
-        albumName: "Album"
+        albumName: album
     )
     entry.oldYear = oldYear
     entry.newYear = newYear
@@ -59,6 +61,24 @@ private func makeArtistRenameEntry(
     )
     entry.oldArtist = oldArtist
     entry.newArtist = newArtist
+    return entry
+}
+
+private func makeAlbumCleaningEntry(
+    trackID: String = "T1",
+    artist: String = "Artist",
+    oldAlbum: String = "Album (Remastered)",
+    newAlbum: String = "Album"
+) -> ChangeLogEntry {
+    var entry = ChangeLogEntry(
+        changeType: .albumCleaning,
+        trackID: trackID,
+        artist: artist,
+        trackName: "Track",
+        albumName: oldAlbum
+    )
+    entry.oldAlbumName = oldAlbum
+    entry.newAlbumName = newAlbum
     return entry
 }
 
@@ -89,6 +109,27 @@ struct FixedUndoTrackIDMapper: TrackIDMapping {
 
     func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track? {
         musicKitTrack
+    }
+
+    func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
+        await Task.yield()
+    }
+
+    func hasMappingFor(musicKitID: String) async -> Bool {
+        mapping[musicKitID] != nil
+    }
+}
+
+struct MetadataUndoTrackIDMapper: TrackIDMapping {
+    let mapping: [String: String]
+    let metadata: [String: Track]
+
+    func appleScriptID(forMusicKitID musicKitID: String) async -> String? {
+        mapping[musicKitID]
+    }
+
+    func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track? {
+        metadata[musicKitTrack.id] ?? musicKitTrack
     }
 
     func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
@@ -161,6 +202,169 @@ struct UndoCoordinatorTests {
         #expect(written[0].value == "1984")
     }
 
+    @Test("Revert invalidates album API and snapshot caches")
+    func revertInvalidatesAlbumAPIAndSnapshotCaches() async throws {
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        let snapshotService = MockUndoLibrarySnapshotService()
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            cache: cache,
+            librarySnapshotService: snapshotService,
+            directory: makeTempDirectory()
+        )
+        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+
+        await cache.storeAlbumYear(artist: entry.artist, album: entry.albumName, year: 2000, confidence: 100)
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: entry.artist,
+            album: entry.albumName,
+            year: 2000,
+            source: "discogs",
+            timestamp: .now,
+            ttl: nil
+        ))
+
+        try await coordinator.revertChange(entry)
+
+        #expect(await cache.getAlbumYear(artist: entry.artist, album: entry.albumName) == nil)
+        #expect(await cache.getCachedAPIResult(artist: entry.artist, album: entry.albumName, source: "discogs") == nil)
+        #expect(await snapshotService.wasCleared())
+    }
+
+    @Test("Revert invalidates enriched album artist cache aliases")
+    func revertInvalidatesEnrichedAlbumArtistCacheAliases() async throws {
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        let snapshotService = MockUndoLibrarySnapshotService()
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            idMapper: MetadataUndoTrackIDMapper(
+                mapping: ["MK1": "AS1"],
+                metadata: [
+                    "MK1": Track(
+                        id: "MK1",
+                        name: "Karmacoma",
+                        artist: "Tricky",
+                        album: "Protection",
+                        year: 2000,
+                        albumArtist: "Massive Attack"
+                    ),
+                ]
+            ),
+            cache: cache,
+            librarySnapshotService: snapshotService,
+            directory: makeTempDirectory()
+        )
+        let entry = makeYearEntry(
+            trackID: "MK1",
+            artist: "Tricky",
+            album: "Protection",
+            oldYear: 1994
+        )
+
+        await cache.storeAlbumYear(artist: "Massive Attack", album: "Protection", year: 2000, confidence: 100)
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: "Massive Attack",
+            album: "Protection",
+            year: 2000,
+            source: "discogs",
+            timestamp: .now,
+            ttl: nil
+        ))
+
+        try await coordinator.revertChange(entry)
+
+        #expect(await cache.getAlbumYear(artist: "Massive Attack", album: "Protection") == nil)
+        #expect(await cache.getCachedAPIResult(artist: "Massive Attack", album: "Protection", source: "discogs") == nil)
+        #expect(await snapshotService.wasCleared())
+    }
+
+    @Test("Revert invalidates cleaned album cache aliases")
+    func revertInvalidatesCleanedAlbumCacheAliases() async throws {
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            cache: cache,
+            cleaning: CleaningConfig(),
+            directory: makeTempDirectory()
+        )
+        let entry = makeYearEntry(
+            trackID: "MK1",
+            artist: "Massive Attack",
+            album: "Mezzanine Remastered",
+            oldYear: 1998
+        )
+
+        await cache.storeAlbumYear(artist: "Massive Attack", album: "Mezzanine", year: 2019, confidence: 100)
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            year: 2019,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: nil
+        ))
+
+        try await coordinator.revertChange(entry)
+
+        #expect(await cache.getAlbumYear(artist: "Massive Attack", album: "Mezzanine") == nil)
+        #expect(await cache
+            .getCachedAPIResult(artist: "Massive Attack", album: "Mezzanine", source: "musicbrainz") == nil)
+    }
+
+    @Test("Album cleaning revert invalidates current and restored album caches")
+    func albumCleaningRevertInvalidatesCurrentAndRestoredAlbumCaches() async throws {
+        let bridge = MockAppleScriptClient()
+        let cache = MockCacheService()
+        let snapshotService = MockUndoLibrarySnapshotService()
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            cache: cache,
+            librarySnapshotService: snapshotService,
+            directory: makeTempDirectory()
+        )
+        let entry = makeAlbumCleaningEntry(
+            artist: "Massive Attack",
+            oldAlbum: "Mezzanine (Remastered)",
+            newAlbum: "Mezzanine"
+        )
+
+        await cache.storeAlbumYear(artist: entry.artist, album: "Mezzanine", year: 1998, confidence: 100)
+        await cache.storeAlbumYear(artist: entry.artist, album: "Mezzanine (Remastered)", year: 1998, confidence: 100)
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: entry.artist,
+            album: "Mezzanine",
+            year: 1998,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: nil
+        ))
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: entry.artist,
+            album: "Mezzanine (Remastered)",
+            year: 1998,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: nil
+        ))
+
+        try await coordinator.revertChange(entry)
+
+        #expect(await cache.getAlbumYear(artist: entry.artist, album: "Mezzanine") == nil)
+        #expect(await cache.getAlbumYear(artist: entry.artist, album: "Mezzanine (Remastered)") == nil)
+        #expect(await cache.getCachedAPIResult(artist: entry.artist, album: "Mezzanine", source: "musicbrainz") == nil)
+        #expect(
+            await cache.getCachedAPIResult(
+                artist: entry.artist,
+                album: "Mezzanine (Remastered)",
+                source: "musicbrainz"
+            ) == nil
+        )
+        #expect(await snapshotService.wasCleared())
+    }
+
     @Test("Revert writes resolved AppleScript ID when mapper is present")
     func revertWritesResolvedAppleScriptID() async throws {
         let bridge = MockAppleScriptClient()
@@ -212,6 +416,37 @@ struct UndoCoordinatorTests {
 
         let history = await coordinator.getHistory()
         #expect(history.count == 1)
+    }
+
+    @Test("Revert refuses prerelease AppleScript metadata")
+    func revertRefusesPrereleaseAppleScriptMetadata() async {
+        let bridge = MockAppleScriptClient()
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            idMapper: MetadataUndoTrackIDMapper(
+                mapping: ["MK1": "AS1"],
+                metadata: [
+                    "MK1": Track(
+                        id: "MK1",
+                        name: "Track",
+                        artist: "Artist",
+                        album: "Album",
+                        year: 2000,
+                        trackStatus: "prerelease"
+                    ),
+                ]
+            ),
+            directory: makeTempDirectory()
+        )
+        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        await coordinator.recordChange(entry)
+
+        await #expect(throws: UndoCoordinatorError.self) {
+            try await coordinator.revertChange(entry)
+        }
+
+        let written = await bridge.writtenProperties
+        #expect(written.isEmpty)
     }
 
     @Test("Batch revert missing AppleScript ID failure is public-safe")

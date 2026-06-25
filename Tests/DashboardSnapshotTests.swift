@@ -582,10 +582,15 @@ extension DashboardSnapshotTests {
         )
         #expect(viewModel.loadingState == .cached(lastUpdated: fixedDate))
 
-        try? await Task.sleep(for: .milliseconds(30))
+        let timeoutMessage = "Loading timed out. Please check your Music library access and try again."
+        for _ in 0 ..< 50 {
+            if viewModel.loadingState == .error(timeoutMessage) {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
-        #expect(viewModel
-            .loadingState == .error("Loading timed out. Please check your Music library access and try again."))
+        #expect(viewModel.loadingState == .error(timeoutMessage))
         #expect(viewModel.snapshot.primaryActionTitle == "Retry scan")
     }
 
