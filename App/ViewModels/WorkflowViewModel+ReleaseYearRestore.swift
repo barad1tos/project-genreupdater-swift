@@ -9,17 +9,14 @@ extension WorkflowViewModel {
             tracks,
             threshold: releaseYearRestoreThreshold
         )
+        let progressHandler = makeReleaseYearRestoreProgressHandler(scopedTracks: scopedTracks)
         prepareReleaseYearRestoreRun(scopedTracks: scopedTracks)
 
         processingTask = Task {
             let restoreResult = await updateCoordinator.restoreReleaseYears(
                 in: scopedTracks,
                 threshold: releaseYearRestoreThreshold,
-                progressHandler: { [weak self] update in
-                    Task { @MainActor in
-                        self?.handleReleaseYearRestoreProgress(update, tracksByIndex: scopedTracks)
-                    }
-                }
+                progressHandler: progressHandler
             )
 
             finishReleaseYearRestore(restoreResult)
@@ -45,7 +42,18 @@ extension WorkflowViewModel {
         completedEntries = []
         result = nil
         dryRunReport = nil
+        maintenancePreflightResult = nil
         trackStatuses = Dictionary(uniqueKeysWithValues: scopedTracks.map { ($0.id, .queued) })
+    }
+
+    private func makeReleaseYearRestoreProgressHandler(
+        scopedTracks: [Track]
+    ) -> @Sendable (ProgressUpdate) -> Void {
+        { [weak self] update in
+            Task { @MainActor in
+                self?.handleReleaseYearRestoreProgress(update, tracksByIndex: scopedTracks)
+            }
+        }
     }
 
     private func handleReleaseYearRestoreProgress(
@@ -68,10 +76,10 @@ extension WorkflowViewModel {
             }
         }
 
-        if update.phase == .complete, let lastTrack = tracksByIndex.last {
-            if case .writing = trackStatuses[lastTrack.id] {
-                trackStatuses[lastTrack.id] = .done
-            }
+        if update.phase == .complete,
+           let lastTrack = tracksByIndex.last,
+           case .writing = trackStatuses[lastTrack.id] {
+            trackStatuses[lastTrack.id] = .done
         }
     }
 

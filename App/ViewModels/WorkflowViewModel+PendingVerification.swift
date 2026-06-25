@@ -93,9 +93,7 @@ extension WorkflowViewModel {
             tracks
         }
     }
-}
 
-extension WorkflowViewModel {
     @discardableResult
     func invalidatePendingVerificationRefreshes() -> Int {
         pendingVerificationRefreshGeneration += 1
@@ -116,6 +114,7 @@ extension WorkflowViewModel {
         completedEntries = []
         result = nil
         dryRunReport = nil
+        maintenancePreflightResult = nil
         pendingVerificationReportSummary = nil
         return refreshGeneration
     }

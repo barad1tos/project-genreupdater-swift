@@ -224,6 +224,8 @@ final class WorkflowViewModel {
     func start(tracks: [Track]) {
         guard canStart else { return }
 
+        maintenancePreflightResult = nil
+
         if mode == .pendingVerification {
             startPendingVerification(tracks: tracks)
             return

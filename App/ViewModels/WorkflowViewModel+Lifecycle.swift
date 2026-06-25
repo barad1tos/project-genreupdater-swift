@@ -38,6 +38,7 @@ extension WorkflowViewModel {
         result = nil
         completedEntries = []
         dryRunReport = nil
+        maintenancePreflightResult = nil
         processedCount = 0
         totalCount = 0
         failedCount = 0

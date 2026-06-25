@@ -456,13 +456,36 @@ struct WorkflowPendingTests {
         #expect(summary.problematicDetails.map(\.attemptCount) == [3, 4])
         #expect(summary.problematicDetails.allSatisfy { $0.nextVerification > $0.lastAttempt })
 
+        viewModel.maintenancePreflightResult = staleDatabaseVerificationPreflight()
+        viewModel.startPendingVerification(tracks: [])
+        #expect(viewModel.maintenancePreflightResult == nil)
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        let pendingOnlyReport = UpdateRunReport(
+            result: viewModel.result,
+            completedEntries: viewModel.completedEntries,
+            trackStatuses: viewModel.trackStatuses,
+            tracks: [],
+            testArtists: [],
+            operationalContext: UpdateRunOperationalContext(
+                pendingVerification: viewModel.pendingVerificationReportSummary,
+                databaseVerification: UpdateRunDatabaseVerificationSummary(
+                    preflightResult: viewModel.maintenancePreflightResult
+                )
+            )
+        )
+        #expect(!pendingOnlyReport.plainTextSummary.contains("Database Verification"))
+
         viewModel.reset()
         #expect(viewModel.pendingVerificationReportSummary == nil)
+        #expect(viewModel.maintenancePreflightResult == nil)
 
         viewModel.pendingVerificationReportSummary = summary
+        viewModel.maintenancePreflightResult = staleDatabaseVerificationPreflight()
         viewModel.mode = .selectedTracks
         viewModel.start(tracks: [])
         #expect(viewModel.pendingVerificationReportSummary == nil)
+        #expect(viewModel.maintenancePreflightResult == nil)
     }
 
     @Test("uses configured problematic album threshold for pending report summaries")

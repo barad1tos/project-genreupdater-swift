@@ -603,6 +603,7 @@ struct WorkflowSelectedUpdateScopeTests {
         let viewModel = fixture.viewModel
         viewModel.mode = .releaseYearRestore
         viewModel.releaseYearRestoreThreshold = 5
+        viewModel.maintenancePreflightResult = staleDatabaseVerificationPreflight()
 
         viewModel.start(tracks: [
             Track(
@@ -624,6 +625,20 @@ struct WorkflowSelectedUpdateScopeTests {
         #expect(viewModel.totalCount == 0)
         #expect(viewModel.processedCount == 0)
         #expect(viewModel.result?.entries.isEmpty == true)
+        #expect(viewModel.maintenancePreflightResult == nil)
+        let report = UpdateRunReport(
+            result: viewModel.result,
+            completedEntries: viewModel.completedEntries,
+            trackStatuses: viewModel.trackStatuses,
+            tracks: [],
+            testArtists: [],
+            operationalContext: UpdateRunOperationalContext(
+                databaseVerification: UpdateRunDatabaseVerificationSummary(
+                    preflightResult: viewModel.maintenancePreflightResult
+                )
+            )
+        )
+        #expect(!report.plainTextSummary.contains("Database Verification"))
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
