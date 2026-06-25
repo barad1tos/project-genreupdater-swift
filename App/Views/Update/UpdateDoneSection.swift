@@ -30,14 +30,11 @@ struct UpdateDoneSection: View {
     }
 
     private var visibleAlbums: [UpdateRunAlbumResult] {
-        report.albumResults.filter(selectedFilter.matches)
+        selectedFilter.visibleAlbums(in: report.albumResults)
     }
 
     private var selectedAlbum: UpdateRunAlbumResult? {
-        if let selectedAlbumID, let album = visibleAlbums.first(where: { $0.id == selectedAlbumID }) {
-            return album
-        }
-        return visibleAlbums.first ?? report.albumResults.first
+        selectedFilter.selectedAlbum(in: report.albumResults, selectedAlbumID: selectedAlbumID)
     }
 
     var body: some View {
@@ -726,27 +723,6 @@ private struct UpdateRunStatusChip: View {
             .padding(.horizontal, Spacing.xs)
             .padding(.vertical, 2)
             .background(tint.opacity(0.12), in: .capsule)
-    }
-}
-
-private enum UpdateRunAlbumFilter: String, CaseIterable, Identifiable {
-    case all = "All"
-    case changed = "Changed"
-    case failed = "Failed"
-
-    var id: String {
-        rawValue
-    }
-
-    func matches(_ album: UpdateRunAlbumResult) -> Bool {
-        switch self {
-        case .all:
-            true
-        case .changed:
-            album.changedTrackCount > 0
-        case .failed:
-            album.failureCount > 0
-        }
     }
 }
 

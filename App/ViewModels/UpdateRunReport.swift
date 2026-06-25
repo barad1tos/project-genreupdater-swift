@@ -373,7 +373,7 @@ struct UpdateRunReport: Equatable {
             currentYear: entry.oldYear,
             releaseYear: nil,
             trackStatus: nil,
-            changes: [makeChangeSummary(entry)],
+            changes: isRealChange(entry) ? [makeChangeSummary(entry)] : [],
             failureMessage: nil,
             processingStatus: nil
         )
