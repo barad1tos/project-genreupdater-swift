@@ -69,6 +69,19 @@ public struct AppConfiguration: Sendable, Codable {
         case processing
     }
 
+    private enum PathsDecodingKeys: String, CodingKey {
+        case musicLibraryPath, appleScriptsDirectory, logsBaseDirectory, apiCacheFile
+    }
+
+    private enum RuntimeDecodingKeys: String, CodingKey {
+        case dryRun, cacheTTLSeconds, cacheTtlSeconds, incrementalIntervalMinutes, maxRetries, retryDelaySeconds
+        case maxGenericEntries
+    }
+
+    private enum AppleScriptDecodingKeys: String, CodingKey {
+        case concurrency, rateLimit, timeouts, retry, batchProcessing
+    }
+
     public init() {}
 
     public init(from decoder: any Decoder) throws {
@@ -123,20 +136,26 @@ public struct AppConfiguration: Sendable, Codable {
     private mutating func applyLegacyPathConfiguration(
         from container: KeyedDecodingContainer<DecodingKeys>
     ) throws {
-        if let musicLibraryPath = try container.decodeIfPresent(String.self, forKey: .musicLibraryPath) {
+        if try !containsPathValue(.musicLibraryPath, in: container),
+           let musicLibraryPath = try container.decodeIfPresent(String.self, forKey: .musicLibraryPath) {
             paths.musicLibraryPath = musicLibraryPath
         }
-        if let appleScriptsDirectory = try container.decodeIfPresent(String.self, forKey: .appleScriptsDirectory) {
+        if try !containsPathValue(.appleScriptsDirectory, in: container),
+           let appleScriptsDirectory = try container.decodeIfPresent(String.self, forKey: .appleScriptsDirectory) {
             paths.appleScriptsDirectory = appleScriptsDirectory
-        } else if let appleScriptsDirectory = try container.decodeIfPresent(String.self, forKey: .appleScriptsDir) {
+        } else if try !containsPathValue(.appleScriptsDirectory, in: container),
+                  let appleScriptsDirectory = try container.decodeIfPresent(String.self, forKey: .appleScriptsDir) {
             paths.appleScriptsDirectory = appleScriptsDirectory
         }
-        if let logsBaseDirectory = try container.decodeIfPresent(String.self, forKey: .logsBaseDirectory) {
+        if try !containsPathValue(.logsBaseDirectory, in: container),
+           let logsBaseDirectory = try container.decodeIfPresent(String.self, forKey: .logsBaseDirectory) {
             paths.logsBaseDirectory = logsBaseDirectory
-        } else if let logsBaseDirectory = try container.decodeIfPresent(String.self, forKey: .logsBaseDir) {
+        } else if try !containsPathValue(.logsBaseDirectory, in: container),
+                  let logsBaseDirectory = try container.decodeIfPresent(String.self, forKey: .logsBaseDir) {
             paths.logsBaseDirectory = logsBaseDirectory
         }
-        if let apiCacheFile = try container.decodeIfPresent(String.self, forKey: .apiCacheFile) {
+        if try !containsPathValue(.apiCacheFile, in: container),
+           let apiCacheFile = try container.decodeIfPresent(String.self, forKey: .apiCacheFile) {
             paths.apiCacheFile = apiCacheFile
         }
     }
@@ -144,27 +163,34 @@ public struct AppConfiguration: Sendable, Codable {
     private mutating func applyLegacyRuntimeConfiguration(
         from container: KeyedDecodingContainer<DecodingKeys>
     ) throws {
-        if let dryRun = try container.decodeIfPresent(Bool.self, forKey: .dryRun) {
+        if try !containsRuntimeValue([.dryRun], in: container),
+           let dryRun = try container.decodeIfPresent(Bool.self, forKey: .dryRun) {
             runtime.dryRun = dryRun
         }
-        if let cacheTTLSeconds = try container.decodeIfPresent(Int.self, forKey: .cacheTTLSeconds) {
+        if try !containsRuntimeValue([.cacheTTLSeconds, .cacheTtlSeconds], in: container),
+           let cacheTTLSeconds = try container.decodeIfPresent(Int.self, forKey: .cacheTTLSeconds) {
             runtime.cacheTTLSeconds = cacheTTLSeconds
-        } else if let cacheTTLSeconds = try container.decodeIfPresent(Int.self, forKey: .cacheTtlSeconds) {
+        } else if try !containsRuntimeValue([.cacheTTLSeconds, .cacheTtlSeconds], in: container),
+                  let cacheTTLSeconds = try container.decodeIfPresent(Int.self, forKey: .cacheTtlSeconds) {
             runtime.cacheTTLSeconds = cacheTTLSeconds
         }
-        if let incrementalIntervalMinutes = try container.decodeIfPresent(
-            Int.self,
-            forKey: .incrementalIntervalMinutes
-        ) {
+        if try !containsRuntimeValue([.incrementalIntervalMinutes], in: container),
+           let incrementalIntervalMinutes = try container.decodeIfPresent(
+               Int.self,
+               forKey: .incrementalIntervalMinutes
+           ) {
             runtime.incrementalIntervalMinutes = incrementalIntervalMinutes
         }
-        if let maxRetries = try container.decodeIfPresent(Int.self, forKey: .maxRetries) {
+        if try !containsRuntimeValue([.maxRetries], in: container),
+           let maxRetries = try container.decodeIfPresent(Int.self, forKey: .maxRetries) {
             runtime.maxRetries = maxRetries
         }
-        if let retryDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .retryDelaySeconds) {
+        if try !containsRuntimeValue([.retryDelaySeconds], in: container),
+           let retryDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .retryDelaySeconds) {
             runtime.retryDelaySeconds = retryDelaySeconds
         }
-        if let maxGenericEntries = try container.decodeIfPresent(Int.self, forKey: .maxGenericEntries) {
+        if try !containsRuntimeValue([.maxGenericEntries], in: container),
+           let maxGenericEntries = try container.decodeIfPresent(Int.self, forKey: .maxGenericEntries) {
             runtime.maxGenericEntries = maxGenericEntries
         }
     }
@@ -172,22 +198,28 @@ public struct AppConfiguration: Sendable, Codable {
     private mutating func applyLegacyAppleScriptConfiguration(
         from container: KeyedDecodingContainer<DecodingKeys>
     ) throws {
-        if let concurrency = try container.decodeIfPresent(Int.self, forKey: .appleScriptConcurrency) {
+        if try !containsAppleScriptValue(.concurrency, in: container),
+           let concurrency = try container.decodeIfPresent(Int.self, forKey: .appleScriptConcurrency) {
             applescript.concurrency = concurrency
         }
-        if let rateLimit = try container.decodeIfPresent(AppleScriptRateLimit.self, forKey: .appleScriptRateLimit) {
+        if try !containsAppleScriptValue(.rateLimit, in: container),
+           let rateLimit = try container.decodeIfPresent(AppleScriptRateLimit.self, forKey: .appleScriptRateLimit) {
             applescript.rateLimit = rateLimit
         }
-        if let defaultTimeout = try container.decodeIfPresent(Int.self, forKey: .applescriptTimeoutSeconds) {
+        if try !containsAppleScriptValue(.timeouts, in: container),
+           let defaultTimeout = try container.decodeIfPresent(Int.self, forKey: .applescriptTimeoutSeconds) {
             applescript.timeouts.defaultTimeout = .seconds(defaultTimeout)
         }
-        if let timeouts = try container.decodeIfPresent(AppleScriptTimeouts.self, forKey: .applescriptTimeouts) {
+        if try !containsAppleScriptValue(.timeouts, in: container),
+           let timeouts = try container.decodeIfPresent(AppleScriptTimeouts.self, forKey: .applescriptTimeouts) {
             applescript.timeouts = timeouts
         }
-        if let retry = try container.decodeIfPresent(AppleScriptRetry.self, forKey: .applescriptRetry) {
+        if try !containsAppleScriptValue(.retry, in: container),
+           let retry = try container.decodeIfPresent(AppleScriptRetry.self, forKey: .applescriptRetry) {
             applescript.retry = retry
         }
-        if let batchProcessing = try container.decodeIfPresent(BatchProcessingConfig.self, forKey: .batchProcessing) {
+        if try !containsAppleScriptValue(.batchProcessing, in: container),
+           let batchProcessing = try container.decodeIfPresent(BatchProcessingConfig.self, forKey: .batchProcessing) {
             applescript.batchProcessing = batchProcessing
         }
     }
@@ -217,6 +249,36 @@ public struct AppConfiguration: Sendable, Codable {
            !legacyTestArtists.isEmpty {
             development.testArtists = legacyTestArtists
         }
+    }
+
+    private func containsPathValue(
+        _ key: PathsDecodingKeys,
+        in container: KeyedDecodingContainer<DecodingKeys>
+    ) throws -> Bool {
+        guard container.contains(.paths) else { return false }
+        let pathsContainer = try container.nestedContainer(keyedBy: PathsDecodingKeys.self, forKey: .paths)
+        return pathsContainer.contains(key)
+    }
+
+    private func containsRuntimeValue(
+        _ keys: [RuntimeDecodingKeys],
+        in container: KeyedDecodingContainer<DecodingKeys>
+    ) throws -> Bool {
+        guard container.contains(.runtime) else { return false }
+        let runtimeContainer = try container.nestedContainer(keyedBy: RuntimeDecodingKeys.self, forKey: .runtime)
+        return keys.contains { runtimeContainer.contains($0) }
+    }
+
+    private func containsAppleScriptValue(
+        _ key: AppleScriptDecodingKeys,
+        in container: KeyedDecodingContainer<DecodingKeys>
+    ) throws -> Bool {
+        guard container.contains(.applescript) else { return false }
+        let appleScriptContainer = try container.nestedContainer(
+            keyedBy: AppleScriptDecodingKeys.self,
+            forKey: .applescript
+        )
+        return appleScriptContainer.contains(key)
     }
 
     /// Load configuration from the app's container.

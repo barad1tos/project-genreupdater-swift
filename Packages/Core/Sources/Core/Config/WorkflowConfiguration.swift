@@ -107,6 +107,7 @@ public struct CleaningConfig: Sendable, Codable, Equatable {
         case albumSuffixesToRemove
         case legacyAlbumSuffixesToRemove = "album_suffixes_to_remove"
         case trackCleaningExceptions
+        case trackCleaning
         case legacyTrackCleaningExceptions = "track_cleaning"
         case genreMappings
         case legacyGenreMappings = "genre_mappings"
@@ -128,6 +129,7 @@ public struct CleaningConfig: Sendable, Codable, Equatable {
             [TrackCleaningException].self,
             forKey: .trackCleaningExceptions
         )
+            ?? container.decodeIfPresent([TrackCleaningException].self, forKey: .trackCleaning)
             ?? container.decodeIfPresent([TrackCleaningException].self, forKey: .legacyTrackCleaningExceptions)
             ?? defaults.trackCleaningExceptions
         genreMappings = try container.decodeIfPresent([String: String].self, forKey: .genreMappings)

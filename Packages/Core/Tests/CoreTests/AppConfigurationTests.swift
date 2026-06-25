@@ -327,6 +327,118 @@ struct AppConfigurationTests {
         #expect(decoded.development.testArtists == ["Modern Scope"])
     }
 
+    @Test("Canonical grouped settings override deprecated root keys")
+    func canonicalGroupedSettingsOverrideDeprecatedRootKeys() throws {
+        let canonicalMusicLibraryPath = "Music/Canonical.musiclibrary"
+        let legacyMusicLibraryPath = "Music/Legacy.musiclibrary"
+        let jsonString = """
+        {
+          "paths": {
+            "music_library_path": "\(canonicalMusicLibraryPath)"
+          },
+          "music_library_path": "\(legacyMusicLibraryPath)",
+          "runtime": {
+            "dry_run": false,
+            "cache_ttl_seconds": 10
+          },
+          "dry_run": true,
+          "cache_ttl_seconds": 20,
+          "applescript": {
+            "concurrency": 7,
+            "timeouts": {
+              "default": 11
+            }
+          },
+          "apple_script_concurrency": 3,
+          "applescript_timeout_seconds": 99
+        }
+        """
+
+        let decoded = try AppConfiguration.configurationDecoder().decode(
+            AppConfiguration.self,
+            from: Data(jsonString.utf8)
+        )
+
+        #expect(decoded.paths.musicLibraryPath == canonicalMusicLibraryPath)
+        #expect(decoded.runtime.dryRun == false)
+        #expect(decoded.runtime.cacheTTLSeconds == 10)
+        #expect(decoded.applescript.concurrency == 7)
+        #expect(decoded.applescript.timeouts.defaultTimeout == .seconds(11))
+    }
+
+    @Test("Production decoder preserves nested Python-style cache and cleaning keys")
+    func configurationDecoderPreservesNestedPythonStyleKeys() throws {
+        let jsonString = """
+        {
+          "caching": {
+            "default_ttl_seconds": 180,
+            "negative_result_ttl": 86400,
+            "library_snapshot": {
+              "cache_file": "cache/custom_snapshot.json",
+              "max_age_hours": 12
+            }
+          },
+          "cleaning": {
+            "track_cleaning": [
+              {
+                "artist": "Rabbit Junk",
+                "album": "Xenospheres"
+              }
+            ]
+          }
+        }
+        """
+
+        let decoded = try AppConfiguration.configurationDecoder().decode(
+            AppConfiguration.self,
+            from: Data(jsonString.utf8)
+        )
+
+        #expect(decoded.caching.defaultTTLSeconds == 180)
+        #expect(decoded.caching.negativeResultTTL == 86400)
+        #expect(decoded.caching.librarySnapshot.cacheFile == "cache/custom_snapshot.json")
+        #expect(decoded.caching.librarySnapshot.maxAgeHours == 12)
+        #expect(decoded.cleaning.trackCleaningExceptions == [
+            TrackCleaningException(artist: "Rabbit Junk", album: "Xenospheres"),
+        ])
+    }
+
+    @Test("Load uses the Python-era configuration decoder")
+    func loadUsesPythonEraConfigurationDecoder() throws {
+        let configURL = AppConfiguration.configFileURL
+        let originalData = try? Data(contentsOf: configURL)
+        defer {
+            if let originalData {
+                try? originalData.write(to: configURL, options: .atomic)
+            } else {
+                try? FileManager.default.removeItem(at: configURL)
+            }
+        }
+
+        let jsonString = """
+        {
+          "cache_ttl_seconds": 88,
+          "caching": {
+            "default_ttl_seconds": 222
+          },
+          "year_retrieval": {
+            "preferred_api": "discogs"
+          },
+          "development": {
+            "test_artists": ["Паліндром"]
+          }
+        }
+        """
+        try Data(jsonString.utf8).write(to: configURL, options: .atomic)
+
+        let loaded = try AppConfiguration.load()
+
+        #expect(loaded.runtime.cacheTTLSeconds == 88)
+        #expect(loaded.caching.defaultTTLSeconds == 222)
+        #expect(loaded.yearRetrieval.preferredAPI == .discogs)
+        #expect(loaded.development.testArtists == ["Паліндром"])
+    }
+
     @Test("Python-style cleaning keys decode and drive metadata cleaning")
     func pythonStyleCleaningKeysDecode() throws {
         let jsonString = """

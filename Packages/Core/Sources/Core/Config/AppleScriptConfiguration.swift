@@ -20,7 +20,22 @@ public struct AppleScriptConfig: Sendable, Codable {
     /// Batch processing sizes.
     public var batchProcessing = BatchProcessingConfig()
 
+    private enum CodingKeys: String, CodingKey {
+        case concurrency, timeouts, rateLimit, retry, batchProcessing
+    }
+
     public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let defaults = Self()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        concurrency = try container.decodeIfPresent(Int.self, forKey: .concurrency) ?? defaults.concurrency
+        timeouts = try container.decodeIfPresent(AppleScriptTimeouts.self, forKey: .timeouts) ?? defaults.timeouts
+        rateLimit = try container.decodeIfPresent(AppleScriptRateLimit.self, forKey: .rateLimit) ?? defaults.rateLimit
+        retry = try container.decodeIfPresent(AppleScriptRetry.self, forKey: .retry) ?? defaults.retry
+        batchProcessing = try container.decodeIfPresent(BatchProcessingConfig.self, forKey: .batchProcessing)
+            ?? defaults.batchProcessing
+    }
 }
 
 public struct AppleScriptTimeouts: Sendable, Codable {
@@ -94,7 +109,28 @@ public struct AppleScriptRateLimit: Sendable, Codable {
     public var requestsPerWindow: Int = 10
     public var windowSizeSeconds: Double = 1.0
 
+    private enum CodingKeys: String, CodingKey {
+        case enabled, requestsPerWindow, windowSizeSeconds
+    }
+
+    private enum DecodingKeys: String, CodingKey {
+        case enabled, requestsPerWindow, windowSizeSeconds
+        case legacyRequestsPerWindow = "requests_per_window"
+        case legacyWindowSizeSeconds = "window_size_seconds"
+    }
+
     public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: DecodingKeys.self)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        requestsPerWindow = try container.decodeIfPresent(Int.self, forKey: .requestsPerWindow)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyRequestsPerWindow)
+            ?? 10
+        windowSizeSeconds = try container.decodeIfPresent(Double.self, forKey: .windowSizeSeconds)
+            ?? container.decodeIfPresent(Double.self, forKey: .legacyWindowSizeSeconds)
+            ?? 1.0
+    }
 }
 
 public struct AppleScriptRetry: Sendable, Codable {
@@ -104,12 +140,64 @@ public struct AppleScriptRetry: Sendable, Codable {
     public var jitterRange: Double = 0.2
     public var operationTimeoutSeconds: Double = 60.0
 
+    private enum CodingKeys: String, CodingKey {
+        case maxRetries, baseDelaySeconds, maxDelaySeconds, jitterRange, operationTimeoutSeconds
+    }
+
+    private enum DecodingKeys: String, CodingKey {
+        case maxRetries, baseDelaySeconds, maxDelaySeconds, jitterRange, operationTimeoutSeconds
+        case legacyMaxRetries = "max_retries"
+        case legacyBaseDelaySeconds = "base_delay_seconds"
+        case legacyMaxDelaySeconds = "max_delay_seconds"
+        case legacyJitterRange = "jitter_range"
+        case legacyOperationTimeoutSeconds = "operation_timeout_seconds"
+    }
+
     public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: DecodingKeys.self)
+        maxRetries = try container.decodeIfPresent(Int.self, forKey: .maxRetries)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyMaxRetries)
+            ?? 3
+        baseDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .baseDelaySeconds)
+            ?? container.decodeIfPresent(Double.self, forKey: .legacyBaseDelaySeconds)
+            ?? 1.0
+        maxDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .maxDelaySeconds)
+            ?? container.decodeIfPresent(Double.self, forKey: .legacyMaxDelaySeconds)
+            ?? 10.0
+        jitterRange = try container.decodeIfPresent(Double.self, forKey: .jitterRange)
+            ?? container.decodeIfPresent(Double.self, forKey: .legacyJitterRange)
+            ?? 0.2
+        operationTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .operationTimeoutSeconds)
+            ?? container.decodeIfPresent(Double.self, forKey: .legacyOperationTimeoutSeconds)
+            ?? 60.0
+    }
 }
 
 public struct BatchProcessingConfig: Sendable, Codable {
     public var idsBatchSize: Int = 200
     public var batchSize: Int = 1000
 
+    private enum CodingKeys: String, CodingKey {
+        case idsBatchSize, batchSize
+    }
+
+    private enum DecodingKeys: String, CodingKey {
+        case idsBatchSize, batchSize
+        case legacyIdsBatchSize = "ids_batch_size"
+        case legacyBatchSize = "batch_size"
+    }
+
     public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: DecodingKeys.self)
+        idsBatchSize = try container.decodeIfPresent(Int.self, forKey: .idsBatchSize)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyIdsBatchSize)
+            ?? 200
+        batchSize = try container.decodeIfPresent(Int.self, forKey: .batchSize)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyBatchSize)
+            ?? 1000
+    }
 }
