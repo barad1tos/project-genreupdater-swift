@@ -114,6 +114,7 @@ final class WorkflowViewModel {
     var pendingSkippedAlbumCount: Int = 0
     var pendingVerificationReportSummary: UpdateRunPendingVerificationSummary?
     var pendingVerificationRefreshGeneration = 0
+    var releaseYearRestoreRunGeneration = 0
     var proposedChanges: [ProposedChange] = []
     var result: BatchUpdateResult?
     var completedEntries: [ChangeLogEntry] = []
@@ -223,6 +224,8 @@ final class WorkflowViewModel {
     /// all tracks through `BatchProcessor` with real-time progress.
     func start(tracks: [Track]) {
         guard canStart else { return }
+
+        maintenancePreflightResult = nil
 
         if mode == .pendingVerification {
             startPendingVerification(tracks: tracks)

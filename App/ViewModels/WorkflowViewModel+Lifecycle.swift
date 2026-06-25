@@ -5,6 +5,7 @@ import Services
 
 extension WorkflowViewModel {
     func cancel() {
+        invalidateReleaseYearRestoreRuns()
         processingTask?.cancel()
         processingTask = nil
         if mode == .fullLibrary {
@@ -38,6 +39,7 @@ extension WorkflowViewModel {
         result = nil
         completedEntries = []
         dryRunReport = nil
+        maintenancePreflightResult = nil
         processedCount = 0
         totalCount = 0
         failedCount = 0

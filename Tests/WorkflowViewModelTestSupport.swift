@@ -17,6 +17,7 @@ func makeWorkflowFixture(
     failingWriteTrackIDs: Set<String> = [],
     cancellingWriteTrackIDs: Set<String> = [],
     noChangeWriteTrackIDs: Set<String> = [],
+    writeHold: LiveBatchHold? = nil,
     resolveIncrementalTracks: @escaping (
         [Track],
         IncrementalTrackScopeOptions
@@ -31,7 +32,8 @@ func makeWorkflowFixture(
     let scriptClient = DashboardStateScriptClient(
         failingTrackIDs: failingWriteTrackIDs,
         cancellingTrackIDs: cancellingWriteTrackIDs,
-        noChangeTrackIDs: noChangeWriteTrackIDs
+        noChangeTrackIDs: noChangeWriteTrackIDs,
+        writeHold: writeHold
     )
     let trackStore = DashboardStateTrackStore()
     let cache = DashboardStateCacheService()
@@ -250,16 +252,19 @@ actor DashboardStateScriptClient: AppleScriptClient {
     private let failingTrackIDs: Set<String>
     private let cancellingTrackIDs: Set<String>
     private let noChangeTrackIDs: Set<String>
+    private let writeHold: LiveBatchHold?
     private var writes: [(trackID: String, property: String, value: String)] = []
 
     init(
         failingTrackIDs: Set<String> = [],
         cancellingTrackIDs: Set<String> = [],
-        noChangeTrackIDs: Set<String> = []
+        noChangeTrackIDs: Set<String> = [],
+        writeHold: LiveBatchHold? = nil
     ) {
         self.failingTrackIDs = failingTrackIDs
         self.cancellingTrackIDs = cancellingTrackIDs
         self.noChangeTrackIDs = noChangeTrackIDs
+        self.writeHold = writeHold
     }
 
     func initialize() async throws {
@@ -287,6 +292,10 @@ actor DashboardStateScriptClient: AppleScriptClient {
     }
 
     func updateTrackProperty(trackID: String, property: String, value: String) async throws -> AppleScriptWriteResult {
+        if let writeHold {
+            await writeHold.holdOnce()
+            try Task.checkCancellation()
+        }
         if cancellingTrackIDs.contains(trackID) {
             throw CancellationError()
         }

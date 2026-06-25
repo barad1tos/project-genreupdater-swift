@@ -259,6 +259,17 @@ func pendingDuePreflight() -> MaintenancePreflightResult {
     )
 }
 
+func staleDatabaseVerificationPreflight() -> MaintenancePreflightResult {
+    MaintenancePreflightResult(
+        databaseVerification: DatabaseVerificationResult(
+            verifiedTrackCount: 42,
+            removedTrackIDs: ["stale-track-id"]
+        ),
+        databaseVerificationError: nil,
+        isPendingVerificationDue: false
+    )
+}
+
 actor PendingTimestampUpdateCounter {
     private var updates = 0
 
