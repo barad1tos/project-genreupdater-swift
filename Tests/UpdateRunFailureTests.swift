@@ -37,6 +37,13 @@ struct UpdateRunFailureTests {
         #expect(Set(report.failures.map { failure in failure.id }).count == 2)
         #expect(report.failures.allSatisfy { failure in failure.technicalID == "track-1" })
         #expect(report.albumResults.first?.failureCount == 2)
+        let needsAttentionLines = report.plainTextSummary
+            .components(separatedBy: "\n")
+            .filter { line in line.hasPrefix("- Song (Artist - Album): Failed to write") }
+        #expect(needsAttentionLines == [
+            "- Song (Artist - Album): Failed to write genre",
+            "- Song (Artist - Album): Failed to write year",
+        ])
         let failureBreakdowns = report.outcomeBreakdown.filter { breakdown in
             breakdown.outcome == UpdateRunOutcome.failed
         }
