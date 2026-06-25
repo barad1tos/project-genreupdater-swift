@@ -349,45 +349,14 @@ struct SwiftDataPendingVerificationServiceTests {
             autoVerifyDays: 14
         )
         #expect(await afterInterval.shouldAutoVerify())
-    }
 
-    @Test("Auto-verify timestamp semantics cover no-previous, disabled, not-elapsed, and elapsed")
-    func autoVerifyTimestampSemanticsCoverAllCases() async throws {
-        let directory = try makeTempDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let container = try ModelContainerFactory.createInMemory()
-        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
-
-        // 1. No previous timestamp → should auto-verify
-        let fresh = makeService(container: container, date: baseDate, autoVerifyDays: 14)
-        #expect(await fresh.shouldAutoVerify())
-
-        // Record a verification timestamp
-        try await fresh.updateVerificationTimestamp()
-
-        // 2. Disabled interval (autoVerifyDays: 0) → never auto-verify, even after timestamp
+        // Disabled interval (autoVerifyDays: 0) → never auto-verify, even after elapsed time
         let disabled = makeService(
             container: container,
             date: baseDate.addingTimeInterval(100 * day),
             autoVerifyDays: 0
         )
         #expect(await !(disabled.shouldAutoVerify()))
-
-        // 3. Interval not elapsed → should not auto-verify
-        let beforeInterval = makeService(
-            container: container,
-            date: baseDate.addingTimeInterval(13 * day),
-            autoVerifyDays: 14
-        )
-        #expect(await !(beforeInterval.shouldAutoVerify()))
-
-        // 4. Interval elapsed → should auto-verify
-        let afterInterval = makeService(
-            container: container,
-            date: baseDate.addingTimeInterval(15 * day),
-            autoVerifyDays: 14
-        )
-        #expect(await afterInterval.shouldAutoVerify())
     }
 
     @Test("Legacy JSON imports into SwiftData once")
@@ -478,6 +447,9 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(pinkFloyd.reason == "no_year_found")
         #expect(pinkFloyd.attemptCount == 1)
         #expect(pinkFloyd.metadata["source"] == "legacy")
+        // Migration preserves raw legacy artist/album display values
+        #expect(pinkFloyd.artist == "  PINK FLOYD  ")
+        #expect(pinkFloyd.album == "  The Wall  ")
 
         let bjork = try #require(await service.getEntry(artist: "Bjork", album: "Debut"))
         #expect(bjork.reason == "prerelease")
@@ -487,6 +459,9 @@ struct SwiftDataPendingVerificationServiceTests {
         await service.markForVerification(artist: "pink floyd", album: "the wall", reason: "no_year_found")
         let incremented = try #require(await service.getEntry(artist: "PINK FLOYD", album: "The Wall"))
         #expect(incremented.attemptCount == 2)
+        // Re-marking with a clean variant trims and updates stored display values
+        #expect(incremented.artist == "pink floyd")
+        #expect(incremented.album == "the wall")
     }
 
     @Test("Python pending CSV imports into SwiftData")
