@@ -213,20 +213,11 @@ extension AppDependencies {
         reachability: NetworkReachabilityMonitor?,
         disabledSources: Set<APISource>
     ) -> APIOrchestratorConfiguration {
-        var orchestratorConfiguration = APIOrchestratorConfiguration()
+        var orchestratorConfiguration = APIOrchestratorConfiguration(configuration: configuration)
         orchestratorConfiguration.reachability = reachability
         orchestratorConfiguration.cache = cache
         orchestratorConfiguration.pendingVerificationService = pendingVerificationService
-        orchestratorConfiguration.maxVerificationAttempts = configuration.yearRetrieval.fallback.maxVerificationAttempts
-        orchestratorConfiguration.negativeResultTTL = configuration.caching.negativeResultTTL
-        orchestratorConfiguration.candidateResultTTL = apiResultCacheTTL(configuration: configuration)
         orchestratorConfiguration.disabledSources = disabledSources
-        orchestratorConfiguration.maxConcurrentSourceCalls = configuration.yearRetrieval.rateLimits.concurrentAPICalls
-        orchestratorConfiguration.maxAPIRetries = configuration.runtime.maxRetries
-        orchestratorConfiguration.apiRetryDelaySeconds = configuration.runtime.retryDelaySeconds
-        orchestratorConfiguration.sourcePriorityConfiguration = APISourcePriorityConfiguration(
-            configuration: configuration
-        )
         return orchestratorConfiguration
     }
 

@@ -334,11 +334,7 @@ final class AppDependencies {
     }
 
     static func apiResultCacheTTL(configuration: AppConfiguration) -> TimeInterval {
-        guard configuration.processing.cacheTTLDays > 0 else {
-            return GRDBCacheService.defaultAPIResultTTL
-        }
-
-        return TimeInterval(configuration.processing.cacheTTLDays) * 24 * 60 * 60
+        GRDBCacheService.resolvedAPIResultTTL(configuration: configuration)
     }
 
     private static func makeYearDeterminator(configuration: AppConfiguration) -> YearDeterminator {

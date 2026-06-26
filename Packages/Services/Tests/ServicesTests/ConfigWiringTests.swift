@@ -118,4 +118,32 @@ struct ConfigWiringTests {
         #expect(batchProcessing.delayBetweenBatchesMilliseconds == 0)
         #expect(batchProcessing.adaptiveDelay == false)
     }
+
+    @Test("API orchestrator config maps year-retrieval and runtime settings")
+    func apiOrchestratorConfigMapsYearRetrievalAndRuntimeSettings() {
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.fallback.maxVerificationAttempts = 9
+        configuration.caching.negativeResultTTL = 12345
+        configuration.yearRetrieval.rateLimits.concurrentAPICalls = 7
+        configuration.runtime.maxRetries = 4
+        configuration.runtime.retryDelaySeconds = 2.5
+        configuration.processing.cacheTTLDays = 3
+        configuration.yearRetrieval.preferredAPI = .discogs
+
+        let orchestrator = APIOrchestratorConfiguration(configuration: configuration)
+
+        #expect(orchestrator.maxVerificationAttempts == 9)
+        #expect(orchestrator.negativeResultTTL == 12345)
+        #expect(orchestrator.candidateResultTTL == TimeInterval(3 * 24 * 60 * 60))
+        #expect(orchestrator.maxConcurrentSourceCalls == 7)
+        #expect(orchestrator.maxAPIRetries == 4)
+        #expect(orchestrator.apiRetryDelaySeconds == 2.5)
+        #expect(
+            orchestrator.sourcePriorityConfiguration
+                .orderedSources(artist: "Clutch", album: "Pure Rock Fury").first == .discogs
+        )
+        // Only the runtime service references stay unset; the composition root injects them.
+        #expect(orchestrator.cache == nil)
+        #expect(orchestrator.disabledSources.isEmpty)
+    }
 }
