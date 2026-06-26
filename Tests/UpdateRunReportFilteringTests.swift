@@ -209,6 +209,57 @@ struct UpdateRunReportFilteringTests {
         #expect(report.plainTextSummary.contains("Genre none -> none"))
     }
 
+    @Test("filters real changes across cleaning, rename, and revert change types")
+    func filtersRealChangesAcrossCleaningRenameAndRevert() {
+        let entries = [
+            UpdateRunReportFixtures.makeChange(.trackCleaning, "track-real") {
+                $0.oldTrackName = "Spacegrass (Remastered)"
+                $0.newTrackName = "Spacegrass"
+            },
+            UpdateRunReportFixtures.makeChange(.trackCleaning, "track-noop") {
+                $0.oldTrackName = "Spacegrass"
+                $0.newTrackName = "Spacegrass"
+            },
+            UpdateRunReportFixtures.makeChange(.albumCleaning, "album-real") {
+                $0.oldAlbumName = "Blast Tyrant (Deluxe Edition)"
+                $0.newAlbumName = "Blast Tyrant"
+            },
+            UpdateRunReportFixtures.makeChange(.albumCleaning, "album-noop") {
+                $0.oldAlbumName = "Blast Tyrant"
+                $0.newAlbumName = "Blast Tyrant"
+            },
+            UpdateRunReportFixtures.makeChange(.artistRename, "rename-real") {
+                $0.oldArtist = "clutch"
+                $0.newArtist = "Clutch"
+            },
+            UpdateRunReportFixtures.makeChange(.artistRename, "rename-noop") {
+                $0.oldArtist = "Clutch"
+                $0.newArtist = "Clutch"
+            },
+            UpdateRunReportFixtures.makeChange(.yearRevert, "revert-real") {
+                $0.oldYear = 2010
+                $0.newYear = 2009
+            },
+            UpdateRunReportFixtures.makeChange(.yearRevert, "revert-noop") {
+                $0.oldYear = 2009
+                $0.newYear = 2009
+            },
+        ]
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(entries: entries, failedTrackIDs: [], errorDescriptions: []),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: ["Clutch"]
+        )
+
+        #expect(report.changedEntries.map(\.trackID) == [
+            "track-real", "album-real", "rename-real", "revert-real",
+        ])
+        #expect(report.changedTrackCount == 4)
+    }
+
     @Test("prints no-change summary when all entries are no-ops")
     func printsNoChangeSummaryWhenAllEntriesAreNoOps() {
         var unchangedYear = ChangeLogEntry(

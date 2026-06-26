@@ -80,4 +80,22 @@ enum UpdateRunReportFixtures {
             displayMode: displayMode
         )
     }
+
+    /// Builds a `ChangeLogEntry` of `changeType` for `trackID`, applying `configure`
+    /// to set the relevant old/new fields for that change type.
+    static func makeChange(
+        _ changeType: ChangeType,
+        _ trackID: String,
+        configure: (inout ChangeLogEntry) -> Void
+    ) -> ChangeLogEntry {
+        var entry = ChangeLogEntry(
+            changeType: changeType,
+            trackID: trackID,
+            artist: "Clutch",
+            trackName: "Track",
+            albumName: "Album"
+        )
+        configure(&entry)
+        return entry
+    }
 }
