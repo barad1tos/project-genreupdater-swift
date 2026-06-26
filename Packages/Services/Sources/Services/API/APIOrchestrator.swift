@@ -114,15 +114,16 @@ public struct APIOrchestratorConfiguration: Sendable {
         sourcePriorityConfiguration = APISourcePriorityConfiguration()
     }
 
-    /// Maps year-retrieval and runtime settings from `AppConfiguration`.
+    /// Maps every config-derived field from `AppConfiguration`.
     ///
-    /// Runtime injectables (`reachability`, `cache`, `pendingVerificationService`,
-    /// `disabledSources`) and the derived `candidateResultTTL` are supplied by the
-    /// composition root after construction.
+    /// Only the runtime service references (`reachability`, `cache`,
+    /// `pendingVerificationService`) and `disabledSources` are left for the
+    /// composition root to inject when available.
     public init(configuration: AppConfiguration) {
         self.init()
         maxVerificationAttempts = configuration.yearRetrieval.fallback.maxVerificationAttempts
         negativeResultTTL = configuration.caching.negativeResultTTL
+        candidateResultTTL = GRDBCacheService.resolvedAPIResultTTL(configuration: configuration)
         maxConcurrentSourceCalls = configuration.yearRetrieval.rateLimits.concurrentAPICalls
         maxAPIRetries = configuration.runtime.maxRetries
         apiRetryDelaySeconds = configuration.runtime.retryDelaySeconds

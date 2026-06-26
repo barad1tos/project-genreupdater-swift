@@ -217,7 +217,6 @@ extension AppDependencies {
         orchestratorConfiguration.reachability = reachability
         orchestratorConfiguration.cache = cache
         orchestratorConfiguration.pendingVerificationService = pendingVerificationService
-        orchestratorConfiguration.candidateResultTTL = apiResultCacheTTL(configuration: configuration)
         orchestratorConfiguration.disabledSources = disabledSources
         return orchestratorConfiguration
     }

@@ -31,6 +31,15 @@ public actor GRDBCacheService: CacheService {
     /// Default TTL for API response cache entries (15 minutes).
     public static let defaultAPIResultTTL: TimeInterval = 15 * 60
 
+    /// Resolves the API-result cache TTL from `processing.cacheTTLDays`,
+    /// falling back to ``defaultAPIResultTTL`` when the configured value is non-positive.
+    public static func resolvedAPIResultTTL(configuration: AppConfiguration) -> TimeInterval {
+        guard configuration.processing.cacheTTLDays > 0 else {
+            return defaultAPIResultTTL
+        }
+        return TimeInterval(configuration.processing.cacheTTLDays) * 24 * 60 * 60
+    }
+
     /// Default maximum generic cache entries.
     public static let defaultMaxGenericEntries = 10000
 
