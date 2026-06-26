@@ -113,6 +113,21 @@ public struct APIOrchestratorConfiguration: Sendable {
         apiRetryDelaySeconds = 1
         sourcePriorityConfiguration = APISourcePriorityConfiguration()
     }
+
+    /// Maps year-retrieval and runtime settings from `AppConfiguration`.
+    ///
+    /// Runtime injectables (`reachability`, `cache`, `pendingVerificationService`,
+    /// `disabledSources`) and the derived `candidateResultTTL` are supplied by the
+    /// composition root after construction.
+    public init(configuration: AppConfiguration) {
+        self.init()
+        maxVerificationAttempts = configuration.yearRetrieval.fallback.maxVerificationAttempts
+        negativeResultTTL = configuration.caching.negativeResultTTL
+        maxConcurrentSourceCalls = configuration.yearRetrieval.rateLimits.concurrentAPICalls
+        maxAPIRetries = configuration.runtime.maxRetries
+        apiRetryDelaySeconds = configuration.runtime.retryDelaySeconds
+        sourcePriorityConfiguration = APISourcePriorityConfiguration(configuration: configuration)
+    }
 }
 
 struct APISearchQuery {
