@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-.build/XcodeDerivedData}"
+DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-.build/xcode}"
 DESTINATION="${XCODE_DESTINATION:-platform=macOS,arch=arm64}"
 CONFIGURATION="${XCODE_CONFIGURATION:-Debug}"
 

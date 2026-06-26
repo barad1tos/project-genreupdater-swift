@@ -9,7 +9,7 @@ PROCESS_NAME="Genre Updater"
 LOG_SUBSYSTEM_PREFIX="com.genreupdater"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DERIVED_DATA_PATH="$ROOT_DIR/.build/XcodeDerivedData"
+DERIVED_DATA_PATH="$ROOT_DIR/.build/xcode"
 APP_BUNDLE="$DERIVED_DATA_PATH/Build/Products/Debug/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 SOURCE_ENTITLEMENTS="$ROOT_DIR/App/GenreUpdater.entitlements"
