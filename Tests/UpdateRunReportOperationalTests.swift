@@ -62,7 +62,7 @@ struct UpdateRunReportOperationalTests {
     }
 
     @Test("Pending verification summary includes skipped and verified counts")
-    func pendingSummaryIncludesLifecycleCounts() throws {
+    func pendingSummaryIncludesLifecycleCounts() {
         let summary = UpdateRunPendingVerificationSummary(
             total: 10,
             due: 3,
@@ -91,7 +91,7 @@ struct UpdateRunReportOperationalTests {
     }
 
     @Test("Recovery summary appears in report and plain text")
-    func recoverySummaryAppearsInReportAndPlainText() throws {
+    func recoverySummaryAppearsInReportAndPlainText() {
         let recovery = UpdateRunRecoverySummary(restoredCount: 5, skippedCount: 2, failedCount: 1)
         let report = UpdateRunReport(
             result: nil,
