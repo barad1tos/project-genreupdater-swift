@@ -222,6 +222,83 @@ struct TrackIDMapperTests {
         #expect(enrichedTrack == nil)
     }
 
+    @Test("Album mismatch falls back to a unique name+artist match")
+    func albumMismatchFallbackMapsUniqueNameArtist() async throws {
+        let mapper = TrackIDMapper()
+        // MusicKit indexes the recording under its single album; AppleScript (the
+        // live library, the write source of truth) has the same recording on a
+        // later album. The (name, artist, album) key cannot bridge them.
+        let musicKitTrack = makeTrack(
+            id: "MK-1",
+            name: "Дивна любов",
+            artist: "паліндром",
+            album: "Дивна любов - Single"
+        )
+        let appleScriptTrack = makeTrack(
+            id: "AS-102090",
+            name: "Дивна любов",
+            artist: "паліндром",
+            album: "Декілька пісень невизначеності (ч.1)"
+        )
+
+        await mapper.refreshMapping(
+            musicKitTracks: [musicKitTrack],
+            appleScriptTracks: [appleScriptTrack]
+        )
+
+        let writeID = await mapper.appleScriptID(forMusicKitID: "MK-1")
+        #expect(writeID == "AS-102090")
+        let enriched = try #require(await mapper.trackWithAppleScriptMetadata(for: musicKitTrack))
+        #expect(enriched.album == "Декілька пісень невизначеності (ч.1)")
+    }
+
+    @Test("Album mismatch with ambiguous name+artist is not mapped")
+    func albumMismatchAmbiguousNameArtistIsNotMapped() async {
+        let mapper = TrackIDMapper()
+        let musicKitTrack = makeTrack(
+            id: "MK-1",
+            name: "Дивна любов",
+            artist: "паліндром",
+            album: "Дивна любов - Single"
+        )
+        // Two distinct AppleScript recordings share name+artist on different albums,
+        // so the album-agnostic fallback must stay conservative and not guess.
+        let appleScriptTracks = [
+            makeTrack(id: "AS-A", name: "Дивна любов", artist: "паліндром", album: "Альбом А"),
+            makeTrack(id: "AS-B", name: "Дивна любов", artist: "паліндром", album: "Альбом Б"),
+        ]
+
+        await mapper.refreshMapping(
+            musicKitTracks: [musicKitTrack],
+            appleScriptTracks: appleScriptTracks
+        )
+
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK-1") == nil)
+    }
+
+    @Test("Fallback does not reuse an AppleScript track already claimed by the primary pass")
+    func fallbackDoesNotReuseClaimedAppleScriptTrack() async {
+        let mapper = TrackIDMapper()
+        // MusicKit holds two distinct recordings (studio + live) of one song; the
+        // live one is absent from AppleScript. The studio one maps exactly, and the
+        // live one must not fall back onto the studio track and overwrite it.
+        let musicKitTracks = [
+            makeTrack(id: "MK-studio", name: "Song", artist: "Band", album: "Studio"),
+            makeTrack(id: "MK-live", name: "Song", artist: "Band", album: "Live"),
+        ]
+        let appleScriptTracks = [
+            makeTrack(id: "AS-studio", name: "Song", artist: "Band", album: "Studio"),
+        ]
+
+        await mapper.refreshMapping(
+            musicKitTracks: musicKitTracks,
+            appleScriptTracks: appleScriptTracks
+        )
+
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK-studio") == "AS-studio")
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK-live") == nil)
+    }
+
     @Test("Empty input produces empty mapping")
     func emptyInputProducesEmptyMapping() async {
         let mapper = TrackIDMapper()
