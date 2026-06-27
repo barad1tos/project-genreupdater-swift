@@ -93,4 +93,28 @@ struct UpdateCoordinatorYearLocalFirstTests {
 
         #expect(change == nil)
     }
+
+    @Test("Dominant album year wins over a disagreeing release-year signal")
+    func dominantWinsOverDisagreeingReleaseYear() async throws {
+        let coordinator = await makeCoordinator()
+
+        // The dominant track year (2020) differs from the unanimous release-year
+        // signal (2018). Python `_try_local_sources` returns the dominant first,
+        // so the repair targets 2020 — not the read-only release year.
+        let outlier = albumTrack(id: "MK-out", name: "Out", year: 2024, releaseYear: 2018)
+        let consistent = (1 ... 6).map {
+            albumTrack(id: "MK-\($0)", name: "Track \($0)", year: 2020, releaseYear: 2018)
+        }
+        let albumTracks = [outlier] + consistent
+
+        let change = try await coordinator.determineYearChange(
+            track: outlier,
+            albumTracks: albumTracks,
+            forceYearLookup: false
+        )
+
+        let yearChange = try #require(change)
+        #expect(yearChange.oldValue == "2024")
+        #expect(yearChange.newValue == "2020")
+    }
 }

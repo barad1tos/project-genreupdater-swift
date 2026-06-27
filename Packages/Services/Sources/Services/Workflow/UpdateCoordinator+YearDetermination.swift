@@ -123,8 +123,9 @@ extension UpdateCoordinator {
 
         // Local-first (Python `_try_local_sources`): a confident dominant/consensus
         // year repairs a valid outlier before any API call, even when the release
-        // year conflicts with the current year. All safety guards (majority,
-        // suspicious-old, ambiguity) live inside `yearChangeFromLocalDetermination`.
+        // year conflicts with the current year. The majority and suspicious-old
+        // guards live inside `yearChangeFromLocalDetermination`; ambiguity is gated
+        // here via `!hasAmbiguousReleaseYearSignal`.
         if !hasAmbiguousReleaseYearSignal,
            let localChange = yearChangeFromLocalDetermination(track: track, albumTracks: albumTracks) {
             return .change(localChange)
