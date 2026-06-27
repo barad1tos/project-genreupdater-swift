@@ -121,8 +121,11 @@ extension UpdateCoordinator {
             return .skip
         }
 
-        if releaseYearConflict == nil,
-           !hasAmbiguousReleaseYearSignal,
+        // Local-first (Python `_try_local_sources`): a confident dominant/consensus
+        // year repairs a valid outlier before any API call, even when the release
+        // year conflicts with the current year. All safety guards (majority,
+        // suspicious-old, ambiguity) live inside `yearChangeFromLocalDetermination`.
+        if !hasAmbiguousReleaseYearSignal,
            let localChange = yearChangeFromLocalDetermination(track: track, albumTracks: albumTracks) {
             return .change(localChange)
         }
