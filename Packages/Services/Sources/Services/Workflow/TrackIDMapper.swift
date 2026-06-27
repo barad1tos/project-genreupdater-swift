@@ -14,7 +14,9 @@ public actor TrackIDMapper: TrackIDMapping {
     private var appleScriptMetadataByMusicKitID: [String: Track] = [:]
     private let log = Logger(subsystem: "com.genreupdater", category: "TrackIDMapper")
 
-    public init() {}
+    public init() {
+        // No initial state: the ID mapping table is populated lazily via refreshMapping.
+    }
 
     public func refreshMapping(
         musicKitTracks: [Track],
@@ -45,9 +47,16 @@ public actor TrackIDMapper: TrackIDMapping {
         // conservative: only a unique match on both sides is accepted.
         let unmappedMusicKitTracks = musicKitTracks.filter { updatedMapping[$0.id] == nil }
         if !unmappedMusicKitTracks.isEmpty {
+            // Exclude AppleScript tracks the primary pass already claimed, so the
+            // album-agnostic fallback can never attach a second MusicKit track to a
+            // write target another track already owns (which would overwrite it).
+            let claimedAppleScriptIDs = Set(updatedMapping.values)
+            let availableAppleScriptTracks = appleScriptTracks.filter {
+                !claimedAppleScriptIDs.contains($0.id)
+            }
             let (fallbackMapping, fallbackMetadata) = matchByKeys(
                 musicKitTracks: unmappedMusicKitTracks,
-                appleScriptTracks: appleScriptTracks,
+                appleScriptTracks: availableAppleScriptTracks,
                 keys: nameArtistKeys
             )
             updatedMapping.merge(fallbackMapping) { existing, _ in existing }
@@ -159,8 +168,8 @@ public actor TrackIDMapper: TrackIDMapping {
             count > 1 ? key : nil
         })
 
-        var mapping: [String: String] = [:]
-        var metadata: [String: Track] = [:]
+        var resultMapping: [String: String] = [:]
+        var resultMetadata: [String: Track] = [:]
         for track in musicKitTracks {
             let candidates = keys(track)
                 .filter { !ambiguousMusicKitKeys.contains($0) }
@@ -169,10 +178,10 @@ public actor TrackIDMapper: TrackIDMapping {
             let uniqueAppleScriptIDs = Set(candidates.map(\.id))
             guard uniqueAppleScriptIDs.count == 1, let appleScriptTrack = candidates.first else { continue }
 
-            mapping[track.id] = appleScriptTrack.id
-            metadata[track.id] = appleScriptTrack
+            resultMapping[track.id] = appleScriptTrack.id
+            resultMetadata[track.id] = appleScriptTrack
         }
-        return (mapping, metadata)
+        return (mapping: resultMapping, metadata: resultMetadata)
     }
 
     private func normalizedKeys(_ track: Track) -> [String] {

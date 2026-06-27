@@ -276,6 +276,29 @@ struct TrackIDMapperTests {
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-1") == nil)
     }
 
+    @Test("Fallback does not reuse an AppleScript track already claimed by the primary pass")
+    func fallbackDoesNotReuseClaimedAppleScriptTrack() async {
+        let mapper = TrackIDMapper()
+        // MusicKit holds two distinct recordings (studio + live) of one song; the
+        // live one is absent from AppleScript. The studio one maps exactly, and the
+        // live one must not fall back onto the studio track and overwrite it.
+        let musicKitTracks = [
+            makeTrack(id: "MK-studio", name: "Song", artist: "Band", album: "Studio"),
+            makeTrack(id: "MK-live", name: "Song", artist: "Band", album: "Live"),
+        ]
+        let appleScriptTracks = [
+            makeTrack(id: "AS-studio", name: "Song", artist: "Band", album: "Studio"),
+        ]
+
+        await mapper.refreshMapping(
+            musicKitTracks: musicKitTracks,
+            appleScriptTracks: appleScriptTracks
+        )
+
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK-studio") == "AS-studio")
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK-live") == nil)
+    }
+
     @Test("Empty input produces empty mapping")
     func emptyInputProducesEmptyMapping() async {
         let mapper = TrackIDMapper()
