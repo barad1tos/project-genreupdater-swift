@@ -8,26 +8,31 @@ struct NavigationEntry: Hashable {
 
 /// Central app state — route, browse filter, onboarding, and the data source.
 @Observable
-final class AppModel {
-    var route: Route? = .activity
-    var browseFilter: BrowseFilter = .all
-    var showOnboarding = false
-    var dryRun = true
+@MainActor
+public final class AppModel {
+    public var route: Route? = .activity
+    public var browseFilter: BrowseFilter = .all
+    public var showOnboarding = false
+    public var dryRun = true
+    public var data: DesignDataSnapshot
 
     private var backStack: [NavigationEntry] = []
     private var forwardStack: [NavigationEntry] = []
 
-    let data = MockData()
-    var snapshot: HealthSnapshot { data.snapshot }
-    var pipelineActivity: PipelineActivitySnapshot { data.pipelineActivity }
-    var canNavigateBack: Bool { !backStack.isEmpty }
-    var canNavigateForward: Bool { !forwardStack.isEmpty }
+    public init(data: DesignDataSnapshot = .preview) {
+        self.data = data
+    }
 
-    func openBrowse(filter: BrowseFilter) {
+    public var snapshot: HealthSnapshot { data.health }
+    public var pipelineActivity: PipelineActivitySnapshot { data.pipelineActivity }
+    public var canNavigateBack: Bool { !backStack.isEmpty }
+    public var canNavigateForward: Bool { !forwardStack.isEmpty }
+
+    public func openBrowse(filter: BrowseFilter) {
         navigate(to: .browse, browseFilter: filter)
     }
 
-    func setBrowseFilter(_ filter: BrowseFilter) {
+    public func setBrowseFilter(_ filter: BrowseFilter) {
         if route == .browse {
             navigate(to: .browse, browseFilter: filter)
         } else {
@@ -35,7 +40,7 @@ final class AppModel {
         }
     }
 
-    func navigate(to route: Route, browseFilter filter: BrowseFilter? = nil) {
+    public func navigate(to route: Route, browseFilter filter: BrowseFilter? = nil) {
         let nextEntry = NavigationEntry(
             route: route,
             browseFilter: route == .browse ? (filter ?? browseFilter) : browseFilter
@@ -49,14 +54,14 @@ final class AppModel {
         apply(nextEntry)
     }
 
-    func navigateBack() {
+    public func navigateBack() {
         guard let previousEntry = backStack.popLast() else { return }
 
         forwardStack.append(currentNavigationEntry)
         apply(previousEntry)
     }
 
-    func navigateForward() {
+    public func navigateForward() {
         guard let nextEntry = forwardStack.popLast() else { return }
 
         backStack.append(currentNavigationEntry)

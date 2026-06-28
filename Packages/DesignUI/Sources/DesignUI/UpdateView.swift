@@ -31,7 +31,7 @@ struct UpdateView: View {
                     HStack(spacing: 36) {
                         stat("\(dr.changes)", "Changes", .accent)
                         stat("\(dr.tracks)", "Tracks", .neutral)
-                        stat("\(dr.avgConfidence)%", "Avg confidence", .success)
+                        stat("\(dr.averageConfidence)%", "Avg confidence", .success)
                         Divider().frame(height: 38).overlay(Ayu.glassBorder)
                         HStack(spacing: 9) {
                             TagPill(text: "\(dr.genre) Genre", tone: .purple, dot: true)

@@ -53,14 +53,14 @@ struct ReportsView: View {
 
                 LazyVGrid(columns: cols, spacing: 14) {
                     chartCard("Genre distribution", "chart.bar", .purple) {
-                        Chart(model.data.genreDist) { d in
+                        Chart(model.data.genreDistribution) { d in
                             BarMark(x: .value("Count", d.count), y: .value("Genre", d.label))
                                 .foregroundStyle(Ayu.purple)
                         }
                         .frame(height: 160)
                     }
                     chartCard("Changes over time", "chart.line.uptrend.xyaxis", .accent) {
-                        Chart(model.data.overTime) { d in
+                        Chart(model.data.updatesOverTime) { d in
                             AreaMark(x: .value("Week", d.label), y: .value("Count", d.count))
                                 .foregroundStyle(Ayu.accent.opacity(0.25))
                             LineMark(x: .value("Week", d.label), y: .value("Count", d.count))
@@ -69,7 +69,7 @@ struct ReportsView: View {
                         .frame(height: 160)
                     }
                     chartCard("Year distribution", "calendar", .info) {
-                        Chart(model.data.yearDist) { d in
+                        Chart(model.data.yearDistribution) { d in
                             BarMark(x: .value("Decade", d.label), y: .value("Count", d.count))
                                 .foregroundStyle(Ayu.info)
                         }

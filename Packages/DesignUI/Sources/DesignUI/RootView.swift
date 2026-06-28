@@ -3,9 +3,14 @@ import SwiftUI
 /// Root shell: native NavigationSplitView (vibrancy sidebar + window traffic
 /// lights come free on macOS). Detail switches on the selected route.
 public struct RootView: View {
-    @State private var model = AppModel()
+    // `data` is the injected prop; `model.data` is the live value read by views.
+    private let data: DesignDataSnapshot
+    @State private var model: AppModel
 
-    public init() {}
+    public init(data: DesignDataSnapshot = .preview) {
+        self.data = data
+        _model = State(initialValue: AppModel(data: data))
+    }
 
     public var body: some View {
         @Bindable var model = model
@@ -25,8 +30,11 @@ public struct RootView: View {
                 NavigationHistoryControls(model: model)
             }
             ToolbarItem(placement: .automatic) {
-                SyncStatusPill(text: "Synced 8m ago")
+                SyncStatusPill(text: model.data.syncStatusText)
             }
+        }
+        .onChange(of: data) { _, newData in
+            model.data = newData
         }
         .sheet(isPresented: $model.showOnboarding) {
             OnboardingView { model.showOnboarding = false }

@@ -4,6 +4,7 @@ import Testing
 @Suite("Navigation history")
 struct NavigationHistoryTests {
     @Test
+    @MainActor
     func routeNavigationSupportsBackAndForward() {
         let model = AppModel()
 
@@ -31,6 +32,7 @@ struct NavigationHistoryTests {
     }
 
     @Test
+    @MainActor
     func browseNavigationRestoresFilter() {
         let model = AppModel()
 
@@ -43,6 +45,7 @@ struct NavigationHistoryTests {
     }
 
     @Test
+    @MainActor
     func duplicateNavigationDoesNotCreateHistory() {
         let model = AppModel()
 
@@ -53,6 +56,7 @@ struct NavigationHistoryTests {
     }
 
     @Test
+    @MainActor
     func newNavigationClearsForwardHistory() {
         let model = AppModel()
 
