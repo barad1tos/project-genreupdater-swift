@@ -18,6 +18,7 @@ struct DesignRootHostView: View {
     @State private var syncErrorMessage: String?
     @State private var lastSyncResult: SyncResult?
     @State private var hasStartedInitialLoad = false
+    @State private var libraryLoadRequestID = UUID()
 
     var body: some View {
         RootView(data: snapshot, pipelineSecondaryAction: runManualSync)
@@ -35,6 +36,7 @@ struct DesignRootHostView: View {
                 isLoading: isLoading,
                 loadError: loadError,
                 isDryRun: dependencies.config.runtime.dryRun,
+                // Workflow and verification data stay placeholder-only until the next DesignUI bridge slice wires them.
                 workflow: .empty,
                 pendingVerification: nil,
                 changeLogEntries: changeLogEntries,
@@ -55,31 +57,30 @@ struct DesignRootHostView: View {
     }
 
     private func loadLibrary() async {
+        let requestID = UUID()
+        libraryLoadRequestID = requestID
         loadError = nil
         loadCachedMetrics()
         loadChangeLogEntries()
         await dependencies.refreshAutoSyncStatus()
+        guard isCurrentLibraryLoad(requestID) else { return }
 
         let scopedArtists = LibraryTrackLoader.scopedArtists(from: dependencies)
-        var hasCachedTracks = false
         let loadStart = ContinuousClock.now
-
-        if let cachedLoad = await LibraryTrackLoader.cachedSnapshot(
-            from: dependencies,
+        let hasCachedTracks = await applyCachedLibraryLoad(
+            requestID: requestID,
             scopedArtists: scopedArtists,
-            forceRefresh: false
-        ) {
-            tracks = cachedLoad.tracks
-            hasCachedTracks = cachedLoad.hasTracks
-            await recordLibraryLoad(source: "snapshot", count: cachedLoad.tracks.count, startedAt: loadStart)
-        }
+            loadStart: loadStart
+        )
+        guard isCurrentLibraryLoad(requestID) else { return }
 
         guard let reader = LibraryTrackLoader.liveReader(from: dependencies) else {
+            finishLibraryLoadIfCurrent(requestID)
             return
         }
 
         isLoading = true
-        defer { isLoading = false }
+        defer { finishLibraryLoadIfCurrent(requestID) }
 
         do {
             let liveLoad = try await LibraryTrackLoader.liveTracks(
@@ -87,20 +88,72 @@ struct DesignRootHostView: View {
                 reader: reader,
                 scopedArtists: scopedArtists
             )
-            tracks = liveLoad.tracks
-            await dependencies.persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)
-            lastScanDate = liveLoad.scanDate
-            metricsSnapshot = upsertDashboardMetricsSnapshot(from: liveLoad.tracks, in: modelContext)
-            await recordLibraryLoad(source: "music", count: liveLoad.tracks.count, startedAt: loadStart)
+            await applyLiveLibraryLoad(
+                liveLoad,
+                requestID: requestID,
+                scopedArtists: scopedArtists,
+                loadStart: loadStart
+            )
         } catch is CancellationError {
             return
         } catch {
-            await dependencies.analyticsService?.trackError("library.load", error: error)
-            loadError = LibraryLoadError.make(from: error)
-            if !hasCachedTracks {
-                tracks = []
-            }
+            await handleLibraryLoadFailure(error, hasCachedTracks: hasCachedTracks, requestID: requestID)
         }
+    }
+
+    private func applyCachedLibraryLoad(
+        requestID: UUID,
+        scopedArtists: [String],
+        loadStart: ContinuousClock.Instant
+    ) async -> Bool {
+        guard let cachedLoad = await LibraryTrackLoader.cachedSnapshot(
+            from: dependencies,
+            scopedArtists: scopedArtists,
+            forceRefresh: false
+        ) else { return false }
+
+        guard isCurrentLibraryLoad(requestID) else { return false }
+        tracks = cachedLoad.tracks
+        await recordLibraryLoad(source: "snapshot", count: cachedLoad.tracks.count, startedAt: loadStart)
+        return cachedLoad.hasTracks
+    }
+
+    private func applyLiveLibraryLoad(
+        _ liveLoad: LibraryLiveTrackLoad,
+        requestID: UUID,
+        scopedArtists: [String],
+        loadStart: ContinuousClock.Instant
+    ) async {
+        guard isCurrentLibraryLoad(requestID) else { return }
+        tracks = liveLoad.tracks
+        await dependencies.persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)
+        guard isCurrentLibraryLoad(requestID) else { return }
+        lastScanDate = liveLoad.scanDate
+        metricsSnapshot = upsertDashboardMetricsSnapshot(from: liveLoad.tracks, in: modelContext)
+        await recordLibraryLoad(source: "music", count: liveLoad.tracks.count, startedAt: loadStart)
+    }
+
+    private func handleLibraryLoadFailure(
+        _ error: any Error,
+        hasCachedTracks: Bool,
+        requestID: UUID
+    ) async {
+        guard isCurrentLibraryLoad(requestID) else { return }
+        await dependencies.analyticsService?.trackError("library.load", error: error)
+        loadError = LibraryLoadError.make(from: error)
+        if !hasCachedTracks {
+            tracks = []
+        }
+    }
+
+    private func finishLibraryLoadIfCurrent(_ requestID: UUID) {
+        if isCurrentLibraryLoad(requestID) {
+            isLoading = false
+        }
+    }
+
+    private func isCurrentLibraryLoad(_ requestID: UUID) -> Bool {
+        libraryLoadRequestID == requestID
     }
 
     private func loadCachedMetrics() {
@@ -137,22 +190,16 @@ struct DesignRootHostView: View {
         isSynchronizingLibrary = true
         syncErrorMessage = nil
 
-        Task {
+        Task { @MainActor in
             do {
                 let result = try await dependencies.synchronizeLibraryNow()
-                await MainActor.run {
-                    lastSyncResult = result
-                }
+                lastSyncResult = result
                 await loadLibrary()
-                await MainActor.run {
-                    isSynchronizingLibrary = false
-                }
+                isSynchronizingLibrary = false
             } catch {
-                await MainActor.run {
-                    lastSyncResult = nil
-                    syncErrorMessage = error.localizedDescription
-                    isSynchronizingLibrary = false
-                }
+                lastSyncResult = nil
+                syncErrorMessage = error.localizedDescription
+                isSynchronizingLibrary = false
             }
         }
     }

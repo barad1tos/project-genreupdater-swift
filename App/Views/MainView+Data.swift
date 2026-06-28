@@ -74,6 +74,7 @@ struct SelectedUpdateScopeConfiguration {
     }
 }
 
+/// Legacy workflow bridge retained until DesignUI owns equivalent browse/update flows.
 extension MainView {
     func startLibraryLoad(forceRefresh: Bool = false) {
         let requestID = UUID()

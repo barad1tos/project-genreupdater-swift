@@ -39,6 +39,7 @@ struct DesignActivitySnapshotAdapterTests {
         )
 
         #expect(snapshot.health.totalTracks == 10)
+        #expect(snapshot.health.totalAlbums == nil)
         #expect(snapshot.health.missingGenre == 3)
         #expect(snapshot.health.missingYear == 2)
         #expect(snapshot.health.completeMetadata == 6)

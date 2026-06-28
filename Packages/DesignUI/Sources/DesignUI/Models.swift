@@ -1,36 +1,40 @@
 import SwiftUI
 
 // MARK: - Navigation
+
 public enum Route: Hashable, Sendable {
     case activity, browse, reports, update, settings
 }
 
 public enum BrowseFilter: String, CaseIterable, Identifiable, Sendable {
     case all, missingGenre, missingYear, conflicts
-    public var id: String { rawValue }
+    public var id: String {
+        rawValue
+    }
     public var label: String {
         switch self {
-        case .all: return "All"
-        case .missingGenre: return "Missing genre"
-        case .missingYear: return "Missing year"
-        case .conflicts: return "Conflicts"
+        case .all: "All"
+        case .missingGenre: "Missing genre"
+        case .missingYear: "Missing year"
+        case .conflicts: "Conflicts"
         }
     }
 }
 
 // MARK: - Snapshot (subset of LibraryDashboardSnapshot)
+
 public struct HealthSnapshot: Equatable, Sendable {
-    public let health: Double          // 0...1 composite
+    public let health: Double // 0...1 composite
     public let genre: Double
     public let year: Double
     public let consistency: Double
     public let totalTracks: Int
-    public let totalAlbums: Int
+    public let totalAlbums: Int?
     public let totalSongs: Int
     public let missingGenre: Int
     public let missingYear: Int
     public let completeMetadata: Int
-    public let ready: Int              // staged updates
+    public let ready: Int // staged updates
     public let pendingVerification: Int
     public let protectedFiles: Int
     public let writeErrors: Int
@@ -46,7 +50,7 @@ public struct HealthSnapshot: Equatable, Sendable {
         year: Double,
         consistency: Double,
         totalTracks: Int,
-        totalAlbums: Int = 0,
+        totalAlbums: Int? = nil,
         totalSongs: Int? = nil,
         missingGenre: Int,
         missingYear: Int,
@@ -84,6 +88,7 @@ public struct HealthSnapshot: Equatable, Sendable {
 }
 
 // MARK: - Activity models
+
 public struct CoverageBucket: Identifiable, Equatable, Sendable {
     public let id: String
     public let label: String
@@ -211,6 +216,7 @@ public struct PendingVerificationSnapshot: Equatable, Sendable {
 }
 
 // MARK: - Library / changes
+
 public struct Album: Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
@@ -234,7 +240,9 @@ public struct Artist: Identifiable, Equatable, Sendable {
     public let name: String
     public let genre: String
     public let albums: [Album]
-    public var totalTracks: Int { albums.reduce(0) { $0 + $1.tracks } }
+    public var totalTracks: Int {
+        albums.reduce(0) { $0 + $1.tracks }
+    }
     public var indexLetter: String {
         let sortableName = name.hasPrefix("The ") ? String(name.dropFirst(4)) : name
         let leadingCharacter = sortableName.first.map(String.init)?.uppercased() ?? "#"
@@ -255,30 +263,30 @@ public enum ChangeType: String, Sendable {
     public var symbol: String {
         switch self {
         case .genre:
-            return "tag"
+            "tag"
         case .year:
-            return "calendar"
+            "calendar"
         case .track:
-            return "music.note"
+            "music.note"
         case .album:
-            return "rectangle.stack"
+            "rectangle.stack"
         case .artist:
-            return "person"
+            "person"
         case .revert:
-            return "arrow.uturn.backward"
+            "arrow.uturn.backward"
         }
     }
 
     public var tone: Tone {
         switch self {
         case .genre:
-            return .purple
+            .purple
         case .year:
-            return .info
+            .info
         case .track, .album, .artist:
-            return .accent
+            .accent
         case .revert:
-            return .error
+            .error
         }
     }
 }

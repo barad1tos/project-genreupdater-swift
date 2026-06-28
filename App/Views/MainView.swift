@@ -208,6 +208,8 @@ extension FocusedValues {
 
 // MARK: - Main View
 
+// Legacy SwiftUI shell retained as the parity fallback while DesignUI adopts the remaining workflows.
+
 struct MainView: View {
     @Environment(AppDependencies.self) var dependencies
     @Environment(\.modelContext) var modelContext

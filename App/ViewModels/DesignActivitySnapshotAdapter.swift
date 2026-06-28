@@ -105,8 +105,13 @@ enum DesignActivitySnapshotAdapter {
         )
     }
 
-    private static func makeAlbumCount(from input: DesignActivitySnapshotInput) -> Int {
-        Set(input.tracks.map(\.albumIdentity)).count
+    private static func makeAlbumCount(from input: DesignActivitySnapshotInput) -> Int? {
+        guard !input.tracks.isEmpty else {
+            // nil means unknown from cached metrics; 0 means a live empty library.
+            return input.metricsSnapshot == nil ? 0 : nil
+        }
+
+        return Set(input.tracks.map(\.albumIdentity)).count
     }
 
     private static func makePipelineSnapshot(

@@ -35,18 +35,28 @@ struct SidebarView: View {
                 }
                 .listRowSeparator(.hidden)
                 libraryCounterPills(snapshot)
-                .listRowSeparator(.hidden)
+                    .listRowSeparator(.hidden)
             }
 
             Section("Library") {
-                navRow(.activity, "Activity", "waveform.path.ecg.rectangle",
-                       badge: model.pipelineActivity.safetyMode.title, badgeTone: .warning)
+                navRow(
+                    .activity,
+                    "Activity",
+                    "waveform.path.ecg.rectangle",
+                    badge: model.pipelineActivity.safetyMode.title,
+                    badgeTone: .warning
+                )
                 navRow(.browse, "Browse", "music.note.list")
                 navRow(.reports, "Reports", "chart.bar")
             }
             Section("Intervention") {
-                navRow(.update, "Fix plan", "checklist",
-                       badge: "\(model.pipelineActivity.deltaCount)", badgeTone: .accent)
+                navRow(
+                    .update,
+                    "Fix plan",
+                    "checklist",
+                    badge: "\(model.pipelineActivity.deltaCount)",
+                    badgeTone: .accent
+                )
             }
 
             // smart filtered jumps
@@ -78,8 +88,13 @@ struct SidebarView: View {
             }
     }
 
-    private func navRow(_ route: Route, _ title: String, _ symbol: String,
-                        badge: String? = nil, badgeTone: Tone = .neutral) -> some View {
+    private func navRow(
+        _ route: Route,
+        _ title: String,
+        _ symbol: String,
+        badge: String? = nil,
+        badgeTone: Tone = .neutral
+    ) -> some View {
         SidebarNavigationRow(
             title: title,
             symbol: symbol,
@@ -140,8 +155,8 @@ struct SidebarView: View {
             return "\(millions.formatted(.number.precision(.fractionLength(1))))M"
         }
 
-        if count >= 1_000 {
-            let thousands = Double(count) / 1_000
+        if count >= 1000 {
+            let thousands = Double(count) / 1000
             return "\(thousands.formatted(.number.precision(.fractionLength(1))))K"
         }
 
@@ -151,13 +166,15 @@ struct SidebarView: View {
     private func libraryCounterPills(_ snapshot: HealthSnapshot) -> some View {
         WrappingPillRow {
             TagPill(text: "\(abbreviatedTrackCount(snapshot.totalTracks)) tracks", tone: .info)
-            TagPill(text: "\(abbreviatedTrackCount(snapshot.totalAlbums)) albums", tone: .purple)
+            if let totalAlbums = snapshot.totalAlbums {
+                TagPill(text: "\(abbreviatedTrackCount(totalAlbums)) albums", tone: .purple)
+            }
             TagPill(text: "\(abbreviatedTrackCount(snapshot.totalSongs)) songs", tone: .teal)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func automationRow<Pill: View>(_ label: String, pill: Pill) -> some View {
+    private func automationRow(_ label: String, pill: some View) -> some View {
         HStack {
             Text(label)
                 .foregroundStyle(Ayu.fg2)
@@ -173,7 +190,9 @@ private struct SmartSidebarView: Identifiable {
     let symbol: String
     let filter: BrowseFilter
 
-    var id: BrowseFilter { filter }
+    var id: BrowseFilter {
+        filter
+    }
 }
 
 private struct SidebarNavigationRow: View {
