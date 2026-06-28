@@ -17,7 +17,12 @@ struct BrowseView: View {
     private var artists: [Artist] {
         model.data.artists.compactMap { artist in
             let albums = artist.albums.filter { matches($0) && (query.isEmpty || artist.name.localizedCaseInsensitiveContains(query)) }
-            return albums.isEmpty ? nil : Artist(name: artist.name, genre: artist.genre, albums: albums)
+            return albums.isEmpty ? nil : Artist(
+                id: artist.id,
+                name: artist.name,
+                genre: artist.genre,
+                albums: albums
+            )
         }
     }
 

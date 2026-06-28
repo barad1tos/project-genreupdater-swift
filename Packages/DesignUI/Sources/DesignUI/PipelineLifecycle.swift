@@ -1,6 +1,6 @@
 import Foundation
 
-enum PipelineStage: String, CaseIterable, Hashable, Identifiable, Sendable {
+public enum PipelineStage: String, CaseIterable, Hashable, Identifiable, Sendable {
     case watch
     case detect
     case diff
@@ -8,9 +8,9 @@ enum PipelineStage: String, CaseIterable, Hashable, Identifiable, Sendable {
     case verify
     case report
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var title: String {
+    public var title: String {
         switch self {
         case .watch: "Watch"
         case .detect: "Detect"
@@ -21,7 +21,7 @@ enum PipelineStage: String, CaseIterable, Hashable, Identifiable, Sendable {
         }
     }
 
-    var detail: String {
+    public var detail: String {
         switch self {
         case .watch: "background"
         case .detect: "changes"
@@ -32,7 +32,7 @@ enum PipelineStage: String, CaseIterable, Hashable, Identifiable, Sendable {
         }
     }
 
-    var symbol: String {
+    public var symbol: String {
         switch self {
         case .watch: "waveform.path.ecg"
         case .detect: "dot.radiowaves.left.and.right"
@@ -44,7 +44,7 @@ enum PipelineStage: String, CaseIterable, Hashable, Identifiable, Sendable {
     }
 }
 
-enum PipelineStageStatus: Equatable, Sendable {
+public enum PipelineStageStatus: Equatable, Sendable {
     case completed
     case current
     case gated
@@ -52,11 +52,11 @@ enum PipelineStageStatus: Equatable, Sendable {
     case failed
 }
 
-enum PipelineSafetyMode: Equatable, Sendable {
+public enum PipelineSafetyMode: Equatable, Sendable {
     case preview
     case autoFix
 
-    var title: String {
+    public var title: String {
         switch self {
         case .preview: "Preview"
         case .autoFix: "Auto-fix"
@@ -64,36 +64,70 @@ enum PipelineSafetyMode: Equatable, Sendable {
     }
 }
 
-enum PipelineActionStyle: Equatable, Sendable {
+public enum PipelineActionStyle: Equatable, Sendable {
     case primary
     case secondary
 }
 
-struct PipelineAction: Equatable, Sendable {
-    let title: String
-    let symbol: String
-    let style: PipelineActionStyle
+public struct PipelineAction: Equatable, Sendable {
+    public let title: String
+    public let symbol: String
+    public let style: PipelineActionStyle
+
+    public init(title: String, symbol: String, style: PipelineActionStyle) {
+        self.title = title
+        self.symbol = symbol
+        self.style = style
+    }
 }
 
-struct PipelineActivitySnapshot: Equatable, Sendable {
-    let title: String
-    let subtitle: String
-    let currentStage: PipelineStage
-    let safetyMode: PipelineSafetyMode
-    let deltaCount: Int
-    let interventionCount: Int
-    let protectedCount: Int
-    let failedWriteCount: Int
-    let isUndoReady: Bool
-    let primaryAction: PipelineAction
-    let secondaryAction: PipelineAction?
+public struct PipelineActivitySnapshot: Equatable, Sendable {
+    public let title: String
+    public let subtitle: String
+    public let currentStage: PipelineStage
+    public let safetyMode: PipelineSafetyMode
+    public let deltaCount: Int
+    public let interventionCount: Int
+    public let protectedCount: Int
+    public let failedWriteCount: Int
+    public let isUndoReady: Bool
+    public let primaryAction: PipelineAction
+    public let secondaryAction: PipelineAction?
     private let stageStatuses: [PipelineStage: PipelineStageStatus]
 
-    func status(for stage: PipelineStage) -> PipelineStageStatus {
+    public init(
+        title: String,
+        subtitle: String,
+        currentStage: PipelineStage,
+        safetyMode: PipelineSafetyMode,
+        deltaCount: Int,
+        interventionCount: Int,
+        protectedCount: Int,
+        failedWriteCount: Int,
+        isUndoReady: Bool,
+        primaryAction: PipelineAction,
+        secondaryAction: PipelineAction?,
+        stageStatuses: [PipelineStage: PipelineStageStatus]
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.currentStage = currentStage
+        self.safetyMode = safetyMode
+        self.deltaCount = deltaCount
+        self.interventionCount = interventionCount
+        self.protectedCount = protectedCount
+        self.failedWriteCount = failedWriteCount
+        self.isUndoReady = isUndoReady
+        self.primaryAction = primaryAction
+        self.secondaryAction = secondaryAction
+        self.stageStatuses = stageStatuses
+    }
+
+    public func status(for stage: PipelineStage) -> PipelineStageStatus {
         stageStatuses[stage] ?? .pending
     }
 
-    static func previewDefault(
+    public static func previewDefault(
         deltaCount: Int,
         interventionCount: Int,
         protectedCount: Int,

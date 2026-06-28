@@ -42,7 +42,7 @@ enum Ayu {
 }
 
 // MARK: - Semantic tones
-enum Tone: Equatable {
+public enum Tone: Equatable, Sendable {
     case neutral, info, success, warning, error, accent, purple, teal
 
     var color: Color {
