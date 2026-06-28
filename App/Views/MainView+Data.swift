@@ -112,51 +112,48 @@ extension MainView {
             }
         }
 
-        guard let reader = dependencies.musicReader else { return }
+        guard let reader = LibraryTrackLoader.liveReader(from: dependencies) else { return }
         isLoading = true
 
         let loadStart = ContinuousClock.now
-        let scopedArtists = ArtistAllowList.normalized(dependencies.config.development.testArtists)
+        let scopedArtists = LibraryTrackLoader.scopedArtists(from: dependencies)
         var hasCachedTracks = false
 
         do {
-            if !forceRefresh, let cachedTracks = await dependencies.loadLibrarySnapshot() {
+            if let cachedLoad = await LibraryTrackLoader.cachedSnapshot(
+                from: dependencies,
+                scopedArtists: scopedArtists,
+                forceRefresh: forceRefresh
+            ) {
                 try Task.checkCancellation()
                 guard libraryLoadRequestID == requestID else { return }
-                let scopedCachedTracks = UpdateTrackScopeResolver.filteredByTestArtists(
-                    cachedTracks,
-                    testArtists: scopedArtists
-                )
-                tracks = scopedCachedTracks
-                browseViewModel.tracks = scopedCachedTracks
-                reconcileUpdateScope(with: scopedCachedTracks)
-                hasCachedTracks = !scopedCachedTracks.isEmpty
-                await recordLibraryLoad(source: "snapshot", count: scopedCachedTracks.count, startedAt: loadStart)
+                tracks = cachedLoad.tracks
+                browseViewModel.tracks = cachedLoad.tracks
+                reconcileUpdateScope(with: cachedLoad.tracks)
+                hasCachedTracks = cachedLoad.hasTracks
+                await recordLibraryLoad(source: "snapshot", count: cachedLoad.tracks.count, startedAt: loadStart)
             }
             try Task.checkCancellation()
-            try await reader.requestAuthorization()
-            try Task.checkCancellation()
-            await reader.updateTestArtists(scopedArtists)
-            let liveTracks = try await reader.fetchAllTracks()
-            try Task.checkCancellation()
+            let liveLoad = try await LibraryTrackLoader.liveTracks(
+                from: dependencies,
+                reader: reader,
+                scopedArtists: scopedArtists
+            )
             guard libraryLoadRequestID == requestID else { return }
-            let isMappingReady = await dependencies.refreshTrackIDMapping(musicKitTracks: liveTracks)
-            try Task.checkCancellation()
-            guard libraryLoadRequestID == requestID else { return }
-            isMutationMetadataReady = isMappingReady
-            tracks = liveTracks
-            await dependencies.persistLoadedLibraryTracks(liveTracks, scopedArtists: scopedArtists)
-            browseViewModel.tracks = liveTracks
-            reconcileUpdateScope(with: liveTracks)
-            lastLibraryScanDate = .now
-            saveMetricsSnapshot(from: liveTracks)
-            await recordLibraryLoad(source: "music", count: liveTracks.count, startedAt: loadStart)
+            isMutationMetadataReady = liveLoad.isMutationMetadataReady
+            tracks = liveLoad.tracks
+            await dependencies.persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)
+            browseViewModel.tracks = liveLoad.tracks
+            reconcileUpdateScope(with: liveLoad.tracks)
+            lastLibraryScanDate = liveLoad.scanDate
+            saveMetricsSnapshot(from: liveLoad.tracks)
+            await recordLibraryLoad(source: "music", count: liveLoad.tracks.count, startedAt: loadStart)
         } catch is CancellationError {
             return
         } catch {
             guard libraryLoadRequestID == requestID else { return }
             await dependencies.analyticsService?.trackError("library.load", error: error)
-            libraryLoadError = libraryLoadError(from: error)
+            libraryLoadError = LibraryLoadError.make(from: error)
             if !hasCachedTracks {
                 tracks = []
                 browseViewModel.tracks = []
@@ -402,21 +399,6 @@ extension MainView {
                 "trackCount": "\(count)",
             ]
         )
-    }
-
-    private func libraryLoadError(from error: Error) -> LibraryLoadError {
-        guard let musicLibraryError = error as? MusicLibraryError else {
-            return .failed(error.localizedDescription)
-        }
-
-        switch musicLibraryError {
-        case .authorizationDenied:
-            return .permissionDenied
-        case .authorizationRestricted:
-            return .restricted
-        case .fetchFailed, .musicAppNotAvailable:
-            return .failed(error.localizedDescription)
-        }
     }
 }
 
