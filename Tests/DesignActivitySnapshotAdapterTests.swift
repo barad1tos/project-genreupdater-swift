@@ -200,8 +200,13 @@ struct DesignActivitySnapshotAdapterTests {
 
         #expect(running.syncStatusText == "Auto-sync running")
         #expect(running.health.nextRun == "Auto-sync running")
+        #expect(running.pipelineActivity.automationState == .autoSyncRunning)
+        #expect(running.pipelineActivity.detail(for: .watch) == "Auto-sync running")
+        #expect(running.pipelineActivity.detail(for: .detect) == "Polling enabled")
         #expect(stopped.syncStatusText == "No sync yet")
-        #expect(stopped.health.nextRun == "manual")
+        #expect(stopped.health.nextRun == "Manual scan only")
+        #expect(stopped.pipelineActivity.automationState == .noSyncYet)
+        #expect(stopped.pipelineActivity.detail(for: .watch) == "No sync yet")
     }
 
     @Test("uses sync result wording only when a result exists")

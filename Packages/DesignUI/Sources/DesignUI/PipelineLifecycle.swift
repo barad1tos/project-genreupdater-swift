@@ -21,14 +21,14 @@ public enum PipelineStage: String, CaseIterable, Hashable, Identifiable, Sendabl
         }
     }
 
-    public var detail: String {
+    var defaultDetail: String {
         switch self {
-        case .watch: "background"
-        case .detect: "changes"
-        case .diff: "current"
-        case .fix: "gated"
-        case .verify: "after write"
-        case .report: "audit trail"
+        case .watch: "Manual scan only"
+        case .detect: "Changes"
+        case .diff: "Current"
+        case .fix: "Gated"
+        case .verify: "After write"
+        case .report: "Audit trail"
         }
     }
 
@@ -64,6 +64,34 @@ public enum PipelineSafetyMode: Equatable, Sendable {
     }
 }
 
+public enum PipelineAutomationState: Equatable, Sendable {
+    case autoSyncRunning
+    case manualScanOnly
+    case noSyncYet
+
+    public var summaryValue: String {
+        switch self {
+        case .autoSyncRunning:
+            return "Running"
+        case .manualScanOnly:
+            return "Manual"
+        case .noSyncYet:
+            return "Idle"
+        }
+    }
+
+    public var stageDetail: String {
+        switch self {
+        case .autoSyncRunning:
+            return "Auto-sync running"
+        case .manualScanOnly:
+            return "Manual scan only"
+        case .noSyncYet:
+            return "No sync yet"
+        }
+    }
+}
+
 public enum PipelineActionStyle: Equatable, Sendable {
     case primary
     case secondary
@@ -81,11 +109,26 @@ public struct PipelineAction: Equatable, Sendable {
     }
 }
 
+public struct PipelineStageDescriptor: Identifiable, Equatable, Sendable {
+    public var id: PipelineStage { stage }
+
+    public let stage: PipelineStage
+    public let detail: String
+    public let status: PipelineStageStatus
+
+    public init(stage: PipelineStage, detail: String, status: PipelineStageStatus) {
+        self.stage = stage
+        self.detail = detail
+        self.status = status
+    }
+}
+
 public struct PipelineActivitySnapshot: Equatable, Sendable {
     public let title: String
     public let subtitle: String
     public let currentStage: PipelineStage
     public let safetyMode: PipelineSafetyMode
+    public let automationState: PipelineAutomationState
     public let deltaCount: Int
     public let interventionCount: Int
     public let protectedCount: Int
@@ -93,13 +136,17 @@ public struct PipelineActivitySnapshot: Equatable, Sendable {
     public let isUndoReady: Bool
     public let primaryAction: PipelineAction
     public let secondaryAction: PipelineAction?
+    public let stageDescriptors: [PipelineStageDescriptor]
     private let stageStatuses: [PipelineStage: PipelineStageStatus]
 
+    /// Stage descriptors are authoritative for visible stage copy and status.
+    /// `stageStatuses` fills any descriptor omitted by older call sites.
     public init(
         title: String,
         subtitle: String,
         currentStage: PipelineStage,
         safetyMode: PipelineSafetyMode,
+        automationState: PipelineAutomationState = .manualScanOnly,
         deltaCount: Int,
         interventionCount: Int,
         protectedCount: Int,
@@ -107,12 +154,14 @@ public struct PipelineActivitySnapshot: Equatable, Sendable {
         isUndoReady: Bool,
         primaryAction: PipelineAction,
         secondaryAction: PipelineAction?,
-        stageStatuses: [PipelineStage: PipelineStageStatus]
+        stageStatuses: [PipelineStage: PipelineStageStatus],
+        stageDescriptors: [PipelineStageDescriptor]? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
         self.currentStage = currentStage
         self.safetyMode = safetyMode
+        self.automationState = automationState
         self.deltaCount = deltaCount
         self.interventionCount = interventionCount
         self.protectedCount = protectedCount
@@ -120,11 +169,19 @@ public struct PipelineActivitySnapshot: Equatable, Sendable {
         self.isUndoReady = isUndoReady
         self.primaryAction = primaryAction
         self.secondaryAction = secondaryAction
-        self.stageStatuses = stageStatuses
+        self.stageDescriptors = Self.normalizedStageDescriptors(
+            stageDescriptors,
+            stageStatuses: stageStatuses
+        )
+        self.stageStatuses = Dictionary(uniqueKeysWithValues: self.stageDescriptors.map { ($0.stage, $0.status) })
     }
 
     public func status(for stage: PipelineStage) -> PipelineStageStatus {
         stageStatuses[stage] ?? .pending
+    }
+
+    public func detail(for stage: PipelineStage) -> String {
+        stageDescriptors.first { $0.stage == stage }?.detail ?? stage.defaultDetail
     }
 
     public static func previewDefault(
@@ -138,6 +195,7 @@ public struct PipelineActivitySnapshot: Equatable, Sendable {
             subtitle: "Automatic diff completed · preview mode · no Music tags written",
             currentStage: .diff,
             safetyMode: .preview,
+            automationState: .manualScanOnly,
             deltaCount: deltaCount,
             interventionCount: interventionCount,
             protectedCount: protectedCount,
@@ -160,7 +218,32 @@ public struct PipelineActivitySnapshot: Equatable, Sendable {
                 .fix: .gated,
                 .verify: .pending,
                 .report: .pending,
+            ],
+            stageDescriptors: [
+                PipelineStageDescriptor(stage: .watch, detail: "Manual scan only", status: .completed),
+                PipelineStageDescriptor(stage: .detect, detail: "Polling enabled", status: .completed),
+                PipelineStageDescriptor(stage: .diff, detail: "Current delta", status: .current),
+                PipelineStageDescriptor(stage: .fix, detail: "Preview gated", status: .gated),
+                PipelineStageDescriptor(stage: .verify, detail: "After write", status: .pending),
+                PipelineStageDescriptor(stage: .report, detail: "Audit trail", status: .pending),
             ]
         )
+    }
+
+    private static func normalizedStageDescriptors(
+        _ descriptors: [PipelineStageDescriptor]?,
+        stageStatuses: [PipelineStage: PipelineStageStatus]
+    ) -> [PipelineStageDescriptor] {
+        PipelineStage.allCases.map { stage in
+            if let descriptor = descriptors?.first(where: { $0.stage == stage }) {
+                return descriptor
+            }
+
+            return PipelineStageDescriptor(
+                stage: stage,
+                detail: stage.defaultDetail,
+                status: stageStatuses[stage] ?? .pending
+            )
+        }
     }
 }

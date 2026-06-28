@@ -74,9 +74,9 @@ struct ActivityView: View {
             ActivitySummaryCard(
                 symbol: "waveform.path.ecg",
                 tone: .teal,
-                label: "Watcher",
-                value: "Live",
-                detail: "FSEvents active"
+                label: "Automation",
+                value: pipeline.automationState.summaryValue,
+                detail: pipeline.detail(for: .watch)
             )
             ActivitySummaryCard(
                 symbol: "arrow.triangle.2.circlepath",
@@ -204,7 +204,7 @@ struct ActivityView: View {
             subtitle: "Fix stays gated in Preview mode."
         ) {
             VStack(alignment: .leading, spacing: 10) {
-                SafetyGateRow(title: "AppleScript IDs", value: "Required before write", tone: .teal)
+                SafetyGateRow(title: "Preview approval", value: previewApprovalValue(pipeline), tone: .teal)
                 SafetyGateRow(title: "Protected files", value: "\(snapshot.protectedFiles) skipped", tone: .warning)
                 SafetyGateRow(
                     title: "Write errors",
@@ -250,6 +250,15 @@ struct ActivityView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func previewApprovalValue(_ pipeline: PipelineActivitySnapshot) -> String {
+        switch pipeline.safetyMode {
+        case .preview:
+            return "Required before write"
+        case .autoFix:
+            return "Auto-fix enabled"
         }
     }
 }

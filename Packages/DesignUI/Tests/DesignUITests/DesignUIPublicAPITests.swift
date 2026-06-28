@@ -31,7 +31,28 @@ struct DesignUIPublicAPITests {
     }
 
     private func makeSnapshot(totalTracks: Int, syncStatusText: String, deltaCount: Int) -> DesignDataSnapshot {
-        let health = HealthSnapshot(
+        DesignDataSnapshot(
+            health: makeHealth(totalTracks: totalTracks),
+            pipelineActivity: makePipeline(deltaCount: deltaCount),
+            coverage: [],
+            issues: [],
+            metrics: [],
+            activity: [],
+            artists: [],
+            changes: [],
+            dryRun: makeDryRunSummary(),
+            changeLog: [],
+            reportStats: ReportStats(processed: 0, genres: 0, years: 0),
+            genreDistribution: [],
+            updatesOverTime: [],
+            yearDistribution: [],
+            syncStatusText: syncStatusText,
+            isPreviewBacked: false
+        )
+    }
+
+    private func makeHealth(totalTracks: Int) -> HealthSnapshot {
+        HealthSnapshot(
             health: 0.8,
             genre: 0.9,
             year: 0.7,
@@ -46,40 +67,46 @@ struct DesignUIPublicAPITests {
             writeErrors: 0,
             recentlyAdded: 1,
             lastScan: "now",
-            nextRun: "manual",
+            nextRun: "Manual scan only",
             source: "Music",
             library: "Music Library"
         )
+    }
+
+    private func makePipeline(deltaCount: Int) -> PipelineActivitySnapshot {
         let pipeline = PipelineActivitySnapshot.previewDefault(
             deltaCount: deltaCount,
             interventionCount: 0,
             protectedCount: 0,
             failedWriteCount: 0
         )
+        let descriptor = PipelineStageDescriptor(stage: .watch, detail: "No sync yet", status: .current)
 
-        return DesignDataSnapshot(
-            health: health,
-            pipelineActivity: pipeline,
-            coverage: [],
-            issues: [],
-            metrics: [],
-            activity: [],
-            artists: [],
-            changes: [],
-            dryRun: DryRunSummary(
-                changes: 0,
-                tracks: 0,
-                averageConfidence: 0,
-                genre: 0,
-                year: 0
-            ),
-            changeLog: [],
-            reportStats: ReportStats(processed: 0, genres: 0, years: 0),
-            genreDistribution: [],
-            updatesOverTime: [],
-            yearDistribution: [],
-            syncStatusText: syncStatusText,
-            isPreviewBacked: false
+        return PipelineActivitySnapshot(
+            title: pipeline.title,
+            subtitle: pipeline.subtitle,
+            currentStage: pipeline.currentStage,
+            safetyMode: pipeline.safetyMode,
+            automationState: .noSyncYet,
+            deltaCount: pipeline.deltaCount,
+            interventionCount: pipeline.interventionCount,
+            protectedCount: pipeline.protectedCount,
+            failedWriteCount: pipeline.failedWriteCount,
+            isUndoReady: pipeline.isUndoReady,
+            primaryAction: pipeline.primaryAction,
+            secondaryAction: pipeline.secondaryAction,
+            stageStatuses: [.watch: .current],
+            stageDescriptors: [descriptor]
+        )
+    }
+
+    private func makeDryRunSummary() -> DryRunSummary {
+        DryRunSummary(
+            changes: 0,
+            tracks: 0,
+            averageConfidence: 0,
+            genre: 0,
+            year: 0
         )
     }
 }

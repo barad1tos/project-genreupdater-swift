@@ -27,17 +27,18 @@ struct PipelineLifecycleMasthead: View {
 
     private var stages: some View {
         HStack(alignment: .top, spacing: 6) {
-            ForEach(PipelineStage.allCases) { stage in
-                stageCell(stage)
-                if stage != .report {
-                    connector(after: stage)
+            ForEach(snapshot.stageDescriptors) { descriptor in
+                stageCell(descriptor)
+                if descriptor.stage != .report {
+                    connector(after: descriptor.stage)
                 }
             }
         }
     }
 
-    private func stageCell(_ stage: PipelineStage) -> some View {
-        let status = snapshot.status(for: stage)
+    private func stageCell(_ descriptor: PipelineStageDescriptor) -> some View {
+        let stage = descriptor.stage
+        let status = descriptor.status
         return VStack(spacing: 7) {
             ZStack {
                 Circle()
@@ -54,14 +55,14 @@ struct PipelineLifecycleMasthead: View {
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(status.titleColor)
                 .lineLimit(1)
-            Text(stage.detail)
+            Text(descriptor.detail)
                 .font(.system(size: 10.5))
                 .foregroundStyle(Ayu.fg2)
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(stage.title), \(stage.detail)")
+        .accessibilityLabel("\(stage.title), \(descriptor.detail)")
     }
 
     private func connector(after stage: PipelineStage) -> some View {

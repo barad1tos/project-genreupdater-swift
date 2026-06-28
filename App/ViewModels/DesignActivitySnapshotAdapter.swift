@@ -73,7 +73,8 @@ enum DesignActivitySnapshotAdapter {
         from dashboard: LibraryDashboardSnapshot,
         input: DesignActivitySnapshotInput
     ) -> HealthSnapshot {
-        HealthSnapshot(
+        let automationState = makeAutomationState(from: input)
+        return HealthSnapshot(
             health: dashboard.healthScore,
             genre: dashboard.genreCoverageRatio,
             year: dashboard.yearCoverageRatio,
@@ -88,7 +89,7 @@ enum DesignActivitySnapshotAdapter {
             writeErrors: input.workflow.failedWriteCount,
             recentlyAdded: input.metricsSnapshot?.recentlyAdded ?? 0,
             lastScan: makeLastScanLabel(from: input),
-            nextRun: input.isAutoSyncRunning ? "Auto-sync running" : "manual",
+            nextRun: automationState == .noSyncYet ? "Manual scan only" : automationState.stageDetail,
             source: "Apple Music · local files",
             library: "Music Library"
         )
@@ -98,11 +99,15 @@ enum DesignActivitySnapshotAdapter {
         from dashboard: LibraryDashboardSnapshot,
         input: DesignActivitySnapshotInput
     ) -> PipelineActivitySnapshot {
-        PipelineActivitySnapshot(
+        let stageStatuses = makeStageStatuses(from: dashboard, input: input)
+        let automationState = makeAutomationState(from: input)
+
+        return PipelineActivitySnapshot(
             title: makePipelineTitle(from: dashboard, input: input),
             subtitle: makePipelineSubtitle(from: dashboard, input: input),
             currentStage: makeCurrentStage(from: dashboard, input: input),
             safetyMode: input.isDryRun ? .preview : .autoFix,
+            automationState: automationState,
             deltaCount: input.workflow.proposedChangeCount,
             interventionCount: input.pendingVerification?.total ?? 0,
             protectedCount: dashboard.protectedFileCount,
@@ -114,7 +119,12 @@ enum DesignActivitySnapshotAdapter {
                 style: .primary
             ),
             secondaryAction: PipelineAction(title: "Run manually", symbol: "arrow.clockwise", style: .secondary),
-            stageStatuses: makeStageStatuses(from: dashboard, input: input)
+            stageStatuses: stageStatuses,
+            stageDescriptors: makeStageDescriptors(
+                stageStatuses: stageStatuses,
+                automationState: automationState,
+                input: input
+            )
         )
     }
 
@@ -364,6 +374,42 @@ enum DesignActivitySnapshotAdapter {
         }
 
         return statuses
+    }
+
+    private static func makeStageDescriptors(
+        stageStatuses: [PipelineStage: PipelineStageStatus],
+        automationState: PipelineAutomationState,
+        input: DesignActivitySnapshotInput
+    ) -> [PipelineStageDescriptor] {
+        let detectDetail: String = input.isAutoSyncRunning ? "Polling enabled" : "Manual scan only"
+        let diffDetail = input.workflow.proposedChangeCount > 0 ? "Current delta" : "No delta"
+        let fixDetail = input.isDryRun ? "Preview gated" : "Write mode"
+        let verifyDetail = input.pendingVerification == nil ? "Not available" : "Pending summary"
+
+        return [
+            PipelineStageDescriptor(
+                stage: .watch,
+                detail: automationState.stageDetail,
+                status: stageStatuses[.watch] ?? .pending
+            ),
+            PipelineStageDescriptor(stage: .detect, detail: detectDetail, status: stageStatuses[.detect] ?? .pending),
+            PipelineStageDescriptor(stage: .diff, detail: diffDetail, status: stageStatuses[.diff] ?? .pending),
+            PipelineStageDescriptor(stage: .fix, detail: fixDetail, status: stageStatuses[.fix] ?? .pending),
+            PipelineStageDescriptor(stage: .verify, detail: verifyDetail, status: stageStatuses[.verify] ?? .pending),
+            PipelineStageDescriptor(stage: .report, detail: "Audit trail", status: stageStatuses[.report] ?? .pending),
+        ]
+    }
+
+    private static func makeAutomationState(from input: DesignActivitySnapshotInput) -> PipelineAutomationState {
+        if input.isAutoSyncRunning {
+            return .autoSyncRunning
+        }
+
+        if effectiveLastScanDate(from: input) != nil {
+            return .manualScanOnly
+        }
+
+        return .noSyncYet
     }
 
     private static func makeSyncStatusText(from input: DesignActivitySnapshotInput) -> String {

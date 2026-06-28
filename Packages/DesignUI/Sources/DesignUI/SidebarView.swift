@@ -106,7 +106,7 @@ struct SidebarView: View {
                 Text("Automation")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Ayu.fgMuted)
-                automationRow("Watcher", value: "On")
+                automationRow("Status", value: model.data.syncStatusText)
                 automationRow("Mode", pill: TagPill(text: "Preview", tone: .warning, dot: true))
                 automationRow("Auto-fix", pill: TagPill(text: "Off", tone: .neutral, dot: true))
             }
