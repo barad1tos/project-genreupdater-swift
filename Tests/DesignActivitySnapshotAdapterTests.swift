@@ -92,7 +92,6 @@ struct DesignActivitySnapshotAdapterTests {
 
         #expect(snapshot.health.totalTracks == 3)
         #expect(snapshot.health.totalAlbums == 2)
-        #expect(snapshot.health.totalSongs == 3)
         #expect(snapshot.health.missingGenre == 1)
         #expect(snapshot.health.missingYear == 1)
         #expect(snapshot.health.completeMetadata == 1)

@@ -169,7 +169,6 @@ struct SidebarView: View {
             if let totalAlbums = snapshot.totalAlbums {
                 TagPill(text: "\(abbreviatedTrackCount(totalAlbums)) albums", tone: .purple)
             }
-            TagPill(text: "\(abbreviatedTrackCount(snapshot.totalSongs)) songs", tone: .teal)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

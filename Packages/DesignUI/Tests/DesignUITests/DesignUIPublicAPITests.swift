@@ -73,7 +73,6 @@ struct DesignUIPublicAPITests {
             consistency: 0.6,
             totalTracks: totalTracks,
             totalAlbums: 2,
-            totalSongs: totalTracks,
             missingGenre: 1,
             missingYear: 3,
             completeMetadata: 6,

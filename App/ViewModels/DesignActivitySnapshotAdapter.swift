@@ -89,7 +89,6 @@ enum DesignActivitySnapshotAdapter {
             consistency: dashboard.consistencyCoverageRatio,
             totalTracks: dashboard.totalTracks,
             totalAlbums: makeAlbumCount(from: input),
-            totalSongs: dashboard.totalTracks,
             missingGenre: dashboard.missingGenreCount,
             missingYear: dashboard.missingYearCount,
             completeMetadata: dashboard.tracksWithBoth,

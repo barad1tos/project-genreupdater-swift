@@ -30,7 +30,6 @@ public struct HealthSnapshot: Equatable, Sendable {
     public let consistency: Double
     public let totalTracks: Int
     public let totalAlbums: Int?
-    public let totalSongs: Int
     public let missingGenre: Int
     public let missingYear: Int
     public let completeMetadata: Int
@@ -51,7 +50,6 @@ public struct HealthSnapshot: Equatable, Sendable {
         consistency: Double,
         totalTracks: Int,
         totalAlbums: Int? = nil,
-        totalSongs: Int? = nil,
         missingGenre: Int,
         missingYear: Int,
         completeMetadata: Int,
@@ -71,7 +69,6 @@ public struct HealthSnapshot: Equatable, Sendable {
         self.consistency = consistency
         self.totalTracks = totalTracks
         self.totalAlbums = totalAlbums
-        self.totalSongs = totalSongs ?? totalTracks
         self.missingGenre = missingGenre
         self.missingYear = missingYear
         self.completeMetadata = completeMetadata
