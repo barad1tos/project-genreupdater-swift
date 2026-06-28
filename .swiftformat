@@ -33,4 +33,4 @@
 --disable modifierOrder
 
 # Excluded paths
---exclude .build,DerivedData,Packages/*/.build
+--exclude .build,DerivedData,Packages/*/.build,Packages/DesignUI

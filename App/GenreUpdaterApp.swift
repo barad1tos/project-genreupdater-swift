@@ -7,6 +7,7 @@
 
 import AppKit
 import Core
+import struct DesignUI.RootView
 import Services
 import SharedUI
 import SwiftData
@@ -107,7 +108,7 @@ struct ContentView: View {
                 OnboardingView()
 
             case .ready:
-                MainView()
+                RootView()
 
             case let .error(message):
                 ErrorView(message: message) {

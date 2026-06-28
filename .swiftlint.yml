@@ -7,6 +7,7 @@ excluded:
   - Packages/Core/.build
   - Packages/Services/.build
   - Packages/SharedUI/.build
+  - Packages/DesignUI
   - "*.xcodeproj"
   - Packages/*/Package.swift
 
