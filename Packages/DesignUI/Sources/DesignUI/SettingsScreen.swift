@@ -16,9 +16,14 @@ struct SettingsScreen: View {
             HStack(spacing: 16) {
                 Text("Settings").font(.system(size: 24, weight: .heavy))
                 Picker("", selection: $tab) {
-                    Text("General").tag("general"); Text("API & Cache").tag("api"); Text("Advanced").tag("advanced")
-                }.pickerStyle(.segmented).frame(width: 320)
+                    Text("General").tag("general")
+                    Text("API & Cache").tag("api")
+                    Text("Advanced").tag("advanced")
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 320)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
@@ -28,10 +33,11 @@ struct SettingsScreen: View {
                     default: advanced
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .padding(24)
-        .frame(maxWidth: 900, alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Ayu.window)
         .navigationTitle("Settings")
@@ -49,8 +55,13 @@ struct SettingsScreen: View {
                     Toggle("", isOn: $model.dryRun).labelsHidden().tint(Ayu.accent)
                 }
                 row("Minimum confidence", "Reject suggestions below this score.") {
-                    HStack { Slider(value: $minConf, in: 30...100).frame(width: 160).tint(Ayu.accent)
-                        Text("\(Int(minConf))%").font(.system(size: 13, weight: .bold).monospacedDigit()) }
+                    HStack {
+                        Slider(value: $minConf, in: 30 ... 100)
+                            .frame(width: 160)
+                            .tint(Ayu.accent)
+                        Text("\(Int(minConf))%")
+                            .font(.system(size: 13, weight: .bold).monospacedDigit())
+                    }
                 }
             }
             group("Schedule", "clock", .info) {
@@ -64,12 +75,15 @@ struct SettingsScreen: View {
             group("Test artists scope", "music.note.list", .purple) {
                 row("Limit runs to these artists", "Leave empty to process the full library.") {
                     HStack(spacing: 7) {
-                        ForEach(testArtists, id: \.self) { a in TagPill(text: a, tone: .purple) }
+                        ForEach(testArtists, id: \.self) { artist in
+                            TagPill(text: artist, tone: .purple)
+                        }
                         BorderedButton(title: "Add", symbol: "plus") {}
                     }
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var api: some View {
@@ -81,21 +95,30 @@ struct SettingsScreen: View {
             }
             group("Cache", "externaldrive", .info) {
                 row("Album-year cache", "Resolved release years cached to avoid repeat lookups.") {
-                    HStack { TagPill(text: "218 MB", tone: .neutral); BorderedButton(title: "Clear cache") {} }
+                    HStack {
+                        TagPill(text: "218 MB", tone: .neutral)
+                        BorderedButton(title: "Clear cache") {}
+                    }
                 }
                 row("Track ID mapping", "Persistent map between MusicKit IDs and writable tracks.") {
                     TagPill(text: "42,318 mapped", tone: .success, dot: true)
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var advanced: some View {
         VStack(spacing: 14) {
             group("Scoring & verification", "slider.horizontal.3", .accent) {
                 row("Release-year restore threshold", "Confidence needed to overwrite an existing year.") {
-                    HStack { Slider(value: $restore, in: 0...100).frame(width: 160).tint(Ayu.accent)
-                        Text("\(Int(restore))%").font(.system(size: 13, weight: .bold).monospacedDigit()) }
+                    HStack {
+                        Slider(value: $restore, in: 0 ... 100)
+                            .frame(width: 160)
+                            .tint(Ayu.accent)
+                        Text("\(Int(restore))%")
+                            .font(.system(size: 13, weight: .bold).monospacedDigit())
+                    }
                 }
                 row("Post-write verification", "Re-read each track after writing to confirm the tag landed.") {
                     Toggle("", isOn: $verify).labelsHidden().tint(Ayu.accent)
@@ -104,14 +127,24 @@ struct SettingsScreen: View {
             group("Diagnostics", "doc.text", .purple) {
                 row("Log level", "Verbosity of the run log written to disk.") {
                     Picker("", selection: $logLevel) {
-                        Text("Error").tag("error"); Text("Info").tag("info"); Text("Debug").tag("debug")
-                    }.pickerStyle(.segmented).frame(width: 220)
+                        Text("Error").tag("error")
+                        Text("Info").tag("info")
+                        Text("Debug").tag("debug")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 220)
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
-    private func group<C: View>(_ title: String, _ symbol: String, _ tone: Tone, @ViewBuilder _ content: () -> C) -> some View {
+    private func group<C: View>(
+        _ title: String,
+        _ symbol: String,
+        _ tone: Tone,
+        @ViewBuilder _ content: () -> C
+    ) -> some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 9) {
@@ -122,6 +155,7 @@ struct SettingsScreen: View {
                 content()
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func row<C: View>(_ title: String, _ desc: String, @ViewBuilder _ control: () -> C) -> some View {
@@ -134,6 +168,7 @@ struct SettingsScreen: View {
             control()
         }
         .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(Divider().overlay(Ayu.glassBorder), alignment: .bottom)
     }
 

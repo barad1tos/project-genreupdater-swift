@@ -25,6 +25,8 @@ public struct HealthSnapshot: Equatable, Sendable {
     public let year: Double
     public let consistency: Double
     public let totalTracks: Int
+    public let totalAlbums: Int
+    public let totalSongs: Int
     public let missingGenre: Int
     public let missingYear: Int
     public let completeMetadata: Int
@@ -44,6 +46,8 @@ public struct HealthSnapshot: Equatable, Sendable {
         year: Double,
         consistency: Double,
         totalTracks: Int,
+        totalAlbums: Int = 0,
+        totalSongs: Int? = nil,
         missingGenre: Int,
         missingYear: Int,
         completeMetadata: Int,
@@ -62,6 +66,8 @@ public struct HealthSnapshot: Equatable, Sendable {
         self.year = year
         self.consistency = consistency
         self.totalTracks = totalTracks
+        self.totalAlbums = totalAlbums
+        self.totalSongs = totalSongs ?? totalTracks
         self.missingGenre = missingGenre
         self.missingYear = missingYear
         self.completeMetadata = completeMetadata
@@ -230,9 +236,9 @@ public struct Artist: Identifiable, Equatable, Sendable {
     public let albums: [Album]
     public var totalTracks: Int { albums.reduce(0) { $0 + $1.tracks } }
     public var indexLetter: String {
-        let n = name.hasPrefix("The ") ? String(name.dropFirst(4)) : name
-        let c = n.first.map(String.init)?.uppercased() ?? "#"
-        return c.range(of: "[A-Z]", options: .regularExpression) != nil ? c : "#"
+        let sortableName = name.hasPrefix("The ") ? String(name.dropFirst(4)) : name
+        let leadingCharacter = sortableName.first.map(String.init)?.uppercased() ?? "#"
+        return leadingCharacter.range(of: "[A-Z]", options: .regularExpression) != nil ? leadingCharacter : "#"
     }
 
     public init(id: String, name: String, genre: String, albums: [Album]) {

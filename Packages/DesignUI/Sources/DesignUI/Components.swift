@@ -8,19 +8,23 @@ struct TagPill: View {
     var body: some View {
         HStack(spacing: 5) {
             if dot { Circle().fill(tone.color).frame(width: 5.5, height: 5.5) }
-            Text(text).font(.system(size: 11, weight: .semibold))
+            Text(text)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .foregroundStyle(tone.color)
         .padding(.horizontal, 8).padding(.vertical, 3)
         .background(tone.pillFill, in: Capsule())
         .overlay(Capsule().strokeBorder(tone.pillBorder))
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
 // MARK: - Buttons
 struct PrimaryButton: View {
     let title: String
-    var symbol: String? = nil
+    var symbol: String?
     var enabled: Bool = true
     let action: () -> Void
     var body: some View {
@@ -42,7 +46,7 @@ struct PrimaryButton: View {
 
 struct BorderedButton: View {
     let title: String
-    var symbol: String? = nil
+    var symbol: String?
     var enabled: Bool = true
     let action: () -> Void
     var body: some View {
@@ -100,7 +104,7 @@ struct SectionCard<Content: View>: View {
     let symbol: String
     let tone: Tone
     let title: String
-    var subtitle: String? = nil
+    var subtitle: String?
     @ViewBuilder var content: Content
     var body: some View {
         GlassCard {

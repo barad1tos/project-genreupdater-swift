@@ -88,6 +88,8 @@ enum DesignActivitySnapshotAdapter {
             year: dashboard.yearCoverageRatio,
             consistency: dashboard.consistencyCoverageRatio,
             totalTracks: dashboard.totalTracks,
+            totalAlbums: makeAlbumCount(from: input),
+            totalSongs: dashboard.totalTracks,
             missingGenre: dashboard.missingGenreCount,
             missingYear: dashboard.missingYearCount,
             completeMetadata: dashboard.tracksWithBoth,
@@ -101,6 +103,10 @@ enum DesignActivitySnapshotAdapter {
             source: "Apple Music · local files",
             library: "Music Library"
         )
+    }
+
+    private static func makeAlbumCount(from input: DesignActivitySnapshotInput) -> Int {
+        Set(input.tracks.map(\.albumIdentity)).count
     }
 
     private static func makePipelineSnapshot(
