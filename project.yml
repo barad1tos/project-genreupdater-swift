@@ -98,6 +98,7 @@ targets:
     dependencies:
       - target: GenreUpdater
       - package: Core
+      - package: DesignUI
       - package: Services
       - package: SharedUI
     settings:

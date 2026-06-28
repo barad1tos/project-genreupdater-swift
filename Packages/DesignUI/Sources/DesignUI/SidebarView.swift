@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 /// Native macOS vibrancy sidebar (NavigationSplitView provides the glass + traffic
@@ -21,7 +22,7 @@ struct SidebarView: View {
     }
 
     var body: some View {
-        let s = model.snapshot
+        let snapshot = model.snapshot
         List(selection: routeSelection) {
             // library identity
             Section {
@@ -30,16 +31,20 @@ struct SidebarView: View {
                         .fill(Ayu.controlFillStrong)
                         .frame(width: 30, height: 30)
                         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Ayu.glassBorderStrong))
-                        .overlay(Image(systemName: "music.note.list").font(.system(size: 15, weight: .semibold)).foregroundStyle(Ayu.info))
+                        .overlay {
+                            Image(systemName: "music.note.list")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Ayu.info)
+                        }
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(s.library).font(.system(size: 13, weight: .bold)).foregroundStyle(Ayu.fg)
-                        Text(s.source).font(.system(size: 11)).foregroundStyle(Ayu.fg2).lineLimit(1)
+                        Text(snapshot.library).font(.system(size: 13, weight: .bold)).foregroundStyle(Ayu.fg)
+                        Text(snapshot.source).font(.system(size: 11)).foregroundStyle(Ayu.fg2).lineLimit(1)
                     }
                 }
                 .listRowSeparator(.hidden)
                 HStack(spacing: 6) {
-                    TagPill(text: "42.3K tracks", tone: .info)
-                    TagPill(text: "Synced 8m", tone: .neutral)
+                    TagPill(text: "\(abbreviatedTrackCount(snapshot.totalTracks)) tracks", tone: .info)
+                    TagPill(text: model.data.syncStatusText, tone: .neutral)
                 }
                 .listRowSeparator(.hidden)
             }
@@ -57,9 +62,9 @@ struct SidebarView: View {
 
             // smart filtered jumps
             Section("Views") {
-                ForEach(smartViews, id: \.0) { v in
-                    Button { model.openBrowse(filter: v.2) } label: {
-                        Label(v.0, systemImage: v.1)
+                ForEach(smartViews, id: \.0) { view in
+                    Button { model.openBrowse(filter: view.2) } label: {
+                        Label(view.0, systemImage: view.1)
                     }
                     .buttonStyle(.plain)
                 }
@@ -126,6 +131,20 @@ struct SidebarView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+
+    private func abbreviatedTrackCount(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            let millions = Double(count) / 1_000_000
+            return "\(millions.formatted(.number.precision(.fractionLength(1))))M"
+        }
+
+        if count >= 1_000 {
+            let thousands = Double(count) / 1_000
+            return "\(thousands.formatted(.number.precision(.fractionLength(1))))K"
+        }
+
+        return count.formatted()
     }
 
     private func automationRow(_ label: String, value: String) -> some View {
