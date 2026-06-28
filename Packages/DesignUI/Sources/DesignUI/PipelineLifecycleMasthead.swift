@@ -74,8 +74,8 @@ struct PipelineLifecycleMasthead: View {
     }
 }
 
-private extension PipelineStageStatus {
-    var backgroundColor: Color {
+extension PipelineStageStatus {
+    fileprivate var backgroundColor: Color {
         switch self {
         case .completed: Ayu.teal.opacity(0.14)
         case .current: Ayu.accent
@@ -85,7 +85,7 @@ private extension PipelineStageStatus {
         }
     }
 
-    var borderColor: Color {
+    fileprivate var borderColor: Color {
         switch self {
         case .completed: Ayu.teal.opacity(0.36)
         case .current: Ayu.accent2
@@ -95,7 +95,7 @@ private extension PipelineStageStatus {
         }
     }
 
-    var foregroundColor: Color {
+    fileprivate var foregroundColor: Color {
         switch self {
         case .completed: Ayu.teal
         case .current: Ayu.onAccent
@@ -105,7 +105,7 @@ private extension PipelineStageStatus {
         }
     }
 
-    var titleColor: Color {
+    fileprivate var titleColor: Color {
         switch self {
         case .completed: Ayu.fg
         case .current: Ayu.accent
@@ -115,7 +115,7 @@ private extension PipelineStageStatus {
         }
     }
 
-    var connectorColor: Color {
+    fileprivate var connectorColor: Color {
         switch self {
         case .completed: Ayu.teal.opacity(0.48)
         case .current: Ayu.accent.opacity(0.78)

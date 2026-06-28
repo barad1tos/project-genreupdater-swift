@@ -320,9 +320,9 @@ struct ActivityView: View {
     private func previewApprovalValue(_ pipeline: PipelineActivitySnapshot) -> String {
         switch pipeline.safetyMode {
         case .preview:
-            return "Required before write"
+            "Required before write"
         case .autoFix:
-            return "Auto-fix enabled"
+            "Auto-fix enabled"
         }
     }
 }

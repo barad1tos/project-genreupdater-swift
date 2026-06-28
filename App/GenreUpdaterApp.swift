@@ -37,8 +37,9 @@ struct GenreUpdaterApp: App {
         }
         .defaultSize(width: 1280, height: 800)
         .commands {
-            // Replace default "New Window" with custom commands
-            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .newItem) {
+                // Replace default "New Window" with custom commands
+            }
 
             CommandMenu("Library") {
                 Button("Refresh Library") {

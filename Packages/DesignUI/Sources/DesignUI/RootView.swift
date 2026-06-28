@@ -52,9 +52,9 @@ public struct RootView: View {
                 model: model,
                 pipelineSecondaryAction: pipelineSecondaryAction
             )
-        case .browse:   BrowseView(model: model)
-        case .reports:  ReportsView(model: model)
-        case .update:   UpdateView(model: model)
+        case .browse: BrowseView(model: model)
+        case .reports: ReportsView(model: model)
+        case .update: UpdateView(model: model)
         case .settings: SettingsScreen(model: model)
         }
     }
@@ -83,8 +83,13 @@ private struct NavigationHistoryControls: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    private func historyButton(symbol: String, label: String, isEnabled: Bool, shortcut: KeyEquivalent,
-                               action: @escaping () -> Void) -> some View {
+    private func historyButton(
+        symbol: String,
+        label: String,
+        isEnabled: Bool,
+        shortcut: KeyEquivalent,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 12, weight: .semibold))

@@ -17,8 +17,11 @@ struct UpdateView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 11) {
                 Text("Update").font(.system(size: 24, weight: .heavy))
-                TagPill(text: model.dryRun ? "Dry run — preview only" : "Live write mode",
-                        tone: model.dryRun ? .info : .accent, dot: true)
+                TagPill(
+                    text: model.dryRun ? "Dry run — preview only" : "Live write mode",
+                    tone: model.dryRun ? .info : .accent,
+                    dot: true
+                )
             }
 
             GlassCard {
@@ -43,7 +46,9 @@ struct UpdateView: View {
                         HStack(spacing: 10) {
                             Text("Apply to").font(.system(size: 12.5)).foregroundStyle(Ayu.fg2)
                             Picker("", selection: $behavior) {
-                                Text("Genre").tag("genre"); Text("Year").tag("year"); Text("Both").tag("both")
+                                Text("Genre").tag("genre")
+                                Text("Year").tag("year")
+                                Text("Both").tag("both")
                             }.pickerStyle(.segmented).frame(width: 200)
                         }
                         HStack(spacing: 10) {
@@ -52,8 +57,9 @@ struct UpdateView: View {
                         }
                         HStack(spacing: 10) {
                             Text("Min confidence").font(.system(size: 12.5)).foregroundStyle(Ayu.fg2)
-                            Slider(value: $minConf, in: 30...100).frame(width: 160).tint(Ayu.accent)
-                            Text("\(Int(minConf))%").font(.system(size: 13, weight: .bold).monospacedDigit()).frame(width: 40)
+                            Slider(value: $minConf, in: 30 ... 100).frame(width: 160).tint(Ayu.accent)
+                            Text("\(Int(minConf))%").font(.system(size: 13, weight: .bold).monospacedDigit())
+                                .frame(width: 40)
                         }
                         Spacer()
                     }
@@ -63,23 +69,25 @@ struct UpdateView: View {
             GlassCard(padding: 0) {
                 VStack(spacing: 0) {
                     HStack {
-                        Text("\(shown.count) proposed changes shown").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Ayu.fg2)
+                        Text("\(shown.count) proposed changes shown").font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(Ayu.fg2)
                         Spacer()
                     }
                     .padding(.horizontal, 18).padding(.vertical, 13)
                     Divider().overlay(Ayu.glassBorder)
                     ScrollView {
                         VStack(spacing: 0) {
-                            ForEach(shown) { c in
+                            ForEach(shown) { change in
                                 HStack(spacing: 13) {
-                                    Image(systemName: c.type.symbol).foregroundStyle(c.type.tone.color).frame(width: 20)
+                                    Image(systemName: change.type.symbol).foregroundStyle(change.type.tone.color)
+                                        .frame(width: 20)
                                     VStack(alignment: .leading, spacing: 1) {
-                                        Text(c.track).font(.system(size: 13.5)).foregroundStyle(Ayu.fg)
-                                        Text(c.artist).font(.system(size: 11.5)).foregroundStyle(Ayu.fg2)
+                                        Text(change.track).font(.system(size: 13.5)).foregroundStyle(Ayu.fg)
+                                        Text(change.artist).font(.system(size: 11.5)).foregroundStyle(Ayu.fg2)
                                     }
                                     Spacer()
-                                    DiffRow(old: c.old, new: c.new)
-                                    ConfidenceBadge(conf: c.conf)
+                                    DiffRow(old: change.old, new: change.new)
+                                    ConfidenceBadge(conf: change.conf)
                                 }
                                 .padding(.horizontal, 18).padding(.vertical, 11)
                                 Divider().overlay(Ayu.glassBorder)
@@ -95,7 +103,10 @@ struct UpdateView: View {
                 HStack(spacing: 12) {
                     if confirm {
                         Image(systemName: "exclamationmark.triangle").foregroundStyle(Ayu.warning)
-                        Text("Write \(shown.count) genre/year tags to Music.app?").font(.system(size: 13, weight: .semibold))
+                        Text("Write \(shown.count) genre/year tags to Music.app?").font(.system(
+                            size: 13,
+                            weight: .semibold
+                        ))
                         Spacer()
                         BorderedButton(title: "Cancel") { confirm = false }
                         PrimaryButton(title: "Confirm write", symbol: "checkmark") {
@@ -103,14 +114,17 @@ struct UpdateView: View {
                             model.navigate(to: .activity)
                         }
                     } else {
-                        Image(systemName: model.dryRun ? "eye" : "pencil").foregroundStyle(model.dryRun ? Ayu.info : Ayu.accent)
+                        Image(systemName: model.dryRun ? "eye" : "pencil")
+                            .foregroundStyle(model.dryRun ? Ayu.info : Ayu.accent)
                         Text(model.dryRun ? "Dry run won’t modify your library. Switch off Preview only to write tags."
-                                          : "\(shown.count) tags will be written to Music. A revert CSV is saved first.")
+                            : "\(shown.count) tags will be written to Music. A revert CSV is saved first.")
                             .font(.system(size: 13)).foregroundStyle(Ayu.fg2)
                         Spacer()
                         BorderedButton(title: "Close") { model.navigate(to: .activity) }
-                        PrimaryButton(title: model.dryRun ? "Stage write" : "Apply \(shown.count)",
-                                      symbol: model.dryRun ? "checklist" : "checkmark") {
+                        PrimaryButton(
+                            title: model.dryRun ? "Stage write" : "Apply \(shown.count)",
+                            symbol: model.dryRun ? "checklist" : "checkmark"
+                        ) {
                             model.dryRun ? (model.dryRun = false) : (confirm = true)
                         }
                     }

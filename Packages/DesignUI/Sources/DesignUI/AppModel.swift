@@ -1,5 +1,5 @@
-import SwiftUI
 import Observation
+import SwiftUI
 
 struct NavigationEntry: Hashable {
     let route: Route
@@ -23,10 +23,18 @@ public final class AppModel {
         self.data = data
     }
 
-    public var snapshot: HealthSnapshot { data.health }
-    public var pipelineActivity: PipelineActivitySnapshot { data.pipelineActivity }
-    public var canNavigateBack: Bool { !backStack.isEmpty }
-    public var canNavigateForward: Bool { !forwardStack.isEmpty }
+    public var snapshot: HealthSnapshot {
+        data.health
+    }
+    public var pipelineActivity: PipelineActivitySnapshot {
+        data.pipelineActivity
+    }
+    public var canNavigateBack: Bool {
+        !backStack.isEmpty
+    }
+    public var canNavigateForward: Bool {
+        !forwardStack.isEmpty
+    }
 
     public func openBrowse(filter: BrowseFilter) {
         navigate(to: .browse, browseFilter: filter)

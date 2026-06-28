@@ -8,7 +8,9 @@ public enum PipelineStage: String, CaseIterable, Hashable, Identifiable, Sendabl
     case verify
     case report
 
-    public var id: String { rawValue }
+    public var id: String {
+        rawValue
+    }
 
     public var title: String {
         switch self {
@@ -72,22 +74,22 @@ public enum PipelineAutomationState: Equatable, Sendable {
     public var summaryValue: String {
         switch self {
         case .autoSyncRunning:
-            return "Running"
+            "Running"
         case .manualScanOnly:
-            return "Manual"
+            "Manual"
         case .noSyncYet:
-            return "Idle"
+            "Idle"
         }
     }
 
     public var stageDetail: String {
         switch self {
         case .autoSyncRunning:
-            return "Auto-sync running"
+            "Auto-sync running"
         case .manualScanOnly:
-            return "Manual scan only"
+            "Manual scan only"
         case .noSyncYet:
-            return "No sync yet"
+            "No sync yet"
         }
     }
 }
@@ -112,7 +114,9 @@ public struct PipelineAction: Equatable, Sendable {
 }
 
 public struct PipelineStageDescriptor: Identifiable, Equatable, Sendable {
-    public var id: PipelineStage { stage }
+    public var id: PipelineStage {
+        stage
+    }
 
     public let stage: PipelineStage
     public let detail: String

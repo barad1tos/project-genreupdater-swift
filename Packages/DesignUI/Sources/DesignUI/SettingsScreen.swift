@@ -48,7 +48,9 @@ struct SettingsScreen: View {
             group("Update behavior", "wand.and.stars", .accent) {
                 row("Fields to update", "Which metadata GenreUpdater writes during a run.") {
                     Picker("", selection: $behavior) {
-                        Text("Genre").tag("genre"); Text("Year").tag("year"); Text("Both").tag("both")
+                        Text("Genre").tag("genre")
+                        Text("Year").tag("year")
+                        Text("Both").tag("both")
                     }.pickerStyle(.segmented).frame(width: 220)
                 }
                 row("Safe mode (dry-run)", "Always preview proposed changes before any tag is written.") {
@@ -139,11 +141,11 @@ struct SettingsScreen: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
-    private func group<C: View>(
+    private func group(
         _ title: String,
         _ symbol: String,
         _ tone: Tone,
-        @ViewBuilder _ content: () -> C
+        @ViewBuilder _ content: () -> some View
     ) -> some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 4) {
@@ -158,7 +160,7 @@ struct SettingsScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func row<C: View>(_ title: String, _ desc: String, @ViewBuilder _ control: () -> C) -> some View {
+    private func row(_ title: String, _ desc: String, @ViewBuilder _ control: () -> some View) -> some View {
         HStack(spacing: 18) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Ayu.fg)

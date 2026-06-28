@@ -1,6 +1,7 @@
 import SwiftUI
 
 // MARK: - Tag / pill
+
 struct TagPill: View {
     let text: String
     var tone: Tone = .neutral
@@ -22,6 +23,7 @@ struct TagPill: View {
 }
 
 // MARK: - Buttons
+
 struct PrimaryButton: View {
     let title: String
     var symbol: String?
@@ -68,6 +70,7 @@ struct BorderedButton: View {
 }
 
 // MARK: - Card container
+
 struct GlassCard<Content: View>: View {
     var padding: CGFloat = 22
     var glow: Bool = false
@@ -82,24 +85,28 @@ struct GlassCard<Content: View>: View {
                     shape.fill(Ayu.surfaceRaised)
                     shape.fill(LinearGradient(
                         colors: [.white.opacity(0.035), .white.opacity(0.0)],
-                        startPoint: .top, endPoint: .center))
+                        startPoint: .top, endPoint: .center
+                    ))
                     if glow {
                         shape.fill(RadialGradient(
                             colors: [Ayu.accent.opacity(0.045), .clear],
-                            center: .top, startRadius: 0, endRadius: 560))
+                            center: .top, startRadius: 0, endRadius: 560
+                        ))
                     }
                 }
             }
             .overlay(
                 shape.strokeBorder(LinearGradient(
                     colors: [Ayu.glassBorderStrong, Ayu.glassBorder],
-                    startPoint: .top, endPoint: .bottom), lineWidth: 1)
+                    startPoint: .top, endPoint: .bottom
+                ), lineWidth: 1)
             )
             .shadow(color: .black.opacity(glow ? 0.22 : 0.16), radius: glow ? 14 : 8, y: glow ? 8 : 5)
     }
 }
 
 // MARK: - Section card (icon + title + subtitle header)
+
 struct SectionCard<Content: View>: View {
     let symbol: String
     let tone: Tone
@@ -125,6 +132,7 @@ struct SectionCard<Content: View>: View {
 }
 
 // MARK: - Confidence badge
+
 struct ConfidenceBadge: View {
     let conf: Double
     var body: some View {
@@ -138,6 +146,7 @@ struct ConfidenceBadge: View {
 }
 
 // MARK: - Coverage bar
+
 struct CoverageBar: View {
     let ratio: Double
     let tone: Tone
@@ -153,6 +162,7 @@ struct CoverageBar: View {
 }
 
 // MARK: - Diff row (old → new)
+
 struct DiffRow: View {
     let old: String?
     let new: String

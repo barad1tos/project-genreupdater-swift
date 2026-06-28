@@ -10,10 +10,10 @@ struct BrowseView: View {
 
     private func matches(_ album: Album) -> Bool {
         switch model.browseFilter {
-        case .all: return true
-        case .missingGenre: return album.genre == nil
-        case .missingYear: return album.year == nil
-        case .conflicts: return album.health < 0.6
+        case .all: true
+        case .missingGenre: album.genre == nil
+        case .missingYear: album.year == nil
+        case .conflicts: album.health < 0.6
         }
     }
 
@@ -161,7 +161,9 @@ private struct ArtistSection: Identifiable {
     let letter: String
     let artists: [Artist]
 
-    var id: String { letter }
+    var id: String {
+        letter
+    }
 }
 
 private struct FadingVerticalSeparator: View {
@@ -190,7 +192,9 @@ struct AlbumDetail: View {
     let artist: String
     var onUpdate: () -> Void
 
-    private var missing: Int { (album.genre == nil ? 1 : 0) + (album.year == nil ? 1 : 0) }
+    private var missing: Int {
+        (album.genre == nil ? 1 : 0) + (album.year == nil ? 1 : 0)
+    }
     private var autofillMessage: String {
         "\(missing) metadata field\(missing > 1 ? "s" : "") can be auto-filled with high confidence."
     }
@@ -242,7 +246,7 @@ struct AlbumDetail: View {
                 }
 
                 VStack(spacing: 0) {
-                    ForEach(1...album.tracks, id: \.self) { trackNumber in
+                    ForEach(1 ... album.tracks, id: \.self) { trackNumber in
                         HStack(spacing: 12) {
                             Text("\(trackNumber)")
                                 .font(.system(size: 12).monospacedDigit())

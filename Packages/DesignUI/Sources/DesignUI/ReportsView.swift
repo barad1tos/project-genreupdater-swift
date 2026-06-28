@@ -1,5 +1,5 @@
-import SwiftUI
 import Charts
+import SwiftUI
 
 struct ReportsView: View {
     @Bindable var model: AppModel
@@ -73,24 +73,24 @@ struct ReportsView: View {
 
                 LazyVGrid(columns: cols, spacing: 14) {
                     chartCard("Genre distribution", "chart.bar", .purple) {
-                        Chart(model.data.genreDistribution) { d in
-                            BarMark(x: .value("Count", d.count), y: .value("Genre", d.label))
+                        Chart(model.data.genreDistribution) { datum in
+                            BarMark(x: .value("Count", datum.count), y: .value("Genre", datum.label))
                                 .foregroundStyle(Ayu.purple)
                         }
                         .frame(height: 160)
                     }
                     chartCard("Changes over time", "chart.line.uptrend.xyaxis", .accent) {
-                        Chart(model.data.updatesOverTime) { d in
-                            AreaMark(x: .value("Week", d.label), y: .value("Count", d.count))
+                        Chart(model.data.updatesOverTime) { datum in
+                            AreaMark(x: .value("Week", datum.label), y: .value("Count", datum.count))
                                 .foregroundStyle(Ayu.accent.opacity(0.25))
-                            LineMark(x: .value("Week", d.label), y: .value("Count", d.count))
+                            LineMark(x: .value("Week", datum.label), y: .value("Count", datum.count))
                                 .foregroundStyle(Ayu.accent)
                         }
                         .frame(height: 160)
                     }
                     chartCard("Year distribution", "calendar", .info) {
-                        Chart(model.data.yearDistribution) { d in
-                            BarMark(x: .value("Decade", d.label), y: .value("Count", d.count))
+                        Chart(model.data.yearDistribution) { datum in
+                            BarMark(x: .value("Decade", datum.label), y: .value("Count", datum.count))
                                 .foregroundStyle(Ayu.info)
                         }
                         .frame(height: 160)
@@ -105,14 +105,19 @@ struct ReportsView: View {
         .navigationTitle("Reports")
     }
 
-    private func stat(_ v: String, _ l: String, _ tone: Tone) -> some View {
+    private func stat(_ value: String, _ label: String, _ tone: Tone) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(v).font(.rounded(26, .heavy)).foregroundStyle(tone == .neutral ? Ayu.fg : tone.color)
-            Text(l).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Ayu.fg2)
+            Text(value).font(.rounded(26, .heavy)).foregroundStyle(tone == .neutral ? Ayu.fg : tone.color)
+            Text(label).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Ayu.fg2)
         }
     }
 
-    private func chartCard<C: View>(_ title: String, _ symbol: String, _ tone: Tone, @ViewBuilder _ chart: () -> C) -> some View {
+    private func chartCard(
+        _ title: String,
+        _ symbol: String,
+        _ tone: Tone,
+        @ViewBuilder _ chart: () -> some View
+    ) -> some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 9) {

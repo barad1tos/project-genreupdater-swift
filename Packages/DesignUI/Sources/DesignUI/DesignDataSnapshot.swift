@@ -84,8 +84,8 @@ public struct ReportStats: Equatable, Sendable {
     }
 }
 
-public extension DesignDataSnapshot {
-    static var preview: Self {
+extension DesignDataSnapshot {
+    public static var preview: Self {
         MockData().designSnapshot
     }
 }
