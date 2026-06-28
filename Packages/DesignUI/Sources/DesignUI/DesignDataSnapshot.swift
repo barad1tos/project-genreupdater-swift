@@ -1,6 +1,7 @@
 public struct DesignDataSnapshot: Equatable, Sendable {
     public let health: HealthSnapshot
     public let pipelineActivity: PipelineActivitySnapshot
+    public let pendingVerification: PendingVerificationSnapshot
     public let coverage: [CoverageBucket]
     public let issues: [Issue]
     public let metrics: [MetricTile]
@@ -19,6 +20,7 @@ public struct DesignDataSnapshot: Equatable, Sendable {
     public init(
         health: HealthSnapshot,
         pipelineActivity: PipelineActivitySnapshot,
+        pendingVerification: PendingVerificationSnapshot,
         coverage: [CoverageBucket],
         issues: [Issue],
         metrics: [MetricTile],
@@ -36,6 +38,7 @@ public struct DesignDataSnapshot: Equatable, Sendable {
     ) {
         self.health = health
         self.pipelineActivity = pipelineActivity
+        self.pendingVerification = pendingVerification
         self.coverage = coverage
         self.issues = issues
         self.metrics = metrics

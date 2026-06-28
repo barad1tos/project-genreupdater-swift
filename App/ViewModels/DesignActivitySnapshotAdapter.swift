@@ -24,6 +24,7 @@ enum DesignActivitySnapshotAdapter {
         return DesignDataSnapshot(
             health: makeHealthSnapshot(from: dashboard, input: input),
             pipelineActivity: makePipelineSnapshot(from: dashboard, input: input),
+            pendingVerification: makePendingVerificationSnapshot(from: input.pendingVerification),
             coverage: makeCoverageBuckets(from: dashboard),
             issues: makeIssues(from: dashboard, input: input),
             metrics: makeMetricTiles(from: dashboard, input: input),
@@ -260,6 +261,22 @@ enum DesignActivitySnapshotAdapter {
             tone: summary.total > 0 ? .purple : .success,
             symbol: "eye",
             route: .update
+        )
+    }
+
+    private static func makePendingVerificationSnapshot(
+        from summary: UpdateRunPendingVerificationSummary?
+    ) -> PendingVerificationSnapshot {
+        guard let summary else {
+            return .unavailable
+        }
+
+        return PendingVerificationSnapshot(
+            totalAlbums: summary.total,
+            dueAlbums: summary.due,
+            skippedByInterval: summary.skippedByInterval,
+            problematicAlbums: summary.problematic,
+            verifiedAlbums: summary.verified
         )
     }
 

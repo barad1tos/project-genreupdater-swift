@@ -12,6 +12,7 @@ struct DesignUIPublicAPITests {
 
         #expect(data.health.totalTracks == 10)
         #expect(data.pipelineActivity.deltaCount == 2)
+        #expect(data.pendingVerification.totalAlbums == 2)
         #expect(data.syncStatusText == "No sync yet")
         #expect(model.snapshot.totalTracks == 10)
         #expect(model.pipelineActivity.deltaCount == 2)
@@ -34,6 +35,7 @@ struct DesignUIPublicAPITests {
         DesignDataSnapshot(
             health: makeHealth(totalTracks: totalTracks),
             pipelineActivity: makePipeline(deltaCount: deltaCount),
+            pendingVerification: makePendingVerification(),
             coverage: [],
             issues: [],
             metrics: [],
@@ -48,6 +50,16 @@ struct DesignUIPublicAPITests {
             yearDistribution: [],
             syncStatusText: syncStatusText,
             isPreviewBacked: false
+        )
+    }
+
+    private func makePendingVerification() -> PendingVerificationSnapshot {
+        PendingVerificationSnapshot(
+            totalAlbums: 2,
+            dueAlbums: 1,
+            skippedByInterval: 0,
+            problematicAlbums: 0,
+            verifiedAlbums: 1
         )
     }
 

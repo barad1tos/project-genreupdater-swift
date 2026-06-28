@@ -165,7 +165,7 @@ struct ActivityView: View {
             symbol: "exclamationmark.triangle",
             tone: .warning,
             title: "Intervention queue",
-            subtitle: "Review appears only when automation needs user input."
+            subtitle: "Review status and verification summary for this run."
         ) {
             VStack(spacing: 0) {
                 ForEach(model.data.issues) { issue in
@@ -192,8 +192,57 @@ struct ActivityView: View {
                         Divider().overlay(Ayu.glassBorder)
                     }
                 }
+
+                if !model.data.issues.isEmpty {
+                    Divider().overlay(Ayu.glassBorder)
+                }
+                pendingVerificationSummary(model.data.pendingVerification)
             }
         }
+    }
+
+    private func pendingVerificationSummary(_ pending: PendingVerificationSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Verification summary")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Ayu.fg)
+
+            if let unavailableReason = pending.unavailableReason {
+                Text(unavailableReason)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Ayu.fg2)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(spacing: 6) {
+                    PendingVerificationMetricRow(
+                        title: "Pending albums",
+                        value: pending.totalAlbums,
+                        tone: .purple
+                    )
+                    PendingVerificationMetricRow(
+                        title: "Due now",
+                        value: pending.dueAlbums,
+                        tone: pending.dueAlbums > 0 ? .warning : .success
+                    )
+                    PendingVerificationMetricRow(
+                        title: "Skipped by interval",
+                        value: pending.skippedByInterval,
+                        tone: .neutral
+                    )
+                    PendingVerificationMetricRow(
+                        title: "Problematic albums",
+                        value: pending.problematicAlbums,
+                        tone: pending.problematicAlbums > 0 ? .error : .success
+                    )
+                    PendingVerificationMetricRow(
+                        title: "Verified latest run",
+                        value: pending.verifiedAlbums,
+                        tone: .success
+                    )
+                }
+            }
+        }
+        .padding(.top, 10)
     }
 
     private func safetyGates(_ pipeline: PipelineActivitySnapshot, snapshot: HealthSnapshot) -> some View {
@@ -312,6 +361,24 @@ private struct SafetyGateRow: View {
             Spacer()
             Text(value)
                 .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tone.color)
+        }
+    }
+}
+
+private struct PendingVerificationMetricRow: View {
+    let title: String
+    let value: Int
+    let tone: Tone
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundStyle(Ayu.fg2)
+            Spacer()
+            Text(value.formatted())
+                .font(.system(size: 12, weight: .semibold).monospacedDigit())
                 .foregroundStyle(tone.color)
         }
     }

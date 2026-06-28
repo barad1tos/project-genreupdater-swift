@@ -163,6 +163,47 @@ public struct ActivityItem: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct PendingVerificationSnapshot: Equatable, Sendable {
+    public static var unavailable: Self {
+        unavailable(reason: "Pending verification data not available for this run")
+    }
+
+    public static func unavailable(reason: String) -> Self {
+        Self(unavailableReason: reason)
+    }
+
+    public let totalAlbums: Int
+    public let dueAlbums: Int
+    public let skippedByInterval: Int
+    public let problematicAlbums: Int
+    public let verifiedAlbums: Int
+    public let unavailableReason: String?
+
+    public init(
+        totalAlbums: Int,
+        dueAlbums: Int,
+        skippedByInterval: Int,
+        problematicAlbums: Int,
+        verifiedAlbums: Int
+    ) {
+        self.totalAlbums = totalAlbums
+        self.dueAlbums = dueAlbums
+        self.skippedByInterval = skippedByInterval
+        self.problematicAlbums = problematicAlbums
+        self.verifiedAlbums = verifiedAlbums
+        unavailableReason = nil
+    }
+
+    private init(unavailableReason: String) {
+        totalAlbums = 0
+        dueAlbums = 0
+        skippedByInterval = 0
+        problematicAlbums = 0
+        verifiedAlbums = 0
+        self.unavailableReason = unavailableReason
+    }
+}
+
 // MARK: - Library / changes
 public struct Album: Identifiable, Equatable, Sendable {
     public let id: String

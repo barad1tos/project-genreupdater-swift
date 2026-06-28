@@ -18,6 +18,14 @@ struct MockData {
         failedWriteCount: 0
     )
 
+    let pendingVerification = PendingVerificationSnapshot(
+        totalAlbums: 142,
+        dueAlbums: 12,
+        skippedByInterval: 5,
+        problematicAlbums: 3,
+        verifiedAlbums: 7
+    )
+
     let coverage: [CoverageBucket] = [
         .init(id: "genre-pop", label: "Pop", ratio: 0.95, tone: .success),
         .init(id: "genre-electronic", label: "Electronic", ratio: 0.88, tone: .info),
@@ -143,6 +151,7 @@ struct MockData {
         DesignDataSnapshot(
             health: snapshot,
             pipelineActivity: pipelineActivity,
+            pendingVerification: pendingVerification,
             coverage: coverage,
             issues: issues,
             metrics: metrics,

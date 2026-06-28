@@ -179,6 +179,12 @@ struct DesignActivitySnapshotAdapterTests {
 
         #expect(snapshot.health.pendingVerification == 142)
         #expect(snapshot.pipelineActivity.interventionCount == 142)
+        #expect(snapshot.pendingVerification.totalAlbums == 142)
+        #expect(snapshot.pendingVerification.dueAlbums == 12)
+        #expect(snapshot.pendingVerification.skippedByInterval == 5)
+        #expect(snapshot.pendingVerification.problematicAlbums == 3)
+        #expect(snapshot.pendingVerification.verifiedAlbums == 7)
+        #expect(snapshot.pendingVerification.unavailableReason == nil)
         #expect(snapshot.issues.first { $0.id == "pending" }?.count == "142")
         #expect(snapshot.issues.first { $0.id == "pending" }?.unit == "albums")
         #expect(snapshot.activity.contains { $0.detail == "142 albums queued, 12 due" })
@@ -190,6 +196,9 @@ struct DesignActivitySnapshotAdapterTests {
 
         #expect(snapshot.health.pendingVerification == 0)
         #expect(snapshot.pipelineActivity.interventionCount == 0)
+        #expect(snapshot.pendingVerification.totalAlbums == 0)
+        #expect(snapshot.pendingVerification
+            .unavailableReason == "Pending verification data not available for this run")
         #expect(snapshot.issues.first { $0.id == "pending" }?.count == "Unavailable")
     }
 
