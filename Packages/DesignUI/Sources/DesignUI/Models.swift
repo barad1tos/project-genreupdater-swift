@@ -244,12 +244,36 @@ public struct Artist: Identifiable, Equatable, Sendable {
 }
 
 public enum ChangeType: String, Sendable {
-    case genre, year, revert
+    case genre, year, track, album, artist, revert
+
     public var symbol: String {
-        switch self { case .genre: return "tag"; case .year: return "calendar"; case .revert: return "arrow.uturn.backward" }
+        switch self {
+        case .genre:
+            return "tag"
+        case .year:
+            return "calendar"
+        case .track:
+            return "music.note"
+        case .album:
+            return "rectangle.stack"
+        case .artist:
+            return "person"
+        case .revert:
+            return "arrow.uturn.backward"
+        }
     }
+
     public var tone: Tone {
-        switch self { case .genre: return .purple; case .year: return .info; case .revert: return .error }
+        switch self {
+        case .genre:
+            return .purple
+        case .year:
+            return .info
+        case .track, .album, .artist:
+            return .accent
+        case .revert:
+            return .error
+        }
     }
 }
 
@@ -281,7 +305,7 @@ public struct LogEntry: Identifiable, Equatable, Sendable {
     public let artist: String
     public let old: String
     public let new: String
-    public let conf: Double
+    public let conf: Double?
 
     public init(
         id: String,
@@ -291,7 +315,7 @@ public struct LogEntry: Identifiable, Equatable, Sendable {
         artist: String,
         old: String,
         new: String,
-        conf: Double
+        conf: Double?
     ) {
         self.id = id
         self.time = time

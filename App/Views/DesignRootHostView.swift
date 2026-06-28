@@ -10,6 +10,7 @@ struct DesignRootHostView: View {
 
     @State private var tracks: [Core.Track] = []
     @State private var metricsSnapshot: PersistedMetricsSnapshot?
+    @State private var changeLogEntries: [Core.ChangeLogEntry] = []
     @State private var lastScanDate: Date?
     @State private var isLoading = false
     @State private var loadError: LibraryLoadError?
@@ -33,6 +34,7 @@ struct DesignRootHostView: View {
                 isDryRun: dependencies.config.runtime.dryRun,
                 workflow: .empty,
                 pendingVerification: nil,
+                changeLogEntries: changeLogEntries,
                 isAutoSyncRunning: dependencies.isAutoSyncRunning,
                 lastSyncResult: nil,
                 now: Date()
@@ -49,6 +51,7 @@ struct DesignRootHostView: View {
     private func loadLibrary() async {
         loadError = nil
         loadCachedMetrics()
+        loadChangeLogEntries()
         await dependencies.refreshAutoSyncStatus()
 
         let scopedArtists = LibraryTrackLoader.scopedArtists(from: dependencies)
@@ -97,6 +100,14 @@ struct DesignRootHostView: View {
     private func loadCachedMetrics() {
         let descriptor = FetchDescriptor<PersistedMetricsSnapshot>()
         metricsSnapshot = try? modelContext.fetch(descriptor).first
+    }
+
+    private func loadChangeLogEntries() {
+        var descriptor = FetchDescriptor<PersistedChangeLogEntry>(
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+        )
+        descriptor.fetchLimit = DesignActivitySnapshotAdapter.reportEntryLimit
+        changeLogEntries = (try? modelContext.fetch(descriptor).map { $0.toChangeLogEntry() }) ?? []
     }
 
     private func recordLibraryLoad(

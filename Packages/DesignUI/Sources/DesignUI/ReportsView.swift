@@ -13,13 +13,13 @@ struct ReportsView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Reports").font(.system(size: 24, weight: .heavy))
                         HStack(spacing: 26) {
-                            stat("\(st.processed)", "Processed", .neutral)
+                            stat("\(st.processed)", "Changes", .neutral)
                             stat("\(st.genres)", "Genres updated", .purple)
                             stat("\(st.years)", "Years updated", .info)
                         }
                     }
                     Spacer()
-                    BorderedButton(title: "Import revert CSV", symbol: "arrow.uturn.backward") {}
+                    TagPill(text: "Read-only", tone: .neutral)
                 }
 
                 GlassCard(padding: 0) {
@@ -31,22 +31,42 @@ struct ReportsView: View {
                         }
                         .padding(.horizontal, 18).padding(.vertical, 13)
                         Divider().overlay(Ayu.glassBorder)
-                        ForEach(model.data.changeLog) { c in
-                            HStack(spacing: 13) {
-                                Text(c.time).font(.system(size: 11).monospacedDigit()).foregroundStyle(Ayu.fgMuted).frame(width: 58, alignment: .leading)
-                                Image(systemName: c.type.symbol).foregroundStyle(c.type.tone.color).frame(width: 18)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(c.track).font(.system(size: 13)).foregroundStyle(Ayu.fg).lineLimit(1)
-                                    Text(c.artist).font(.system(size: 11.5)).foregroundStyle(Ayu.fg2)
+
+                        if model.data.changeLog.isEmpty {
+                            Text("No persisted audit entries yet")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Ayu.fg2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 14)
+                        } else {
+                            ForEach(model.data.changeLog) { change in
+                                HStack(spacing: 13) {
+                                    Text(change.time)
+                                        .font(.system(size: 11).monospacedDigit())
+                                        .foregroundStyle(Ayu.fgMuted)
+                                        .frame(width: 58, alignment: .leading)
+                                    Image(systemName: change.type.symbol)
+                                        .foregroundStyle(change.type.tone.color)
+                                        .frame(width: 18)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(change.track)
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(Ayu.fg)
+                                            .lineLimit(1)
+                                        Text(change.artist)
+                                            .font(.system(size: 11.5))
+                                            .foregroundStyle(Ayu.fg2)
+                                    }
+                                    Spacer()
+                                    DiffRow(old: change.old, new: change.new)
+                                    if let confidence = change.conf {
+                                        ConfidenceBadge(conf: confidence)
+                                    }
                                 }
-                                Spacer()
-                                DiffRow(old: c.old, new: c.new)
-                                ConfidenceBadge(conf: c.conf)
-                                Button { } label: { Image(systemName: "arrow.uturn.backward") }
-                                    .buttonStyle(.plain).foregroundStyle(Ayu.fg2)
+                                .padding(.horizontal, 18).padding(.vertical, 11)
+                                Divider().overlay(Ayu.glassBorder)
                             }
-                            .padding(.horizontal, 18).padding(.vertical, 11)
-                            Divider().overlay(Ayu.glassBorder)
                         }
                     }
                 }
