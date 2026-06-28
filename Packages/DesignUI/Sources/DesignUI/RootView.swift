@@ -34,12 +34,12 @@ public struct RootView: View {
     }
 
     @ViewBuilder private var detail: some View {
-        switch model.route ?? .dashboard {
-        case .dashboard: DashboardView(model: model)
-        case .browse:    BrowseView(model: model)
-        case .reports:   ReportsView(model: model)
-        case .update:    UpdateView(model: model)
-        case .settings:  SettingsScreen(model: model)
+        switch model.route ?? .activity {
+        case .activity: ActivityView(model: model)
+        case .browse:   BrowseView(model: model)
+        case .reports:  ReportsView(model: model)
+        case .update:   UpdateView(model: model)
+        case .settings: SettingsScreen(model: model)
         }
     }
 }

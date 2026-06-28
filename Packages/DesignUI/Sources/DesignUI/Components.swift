@@ -69,13 +69,30 @@ struct GlassCard<Content: View>: View {
     var glow: Bool = false
     @ViewBuilder var content: Content
     var body: some View {
-        content
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        return content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Ayu.card, in: RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Ayu.glassBorder))
-            .shadow(color: glow ? Ayu.accent.opacity(0.10) : .black.opacity(0.18),
-                    radius: glow ? 22 : 8, y: glow ? 0 : 2)
+            .background {
+                ZStack {
+                    shape.fill(Ayu.card)
+                    // top sheen — the bright inset highlight that reads as glass
+                    shape.fill(LinearGradient(
+                        colors: [.white.opacity(0.07), .white.opacity(0.0)],
+                        startPoint: .top, endPoint: .center))
+                    if glow {
+                        shape.fill(RadialGradient(
+                            colors: [Ayu.accent.opacity(0.09), .clear],
+                            center: .top, startRadius: 0, endRadius: 560))
+                    }
+                }
+            }
+            .overlay(
+                shape.strokeBorder(LinearGradient(
+                    colors: [.white.opacity(0.16), .white.opacity(0.04)],
+                    startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(glow ? 0.40 : 0.32), radius: glow ? 26 : 14, y: glow ? 12 : 8)
     }
 }
 

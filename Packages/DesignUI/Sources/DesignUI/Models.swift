@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Navigation
 enum Route: Hashable {
-    case dashboard, browse, reports, update, settings
+    case activity, browse, reports, update, settings
 }
 
 enum BrowseFilter: String, CaseIterable, Identifiable {
@@ -39,7 +39,7 @@ struct HealthSnapshot {
     var library: String
 }
 
-// MARK: - Dashboard models
+// MARK: - Activity models
 struct CoverageBucket: Identifiable {
     let id = UUID(); let label: String; let ratio: Double; let tone: Tone
 }

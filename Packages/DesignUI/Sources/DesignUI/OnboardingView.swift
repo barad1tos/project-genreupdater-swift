@@ -17,7 +17,7 @@ struct OnboardingView: View {
               body: "GenreUpdater uses MusicKit to read your library. You’ll be asked to grant access — required to view and update tracks.",
               cta: "Grant access", symbol: "lock.shield", tone: .info),
         .init(title: "Ready", heading: "All set",
-              body: "GenreUpdater is ready. Your library will load automatically and the dashboard will show where it needs attention.",
+              body: "GenreUpdater is ready. Your library will load automatically and Activity will show where it needs attention.",
               cta: "Start using GenreUpdater", symbol: "checkmark.seal", tone: .success),
     ]
 

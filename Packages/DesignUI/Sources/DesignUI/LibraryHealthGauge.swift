@@ -74,14 +74,15 @@ struct LibraryHealthGauge: View {
                         ctx.stroke(Path(ellipseIn: box), with: .color(Ayu.band(v)), lineWidth: 3.5)
                     }
 
-                    // composite health marker — heavier, spans the ring
+                    // composite health marker — clean dot with a defining ring + thin tick
                     var notch = Path()
-                    notch.move(to: polar(c, R - sw / 2 - 6, healthDeg))
-                    notch.addLine(to: polar(c, R + sw / 2 + 6, healthDeg))
-                    ctx.stroke(notch, with: .color(Ayu.fg), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    notch.move(to: polar(c, R - sw / 2 - 3, healthDeg))
+                    notch.addLine(to: polar(c, R + sw / 2 + 3, healthDeg))
+                    ctx.stroke(notch, with: .color(Ayu.fg.opacity(0.85)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
                     let m = polar(c, R, healthDeg)
-                    ctx.fill(Path(ellipseIn: CGRect(x: m.x - 6.5, y: m.y - 6.5, width: 13, height: 13)),
-                             with: .color(Ayu.fg))
+                    let ring = CGRect(x: m.x - 7, y: m.y - 7, width: 14, height: 14)
+                    ctx.fill(Path(ellipseIn: ring), with: .color(Ayu.fg))
+                    ctx.stroke(Path(ellipseIn: ring), with: .color(Ayu.window), lineWidth: 2.5)
                 }
                 .opacity(draw)
 

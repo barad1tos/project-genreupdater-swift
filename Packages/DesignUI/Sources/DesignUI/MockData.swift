@@ -11,6 +11,13 @@ struct MockData {
         lastScan: "8m ago", nextRun: "21:00",
         source: "Apple Music · local files", library: "Music Library")
 
+    let pipelineActivity = PipelineActivitySnapshot.previewDefault(
+        deltaCount: 211,
+        interventionCount: 142,
+        protectedCount: 18,
+        failedWriteCount: 0
+    )
+
     let coverage: [CoverageBucket] = [
         .init(label: "Pop", ratio: 0.95, tone: .success),
         .init(label: "Electronic", ratio: 0.88, tone: .info),

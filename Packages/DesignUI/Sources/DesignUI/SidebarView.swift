@@ -34,14 +34,15 @@ struct SidebarView: View {
                 .listRowSeparator(.hidden)
             }
 
-            // primary nav
             Section("Library") {
-                navRow(.dashboard, "Dashboard", "rectangle.3.group", badge: "\(Int((s.health*100).rounded()))%", badgeTone: .warning)
+                navRow(.activity, "Activity", "waveform.path.ecg.rectangle",
+                       badge: model.pipelineActivity.safetyMode.title, badgeTone: .warning)
                 navRow(.browse, "Browse", "music.note.list", badge: "42.3K", badgeTone: .neutral)
                 navRow(.reports, "Reports", "chart.bar")
             }
-            Section("Tools") {
-                navRow(.update, "Update", "wand.and.stars", badge: "\(s.ready)", badgeTone: .success)
+            Section("Intervention") {
+                navRow(.update, "Fix plan", "checklist",
+                       badge: "\(model.pipelineActivity.deltaCount)", badgeTone: .accent)
             }
 
             // smart filtered jumps
@@ -54,12 +55,11 @@ struct SidebarView: View {
                 }
             }
 
-            // run status
-            Section("Run status") {
-                statusRow("Last scan", value: s.lastScan)
-                HStack { Text("Write mode"); Spacer(); TagPill(text: "Dry-run", tone: .warning, dot: true) }
+            Section("Automation") {
+                statusRow("Watcher", value: "On")
+                HStack { Text("Mode"); Spacer(); TagPill(text: "Preview", tone: .warning, dot: true) }
                     .font(.system(size: 12)).foregroundStyle(Ayu.fg2).listRowSeparator(.hidden)
-                HStack { Text("Write errors"); Spacer(); TagPill(text: "\(s.writeErrors)", tone: s.writeErrors > 0 ? .error : .success, dot: true) }
+                HStack { Text("Auto-fix"); Spacer(); TagPill(text: "Off", tone: .neutral, dot: true) }
                     .font(.system(size: 12)).foregroundStyle(Ayu.fg2).listRowSeparator(.hidden)
             }
 
