@@ -7,7 +7,7 @@ enum Ayu {
     static let window    = Color(hex: 0x242936)
     static let card      = Color(hex: 0x1A1F29)
     static let editor    = Color(hex: 0x1F2430)
-    static let hover     = Color(hex: 0x3A3F4B)
+    static let hover     = Color(hex: 0x343A46)
     static let borderL   = Color(hex: 0x2B3245)
 
     static let fg        = Color(hex: 0xCCCAC2)
@@ -25,9 +25,15 @@ enum Ayu {
     static let purple    = Color(hex: 0xDFBFFF)
     static let teal      = Color(hex: 0x95E6CB)
 
-    static var track: Color { .white.opacity(0.07) }
-    static var glassHi: Color { .white.opacity(0.10) }
-    static var glassBorder: Color { .white.opacity(0.085) }
+    static var surface: Color { editor.opacity(0.72) }
+    static var surfaceRaised: Color { card.opacity(0.92) }
+    static var controlFill: Color { .white.opacity(0.055) }
+    static var controlFillStrong: Color { .white.opacity(0.085) }
+    static var selectionFill: Color { accent.opacity(0.15) }
+    static var track: Color { .white.opacity(0.055) }
+    static var glassHi: Color { .white.opacity(0.075) }
+    static var glassBorder: Color { .white.opacity(0.075) }
+    static var glassBorderStrong: Color { .white.opacity(0.12) }
 
     /// Leading-edge color of the health ruler, keyed to bands.
     static func band(_ v: Double) -> Color {
@@ -36,8 +42,9 @@ enum Ayu {
 }
 
 // MARK: - Semantic tones
-enum Tone {
+enum Tone: Equatable {
     case neutral, info, success, warning, error, accent, purple, teal
+
     var color: Color {
         switch self {
         case .neutral: return Ayu.fg2
@@ -48,6 +55,30 @@ enum Tone {
         case .accent:  return Ayu.accent
         case .purple:  return Ayu.purple
         case .teal:    return Ayu.teal
+        }
+    }
+
+    var pillFill: Color {
+        switch self {
+        case .neutral:
+            return Ayu.controlFill
+        case .accent, .warning:
+            return color.opacity(0.12)
+        case .error:
+            return color.opacity(0.13)
+        default:
+            return color.opacity(0.09)
+        }
+    }
+
+    var pillBorder: Color {
+        switch self {
+        case .neutral:
+            return Ayu.glassBorder
+        case .accent, .warning, .error:
+            return color.opacity(0.24)
+        default:
+            return color.opacity(0.18)
         }
     }
 }

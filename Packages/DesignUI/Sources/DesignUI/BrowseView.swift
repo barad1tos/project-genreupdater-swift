@@ -32,6 +32,14 @@ struct BrowseView: View {
         return nil
     }
 
+    private var browseFilterSelection: Binding<BrowseFilter> {
+        Binding {
+            model.browseFilter
+        } set: { filter in
+            model.setBrowseFilter(filter)
+        }
+    }
+
     var body: some View {
         HSplitView {
             // artist / album list
@@ -61,7 +69,7 @@ struct BrowseView: View {
             // detail
             Group {
                 if let (album, artist) = selectedAlbum {
-                    AlbumDetail(album: album, artist: artist) { model.route = .update }
+                    AlbumDetail(album: album, artist: artist) { model.navigate(to: .update) }
                 } else {
                     ContentUnavailableView("Select an album", systemImage: "music.note")
                 }
@@ -71,7 +79,7 @@ struct BrowseView: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Picker("Filter", selection: $model.browseFilter) {
+                Picker("Filter", selection: browseFilterSelection) {
                     ForEach(BrowseFilter.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)

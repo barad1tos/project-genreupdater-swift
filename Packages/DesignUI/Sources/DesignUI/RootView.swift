@@ -21,11 +21,11 @@ public struct RootView: View {
         .tint(Ayu.accent)
         .preferredColorScheme(.dark)
         .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                NavigationHistoryControls(model: model)
+            }
             ToolbarItem(placement: .automatic) {
-                HStack(spacing: 6) {
-                    Circle().fill(Ayu.success).frame(width: 7, height: 7)
-                    Text("Synced 8m ago").font(.system(size: 12)).foregroundStyle(Ayu.fg2)
-                }
+                SyncStatusPill(text: "Synced 8m ago")
             }
         }
         .sheet(isPresented: $model.showOnboarding) {
@@ -41,6 +41,69 @@ public struct RootView: View {
         case .update:   UpdateView(model: model)
         case .settings: SettingsScreen(model: model)
         }
+    }
+}
+
+private struct NavigationHistoryControls: View {
+    let model: AppModel
+
+    var body: some View {
+        HStack(spacing: 2) {
+            historyButton(
+                symbol: "chevron.left",
+                label: "Back",
+                isEnabled: model.canNavigateBack,
+                shortcut: "[",
+                action: model.navigateBack
+            )
+            historyButton(
+                symbol: "chevron.right",
+                label: "Forward",
+                isEnabled: model.canNavigateForward,
+                shortcut: "]",
+                action: model.navigateForward
+            )
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func historyButton(symbol: String, label: String, isEnabled: Bool, shortcut: KeyEquivalent,
+                               action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isEnabled ? Ayu.fg : Ayu.fgMuted.opacity(0.55))
+        .disabled(!isEnabled)
+        .keyboardShortcut(shortcut, modifiers: .command)
+        .accessibilityLabel(label)
+        .help(label)
+    }
+}
+
+private struct SyncStatusPill: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Ayu.success.opacity(0.88))
+                .frame(width: 6, height: 6)
+
+            Text(text)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Ayu.fg2)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .fixedSize(horizontal: true, vertical: false)
+        .layoutPriority(1)
+        .accessibilityLabel(text)
     }
 }
 

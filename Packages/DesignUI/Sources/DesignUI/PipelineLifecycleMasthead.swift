@@ -4,8 +4,8 @@ struct PipelineLifecycleMasthead: View {
     let snapshot: PipelineActivitySnapshot
 
     var body: some View {
-        GlassCard(padding: 18, glow: true) {
-            VStack(alignment: .leading, spacing: 16) {
+        GlassCard(padding: 16) {
+            VStack(alignment: .leading, spacing: 15) {
                 header
                 stages
             }
@@ -42,16 +42,16 @@ struct PipelineLifecycleMasthead: View {
             ZStack {
                 Circle()
                     .fill(status.backgroundColor)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 32, height: 32)
                 Circle()
-                    .strokeBorder(status.borderColor, lineWidth: status == .current ? 2 : 1)
-                    .frame(width: 34, height: 34)
+                    .strokeBorder(status.borderColor, lineWidth: status == .current ? 1.5 : 1)
+                    .frame(width: 32, height: 32)
                 Image(systemName: stage.symbol)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(status.foregroundColor)
             }
             Text(stage.title)
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(status.titleColor)
                 .lineLimit(1)
             Text(stage.detail)
@@ -67,28 +67,28 @@ struct PipelineLifecycleMasthead: View {
     private func connector(after stage: PipelineStage) -> some View {
         Rectangle()
             .fill(snapshot.status(for: stage).connectorColor)
-            .frame(width: 28, height: 3)
+            .frame(width: 26, height: 2)
             .clipShape(Capsule())
-            .padding(.top, 16)
+            .padding(.top, 15)
     }
 }
 
 private extension PipelineStageStatus {
     var backgroundColor: Color {
         switch self {
-        case .completed: Ayu.teal
+        case .completed: Ayu.teal.opacity(0.14)
         case .current: Ayu.accent
-        case .gated: Ayu.hover
+        case .gated: Ayu.controlFillStrong
         case .pending: Ayu.track
-        case .failed: Ayu.error
+        case .failed: Ayu.error.opacity(0.78)
         }
     }
 
     var borderColor: Color {
         switch self {
-        case .completed: Ayu.teal.opacity(0.8)
+        case .completed: Ayu.teal.opacity(0.36)
         case .current: Ayu.accent2
-        case .gated: Ayu.fg2
+        case .gated: Ayu.fgMuted.opacity(0.45)
         case .pending: Ayu.glassBorder
         case .failed: Ayu.error
         }
@@ -96,27 +96,29 @@ private extension PipelineStageStatus {
 
     var foregroundColor: Color {
         switch self {
-        case .completed, .current: Ayu.onAccent
-        case .gated, .pending: Ayu.fg
+        case .completed: Ayu.teal
+        case .current: Ayu.onAccent
+        case .gated: Ayu.fg2
+        case .pending: Ayu.fgMuted
         case .failed: .white
         }
     }
 
     var titleColor: Color {
         switch self {
-        case .completed: Ayu.teal
+        case .completed: Ayu.fg
         case .current: Ayu.accent
-        case .gated: Ayu.fg
-        case .pending: Ayu.fg2
+        case .gated: Ayu.fg2
+        case .pending: Ayu.fgMuted
         case .failed: Ayu.error
         }
     }
 
     var connectorColor: Color {
         switch self {
-        case .completed: Ayu.teal
-        case .current: Ayu.accent
-        case .gated, .pending: Ayu.fgMuted
+        case .completed: Ayu.teal.opacity(0.48)
+        case .current: Ayu.accent.opacity(0.78)
+        case .gated, .pending: Ayu.fgMuted.opacity(0.48)
         case .failed: Ayu.error
         }
     }

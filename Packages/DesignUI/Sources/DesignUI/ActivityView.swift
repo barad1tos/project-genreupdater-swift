@@ -3,7 +3,7 @@ import SwiftUI
 struct ActivityView: View {
     @Bindable var model: AppModel
 
-    private let summaryColumns = [GridItem(.adaptive(minimum: 190), spacing: 14)]
+    private let summaryColumns = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 14), count: 5)
     private let lowerColumns = [GridItem(.adaptive(minimum: 310), spacing: 14)]
 
     var body: some View {
@@ -48,10 +48,10 @@ struct ActivityView: View {
     private func titleBlock(_ pipeline: PipelineActivitySnapshot) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Activity")
-                .font(.system(size: 27, weight: .heavy))
+                .font(.system(size: 26, weight: .semibold))
                 .foregroundStyle(Ayu.fg)
             Text(pipeline.subtitle)
-                .font(.system(size: 14))
+                .font(.system(size: 13.5))
                 .foregroundStyle(Ayu.fg2)
         }
     }
@@ -60,11 +60,11 @@ struct ActivityView: View {
         HStack(spacing: 10) {
             if let secondaryAction = pipeline.secondaryAction {
                 BorderedButton(title: secondaryAction.title, symbol: secondaryAction.symbol) {
-                    model.route = .update
+                    model.navigate(to: .update)
                 }
             }
             PrimaryButton(title: pipeline.primaryAction.title, symbol: pipeline.primaryAction.symbol) {
-                model.route = .update
+                model.navigate(to: .update)
             }
         }
     }
@@ -120,8 +120,8 @@ struct ActivityView: View {
                 ForEach(Array(model.data.changes.prefix(5))) { change in
                     HStack(spacing: 10) {
                         Image(systemName: change.type.symbol)
-                            .foregroundStyle(change.type.tone.color)
-                            .font(.system(size: 14))
+                            .foregroundStyle(change.type.tone.color.opacity(0.78))
+                            .font(.system(size: 13.5))
                             .frame(width: 18)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(change.track)
@@ -144,7 +144,7 @@ struct ActivityView: View {
                     }
                 }
 
-                Button { model.route = .update } label: {
+                Button { model.navigate(to: .update) } label: {
                     HStack(spacing: 5) {
                         Text("Review all \(model.pipelineActivity.deltaCount)")
                         Image(systemName: "chevron.right")
@@ -179,7 +179,7 @@ struct ActivityView: View {
                             .foregroundStyle(Ayu.fg)
                         Spacer()
                         Text(issue.count)
-                            .font(.system(size: 13.5, weight: .bold).monospacedDigit())
+                            .font(.system(size: 13.5, weight: .semibold).monospacedDigit())
                             .foregroundStyle(issue.tone.color)
                         if let unit = issue.unit {
                             Text(unit)
@@ -231,8 +231,8 @@ struct ActivityView: View {
                 ForEach(Array(model.data.activity.enumerated()), id: \.offset) { index, item in
                     HStack(alignment: .top, spacing: 11) {
                         Circle()
-                            .fill(Ayu.fgMuted)
-                            .frame(width: 7, height: 7)
+                            .fill(Ayu.fgMuted.opacity(0.75))
+                            .frame(width: 5.5, height: 5.5)
                             .padding(.top, 5)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(item.title)
@@ -262,13 +262,14 @@ private struct ActivitySummaryCard: View {
     let detail: String
 
     var body: some View {
-        GlassCard(padding: 16) {
-            VStack(alignment: .leading, spacing: 8) {
+        GlassCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 7) {
                 Image(systemName: symbol)
-                    .foregroundStyle(tone.color)
-                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(tone.color.opacity(tone == .neutral ? 0.72 : 0.84))
+                    .font(.system(size: 16, weight: .semibold))
+                Spacer(minLength: 2)
                 Text(value)
-                    .font(.rounded(24, .bold))
+                    .font(.rounded(22, .semibold))
                     .foregroundStyle(Ayu.fg)
                     .lineLimit(1)
                 VStack(alignment: .leading, spacing: 2) {
@@ -281,6 +282,7 @@ private struct ActivitySummaryCard: View {
                         .lineLimit(1)
                 }
             }
+            .frame(minHeight: 88, alignment: .topLeading)
         }
     }
 }
@@ -294,7 +296,7 @@ private struct SafetyGateRow: View {
         HStack(spacing: 10) {
             Circle()
                 .fill(tone.color)
-                .frame(width: 7, height: 7)
+                .frame(width: 6, height: 6)
             Text(title)
                 .font(.system(size: 12.5))
                 .foregroundStyle(Ayu.fg)

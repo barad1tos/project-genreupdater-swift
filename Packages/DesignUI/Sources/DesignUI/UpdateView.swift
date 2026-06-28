@@ -98,14 +98,17 @@ struct UpdateView: View {
                         Text("Write \(shown.count) genre/year tags to Music.app?").font(.system(size: 13, weight: .semibold))
                         Spacer()
                         BorderedButton(title: "Cancel") { confirm = false }
-                        PrimaryButton(title: "Confirm write", symbol: "checkmark") { confirm = false; model.route = .activity }
+                        PrimaryButton(title: "Confirm write", symbol: "checkmark") {
+                            confirm = false
+                            model.navigate(to: .activity)
+                        }
                     } else {
                         Image(systemName: model.dryRun ? "eye" : "pencil").foregroundStyle(model.dryRun ? Ayu.info : Ayu.accent)
                         Text(model.dryRun ? "Dry run won’t modify your library. Switch off Preview only to write tags."
                                           : "\(shown.count) tags will be written to Music. A revert CSV is saved first.")
                             .font(.system(size: 13)).foregroundStyle(Ayu.fg2)
                         Spacer()
-                        BorderedButton(title: "Close") { model.route = .activity }
+                        BorderedButton(title: "Close") { model.navigate(to: .activity) }
                         PrimaryButton(title: model.dryRun ? "Stage write" : "Apply \(shown.count)",
                                       symbol: model.dryRun ? "checklist" : "checkmark") {
                             model.dryRun ? (model.dryRun = false) : (confirm = true)
