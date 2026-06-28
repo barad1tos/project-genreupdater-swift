@@ -2,21 +2,26 @@ import SwiftUI
 
 struct BrowseView: View {
     @Bindable var model: AppModel
+    @SceneStorage("DesignUI.BrowseView.availableWidth") private var storedAvailableWidth = 0.0
     @State private var query = ""
     @State private var selection: Album.ID?
 
-    private func matches(_ a: Album) -> Bool {
+    private let listWidthShare: CGFloat = 0.42
+
+    private func matches(_ album: Album) -> Bool {
         switch model.browseFilter {
         case .all: return true
-        case .missingGenre: return a.genre == nil
-        case .missingYear: return a.year == nil
-        case .conflicts: return a.health < 0.6
+        case .missingGenre: return album.genre == nil
+        case .missingYear: return album.year == nil
+        case .conflicts: return album.health < 0.6
         }
     }
 
     private var artists: [Artist] {
         model.data.artists.compactMap { artist in
-            let albums = artist.albums.filter { matches($0) && (query.isEmpty || artist.name.localizedCaseInsensitiveContains(query)) }
+            let albums = artist.albums.filter {
+                matches($0) && (query.isEmpty || artist.name.localizedCaseInsensitiveContains(query))
+            }
             return albums.isEmpty ? nil : Artist(
                 id: artist.id,
                 name: artist.name,
@@ -26,13 +31,17 @@ struct BrowseView: View {
         }
     }
 
-    private var grouped: [(String, [Artist])] {
-        Dictionary(grouping: artists, by: \.indexLetter).sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+    private var grouped: [ArtistSection] {
+        Dictionary(grouping: artists, by: \.indexLetter).sorted { $0.key < $1.key }.map {
+            ArtistSection(letter: $0.key, artists: $0.value)
+        }
     }
 
     private var selectedAlbum: (Album, String)? {
-        for a in model.data.artists {
-            if let al = a.albums.first(where: { $0.id == selection }) { return (al, a.name) }
+        for artist in model.data.artists {
+            if let album = artist.albums.first(where: { $0.id == selection }) {
+                return (album, artist.name)
+            }
         }
         return nil
     }
@@ -46,42 +55,14 @@ struct BrowseView: View {
     }
 
     var body: some View {
-        HSplitView {
-            // artist / album list
-            List(selection: $selection) {
-                ForEach(grouped, id: \.0) { letter, group in
-                    Section(letter) {
-                        ForEach(group) { artist in
-                            DisclosureGroup {
-                                ForEach(artist.albums) { al in
-                                    albumRow(al).tag(al.id)
-                                }
-                            } label: {
-                                HStack {
-                                    Text(artist.name).font(.system(size: 13.5, weight: .semibold))
-                                    Spacer()
-                                    Text("\(artist.albums.count) alb · \(artist.totalTracks) trk")
-                                        .font(.system(size: 11.5)).foregroundStyle(Ayu.fg2)
-                                }
-                            }
-                        }
-                    }
+        GeometryReader { geometry in
+            browseContent(availableWidth: resolvedAvailableWidth(geometry.size.width))
+                .onAppear { storeAvailableWidth(geometry.size.width) }
+                .onChange(of: geometry.size.width) { _, width in
+                    storeAvailableWidth(width)
                 }
-            }
-            .frame(minWidth: 300, idealWidth: 360)
-            .searchable(text: $query, placement: .toolbar, prompt: "Search artists")
-
-            // detail
-            Group {
-                if let (album, artist) = selectedAlbum {
-                    AlbumDetail(album: album, artist: artist) { model.navigate(to: .update) }
-                } else {
-                    ContentUnavailableView("Select an album", systemImage: "music.note")
-                }
-            }
-            .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
-            .background(Ayu.window)
         }
+        .background(Ayu.window)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Picker("Filter", selection: browseFilterSelection) {
@@ -93,18 +74,114 @@ struct BrowseView: View {
         .navigationTitle("Browse")
     }
 
-    private func albumRow(_ al: Album) -> some View {
-        HStack(spacing: 9) {
-            Circle().fill(healthTone(al.health).color).frame(width: 7, height: 7)
-            Text(al.name).font(.system(size: 13)).lineLimit(1)
+    private func browseContent(availableWidth: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            artistList(width: availableWidth * listWidthShare)
+
+            FadingVerticalSeparator()
+
+            detailPane
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Ayu.window)
+        }
+    }
+
+    private func resolvedAvailableWidth(_ width: CGFloat) -> CGFloat {
+        guard width.isFinite, width > .zero else { return CGFloat(storedAvailableWidth) }
+        return width
+    }
+
+    private func storeAvailableWidth(_ width: CGFloat) {
+        guard width.isFinite, width > .zero else { return }
+        storedAvailableWidth = Double(width)
+    }
+
+    private func artistList(width: CGFloat) -> some View {
+        List(selection: $selection) {
+            ForEach(grouped) { section in
+                Section(section.letter) {
+                    ForEach(section.artists) { artist in
+                        DisclosureGroup {
+                            ForEach(artist.albums) { album in
+                                albumRow(album).tag(album.id)
+                            }
+                        } label: {
+                            artistRow(artist)
+                        }
+                    }
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Ayu.window)
+        .frame(width: width)
+        .frame(maxHeight: .infinity)
+        .searchable(text: $query, placement: .toolbar, prompt: "Search artists")
+    }
+
+    private func artistRow(_ artist: Artist) -> some View {
+        HStack {
+            Text(artist.name)
+                .font(.system(size: 13.5, weight: .semibold))
+                .lineLimit(1)
             Spacer()
-            if al.genre == nil { TagPill(text: "no genre", tone: .warning) }
-            if let y = al.year {
-                Text(String(y)).font(.system(size: 11.5).monospacedDigit()).foregroundStyle(Ayu.fg2)
+            Text("\(artist.albums.count) alb · \(artist.totalTracks) trk")
+                .font(.system(size: 11.5))
+                .foregroundStyle(Ayu.fg2)
+                .lineLimit(1)
+        }
+    }
+
+    private var detailPane: some View {
+        Group {
+            if let (album, artist) = selectedAlbum {
+                AlbumDetail(album: album, artist: artist) { model.navigate(to: .update) }
+            } else {
+                ContentUnavailableView("Select an album", systemImage: "music.note")
+            }
+        }
+    }
+
+    private func albumRow(_ album: Album) -> some View {
+        HStack(spacing: 9) {
+            Circle().fill(healthTone(album.health).color).frame(width: 7, height: 7)
+            Text(album.name).font(.system(size: 13)).lineLimit(1)
+            Spacer()
+            if album.genre == nil { TagPill(text: "no genre", tone: .warning) }
+            if let year = album.year {
+                Text(String(year)).font(.system(size: 11.5).monospacedDigit()).foregroundStyle(Ayu.fg2)
             } else {
                 TagPill(text: "no year", tone: .info)
             }
         }
+    }
+}
+
+private struct ArtistSection: Identifiable {
+    let letter: String
+    let artists: [Artist]
+
+    var id: String { letter }
+}
+
+private struct FadingVerticalSeparator: View {
+    private let fadeStart = 0.95
+
+    var body: some View {
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    stops: [
+                        .init(color: Ayu.glassBorder, location: 0),
+                        .init(color: Ayu.glassBorder, location: fadeStart),
+                        .init(color: Ayu.glassBorder.opacity(0), location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(width: 1)
+            .accessibilityHidden(true)
     }
 }
 
@@ -114,6 +191,9 @@ struct AlbumDetail: View {
     var onUpdate: () -> Void
 
     private var missing: Int { (album.genre == nil ? 1 : 0) + (album.year == nil ? 1 : 0) }
+    private var autofillMessage: String {
+        "\(missing) metadata field\(missing > 1 ? "s" : "") can be auto-filled with high confidence."
+    }
 
     var body: some View {
         ScrollView {
@@ -127,9 +207,21 @@ struct AlbumDetail: View {
                         Text(album.name).font(.system(size: 19, weight: .bold))
                         Text(artist).font(.system(size: 13.5)).foregroundStyle(Ayu.fg2)
                         HStack(spacing: 7) {
-                            if let g = album.genre { TagPill(text: g, tone: .purple, dot: true) } else { TagPill(text: "No genre tag", tone: .warning, dot: true) }
-                            if let y = album.year { TagPill(text: String(y), tone: .info, dot: true) } else { TagPill(text: "No year", tone: .info) }
-                            TagPill(text: "\(Int((album.health*100).rounded()))% complete", tone: healthTone(album.health), dot: true)
+                            if let genre = album.genre {
+                                TagPill(text: genre, tone: .purple, dot: true)
+                            } else {
+                                TagPill(text: "No genre tag", tone: .warning, dot: true)
+                            }
+                            if let year = album.year {
+                                TagPill(text: String(year), tone: .info, dot: true)
+                            } else {
+                                TagPill(text: "No year", tone: .info)
+                            }
+                            TagPill(
+                                text: "\(Int((album.health * 100).rounded()))% complete",
+                                tone: healthTone(album.health),
+                                dot: true
+                            )
                         }
                     }
                     Spacer()
@@ -138,8 +230,9 @@ struct AlbumDetail: View {
                 if missing > 0 {
                     HStack(spacing: 12) {
                         Image(systemName: "sparkles").foregroundStyle(Ayu.accent)
-                        Text("\(missing) metadata field\(missing > 1 ? "s" : "") can be auto-filled with high confidence.")
-                            .font(.system(size: 13)).foregroundStyle(Ayu.fg)
+                        Text(autofillMessage)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Ayu.fg)
                         Spacer()
                         PrimaryButton(title: "Update", symbol: "wand.and.stars", action: onUpdate)
                     }
@@ -149,16 +242,25 @@ struct AlbumDetail: View {
                 }
 
                 VStack(spacing: 0) {
-                    ForEach(1...album.tracks, id: \.self) { n in
+                    ForEach(1...album.tracks, id: \.self) { trackNumber in
                         HStack(spacing: 12) {
-                            Text("\(n)").font(.system(size: 12).monospacedDigit()).foregroundStyle(Ayu.fgMuted).frame(width: 22, alignment: .trailing)
-                            Text("\(album.name.split(separator: " ").first ?? "") — track \(n)").font(.system(size: 13)).foregroundStyle(Ayu.fg).lineLimit(1)
+                            Text("\(trackNumber)")
+                                .font(.system(size: 12).monospacedDigit())
+                                .foregroundStyle(Ayu.fgMuted)
+                                .frame(width: 22, alignment: .trailing)
+                            Text("\(album.name.split(separator: " ").first ?? "") — track \(trackNumber)")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Ayu.fg)
+                                .lineLimit(1)
                             Spacer()
                             Text(album.genre ?? "—").font(.system(size: 12)).foregroundStyle(Ayu.fg2)
-                            Text(album.year.map(String.init) ?? "—").font(.system(size: 12).monospacedDigit()).foregroundStyle(Ayu.fg2).frame(width: 40, alignment: .trailing)
+                            Text(album.year.map(String.init) ?? "—")
+                                .font(.system(size: 12).monospacedDigit())
+                                .foregroundStyle(Ayu.fg2)
+                                .frame(width: 40, alignment: .trailing)
                         }
                         .padding(.vertical, 9)
-                        if n < album.tracks { Divider().overlay(Ayu.glassBorder) }
+                        if trackNumber < album.tracks { Divider().overlay(Ayu.glassBorder) }
                     }
                 }
             }

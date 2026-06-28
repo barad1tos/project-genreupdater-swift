@@ -115,7 +115,7 @@ struct ContentView: View {
                 }
             }
         }
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(Motion.curveDefault, value: "\(dependencies.appState)")
     }
 }

@@ -21,13 +21,12 @@ public struct RootView: View {
         @Bindable var model = model
         NavigationSplitView {
             SidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 264, max: 320)
         } detail: {
             NavigationStack {
                 detail
             }
         }
-        .frame(minWidth: 980, minHeight: 640)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .tint(Ayu.accent)
         .preferredColorScheme(.dark)
         .toolbar {
