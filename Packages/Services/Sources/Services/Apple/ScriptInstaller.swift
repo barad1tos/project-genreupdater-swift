@@ -52,13 +52,16 @@ public enum ScriptInstallerError: Error, LocalizedError {
 /// in `project.yml`. This actor copies those pre-compiled `.scpt` files from the app bundle
 /// into `~/Library/Application Scripts/<bundle-id>/` where `NSUserAppleScriptTask` can run them.
 public actor ScriptInstaller {
+    // 0o644: NSUserAppleScriptTask reads .scpt files; no exec bit, and not group/world-writable.
+    private static let installedScriptPermissions = 0o644
+
     /// Names of required AppleScript files (without extension).
     public static let requiredScripts = [
         "fetch_tracks",
         "fetch_tracks_by_ids",
         "update_property",
         "batch_update_tracks",
-        "fetch_track_ids",
+        "fetch_track_ids"
     ]
 
     /// URL to the Application Scripts directory for this app.
@@ -81,20 +84,14 @@ public actor ScriptInstaller {
         self.bundleScriptsDirectory = bundleScriptsDirectory
     }
 
-    /// Check if all required scripts are installed.
+    /// Check if all required scripts are installed and match the bundled copies.
+    ///
+    /// A stale or unreadable script is treated as not installed so startup can repair it.
     public func areScriptsInstalled() -> Bool {
-        Self.requiredScripts.allSatisfy { name in
-            guard let sourceURL = bundledScriptURL(for: name),
-                  FileManager.default.fileExists(atPath: sourceURL.path),
-                  let destinationURL = versionedScriptURL(for: name, sourceURL: sourceURL)
-            else {
-                return false
-            }
-            return FileManager.default.fileExists(atPath: destinationURL.path)
-        }
+        scriptsNeedingInstall().isEmpty
     }
 
-    /// Check whether installed scripts match the bundled scripts when bundled scripts are available.
+    /// Check whether every installed script is readable and byte-identical to the bundled script.
     public func areScriptsCurrent() -> Bool {
         scriptsNeedingInstall().isEmpty
     }
@@ -112,7 +109,7 @@ public actor ScriptInstaller {
                 return true
             }
 
-            guard FileManager.default.fileExists(atPath: destinationURL.path) else {
+            guard installedScriptMatches(sourceURL: sourceURL, destinationURL: destinationURL) else {
                 return true
             }
 
@@ -160,11 +157,16 @@ public actor ScriptInstaller {
                 }
 
                 if FileManager.default.fileExists(atPath: destinationURL.path) {
-                    installed.append(scriptName)
-                    continue
+                    guard !installedScriptMatches(sourceURL: sourceURL, destinationURL: destinationURL) else {
+                        try setInstalledScriptPermissions(destinationURL)
+                        installed.append(scriptName)
+                        continue
+                    }
+                    try FileManager.default.removeItem(at: destinationURL)
                 }
 
                 try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                try setInstalledScriptPermissions(destinationURL)
                 removeLegacyScriptIfPossible(named: scriptName, currentURL: destinationURL)
                 installed.append(scriptName)
                 log.info("Installed script: \(scriptName, privacy: .public)")
@@ -184,6 +186,24 @@ public actor ScriptInstaller {
 
         log.info("Script installation complete: \(installed.count)/\(Self.requiredScripts.count) installed")
         return installed
+    }
+
+    private func installedScriptMatches(sourceURL: URL, destinationURL: URL) -> Bool {
+        guard FileManager.default.isReadableFile(atPath: destinationURL.path) else {
+            return false
+        }
+
+        return FileManager.default.contentsEqual(
+            atPath: sourceURL.path,
+            andPath: destinationURL.path
+        )
+    }
+
+    private func setInstalledScriptPermissions(_ scriptURL: URL) throws {
+        try FileManager.default.setAttributes(
+            [.posixPermissions: Self.installedScriptPermissions],
+            ofItemAtPath: scriptURL.path
+        )
     }
 
     /// URL for a specific script in the Application Scripts directory.
