@@ -2,9 +2,18 @@ import SwiftUI
 
 struct ActivityView: View {
     @Bindable var model: AppModel
+    let pipelineSecondaryAction: (() -> Void)?
 
     private let summaryColumns = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 14), count: 5)
     private let lowerColumns = [GridItem(.adaptive(minimum: 310), spacing: 14)]
+
+    init(
+        model: AppModel,
+        pipelineSecondaryAction: (() -> Void)? = nil
+    ) {
+        self.model = model
+        self.pipelineSecondaryAction = pipelineSecondaryAction
+    }
 
     var body: some View {
         let pipeline = model.pipelineActivity
@@ -60,12 +69,18 @@ struct ActivityView: View {
         HStack(spacing: 10) {
             if let secondaryAction = pipeline.secondaryAction {
                 BorderedButton(title: secondaryAction.title, symbol: secondaryAction.symbol) {
-                    model.navigate(to: .update)
+                    if let pipelineSecondaryAction {
+                        pipelineSecondaryAction()
+                    } else {
+                        model.navigate(to: .update)
+                    }
                 }
+                .disabled(!secondaryAction.isEnabled)
             }
             PrimaryButton(title: pipeline.primaryAction.title, symbol: pipeline.primaryAction.symbol) {
                 model.navigate(to: .update)
             }
+            .disabled(!pipeline.primaryAction.isEnabled)
         }
     }
 

@@ -101,11 +101,13 @@ public struct PipelineAction: Equatable, Sendable {
     public let title: String
     public let symbol: String
     public let style: PipelineActionStyle
+    public let isEnabled: Bool
 
-    public init(title: String, symbol: String, style: PipelineActionStyle) {
+    public init(title: String, symbol: String, style: PipelineActionStyle, isEnabled: Bool = true) {
         self.title = title
         self.symbol = symbol
         self.style = style
+        self.isEnabled = isEnabled
     }
 }
 

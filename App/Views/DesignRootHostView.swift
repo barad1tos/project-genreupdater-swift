@@ -14,10 +14,13 @@ struct DesignRootHostView: View {
     @State private var lastScanDate: Date?
     @State private var isLoading = false
     @State private var loadError: LibraryLoadError?
+    @State private var isSynchronizingLibrary = false
+    @State private var syncErrorMessage: String?
+    @State private var lastSyncResult: SyncResult?
     @State private var hasStartedInitialLoad = false
 
     var body: some View {
-        RootView(data: snapshot)
+        RootView(data: snapshot, pipelineSecondaryAction: runManualSync)
             .task {
                 await startInitialLoadIfNeeded()
             }
@@ -35,8 +38,11 @@ struct DesignRootHostView: View {
                 workflow: .empty,
                 pendingVerification: nil,
                 changeLogEntries: changeLogEntries,
+                isSynchronizingLibrary: isSynchronizingLibrary,
+                syncErrorMessage: syncErrorMessage,
+                isLibrarySyncAvailable: dependencies.librarySyncService != nil,
                 isAutoSyncRunning: dependencies.isAutoSyncRunning,
-                lastSyncResult: nil,
+                lastSyncResult: lastSyncResult,
                 now: Date()
             )
         )
@@ -123,5 +129,31 @@ struct DesignRootHostView: View {
                 "trackCount": "\(count)",
             ]
         )
+    }
+
+    private func runManualSync() {
+        guard !isSynchronizingLibrary else { return }
+
+        isSynchronizingLibrary = true
+        syncErrorMessage = nil
+
+        Task {
+            do {
+                let result = try await dependencies.synchronizeLibraryNow()
+                await MainActor.run {
+                    lastSyncResult = result
+                }
+                await loadLibrary()
+                await MainActor.run {
+                    isSynchronizingLibrary = false
+                }
+            } catch {
+                await MainActor.run {
+                    lastSyncResult = nil
+                    syncErrorMessage = error.localizedDescription
+                    isSynchronizingLibrary = false
+                }
+            }
+        }
     }
 }

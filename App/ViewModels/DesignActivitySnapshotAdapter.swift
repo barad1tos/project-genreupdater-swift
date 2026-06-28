@@ -13,6 +13,9 @@ struct DesignActivitySnapshotInput {
     let workflow: WorkflowDashboardState
     let pendingVerification: UpdateRunPendingVerificationSummary?
     let changeLogEntries: [Core.ChangeLogEntry]
+    let isSynchronizingLibrary: Bool
+    let syncErrorMessage: String?
+    let isLibrarySyncAvailable: Bool
     let isAutoSyncRunning: Bool
     let lastSyncResult: SyncResult?
     let now: Date
@@ -51,140 +54,6 @@ enum DesignActivitySnapshotAdapter {
             syncStatusText: makeSyncStatusText(from: input),
             isPreviewBacked: false
         )
-    }
-
-    private static func makeReportEntries(from entries: [Core.ChangeLogEntry]) -> [Core.ChangeLogEntry] {
-        Array(entries.sorted { $0.timestamp > $1.timestamp }.prefix(reportEntryLimit))
-    }
-
-    private static func makeChangeLog(from entries: [Core.ChangeLogEntry], now: Date) -> [LogEntry] {
-        entries.map { entry in
-            LogEntry(
-                id: entry.id.uuidString,
-                time: relativeElapsedLabel(since: entry.timestamp, now: now),
-                type: makeDesignChangeType(from: entry.changeType),
-                track: makeChangeLogTrackTitle(from: entry),
-                artist: entry.artist,
-                old: makeChangeLogOldValue(from: entry),
-                new: makeChangeLogNewValue(from: entry),
-                conf: nil
-            )
-        }
-    }
-
-    private static func makeReportStats(from entries: [Core.ChangeLogEntry]) -> ReportStats {
-        ReportStats(
-            processed: entries.count,
-            genres: entries.count { $0.newGenre != nil },
-            years: entries.count { $0.newYear != nil }
-        )
-    }
-
-    private static func makeGenreDistribution(from entries: [Core.ChangeLogEntry]) -> [ChartDatum] {
-        let updatedGenres = entries.compactMap(\.newGenre)
-        let genreCounts = Dictionary(grouping: updatedGenres, by: { $0 }).mapValues { $0.count }
-        let sortedGenres = genreCounts.sorted { lhs, rhs in
-            lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value
-        }
-
-        return sortedGenres
-            .prefix(8)
-            .map { genre, count in
-                ChartDatum(id: stableValueID(prefix: "genre", value: genre), label: genre, count: count)
-            }
-    }
-
-    private static func makeUpdatesOverTime(from entries: [Core.ChangeLogEntry]) -> [ChartDatum] {
-        let calendar = Calendar(identifier: .gregorian)
-        let groupedByDay = Dictionary(grouping: entries) { entry in
-            calendar.startOfDay(for: entry.timestamp)
-        }
-
-        return groupedByDay.keys.sorted().suffix(12).map { day in
-            ChartDatum(
-                id: "day-\(Int(day.timeIntervalSince1970))",
-                label: day.formatted(.dateTime.month(.abbreviated).day()),
-                count: groupedByDay[day]?.count ?? 0
-            )
-        }
-    }
-
-    private static func makeYearDistribution(from entries: [Core.ChangeLogEntry]) -> [ChartDatum] {
-        let decadeCounts = Dictionary(grouping: entries.compactMap(\.newYear)) { year in
-            year / 10 * 10
-        }
-        .mapValues(\.count)
-
-        return decadeCounts.keys.sorted().map { decade in
-            ChartDatum(
-                id: "decade-\(decade)",
-                label: "\(decade)s",
-                count: decadeCounts[decade] ?? 0
-            )
-        }
-    }
-
-    private static func stableValueID(prefix: String, value: String) -> String {
-        "\(prefix)-\(value.count)-\(value)"
-    }
-
-    private static func makeDesignChangeType(from changeType: Core.ChangeType) -> DesignUI.ChangeType {
-        switch changeType {
-        case .genreUpdate:
-            .genre
-        case .yearUpdate:
-            .year
-        case .trackCleaning:
-            .track
-        case .albumCleaning:
-            .album
-        case .artistRename:
-            .artist
-        case .yearRevert:
-            .revert
-        }
-    }
-
-    private static func makeChangeLogTrackTitle(from entry: Core.ChangeLogEntry) -> String {
-        if !entry.trackName.isEmpty {
-            return entry.trackName
-        }
-
-        if !entry.albumName.isEmpty {
-            return entry.albumName
-        }
-
-        return entry.trackID
-    }
-
-    private static func makeChangeLogOldValue(from entry: Core.ChangeLogEntry) -> String {
-        switch entry.changeType {
-        case .genreUpdate:
-            entry.oldGenre ?? "none"
-        case .yearUpdate, .yearRevert:
-            entry.oldYear.map(String.init) ?? "none"
-        case .trackCleaning:
-            entry.oldTrackName ?? entry.trackName
-        case .albumCleaning:
-            entry.oldAlbumName ?? entry.albumName
-        case .artistRename:
-            entry.oldArtist ?? entry.artist
-        }
-    }
-
-    private static func makeChangeLogNewValue(from entry: Core.ChangeLogEntry) -> String {
-        switch entry.changeType {
-        case .genreUpdate:
-            entry.newGenre ?? "none"
-        case .yearUpdate, .yearRevert:
-            entry.newYear.map(String.init) ?? "none"
-        case .trackCleaning:
-            entry.newTrackName ?? entry.trackName
-        case .albumCleaning:
-            entry.newAlbumName ?? entry.albumName
-        case .artistRename:
-            entry.newArtist ?? entry.artist
-        }
     }
 
     private static func makeDashboardSnapshot(from input: DesignActivitySnapshotInput) -> LibraryDashboardSnapshot {
@@ -228,7 +97,7 @@ enum DesignActivitySnapshotAdapter {
             writeErrors: input.workflow.failedWriteCount,
             recentlyAdded: input.metricsSnapshot?.recentlyAdded ?? 0,
             lastScan: makeLastScanLabel(from: input),
-            nextRun: automationState == .noSyncYet ? "Manual scan only" : automationState.stageDetail,
+            nextRun: makeNextRunLabel(automationState: automationState, input: input),
             source: "Apple Music · local files",
             library: "Music Library"
         )
@@ -257,7 +126,12 @@ enum DesignActivitySnapshotAdapter {
                 symbol: input.workflow.proposedChangeCount > 0 ? "checklist" : "arrow.clockwise",
                 style: .primary
             ),
-            secondaryAction: PipelineAction(title: "Run manually", symbol: "arrow.clockwise", style: .secondary),
+            secondaryAction: PipelineAction(
+                title: input.isSynchronizingLibrary ? "Syncing" : "Run manually",
+                symbol: "arrow.clockwise",
+                style: .secondary,
+                isEnabled: !input.isSynchronizingLibrary && input.isLibrarySyncAvailable
+            ),
             stageStatuses: stageStatuses,
             stageDescriptors: makeStageDescriptors(
                 stageStatuses: stageStatuses,
@@ -372,6 +246,16 @@ enum DesignActivitySnapshotAdapter {
             )
         }
 
+        if let syncErrorMessage = input.syncErrorMessage {
+            items.append(
+                ActivityItem(
+                    id: "library-sync-error",
+                    title: "Library sync failed",
+                    detail: syncErrorMessage
+                )
+            )
+        }
+
         if input.isDryRun {
             items.append(ActivityItem(id: "preview-mode", title: "Preview mode", detail: "no tags written to Music"))
         }
@@ -426,15 +310,27 @@ enum DesignActivitySnapshotAdapter {
         case .failed, .permissionDenied:
             return "Library needs attention"
         case .loading:
-            return "Scanning library"
+            if !input.isSynchronizingLibrary {
+                return "Scanning library"
+            }
         case .empty:
-            return "Library empty"
+            if !hasSyncState(input) {
+                return "Library empty"
+            }
         case .ready:
             break
         }
 
         if input.workflow.isProcessing {
             return input.workflow.phaseLabel
+        }
+
+        if input.isSynchronizingLibrary {
+            return "Syncing library"
+        }
+
+        if input.syncErrorMessage != nil {
+            return "Sync needs attention"
         }
 
         if input.workflow.proposedChangeCount > 0 {
@@ -448,17 +344,16 @@ enum DesignActivitySnapshotAdapter {
         from dashboard: LibraryDashboardSnapshot,
         input: DesignActivitySnapshotInput
     ) -> String {
-        switch dashboard.scanState {
-        case .permissionDenied:
-            return LibraryLoadError.permissionDenied.message
-        case let .failed(message):
-            return message
-        case .loading:
-            return input.isAutoSyncRunning ? "Auto-sync running · reading Music metadata" : "Manual scan in progress"
-        case .empty:
-            return "No Music tracks available for analysis"
-        case .ready:
-            break
+        if let scanSubtitle = makeScanSubtitle(from: dashboard.scanState, input: input) {
+            return scanSubtitle
+        }
+
+        if input.isSynchronizingLibrary {
+            return "Manual sync running · detecting library delta"
+        }
+
+        if let syncErrorMessage = input.syncErrorMessage {
+            return syncErrorMessage
         }
 
         if input.workflow.proposedChangeCount > 0 {
@@ -466,7 +361,33 @@ enum DesignActivitySnapshotAdapter {
             return "\(input.workflow.proposedChangeCount.formatted()) candidate fixes · \(mode)"
         }
 
+        if let lastSyncResult = input.lastSyncResult {
+            return syncResultDetail(lastSyncResult)
+        }
+
         return dashboard.primaryStatusText
+    }
+
+    private static func makeScanSubtitle(
+        from scanState: LibraryScanState,
+        input: DesignActivitySnapshotInput
+    ) -> String? {
+        switch scanState {
+        case .permissionDenied:
+            LibraryLoadError.permissionDenied.message
+        case let .failed(message):
+            message
+        case .loading:
+            input.isSynchronizingLibrary ? nil : makeLoadingSubtitle(isAutoSyncRunning: input.isAutoSyncRunning)
+        case .empty:
+            hasSyncState(input) ? nil : "No Music tracks available for analysis"
+        case .ready:
+            nil
+        }
+    }
+
+    private static func makeLoadingSubtitle(isAutoSyncRunning: Bool) -> String {
+        isAutoSyncRunning ? "Auto-sync running · reading Music metadata" : "Manual scan in progress"
     }
 
     private static func makeCurrentStage(
@@ -477,7 +398,9 @@ enum DesignActivitySnapshotAdapter {
         case .loading, .permissionDenied, .failed:
             return .detect
         case .empty:
-            return .watch
+            if !hasSyncState(input) {
+                return .watch
+            }
         case .ready:
             break
         }
@@ -486,7 +409,15 @@ enum DesignActivitySnapshotAdapter {
             return .fix
         }
 
+        if input.isSynchronizingLibrary || input.syncErrorMessage != nil {
+            return .detect
+        }
+
         if input.workflow.proposedChangeCount > 0 {
+            return .diff
+        }
+
+        if input.lastSyncResult != nil {
             return .diff
         }
 
@@ -503,32 +434,73 @@ enum DesignActivitySnapshotAdapter {
 
         statuses[.watch] = currentStage == .watch ? .current : .completed
 
-        switch dashboard.scanState {
-        case .loading:
-            statuses[.detect] = .current
-        case .permissionDenied, .failed:
-            statuses[.detect] = .failed
-        case .empty:
-            statuses[.detect] = .pending
-        case .ready:
-            statuses[.detect] = currentStage == .detect ? .current : .completed
-        }
-
-        if input.workflow.proposedChangeCount > 0 {
-            statuses[.diff] = currentStage == .diff ? .current : .completed
-        } else if currentStage == .detect {
-            statuses[.diff] = .pending
-        }
-
-        if input.workflow.failedWriteCount > 0 {
-            statuses[.fix] = .failed
-        } else if input.workflow.isProcessing {
-            statuses[.fix] = .current
-        } else if input.workflow.proposedChangeCount > 0 || input.workflow.acceptedChangeCount > 0 {
-            statuses[.fix] = input.isDryRun ? .gated : .pending
+        statuses[.detect] = makeDetectStageStatus(
+            scanState: dashboard.scanState,
+            currentStage: currentStage,
+            input: input
+        )
+        statuses[.diff] = makeDiffStageStatus(currentStage: currentStage, input: input)
+        if let fixStatus = makeFixStageStatus(input: input) {
+            statuses[.fix] = fixStatus
         }
 
         return statuses
+    }
+
+    private static func makeDetectStageStatus(
+        scanState: LibraryScanState,
+        currentStage: PipelineStage,
+        input: DesignActivitySnapshotInput
+    ) -> PipelineStageStatus {
+        if input.isSynchronizingLibrary {
+            return .current
+        }
+
+        if input.syncErrorMessage != nil {
+            return .failed
+        }
+
+        if input.lastSyncResult != nil {
+            return currentStage == .detect ? .current : .completed
+        }
+
+        switch scanState {
+        case .loading:
+            return .current
+        case .permissionDenied, .failed:
+            return .failed
+        case .empty:
+            return .pending
+        case .ready:
+            return currentStage == .detect ? .current : .completed
+        }
+    }
+
+    private static func makeDiffStageStatus(
+        currentStage: PipelineStage,
+        input: DesignActivitySnapshotInput
+    ) -> PipelineStageStatus {
+        if input.workflow.proposedChangeCount > 0 || input.lastSyncResult != nil {
+            return currentStage == .diff ? .current : .completed
+        }
+
+        return .pending
+    }
+
+    private static func makeFixStageStatus(input: DesignActivitySnapshotInput) -> PipelineStageStatus? {
+        if input.workflow.failedWriteCount > 0 {
+            return .failed
+        }
+
+        if input.workflow.isProcessing {
+            return .current
+        }
+
+        if input.workflow.proposedChangeCount > 0 || input.workflow.acceptedChangeCount > 0 {
+            return input.isDryRun ? .gated : .pending
+        }
+
+        return nil
     }
 
     private static func makeStageDescriptors(
@@ -536,8 +508,16 @@ enum DesignActivitySnapshotAdapter {
         automationState: PipelineAutomationState,
         input: DesignActivitySnapshotInput
     ) -> [PipelineStageDescriptor] {
-        let detectDetail: String = input.isAutoSyncRunning ? "Polling enabled" : "Manual scan only"
-        let diffDetail = input.workflow.proposedChangeCount > 0 ? "Current delta" : "No delta"
+        let detectDetail = if input.isSynchronizingLibrary {
+            "Detecting delta"
+        } else if input.syncErrorMessage != nil {
+            "Sync failed"
+        } else if input.isAutoSyncRunning {
+            "Periodic polling"
+        } else {
+            "Manual trigger"
+        }
+        let diffDetail = makeDiffDetail(from: input)
         let fixDetail = input.isDryRun ? "Preview gated" : "Write mode"
         let verifyDetail = input.pendingVerification == nil ? "Not available" : "Pending summary"
 
@@ -567,7 +547,34 @@ enum DesignActivitySnapshotAdapter {
         return .noSyncYet
     }
 
+    private static func hasSyncState(_ input: DesignActivitySnapshotInput) -> Bool {
+        input.isSynchronizingLibrary || input.syncErrorMessage != nil || input.lastSyncResult != nil
+    }
+
+    private static func makeNextRunLabel(
+        automationState: PipelineAutomationState,
+        input: DesignActivitySnapshotInput
+    ) -> String {
+        if input.isSynchronizingLibrary {
+            return "Manual sync running"
+        }
+
+        if input.syncErrorMessage != nil {
+            return "Manual sync failed"
+        }
+
+        return automationState == .noSyncYet ? "Manual scan only" : automationState.stageDetail
+    }
+
     private static func makeSyncStatusText(from input: DesignActivitySnapshotInput) -> String {
+        if input.isSynchronizingLibrary {
+            return "Syncing"
+        }
+
+        if input.syncErrorMessage != nil {
+            return "Sync failed"
+        }
+
         if input.isLoading {
             return "Scanning"
         }
@@ -596,7 +603,7 @@ enum DesignActivitySnapshotAdapter {
         input.metricsSnapshot?.timestamp ?? input.lastScanDate
     }
 
-    private static func relativeElapsedLabel(since date: Date, now: Date) -> String {
+    static func relativeElapsedLabel(since date: Date, now: Date) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
 
         if seconds < 60 {
@@ -653,6 +660,19 @@ enum DesignActivitySnapshotAdapter {
     private static func syncResultDetail(_ result: SyncResult) -> String {
         let changeCount = syncResultChangeCount(result)
         return changeCount > 0 ? "\(changeCount.formatted()) library changes detected" : "No library changes detected"
+    }
+
+    private static func makeDiffDetail(from input: DesignActivitySnapshotInput) -> String {
+        if input.workflow.proposedChangeCount > 0 {
+            return "Current delta"
+        }
+
+        guard let lastSyncResult = input.lastSyncResult else {
+            return "No delta"
+        }
+
+        let changeCount = syncResultChangeCount(lastSyncResult)
+        return changeCount > 0 ? "\(changeCount.formatted()) library changes" : "No library delta"
     }
 
     private static func syncResultChangeCount(_ result: SyncResult) -> Int {

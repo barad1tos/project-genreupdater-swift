@@ -9,6 +9,7 @@ struct DesignUIPublicAPITests {
         let data = makeSnapshot(totalTracks: 10, syncStatusText: "No sync yet", deltaCount: 2)
         let model = AppModel(data: data)
         let root = RootView(data: data)
+        let actionRoot = RootView(data: data, pipelineSecondaryAction: {})
 
         #expect(data.health.totalTracks == 10)
         #expect(data.pipelineActivity.deltaCount == 2)
@@ -17,6 +18,7 @@ struct DesignUIPublicAPITests {
         #expect(model.snapshot.totalTracks == 10)
         #expect(model.pipelineActivity.deltaCount == 2)
         _ = root
+        _ = actionRoot
     }
 
     @Test

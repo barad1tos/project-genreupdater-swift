@@ -5,10 +5,15 @@ import SwiftUI
 public struct RootView: View {
     // `data` is the injected prop; `model.data` is the live value read by views.
     private let data: DesignDataSnapshot
+    private let pipelineSecondaryAction: (() -> Void)?
     @State private var model: AppModel
 
-    public init(data: DesignDataSnapshot = .preview) {
+    public init(
+        data: DesignDataSnapshot = .preview,
+        pipelineSecondaryAction: (() -> Void)? = nil
+    ) {
         self.data = data
+        self.pipelineSecondaryAction = pipelineSecondaryAction
         _model = State(initialValue: AppModel(data: data))
     }
 
@@ -43,7 +48,11 @@ public struct RootView: View {
 
     @ViewBuilder private var detail: some View {
         switch model.route ?? .activity {
-        case .activity: ActivityView(model: model)
+        case .activity:
+            ActivityView(
+                model: model,
+                pipelineSecondaryAction: pipelineSecondaryAction
+            )
         case .browse:   BrowseView(model: model)
         case .reports:  ReportsView(model: model)
         case .update:   UpdateView(model: model)

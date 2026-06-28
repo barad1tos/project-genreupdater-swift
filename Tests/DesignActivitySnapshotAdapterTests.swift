@@ -211,7 +211,7 @@ struct DesignActivitySnapshotAdapterTests {
         #expect(running.health.nextRun == "Auto-sync running")
         #expect(running.pipelineActivity.automationState == .autoSyncRunning)
         #expect(running.pipelineActivity.detail(for: .watch) == "Auto-sync running")
-        #expect(running.pipelineActivity.detail(for: .detect) == "Polling enabled")
+        #expect(running.pipelineActivity.detail(for: .detect) == "Periodic polling")
         #expect(stopped.syncStatusText == "No sync yet")
         #expect(stopped.health.nextRun == "Manual scan only")
         #expect(stopped.pipelineActivity.automationState == .noSyncYet)
@@ -235,7 +235,62 @@ struct DesignActivitySnapshotAdapterTests {
         #expect(noResult.syncStatusText == "Synced 8m ago")
         #expect(emptyResult.syncStatusText == "Synced · no changes")
         #expect(changedResult.syncStatusText == "Synced · 3 changes")
+        #expect(changedResult.pipelineActivity.currentStage == .diff)
+        #expect(changedResult.pipelineActivity.detail(for: .diff) == "3 library changes")
         #expect(changedResult.activity.contains { $0.detail == "3 library changes detected" })
+    }
+
+    @Test("maps manual library sync in flight state")
+    func mapsManualLibrarySyncInFlightState() {
+        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                lastScanDate: scanDate,
+                isSynchronizingLibrary: true
+            )
+        )
+
+        #expect(snapshot.syncStatusText == "Syncing")
+        #expect(snapshot.health.nextRun == "Manual sync running")
+        #expect(snapshot.pipelineActivity.title == "Syncing library")
+        #expect(snapshot.pipelineActivity.subtitle == "Manual sync running · detecting library delta")
+        #expect(snapshot.pipelineActivity.currentStage == .detect)
+        #expect(snapshot.pipelineActivity.status(for: .detect) == .current)
+        #expect(snapshot.pipelineActivity.detail(for: .detect) == "Detecting delta")
+        #expect(snapshot.pipelineActivity.secondaryAction?.title == "Syncing")
+        #expect(snapshot.pipelineActivity.secondaryAction?.isEnabled == false)
+    }
+
+    @Test("maps manual library sync failure state")
+    func mapsManualLibrarySyncFailureState() {
+        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                lastScanDate: scanDate,
+                syncErrorMessage: "AppleScript timeout"
+            )
+        )
+
+        #expect(snapshot.syncStatusText == "Sync failed")
+        #expect(snapshot.health.nextRun == "Manual sync failed")
+        #expect(snapshot.pipelineActivity.title == "Sync needs attention")
+        #expect(snapshot.pipelineActivity.subtitle == "AppleScript timeout")
+        #expect(snapshot.pipelineActivity.currentStage == .detect)
+        #expect(snapshot.pipelineActivity.status(for: .detect) == .failed)
+        #expect(snapshot.pipelineActivity.detail(for: .detect) == "Sync failed")
+        #expect(snapshot.activity.contains {
+            $0.title == "Library sync failed" && $0.detail == "AppleScript timeout"
+        })
+    }
+
+    @Test("disables manual sync when sync service is unavailable")
+    func disablesManualSyncWhenSyncServiceIsUnavailable() {
+        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+            from: makeInput(isLibrarySyncAvailable: false)
+        )
+
+        #expect(snapshot.pipelineActivity.secondaryAction?.title == "Run manually")
+        #expect(snapshot.pipelineActivity.secondaryAction?.isEnabled == false)
     }
 
     @Test("maps persisted change log entries for read-only reports")
@@ -407,6 +462,9 @@ struct DesignActivitySnapshotAdapterTests {
         workflow: WorkflowDashboardState = .empty,
         pendingVerification: UpdateRunPendingVerificationSummary? = nil,
         changeLogEntries: [Core.ChangeLogEntry] = [],
+        isSynchronizingLibrary: Bool = false,
+        syncErrorMessage: String? = nil,
+        isLibrarySyncAvailable: Bool = true,
         isAutoSyncRunning: Bool = false,
         lastSyncResult: SyncResult? = nil
     ) -> DesignActivitySnapshotInput {
@@ -420,6 +478,9 @@ struct DesignActivitySnapshotAdapterTests {
             workflow: workflow,
             pendingVerification: pendingVerification,
             changeLogEntries: changeLogEntries,
+            isSynchronizingLibrary: isSynchronizingLibrary,
+            syncErrorMessage: syncErrorMessage,
+            isLibrarySyncAvailable: isLibrarySyncAvailable,
             isAutoSyncRunning: isAutoSyncRunning,
             lastSyncResult: lastSyncResult,
             now: now
