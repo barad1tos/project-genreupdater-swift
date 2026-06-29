@@ -440,14 +440,11 @@ final class AppDependencies {
             processingConfiguration: BatchProcessingConfiguration(configuration: config)
         )
 
-        let syncService = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate,
-            cache: cache,
-            pendingVerificationService: pendingVerificationService,
-            librarySnapshotService: librarySnapshotService,
-            runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config)
+        let syncService = makeLibrarySyncService(
+            bridge: bridge,
+            store: store,
+            gate: gate,
+            cache: cache
         )
         librarySyncService = syncService
 
@@ -457,6 +454,24 @@ final class AppDependencies {
         )
 
         changePreviewPipeline = ChangePreviewPipeline()
+    }
+
+    private func makeLibrarySyncService(
+        bridge: AppleScriptBridge,
+        store: any TrackStateStore,
+        gate: FeatureGate,
+        cache: any CacheService
+    ) -> LibrarySyncService {
+        LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            cache: cache,
+            pendingVerificationService: pendingVerificationService,
+            librarySnapshotService: librarySnapshotService,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config),
+            readProvider: libraryReadProvider
+        )
     }
 }
 
