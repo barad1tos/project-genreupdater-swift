@@ -48,7 +48,7 @@ struct SidebarView: View {
                     .update,
                     "Fix plan",
                     "checklist",
-                    badge: "\(model.pipelineActivity.deltaCount)",
+                    badge: fixPlanBadgeText(for: model.pipelineActivity.deltaCount),
                     badgeTone: .accent
                 )
             }
@@ -96,6 +96,10 @@ struct SidebarView: View {
             badgeTone: badgeTone
         )
         .tag(route)
+    }
+
+    private func fixPlanBadgeText(for count: Int) -> String? {
+        count > 0 ? count.formatted() : nil
     }
 
     private func statusRow(_ label: String, value: String) -> some View {
