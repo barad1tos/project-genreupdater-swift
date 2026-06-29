@@ -102,7 +102,7 @@ extension MainView {
     private func loadTracks(forceRefresh: Bool, requestID: UUID) async {
         libraryLoadRequestID = requestID
         libraryLoadError = nil
-        isMutationMetadataReady = false
+        isLibraryReadyForUpdates = false
         loadCachedSnapshot()
         ensureWorkflowViewModel()
 
@@ -113,7 +113,7 @@ extension MainView {
             }
         }
 
-        guard let reader = LibraryTrackLoader.liveReader(from: dependencies) else { return }
+        guard let provider = LibraryTrackLoader.liveProvider(from: dependencies) else { return }
         isLoading = true
 
         let loadStart = ContinuousClock.now
@@ -136,12 +136,11 @@ extension MainView {
             }
             try Task.checkCancellation()
             let liveLoad = try await LibraryTrackLoader.liveTracks(
-                from: dependencies,
-                reader: reader,
+                provider: provider,
                 scopedArtists: scopedArtists
             )
             guard libraryLoadRequestID == requestID else { return }
-            isMutationMetadataReady = liveLoad.isMutationMetadataReady
+            isLibraryReadyForUpdates = liveLoad.isLibraryReadyForUpdates
             tracks = liveLoad.tracks
             await dependencies.persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)
             browseViewModel.tracks = liveLoad.tracks
@@ -180,6 +179,13 @@ extension MainView {
                 },
                 runMaintenancePreflight: {
                     await dependencies.runMaintenancePreflight()
+                },
+                prepareMutationMetadata: { tracks in
+                    _ = try await dependencies.refreshTrackIDMappingOrThrow(
+                        musicKitTracks: tracks,
+                        scopedArtists: dependencies.config.development.testArtists,
+                        mergeExisting: true
+                    )
                 },
                 resolveIncrementalTracks: { tracks, options in
                     let lastRunTime = await dependencies.incrementalRunTracker?.getLastRunTimestamp()
@@ -397,7 +403,7 @@ extension MainView {
             duration: loadStart.duration(to: .now),
             metadata: [
                 "source": source,
-                "trackCount": "\(count)",
+                "trackCount": "\(count)"
             ]
         )
     }

@@ -18,25 +18,6 @@ private enum AppDependencyServiceError: LocalizedError {
 }
 
 extension AppDependencies {
-    func refreshTrackIDMapping(
-        musicKitTracks: [Track],
-        scopedArtists: [String]? = nil,
-        mergeExisting: Bool = false
-    ) async -> Bool {
-        do {
-            let mappedCount = try await refreshTrackIDMappingOrThrow(
-                musicKitTracks: musicKitTracks,
-                scopedArtists: scopedArtists,
-                mergeExisting: mergeExisting
-            )
-            return mappedCount > 0 || musicKitTracks.isEmpty
-        } catch {
-            libraryServicesLog
-                .error("Track ID mapping refresh failed: \(error.localizedDescription, privacy: .public)")
-            return false
-        }
-    }
-
     @discardableResult
     func refreshTrackIDMappingOrThrow(
         musicKitTracks: [Track],

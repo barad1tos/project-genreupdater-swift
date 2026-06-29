@@ -28,8 +28,10 @@ struct RandomAccessWorkflowFixtureOptions {
     var cancellingWriteTrackIDs: Set<String> = []
     var additionalEnrichedTracks: [Track] = []
     var additionalAppleScriptIDsByMusicKitID: [String: String] = [:]
+    var idMapper: (any TrackIDMapping)?
     var resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track] = { tracks, _ in tracks }
     var runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
+    var prepareMutationMetadata: (([Track]) async throws -> Void)?
     var updateIncrementalRunTimestamp: (() async -> Void)?
 }
 
@@ -92,7 +94,8 @@ func makeRandomAccessLiveBatchRun(
     failingWriteTrackIDs: Set<String> = [],
     cancellingWriteTrackIDs: Set<String> = [],
     liveBatchTracks: [Track]? = nil,
-    preflightState: PendingPreflightState = .due
+    preflightState: PendingPreflightState = .due,
+    prepareMutationMetadata: (([Track]) async throws -> Void)? = nil
 ) -> RandomAccessLiveBatchRun {
     let batchTracks = liveBatchTracks ?? [batchYearTrack()]
     let batchTrackIDs = Set(batchTracks.map(\.id))
@@ -115,6 +118,7 @@ func makeRandomAccessLiveBatchRun(
         tracks.filter { batchTrackIDs.contains($0.id) }
     }
     options.runMaintenancePreflight = { preflightState.result }
+    options.prepareMutationMetadata = prepareMutationMetadata
     options.updateIncrementalRunTimestamp = {
         await timestampUpdates.record()
     }
@@ -164,21 +168,24 @@ func makeRandomAccessWorkflowFixture(
     pendingVerificationService: WorkflowPendingVerificationService,
     options: RandomAccessWorkflowFixtureOptions = RandomAccessWorkflowFixtureOptions()
 ) -> WorkflowFixture {
-    makeWorkflowFixture(
+    let resolvedIDMapper = options.idMapper ?? WorkflowTrackIDMapper(
+        enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(year: options.randomAccessYear)
+            + options.additionalEnrichedTracks,
+        appleScriptIDsByMusicKitID: [
+            "ram-1": "as-ram-1",
+            "ram-2": "as-ram-2",
+        ].merging(options.additionalAppleScriptIDsByMusicKitID) { current, _ in current }
+    )
+
+    return makeWorkflowFixture(
         apiService: options.apiService,
         failingWriteTrackIDs: options.failingWriteTrackIDs,
         cancellingWriteTrackIDs: options.cancellingWriteTrackIDs,
         resolveIncrementalTracks: options.resolveIncrementalTracks,
         pendingVerificationService: pendingVerificationService,
-        idMapper: WorkflowTrackIDMapper(
-            enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(year: options.randomAccessYear)
-                + options.additionalEnrichedTracks,
-            appleScriptIDsByMusicKitID: [
-                "ram-1": "as-ram-1",
-                "ram-2": "as-ram-2",
-            ].merging(options.additionalAppleScriptIDsByMusicKitID) { current, _ in current }
-        ),
+        idMapper: resolvedIDMapper,
         runMaintenancePreflight: options.runMaintenancePreflight,
+        prepareMutationMetadata: options.prepareMutationMetadata,
         updateIncrementalRunTimestamp: options.updateIncrementalRunTimestamp
     )
 }

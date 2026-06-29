@@ -74,7 +74,7 @@ struct DesignRootHostView: View {
         )
         guard isCurrentLibraryLoad(requestID) else { return }
 
-        guard let reader = LibraryTrackLoader.liveReader(from: dependencies) else {
+        guard let provider = LibraryTrackLoader.liveProvider(from: dependencies) else {
             finishLibraryLoadIfCurrent(requestID)
             return
         }
@@ -84,8 +84,7 @@ struct DesignRootHostView: View {
 
         do {
             let liveLoad = try await LibraryTrackLoader.liveTracks(
-                from: dependencies,
-                reader: reader,
+                provider: provider,
                 scopedArtists: scopedArtists
             )
             await applyLiveLibraryLoad(
@@ -179,7 +178,7 @@ struct DesignRootHostView: View {
             duration: loadStart.duration(to: .now),
             metadata: [
                 "source": source,
-                "trackCount": "\(count)",
+                "trackCount": "\(count)"
             ]
         )
     }

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import Core
 @testable import Services
 
 @Suite("MusicLibraryReader — MusicKit conversion")
@@ -27,6 +28,24 @@ struct MusicLibraryReaderTests {
         #expect(track.year == nil)
         #expect(track.releaseYear == 2023)
         #expect(track.genre == "Melodic Death Metal")
+    }
+
+    @Test("MusicKit conversion leaves AppleScript ID empty")
+    func musicKitConversionLeavesAppleScriptIDEmpty() {
+        let track = MusicLibraryReader.makeTrackFromMusicKitMetadata(MusicLibraryReader.MusicKitTrackMetadata(
+            id: "MK-1",
+            name: "Battery",
+            artist: "Metallica",
+            album: "Master of Puppets",
+            genres: ["Metal"],
+            releaseDate: Date(timeIntervalSince1970: 505_440_000),
+            libraryAddedDate: Date(timeIntervalSince1970: 1_700_000_000)
+        ))
+
+        #expect(track.id == "MK-1")
+        #expect(track.appleScriptID == nil)
+        #expect(track.year == nil)
+        #expect(track.releaseYear == 1986)
     }
 
     @Test("Requested artist resolves to a single scoped fetch target")

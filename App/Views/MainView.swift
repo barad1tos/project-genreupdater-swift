@@ -220,7 +220,7 @@ struct MainView: View {
     @State var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     @State var tracks: [Track] = []
     @State var isLoading = false
-    @State var isMutationMetadataReady = false
+    @State var isLibraryReadyForUpdates = false
     @State var libraryLoadTask: Task<Void, Never>?
     @State var libraryLoadRequestID = UUID()
     @State var browseViewModel = BrowseViewModel()
@@ -454,7 +454,7 @@ struct MainView: View {
                 testArtists: dependencies.config.development.testArtists,
                 reportDisplayMode: dependencies.config.reporting.changeDisplayMode,
                 credentialIssue: dependencies.discogsCredentialIssue,
-                isLibraryReadyForUpdates: !isLoading && isMutationMetadataReady,
+                isLibraryReadyForUpdates: !isLoading && isLibraryReadyForUpdates,
                 noticeMessage: $workflowNoticeMessage
             )
         } else {

@@ -12,7 +12,7 @@ struct LibraryCachedTrackLoad {
 
 struct LibraryLiveTrackLoad {
     let tracks: [Track]
-    let isMutationMetadataReady: Bool
+    let isLibraryReadyForUpdates: Bool
     let scanDate: Date
 }
 
@@ -22,8 +22,8 @@ enum LibraryTrackLoader {
         ArtistAllowList.normalized(dependencies.config.development.testArtists)
     }
 
-    static func liveReader(from dependencies: AppDependencies) -> MusicLibraryReader? {
-        dependencies.musicReader
+    static func liveProvider(from dependencies: AppDependencies) -> (any LibraryReadProvider)? {
+        dependencies.libraryReadProvider
     }
 
     static func cachedSnapshot(
@@ -43,23 +43,19 @@ enum LibraryTrackLoader {
     }
 
     static func liveTracks(
-        from dependencies: AppDependencies,
-        reader: MusicLibraryReader,
+        provider: any LibraryReadProvider,
         scopedArtists: [String]
     ) async throws -> LibraryLiveTrackLoad {
         try Task.checkCancellation()
-        try await reader.requestAuthorization()
-        try Task.checkCancellation()
-        await reader.updateTestArtists(scopedArtists)
-        let liveTracks = try await reader.fetchAllTracks()
-        try Task.checkCancellation()
-        let isMappingReady = await dependencies.refreshTrackIDMapping(musicKitTracks: liveTracks)
+        let snapshot = try await provider.loadLibrarySnapshot(request: LibraryReadRequest(
+            testArtists: scopedArtists
+        ))
         try Task.checkCancellation()
 
         return LibraryLiveTrackLoad(
-            tracks: liveTracks,
-            isMutationMetadataReady: isMappingReady,
-            scanDate: .now
+            tracks: snapshot.tracks,
+            isLibraryReadyForUpdates: true,
+            scanDate: snapshot.scannedAt
         )
     }
 }

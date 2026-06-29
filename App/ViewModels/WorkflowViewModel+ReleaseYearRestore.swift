@@ -16,14 +16,20 @@ extension WorkflowViewModel {
         )
 
         processingTask = Task {
+            guard await prepareMutationMetadataIfNeeded(tracks: scopedTracks) else { return }
             let restoreResult = await updateCoordinator.restoreReleaseYears(
                 in: scopedTracks,
                 threshold: releaseYearRestoreThreshold,
                 progressHandler: progressHandler
             )
 
-            guard !Task.isCancelled,
-                  isCurrentReleaseYearRestoreRun(runGeneration) else { return }
+            guard !Task.isCancelled else {
+                if isCurrentReleaseYearRestoreRun(runGeneration) {
+                    finishCancelledProcessing()
+                }
+                return
+            }
+            guard isCurrentReleaseYearRestoreRun(runGeneration) else { return }
             finishReleaseYearRestore(restoreResult)
         }
     }

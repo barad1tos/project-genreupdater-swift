@@ -26,6 +26,7 @@ func makeWorkflowFixture(
     idMapper: (any TrackIDMapping)? = nil,
     problematicAlbumReportMinAttempts: @escaping () -> Int = { 3 },
     runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
+    prepareMutationMetadata: (([Track]) async throws -> Void)? = nil,
     invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {
@@ -75,6 +76,7 @@ func makeWorkflowFixture(
             pendingVerificationService: pendingVerificationService,
             featureGate: featureGate,
             runMaintenancePreflight: runMaintenancePreflight,
+            prepareMutationMetadata: prepareMutationMetadata,
             resolveIncrementalTracks: resolveIncrementalTracks,
             invalidateAlbumYearCache: invalidateAlbumYearCache,
             updateIncrementalRunTimestamp: updateIncrementalRunTimestamp,
@@ -88,6 +90,47 @@ func makeWorkflowFixture(
 struct WorkflowFixture {
     let viewModel: WorkflowViewModel
     let scriptClient: DashboardStateScriptClient
+}
+
+actor MutationPreparationRecorder {
+    private(set) var preparedTrackIDs: [String] = []
+    private var callCount = 0
+
+    func record(_ tracks: [Track]) {
+        callCount += 1
+        preparedTrackIDs = tracks.map(\.id)
+    }
+
+    func recordedCallCount() -> Int {
+        callCount
+    }
+}
+
+actor MutationPreparationHold {
+    private var hasStarted = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func hold() async {
+        hasStarted = true
+        waiters.forEach { $0.resume() }
+        waiters.removeAll()
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !hasStarted else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
 }
 
 @MainActor
@@ -559,8 +602,8 @@ actor PendingSnapshotDelay {
 }
 
 actor WorkflowTrackIDMapper: TrackIDMapping {
-    private let enrichedTracks: [String: Track]
-    private let appleScriptIDsByMusicKitID: [String: String]
+    private var enrichedTracks: [String: Track]
+    private var appleScriptIDsByMusicKitID: [String: String]
 
     init(
         enrichedTracks: [Track],
@@ -580,6 +623,16 @@ actor WorkflowTrackIDMapper: TrackIDMapping {
 
     func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
         // These tests seed mappings directly.
+    }
+
+    func seed(
+        enrichedTracks newEnrichedTracks: [Track],
+        appleScriptIDsByMusicKitID newAppleScriptIDs: [String: String]
+    ) {
+        for track in newEnrichedTracks {
+            enrichedTracks[track.id] = track
+        }
+        appleScriptIDsByMusicKitID.merge(newAppleScriptIDs) { _, newValue in newValue }
     }
 
     func hasMappingFor(musicKitID: String) async -> Bool {

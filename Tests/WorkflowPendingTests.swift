@@ -178,6 +178,61 @@ struct WorkflowPendingTests {
         #expect(await run.timestampUpdates.count() == 1)
     }
 
+    @Test("prepares due pending albums outside the incremental batch scope")
+    func preparesDuePendingAlbumsOutsideIncrementalBatchScope() async throws {
+        let recorder = PendingMutationPreparationRecorder()
+        let batchTrack = batchYearTrack()
+        let batchTrackIDs = Set([batchTrack.id])
+        let idMapper = WorkflowTrackIDMapper(
+            enrichedTracks: [batchTrack],
+            appleScriptIDsByMusicKitID: [batchTrack.id: "as-\(batchTrack.id)"]
+        )
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry()]
+        )
+        let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
+            options.additionalEnrichedTracks = [batchTrack]
+            options.idMapper = idMapper
+            options.resolveIncrementalTracks = { tracks, _ in
+                tracks.filter { batchTrackIDs.contains($0.id) }
+            }
+            options.runMaintenancePreflight = { pendingDuePreflight() }
+            options.prepareMutationMetadata = { tracks in
+                await recorder.record(tracks)
+                guard tracks.contains(where: { $0.id == "ram-1" || $0.id == "ram-2" }) else {
+                    return
+                }
+                await idMapper.seed(
+                    enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(),
+                    appleScriptIDsByMusicKitID: [
+                        "ram-1": "as-ram-1",
+                        "ram-2": "as-ram-2",
+                    ]
+                )
+            }
+        }
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+
+        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks() + [batchTrack])
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let preparedTrackIDBatches = await recorder.preparedTrackIDBatches()
+        let writes = await fixture.scriptClient.updatedProperties()
+
+        #expect(preparedTrackIDBatches.count == 2)
+        #expect(preparedTrackIDBatches.first == ["batch-year"])
+        if preparedTrackIDBatches.count > 1 {
+            #expect(Set(preparedTrackIDBatches[1]) == Set(["ram-1", "ram-2"]))
+        }
+        #expect(writes.map(\.trackID) == ["as-ram-1", "as-ram-2", "as-batch-year"])
+        #expect(await pendingVerification.verificationTimestampUpdateCount() == 1)
+    }
+
     @Test("does not auto verify pending albums during reviewed dry run")
     func doesNotAutoVerifyPendingAlbumsDuringReviewedDryRun() async throws {
         let pendingVerification = WorkflowPendingVerificationService(
@@ -516,5 +571,17 @@ struct WorkflowPendingTests {
         }
 
         #expect(Bool(false), "pending verification summary did not refresh before timeout")
+    }
+}
+
+actor PendingMutationPreparationRecorder {
+    private var batches: [[String]] = []
+
+    func record(_ tracks: [Track]) {
+        batches.append(tracks.map(\.id))
+    }
+
+    func preparedTrackIDBatches() -> [[String]] {
+        batches
     }
 }
