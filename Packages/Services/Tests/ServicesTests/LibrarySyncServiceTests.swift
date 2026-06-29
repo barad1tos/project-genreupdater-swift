@@ -8,18 +8,26 @@ import Testing
 actor SyncMockScriptClient: AppleScriptClient {
     var libraryTrackIDs: [String] = []
     var tracksByID: [String: Track] = [:]
+    private var tracksByArtist: [String: [Track]] = [:]
     private var fetchAllTrackIDsError: AppleScriptBridgeError?
     private var fetchTracksRequests: [(trackIDs: [String], batchSize: Int, timeout: Duration?)] = []
     private var fetchAllTrackIDsTimeouts: [Duration?] = []
+    private var fetchTracksArtistRequests: [(artist: String?, timeout: Duration?)] = []
 
     func initialize() async throws {}
 
     func runScript(
-        name _: String,
-        arguments _: [String],
-        timeout _: Duration?
+        name: String,
+        arguments: [String],
+        timeout: Duration?
     ) async throws -> String? {
-        nil
+        guard name == "fetch_tracks" else { return nil }
+
+        let artist = arguments.first
+        fetchTracksArtistRequests.append((artist: artist, timeout: timeout))
+        let tracks = artist.flatMap { tracksByArtist[$0] } ?? Array(tracksByID.values)
+        guard !tracks.isEmpty else { return "NO_TRACKS_FOUND" }
+        return tracks.map(Self.appleScriptRecord).joined(separator: String(Track.recordSeparator))
     }
 
     func fetchTracksByIDs(
@@ -72,6 +80,31 @@ actor SyncMockScriptClient: AppleScriptClient {
 
     func fetchAllTrackIDsCallCount() -> Int {
         fetchAllTrackIDsTimeouts.count
+    }
+
+    func fetchedArtists() -> [String?] {
+        fetchTracksArtistRequests.map(\.artist)
+    }
+
+    func setArtistTracks(_ tracks: [Track], for artist: String) {
+        tracksByArtist[artist] = tracks
+    }
+
+    private static func appleScriptRecord(_ track: Track) -> String {
+        [
+            track.appleScriptID ?? track.id,
+            track.name,
+            track.artist,
+            track.albumArtist ?? "",
+            track.album,
+            track.genre ?? "",
+            "",
+            "",
+            track.trackStatus ?? "",
+            track.year.map(String.init) ?? "",
+            track.releaseYear.map(String.init) ?? "",
+            "",
+        ].joined(separator: String(Track.fieldSeparator))
     }
 }
 

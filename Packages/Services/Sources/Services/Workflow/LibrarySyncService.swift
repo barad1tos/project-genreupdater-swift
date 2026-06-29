@@ -7,14 +7,14 @@ import OSLog
 /// Manual sync (all tiers): compare current library IDs against stored state.
 /// Auto-sync (Pro only): periodic background polling with configurable interval.
 public actor LibrarySyncService {
-    private let scriptBridge: any AppleScriptClient
-    private let trackStore: any TrackStateStore
+    let scriptBridge: any AppleScriptClient
+    let trackStore: any TrackStateStore
     private let featureGate: FeatureGate
     private let cache: (any CacheService)?
     private let readProvider: (any LibraryReadProvider)?
     private var pendingVerificationService: (any PendingVerificationService)?
     private var librarySnapshotService: (any LibrarySnapshotService)?
-    private var runtimeConfiguration: LibrarySyncRuntimeConfiguration
+    private(set) var runtimeConfiguration: LibrarySyncRuntimeConfiguration
     private let currentDate: @Sendable () -> Date
     private var autoSyncTask: Task<Void, Never>?
     private let log = Logger(subsystem: "com.genreupdater", category: "LibrarySyncService")
@@ -59,7 +59,9 @@ public actor LibrarySyncService {
 
     /// Detect changes between the current Music.app library and stored state.
     public func detectChanges(forceMetadataRefresh: Bool = false) async throws -> SyncResult {
-        if let readProvider {
+        // MusicKit Song does not expose Music.app album artist. Scoped test runs use
+        // AppleScript so testArtists keep the same effectiveArtist semantics as writes.
+        if let readProvider, runtimeConfiguration.testArtists.isEmpty {
             return try await detectChangesWithReadProvider(
                 readProvider,
                 forceMetadataRefresh: forceMetadataRefresh
@@ -70,13 +72,11 @@ public actor LibrarySyncService {
     }
 
     private func detectChangesWithAppleScript(forceMetadataRefresh: Bool) async throws -> SyncResult {
-        let libraryIDs = try await scriptBridge.fetchAllTrackIDs(
-            timeout: runtimeConfiguration.fullLibraryFetchTimeout
-        )
-        let storedTracks = try await trackStore.loadAllTracks()
+        let librarySnapshot = try await fetchAppleScriptLibrarySnapshotForConfiguredScope()
+        let storedTracks = try await loadStoredTracksInConfiguredScope()
         let storedByID = Dictionary(storedTracks.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         let storedIDSet = Set(storedByID.keys)
-        let libraryIDSet = Set(libraryIDs)
+        let libraryIDSet = Set(librarySnapshot.trackIDs)
 
         // New tracks: in library but not in store
         let newIDs = libraryIDSet.subtracting(storedIDSet)
@@ -85,15 +85,10 @@ public actor LibrarySyncService {
         let removedIDs = storedIDSet.subtracting(libraryIDSet).sorted()
 
         // Fetch full metadata for new tracks
-        let newTracks: [Track] = if !newIDs.isEmpty {
-            try await scriptBridge.fetchTracksByIDs(
-                Array(newIDs),
-                batchSize: runtimeConfiguration.idsBatchSize,
-                timeout: runtimeConfiguration.idsBatchFetchTimeout
-            )
-        } else {
-            []
-        }
+        let newTracks = try await fetchAppleScriptTracks(
+            trackIDs: newIDs,
+            scopedTracksByID: librarySnapshot.tracksByID
+        )
 
         let commonIDs = libraryIDSet.intersection(storedIDSet)
         var modifiedTracks: [Track] = []
@@ -101,10 +96,9 @@ public actor LibrarySyncService {
         var refreshedTracks: [Track] = []
 
         if !commonIDs.isEmpty, try await shouldRefreshCommonTrackMetadata(force: forceMetadataRefresh) {
-            let currentTracks = try await scriptBridge.fetchTracksByIDs(
-                Array(commonIDs),
-                batchSize: runtimeConfiguration.idsBatchSize,
-                timeout: runtimeConfiguration.idsBatchFetchTimeout
+            let currentTracks = try await fetchAppleScriptTracks(
+                trackIDs: commonIDs,
+                scopedTracksByID: librarySnapshot.tracksByID
             )
             for current in currentTracks {
                 guard let stored = storedByID[current.id] else { continue }
@@ -144,9 +138,9 @@ public actor LibrarySyncService {
         _ readProvider: any LibraryReadProvider,
         forceMetadataRefresh: Bool
     ) async throws -> SyncResult {
-        let snapshot = try await readProvider.loadLibrarySnapshot(request: LibraryReadRequest())
+        let snapshot = try await readProvider.loadLibrarySnapshot(request: libraryReadRequest)
         let currentTracks = snapshot.tracks
-        let storedTracks = try await trackStore.loadAllTracks()
+        let storedTracks = try await loadStoredTracksInConfiguredScope()
         let storedByID = Dictionary(storedTracks.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         let currentByID = Dictionary(currentTracks.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         let storedIDSet = Set(storedByID.keys)
@@ -311,9 +305,7 @@ public actor LibrarySyncService {
             return []
         }
 
-        let libraryIDs = try await scriptBridge.fetchAllTrackIDs(
-            timeout: runtimeConfiguration.fullLibraryFetchTimeout
-        )
+        let libraryIDs = try await fetchAppleScriptLibraryIDsForConfiguredScope()
         guard !libraryIDs.isEmpty else {
             log.warning("Skipped MusicKit removal candidates because AppleScript returned an empty library")
             return []
@@ -339,15 +331,13 @@ public actor LibrarySyncService {
         }
 
         guard storedTracks.contains(where: { $0.appleScriptID == nil }) else { return false }
-        let libraryIDs = try await scriptBridge.fetchAllTrackIDs(
-            timeout: runtimeConfiguration.fullLibraryFetchTimeout
-        )
+        let libraryIDs = try await fetchAppleScriptLibraryIDsForConfiguredScope()
         guard !libraryIDs.isEmpty else { return false }
         return !storedIDSet.isDisjoint(with: Set(libraryIDs))
     }
 
     public func verifyAndCleanDatabase(force: Bool = false) async throws -> DatabaseVerificationResult {
-        let storedTracks = try await trackStore.loadAllTracks()
+        let storedTracks = try await loadStoredTracksInConfiguredScope()
         guard !storedTracks.isEmpty else {
             return DatabaseVerificationResult(verifiedTrackCount: 0, removedTrackIDs: [])
         }
@@ -360,9 +350,7 @@ public actor LibrarySyncService {
             )
         }
 
-        let libraryIDs = try await scriptBridge.fetchAllTrackIDs(
-            timeout: runtimeConfiguration.fullLibraryFetchTimeout
-        )
+        let libraryIDs = try await fetchAppleScriptLibraryIDsForConfiguredScope()
         let libraryIDSet = Set(libraryIDs)
         let hasReadProvider = readProvider != nil
 

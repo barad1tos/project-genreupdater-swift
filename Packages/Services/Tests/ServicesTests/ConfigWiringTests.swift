@@ -105,6 +105,7 @@ struct ConfigWiringTests {
         #expect(syncRuntime.idsBatchSize == 22)
         #expect(syncRuntime.fullLibraryFetchTimeout == .seconds(321))
         #expect(syncRuntime.idsBatchFetchTimeout == .seconds(45))
+        #expect(syncRuntime.testArtists == ["Паліндром"])
 
         let sourcePriority = APISourcePriorityConfiguration(configuration: configuration)
         #expect(sourcePriority.orderedSources(artist: "Паліндром", album: "Найліпші питання") == [

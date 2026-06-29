@@ -83,6 +83,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
     public let forceMetadataScanIntervalDays: Int
     public let logsBaseDirectory: String
     public let lastDatabaseVerifyLog: String
+    public let testArtists: [String]
 
     public init(
         idsBatchSize: Int = BatchProcessingConfig().idsBatchSize,
@@ -92,7 +93,8 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         databaseVerificationIntervalDays: Int = DatabaseVerificationConfig().autoVerifyDays,
         forceMetadataScanIntervalDays: Int = 7,
         logsBaseDirectory: String = PathsConfig().logsBaseDirectory,
-        lastDatabaseVerifyLog: String = LoggingConfig().lastDatabaseVerifyLog
+        lastDatabaseVerifyLog: String = LoggingConfig().lastDatabaseVerifyLog,
+        testArtists: [String] = []
     ) {
         self.idsBatchSize = max(1, idsBatchSize)
         self.fullLibraryFetchTimeout = fullLibraryFetchTimeout
@@ -102,6 +104,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         self.forceMetadataScanIntervalDays = max(0, forceMetadataScanIntervalDays)
         self.logsBaseDirectory = logsBaseDirectory
         self.lastDatabaseVerifyLog = lastDatabaseVerifyLog
+        self.testArtists = ArtistAllowList.normalized(testArtists)
     }
 
     public init(configuration: AppConfiguration) {
@@ -112,7 +115,8 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
             databaseVerificationBatchSize: configuration.databaseVerification.batchSize,
             databaseVerificationIntervalDays: configuration.databaseVerification.autoVerifyDays,
             logsBaseDirectory: configuration.paths.effectiveLogsBaseDirectory,
-            lastDatabaseVerifyLog: configuration.logging.lastDatabaseVerifyLog
+            lastDatabaseVerifyLog: configuration.logging.lastDatabaseVerifyLog,
+            testArtists: configuration.development.testArtists
         )
     }
 }
