@@ -155,7 +155,7 @@ struct TrackModelTests {
 
     // MARK: - Codable Round-Trip
 
-    @Test("Track Codable round-trip preserves all 16 fields")
+    @Test("Track Codable round-trip preserves all 17 stored fields")
     func codableRoundTrip() throws {
         let dateAdded = Date(timeIntervalSince1970: 1_600_000_000)
         let lastModified = Date(timeIntervalSince1970: 1_700_000_000)
@@ -176,7 +176,8 @@ struct TrackModelTests {
             yearSetByMGU: 1991,
             releaseYear: 1991,
             originalPosition: 7,
-            albumArtist: "Metallica"
+            albumArtist: "Metallica",
+            appleScriptID: "AS-42"
         )
 
         let encoder = JSONEncoder()
@@ -200,6 +201,39 @@ struct TrackModelTests {
         #expect(decoded.releaseYear == original.releaseYear)
         #expect(decoded.originalPosition == original.originalPosition)
         #expect(decoded.albumArtist == original.albumArtist)
+        #expect(decoded.appleScriptID == original.appleScriptID)
+    }
+
+    @Test("Track equality and hash ignore AppleScript mutation metadata")
+    func equalityAndHashIgnoreAppleScriptMutationMetadata() {
+        let musicKitTrack = Track(
+            id: "MK-42",
+            name: "Nothing Else Matters",
+            artist: "Metallica",
+            album: "Metallica",
+            genre: "Metal",
+            year: 1991,
+            trackStatus: "matched",
+            releaseYear: 1991,
+            albumArtist: "Metallica",
+            appleScriptID: "AS-1"
+        )
+        let sameTrackWithDifferentMutationID = Track(
+            id: "MK-42",
+            name: "Nothing Else Matters",
+            artist: "Metallica",
+            album: "Metallica",
+            genre: "Metal",
+            year: 1991,
+            trackStatus: "matched",
+            releaseYear: 1991,
+            albumArtist: "Metallica",
+            appleScriptID: "AS-2"
+        )
+
+        #expect(musicKitTrack == sameTrackWithDifferentMutationID)
+        #expect(musicKitTrack.hashValue == sameTrackWithDifferentMutationID.hashValue)
+        #expect(Set([musicKitTrack, sameTrackWithDifferentMutationID]).count == 1)
     }
 }
 

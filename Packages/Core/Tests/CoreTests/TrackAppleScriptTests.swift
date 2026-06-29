@@ -42,6 +42,30 @@ struct TrackAppleScriptTests {
         #expect(track?.lastModified != nil)
     }
 
+    @Test("AppleScript parsing records AppleScript ID as mutation metadata")
+    func appleScriptParsingRecordsAppleScriptIDAsMutationMetadata() throws {
+        let fieldSeparator = String(Track.fieldSeparator)
+        let raw = [
+            "AS-123",
+            "Battery",
+            "Metallica",
+            "Metallica",
+            "Master of Puppets",
+            "Metal",
+            "2024-01-02 03:04:05",
+            "2024-01-03 03:04:05",
+            "local only",
+            "1986",
+            "1986",
+            "",
+        ].joined(separator: fieldSeparator)
+
+        let track = try #require(Track.fromAppleScriptOutput(raw))
+
+        #expect(track.id == "AS-123")
+        #expect(track.appleScriptID == "AS-123")
+    }
+
     // MARK: - Minimal Record
 
     @Test("Parses minimal 5-field record (id, name, artist, albumArtist, album)")

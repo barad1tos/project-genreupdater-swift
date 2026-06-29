@@ -421,6 +421,41 @@ struct TrackIDMapperTests {
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-MA") == "AS-MA")
     }
 
+    @Test("Enriched MusicKit track keeps MusicKit ID and stores AppleScript ID")
+    func enrichedTrackKeepsPrimaryIDAndStoresAppleScriptID() async throws {
+        let mapper = TrackIDMapper()
+        let musicKitTrack = makeTrack(
+            id: "MK-1",
+            name: "Battery",
+            artist: "Metallica",
+            album: "Master of Puppets"
+        )
+        let appleScriptTrack = makeTrack(
+            id: "AS-1",
+            name: "Battery",
+            artist: "Metallica",
+            album: "Master of Puppets",
+            genre: "Thrash Metal",
+            year: 1986,
+            trackStatus: TrackKind.localOnly.rawValue,
+            releaseYear: 1986,
+            albumArtist: "Metallica"
+        )
+
+        await mapper.refreshMapping(
+            musicKitTracks: [musicKitTrack],
+            appleScriptTracks: [appleScriptTrack]
+        )
+
+        let enrichedTrack = try #require(await mapper.trackWithAppleScriptMetadata(for: musicKitTrack))
+
+        #expect(enrichedTrack.id == "MK-1")
+        #expect(enrichedTrack.appleScriptID == "AS-1")
+        #expect(enrichedTrack.genre == "Thrash Metal")
+        #expect(enrichedTrack.year == 1986)
+        #expect(enrichedTrack.trackStatus == TrackKind.localOnly.rawValue)
+    }
+
     @Test("Enrichment keeps MusicKit ID and uses AppleScript writable metadata")
     func enrichmentKeepsMusicKitIDAndUsesAppleScriptMetadata() async throws {
         let mapper = TrackIDMapper()

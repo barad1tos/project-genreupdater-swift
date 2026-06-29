@@ -19,8 +19,18 @@ import Foundation
 /// passed between actors (API orchestrator, cache service, UI layer) without
 /// data races.
 public struct Track: Sendable, Codable, Identifiable, Hashable {
-    /// Music.app persistent track ID.
+    /// Primary app/read track identity.
+    ///
+    /// MusicKit-origin tracks use the MusicKit ID. AppleScript-origin tracks use
+    /// the AppleScript persistent ID.
     public let id: String
+
+    /// AppleScript persistent ID populated for Music.app mutation metadata.
+    ///
+    /// This field is excluded from equality and hashing because it is
+    /// enrichment metadata, not the app/read identity. MusicKit-origin tracks
+    /// may not have this value until a write-facing enrichment step resolves it.
+    public var appleScriptID: String?
 
     /// Track title.
     public var name: String
@@ -83,9 +93,11 @@ public struct Track: Sendable, Codable, Identifiable, Hashable {
         yearSetByMGU: Int? = nil,
         releaseYear: Int? = nil,
         originalPosition: Int? = nil,
-        albumArtist: String? = nil
+        albumArtist: String? = nil,
+        appleScriptID: String? = nil
     ) {
         self.id = id
+        self.appleScriptID = appleScriptID
         self.name = name
         self.artist = artist
         self.album = album
@@ -101,6 +113,53 @@ public struct Track: Sendable, Codable, Identifiable, Hashable {
         self.releaseYear = releaseYear
         self.originalPosition = originalPosition
         self.albumArtist = albumArtist
+    }
+
+    /// Compares track content while excluding write-path enrichment metadata.
+    ///
+    /// Add every new stored property here unless it is mutation-only metadata
+    /// like `appleScriptID`. Set or dictionary deduplication may drop
+    /// `appleScriptID`, so write paths must resolve mutation IDs explicitly.
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id &&
+            lhs.name == rhs.name &&
+            lhs.artist == rhs.artist &&
+            lhs.album == rhs.album &&
+            lhs.genre == rhs.genre &&
+            lhs.year == rhs.year &&
+            lhs.dateAdded == rhs.dateAdded &&
+            lhs.lastModified == rhs.lastModified &&
+            lhs.trackStatus == rhs.trackStatus &&
+            lhs.originalArtist == rhs.originalArtist &&
+            lhs.originalAlbum == rhs.originalAlbum &&
+            lhs.yearBeforeMGU == rhs.yearBeforeMGU &&
+            lhs.yearSetByMGU == rhs.yearSetByMGU &&
+            lhs.releaseYear == rhs.releaseYear &&
+            lhs.originalPosition == rhs.originalPosition &&
+            lhs.albumArtist == rhs.albumArtist
+    }
+
+    /// Hashes track content while excluding write-path enrichment metadata.
+    ///
+    /// Keep this in sync with `==`: add every new stored property unless it is
+    /// mutation-only metadata like `appleScriptID`.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(name)
+        hasher.combine(artist)
+        hasher.combine(album)
+        hasher.combine(genre)
+        hasher.combine(year)
+        hasher.combine(dateAdded)
+        hasher.combine(lastModified)
+        hasher.combine(trackStatus)
+        hasher.combine(originalArtist)
+        hasher.combine(originalAlbum)
+        hasher.combine(yearBeforeMGU)
+        hasher.combine(yearSetByMGU)
+        hasher.combine(releaseYear)
+        hasher.combine(originalPosition)
+        hasher.combine(albumArtist)
     }
 
     // MARK: - Computed Properties
@@ -267,7 +326,8 @@ extension Track {
             lastModified: fields.count > 7 ? fields[safe: 7].flatMap { parseAppleScriptDate($0) } : nil,
             trackStatus: fields.count > 8 ? fields[safe: 8]?.nilIfEmpty : nil,
             releaseYear: fields.count > 10 ? parseAppleScriptReleaseYear(fields[safe: 10]) : nil,
-            albumArtist: fields.count > 3 ? fields[safe: 3]?.nilIfEmpty : nil
+            albumArtist: fields.count > 3 ? fields[safe: 3]?.nilIfEmpty : nil,
+            appleScriptID: fields[0]
         )
     }
 }
