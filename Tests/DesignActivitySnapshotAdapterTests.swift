@@ -165,6 +165,31 @@ struct DesignActivitySnapshotAdapterTests {
         #expect(snapshot.issues.first { $0.id == "errors" }?.tone == .error)
     }
 
+    @Test("maps dry run summary to the current scoped library tracks")
+    func mapsDryRunSummaryToCurrentScopedLibraryTracks() {
+        let workflow = WorkflowDashboardState(
+            proposedChangeCount: 2,
+            acceptedChangeCount: 0,
+            failedWriteCount: 0,
+            isProcessing: false,
+            phaseLabel: "Review"
+        )
+
+        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+            from: makeInput(
+                tracks: [
+                    editableTrack(id: "1"),
+                    editableTrack(id: "2"),
+                    editableTrack(id: "3"),
+                ],
+                workflow: workflow
+            )
+        )
+
+        #expect(snapshot.dryRun.changes == 2)
+        #expect(snapshot.dryRun.tracks == 3)
+    }
+
     @Test("maps pending verification summary when available")
     func mapsPendingVerificationSummaryWhenAvailable() {
         let pending = UpdateRunPendingVerificationSummary(
@@ -293,6 +318,47 @@ struct DesignActivitySnapshotAdapterTests {
 
         #expect(snapshot.pipelineActivity.secondaryAction?.title == "Run manually")
         #expect(snapshot.pipelineActivity.secondaryAction?.isEnabled == false)
+    }
+
+    @Test("disables primary action until live library is ready")
+    func disablesPrimaryActionUntilLiveLibraryIsReady() {
+        let loading = DesignActivitySnapshotAdapter.makeSnapshot(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                isLoading: true,
+                isLibraryReadyForUpdates: false
+            )
+        )
+        let cachedOnly = DesignActivitySnapshotAdapter.makeSnapshot(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                isLibraryReadyForUpdates: false
+            )
+        )
+        let ready = DesignActivitySnapshotAdapter.makeSnapshot(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                isLibraryReadyForUpdates: true
+            )
+        )
+        let processing = DesignActivitySnapshotAdapter.makeSnapshot(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                isLibraryReadyForUpdates: true,
+                workflow: WorkflowDashboardState(
+                    proposedChangeCount: 1,
+                    acceptedChangeCount: 1,
+                    failedWriteCount: 0,
+                    isProcessing: true,
+                    phaseLabel: "Writing"
+                )
+            )
+        )
+
+        #expect(loading.pipelineActivity.primaryAction.isEnabled == false)
+        #expect(cachedOnly.pipelineActivity.primaryAction.isEnabled == false)
+        #expect(processing.pipelineActivity.primaryAction.isEnabled == false)
+        #expect(ready.pipelineActivity.primaryAction.isEnabled == true)
     }
 
     @Test("maps persisted change log entries for read-only reports")
@@ -459,6 +525,7 @@ struct DesignActivitySnapshotAdapterTests {
         metricsSnapshot: PersistedMetricsSnapshot? = nil,
         lastScanDate: Date? = nil,
         isLoading: Bool = false,
+        isLibraryReadyForUpdates: Bool = true,
         loadError: LibraryLoadError? = nil,
         isDryRun: Bool = true,
         workflow: WorkflowDashboardState = .empty,
@@ -475,6 +542,7 @@ struct DesignActivitySnapshotAdapterTests {
             metricsSnapshot: metricsSnapshot,
             lastScanDate: lastScanDate,
             isLoading: isLoading,
+            isLibraryReadyForUpdates: isLibraryReadyForUpdates,
             loadError: loadError,
             isDryRun: isDryRun,
             workflow: workflow,

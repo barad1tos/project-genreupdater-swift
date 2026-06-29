@@ -39,13 +39,7 @@ struct SidebarView: View {
             }
 
             Section("Library") {
-                navRow(
-                    .activity,
-                    "Activity",
-                    "waveform.path.ecg.rectangle",
-                    badge: model.pipelineActivity.safetyMode.title,
-                    badgeTone: .warning
-                )
+                navRow(.activity, "Activity", "waveform.path.ecg.rectangle")
                 navRow(.browse, "Browse", "music.note.list")
                 navRow(.reports, "Reports", "chart.bar")
             }
@@ -122,7 +116,10 @@ struct SidebarView: View {
                 Text("Automation")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Ayu.fgMuted)
-                automationRow("Status", pill: TagPill(text: model.data.syncStatusText, tone: .neutral))
+                automationRow(
+                    "Status",
+                    pill: TagPill(text: model.pipelineActivity.automationState.summaryValue, tone: .neutral)
+                )
                 automationRow("Mode", pill: TagPill(text: "Preview", tone: .warning, dot: true))
                 automationRow("Auto-fix", pill: TagPill(text: "Off", tone: .neutral, dot: true))
             }

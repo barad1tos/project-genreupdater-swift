@@ -1,4 +1,5 @@
 import DesignUI
+import SwiftUI
 import Testing
 
 @Suite("DesignUI public data contract")
@@ -8,8 +9,17 @@ struct DesignUIPublicAPITests {
     func snapshotCanBeConstructedOutsideDesignUIModule() {
         let data = makeSnapshot(totalTracks: 10, syncStatusText: "No sync yet", deltaCount: 2)
         let model = AppModel(data: data)
-        let root = RootView(data: data)
-        let actionRoot = RootView(data: data, pipelineSecondaryAction: {})
+        let root = RootView(data: data) {
+            EmptyView()
+        }
+        let actionRoot = RootView(
+            data: data,
+            pipelinePrimaryAction: {},
+            pipelineSecondaryAction: {},
+            updateContent: {
+                EmptyView()
+            }
+        )
 
         #expect(data.health.totalTracks == 10)
         #expect(data.pipelineActivity.deltaCount == 2)

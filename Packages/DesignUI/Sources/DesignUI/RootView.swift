@@ -2,18 +2,24 @@ import SwiftUI
 
 /// Root shell: native NavigationSplitView (vibrancy sidebar + window traffic
 /// lights come free on macOS). Detail switches on the selected route.
-public struct RootView: View {
+public struct RootView<UpdateContent: View>: View {
     // `data` is the injected prop; `model.data` is the live value read by views.
     private let data: DesignDataSnapshot
+    private let pipelinePrimaryAction: (() -> Void)?
     private let pipelineSecondaryAction: (() -> Void)?
+    private let updateContent: () -> UpdateContent
     @State private var model: AppModel
 
     public init(
         data: DesignDataSnapshot = .preview,
-        pipelineSecondaryAction: (() -> Void)? = nil
+        pipelinePrimaryAction: (() -> Void)? = nil,
+        pipelineSecondaryAction: (() -> Void)? = nil,
+        @ViewBuilder updateContent: @escaping () -> UpdateContent
     ) {
         self.data = data
+        self.pipelinePrimaryAction = pipelinePrimaryAction
         self.pipelineSecondaryAction = pipelineSecondaryAction
+        self.updateContent = updateContent
         _model = State(initialValue: AppModel(data: data))
     }
 
@@ -50,11 +56,12 @@ public struct RootView: View {
         case .activity:
             ActivityView(
                 model: model,
+                pipelinePrimaryAction: pipelinePrimaryAction,
                 pipelineSecondaryAction: pipelineSecondaryAction
             )
         case .browse: BrowseView(model: model)
         case .reports: ReportsView(model: model)
-        case .update: UpdateView(model: model)
+        case .update: updateContent()
         case .settings: SettingsScreen(model: model)
         }
     }
@@ -129,5 +136,7 @@ private struct SyncStatusPill: View {
 }
 
 #Preview {
-    RootView()
+    RootView {
+        UpdateView(model: AppModel(data: .preview))
+    }
 }

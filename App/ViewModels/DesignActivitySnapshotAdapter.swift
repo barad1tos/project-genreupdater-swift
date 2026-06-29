@@ -8,6 +8,7 @@ struct DesignActivitySnapshotInput {
     let metricsSnapshot: PersistedMetricsSnapshot?
     let lastScanDate: Date?
     let isLoading: Bool
+    let isLibraryReadyForUpdates: Bool
     let loadError: LibraryLoadError?
     let isDryRun: Bool
     let workflow: WorkflowDashboardState
@@ -41,7 +42,7 @@ enum DesignActivitySnapshotAdapter {
             changes: [],
             dryRun: DryRunSummary(
                 changes: input.workflow.proposedChangeCount,
-                tracks: 0,
+                tracks: input.tracks.count,
                 averageConfidence: 0,
                 genre: 0,
                 year: 0
@@ -134,7 +135,8 @@ enum DesignActivitySnapshotAdapter {
             primaryAction: PipelineAction(
                 title: input.workflow.proposedChangeCount > 0 ? "Review fix plan" : dashboard.primaryActionTitle,
                 symbol: input.workflow.proposedChangeCount > 0 ? "checklist" : "arrow.clockwise",
-                style: .primary
+                style: .primary,
+                isEnabled: isPrimaryActionEnabled(input: input)
             ),
             secondaryAction: PipelineAction(
                 title: input.isSynchronizingLibrary ? "Syncing" : "Run manually",
@@ -149,6 +151,14 @@ enum DesignActivitySnapshotAdapter {
                 input: input
             )
         )
+    }
+
+    private static func isPrimaryActionEnabled(input: DesignActivitySnapshotInput) -> Bool {
+        !input.isLoading
+            && input.loadError == nil
+            && input.isLibraryReadyForUpdates
+            && !input.isSynchronizingLibrary
+            && !input.workflow.isProcessing
     }
 
     private static func makeCoverageBuckets(from dashboard: LibraryDashboardSnapshot) -> [CoverageBucket] {

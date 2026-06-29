@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ActivityView: View {
     @Bindable var model: AppModel
+    let pipelinePrimaryAction: (() -> Void)?
     let pipelineSecondaryAction: (() -> Void)?
 
     private let summaryColumns = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 14), count: 5)
@@ -9,9 +10,11 @@ struct ActivityView: View {
 
     init(
         model: AppModel,
+        pipelinePrimaryAction: (() -> Void)? = nil,
         pipelineSecondaryAction: (() -> Void)? = nil
     ) {
         self.model = model
+        self.pipelinePrimaryAction = pipelinePrimaryAction
         self.pipelineSecondaryAction = pipelineSecondaryAction
     }
 
@@ -78,7 +81,7 @@ struct ActivityView: View {
                 .disabled(!secondaryAction.isEnabled)
             }
             PrimaryButton(title: pipeline.primaryAction.title, symbol: pipeline.primaryAction.symbol) {
-                model.navigate(to: .update)
+                openUpdate()
             }
             .disabled(!pipeline.primaryAction.isEnabled)
         }
@@ -173,6 +176,11 @@ struct ActivityView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    private func openUpdate() {
+        pipelinePrimaryAction?()
+        model.navigate(to: .update)
     }
 
     private var interventionQueue: some View {
