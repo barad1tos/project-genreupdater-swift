@@ -7,8 +7,8 @@ import Testing
 @Suite("Workflow mutation preparation")
 @MainActor
 struct WorkflowMutationPreparationTests {
-    @Test("preview prepares mutation metadata before dry-run")
-    func previewPreparesMutationMetadataBeforeDryRun() async throws {
+    @Test("preview skips mutation metadata before dry-run")
+    func previewSkipsMutationMetadataBeforeDryRun() async throws {
         let recorder = MutationPreparationRecorder()
         let fixture = makeWorkflowFixture(
             prepareMutationMetadata: { tracks in
@@ -29,7 +29,8 @@ struct WorkflowMutationPreparationTests {
         viewModel.start(tracks: tracks)
         try await waitForWorkflowToLeaveScanning(viewModel)
 
-        #expect(await recorder.preparedTrackIDs == ["selected-1"])
+        #expect(await recorder.recordedCallCount() == 0)
+        #expect(await recorder.preparedTrackIDs.isEmpty)
     }
 
     @Test("apply accepted prepares mutation metadata before write")

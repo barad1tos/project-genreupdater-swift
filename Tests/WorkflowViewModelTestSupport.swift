@@ -9,7 +9,9 @@ func makeWorkflowViewModel() -> WorkflowViewModel {
     makeWorkflowFixture().viewModel
 }
 
-func noOpPrepareMutationMetadata(_: [Track]) async throws {}
+func noOpPrepareMutationMetadata(_: [Track]) async throws {
+    // Default test hook intentionally skips mutation metadata preparation.
+}
 
 @MainActor
 func makeWorkflowFixture(

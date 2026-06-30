@@ -173,13 +173,22 @@ public actor UpdateCoordinator {
             return []
         }
 
-        let inputTrack = try await trackWithMutationMetadata(track)
+        let inputTrack = try await trackWithMutationMetadata(
+            track,
+            requiresMutationMetadata: !dryRun
+        )
         if await shouldSkipPrereleaseProcessing(track: inputTrack, albumTracks: albumTracks) {
             return []
         }
 
-        let inputAlbumTracks = await availableTracksWithMutationMetadata(albumTracks)
-        let inputArtistTracks = await availableTracksWithMutationMetadata(artistTracks)
+        let inputAlbumTracks = await availableTracksWithMutationMetadata(
+            albumTracks,
+            requiresMutationMetadata: !dryRun
+        )
+        let inputArtistTracks = await availableTracksWithMutationMetadata(
+            artistTracks,
+            requiresMutationMetadata: !dryRun
+        )
 
         guard inputTrack.canEdit else {
             throw UpdateCoordinatorError.trackNotEditable(trackID: inputTrack.id)
@@ -206,7 +215,7 @@ public actor UpdateCoordinator {
 
         // Write accepted changes
         for change in proposedChanges where change.isAccepted {
-            try await applyChange(change)
+            try await applyChange(change, isReviewedChange: false)
         }
 
         return proposedChanges
@@ -380,8 +389,14 @@ public actor UpdateCoordinator {
     /// MusicKit tracks can miss AppleScript-only fields such as `albumArtist`, persistent IDs, and write
     /// eligibility. This helper refreshes that metadata first, filters non-processable tracks, and then groups
     /// by `AlbumIdentity` so preview and live workflow paths use the same album context.
-    public func albumContextTracksByTrackID(for tracks: [Track]) async -> [String: [Track]] {
-        let contextTracks = await availableTracksWithMutationMetadata(tracks)
+    public func albumContextTracksByTrackID(
+        for tracks: [Track],
+        requiresMutationMetadata: Bool = true
+    ) async -> [String: [Track]] {
+        let contextTracks = await availableTracksWithMutationMetadata(
+            tracks,
+            requiresMutationMetadata: requiresMutationMetadata
+        )
         return Self.albumTracksByTrackID(for: contextTracks)
     }
 
@@ -420,19 +435,28 @@ public actor UpdateCoordinator {
         )
     }
 
-    func trackWithMutationMetadata(_ track: Track) async throws -> Track {
+    func trackWithMutationMetadata(
+        _ track: Track,
+        requiresMutationMetadata: Bool = true
+    ) async throws -> Track {
         guard let idMapper else {
             return track
         }
 
         guard let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track) else {
+            guard requiresMutationMetadata else {
+                return track
+            }
             throw UpdateCoordinatorError.missingAppleScriptID(trackID: track.id)
         }
 
         return enrichedTrack
     }
 
-    func availableTracksWithMutationMetadata(_ tracks: [Track]) async -> [Track] {
+    func availableTracksWithMutationMetadata(
+        _ tracks: [Track],
+        requiresMutationMetadata: Bool = true
+    ) async -> [Track] {
         guard let idMapper else {
             return tracks.filter(Self.isTrackAvailableForProcessing)
         }
@@ -443,6 +467,9 @@ public actor UpdateCoordinator {
             if let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track),
                Self.isTrackAvailableForProcessing(enrichedTrack) {
                 enrichedTracks.append(enrichedTrack)
+            } else if !requiresMutationMetadata,
+                      Self.isTrackAvailableForProcessing(track) {
+                enrichedTracks.append(track)
             }
         }
         return enrichedTracks

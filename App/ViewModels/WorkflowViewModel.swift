@@ -290,9 +290,8 @@ final class WorkflowViewModel {
                 var allChanges: [ProposedChange] = []
                 let total = tracks.count
                 let contextTracks = contextTracks ?? tracks
-                guard await prepareMutationMetadataIfNeeded(tracks: tracks) else { return }
 
-                let albumTracksByTrackID = await updateCoordinator.albumContextTracksByTrackID(for: contextTracks)
+                let albumTracksByTrackID = await dryRunAlbumTracksByTrackID(for: contextTracks)
                 let artistGroups = Self.groupTracksByArtist(contextTracks)
 
                 for (index, track) in tracks.enumerated() {
@@ -363,6 +362,13 @@ final class WorkflowViewModel {
             artistTracks: artistGroups[Self.artistKey(for: track)] ?? [],
             options: options,
             dryRun: true
+        )
+    }
+
+    private func dryRunAlbumTracksByTrackID(for tracks: [Track]) async -> [String: [Track]] {
+        await updateCoordinator.albumContextTracksByTrackID(
+            for: tracks,
+            requiresMutationMetadata: false
         )
     }
 

@@ -400,7 +400,7 @@ public actor LibrarySyncService {
         let libraryIDs = try await fetchAppleScriptLibraryIDsForConfiguredScope()
         guard !libraryIDs.isEmpty else {
             log.warning("Skipped MusicKit removal candidates because AppleScript returned an empty library")
-            return []
+            return confirmedUnmappedIDs
         }
         let existingAppleScriptIDs = Set(libraryIDs)
 
