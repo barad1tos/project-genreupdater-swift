@@ -497,7 +497,11 @@ final class WorkflowViewModel {
 
     func prepareMutationMetadataIfNeeded(tracks: [Track]) async -> Bool {
         guard !tracks.isEmpty else { return true }
-        guard let prepareMutationMetadata else { return true }
+        guard let prepareMutationMetadata else {
+            phase = .error("Music write metadata service is unavailable")
+            progress = nil
+            return false
+        }
 
         progress = ProgressUpdate(
             phase: .fetching,

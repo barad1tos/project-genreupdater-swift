@@ -210,8 +210,8 @@ struct LibrarySyncServiceTests {
         #expect(result.removedTrackIDs.isEmpty)
     }
 
-    @Test("Read provider sync compares MusicKit IDs and does not fetch AppleScript IDs")
-    func readProviderSyncComparesMusicKitIDs() async throws {
+    @Test("Read provider sync enriches new MusicKit rows with AppleScript metadata")
+    func readProviderSyncEnrichesNewMusicKitRowsWithAppleScriptMetadata() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let gate = await FeatureGate(fixedTier: .free)
@@ -223,7 +223,7 @@ struct LibrarySyncServiceTests {
         ])
         await bridge.setLibrary(ids: ["AS-1", "AS-2"], tracks: [
             "AS-1": Track(id: "AS-1", name: "Existing", artist: "A", album: "B"),
-            "AS-2": Track(id: "AS-2", name: "New", artist: "A", album: "B"),
+            "AS-2": Track(id: "AS-2", name: "New", artist: "A", album: "B", genre: "Metal"),
         ])
         await store.setStored([
             Track(id: "MK-1", name: "Existing", artist: "A", album: "B", appleScriptID: "AS-1"),
@@ -239,9 +239,11 @@ struct LibrarySyncServiceTests {
         let result = try await service.detectChanges()
 
         #expect(result.newTracks.map(\.id) == ["MK-2"])
+        #expect(result.newTracks.first?.appleScriptID == "AS-2")
+        #expect(result.newTracks.first?.genre == "Metal")
         #expect(result.removedTrackIDs.isEmpty)
-        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
-        #expect(await bridge.fetchTracksRequestCount() == 0)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+        #expect(await bridge.fetchTracksRequestCount() == 1)
         #expect(await readProvider.requestCount() == 1)
     }
 
@@ -268,7 +270,7 @@ struct LibrarySyncServiceTests {
 
         #expect(result.newTracks.map(\.name) == ["Latest"])
         #expect(result.removedTrackIDs.isEmpty)
-        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
         #expect(await bridge.fetchTracksRequestCount() == 0)
     }
 
@@ -306,8 +308,8 @@ struct LibrarySyncServiceTests {
         #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
     }
 
-    @Test("Read provider sync preserves rows without AppleScript IDs")
-    func readProviderSyncPreservesRowsWithoutAppleScriptIDs() async throws {
+    @Test("Read provider sync preserves rows without AppleScript IDs when AppleScript snapshot is empty")
+    func readProviderSyncPreservesRowsWithoutAppleScriptIDsWhenAppleScriptSnapshotIsEmpty() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let gate = await FeatureGate(fixedTier: .free)
@@ -334,11 +336,11 @@ struct LibrarySyncServiceTests {
         #expect(result.removedTrackIDs.isEmpty)
         #expect(remainingIDs == ["MK-1", "MK-2"])
         #expect(await bridge.fetchTracksRequestCount() == 0)
-        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
     }
 
-    @Test("Read provider sync preserves rows without AppleScript IDs while checking AppleScript candidates")
-    func readProviderSyncPreservesRowsWithoutAppleScriptIDsWhileCheckingAppleScriptCandidates() async throws {
+    @Test("Read provider sync removes unmapped MusicKit rows after AppleScript metadata check")
+    func readProviderSyncRemovesUnmappedMusicKitRowsAfterAppleScriptMetadataCheck() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let gate = await FeatureGate(fixedTier: .free)
@@ -365,8 +367,44 @@ struct LibrarySyncServiceTests {
         let result = try await service.synchronizeNow()
         let remainingIDs = try await store.loadAllTracks().map(\.id).sorted()
 
+        #expect(result.removedTrackIDs == ["MK-2"])
+        #expect(remainingIDs == ["MK-1", "MK-AS"])
+        #expect(await bridge.fetchTracksRequestCount() == 2)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 2)
+    }
+
+    @Test("Read provider sync preserves unmapped rows when AppleScript has a possible identity match")
+    func readProviderSyncPreservesUnmappedRowsWithPossibleAppleScriptIdentityMatch() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let readProvider = SyncMockReadProvider()
+
+        await readProvider.setTracks([
+            Track(id: "MK-1", name: "Existing", artist: "A", album: "B", appleScriptID: "AS-1"),
+        ])
+        await bridge.setLibrary(ids: ["AS-1", "AS-2", "AS-3"], tracks: [
+            "AS-1": Track(id: "AS-1", name: "Existing", artist: "A", album: "B", appleScriptID: "AS-1"),
+            "AS-2": Track(id: "AS-2", name: "Ambiguous", artist: "A", album: "B", appleScriptID: "AS-2"),
+            "AS-3": Track(id: "AS-3", name: "Ambiguous", artist: "A", album: "B", appleScriptID: "AS-3"),
+        ])
+        await store.setStored([
+            Track(id: "MK-1", name: "Existing", artist: "A", album: "B", appleScriptID: "AS-1"),
+            Track(id: "MK-2", name: "Ambiguous", artist: "A", album: "B"),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            readProvider: readProvider
+        )
+
+        let result = try await service.synchronizeNow()
+        let remainingIDs = try await store.loadAllTracks().map(\.id).sorted()
+
         #expect(result.removedTrackIDs.isEmpty)
-        #expect(remainingIDs == ["MK-1", "MK-2", "MK-AS"])
+        #expect(remainingIDs == ["MK-1", "MK-2"])
         #expect(await bridge.fetchTracksRequestCount() == 1)
         #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
     }

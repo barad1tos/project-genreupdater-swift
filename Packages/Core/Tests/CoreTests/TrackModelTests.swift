@@ -68,6 +68,27 @@ struct TrackModelTests {
         #expect(track.hasBeenProcessed == false)
     }
 
+    @Test("appleScriptID is excluded from equality and hashing")
+    func appleScriptIDIsExcludedFromEqualityAndHashing() {
+        let baseTrack = Track(
+            id: "MK-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            appleScriptID: nil
+        )
+        let enrichedTrack = Track(
+            id: "MK-1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            appleScriptID: "AS-1"
+        )
+
+        #expect(baseTrack == enrichedTrack)
+        #expect(Set([baseTrack, enrichedTrack]).count == 1)
+    }
+
     // MARK: - kind
 
     @Test(

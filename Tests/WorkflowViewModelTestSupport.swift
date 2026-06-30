@@ -26,7 +26,7 @@ func makeWorkflowFixture(
     idMapper: (any TrackIDMapping)? = nil,
     problematicAlbumReportMinAttempts: @escaping () -> Int = { 3 },
     runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
-    prepareMutationMetadata: (([Track]) async throws -> Void)? = nil,
+    prepareMutationMetadata: (([Track]) async throws -> Void)? = { _ in },
     invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {

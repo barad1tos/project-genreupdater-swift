@@ -122,6 +122,27 @@ struct WorkflowMutationPreparationTests {
         #expect(viewModel.progress == nil)
     }
 
+    @Test("missing preparation service blocks write workflow")
+    func missingPreparationServiceBlocksWriteWorkflow() async {
+        let viewModel = makeWorkflowFixture(prepareMutationMetadata: nil).viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [
+            makeProposedChange(id: "accepted", isAccepted: true),
+        ]
+
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+        await Task.yield()
+
+        guard case let .error(message) = viewModel.phase else {
+            #expect(Bool(false), "missing preparation service should surface an error")
+            return
+        }
+        #expect(message == "Music write metadata service is unavailable")
+        #expect(viewModel.progress == nil)
+    }
+
     @Test("preparation cancellation returns to configuration")
     func preparationCancellationReturnsToConfiguration() async {
         let hold = MutationPreparationHold()
