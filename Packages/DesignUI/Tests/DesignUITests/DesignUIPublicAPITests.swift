@@ -14,8 +14,12 @@ struct DesignUIPublicAPITests {
         }
         let actionRoot = RootView(
             data: data,
-            pipelinePrimaryAction: {},
-            pipelineSecondaryAction: {},
+            pipelinePrimaryAction: {
+                _ = data.pipelineActivity.primaryAction.title
+            },
+            pipelineSecondaryAction: {
+                _ = data.pipelineActivity.secondaryAction?.title
+            },
             updateContent: {
                 EmptyView()
             }
@@ -36,17 +40,43 @@ struct DesignUIPublicAPITests {
     func appModelReflectsInjectedSnapshotReplacement() {
         let model = AppModel(data: makeSnapshot(totalTracks: 10, syncStatusText: "No sync yet", deltaCount: 2))
 
-        model.data = makeSnapshot(totalTracks: 20, syncStatusText: "Synced now", deltaCount: 5)
+        model.applyData(makeSnapshot(totalTracks: 20, syncStatusText: "Synced now", deltaCount: 5))
 
         #expect(model.snapshot.totalTracks == 20)
         #expect(model.pipelineActivity.deltaCount == 5)
         #expect(model.data.syncStatusText == "Synced now")
     }
 
+    @Test
+    @MainActor
+    func appModelMirrorsDryRunModeFromSnapshot() {
+        let model = AppModel(data: makeSnapshot(safetyMode: .autoFix))
+
+        #expect(!model.dryRun)
+
+        model.applyData(makeSnapshot(safetyMode: .preview))
+
+        #expect(model.dryRun)
+    }
+
     private func makeSnapshot(totalTracks: Int, syncStatusText: String, deltaCount: Int) -> DesignDataSnapshot {
+        makeSnapshot(
+            totalTracks: totalTracks,
+            syncStatusText: syncStatusText,
+            deltaCount: deltaCount,
+            safetyMode: .preview
+        )
+    }
+
+    private func makeSnapshot(
+        totalTracks: Int = 10,
+        syncStatusText: String = "No sync yet",
+        deltaCount: Int = 2,
+        safetyMode: PipelineSafetyMode
+    ) -> DesignDataSnapshot {
         DesignDataSnapshot(
             health: makeHealth(totalTracks: totalTracks),
-            pipelineActivity: makePipeline(deltaCount: deltaCount),
+            pipelineActivity: makePipeline(deltaCount: deltaCount, safetyMode: safetyMode),
             pendingVerification: makePendingVerification(),
             coverage: [],
             issues: [],
@@ -98,7 +128,7 @@ struct DesignUIPublicAPITests {
         )
     }
 
-    private func makePipeline(deltaCount: Int) -> PipelineActivitySnapshot {
+    private func makePipeline(deltaCount: Int, safetyMode: PipelineSafetyMode) -> PipelineActivitySnapshot {
         let pipeline = PipelineActivitySnapshot.previewDefault(
             deltaCount: deltaCount,
             interventionCount: 0,
@@ -111,7 +141,7 @@ struct DesignUIPublicAPITests {
             title: pipeline.title,
             subtitle: pipeline.subtitle,
             currentStage: pipeline.currentStage,
-            safetyMode: pipeline.safetyMode,
+            safetyMode: safetyMode,
             automationState: .noSyncYet,
             deltaCount: pipeline.deltaCount,
             interventionCount: pipeline.interventionCount,

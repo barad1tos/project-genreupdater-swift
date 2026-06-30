@@ -2,6 +2,8 @@ import SwiftUI
 
 struct BrowseView: View {
     @Bindable var model: AppModel
+    var albumUpdateAction: ((Album, String) -> Void)?
+    var albumSelectionAction: ((Album?, String?) -> Void)?
     @SceneStorage("DesignUI.BrowseView.availableWidth") private var storedAvailableWidth = 0.0
     @State private var query = ""
     @State private var selection: Album.ID?
@@ -61,7 +63,11 @@ struct BrowseView: View {
                 .onChange(of: geometry.size.width) { _, width in
                     storeAvailableWidth(width)
                 }
+                .onChange(of: selection) {
+                    publishSelectedAlbum()
+                }
         }
+        .onAppear { publishSelectedAlbum() }
         .background(Ayu.window)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -94,6 +100,14 @@ struct BrowseView: View {
     private func storeAvailableWidth(_ width: CGFloat) {
         guard width.isFinite, width > .zero else { return }
         storedAvailableWidth = Double(width)
+    }
+
+    private func publishSelectedAlbum() {
+        if let (album, artist) = selectedAlbum {
+            albumSelectionAction?(album, artist)
+        } else {
+            albumSelectionAction?(nil, nil)
+        }
     }
 
     private func artistList(width: CGFloat) -> some View {
@@ -135,7 +149,13 @@ struct BrowseView: View {
     private var detailPane: some View {
         Group {
             if let (album, artist) = selectedAlbum {
-                AlbumDetail(album: album, artist: artist) { model.navigate(to: .update) }
+                AlbumDetail(album: album, artist: artist) {
+                    if let albumUpdateAction {
+                        albumUpdateAction(album, artist)
+                    } else {
+                        model.navigate(to: .update)
+                    }
+                }
             } else {
                 ContentUnavailableView("Select an album", systemImage: "music.note")
             }

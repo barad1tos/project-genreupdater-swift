@@ -9,6 +9,8 @@ func makeWorkflowViewModel() -> WorkflowViewModel {
     makeWorkflowFixture().viewModel
 }
 
+func noOpPrepareMutationMetadata(_: [Track]) async throws {}
+
 @MainActor
 func makeWorkflowFixture(
     apiService: DashboardStateAPIService = DashboardStateAPIService(),
@@ -26,7 +28,7 @@ func makeWorkflowFixture(
     idMapper: (any TrackIDMapping)? = nil,
     problematicAlbumReportMinAttempts: @escaping () -> Int = { 3 },
     runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
-    prepareMutationMetadata: (([Track]) async throws -> Void)? = { _ in },
+    prepareMutationMetadata: (([Track]) async throws -> Void)? = noOpPrepareMutationMetadata,
     invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
 ) -> WorkflowFixture {

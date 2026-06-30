@@ -24,15 +24,30 @@ extension LibrarySyncService {
     func readProviderPersistenceTrack(
         current: Track,
         stored: Track,
-        appleScriptMetadata: Track? = nil
+        appleScriptMetadata: Track? = nil,
+        isAppleScriptMetadataAuthoritative: Bool = false
     ) -> Track {
-        Track(
+        // Full AppleScript reads are authoritative for writable metadata; mapper enrichment can be partial.
+        let genre = isAppleScriptMetadataAuthoritative
+            ? appleScriptMetadata.map(\.genre) ?? stored.genre ?? current.genre
+            : appleScriptMetadata?.genre ?? stored.genre ?? current.genre
+        let year = isAppleScriptMetadataAuthoritative
+            ? appleScriptMetadata.map(\.year) ?? stored.year
+            : appleScriptMetadata?.year ?? stored.year
+        let releaseYear = isAppleScriptMetadataAuthoritative
+            ? appleScriptMetadata.map(\.releaseYear) ?? stored.releaseYear ?? current.releaseYear
+            : appleScriptMetadata?.releaseYear ?? stored.releaseYear ?? current.releaseYear
+        let albumArtist = isAppleScriptMetadataAuthoritative
+            ? appleScriptMetadata.map(\.albumArtist) ?? stored.albumArtist ?? current.albumArtist
+            : appleScriptMetadata?.albumArtist ?? stored.albumArtist ?? current.albumArtist
+
+        return Track(
             id: current.id,
             name: current.name,
             artist: current.artist,
             album: current.album,
-            genre: appleScriptMetadata?.genre ?? stored.genre ?? current.genre,
-            year: appleScriptMetadata?.year ?? stored.year,
+            genre: genre,
+            year: year,
             dateAdded: current.dateAdded ?? stored.dateAdded,
             lastModified: appleScriptMetadata?.lastModified ?? current.lastModified ?? stored.lastModified,
             trackStatus: appleScriptMetadata?.trackStatus ?? stored.trackStatus,
@@ -40,9 +55,9 @@ extension LibrarySyncService {
             originalAlbum: current.originalAlbum ?? stored.originalAlbum,
             yearBeforeMGU: current.yearBeforeMGU ?? stored.yearBeforeMGU,
             yearSetByMGU: current.yearSetByMGU ?? stored.yearSetByMGU,
-            releaseYear: appleScriptMetadata?.releaseYear ?? stored.releaseYear ?? current.releaseYear,
+            releaseYear: releaseYear,
             originalPosition: current.originalPosition ?? stored.originalPosition,
-            albumArtist: appleScriptMetadata?.albumArtist ?? stored.albumArtist ?? current.albumArtist,
+            albumArtist: albumArtist,
             appleScriptID: appleScriptMetadata?.appleScriptID ?? current.appleScriptID ?? stored.appleScriptID
         )
     }

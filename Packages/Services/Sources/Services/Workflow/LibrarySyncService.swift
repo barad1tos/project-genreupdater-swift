@@ -234,7 +234,8 @@ public actor LibrarySyncService {
             let persistedCurrent = readProviderPersistenceTrack(
                 current: current,
                 stored: stored,
-                appleScriptMetadata: appleScriptMetadataByPrimaryID[trackID]
+                appleScriptMetadata: appleScriptMetadataByPrimaryID[trackID],
+                isAppleScriptMetadataAuthoritative: true
             )
             if hasTrackChanged(current: persistedCurrent, stored: stored) {
                 modifiedTracks.append(persistedCurrent)

@@ -21,6 +21,7 @@ public final class AppModel {
 
     public init(data: DesignDataSnapshot = .preview) {
         self.data = data
+        dryRun = data.pipelineActivity.safetyMode == .preview
     }
 
     public var snapshot: HealthSnapshot {
@@ -74,6 +75,11 @@ public final class AppModel {
 
         backStack.append(currentNavigationEntry)
         apply(nextEntry)
+    }
+
+    public func applyData(_ data: DesignDataSnapshot) {
+        self.data = data
+        dryRun = data.pipelineActivity.safetyMode == .preview
     }
 
     private var currentNavigationEntry: NavigationEntry {

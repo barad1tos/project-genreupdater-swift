@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsScreen: View {
     @Bindable var model: AppModel
+    var setDryRunAction: ((Bool) -> Bool)?
     @State private var tab = "general"
     @State private var behavior = "both"
     @State private var minConf = 70.0
@@ -43,6 +44,19 @@ struct SettingsScreen: View {
         .navigationTitle("Settings")
     }
 
+    private var dryRunBinding: Binding<Bool> {
+        Binding {
+            model.dryRun
+        } set: { isDryRun in
+            let previousValue = model.dryRun
+            model.dryRun = isDryRun
+            let accepted = setDryRunAction?(isDryRun) ?? true
+            if !accepted {
+                model.dryRun = previousValue
+            }
+        }
+    }
+
     private var general: some View {
         VStack(spacing: 14) {
             group("Update behavior", "wand.and.stars", .accent) {
@@ -54,7 +68,7 @@ struct SettingsScreen: View {
                     }.pickerStyle(.segmented).frame(width: 220)
                 }
                 row("Safe mode (dry-run)", "Always preview proposed changes before any tag is written.") {
-                    Toggle("", isOn: $model.dryRun).labelsHidden().tint(Ayu.accent)
+                    Toggle("", isOn: dryRunBinding).labelsHidden().tint(Ayu.accent)
                 }
                 row("Minimum confidence", "Reject suggestions below this score.") {
                     HStack {
@@ -80,7 +94,7 @@ struct SettingsScreen: View {
                         ForEach(testArtists, id: \.self) { artist in
                             TagPill(text: artist, tone: .purple)
                         }
-                        BorderedButton(title: "Add", symbol: "plus") {}
+                        BorderedButton(title: "Add", symbol: "plus", enabled: false)
                     }
                 }
             }
@@ -99,7 +113,7 @@ struct SettingsScreen: View {
                 row("Album-year cache", "Resolved release years cached to avoid repeat lookups.") {
                     HStack {
                         TagPill(text: "218 MB", tone: .neutral)
-                        BorderedButton(title: "Clear cache") {}
+                        BorderedButton(title: "Clear cache", enabled: false)
                     }
                 }
                 row("Track ID mapping", "Persistent map between MusicKit IDs and writable tracks.") {
@@ -178,7 +192,11 @@ struct SettingsScreen: View {
         row(name, desc) {
             HStack(spacing: 10) {
                 TagPill(text: status, tone: tone, dot: true)
-                BorderedButton(title: status == "Connected" ? "Edit" : "Add token", symbol: "key") {}
+                BorderedButton(
+                    title: status == "Connected" ? "Edit" : "Add token",
+                    symbol: "key",
+                    enabled: false
+                )
             }
         }
     }

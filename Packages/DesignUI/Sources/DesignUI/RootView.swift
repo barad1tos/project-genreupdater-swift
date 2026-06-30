@@ -5,20 +5,32 @@ import SwiftUI
 public struct RootView<UpdateContent: View>: View {
     // `data` is the injected prop; `model.data` is the live value read by views.
     private let data: DesignDataSnapshot
+    private let selectedRoute: Binding<Route?>?
     private let pipelinePrimaryAction: (() -> Void)?
     private let pipelineSecondaryAction: (() -> Void)?
+    private let setDryRunAction: ((Bool) -> Bool)?
+    private let browseAlbumUpdateAction: ((Album, String) -> Void)?
+    private let browseAlbumSelectionAction: ((Album?, String?) -> Void)?
     private let updateContent: () -> UpdateContent
     @State private var model: AppModel
 
     public init(
         data: DesignDataSnapshot = .preview,
+        selectedRoute: Binding<Route?>? = nil,
         pipelinePrimaryAction: (() -> Void)? = nil,
         pipelineSecondaryAction: (() -> Void)? = nil,
+        setDryRunAction: ((Bool) -> Bool)? = nil,
+        browseAlbumUpdateAction: ((Album, String) -> Void)? = nil,
+        browseAlbumSelectionAction: ((Album?, String?) -> Void)? = nil,
         @ViewBuilder updateContent: @escaping () -> UpdateContent
     ) {
         self.data = data
+        self.selectedRoute = selectedRoute
         self.pipelinePrimaryAction = pipelinePrimaryAction
         self.pipelineSecondaryAction = pipelineSecondaryAction
+        self.setDryRunAction = setDryRunAction
+        self.browseAlbumUpdateAction = browseAlbumUpdateAction
+        self.browseAlbumSelectionAction = browseAlbumSelectionAction
         self.updateContent = updateContent
         _model = State(initialValue: AppModel(data: data))
     }
@@ -44,11 +56,23 @@ public struct RootView<UpdateContent: View>: View {
             }
         }
         .onChange(of: data) { _, newData in
-            model.data = newData
+            model.applyData(newData)
+        }
+        .onChange(of: model.route) { _, route in
+            guard selectedRoute?.wrappedValue != route else { return }
+            selectedRoute?.wrappedValue = route
+        }
+        .onChange(of: selectedRouteValue) { _, route in
+            guard route != model.route else { return }
+            model.navigate(to: route ?? .activity)
         }
         .sheet(isPresented: $model.showOnboarding) {
             OnboardingView { model.showOnboarding = false }
         }
+    }
+
+    private var selectedRouteValue: Route? {
+        selectedRoute?.wrappedValue
     }
 
     @ViewBuilder private var detail: some View {
@@ -59,10 +83,16 @@ public struct RootView<UpdateContent: View>: View {
                 pipelinePrimaryAction: pipelinePrimaryAction,
                 pipelineSecondaryAction: pipelineSecondaryAction
             )
-        case .browse: BrowseView(model: model)
+        case .browse:
+            BrowseView(
+                model: model,
+                albumUpdateAction: browseAlbumUpdateAction,
+                albumSelectionAction: browseAlbumSelectionAction
+            )
         case .reports: ReportsView(model: model)
         case .update: updateContent()
-        case .settings: SettingsScreen(model: model)
+        case .settings:
+            SettingsScreen(model: model, setDryRunAction: setDryRunAction)
         }
     }
 }

@@ -31,7 +31,7 @@ struct RandomAccessWorkflowFixtureOptions {
     var idMapper: (any TrackIDMapping)?
     var resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track] = { tracks, _ in tracks }
     var runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
-    var prepareMutationMetadata: (([Track]) async throws -> Void)? = { _ in }
+    var prepareMutationMetadata: (([Track]) async throws -> Void)? = noOpPrepareMutationMetadata
     var updateIncrementalRunTimestamp: (() async -> Void)?
 }
 
@@ -95,7 +95,7 @@ func makeRandomAccessLiveBatchRun(
     cancellingWriteTrackIDs: Set<String> = [],
     liveBatchTracks: [Track]? = nil,
     preflightState: PendingPreflightState = .due,
-    prepareMutationMetadata: (([Track]) async throws -> Void)? = { _ in }
+    prepareMutationMetadata: (([Track]) async throws -> Void)? = noOpPrepareMutationMetadata
 ) -> RandomAccessLiveBatchRun {
     let batchTracks = liveBatchTracks ?? [batchYearTrack()]
     let batchTrackIDs = Set(batchTracks.map(\.id))

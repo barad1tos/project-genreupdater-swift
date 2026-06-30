@@ -569,6 +569,49 @@ struct LibrarySyncServiceTests {
         #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
     }
 
+    @Test("Read provider removal resolution preserves partial AppleScript metadata")
+    func readProviderRemovalResolutionPreservesPartialAppleScriptMetadata() async {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate
+        )
+        let storedTrack = Track(
+            id: "MK-1",
+            name: "Existing",
+            artist: "A",
+            album: "B",
+            genre: "Metal",
+            year: 1986,
+            releaseYear: 1986,
+            albumArtist: "Metallica",
+            appleScriptID: nil
+        )
+        let partialMetadataTrack = Track(
+            id: "MK-1",
+            name: "Existing",
+            artist: "A",
+            album: "B",
+            appleScriptID: "AS-1"
+        )
+
+        let persistedTrack = await service.readProviderPersistenceTrack(
+            current: partialMetadataTrack,
+            stored: storedTrack,
+            appleScriptMetadata: partialMetadataTrack
+        )
+
+        #expect(persistedTrack.genre == "Metal")
+        #expect(persistedTrack.year == 1986)
+        #expect(persistedTrack.releaseYear == 1986)
+        #expect(persistedTrack.albumArtist == "Metallica")
+        #expect(persistedTrack.appleScriptID == "AS-1")
+    }
+
     @Test("Read provider force scan refreshes AppleScript mutation metadata")
     func readProviderForceScanRefreshesAppleScriptMutationMetadata() async throws {
         let bridge = SyncMockScriptClient()
@@ -620,6 +663,66 @@ struct LibrarySyncServiceTests {
         #expect(storedTrack.genre == "Thrash Metal")
         #expect(storedTrack.year == 1988)
         #expect(storedTrack.releaseYear == 1988)
+        #expect(await bridge.fetchTracksRequestCount() == 1)
+    }
+
+    @Test("Read provider force scan preserves cleared AppleScript mutation metadata")
+    func readProviderForceScanPreservesClearedAppleScriptMutationMetadata() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let readProvider = SyncMockReadProvider()
+
+        await readProvider.setTracks([
+            Track(
+                id: "MK-1",
+                name: "Existing",
+                artist: "A",
+                album: "B",
+                genre: "MusicKit Genre",
+                releaseYear: 2024,
+                albumArtist: "MusicKit Album Artist"
+            ),
+        ])
+        await bridge.setLibrary(ids: ["AS-1"], tracks: [
+            "AS-1": Track(
+                id: "AS-1",
+                name: "Existing",
+                artist: "A",
+                album: "B",
+                appleScriptID: "AS-1"
+            ),
+        ])
+        await store.setStored([
+            Track(
+                id: "MK-1",
+                name: "Existing",
+                artist: "A",
+                album: "B",
+                genre: "Metal",
+                year: 1986,
+                releaseYear: 1986,
+                albumArtist: "Metallica",
+                appleScriptID: "AS-1"
+            ),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            readProvider: readProvider
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+        let storedTrack = try #require(await store.getTrack(byID: "MK-1"))
+
+        #expect(result.modifiedTracks.map(\.id) == ["MK-1"])
+        #expect(storedTrack.genre == nil)
+        #expect(storedTrack.year == nil)
+        #expect(storedTrack.releaseYear == nil)
+        #expect(storedTrack.albumArtist == nil)
+        #expect(storedTrack.appleScriptID == "AS-1")
         #expect(await bridge.fetchTracksRequestCount() == 1)
     }
 

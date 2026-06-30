@@ -50,22 +50,31 @@ struct BorderedButton: View {
     let title: String
     var symbol: String?
     var enabled: Bool = true
-    let action: () -> Void
+    var action: (() -> Void)?
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                if let symbol { Image(systemName: symbol) }
-                Text(title)
+        Button(
+            action: {
+                action?()
+            },
+            label: {
+                HStack(spacing: 7) {
+                    if let symbol { Image(systemName: symbol) }
+                    Text(title)
+                }
+                .font(.system(size: 13, weight: .medium))
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(Ayu.controlFillStrong, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Ayu.glassBorderStrong))
+                .foregroundStyle(Ayu.fg)
             }
-            .font(.system(size: 13, weight: .medium))
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(Ayu.controlFillStrong, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Ayu.glassBorderStrong))
-            .foregroundStyle(Ayu.fg)
-        }
+        )
         .buttonStyle(.plain)
-        .opacity(enabled ? 1 : 0.55)
-        .disabled(!enabled)
+        .opacity(isEnabled ? 1 : 0.55)
+        .disabled(!isEnabled)
+    }
+
+    private var isEnabled: Bool {
+        enabled && action != nil
     }
 }
 

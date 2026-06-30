@@ -5,7 +5,7 @@ import SwiftUI
 /// Genre / Year / Consistency so the weak link reads instantly.
 struct LibraryHealthGauge: View {
     let snap: HealthSnapshot
-    var onReview: () -> Void = {}
+    var onReview: (() -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draw: CGFloat = 0
@@ -147,15 +147,20 @@ struct LibraryHealthGauge: View {
                             .overlay(Capsule().strokeBorder(Ayu.warning.opacity(0.28)))
                     }
 
-                    Button(action: onReview) {
-                        Text(snap.ready > 0 ? "Review changes" : "Up to date")
-                            .font(.system(size: 13, weight: .bold))
-                            .padding(.horizontal, 18).padding(.vertical, 9)
-                            .background(snap.ready > 0 ? Ayu.accent : Ayu.success.opacity(0.16), in: Capsule())
-                            .foregroundStyle(snap.ready > 0 ? Ayu.onAccent : Ayu.success)
-                    }
+                    Button(
+                        action: {
+                            onReview?()
+                        },
+                        label: {
+                            Text(snap.ready > 0 ? "Review changes" : "Up to date")
+                                .font(.system(size: 13, weight: .bold))
+                                .padding(.horizontal, 18).padding(.vertical, 9)
+                                .background(snap.ready > 0 ? Ayu.accent : Ayu.success.opacity(0.16), in: Capsule())
+                                .foregroundStyle(snap.ready > 0 ? Ayu.onAccent : Ayu.success)
+                        }
+                    )
                     .buttonStyle(.plain)
-                    .disabled(snap.ready == 0)
+                    .disabled(snap.ready == 0 || onReview == nil)
                     .padding(.top, 4)
                 }
                 .position(x: center.x, y: center.y - radius * 0.34)

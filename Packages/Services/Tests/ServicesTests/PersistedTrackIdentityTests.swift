@@ -50,4 +50,25 @@ struct PersistedTrackIdentityTests {
         #expect(persisted.appleScriptID == "AS-NEW")
         #expect(persisted.genreUpdated)
     }
+
+    @Test("Update preserves AppleScript ID when refreshed from MusicKit-only rows")
+    func updatePreservesAppleScriptIDWhenMusicKitRowHasNoMutationID() {
+        let persisted = PersistedTrack(from: Track(
+            id: "MK-TRACK-1",
+            name: "Battery",
+            artist: "Metallica",
+            album: "Master of Puppets",
+            appleScriptID: "AS-OLD"
+        ))
+
+        persisted.update(from: Track(
+            id: "MK-TRACK-1",
+            name: "Battery",
+            artist: "Metallica",
+            album: "Master of Puppets",
+            appleScriptID: nil
+        ))
+
+        #expect(persisted.appleScriptID == "AS-OLD")
+    }
 }

@@ -116,7 +116,7 @@ extension PersistedTrack {
         album = track.album
         genre = track.genre
         year = track.year
-        appleScriptID = track.appleScriptID
+        appleScriptID = track.appleScriptID ?? appleScriptID
         dateAdded = track.dateAdded
         albumArtist = track.albumArtist
         trackStatus = track.trackStatus
