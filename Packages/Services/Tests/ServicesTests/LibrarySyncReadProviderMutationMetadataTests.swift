@@ -37,8 +37,8 @@ struct ReadProviderMetadataTests {
         #expect(await bridge.fetchedArtists().compactMap(\.self) == ["Scoped Artist"])
     }
 
-    @Test("Read provider mutation metadata treats empty scoped fetch as removal evidence")
-    func readProviderMutationMetadataTreatsEmptyScopedFetchAsRemovalEvidence() async throws {
+    @Test("Read provider mutation metadata verifies empty scoped fetches before removal")
+    func readProviderMutationMetadataVerifiesEmptyScopedFetchesBeforeRemoval() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let gate = await FeatureGate(fixedTier: .free)
@@ -50,6 +50,9 @@ struct ReadProviderMetadataTests {
         await store.setStored([
             Track(id: "MK-current", name: "Current", artist: "Stable Artist", album: "B"),
             Track(id: "MK-removed", name: "Removed", artist: "Scoped Artist", album: "B", appleScriptID: nil),
+        ])
+        await bridge.setLibrary(ids: ["AS-other"], tracks: [
+            "AS-other": Track(id: "AS-other", name: "Other", artist: "Other Artist", album: "B"),
         ])
         await bridge.setArtistTracks([], for: "Scoped Artist")
 
@@ -63,8 +66,8 @@ struct ReadProviderMetadataTests {
         let result = try await service.detectChanges()
 
         #expect(result.removedTrackIDs == ["MK-removed"])
-        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
-        #expect(await bridge.fetchTracksRequestCount() == 0)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+        #expect(await bridge.fetchTracksRequestCount() == 1)
         #expect(await bridge.fetchedArtists().compactMap(\.self) == ["Scoped Artist"])
     }
 

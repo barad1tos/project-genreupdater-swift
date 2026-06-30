@@ -259,8 +259,8 @@ struct LibrarySyncServiceTests {
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
-            Track(id: "MK-1", name: "First", artist: "A", album: "B"),
-            Track(id: "MK-1", name: "Latest", artist: "A", album: "B"),
+            Track(id: "MK-1", name: "First", artist: "", album: "B"),
+            Track(id: "MK-1", name: "Latest", artist: "", album: "B"),
         ])
 
         let service = LibrarySyncService(
@@ -276,7 +276,7 @@ struct LibrarySyncServiceTests {
         #expect(result.removedTrackIDs.isEmpty)
         #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
         #expect(await bridge.fetchTracksRequestCount() == 0)
-        #expect(await bridge.fetchedArtists().compactMap(\.self) == ["A"])
+        #expect(await bridge.fetchedArtists().isEmpty)
     }
 
     @Test("Read provider sync confirms removals through AppleScript IDs")

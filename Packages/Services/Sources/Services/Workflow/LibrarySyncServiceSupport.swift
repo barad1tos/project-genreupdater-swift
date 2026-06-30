@@ -6,7 +6,6 @@ extension LibrarySyncService {
     struct MutationMetadataFetch {
         let tracks: [Track]
         let absenceEligibleMusicKitIDs: Set<String>
-        let canConfirmAbsenceWhenEmpty: Bool
     }
 
     private static let readProviderLogger = Logger(
@@ -124,6 +123,24 @@ extension LibrarySyncService {
             }
             return hasQueriedScope ? track.id : nil
         })
+    }
+
+    func fetchFullLibraryMutationMetadata(for tracks: [Track]) async throws -> MutationMetadataFetch {
+        let appleScriptTrackIDs = try await scriptBridge.fetchAllTrackIDs(
+            timeout: runtimeConfiguration.fullLibraryFetchTimeout
+        )
+        guard !appleScriptTrackIDs.isEmpty else {
+            return MutationMetadataFetch(tracks: [], absenceEligibleMusicKitIDs: [])
+        }
+        let appleScriptTracks = try await scriptBridge.fetchTracksByIDs(
+            appleScriptTrackIDs,
+            batchSize: runtimeConfiguration.idsBatchSize,
+            timeout: runtimeConfiguration.idsBatchFetchTimeout
+        )
+        return MutationMetadataFetch(
+            tracks: appleScriptTracks,
+            absenceEligibleMusicKitIDs: Set(tracks.map(\.id))
+        )
     }
 
     func cacheInvalidationTargets(for track: Track) -> [(artist: String, album: String)] {

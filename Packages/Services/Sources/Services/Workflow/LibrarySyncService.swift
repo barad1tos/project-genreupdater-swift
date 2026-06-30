@@ -273,7 +273,7 @@ public actor LibrarySyncService {
             log.warning("Skipped MusicKit mutation metadata backfill because candidates have no artist scope")
             return ([:], [])
         }
-        guard !mutationMetadataFetch.tracks.isEmpty || mutationMetadataFetch.canConfirmAbsenceWhenEmpty else {
+        guard !mutationMetadataFetch.tracks.isEmpty else {
             log.warning("Skipped MusicKit mutation metadata backfill because AppleScript returned no candidate tracks")
             return ([:], [])
         }
@@ -308,26 +308,7 @@ public actor LibrarySyncService {
               let artist = artists.first,
               !hasMutationMetadataScopeLessCandidates(for: tracks)
         else {
-            let appleScriptTrackIDs = try await scriptBridge.fetchAllTrackIDs(
-                timeout: runtimeConfiguration.fullLibraryFetchTimeout
-            )
-            guard !appleScriptTrackIDs.isEmpty else {
-                return MutationMetadataFetch(
-                    tracks: [],
-                    absenceEligibleMusicKitIDs: [],
-                    canConfirmAbsenceWhenEmpty: false
-                )
-            }
-            let appleScriptTracks = try await scriptBridge.fetchTracksByIDs(
-                appleScriptTrackIDs,
-                batchSize: runtimeConfiguration.idsBatchSize,
-                timeout: runtimeConfiguration.idsBatchFetchTimeout
-            )
-            return MutationMetadataFetch(
-                tracks: appleScriptTracks,
-                absenceEligibleMusicKitIDs: Set(tracks.map(\.id)),
-                canConfirmAbsenceWhenEmpty: false
-            )
+            return try await fetchFullLibraryMutationMetadata(for: tracks)
         }
 
         var tracksByAppleScriptID: [String: Track] = [:]
@@ -336,6 +317,9 @@ public actor LibrarySyncService {
             // fetch_tracks scans Music.app before applying the artist filter, so keep the full-library timeout.
             timeout: runtimeConfiguration.fullLibraryFetchTimeout
         )
+        guard !artistTracks.isEmpty else {
+            return try await fetchFullLibraryMutationMetadata(for: tracks)
+        }
         for track in artistTracks {
             tracksByAppleScriptID[track.appleScriptID ?? track.id] = track
         }
@@ -344,8 +328,7 @@ public actor LibrarySyncService {
             absenceEligibleMusicKitIDs: mutationMetadataAbsenceEligibleTrackIDs(
                 for: tracks,
                 artist: artist
-            ),
-            canConfirmAbsenceWhenEmpty: true
+            )
         )
     }
 
