@@ -8,6 +8,12 @@ private struct PreparedAppleScriptWrite {
     let value: String
 }
 
+private enum PreparedAppleScriptWriteOutcome {
+    case write(PreparedAppleScriptWrite)
+    case noOp(ChangeLogEntry)
+    case skipped
+}
+
 private struct BatchWriteOutcome {
     let currentTracksByID: [String: Track]
     let appliedIndexes: Set<Int>
@@ -70,6 +76,7 @@ extension UpdateCoordinator {
     ) async throws -> AppliedChangeEntries {
         if let applied = try await applyChangesAsBatchIfPossible(
             changes,
+            isReviewedChange: true,
             failedTrackIDs: &failedTrackIDs,
             errorDescriptions: &errorDescriptions
         ) {
@@ -80,7 +87,7 @@ extension UpdateCoordinator {
         var noOpEntries: [ChangeLogEntry] = []
         for change in changes {
             do {
-                let outcome = try await applyChangeOutcome(change)
+                let outcome = try await applyChangeOutcome(change, isReviewedChange: true)
                 if let entry = outcome.entry {
                     entries.append(entry)
                 }
@@ -150,6 +157,7 @@ extension UpdateCoordinator {
         let acceptedChanges = changes.filter(\.isAccepted)
         if let applied = try await applyChangesAsBatchIfPossible(
             acceptedChanges,
+            isReviewedChange: false,
             failedTrackIDs: &failedTrackIDs,
             errorDescriptions: &errorDescriptions
         ) {
@@ -160,7 +168,7 @@ extension UpdateCoordinator {
         var noOpEntries: [ChangeLogEntry] = []
         for change in acceptedChanges {
             do {
-                let outcome = try await applyChangeOutcome(change)
+                let outcome = try await applyChangeOutcome(change, isReviewedChange: false)
                 if let entry = outcome.entry {
                     entries.append(entry)
                 }
@@ -182,6 +190,7 @@ extension UpdateCoordinator {
 
     func applyChangesAsBatchIfPossible(
         _ changes: [ProposedChange],
+        isReviewedChange: Bool = true,
         failedTrackIDs: inout [String],
         errorDescriptions: inout [String]
     ) async throws -> AppliedChangeEntries? {
@@ -192,7 +201,10 @@ extension UpdateCoordinator {
             return nil
         }
 
-        guard let preparedWrites = try await prepareBatchWrites(changes) else {
+        guard let preparedWrites = try await prepareBatchWrites(
+            changes,
+            isReviewedChange: isReviewedChange
+        ) else {
             return nil
         }
 
@@ -276,11 +288,18 @@ extension UpdateCoordinator {
         )
     }
 
-    private func prepareBatchWrites(_ changes: [ProposedChange]) async throws -> [PreparedAppleScriptWrite]? {
+    private func prepareBatchWrites(
+        _ changes: [ProposedChange],
+        isReviewedChange: Bool
+    ) async throws -> [PreparedAppleScriptWrite]? {
         var preparedWrites: [PreparedAppleScriptWrite] = []
         for change in changes {
             do {
-                guard let preparedWrite = try await prepareAppleScriptWrite(for: change) else {
+                let outcome = try await prepareAppleScriptWrite(
+                    for: change,
+                    isReviewedChange: isReviewedChange
+                )
+                guard case let .write(preparedWrite) = outcome else {
                     return nil
                 }
                 preparedWrites.append(preparedWrite)
@@ -402,12 +421,29 @@ extension UpdateCoordinator {
     }
 
     @discardableResult
-    func applyChange(_ change: ProposedChange) async throws -> ChangeLogEntry? {
-        try await applyChangeOutcome(change).entry
+    func applyChange(
+        _ change: ProposedChange,
+        isReviewedChange: Bool = true
+    ) async throws -> ChangeLogEntry? {
+        try await applyChangeOutcome(change, isReviewedChange: isReviewedChange).entry
     }
 
-    func applyChangeOutcome(_ change: ProposedChange) async throws -> AppliedChangeOutcome {
-        guard let preparedWrite = try await prepareAppleScriptWrite(for: change) else {
+    func applyChangeOutcome(
+        _ change: ProposedChange,
+        isReviewedChange: Bool = true
+    ) async throws -> AppliedChangeOutcome {
+        let preparedOutcome = try await prepareAppleScriptWrite(
+            for: change,
+            isReviewedChange: isReviewedChange
+        )
+        let preparedWrite: PreparedAppleScriptWrite
+        switch preparedOutcome {
+        case let .write(write):
+            preparedWrite = write
+        case let .noOp(noOpEntry):
+            await invalidateCaches(for: change)
+            return (nil, noOpEntry)
+        case .skipped:
             return (nil, nil)
         }
 
@@ -440,16 +476,19 @@ extension UpdateCoordinator {
         return await (recordAppliedChange(change), nil)
     }
 
-    private func prepareAppleScriptWrite(for change: ProposedChange) async throws -> PreparedAppleScriptWrite? {
+    private func prepareAppleScriptWrite(
+        for change: ProposedChange,
+        isReviewedChange: Bool = true
+    ) async throws -> PreparedAppleScriptWriteOutcome {
         guard runtimeConfiguration.allowsChange(change) else {
             log
                 .info(
                     "Skipped change for track \(change.track.id, privacy: .private) outside test artist allow-list"
                 )
-            return nil
+            return .skipped
         }
 
-        guard let newValue = change.newValue else { return nil }
+        guard let newValue = change.newValue else { return .skipped }
         let mutationTrack = try await trackWithMutationMetadata(change.track)
         guard mutationTrack.canEdit else {
             throw UpdateCoordinatorError.trackNotEditable(trackID: mutationTrack.id)
@@ -459,6 +498,12 @@ extension UpdateCoordinator {
                 trackID: mutationTrack.id,
                 status: mutationTrack.trackStatus ?? "unknown"
             )
+        }
+        guard !isReviewedChange || shouldWriteReviewedChange(change, to: mutationTrack) else {
+            log.info(
+                "Skipped reviewed \(change.changeType.rawValue, privacy: .public) for track \(change.track.id, privacy: .private) after write preflight"
+            )
+            return .noOp(Self.noOpLogEntry(change))
         }
 
         let property = Self.appleScriptProperty(for: change.changeType)
@@ -473,12 +518,23 @@ extension UpdateCoordinator {
             writeID = mutationTrack.id
         }
 
-        return PreparedAppleScriptWrite(
-            change: change,
-            trackID: writeID,
-            property: property,
-            value: newValue
+        return .write(
+            PreparedAppleScriptWrite(
+                change: change,
+                trackID: writeID,
+                property: property,
+                value: newValue
+            )
         )
+    }
+
+    private func shouldWriteReviewedChange(_ change: ProposedChange, to mutationTrack: Track) -> Bool {
+        switch change.changeType {
+        case .yearUpdate:
+            !mutationTrack.hasBeenProcessed
+        case .genreUpdate, .trackCleaning, .albumCleaning, .artistRename, .yearRevert:
+            true
+        }
     }
 
     private func recordAppliedChange(_ change: ProposedChange) async -> ChangeLogEntry {

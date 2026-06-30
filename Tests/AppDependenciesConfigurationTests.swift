@@ -1,4 +1,5 @@
 import Core
+import DesignUI
 import Foundation
 import Testing
 @testable import Genre_Updater
@@ -145,6 +146,21 @@ struct AppDependenciesConfigurationTests {
         #expect(configuration.yearRetrieval.preferredAPI == .discogs)
         #expect(configuration.yearRetrieval.apiAuth.musicBrainzAppName == "GenreUpdaterTests/1.0")
         #expect(configuration.development.testArtists == ["Паліндром"])
+    }
+
+    @Test("DesignUI update behavior raw values stay aligned with app storage")
+    func designUpdateBehaviorRawValuesStayAlignedWithAppStorage() {
+        let pairs: [(app: UpdateBehavior, design: DesignUpdateBehavior)] = [
+            (.genreOnly, .genreOnly),
+            (.yearOnly, .yearOnly),
+            (.both, .both),
+        ]
+
+        for pair in pairs {
+            #expect(pair.app.rawValue == pair.design.rawValue)
+            #expect(UpdateBehavior(rawValue: pair.design.rawValue) == pair.app)
+            #expect(DesignUpdateBehavior(rawValue: pair.app.rawValue) == pair.design)
+        }
     }
 }
 

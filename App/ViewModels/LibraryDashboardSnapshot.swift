@@ -7,6 +7,21 @@ enum LibraryLoadError: Equatable {
     case restricted
     case failed(String)
 
+    static func make(from error: Error) -> Self {
+        guard let musicLibraryError = error as? MusicLibraryError else {
+            return .failed(error.localizedDescription)
+        }
+
+        switch musicLibraryError {
+        case .authorizationDenied:
+            return .permissionDenied
+        case .authorizationRestricted:
+            return .restricted
+        case .fetchFailed, .musicAppNotAvailable:
+            return .failed(error.localizedDescription)
+        }
+    }
+
     var message: String {
         switch self {
         case .permissionDenied:

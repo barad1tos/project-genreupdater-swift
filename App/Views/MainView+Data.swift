@@ -74,6 +74,7 @@ struct SelectedUpdateScopeConfiguration {
     }
 }
 
+/// Legacy workflow bridge retained until DesignUI owns equivalent browse/update flows.
 extension MainView {
     func startLibraryLoad(forceRefresh: Bool = false) {
         let requestID = UUID()
@@ -101,7 +102,7 @@ extension MainView {
     private func loadTracks(forceRefresh: Bool, requestID: UUID) async {
         libraryLoadRequestID = requestID
         libraryLoadError = nil
-        isMutationMetadataReady = false
+        isLibraryReadyForUpdates = false
         loadCachedSnapshot()
         ensureWorkflowViewModel()
 
@@ -112,51 +113,47 @@ extension MainView {
             }
         }
 
-        guard let reader = dependencies.musicReader else { return }
+        guard let provider = LibraryTrackLoader.liveProvider(from: dependencies) else { return }
         isLoading = true
 
         let loadStart = ContinuousClock.now
-        let scopedArtists = ArtistAllowList.normalized(dependencies.config.development.testArtists)
+        let scopedArtists = LibraryTrackLoader.scopedArtists(from: dependencies)
         var hasCachedTracks = false
 
         do {
-            if !forceRefresh, let cachedTracks = await dependencies.loadLibrarySnapshot() {
+            if let cachedLoad = await LibraryTrackLoader.cachedSnapshot(
+                from: dependencies,
+                scopedArtists: scopedArtists,
+                forceRefresh: forceRefresh
+            ) {
                 try Task.checkCancellation()
                 guard libraryLoadRequestID == requestID else { return }
-                let scopedCachedTracks = UpdateTrackScopeResolver.filteredByTestArtists(
-                    cachedTracks,
-                    testArtists: scopedArtists
-                )
-                tracks = scopedCachedTracks
-                browseViewModel.tracks = scopedCachedTracks
-                reconcileUpdateScope(with: scopedCachedTracks)
-                hasCachedTracks = !scopedCachedTracks.isEmpty
-                await recordLibraryLoad(source: "snapshot", count: scopedCachedTracks.count, startedAt: loadStart)
+                tracks = cachedLoad.tracks
+                browseViewModel.tracks = cachedLoad.tracks
+                reconcileUpdateScope(with: cachedLoad.tracks)
+                hasCachedTracks = cachedLoad.hasTracks
+                await recordLibraryLoad(source: "snapshot", count: cachedLoad.tracks.count, startedAt: loadStart)
             }
             try Task.checkCancellation()
-            try await reader.requestAuthorization()
-            try Task.checkCancellation()
-            await reader.updateTestArtists(scopedArtists)
-            let liveTracks = try await reader.fetchAllTracks()
-            try Task.checkCancellation()
+            let liveLoad = try await LibraryTrackLoader.liveTracks(
+                provider: provider,
+                scopedArtists: scopedArtists
+            )
             guard libraryLoadRequestID == requestID else { return }
-            let isMappingReady = await dependencies.refreshTrackIDMapping(musicKitTracks: liveTracks)
-            try Task.checkCancellation()
-            guard libraryLoadRequestID == requestID else { return }
-            isMutationMetadataReady = isMappingReady
-            tracks = liveTracks
-            await dependencies.persistLoadedLibraryTracks(liveTracks, scopedArtists: scopedArtists)
-            browseViewModel.tracks = liveTracks
-            reconcileUpdateScope(with: liveTracks)
-            lastLibraryScanDate = .now
-            saveMetricsSnapshot(from: liveTracks)
-            await recordLibraryLoad(source: "music", count: liveTracks.count, startedAt: loadStart)
+            isLibraryReadyForUpdates = liveLoad.isLibraryReadyForUpdates
+            tracks = liveLoad.tracks
+            await dependencies.persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)
+            browseViewModel.tracks = liveLoad.tracks
+            reconcileUpdateScope(with: liveLoad.tracks)
+            lastLibraryScanDate = liveLoad.scanDate
+            saveMetricsSnapshot(from: liveLoad.tracks)
+            await recordLibraryLoad(source: "music", count: liveLoad.tracks.count, startedAt: loadStart)
         } catch is CancellationError {
             return
         } catch {
             guard libraryLoadRequestID == requestID else { return }
             await dependencies.analyticsService?.trackError("library.load", error: error)
-            libraryLoadError = libraryLoadError(from: error)
+            libraryLoadError = LibraryLoadError.make(from: error)
             if !hasCachedTracks {
                 tracks = []
                 browseViewModel.tracks = []
@@ -182,6 +179,13 @@ extension MainView {
                 },
                 runMaintenancePreflight: {
                     await dependencies.runMaintenancePreflight()
+                },
+                prepareMutationMetadata: { tracks in
+                    _ = try await dependencies.refreshTrackIDMappingOrThrow(
+                        musicKitTracks: tracks,
+                        scopedArtists: dependencies.config.development.testArtists,
+                        mergeExisting: true
+                    )
                 },
                 resolveIncrementalTracks: { tracks, options in
                     let lastRunTime = await dependencies.incrementalRunTracker?.getLastRunTimestamp()
@@ -399,24 +403,9 @@ extension MainView {
             duration: loadStart.duration(to: .now),
             metadata: [
                 "source": source,
-                "trackCount": "\(count)",
+                "trackCount": "\(count)"
             ]
         )
-    }
-
-    private func libraryLoadError(from error: Error) -> LibraryLoadError {
-        guard let musicLibraryError = error as? MusicLibraryError else {
-            return .failed(error.localizedDescription)
-        }
-
-        switch musicLibraryError {
-        case .authorizationDenied:
-            return .permissionDenied
-        case .authorizationRestricted:
-            return .restricted
-        case .fetchFailed, .musicAppNotAvailable:
-            return .failed(error.localizedDescription)
-        }
     }
 }
 

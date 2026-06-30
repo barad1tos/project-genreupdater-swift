@@ -142,6 +142,7 @@ jobs:
           swiftlint lint --strict
           App
           Packages/Core/Sources
+          Packages/DesignUI/Sources
           Packages/Services/Sources
           Packages/SharedUI/Sources
 
@@ -150,6 +151,7 @@ jobs:
           swiftformat
           App
           Packages/Core/Sources
+          Packages/DesignUI/Sources
           Packages/Services/Sources
           Packages/SharedUI/Sources
           --lint

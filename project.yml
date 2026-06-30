@@ -21,6 +21,8 @@ packages:
     path: Packages/Services
   SharedUI:
     path: Packages/SharedUI
+  DesignUI:
+    path: Packages/DesignUI
   LucideIcons:
     url: https://github.com/JakubMazur/lucide-icons-swift.git
     from: 0.575.0
@@ -38,6 +40,7 @@ targets:
       - package: Core
       - package: Services
       - package: SharedUI
+      - package: DesignUI
       - package: LucideIcons
     postBuildScripts:
       - name: Compile and copy AppleScript files to bundle
@@ -95,6 +98,7 @@ targets:
     dependencies:
       - target: GenreUpdater
       - package: Core
+      - package: DesignUI
       - package: Services
       - package: SharedUI
     settings:

@@ -178,6 +178,7 @@ final class WorkflowViewModel {
     let featureGate: FeatureGate?
     let recordProcessedTracks: (Int) -> Void
     let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
+    let prepareMutationMetadata: (([Track]) async throws -> Void)?
     let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
     let invalidateAlbumYearCache: (() async -> Void)?
     let updateIncrementalRunTimestamp: (() async -> Void)?
@@ -200,6 +201,7 @@ final class WorkflowViewModel {
         featureGate = dependencies.featureGate
         recordProcessedTracks = dependencies.recordProcessedTracks
         runMaintenancePreflight = dependencies.runMaintenancePreflight
+        prepareMutationMetadata = dependencies.prepareMutationMetadata
         resolveIncrementalTracks = dependencies.resolveIncrementalTracks
         invalidateAlbumYearCache = dependencies.invalidateAlbumYearCache
         updateIncrementalRunTimestamp = dependencies.updateIncrementalRunTimestamp
@@ -288,7 +290,8 @@ final class WorkflowViewModel {
                 var allChanges: [ProposedChange] = []
                 let total = tracks.count
                 let contextTracks = contextTracks ?? tracks
-                let albumTracksByTrackID = await updateCoordinator.albumContextTracksByTrackID(for: contextTracks)
+
+                let albumTracksByTrackID = await dryRunAlbumTracksByTrackID(for: contextTracks)
                 let artistGroups = Self.groupTracksByArtist(contextTracks)
 
                 for (index, track) in tracks.enumerated() {
@@ -362,6 +365,13 @@ final class WorkflowViewModel {
         )
     }
 
+    private func dryRunAlbumTracksByTrackID(for tracks: [Track]) async -> [String: [Track]] {
+        await updateCoordinator.albumContextTracksByTrackID(
+            for: tracks,
+            requiresMutationMetadata: false
+        )
+    }
+
     // MARK: - Apply Accepted Changes
 
     /// Apply only the accepted proposed changes from the review phase.
@@ -375,6 +385,9 @@ final class WorkflowViewModel {
 
         processingTask = Task {
             do {
+                let acceptedTracks = Self.uniqueTracks(accepted.map(\.track))
+                guard await prepareMutationMetadataIfNeeded(tracks: acceptedTracks) else { return }
+
                 let batchResult = try await updateCoordinator.applyAcceptedChanges(
                     accepted,
                     progressHandler: makeApplyProgressHandler()
@@ -439,11 +452,7 @@ final class WorkflowViewModel {
 
         processingTask = Task { [runMaintenancePreflight] in
             let processingTracks = await tracksForProcessing(tracks)
-            if Task.isCancelled {
-                phase = .configure
-                progress = nil
-                return
-            }
+            guard !stopProcessingIfCancelled() else { return }
 
             totalCount = processingTracks.count
             computeScopePreview(tracks: processingTracks)
@@ -453,12 +462,12 @@ final class WorkflowViewModel {
                 return
             }
 
-            let preflightResult = await runMaintenancePreflight?()
-            if Task.isCancelled {
-                phase = .configure
-                progress = nil
-                return
+            if shouldRunBatch {
+                guard await prepareMutationMetadataIfNeeded(tracks: processingTracks) else { return }
             }
+
+            let preflightResult = await runMaintenancePreflight?()
+            guard !stopProcessingIfCancelled() else { return }
             maintenancePreflightResult = preflightResult
 
             let pendingVerificationOutcome: PendingEntryOutcome
@@ -467,11 +476,7 @@ final class WorkflowViewModel {
                     preflightResult: preflightResult,
                     tracks: tracks
                 )
-                if Task.isCancelled {
-                    phase = .configure
-                    progress = nil
-                    return
-                }
+                guard !stopProcessingIfCancelled() else { return }
                 guard isProcessing else { return }
             } else {
                 pendingVerificationOutcome = PendingEntryOutcome()
@@ -494,6 +499,48 @@ final class WorkflowViewModel {
                 startDryRun(tracks: processingTracks, contextTracks: tracks)
             }
         }
+    }
+
+    func prepareMutationMetadataIfNeeded(tracks: [Track]) async -> Bool {
+        guard !tracks.isEmpty else { return true }
+        guard let prepareMutationMetadata else {
+            phase = .error("Music write metadata service is unavailable")
+            progress = nil
+            return false
+        }
+
+        progress = ProgressUpdate(
+            phase: .fetching,
+            current: 0,
+            total: tracks.count,
+            message: "Preparing Music write metadata"
+        )
+        do {
+            try await prepareMutationMetadata(tracks)
+        } catch is CancellationError {
+            finishCancelledProcessing()
+            return false
+        } catch {
+            phase = .error(error.localizedDescription)
+            progress = nil
+            return false
+        }
+        if Task.isCancelled {
+            finishCancelledProcessing()
+            return false
+        }
+        return true
+    }
+
+    private func stopProcessingIfCancelled() -> Bool {
+        guard Task.isCancelled else { return false }
+        finishCancelledProcessing()
+        return true
+    }
+
+    func finishCancelledProcessing() {
+        phase = .configure
+        progress = nil
     }
 
     private func shouldStopAfterPendingPreflight(

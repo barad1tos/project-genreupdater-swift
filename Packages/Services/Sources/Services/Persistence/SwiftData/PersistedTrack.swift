@@ -18,6 +18,8 @@ public final class PersistedTrack {
     @Attribute(.unique)
     public var trackID: String
 
+    public var appleScriptID: String?
+
     public var name: String
     public var artist: String
     public var album: String
@@ -37,6 +39,7 @@ public final class PersistedTrack {
 
     public init(
         trackID: String,
+        appleScriptID: String? = nil,
         name: String,
         artist: String,
         album: String,
@@ -52,6 +55,7 @@ public final class PersistedTrack {
         releaseYear: Int? = nil
     ) {
         self.trackID = trackID
+        self.appleScriptID = appleScriptID
         self.name = name
         self.artist = artist
         self.album = album
@@ -75,6 +79,7 @@ extension PersistedTrack {
     public convenience init(from track: Core.Track) {
         self.init(
             trackID: track.id,
+            appleScriptID: track.appleScriptID,
             name: track.name,
             artist: track.artist,
             album: track.album,
@@ -99,7 +104,8 @@ extension PersistedTrack {
             dateAdded: dateAdded,
             trackStatus: trackStatus,
             releaseYear: releaseYear,
-            albumArtist: albumArtist
+            albumArtist: albumArtist,
+            appleScriptID: appleScriptID
         )
     }
 
@@ -110,6 +116,7 @@ extension PersistedTrack {
         album = track.album
         genre = track.genre
         year = track.year
+        appleScriptID = track.appleScriptID ?? appleScriptID
         dateAdded = track.dateAdded
         albumArtist = track.albumArtist
         trackStatus = track.trackStatus

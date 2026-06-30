@@ -1,0 +1,131 @@
+import Charts
+import SwiftUI
+
+struct ReportsView: View {
+    @Bindable var model: AppModel
+    private let cols = [GridItem(.adaptive(minimum: 260), spacing: 14)]
+
+    var body: some View {
+        let st = model.data.reportStats
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .lastTextBaseline) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Reports").font(.system(size: 24, weight: .heavy))
+                        HStack(spacing: 26) {
+                            stat("\(st.processed)", "Changes", .neutral)
+                            stat("\(st.genres)", "Genres updated", .purple)
+                            stat("\(st.years)", "Years updated", .info)
+                        }
+                    }
+                    Spacer()
+                    TagPill(text: "Read-only", tone: .neutral)
+                }
+
+                GlassCard(padding: 0) {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 9) {
+                            Image(systemName: "clock.arrow.circlepath").foregroundStyle(Ayu.purple)
+                            Text("Change log").font(.system(size: 14.5, weight: .bold))
+                            Spacer()
+                        }
+                        .padding(.horizontal, 18).padding(.vertical, 13)
+                        Divider().overlay(Ayu.glassBorder)
+
+                        if model.data.changeLog.isEmpty {
+                            Text("No persisted audit entries yet")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Ayu.fg2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 14)
+                        } else {
+                            ForEach(model.data.changeLog) { change in
+                                HStack(spacing: 13) {
+                                    Text(change.time)
+                                        .font(.system(size: 11).monospacedDigit())
+                                        .foregroundStyle(Ayu.fgMuted)
+                                        .frame(width: 58, alignment: .leading)
+                                    Image(systemName: change.type.symbol)
+                                        .foregroundStyle(change.type.tone.color)
+                                        .frame(width: 18)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(change.track)
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(Ayu.fg)
+                                            .lineLimit(1)
+                                        Text(change.artist)
+                                            .font(.system(size: 11.5))
+                                            .foregroundStyle(Ayu.fg2)
+                                    }
+                                    Spacer()
+                                    DiffRow(old: change.old, new: change.new)
+                                    if let confidence = change.conf {
+                                        ConfidenceBadge(conf: confidence)
+                                    }
+                                }
+                                .padding(.horizontal, 18).padding(.vertical, 11)
+                                Divider().overlay(Ayu.glassBorder)
+                            }
+                        }
+                    }
+                }
+
+                LazyVGrid(columns: cols, spacing: 14) {
+                    chartCard("Genre distribution", "chart.bar", .purple) {
+                        Chart(model.data.genreDistribution) { datum in
+                            BarMark(x: .value("Count", datum.count), y: .value("Genre", datum.label))
+                                .foregroundStyle(Ayu.purple)
+                        }
+                        .frame(height: 160)
+                    }
+                    chartCard("Changes over time", "chart.line.uptrend.xyaxis", .accent) {
+                        Chart(model.data.updatesOverTime) { datum in
+                            AreaMark(x: .value("Week", datum.label), y: .value("Count", datum.count))
+                                .foregroundStyle(Ayu.accent.opacity(0.25))
+                            LineMark(x: .value("Week", datum.label), y: .value("Count", datum.count))
+                                .foregroundStyle(Ayu.accent)
+                        }
+                        .frame(height: 160)
+                    }
+                    chartCard("Year distribution", "calendar", .info) {
+                        Chart(model.data.yearDistribution) { datum in
+                            BarMark(x: .value("Decade", datum.label), y: .value("Count", datum.count))
+                                .foregroundStyle(Ayu.info)
+                        }
+                        .frame(height: 160)
+                    }
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: 1320, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Ayu.window)
+        .navigationTitle("Reports")
+    }
+
+    private func stat(_ value: String, _ label: String, _ tone: Tone) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value).font(.rounded(26, .heavy)).foregroundStyle(tone == .neutral ? Ayu.fg : tone.color)
+            Text(label).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Ayu.fg2)
+        }
+    }
+
+    private func chartCard(
+        _ title: String,
+        _ symbol: String,
+        _ tone: Tone,
+        @ViewBuilder _ chart: () -> some View
+    ) -> some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 9) {
+                    Image(systemName: symbol).foregroundStyle(tone.color)
+                    Text(title).font(.system(size: 14.5, weight: .bold))
+                }
+                chart()
+            }
+        }
+    }
+}

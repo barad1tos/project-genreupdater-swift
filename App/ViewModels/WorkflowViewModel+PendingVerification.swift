@@ -184,7 +184,15 @@ extension WorkflowViewModel {
             )
             guard !dueEntries.isEmpty else { return PendingEntryOutcome() }
 
-            let trackContext = await pendingVerificationTrackContext(from: tracks)
+            let pendingScopeTracks = Self.pendingMutationPreparationTracks(
+                tracks,
+                entries: dueEntries
+            )
+            guard await prepareMutationMetadataIfNeeded(tracks: pendingScopeTracks) else {
+                return PendingEntryOutcome()
+            }
+
+            let trackContext = await pendingVerificationTrackContext(from: pendingScopeTracks)
             preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
             let outcome = try await performPendingVerification(
                 dueEntries: dueEntries,
@@ -628,6 +636,39 @@ extension WorkflowViewModel {
         return sortedForBatchProcessing(matchedTracks)
     }
 
+    private static func pendingMutationPreparationTracks(
+        _ tracks: [Track],
+        entries: [PendingAlbumEntry]
+    ) -> [Track] {
+        var seenTrackIDs: Set<String> = []
+        var candidateTracks: [Track] = []
+
+        let tracksByAlbumTitle = Dictionary(grouping: tracks) { track in
+            normalizeForMatching(track.album)
+        }
+        for entry in entries {
+            let exactMatches = tracksMatchingPendingEntries(tracks, entries: [entry])
+            let entryTracks: [Track]
+            if exactMatches.isEmpty {
+                let albumTitleKey = normalizeForMatching(entry.album)
+                if !albumTitleKey.isEmpty {
+                    entryTracks = tracksByAlbumTitle[albumTitleKey] ?? []
+                } else {
+                    entryTracks = []
+                }
+            } else {
+                entryTracks = exactMatches
+            }
+
+            for track in sortedForBatchProcessing(entryTracks)
+                where seenTrackIDs.insert(track.id).inserted {
+                candidateTracks.append(track)
+            }
+        }
+
+        return sortedForBatchProcessing(candidateTracks)
+    }
+
     static func pendingAlbumTracks(
         for entry: PendingAlbumEntry,
         in albumGroups: [String: [Track]]
@@ -787,7 +828,7 @@ extension WorkflowViewModel {
         ]
     }
 
-    private static func uniqueTracks(_ tracks: [Track]) -> [Track] {
+    static func uniqueTracks(_ tracks: [Track]) -> [Track] {
         var seenTrackIDs: Set<String> = []
         return tracks.filter { track in
             seenTrackIDs.insert(track.id).inserted

@@ -129,7 +129,8 @@ public actor TrackIDMapper: TrackIDMapping {
             yearSetByMGU: musicKitTrack.yearSetByMGU,
             releaseYear: appleScriptTrack.releaseYear ?? musicKitTrack.releaseYear,
             originalPosition: musicKitTrack.originalPosition,
-            albumArtist: appleScriptTrack.albumArtist ?? musicKitTrack.albumArtist
+            albumArtist: appleScriptTrack.albumArtist ?? musicKitTrack.albumArtist,
+            appleScriptID: appleScriptTrack.appleScriptID ?? appleScriptTrack.id
         )
     }
 

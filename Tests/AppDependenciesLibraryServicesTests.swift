@@ -74,7 +74,7 @@ struct AppDependenciesLibraryServicesTests {
 
         #expect(
             compactSource.contains(
-                "await dependencies.persistLoadedLibraryTracks(liveTracks, scopedArtists: scopedArtists)"
+                "await dependencies.persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)"
             )
         )
     }

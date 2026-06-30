@@ -2,136 +2,19 @@ import Core
 import Foundation
 import OSLog
 
-// MARK: - Sync Error
-
-public enum LibrarySyncError: Error, LocalizedError {
-    case featureNotAvailable(feature: AppFeature, currentTier: Tier)
-    case syncAlreadyRunning
-
-    public var errorDescription: String? {
-        switch self {
-        case let .featureNotAvailable(feature, tier):
-            "\(feature.rawValue) requires a higher tier than \(tier)"
-        case .syncAlreadyRunning:
-            "Auto-sync is already running"
-        }
-    }
-}
-
-// MARK: - Sync Result
-
-/// Result of comparing the current library state against the last known state.
-public struct SyncResult: Sendable {
-    public let newTracks: [Track]
-    public let modifiedTracks: [Track]
-    /// Tracks whose album lookup identity changed without a managed metadata delta.
-    public let identityChangedTracks: [Track]
-    /// Tracks whose display metadata changed without managed metadata or album identity changes.
-    public let refreshedTracks: [Track]
-    public let removedTrackIDs: [String]
-
-    public var hasChanges: Bool {
-        !newTracks.isEmpty
-            || !modifiedTracks.isEmpty
-            || !identityChangedTracks.isEmpty
-            || !refreshedTracks.isEmpty
-            || !removedTrackIDs.isEmpty
-    }
-
-    public init(
-        newTracks: [Track] = [],
-        modifiedTracks: [Track] = [],
-        identityChangedTracks: [Track] = [],
-        refreshedTracks: [Track] = [],
-        removedTrackIDs: [String] = []
-    ) {
-        self.newTracks = newTracks
-        self.modifiedTracks = modifiedTracks
-        self.identityChangedTracks = identityChangedTracks
-        self.refreshedTracks = refreshedTracks
-        self.removedTrackIDs = removedTrackIDs
-    }
-}
-
-/// Result of validating the persisted track database against Music.app.
-public struct DatabaseVerificationResult: Sendable, Equatable {
-    public let verifiedTrackCount: Int
-    public let removedTrackIDs: [String]
-    public let skippedDueToRecentVerification: Bool
-
-    public var removedCount: Int {
-        removedTrackIDs.count
-    }
-
-    public init(
-        verifiedTrackCount: Int,
-        removedTrackIDs: [String],
-        skippedDueToRecentVerification: Bool = false
-    ) {
-        self.verifiedTrackCount = verifiedTrackCount
-        self.removedTrackIDs = removedTrackIDs
-        self.skippedDueToRecentVerification = skippedDueToRecentVerification
-    }
-}
-
-// MARK: - Library Sync Service
-
-/// Runtime settings used while reading library state through AppleScript.
-public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
-    public let idsBatchSize: Int
-    public let fullLibraryFetchTimeout: Duration
-    public let idsBatchFetchTimeout: Duration
-    public let databaseVerificationBatchSize: Int
-    public let databaseVerificationIntervalDays: Int
-    public let forceMetadataScanIntervalDays: Int
-    public let logsBaseDirectory: String
-    public let lastDatabaseVerifyLog: String
-
-    public init(
-        idsBatchSize: Int = BatchProcessingConfig().idsBatchSize,
-        fullLibraryFetchTimeout: Duration = AppleScriptTimeouts().fullLibraryFetch,
-        idsBatchFetchTimeout: Duration = AppleScriptTimeouts().idsBatchFetch,
-        databaseVerificationBatchSize: Int = DatabaseVerificationConfig().batchSize,
-        databaseVerificationIntervalDays: Int = DatabaseVerificationConfig().autoVerifyDays,
-        forceMetadataScanIntervalDays: Int = 7,
-        logsBaseDirectory: String = PathsConfig().logsBaseDirectory,
-        lastDatabaseVerifyLog: String = LoggingConfig().lastDatabaseVerifyLog
-    ) {
-        self.idsBatchSize = max(1, idsBatchSize)
-        self.fullLibraryFetchTimeout = fullLibraryFetchTimeout
-        self.idsBatchFetchTimeout = idsBatchFetchTimeout
-        self.databaseVerificationBatchSize = max(1, databaseVerificationBatchSize)
-        self.databaseVerificationIntervalDays = max(0, databaseVerificationIntervalDays)
-        self.forceMetadataScanIntervalDays = max(0, forceMetadataScanIntervalDays)
-        self.logsBaseDirectory = logsBaseDirectory
-        self.lastDatabaseVerifyLog = lastDatabaseVerifyLog
-    }
-
-    public init(configuration: AppConfiguration) {
-        self.init(
-            idsBatchSize: configuration.applescript.batchProcessing.idsBatchSize,
-            fullLibraryFetchTimeout: configuration.applescript.timeouts.fullLibraryFetch,
-            idsBatchFetchTimeout: configuration.applescript.timeouts.idsBatchFetch,
-            databaseVerificationBatchSize: configuration.databaseVerification.batchSize,
-            databaseVerificationIntervalDays: configuration.databaseVerification.autoVerifyDays,
-            logsBaseDirectory: configuration.paths.effectiveLogsBaseDirectory,
-            lastDatabaseVerifyLog: configuration.logging.lastDatabaseVerifyLog
-        )
-    }
-}
-
 /// Detects library changes and suggests updates for new/modified tracks.
 ///
 /// Manual sync (all tiers): compare current library IDs against stored state.
 /// Auto-sync (Pro only): periodic background polling with configurable interval.
 public actor LibrarySyncService {
-    private let scriptBridge: any AppleScriptClient
-    private let trackStore: any TrackStateStore
+    let scriptBridge: any AppleScriptClient
+    let trackStore: any TrackStateStore
     private let featureGate: FeatureGate
     private let cache: (any CacheService)?
+    private let readProvider: (any LibraryReadProvider)?
     private var pendingVerificationService: (any PendingVerificationService)?
     private var librarySnapshotService: (any LibrarySnapshotService)?
-    private var runtimeConfiguration: LibrarySyncRuntimeConfiguration
+    private(set) var runtimeConfiguration: LibrarySyncRuntimeConfiguration
     private let currentDate: @Sendable () -> Date
     private var autoSyncTask: Task<Void, Never>?
     private let log = Logger(subsystem: "com.genreupdater", category: "LibrarySyncService")
@@ -144,12 +27,14 @@ public actor LibrarySyncService {
         pendingVerificationService: (any PendingVerificationService)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runtimeConfiguration: LibrarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(),
-        currentDate: @escaping @Sendable () -> Date = { Date() }
+        currentDate: @escaping @Sendable () -> Date = { Date() },
+        readProvider: (any LibraryReadProvider)? = nil
     ) {
         self.scriptBridge = scriptBridge
         self.trackStore = trackStore
         self.featureGate = featureGate
         self.cache = cache
+        self.readProvider = readProvider
         self.pendingVerificationService = pendingVerificationService
         self.librarySnapshotService = librarySnapshotService
         self.runtimeConfiguration = runtimeConfiguration
@@ -174,13 +59,24 @@ public actor LibrarySyncService {
 
     /// Detect changes between the current Music.app library and stored state.
     public func detectChanges(forceMetadataRefresh: Bool = false) async throws -> SyncResult {
-        let libraryIDs = try await scriptBridge.fetchAllTrackIDs(
-            timeout: runtimeConfiguration.fullLibraryFetchTimeout
-        )
-        let storedTracks = try await trackStore.loadAllTracks()
-        let storedByID = Dictionary(uniqueKeysWithValues: storedTracks.map { ($0.id, $0) })
+        // MusicKit Song does not expose Music.app album artist. Scoped test runs use
+        // AppleScript so testArtists keep the same effectiveArtist semantics as writes.
+        if let readProvider, runtimeConfiguration.testArtists.isEmpty {
+            return try await detectChangesWithReadProvider(
+                readProvider,
+                forceMetadataRefresh: forceMetadataRefresh
+            )
+        }
+
+        return try await detectChangesWithAppleScript(forceMetadataRefresh: forceMetadataRefresh)
+    }
+
+    private func detectChangesWithAppleScript(forceMetadataRefresh: Bool) async throws -> SyncResult {
+        let librarySnapshot = try await fetchAppleScriptLibrarySnapshotForConfiguredScope()
+        let storedTracks = try await loadStoredTracksInConfiguredScope()
+        let storedByID = Dictionary(storedTracks.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         let storedIDSet = Set(storedByID.keys)
-        let libraryIDSet = Set(libraryIDs)
+        let libraryIDSet = Set(librarySnapshot.trackIDs)
 
         // New tracks: in library but not in store
         let newIDs = libraryIDSet.subtracting(storedIDSet)
@@ -189,15 +85,10 @@ public actor LibrarySyncService {
         let removedIDs = storedIDSet.subtracting(libraryIDSet).sorted()
 
         // Fetch full metadata for new tracks
-        let newTracks: [Track] = if !newIDs.isEmpty {
-            try await scriptBridge.fetchTracksByIDs(
-                Array(newIDs),
-                batchSize: runtimeConfiguration.idsBatchSize,
-                timeout: runtimeConfiguration.idsBatchFetchTimeout
-            )
-        } else {
-            []
-        }
+        let newTracks = try await fetchAppleScriptTracks(
+            trackIDs: newIDs,
+            scopedTracksByID: librarySnapshot.tracksByID
+        )
 
         let commonIDs = libraryIDSet.intersection(storedIDSet)
         var modifiedTracks: [Track] = []
@@ -205,10 +96,9 @@ public actor LibrarySyncService {
         var refreshedTracks: [Track] = []
 
         if !commonIDs.isEmpty, try await shouldRefreshCommonTrackMetadata(force: forceMetadataRefresh) {
-            let currentTracks = try await scriptBridge.fetchTracksByIDs(
-                Array(commonIDs),
-                batchSize: runtimeConfiguration.idsBatchSize,
-                timeout: runtimeConfiguration.idsBatchFetchTimeout
+            let currentTracks = try await fetchAppleScriptTracks(
+                trackIDs: commonIDs,
+                scopedTracksByID: librarySnapshot.tracksByID
             )
             for current in currentTracks {
                 guard let stored = storedByID[current.id] else { continue }
@@ -244,13 +134,304 @@ public actor LibrarySyncService {
         return result
     }
 
-    public func verifyAndCleanDatabase(force: Bool = false) async throws -> DatabaseVerificationResult {
-        let storedTracks = try await trackStore.loadAllTracks()
-        guard !storedTracks.isEmpty else {
-            return DatabaseVerificationResult(
-                verifiedTrackCount: 0,
-                removedTrackIDs: []
+    private func detectChangesWithReadProvider(
+        _ readProvider: any LibraryReadProvider,
+        forceMetadataRefresh: Bool
+    ) async throws -> SyncResult {
+        let snapshot = try await readProvider.loadLibrarySnapshot(request: libraryReadRequest)
+        let currentTracks = snapshot.tracks
+        let storedTracks = try await loadStoredTracksInConfiguredScope()
+        let storedByID = Dictionary(storedTracks.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        let currentByID = Dictionary(currentTracks.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        let storedIDSet = Set(storedByID.keys)
+        let currentIDSet = Set(currentByID.keys)
+
+        if currentIDSet.isEmpty, !storedIDSet.isEmpty {
+            log
+                .warning(
+                    "MusicKit snapshot is empty while stored tracks exist; removals require AppleScript confirmation"
+                )
+        }
+
+        if try await shouldFallbackToAppleScriptSync(storedTracks: storedTracks, currentIDSet: currentIDSet) {
+            log.warning("Falling back to AppleScript sync because stored tracks are still AppleScript-keyed")
+            return try await detectChangesWithAppleScript(forceMetadataRefresh: forceMetadataRefresh)
+        }
+
+        let newTrackCandidates = currentIDSet
+            .subtracting(storedIDSet)
+            .sorted()
+            .compactMap { currentByID[$0] }
+        let removalCandidateIDs = storedIDSet.subtracting(currentIDSet)
+        let mutationMetadata = try await readProviderMutationMetadata(
+            for: newTrackCandidates + (
+                currentIDSet.isEmpty ? [] : mutationMetadataRemovalCandidates(
+                    removalCandidateIDs: removalCandidateIDs,
+                    storedByID: storedByID
+                )
             )
+        )
+        let newTracks = newTrackCandidates.map { current in
+            mutationMetadata.tracksByMusicKitID[current.id] ?? current
+        }
+        let removalStoredByID = readProviderRemovalStoredTracks(
+            storedByID: storedByID,
+            mutationMetadataByID: mutationMetadata.tracksByMusicKitID
+        )
+        let removedIDs = try await readProviderRemovedTrackIDs(
+            candidates: removalCandidateIDs,
+            storedByID: removalStoredByID,
+            confirmedAbsentUnmappedIDs: mutationMetadata.absentMusicKitIDs
+        )
+        let metadataDeltas = try await readProviderMetadataDeltas(
+            currentByID: currentByID,
+            storedByID: storedByID,
+            commonIDs: currentIDSet.intersection(storedIDSet),
+            forceMetadataRefresh: forceMetadataRefresh
+        )
+
+        let result = SyncResult(
+            newTracks: newTracks,
+            modifiedTracks: metadataDeltas.modifiedTracks,
+            identityChangedTracks: metadataDeltas.identityChangedTracks,
+            refreshedTracks: metadataDeltas.refreshedTracks,
+            removedTrackIDs: removedIDs
+        )
+
+        logReadProviderSyncResult(result)
+        return result
+    }
+
+    private func readProviderMetadataDeltas(
+        currentByID: [String: Track],
+        storedByID: [String: Track],
+        commonIDs: Set<String>,
+        forceMetadataRefresh: Bool
+    ) async throws -> (
+        modifiedTracks: [Track],
+        identityChangedTracks: [Track],
+        refreshedTracks: [Track]
+    ) {
+        guard !commonIDs.isEmpty else {
+            return ([], [], [])
+        }
+        guard try await shouldRefreshCommonTrackMetadata(force: forceMetadataRefresh) else {
+            return ([], [], [])
+        }
+
+        var modifiedTracks: [Track] = []
+        var identityChangedTracks: [Track] = []
+        var refreshedTracks: [Track] = []
+        let appleScriptMetadataByPrimaryID = try await readProviderAppleScriptMetadataByPrimaryID(
+            storedByID: storedByID,
+            commonIDs: commonIDs
+        )
+        for trackID in commonIDs.sorted() {
+            guard let current = currentByID[trackID],
+                  let stored = storedByID[trackID]
+            else { continue }
+
+            let persistedCurrent = readProviderPersistenceTrack(
+                current: current,
+                stored: stored,
+                appleScriptMetadata: appleScriptMetadataByPrimaryID[trackID],
+                isAppleScriptMetadataAuthoritative: true
+            )
+            if hasTrackChanged(current: persistedCurrent, stored: stored) {
+                modifiedTracks.append(persistedCurrent)
+            } else if hasIdentityChanged(current: persistedCurrent, stored: stored) {
+                identityChangedTracks.append(persistedCurrent)
+            } else if hasDisplayMetadataChanged(current: persistedCurrent, stored: stored) {
+                refreshedTracks.append(persistedCurrent)
+            }
+        }
+        try await updateForceScanDate()
+        return (modifiedTracks, identityChangedTracks, refreshedTracks)
+    }
+
+    private func mutationMetadataRemovalCandidates(
+        removalCandidateIDs: Set<String>,
+        storedByID: [String: Track]
+    ) -> [Track] {
+        removalCandidateIDs
+            .sorted()
+            .compactMap { storedByID[$0] }
+            .filter { $0.appleScriptID == nil }
+    }
+
+    private func readProviderMutationMetadata(
+        for tracks: [Track]
+    ) async throws -> (tracksByMusicKitID: [String: Track], absentMusicKitIDs: Set<String>) {
+        let tracksNeedingMetadata = tracks.filter { $0.appleScriptID == nil }
+        guard !tracksNeedingMetadata.isEmpty else {
+            return ([:], [])
+        }
+
+        let appleScriptTrackIDs = try await scriptBridge.fetchAllTrackIDs(
+            timeout: runtimeConfiguration.fullLibraryFetchTimeout
+        )
+        guard !appleScriptTrackIDs.isEmpty else {
+            log.warning("Skipped MusicKit mutation metadata backfill because AppleScript returned an empty library")
+            return ([:], [])
+        }
+
+        let appleScriptTracks = try await scriptBridge.fetchTracksByIDs(
+            appleScriptTrackIDs,
+            batchSize: runtimeConfiguration.idsBatchSize,
+            timeout: runtimeConfiguration.idsBatchFetchTimeout
+        )
+        let mapper = TrackIDMapper()
+        await mapper.refreshMapping(
+            musicKitTracks: tracksNeedingMetadata,
+            appleScriptTracks: appleScriptTracks
+        )
+
+        var tracksByMusicKitID: [String: Track] = [:]
+        for track in tracksNeedingMetadata {
+            if let enrichedTrack = await mapper.trackWithAppleScriptMetadata(for: track) {
+                tracksByMusicKitID[track.id] = enrichedTrack
+            }
+        }
+        let appleScriptPresenceKeys = Set(appleScriptTracks.flatMap(readProviderPresenceKeys))
+        let absentMusicKitIDs = Set(tracksNeedingMetadata.compactMap { track -> String? in
+            guard tracksByMusicKitID[track.id] == nil else { return nil }
+            let trackPresenceKeys = Set(readProviderPresenceKeys(for: track))
+            return trackPresenceKeys.isDisjoint(with: appleScriptPresenceKeys) ? track.id : nil
+        })
+        return (tracksByMusicKitID, absentMusicKitIDs)
+    }
+
+    private func readProviderRemovalStoredTracks(
+        storedByID: [String: Track],
+        mutationMetadataByID: [String: Track]
+    ) -> [String: Track] {
+        var resolvedTracks = storedByID
+        for (trackID, metadataTrack) in mutationMetadataByID {
+            guard let stored = storedByID[trackID] else { continue }
+            resolvedTracks[trackID] = readProviderPersistenceTrack(
+                current: metadataTrack,
+                stored: stored,
+                appleScriptMetadata: metadataTrack
+            )
+        }
+        return resolvedTracks
+    }
+
+    private func readProviderAppleScriptMetadataByPrimaryID(
+        storedByID: [String: Track],
+        commonIDs: Set<String>
+    ) async throws -> [String: Track] {
+        let candidates = commonIDs.sorted().compactMap { primaryID -> (primaryID: String, appleScriptID: String)? in
+            guard let stored = storedByID[primaryID],
+                  let appleScriptID = stored.appleScriptID
+            else { return nil }
+            return (primaryID: primaryID, appleScriptID: appleScriptID)
+        }
+        guard !candidates.isEmpty else { return [:] }
+
+        let fetchedTracks = try await scriptBridge.fetchTracksByIDs(
+            candidates.map(\.appleScriptID),
+            batchSize: runtimeConfiguration.idsBatchSize,
+            timeout: runtimeConfiguration.idsBatchFetchTimeout
+        )
+        let fetchedByAppleScriptID = Dictionary(
+            fetchedTracks.map { ($0.appleScriptID ?? $0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        return Dictionary(uniqueKeysWithValues: candidates.compactMap { candidate in
+            guard let fetched = fetchedByAppleScriptID[candidate.appleScriptID] else { return nil }
+            return (candidate.primaryID, fetched)
+        })
+    }
+
+    private func readProviderRemovedTrackIDs(
+        candidates: Set<String>,
+        storedByID: [String: Track],
+        confirmedAbsentUnmappedIDs: Set<String> = []
+    ) async throws -> [String] {
+        let removalCandidates = candidates.sorted().compactMap { primaryID -> (
+            primaryID: String,
+            appleScriptID: String
+        )? in
+            guard let appleScriptID = storedByID[primaryID]?.appleScriptID else { return nil }
+            return (primaryID: primaryID, appleScriptID: appleScriptID)
+        }
+        let unmappedCandidateIDs = candidates
+            .filter { storedByID[$0]?.appleScriptID == nil }
+            .sorted()
+        let confirmedUnmappedIDs = unmappedCandidateIDs.filter { confirmedAbsentUnmappedIDs.contains($0) }
+        let preservedUnmappedIDs = unmappedCandidateIDs.filter { !confirmedAbsentUnmappedIDs.contains($0) }
+        if !confirmedUnmappedIDs.isEmpty {
+            log
+                .info(
+                    """
+                    Removing \(confirmedUnmappedIDs.count, privacy: .public) MusicKit removal candidates without \
+                    AppleScript IDs after confirming their identity keys are absent
+                    """
+                )
+        }
+        if !preservedUnmappedIDs.isEmpty {
+            log
+                .warning(
+                    """
+                    Preserved \(preservedUnmappedIDs.count, privacy: .public) removal candidates without \
+                    AppleScript IDs because AppleScript still has a possible identity match
+                    """
+                )
+        }
+        guard !removalCandidates.isEmpty else {
+            return confirmedUnmappedIDs
+        }
+
+        let fetchedTracks = try await scriptBridge.fetchTracksByIDs(
+            removalCandidates.map(\.appleScriptID),
+            batchSize: runtimeConfiguration.idsBatchSize,
+            timeout: runtimeConfiguration.idsBatchFetchTimeout
+        )
+
+        let fetchedAppleScriptIDs = Set(fetchedTracks.map { $0.appleScriptID ?? $0.id })
+        let unresolvedCandidates = removalCandidates.filter {
+            !fetchedAppleScriptIDs.contains($0.appleScriptID)
+        }
+        guard !unresolvedCandidates.isEmpty else {
+            return confirmedUnmappedIDs
+        }
+
+        let libraryIDs = try await fetchAppleScriptLibraryIDsForConfiguredScope()
+        guard !libraryIDs.isEmpty else {
+            log.warning("Skipped MusicKit removal candidates because AppleScript returned an empty library")
+            return confirmedUnmappedIDs
+        }
+        let existingAppleScriptIDs = Set(libraryIDs)
+
+        let removedMappedIDs = unresolvedCandidates
+            .filter { !existingAppleScriptIDs.contains($0.appleScriptID) }
+            .map(\.primaryID)
+        return Array(Set(removedMappedIDs + confirmedUnmappedIDs)).sorted()
+    }
+
+    private func shouldFallbackToAppleScriptSync(
+        storedTracks: [Track],
+        currentIDSet: Set<String>
+    ) async throws -> Bool {
+        guard !storedTracks.isEmpty else { return false }
+        guard !currentIDSet.isEmpty else { return false }
+        let storedIDSet = Set(storedTracks.map(\.id))
+        guard storedIDSet.isDisjoint(with: currentIDSet) else { return false }
+        if storedTracks.contains(where: { $0.appleScriptID == $0.id }) {
+            return true
+        }
+
+        guard storedTracks.contains(where: { $0.appleScriptID == nil }) else { return false }
+        let libraryIDs = try await fetchAppleScriptLibraryIDsForConfiguredScope()
+        guard !libraryIDs.isEmpty else { return false }
+        return !storedIDSet.isDisjoint(with: Set(libraryIDs))
+    }
+
+    public func verifyAndCleanDatabase(force: Bool = false) async throws -> DatabaseVerificationResult {
+        let storedTracks = try await loadStoredTracksInConfiguredScope()
+        guard !storedTracks.isEmpty else {
+            return DatabaseVerificationResult(verifiedTrackCount: 0, removedTrackIDs: [])
         }
 
         if !force, shouldSkipDatabaseVerification() {
@@ -261,11 +442,9 @@ public actor LibrarySyncService {
             )
         }
 
-        let libraryIDs = try await scriptBridge.fetchAllTrackIDs(
-            timeout: runtimeConfiguration.fullLibraryFetchTimeout
-        )
-        let storedIDSet = Set(storedTracks.map(\.id))
+        let libraryIDs = try await fetchAppleScriptLibraryIDsForConfiguredScope()
         let libraryIDSet = Set(libraryIDs)
+        let hasReadProvider = readProvider != nil
 
         guard !libraryIDSet.isEmpty else {
             log.warning("Database verification skipped because Music.app returned no track IDs")
@@ -276,7 +455,13 @@ public actor LibrarySyncService {
             )
         }
 
-        let removedIDs = storedIDSet.subtracting(libraryIDSet).sorted()
+        let removedIDs = storedTracks.compactMap { track -> String? in
+            LibrarySyncRemovalDecision.removedTrackID(
+                for: track,
+                libraryIDSet: libraryIDSet,
+                hasReadProvider: hasReadProvider
+            )
+        }.sorted()
         for chunk in removedIDs.chunked(into: runtimeConfiguration.databaseVerificationBatchSize) {
             try await trackStore.deleteTrackIDs(chunk)
         }
@@ -371,15 +556,6 @@ public actor LibrarySyncService {
         TrackFingerprint.hasProcessingMetadataChanged(current: current, stored: stored)
     }
 
-    private func hasDisplayMetadataChanged(current: Track, stored: Track) -> Bool {
-        // lastModified is AppleScript-only today; using it here would refresh the same SwiftData rows forever.
-        current.name != stored.name
-            || current.artist != stored.artist
-            || current.album != stored.album
-            || current.albumArtist != stored.albumArtist
-            || current.dateAdded != stored.dateAdded
-    }
-
     private func shouldRefreshCommonTrackMetadata(force: Bool) async throws -> Bool {
         if force { return true }
         guard runtimeConfiguration.forceMetadataScanIntervalDays > 0,
@@ -402,7 +578,7 @@ public actor LibrarySyncService {
 
     private func applyDetectedChanges(_ result: SyncResult) async throws {
         let storedTracks = try await trackStore.loadAllTracks()
-        let storedByID = Dictionary(uniqueKeysWithValues: storedTracks.map { ($0.id, $0) })
+        let storedByID = Dictionary(storedTracks.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         let refreshedTracks = result.newTracks + result.modifiedTracks + result.identityChangedTracks + result
             .refreshedTracks
         if !refreshedTracks.isEmpty {
@@ -482,16 +658,6 @@ public actor LibrarySyncService {
         )
     }
 
-    private func hasIdentityChanged(current: Track, stored: Track) -> Bool {
-        Set(AlbumIdentity.lookupKeys(for: current)) != Set(AlbumIdentity.lookupKeys(for: stored))
-    }
-
-    private func cacheInvalidationTargets(for track: Track) -> [(artist: String, album: String)] {
-        AlbumIdentity.lookupCandidates(for: track).map { identity in
-            (artist: identity.artist, album: identity.album)
-        }
-    }
-
     private func removeResolvedPrereleasePendingEntries(
         refreshedTracks: [Track],
         previousTracksByID: [String: Track]
@@ -540,38 +706,6 @@ public actor LibrarySyncService {
         }
     }
 
-    private static func isPrereleasePendingReason(_ reason: String) -> Bool {
-        let normalizedReason = reason
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "-", with: "_")
-            .lowercased()
-        return normalizedReason == "prerelease" || normalizedReason == "pre_release"
-    }
-
-    private func hasPrereleaseTrack(in tracks: [Track], artist: String, album: String) -> Bool {
-        let targetKeys = Set(AlbumIdentity.lookupKeys(artist: artist, album: album))
-        return tracks.contains { track in
-            guard track.kind == .prerelease else { return false }
-            let trackKeys = Set(AlbumIdentity.lookupKeys(for: track))
-            return !targetKeys.isDisjoint(with: trackKeys)
-        }
-    }
-
-    private func normalizedCacheInvalidationTargets(
-        _ candidates: [(artist: String, album: String)]
-    ) -> [(artist: String, album: String)] {
-        var seenKeys: Set<String> = []
-        return candidates.compactMap { candidate in
-            let artist = candidate.artist.trimmingCharacters(in: .whitespacesAndNewlines)
-            let album = candidate.album.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !artist.isEmpty, !album.isEmpty else { return nil }
-
-            let key = "\(normalizeForMatching(artist))\u{1F}\(normalizeForMatching(album))"
-            guard seenKeys.insert(key).inserted else { return nil }
-            return (artist: artist, album: album)
-        }
-    }
-
     private func shouldSkipDatabaseVerification(now: Date = Date()) -> Bool {
         guard runtimeConfiguration.databaseVerificationIntervalDays > 0 else {
             return false
@@ -611,35 +745,5 @@ public actor LibrarySyncService {
 
     private static var iso8601Formatter: ISO8601DateFormatter {
         ISO8601DateFormatter()
-    }
-
-    private static func resolvedURL(path: String, relativeTo baseURL: URL? = nil) -> URL {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let appSupport = defaultDirectory().path
-        var expandedPath = path
-            .replacingOccurrences(of: "${APP_SUPPORT}", with: appSupport)
-            .replacingOccurrences(of: "${HOME}", with: home)
-            .replacingOccurrences(of: "$HOME", with: home)
-        if expandedPath == "~" {
-            expandedPath = home
-        } else if expandedPath.hasPrefix("~/") {
-            expandedPath = home + String(expandedPath.dropFirst())
-        }
-
-        if expandedPath.hasPrefix("/") {
-            return URL(fileURLWithPath: expandedPath)
-        }
-        return (baseURL ?? FileManager.default.temporaryDirectory).appendingPathComponent(expandedPath)
-    }
-
-    private static func defaultDirectory() -> URL {
-        let directories = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )
-        guard let appSupport = directories.first else {
-            return URL(fileURLWithPath: NSTemporaryDirectory())
-        }
-        return appSupport.appendingPathComponent("GenreUpdater", isDirectory: true)
     }
 }

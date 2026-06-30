@@ -37,8 +37,9 @@ struct GenreUpdaterApp: App {
         }
         .defaultSize(width: 1280, height: 800)
         .commands {
-            // Replace default "New Window" with custom commands
-            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .newItem) {
+                // Replace default "New Window" with custom commands
+            }
 
             CommandMenu("Library") {
                 Button("Refresh Library") {
@@ -107,7 +108,7 @@ struct ContentView: View {
                 OnboardingView()
 
             case .ready:
-                MainView()
+                DesignRootHostView()
 
             case let .error(message):
                 ErrorView(message: message) {
@@ -115,7 +116,7 @@ struct ContentView: View {
                 }
             }
         }
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(Motion.curveDefault, value: "\(dependencies.appState)")
     }
 }

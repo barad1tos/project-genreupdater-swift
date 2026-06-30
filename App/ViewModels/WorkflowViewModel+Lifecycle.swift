@@ -5,9 +5,15 @@ import Services
 
 extension WorkflowViewModel {
     func cancel() {
+        let wasProcessing = isProcessing
         invalidateReleaseYearRestoreRuns()
         processingTask?.cancel()
         processingTask = nil
+        if mode == .releaseYearRestore, wasProcessing {
+            // Release-year restore invalidates run generations before its task can
+            // observe cancellation, so clear visible processing state immediately.
+            finishCancelledProcessing()
+        }
         if mode == .fullLibrary {
             Task { await batchProcessor.cancel() }
         }

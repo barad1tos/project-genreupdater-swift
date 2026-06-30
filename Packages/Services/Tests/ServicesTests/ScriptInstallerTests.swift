@@ -32,6 +32,23 @@ struct ScriptInstallerTests {
         #expect(await installer.areScriptsCurrent() == false)
     }
 
+    @Test("Corrupted versioned script requires installation")
+    func corruptedVersionedScriptRequiresInstallation() async throws {
+        let fixture = try ScriptInstallerFixture()
+        try fixture.writeBundledScripts()
+        let installer = fixture.makeInstaller()
+        try await fixture.writeInstalledScripts(
+            using: installer,
+            overrides: ["fetch_tracks": "corrupted fetch_tracks"]
+        )
+
+        let scriptsNeedingInstall = await installer.scriptsNeedingInstall()
+
+        #expect(scriptsNeedingInstall == ["fetch_tracks"])
+        #expect(await installer.areScriptsCurrent() == false)
+        #expect(await installer.areScriptsInstalled() == false)
+    }
+
     @Test("Matching installed scripts are current")
     func matchingInstalledScriptsAreCurrent() async throws {
         let fixture = try ScriptInstallerFixture()
@@ -68,6 +85,24 @@ struct ScriptInstallerTests {
         let installer = fixture.makeInstaller()
         try await fixture.writeInstalledScripts(using: installer)
         try fixture.writeBundledScripts()
+
+        let installedScripts = try await installer.installScripts()
+
+        #expect(installedScripts == ScriptInstaller.requiredScripts)
+        #expect(await installer.areScriptsCurrent())
+        let installedContents = try await fixture.installedContents(for: "fetch_tracks", using: installer)
+        #expect(installedContents == fixture.bundledContents(for: "fetch_tracks"))
+    }
+
+    @Test("Installation replaces corrupted versioned script from bundle")
+    func installationReplacesCorruptedVersionedScriptFromBundle() async throws {
+        let fixture = try ScriptInstallerFixture()
+        try fixture.writeBundledScripts()
+        let installer = fixture.makeInstaller()
+        try await fixture.writeInstalledScripts(
+            using: installer,
+            overrides: ["fetch_tracks": "corrupted fetch_tracks"]
+        )
 
         let installedScripts = try await installer.installScripts()
 

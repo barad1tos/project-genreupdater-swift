@@ -50,6 +50,156 @@ struct LibrarySyncDatabaseVerificationTests {
         #expect(remainingIDs == ["T1", "T3"])
     }
 
+    @Test("Read provider database verification uses AppleScript IDs for destructive cleanup")
+    func readProviderDatabaseVerificationUsesAppleScriptIDsForDestructiveCleanup() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let readProvider = SyncMockReadProvider()
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
+
+        await readProvider.setTracks([
+            Track(id: "MK-1", name: "One", artist: "Artist", album: "Album"),
+        ])
+        await bridge.setLibrary(ids: ["AS-1"], tracks: [:])
+        await store.setStored([
+            Track(id: "MK-1", name: "One", artist: "Artist", album: "Album", appleScriptID: "AS-1"),
+            Track(id: "MK-2", name: "Removed", artist: "Artist", album: "Album", appleScriptID: "AS-2"),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            ),
+            readProvider: readProvider
+        )
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+        let remainingTracks = try await store.loadAllTracks()
+        let remainingIDs = remainingTracks.map(\.id).sorted()
+
+        #expect(result.removedTrackIDs == ["MK-2"])
+        #expect(remainingIDs == ["MK-1"])
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+        #expect(await readProvider.requestCount() == 0)
+    }
+
+    @Test("Database verification preserves MusicKit rows without AppleScript IDs")
+    func databaseVerificationPreservesMusicKitRowsWithoutAppleScriptIDs() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let readProvider = SyncMockReadProvider()
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
+
+        await bridge.setLibrary(ids: ["AS-1"], tracks: [:])
+        await store.setStored([
+            Track(id: "MK-1", name: "One", artist: "Artist", album: "Album"),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            ),
+            readProvider: readProvider
+        )
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+        let remainingTracks = try await store.loadAllTracks()
+        let remainingIDs = remainingTracks.map(\.id)
+
+        #expect(result.removedTrackIDs.isEmpty)
+        #expect(remainingIDs == ["MK-1"])
+        #expect(await readProvider.requestCount() == 0)
+    }
+
+    @Test("Database verification preserves rows without AppleScript IDs")
+    func databaseVerificationPreservesRowsWithoutAppleScriptIDs() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let readProvider = SyncMockReadProvider()
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
+
+        await readProvider.setTracks([
+            Track(id: "MK-1", name: "One", artist: "Artist", album: "Album"),
+        ])
+        await bridge.setLibrary(ids: ["AS-1"], tracks: [:])
+        await store.setStored([
+            Track(id: "MK-1", name: "One", artist: "Artist", album: "Album"),
+            Track(id: "MK-2", name: "Removed", artist: "Artist", album: "Album"),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            ),
+            readProvider: readProvider
+        )
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+        let remainingTracks = try await store.loadAllTracks()
+        let remainingIDs = remainingTracks.map(\.id).sorted()
+
+        #expect(result.removedTrackIDs.isEmpty)
+        #expect(remainingIDs == ["MK-1", "MK-2"])
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+        #expect(await readProvider.requestCount() == 0)
+    }
+
+    @Test("Database verification preserves legacy rows without AppleScript IDs")
+    func databaseVerificationPreservesLegacyRowsWithoutAppleScriptIDs() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let readProvider = SyncMockReadProvider()
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
+
+        await readProvider.setTracks([
+            Track(id: "MK-1", name: "One", artist: "Artist", album: "Album"),
+        ])
+        await bridge.setLibrary(ids: ["AS-LEGACY"], tracks: [:])
+        await store.setStored([
+            Track(id: "AS-LEGACY", name: "One", artist: "Artist", album: "Album"),
+        ])
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            ),
+            readProvider: readProvider
+        )
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+        let remainingTracks = try await store.loadAllTracks()
+        let remainingIDs = remainingTracks.map(\.id).sorted()
+
+        #expect(result.removedTrackIDs.isEmpty)
+        #expect(remainingIDs == ["AS-LEGACY"])
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+        #expect(await readProvider.requestCount() == 0)
+    }
+
     @Test("Database verification invalidates cache for removed tracks")
     func databaseVerificationInvalidatesCacheForRemovedTracks() async throws {
         let bridge = SyncMockScriptClient()

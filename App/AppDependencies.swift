@@ -94,6 +94,7 @@ final class AppDependencies {
 
     private(set) var scriptInstaller: ScriptInstaller?
     private(set) var musicReader: MusicLibraryReader?
+    private(set) var libraryReadProvider: (any LibraryReadProvider)?
     private(set) var applescriptBridge: AppleScriptBridge?
     private(set) var subscriptionService: SubscriptionService?
     private(set) var featureGate: FeatureGate?
@@ -187,6 +188,7 @@ final class AppDependencies {
                 testArtists: config.development.testArtists
             )
             musicReader = reader
+            libraryReadProvider = MusicKitLibraryReadProvider(reader: reader)
 
             // Step 4: Start subscription service + feature gate
             let subscription = SubscriptionService()
@@ -323,7 +325,7 @@ final class AppDependencies {
     private static func defaultGenericCacheTTL(configuration: AppConfiguration) -> TimeInterval {
         let candidates = [
             configuration.caching.defaultTTLSeconds,
-            configuration.runtime.cacheTTLSeconds,
+            configuration.runtime.cacheTTLSeconds
         ]
 
         for seconds in candidates where seconds > 0 {
@@ -438,14 +440,11 @@ final class AppDependencies {
             processingConfiguration: BatchProcessingConfiguration(configuration: config)
         )
 
-        let syncService = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate,
-            cache: cache,
-            pendingVerificationService: pendingVerificationService,
-            librarySnapshotService: librarySnapshotService,
-            runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config)
+        let syncService = makeLibrarySyncService(
+            bridge: bridge,
+            store: store,
+            gate: gate,
+            cache: cache
         )
         librarySyncService = syncService
 
@@ -455,6 +454,24 @@ final class AppDependencies {
         )
 
         changePreviewPipeline = ChangePreviewPipeline()
+    }
+
+    private func makeLibrarySyncService(
+        bridge: AppleScriptBridge,
+        store: any TrackStateStore,
+        gate: FeatureGate,
+        cache: any CacheService
+    ) -> LibrarySyncService {
+        LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            cache: cache,
+            pendingVerificationService: pendingVerificationService,
+            librarySnapshotService: librarySnapshotService,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config),
+            readProvider: libraryReadProvider
+        )
     }
 }
 
