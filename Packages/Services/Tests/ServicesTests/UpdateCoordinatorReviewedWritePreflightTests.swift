@@ -52,7 +52,11 @@ struct ReviewedWritePreflightTests {
         let written = await fixture.bridge.writtenProperties
         #expect(written.isEmpty)
         #expect(result.entries.isEmpty)
-        #expect(result.noOpEntries.isEmpty)
+        #expect(result.noOpEntries.count == 1)
+        #expect(result.noOpEntries.first?.trackID == musicKitTrack.id)
+        #expect(result.noOpEntries.first?.changeType == .yearUpdate)
+        #expect(result.noOpEntries.first?.oldYear == 1970)
+        #expect(result.noOpEntries.first?.newYear == 1970)
         #expect(result.failedTrackIDs.isEmpty)
     }
 
