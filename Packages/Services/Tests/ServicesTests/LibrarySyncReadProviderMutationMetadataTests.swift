@@ -4,6 +4,70 @@ import Testing
 
 @Suite("LibrarySyncService — read provider mutation metadata")
 struct ReadProviderMetadataTests {
+    @Test("Read provider mutation metadata uses scoped artist fetch when candidates share one artist")
+    func readProviderMutationMetadataUsesScopedArtistFetch() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let readProvider = SyncMockReadProvider()
+
+        await readProvider.setTracks([
+            Track(id: "MK-new", name: "New", artist: "Scoped Artist", album: "B", appleScriptID: nil),
+        ])
+        await bridge.setLibrary(ids: ["AS-new", "AS-other"], tracks: [
+            "AS-new": Track(id: "AS-new", name: "New", artist: "Scoped Artist", album: "B", appleScriptID: "AS-new"),
+            "AS-other": Track(id: "AS-other", name: "Other", artist: "Other Artist", album: "B"),
+        ])
+        await bridge.setArtistTracks([
+            Track(id: "AS-new", name: "New", artist: "Scoped Artist", album: "B", appleScriptID: "AS-new"),
+        ], for: "Scoped Artist")
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            readProvider: readProvider
+        )
+
+        let result = try await service.detectChanges()
+
+        #expect(result.newTracks.compactMap(\.appleScriptID) == ["AS-new"])
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
+        #expect(await bridge.fetchTracksRequestCount() == 0)
+        #expect(await bridge.fetchedArtists().compactMap(\.self) == ["Scoped Artist"])
+    }
+
+    @Test("Read provider mutation metadata treats empty scoped fetch as removal evidence")
+    func readProviderMutationMetadataTreatsEmptyScopedFetchAsRemovalEvidence() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let gate = await FeatureGate(fixedTier: .free)
+        let readProvider = SyncMockReadProvider()
+
+        await readProvider.setTracks([
+            Track(id: "MK-current", name: "Current", artist: "Stable Artist", album: "B"),
+        ])
+        await store.setStored([
+            Track(id: "MK-current", name: "Current", artist: "Stable Artist", album: "B"),
+            Track(id: "MK-removed", name: "Removed", artist: "Scoped Artist", album: "B", appleScriptID: nil),
+        ])
+        await bridge.setArtistTracks([], for: "Scoped Artist")
+
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            readProvider: readProvider
+        )
+
+        let result = try await service.detectChanges()
+
+        #expect(result.removedTrackIDs == ["MK-removed"])
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
+        #expect(await bridge.fetchTracksRequestCount() == 0)
+        #expect(await bridge.fetchedArtists().compactMap(\.self) == ["Scoped Artist"])
+    }
+
     @Test("Read provider mutation metadata falls back for multiple artist scopes")
     func readProviderMutationMetadataFallsBackForMultipleArtistScopes() async throws {
         let bridge = SyncMockScriptClient()

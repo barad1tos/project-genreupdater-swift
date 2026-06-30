@@ -273,8 +273,7 @@ public actor LibrarySyncService {
             log.warning("Skipped MusicKit mutation metadata backfill because candidates have no artist scope")
             return ([:], [])
         }
-        // Empty AppleScript snapshots are not absence evidence; fail closed to avoid deleting MusicKit rows.
-        guard !mutationMetadataFetch.tracks.isEmpty else {
+        guard !mutationMetadataFetch.tracks.isEmpty || mutationMetadataFetch.canConfirmAbsenceWhenEmpty else {
             log.warning("Skipped MusicKit mutation metadata backfill because AppleScript returned no candidate tracks")
             return ([:], [])
         }
@@ -294,16 +293,12 @@ public actor LibrarySyncService {
         let appleScriptPresenceKeys = Set(mutationMetadataFetch.tracks.flatMap(readProviderPresenceKeys))
         let absentMusicKitIDs = Set(tracksNeedingMetadata.compactMap { track -> String? in
             guard tracksByMusicKitID[track.id] == nil else { return nil }
+            // Keep absence coverage explicit so future scoped fetches cannot over-confirm removals.
             guard mutationMetadataFetch.absenceEligibleMusicKitIDs.contains(track.id) else { return nil }
             let trackPresenceKeys = Set(readProviderPresenceKeys(for: track))
             return trackPresenceKeys.isDisjoint(with: appleScriptPresenceKeys) ? track.id : nil
         })
         return (tracksByMusicKitID, absentMusicKitIDs)
-    }
-
-    private struct MutationMetadataFetch {
-        let tracks: [Track]
-        let absenceEligibleMusicKitIDs: Set<String>
     }
 
     private func fetchAppleScriptTracksForMutationMetadata(_ tracks: [Track]) async throws -> MutationMetadataFetch? {
@@ -317,7 +312,11 @@ public actor LibrarySyncService {
                 timeout: runtimeConfiguration.fullLibraryFetchTimeout
             )
             guard !appleScriptTrackIDs.isEmpty else {
-                return MutationMetadataFetch(tracks: [], absenceEligibleMusicKitIDs: [])
+                return MutationMetadataFetch(
+                    tracks: [],
+                    absenceEligibleMusicKitIDs: [],
+                    canConfirmAbsenceWhenEmpty: false
+                )
             }
             let appleScriptTracks = try await scriptBridge.fetchTracksByIDs(
                 appleScriptTrackIDs,
@@ -326,7 +325,8 @@ public actor LibrarySyncService {
             )
             return MutationMetadataFetch(
                 tracks: appleScriptTracks,
-                absenceEligibleMusicKitIDs: Set(tracks.map(\.id))
+                absenceEligibleMusicKitIDs: Set(tracks.map(\.id)),
+                canConfirmAbsenceWhenEmpty: false
             )
         }
 
@@ -344,7 +344,8 @@ public actor LibrarySyncService {
             absenceEligibleMusicKitIDs: mutationMetadataAbsenceEligibleTrackIDs(
                 for: tracks,
                 artist: artist
-            )
+            ),
+            canConfirmAbsenceWhenEmpty: true
         )
     }
 

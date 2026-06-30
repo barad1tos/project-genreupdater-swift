@@ -3,6 +3,12 @@ import Foundation
 import OSLog
 
 extension LibrarySyncService {
+    struct MutationMetadataFetch {
+        let tracks: [Track]
+        let absenceEligibleMusicKitIDs: Set<String>
+        let canConfirmAbsenceWhenEmpty: Bool
+    }
+
     private static let readProviderLogger = Logger(
         subsystem: "com.genreupdater",
         category: "LibrarySyncService"
