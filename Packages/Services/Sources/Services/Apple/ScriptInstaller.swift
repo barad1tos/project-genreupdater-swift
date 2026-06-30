@@ -86,9 +86,10 @@ public actor ScriptInstaller {
 
     /// Check if all required scripts are installed and match the bundled copies.
     ///
-    /// A stale or unreadable script is treated as not installed so startup can repair it.
+    /// Compatibility predicate for callers that only need a yes/no installation gate.
+    /// A stale or unreadable script is not considered installed, because startup must repair it.
     public func areScriptsInstalled() -> Bool {
-        scriptsNeedingInstall().isEmpty
+        areScriptsCurrent()
     }
 
     /// Check whether every installed script is readable and byte-identical to the bundled script.

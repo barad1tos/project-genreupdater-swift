@@ -242,8 +242,9 @@ struct LibrarySyncServiceTests {
         #expect(result.newTracks.first?.appleScriptID == "AS-2")
         #expect(result.newTracks.first?.genre == "Metal")
         #expect(result.removedTrackIDs.isEmpty)
-        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
-        #expect(await bridge.fetchTracksRequestCount() == 1)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
+        #expect(await bridge.fetchTracksRequestCount() == 0)
+        #expect(await bridge.fetchedArtists().compactMap(\.self) == ["A"])
         #expect(await readProvider.requestCount() == 1)
     }
 
@@ -270,8 +271,9 @@ struct LibrarySyncServiceTests {
 
         #expect(result.newTracks.map(\.name) == ["Latest"])
         #expect(result.removedTrackIDs.isEmpty)
-        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
         #expect(await bridge.fetchTracksRequestCount() == 0)
+        #expect(await bridge.fetchedArtists().compactMap(\.self) == ["A"])
     }
 
     @Test("Read provider sync confirms removals through AppleScript IDs")
@@ -308,8 +310,8 @@ struct LibrarySyncServiceTests {
         #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
     }
 
-    @Test("Read provider sync preserves rows without AppleScript IDs when AppleScript snapshot is empty")
-    func readProviderSyncPreservesRowsWithoutAppleScriptIDsWhenAppleScriptSnapshotIsEmpty() async throws {
+    @Test("Read provider sync preserves rows without AppleScript IDs when candidate metadata is empty")
+    func readProviderSyncPreservesRowsWithoutAppleScriptIDsWhenCandidateMetadataIsEmpty() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let gate = await FeatureGate(fixedTier: .free)
@@ -336,7 +338,8 @@ struct LibrarySyncServiceTests {
         #expect(result.removedTrackIDs.isEmpty)
         #expect(remainingIDs == ["MK-1", "MK-2"])
         #expect(await bridge.fetchTracksRequestCount() == 0)
-        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
+        #expect(await bridge.fetchedArtists().compactMap(\.self) == ["A"])
     }
 
     @Test("Read provider sync removes unmapped MusicKit rows after AppleScript metadata check")
@@ -369,8 +372,9 @@ struct LibrarySyncServiceTests {
 
         #expect(result.removedTrackIDs == ["MK-2"])
         #expect(remainingIDs == ["MK-1", "MK-AS"])
-        #expect(await bridge.fetchTracksRequestCount() == 2)
-        #expect(await bridge.fetchAllTrackIDsCallCount() == 2)
+        #expect(await bridge.fetchTracksRequestCount() == 1)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+        #expect(await bridge.fetchedArtists().compactMap(\.self) == ["A"])
     }
 
     @Test("Read provider sync preserves unmapped rows when AppleScript has a possible identity match")
@@ -405,8 +409,9 @@ struct LibrarySyncServiceTests {
 
         #expect(result.removedTrackIDs.isEmpty)
         #expect(remainingIDs == ["MK-1", "MK-2"])
-        #expect(await bridge.fetchTracksRequestCount() == 1)
-        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+        #expect(await bridge.fetchTracksRequestCount() == 0)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
+        #expect(await bridge.fetchedArtists().compactMap(\.self) == ["A"])
     }
 
     @Test("Read provider sync keeps MusicKit-only rows when MusicKit snapshot is empty")

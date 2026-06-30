@@ -267,19 +267,17 @@ public actor LibrarySyncService {
             return ([:], [])
         }
 
-        let appleScriptTrackIDs = try await scriptBridge.fetchAllTrackIDs(
-            timeout: runtimeConfiguration.fullLibraryFetchTimeout
-        )
-        guard !appleScriptTrackIDs.isEmpty else {
-            log.warning("Skipped MusicKit mutation metadata backfill because AppleScript returned an empty library")
+        guard let appleScriptTracks = try await fetchAppleScriptTracksForMutationMetadata(
+            tracksNeedingMetadata
+        ) else {
+            log.warning("Skipped MusicKit mutation metadata backfill because candidates have no artist scope")
+            return ([:], [])
+        }
+        guard !appleScriptTracks.isEmpty else {
+            log.warning("Skipped MusicKit mutation metadata backfill because AppleScript returned no candidate tracks")
             return ([:], [])
         }
 
-        let appleScriptTracks = try await scriptBridge.fetchTracksByIDs(
-            appleScriptTrackIDs,
-            batchSize: runtimeConfiguration.idsBatchSize,
-            timeout: runtimeConfiguration.idsBatchFetchTimeout
-        )
         let mapper = TrackIDMapper()
         await mapper.refreshMapping(
             musicKitTracks: tracksNeedingMetadata,
@@ -299,6 +297,40 @@ public actor LibrarySyncService {
             return trackPresenceKeys.isDisjoint(with: appleScriptPresenceKeys) ? track.id : nil
         })
         return (tracksByMusicKitID, absentMusicKitIDs)
+    }
+
+    private func fetchAppleScriptTracksForMutationMetadata(_ tracks: [Track]) async throws -> [Track]? {
+        let artists = mutationMetadataArtistScopes(for: tracks)
+        guard !artists.isEmpty else { return nil }
+
+        var tracksByAppleScriptID: [String: Track] = [:]
+        for artist in artists {
+            let artistTracks = try await scriptBridge.fetchTracks(
+                artist: artist,
+                timeout: runtimeConfiguration.fullLibraryFetchTimeout
+            )
+            for track in artistTracks {
+                tracksByAppleScriptID[track.appleScriptID ?? track.id] = track
+            }
+        }
+        return Array(tracksByAppleScriptID.values)
+    }
+
+    private func mutationMetadataArtistScopes(for tracks: [Track]) -> [String] {
+        var seenKeys: Set<String> = []
+        var artists: [String] = []
+        for track in tracks {
+            let candidates = [track.artist, track.albumArtist ?? ""]
+            for candidate in candidates {
+                let artist = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !artist.isEmpty else { continue }
+
+                let key = artist.lowercased()
+                guard seenKeys.insert(key).inserted else { continue }
+                artists.append(artist)
+            }
+        }
+        return artists.sorted()
     }
 
     private func readProviderRemovalStoredTracks(

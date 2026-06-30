@@ -173,8 +173,8 @@ final class AppDependencies {
                 log.info("Installed or refreshed \(installedScripts.count, privacy: .public) AppleScript files")
             }
 
-            guard await installer.areScriptsInstalled() else {
-                log.info("Scripts not installed after refresh attempt — showing onboarding")
+            guard await installer.areScriptsCurrent() else {
+                log.info("Scripts are not current after refresh attempt — showing onboarding")
                 appState = .needsOnboarding
                 return
             }
