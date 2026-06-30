@@ -9,6 +9,9 @@ public struct RootView<UpdateContent: View>: View {
     private let pipelinePrimaryAction: (() -> Void)?
     private let pipelineSecondaryAction: (() -> Void)?
     private let setDryRunAction: ((Bool) -> Bool)?
+    private let setUpdateBehaviorAction: ((DesignUpdateBehavior) -> Bool)?
+    private let setMinimumConfidenceAction: ((Double) -> Bool)?
+    private let setReleaseYearRestoreThresholdAction: ((Int) -> Bool)?
     private let browseAlbumUpdateAction: ((Album, String) -> Void)?
     private let browseAlbumSelectionAction: ((Album?, String?) -> Void)?
     private let updateContent: () -> UpdateContent
@@ -20,6 +23,9 @@ public struct RootView<UpdateContent: View>: View {
         pipelinePrimaryAction: (() -> Void)? = nil,
         pipelineSecondaryAction: (() -> Void)? = nil,
         setDryRunAction: ((Bool) -> Bool)? = nil,
+        setUpdateBehaviorAction: ((DesignUpdateBehavior) -> Bool)? = nil,
+        setMinimumConfidenceAction: ((Double) -> Bool)? = nil,
+        setReleaseYearRestoreThresholdAction: ((Int) -> Bool)? = nil,
         browseAlbumUpdateAction: ((Album, String) -> Void)? = nil,
         browseAlbumSelectionAction: ((Album?, String?) -> Void)? = nil,
         @ViewBuilder updateContent: @escaping () -> UpdateContent
@@ -29,6 +35,9 @@ public struct RootView<UpdateContent: View>: View {
         self.pipelinePrimaryAction = pipelinePrimaryAction
         self.pipelineSecondaryAction = pipelineSecondaryAction
         self.setDryRunAction = setDryRunAction
+        self.setUpdateBehaviorAction = setUpdateBehaviorAction
+        self.setMinimumConfidenceAction = setMinimumConfidenceAction
+        self.setReleaseYearRestoreThresholdAction = setReleaseYearRestoreThresholdAction
         self.browseAlbumUpdateAction = browseAlbumUpdateAction
         self.browseAlbumSelectionAction = browseAlbumSelectionAction
         self.updateContent = updateContent
@@ -92,7 +101,13 @@ public struct RootView<UpdateContent: View>: View {
         case .reports: ReportsView(model: model)
         case .update: updateContent()
         case .settings:
-            SettingsScreen(model: model, setDryRunAction: setDryRunAction)
+            SettingsScreen(
+                model: model,
+                setDryRunAction: setDryRunAction,
+                setUpdateBehaviorAction: setUpdateBehaviorAction,
+                setMinimumConfidenceAction: setMinimumConfidenceAction,
+                setReleaseYearRestoreThresholdAction: setReleaseYearRestoreThresholdAction
+            )
         }
     }
 }

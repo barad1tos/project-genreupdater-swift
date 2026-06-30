@@ -20,6 +20,9 @@ struct DesignUIPublicAPITests {
             pipelineSecondaryAction: {
                 _ = data.pipelineActivity.secondaryAction?.title
             },
+            setUpdateBehaviorAction: { $0 == .both },
+            setMinimumConfidenceAction: { $0 >= 0 },
+            setReleaseYearRestoreThresholdAction: { $0 >= 0 },
             updateContent: {
                 EmptyView()
             }
@@ -59,12 +62,40 @@ struct DesignUIPublicAPITests {
         #expect(model.dryRun)
     }
 
+    @Test
+    @MainActor
+    func appModelReflectsSettingsSnapshotReplacement() {
+        let initialSettings = DesignSettingsSnapshot(
+            updateBehavior: .genreOnly,
+            minimumConfidencePercent: 30,
+            releaseYearRestoreThresholdYears: 5,
+            testArtists: [],
+            isPostWriteVerificationRequired: true
+        )
+        let updatedSettings = DesignSettingsSnapshot(
+            updateBehavior: .yearOnly,
+            minimumConfidencePercent: 80,
+            releaseYearRestoreThresholdYears: 8,
+            testArtists: ["Aphex Twin"],
+            isPostWriteVerificationRequired: true
+        )
+        let model = AppModel(data: makeSnapshot(safetyMode: .preview, settings: initialSettings))
+
+        model.applyData(makeSnapshot(safetyMode: .preview, settings: updatedSettings))
+
+        #expect(model.data.settings.updateBehavior == .yearOnly)
+        #expect(model.data.settings.minimumConfidencePercent == 80)
+        #expect(model.data.settings.releaseYearRestoreThresholdYears == 8)
+        #expect(model.data.settings.testArtists == ["Aphex Twin"])
+    }
+
     private func makeSnapshot(totalTracks: Int, syncStatusText: String, deltaCount: Int) -> DesignDataSnapshot {
         makeSnapshot(
             totalTracks: totalTracks,
             syncStatusText: syncStatusText,
             deltaCount: deltaCount,
-            safetyMode: .preview
+            safetyMode: .preview,
+            settings: .preview
         )
     }
 
@@ -72,7 +103,8 @@ struct DesignUIPublicAPITests {
         totalTracks: Int = 10,
         syncStatusText: String = "No sync yet",
         deltaCount: Int = 2,
-        safetyMode: PipelineSafetyMode
+        safetyMode: PipelineSafetyMode,
+        settings: DesignSettingsSnapshot = .preview
     ) -> DesignDataSnapshot {
         DesignDataSnapshot(
             health: makeHealth(totalTracks: totalTracks),
@@ -90,6 +122,7 @@ struct DesignUIPublicAPITests {
             genreDistribution: [],
             updatesOverTime: [],
             yearDistribution: [],
+            settings: settings,
             syncStatusText: syncStatusText,
             isPreviewBacked: false
         )

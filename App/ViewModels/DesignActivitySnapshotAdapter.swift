@@ -19,6 +19,7 @@ struct DesignActivitySnapshotInput {
     let isLibrarySyncAvailable: Bool
     let isAutoSyncRunning: Bool
     let lastSyncResult: SyncResult?
+    let settings: DesignSettingsSnapshot
     let now: Date
 }
 
@@ -52,6 +53,7 @@ enum DesignActivitySnapshotAdapter {
             genreDistribution: makeGenreDistribution(from: reportEntries),
             updatesOverTime: makeUpdatesOverTime(from: reportEntries),
             yearDistribution: makeYearDistribution(from: reportEntries),
+            settings: input.settings,
             syncStatusText: makeSyncStatusText(from: input),
             isPreviewBacked: false
         )
@@ -192,7 +194,7 @@ enum DesignActivitySnapshotAdapter {
                 count: input.workflow.failedWriteCount.formatted(),
                 tone: input.workflow.failedWriteCount > 0 ? .error : .success,
                 symbol: input.workflow.failedWriteCount > 0 ? "xmark.octagon" : "checkmark.circle"
-            ),
+            )
         ]
     }
 
@@ -234,7 +236,7 @@ enum DesignActivitySnapshotAdapter {
                 value: dashboard.tracksWithBoth.formatted(),
                 symbol: "checkmark.seal",
                 tone: makeCoverageTone(dashboard.consistencyCoverageRatio)
-            ),
+            )
         ]
     }
 
@@ -551,7 +553,7 @@ enum DesignActivitySnapshotAdapter {
             PipelineStageDescriptor(stage: .diff, detail: diffDetail, status: stageStatuses[.diff] ?? .pending),
             PipelineStageDescriptor(stage: .fix, detail: fixDetail, status: stageStatuses[.fix] ?? .pending),
             PipelineStageDescriptor(stage: .verify, detail: verifyDetail, status: stageStatuses[.verify] ?? .pending),
-            PipelineStageDescriptor(stage: .report, detail: "Audit trail", status: stageStatuses[.report] ?? .pending),
+            PipelineStageDescriptor(stage: .report, detail: "Audit trail", status: stageStatuses[.report] ?? .pending)
         ]
     }
 

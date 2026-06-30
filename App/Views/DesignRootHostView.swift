@@ -34,6 +34,9 @@ struct DesignRootHostView: View {
             pipelinePrimaryAction: prepareDefaultUpdateForReview,
             pipelineSecondaryAction: runManualSync,
             setDryRunAction: setDryRunMode,
+            setUpdateBehaviorAction: setDefaultUpdateBehavior,
+            setMinimumConfidenceAction: setMinimumConfidence,
+            setReleaseYearRestoreThresholdAction: setReleaseYearRestoreThreshold,
             browseAlbumUpdateAction: prepareAlbumUpdate,
             browseAlbumSelectionAction: setSelectedBrowseAlbum
         ) {
@@ -84,6 +87,7 @@ struct DesignRootHostView: View {
                 isLibrarySyncAvailable: dependencies.librarySyncService != nil,
                 isAutoSyncRunning: dependencies.isAutoSyncRunning,
                 lastSyncResult: lastSyncResult,
+                settings: settingsSnapshot,
                 now: Date()
             )
         )
@@ -136,6 +140,17 @@ struct DesignRootHostView: View {
     private var configuredMinConfidence: Double {
         let configuredValue = dependencies.config.yearRetrieval.logic.minConfidenceForNewYear / 100
         return min(max(configuredValue, 0.3), 1.0)
+    }
+
+    private var settingsSnapshot: DesignSettingsSnapshot {
+        DesignSettingsSnapshot(
+            updateBehavior: DesignUpdateBehavior(rawValue: defaultUpdateBehavior) ?? .both,
+            minimumConfidencePercent: dependencies.config.yearRetrieval.logic.minConfidenceForNewYear,
+            releaseYearRestoreThresholdYears: dependencies.config.processing.releaseYearRestoreThreshold,
+            testArtists: dependencies.config.development.testArtists,
+            // Writes must always be verified before the app reports them as complete.
+            isPostWriteVerificationRequired: true
+        )
     }
 
     private var updateWorkflowTracks: [Core.Track] {
@@ -222,6 +237,26 @@ struct DesignRootHostView: View {
             applyWorkflowDefaults()
         }
         return didSave
+    }
+
+    private func setDefaultUpdateBehavior(_ behavior: DesignUpdateBehavior) -> Bool {
+        defaultUpdateBehavior = behavior.rawValue
+        applyWorkflowDefaults()
+        return true
+    }
+
+    private func setMinimumConfidence(_ percent: Double) -> Bool {
+        let normalizedPercent = min(max(percent, 30), 100)
+        return mutateConfiguration(dependencies) { configuration in
+            configuration.yearRetrieval.logic.minConfidenceForNewYear = normalizedPercent
+        }
+    }
+
+    private func setReleaseYearRestoreThreshold(_ years: Int) -> Bool {
+        let normalizedYears = min(max(years, 0), 100)
+        return mutateConfiguration(dependencies) { configuration in
+            configuration.processing.releaseYearRestoreThreshold = normalizedYears
+        }
     }
 
     private func prepareDefaultUpdateForReview() {

@@ -14,6 +14,7 @@ public struct DesignDataSnapshot: Equatable, Sendable {
     public let genreDistribution: [ChartDatum]
     public let updatesOverTime: [ChartDatum]
     public let yearDistribution: [ChartDatum]
+    public let settings: DesignSettingsSnapshot
     public let syncStatusText: String
     public let isPreviewBacked: Bool
 
@@ -33,6 +34,7 @@ public struct DesignDataSnapshot: Equatable, Sendable {
         genreDistribution: [ChartDatum],
         updatesOverTime: [ChartDatum],
         yearDistribution: [ChartDatum],
+        settings: DesignSettingsSnapshot = .preview,
         syncStatusText: String,
         isPreviewBacked: Bool
     ) {
@@ -51,8 +53,60 @@ public struct DesignDataSnapshot: Equatable, Sendable {
         self.genreDistribution = genreDistribution
         self.updatesOverTime = updatesOverTime
         self.yearDistribution = yearDistribution
+        self.settings = settings
         self.syncStatusText = syncStatusText
         self.isPreviewBacked = isPreviewBacked
+    }
+}
+
+public enum DesignUpdateBehavior: String, CaseIterable, Identifiable, Sendable {
+    case genreOnly = "genre_only"
+    case yearOnly = "year_only"
+    case both
+
+    public var id: String {
+        rawValue
+    }
+
+    public var displayName: String {
+        switch self {
+        case .genreOnly:
+            "Genre"
+        case .yearOnly:
+            "Year"
+        case .both:
+            "Both"
+        }
+    }
+}
+
+public struct DesignSettingsSnapshot: Equatable, Sendable {
+    public static let preview = Self(
+        updateBehavior: .both,
+        minimumConfidencePercent: 70,
+        releaseYearRestoreThresholdYears: 5,
+        testArtists: ["Aphex Twin", "Boards of Canada"],
+        isPostWriteVerificationRequired: true
+    )
+
+    public let updateBehavior: DesignUpdateBehavior
+    public let minimumConfidencePercent: Double
+    public let releaseYearRestoreThresholdYears: Int
+    public let testArtists: [String]
+    public let isPostWriteVerificationRequired: Bool
+
+    public init(
+        updateBehavior: DesignUpdateBehavior,
+        minimumConfidencePercent: Double,
+        releaseYearRestoreThresholdYears: Int,
+        testArtists: [String],
+        isPostWriteVerificationRequired: Bool
+    ) {
+        self.updateBehavior = updateBehavior
+        self.minimumConfidencePercent = minimumConfidencePercent
+        self.releaseYearRestoreThresholdYears = releaseYearRestoreThresholdYears
+        self.testArtists = testArtists
+        self.isPostWriteVerificationRequired = isPostWriteVerificationRequired
     }
 }
 

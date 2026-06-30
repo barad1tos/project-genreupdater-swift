@@ -535,7 +535,8 @@ struct DesignActivitySnapshotAdapterTests {
         syncErrorMessage: String? = nil,
         isLibrarySyncAvailable: Bool = true,
         isAutoSyncRunning: Bool = false,
-        lastSyncResult: SyncResult? = nil
+        lastSyncResult: SyncResult? = nil,
+        settings: DesignSettingsSnapshot = .preview
     ) -> DesignActivitySnapshotInput {
         DesignActivitySnapshotInput(
             tracks: tracks,
@@ -553,6 +554,7 @@ struct DesignActivitySnapshotAdapterTests {
             isLibrarySyncAvailable: isLibrarySyncAvailable,
             isAutoSyncRunning: isAutoSyncRunning,
             lastSyncResult: lastSyncResult,
+            settings: settings,
             now: now
         )
     }

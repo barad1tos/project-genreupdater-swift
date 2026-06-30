@@ -3,14 +3,13 @@ import SwiftUI
 struct SettingsScreen: View {
     @Bindable var model: AppModel
     var setDryRunAction: ((Bool) -> Bool)?
+    var setUpdateBehaviorAction: ((DesignUpdateBehavior) -> Bool)?
+    var setMinimumConfidenceAction: ((Double) -> Bool)?
+    var setReleaseYearRestoreThresholdAction: ((Int) -> Bool)?
     @State private var tab = "general"
-    @State private var behavior = "both"
-    @State private var minConf = 70.0
-    @State private var autoScan = true
-    @State private var restore = 40.0
-    @State private var verify = true
-    @State private var logLevel = "info"
-    @State private var testArtists = ["Aphex Twin", "Boards of Canada"]
+    @State private var stagedMinimumConfidencePercent: Double?
+    @State private var isEditingMinimumConfidence = false
+    @State private var minimumConfidenceCommitTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -42,6 +41,17 @@ struct SettingsScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Ayu.window)
         .navigationTitle("Settings")
+        .onDisappear {
+            commitStagedMinimumConfidence(force: true)
+        }
+    }
+
+    private var settings: DesignSettingsSnapshot {
+        model.data.settings
+    }
+
+    private var displayedMinimumConfidencePercent: Double {
+        stagedMinimumConfidencePercent ?? settings.minimumConfidencePercent
     }
 
     private var dryRunBinding: Binding<Bool> {
@@ -57,49 +67,114 @@ struct SettingsScreen: View {
         }
     }
 
+    private var updateBehaviorBinding: Binding<DesignUpdateBehavior> {
+        Binding {
+            settings.updateBehavior
+        } set: { behavior in
+            _ = setUpdateBehaviorAction?(behavior)
+        }
+    }
+
+    private var minimumConfidenceBinding: Binding<Double> {
+        Binding {
+            displayedMinimumConfidencePercent
+        } set: { percent in
+            stagedMinimumConfidencePercent = percent
+            if !isEditingMinimumConfidence {
+                scheduleMinimumConfidenceCommit(percent)
+            }
+        }
+    }
+
+    private var releaseYearRestoreThresholdBinding: Binding<Int> {
+        Binding {
+            settings.releaseYearRestoreThresholdYears
+        } set: { years in
+            _ = setReleaseYearRestoreThresholdAction?(years)
+        }
+    }
+
     private var general: some View {
         VStack(spacing: 14) {
             group("Update behavior", "wand.and.stars", .accent) {
                 row("Fields to update", "Which metadata GenreUpdater writes during a run.") {
-                    Picker("", selection: $behavior) {
-                        Text("Genre").tag("genre")
-                        Text("Year").tag("year")
-                        Text("Both").tag("both")
-                    }.pickerStyle(.segmented).frame(width: 220)
+                    Picker("", selection: updateBehaviorBinding) {
+                        ForEach(DesignUpdateBehavior.allCases) { behavior in
+                            Text(behavior.displayName).tag(behavior)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 220)
+                    .disabled(setUpdateBehaviorAction == nil)
                 }
                 row("Safe mode (dry-run)", "Always preview proposed changes before any tag is written.") {
                     Toggle("", isOn: dryRunBinding).labelsHidden().tint(Ayu.accent)
                 }
                 row("Minimum confidence", "Reject suggestions below this score.") {
                     HStack {
-                        Slider(value: $minConf, in: 30 ... 100)
-                            .frame(width: 160)
-                            .tint(Ayu.accent)
-                        Text("\(Int(minConf))%")
+                        Slider(
+                            value: minimumConfidenceBinding,
+                            in: 30 ... 100,
+                            onEditingChanged: commitMinimumConfidenceEditing
+                        )
+                        .frame(width: 160)
+                        .tint(Ayu.accent)
+                        .disabled(setMinimumConfidenceAction == nil)
+                        Text("\(Int(displayedMinimumConfidencePercent))%")
                             .font(.system(size: 13, weight: .bold).monospacedDigit())
                     }
                 }
             }
             group("Schedule", "clock", .info) {
-                row("Automatic scan", "Re-scan the library on a daily schedule.") {
-                    Toggle("", isOn: $autoScan).labelsHidden().tint(Ayu.accent)
+                row("Automatic scan", "Current automatic scan status.") {
+                    TagPill(text: "Manual trigger", tone: .neutral)
                 }
-                row("Scan time", "Local time for the daily auto-scan.") {
-                    TagPill(text: "Daily · \(model.snapshot.nextRun)", tone: .neutral)
+                row("Scan cadence", "Next scheduled automatic run, when available.") {
+                    TagPill(text: model.snapshot.nextRun, tone: .neutral)
                 }
             }
             group("Test artists scope", "music.note.list", .purple) {
                 row("Limit runs to these artists", "Leave empty to process the full library.") {
                     HStack(spacing: 7) {
-                        ForEach(testArtists, id: \.self) { artist in
-                            TagPill(text: artist, tone: .purple)
+                        if settings.testArtists.isEmpty {
+                            TagPill(text: "Full library", tone: .neutral)
+                        } else {
+                            ForEach(settings.testArtists, id: \.self) { artist in
+                                TagPill(text: artist, tone: .purple)
+                            }
                         }
-                        BorderedButton(title: "Add", symbol: "plus", enabled: false)
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func commitMinimumConfidenceEditing(_ isEditing: Bool) {
+        isEditingMinimumConfidence = isEditing
+        if isEditing {
+            minimumConfidenceCommitTask?.cancel()
+            minimumConfidenceCommitTask = nil
+            return
+        }
+        commitStagedMinimumConfidence()
+    }
+
+    private func scheduleMinimumConfidenceCommit(_ percent: Double) {
+        minimumConfidenceCommitTask?.cancel()
+        minimumConfidenceCommitTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled, stagedMinimumConfidencePercent == percent else { return }
+            commitStagedMinimumConfidence()
+        }
+    }
+
+    private func commitStagedMinimumConfidence(force: Bool = false) {
+        guard force || !isEditingMinimumConfidence, let stagedMinimumConfidencePercent else { return }
+        minimumConfidenceCommitTask?.cancel()
+        minimumConfidenceCommitTask = nil
+        _ = setMinimumConfidenceAction?(stagedMinimumConfidencePercent)
+        self.stagedMinimumConfidencePercent = nil
     }
 
     private var api: some View {
@@ -127,28 +202,25 @@ struct SettingsScreen: View {
     private var advanced: some View {
         VStack(spacing: 14) {
             group("Scoring & verification", "slider.horizontal.3", .accent) {
-                row("Release-year restore threshold", "Confidence needed to overwrite an existing year.") {
-                    HStack {
-                        Slider(value: $restore, in: 0 ... 100)
-                            .frame(width: 160)
-                            .tint(Ayu.accent)
-                        Text("\(Int(restore))%")
+                row("Release-year restore threshold", "Maximum year gap before restoring a release year.") {
+                    Stepper(value: releaseYearRestoreThresholdBinding, in: 0 ... 100) {
+                        Text("\(settings.releaseYearRestoreThresholdYears)y")
                             .font(.system(size: 13, weight: .bold).monospacedDigit())
                     }
+                    .frame(width: 92)
+                    .disabled(setReleaseYearRestoreThresholdAction == nil)
                 }
                 row("Post-write verification", "Re-read each track after writing to confirm the tag landed.") {
-                    Toggle("", isOn: $verify).labelsHidden().tint(Ayu.accent)
+                    TagPill(
+                        text: settings.isPostWriteVerificationRequired ? "Required" : "Not configured",
+                        tone: settings.isPostWriteVerificationRequired ? .success : .neutral,
+                        dot: true
+                    )
                 }
             }
             group("Diagnostics", "doc.text", .purple) {
-                row("Log level", "Verbosity of the run log written to disk.") {
-                    Picker("", selection: $logLevel) {
-                        Text("Error").tag("error")
-                        Text("Info").tag("info")
-                        Text("Debug").tag("debug")
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 220)
+                row("Log level", "Verbosity is controlled by macOS Unified Logging.") {
+                    TagPill(text: "System", tone: .neutral)
                 }
             }
         }
