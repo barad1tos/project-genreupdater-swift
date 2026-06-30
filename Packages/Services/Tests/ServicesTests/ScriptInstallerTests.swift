@@ -15,7 +15,6 @@ struct ScriptInstallerTests {
 
         #expect(scriptsNeedingInstall == ["fetch_tracks"])
         #expect(await installer.areScriptsCurrent() == false)
-        #expect(await installer.areScriptsInstalled() == false)
     }
 
     @Test("Stale installed script requires installation")
@@ -46,7 +45,6 @@ struct ScriptInstallerTests {
 
         #expect(scriptsNeedingInstall == ["fetch_tracks"])
         #expect(await installer.areScriptsCurrent() == false)
-        #expect(await installer.areScriptsInstalled() == false)
     }
 
     @Test("Matching installed scripts are current")
@@ -72,7 +70,6 @@ struct ScriptInstallerTests {
 
         #expect(scriptsNeedingInstall.contains("fetch_tracks"))
         #expect(await installer.areScriptsCurrent() == false)
-        #expect(await installer.areScriptsInstalled() == false)
         await #expect(throws: ScriptInstallerError.self) {
             _ = try await installer.installScripts()
         }

@@ -267,13 +267,14 @@ public actor LibrarySyncService {
             return ([:], [])
         }
 
-        guard let appleScriptTracks = try await fetchAppleScriptTracksForMutationMetadata(
+        guard let mutationMetadataFetch = try await fetchAppleScriptTracksForMutationMetadata(
             tracksNeedingMetadata
         ) else {
             log.warning("Skipped MusicKit mutation metadata backfill because candidates have no artist scope")
             return ([:], [])
         }
-        guard !appleScriptTracks.isEmpty else {
+        // Empty AppleScript snapshots are not absence evidence; fail closed to avoid deleting MusicKit rows.
+        guard !mutationMetadataFetch.tracks.isEmpty else {
             log.warning("Skipped MusicKit mutation metadata backfill because AppleScript returned no candidate tracks")
             return ([:], [])
         }
@@ -281,7 +282,7 @@ public actor LibrarySyncService {
         let mapper = TrackIDMapper()
         await mapper.refreshMapping(
             musicKitTracks: tracksNeedingMetadata,
-            appleScriptTracks: appleScriptTracks
+            appleScriptTracks: mutationMetadataFetch.tracks
         )
 
         var tracksByMusicKitID: [String: Track] = [:]
@@ -290,47 +291,61 @@ public actor LibrarySyncService {
                 tracksByMusicKitID[track.id] = enrichedTrack
             }
         }
-        let appleScriptPresenceKeys = Set(appleScriptTracks.flatMap(readProviderPresenceKeys))
+        let appleScriptPresenceKeys = Set(mutationMetadataFetch.tracks.flatMap(readProviderPresenceKeys))
         let absentMusicKitIDs = Set(tracksNeedingMetadata.compactMap { track -> String? in
             guard tracksByMusicKitID[track.id] == nil else { return nil }
+            guard mutationMetadataFetch.absenceEligibleMusicKitIDs.contains(track.id) else { return nil }
             let trackPresenceKeys = Set(readProviderPresenceKeys(for: track))
             return trackPresenceKeys.isDisjoint(with: appleScriptPresenceKeys) ? track.id : nil
         })
         return (tracksByMusicKitID, absentMusicKitIDs)
     }
 
-    private func fetchAppleScriptTracksForMutationMetadata(_ tracks: [Track]) async throws -> [Track]? {
-        let artists = mutationMetadataArtistScopes(for: tracks)
-        guard !artists.isEmpty else { return nil }
-
-        var tracksByAppleScriptID: [String: Track] = [:]
-        for artist in artists {
-            let artistTracks = try await scriptBridge.fetchTracks(
-                artist: artist,
-                timeout: runtimeConfiguration.fullLibraryFetchTimeout
-            )
-            for track in artistTracks {
-                tracksByAppleScriptID[track.appleScriptID ?? track.id] = track
-            }
-        }
-        return Array(tracksByAppleScriptID.values)
+    private struct MutationMetadataFetch {
+        let tracks: [Track]
+        let absenceEligibleMusicKitIDs: Set<String>
     }
 
-    private func mutationMetadataArtistScopes(for tracks: [Track]) -> [String] {
-        var seenKeys: Set<String> = []
-        var artists: [String] = []
-        for track in tracks {
-            let candidates = [track.artist, track.albumArtist ?? ""]
-            for candidate in candidates {
-                let artist = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !artist.isEmpty else { continue }
-
-                let key = artist.lowercased()
-                guard seenKeys.insert(key).inserted else { continue }
-                artists.append(artist)
+    private func fetchAppleScriptTracksForMutationMetadata(_ tracks: [Track]) async throws -> MutationMetadataFetch? {
+        let artists = mutationMetadataArtistScopes(for: tracks)
+        guard !artists.isEmpty else { return nil }
+        guard artists.count == 1,
+              let artist = artists.first,
+              !hasMutationMetadataScopeLessCandidates(for: tracks)
+        else {
+            let appleScriptTrackIDs = try await scriptBridge.fetchAllTrackIDs(
+                timeout: runtimeConfiguration.fullLibraryFetchTimeout
+            )
+            guard !appleScriptTrackIDs.isEmpty else {
+                return MutationMetadataFetch(tracks: [], absenceEligibleMusicKitIDs: [])
             }
+            let appleScriptTracks = try await scriptBridge.fetchTracksByIDs(
+                appleScriptTrackIDs,
+                batchSize: runtimeConfiguration.idsBatchSize,
+                timeout: runtimeConfiguration.idsBatchFetchTimeout
+            )
+            return MutationMetadataFetch(
+                tracks: appleScriptTracks,
+                absenceEligibleMusicKitIDs: Set(tracks.map(\.id))
+            )
         }
-        return artists.sorted()
+
+        var tracksByAppleScriptID: [String: Track] = [:]
+        let artistTracks = try await scriptBridge.fetchTracks(
+            artist: artist,
+            // fetch_tracks scans Music.app before applying the artist filter, so keep the full-library timeout.
+            timeout: runtimeConfiguration.fullLibraryFetchTimeout
+        )
+        for track in artistTracks {
+            tracksByAppleScriptID[track.appleScriptID ?? track.id] = track
+        }
+        return MutationMetadataFetch(
+            tracks: Array(tracksByAppleScriptID.values),
+            absenceEligibleMusicKitIDs: mutationMetadataAbsenceEligibleTrackIDs(
+                for: tracks,
+                artist: artist
+            )
+        )
     }
 
     private func readProviderRemovalStoredTracks(

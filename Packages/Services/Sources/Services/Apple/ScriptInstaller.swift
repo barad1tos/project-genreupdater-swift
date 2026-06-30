@@ -84,14 +84,6 @@ public actor ScriptInstaller {
         self.bundleScriptsDirectory = bundleScriptsDirectory
     }
 
-    /// Check if all required scripts are installed and match the bundled copies.
-    ///
-    /// Compatibility predicate for callers that only need a yes/no installation gate.
-    /// A stale or unreadable script is not considered installed, because startup must repair it.
-    public func areScriptsInstalled() -> Bool {
-        areScriptsCurrent()
-    }
-
     /// Check whether every installed script is readable and byte-identical to the bundled script.
     public func areScriptsCurrent() -> Bool {
         scriptsNeedingInstall().isEmpty

@@ -84,6 +84,42 @@ extension LibrarySyncService {
         }
     }
 
+    func mutationMetadataArtistScopes(for tracks: [Track]) -> [String] {
+        var seenKeys: Set<String> = []
+        var artists: [String] = []
+        for track in tracks {
+            let candidates = [track.artist, track.albumArtist ?? ""]
+            for candidate in candidates {
+                let artist = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !artist.isEmpty else { continue }
+
+                let key = artist.lowercased()
+                guard seenKeys.insert(key).inserted else { continue }
+                artists.append(artist)
+            }
+        }
+        return artists.sorted()
+    }
+
+    func hasMutationMetadataScopeLessCandidates(for tracks: [Track]) -> Bool {
+        tracks.contains { track in
+            [track.artist, track.albumArtist ?? ""].allSatisfy {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+        }
+    }
+
+    func mutationMetadataAbsenceEligibleTrackIDs(for tracks: [Track], artist: String) -> Set<String> {
+        let scopeKey = artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return Set(tracks.compactMap { track in
+            let candidates = [track.artist, track.albumArtist ?? ""]
+            let hasQueriedScope = candidates.contains { candidate in
+                candidate.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == scopeKey
+            }
+            return hasQueriedScope ? track.id : nil
+        })
+    }
+
     func cacheInvalidationTargets(for track: Track) -> [(artist: String, album: String)] {
         AlbumIdentity.lookupCandidates(for: track).map { identity in
             (artist: identity.artist, album: identity.album)
