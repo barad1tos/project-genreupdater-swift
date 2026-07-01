@@ -9,7 +9,6 @@ struct LibrarySyncReadProviderRemovalTests {
     func keepsConfirmedUnmappedRemovalsWhenMappedVerificationIsEmpty() async throws {
         let bridge = QueuedFetchAllTrackIDsScriptClient(
             fetchAllTrackIDsResults: [
-                ["AS-other"],
                 [],
             ],
             tracksByID: [
@@ -53,7 +52,7 @@ struct LibrarySyncReadProviderRemovalTests {
 
         #expect(result.removedTrackIDs == ["MK-removed"])
         #expect(remainingIDs == ["MK-current", "MK-mapped-removed"])
-        #expect(await bridge.fetchAllTrackIDsCallCount() == 2)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
     }
 }
 
@@ -69,8 +68,16 @@ private actor QueuedFetchAllTrackIDsScriptClient: AppleScriptClient {
 
     func initialize() async throws {}
 
-    func runScript(name _: String, arguments _: [String], timeout _: Duration?) async throws -> String? {
-        nil
+    func runScript(name: String, arguments: [String], timeout _: Duration?) async throws -> String? {
+        guard name == "fetch_tracks" else { return nil }
+
+        let artist = arguments.first?.lowercased()
+        let tracks = tracksByID.values.filter { track in
+            guard let artist else { return true }
+            return track.artist.lowercased() == artist || track.albumArtist?.lowercased() == artist
+        }
+        guard !tracks.isEmpty else { return "NO_TRACKS_FOUND" }
+        return tracks.map(Self.appleScriptRecord).joined(separator: String(Track.recordSeparator))
     }
 
     func fetchTracksByIDs(
@@ -99,5 +106,22 @@ private actor QueuedFetchAllTrackIDsScriptClient: AppleScriptClient {
 
     func fetchAllTrackIDsCallCount() -> Int {
         fetchAllTrackIDsCalls
+    }
+
+    private static func appleScriptRecord(_ track: Track) -> String {
+        [
+            track.appleScriptID ?? track.id,
+            track.name,
+            track.artist,
+            track.albumArtist ?? "",
+            track.album,
+            track.genre ?? "",
+            "",
+            "",
+            track.trackStatus ?? "",
+            track.year.map(String.init) ?? "",
+            track.releaseYear.map(String.init) ?? "",
+            "",
+        ].joined(separator: String(Track.fieldSeparator))
     }
 }

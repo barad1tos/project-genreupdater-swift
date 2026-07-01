@@ -267,23 +267,21 @@ public actor LibrarySyncService {
             return ([:], [])
         }
 
-        let appleScriptTrackIDs = try await scriptBridge.fetchAllTrackIDs(
-            timeout: runtimeConfiguration.fullLibraryFetchTimeout
-        )
-        guard !appleScriptTrackIDs.isEmpty else {
-            log.warning("Skipped MusicKit mutation metadata backfill because AppleScript returned an empty library")
+        guard let mutationMetadataFetch = try await fetchAppleScriptTracksForMutationMetadata(
+            tracksNeedingMetadata
+        ) else {
+            log.warning("Skipped MusicKit mutation metadata backfill because candidates have no artist scope")
+            return ([:], [])
+        }
+        guard !mutationMetadataFetch.tracks.isEmpty else {
+            log.warning("Skipped MusicKit mutation metadata backfill because AppleScript returned no candidate tracks")
             return ([:], [])
         }
 
-        let appleScriptTracks = try await scriptBridge.fetchTracksByIDs(
-            appleScriptTrackIDs,
-            batchSize: runtimeConfiguration.idsBatchSize,
-            timeout: runtimeConfiguration.idsBatchFetchTimeout
-        )
         let mapper = TrackIDMapper()
         await mapper.refreshMapping(
             musicKitTracks: tracksNeedingMetadata,
-            appleScriptTracks: appleScriptTracks
+            appleScriptTracks: mutationMetadataFetch.tracks
         )
 
         var tracksByMusicKitID: [String: Track] = [:]
@@ -292,13 +290,47 @@ public actor LibrarySyncService {
                 tracksByMusicKitID[track.id] = enrichedTrack
             }
         }
-        let appleScriptPresenceKeys = Set(appleScriptTracks.flatMap(readProviderPresenceKeys))
+        let appleScriptPresenceKeys = Set(mutationMetadataFetch.tracks.flatMap(readProviderPresenceKeys))
         let absentMusicKitIDs = Set(tracksNeedingMetadata.compactMap { track -> String? in
             guard tracksByMusicKitID[track.id] == nil else { return nil }
+            // Keep absence coverage explicit so future scoped fetches cannot over-confirm removals.
+            guard mutationMetadataFetch.absenceEligibleMusicKitIDs.contains(track.id) else { return nil }
             let trackPresenceKeys = Set(readProviderPresenceKeys(for: track))
             return trackPresenceKeys.isDisjoint(with: appleScriptPresenceKeys) ? track.id : nil
         })
         return (tracksByMusicKitID, absentMusicKitIDs)
+    }
+
+    private func fetchAppleScriptTracksForMutationMetadata(_ tracks: [Track]) async throws -> MutationMetadataFetch? {
+        let artists = mutationMetadataArtistScopes(for: tracks)
+        guard !artists.isEmpty else { return nil }
+        guard artists.count == 1,
+              let artist = artists.first,
+              !hasMutationMetadataScopeLessCandidates(for: tracks)
+        else {
+            return try await fetchFullLibraryMutationMetadata(for: tracks)
+        }
+
+        var tracksByAppleScriptID: [String: Track] = [:]
+        let artistTracks = try await scriptBridge.fetchTracks(
+            artist: artist,
+            // fetch_tracks scans Music.app before applying the artist filter, so keep the full-library timeout.
+            timeout: runtimeConfiguration.fullLibraryFetchTimeout
+        )
+        guard !artistTracks.isEmpty else {
+            return try await fetchFullLibraryMutationMetadata(for: tracks)
+        }
+        for track in artistTracks {
+            tracksByAppleScriptID[track.appleScriptID ?? track.id] = track
+        }
+        return MutationMetadataFetch(
+            tracks: Array(tracksByAppleScriptID.values),
+            // A scoped artist read can only confirm absence inside the queried artist/album-artist scope.
+            absenceEligibleMusicKitIDs: mutationMetadataAbsenceEligibleTrackIDs(
+                for: tracks,
+                artist: artist
+            )
+        )
     }
 
     private func readProviderRemovalStoredTracks(
