@@ -5,6 +5,7 @@ import OSLog
 extension LibrarySyncService {
     struct MutationMetadataFetch {
         let tracks: [Track]
+        /// Scoped AppleScript reads can only prove absence for tracks whose artist scope was queried.
         let absenceEligibleMusicKitIDs: Set<String>
     }
 
@@ -93,14 +94,10 @@ extension LibrarySyncService {
         var seenKeys: Set<String> = []
         var artists: [String] = []
         for track in tracks {
-            let candidates = [track.artist, track.albumArtist ?? ""]
-            for candidate in candidates {
-                let artist = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !artist.isEmpty else { continue }
-
-                let key = artist.lowercased()
+            for candidate in mutationMetadataArtistScopeCandidates(for: track) {
+                let key = candidate.key
                 guard seenKeys.insert(key).inserted else { continue }
-                artists.append(artist)
+                artists.append(candidate.artist)
             }
         }
         return artists.sorted()
@@ -108,18 +105,15 @@ extension LibrarySyncService {
 
     func hasMutationMetadataScopeLessCandidates(for tracks: [Track]) -> Bool {
         tracks.contains { track in
-            [track.artist, track.albumArtist ?? ""].allSatisfy {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
+            mutationMetadataArtistScopeCandidates(for: track).isEmpty
         }
     }
 
     func mutationMetadataAbsenceEligibleTrackIDs(for tracks: [Track], artist: String) -> Set<String> {
-        let scopeKey = artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let scopeKey = mutationMetadataArtistScopeCandidate(for: artist)?.key else { return [] }
         return Set(tracks.compactMap { track in
-            let candidates = [track.artist, track.albumArtist ?? ""]
-            let hasQueriedScope = candidates.contains { candidate in
-                candidate.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == scopeKey
+            let hasQueriedScope = mutationMetadataArtistScopeCandidates(for: track).contains { candidate in
+                candidate.key == scopeKey
             }
             return hasQueriedScope ? track.id : nil
         })
@@ -201,6 +195,20 @@ extension LibrarySyncService {
             }
         }
         return keys
+    }
+
+    private func mutationMetadataArtistScopeCandidates(
+        for track: Track
+    ) -> [(artist: String, key: String)] {
+        [track.artist, track.albumArtist ?? ""].compactMap(mutationMetadataArtistScopeCandidate)
+    }
+
+    private func mutationMetadataArtistScopeCandidate(
+        for candidate: String
+    ) -> (artist: String, key: String)? {
+        let artist = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !artist.isEmpty else { return nil }
+        return (artist: artist, key: artist.lowercased())
     }
 
     static func resolvedURL(path: String, relativeTo baseURL: URL? = nil) -> URL {

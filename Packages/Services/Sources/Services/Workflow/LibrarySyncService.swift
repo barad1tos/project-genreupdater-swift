@@ -325,6 +325,7 @@ public actor LibrarySyncService {
         }
         return MutationMetadataFetch(
             tracks: Array(tracksByAppleScriptID.values),
+            // A scoped artist read can only confirm absence inside the queried artist/album-artist scope.
             absenceEligibleMusicKitIDs: mutationMetadataAbsenceEligibleTrackIDs(
                 for: tracks,
                 artist: artist
