@@ -191,6 +191,7 @@ struct ActivityProjectionDesignAdapterTests {
             isLibrarySyncAvailable: true,
             isAutoSyncRunning: false,
             lastSyncResult: nil,
+            runLifecycle: nil,
             settings: .preview,
             now: now
         )

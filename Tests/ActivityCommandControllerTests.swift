@@ -18,7 +18,7 @@ struct ActivityCommandControllerTests {
         #expect(result.message == "Opening review.")
         #expect(result.navigationTarget == .fixPlan(id: "current"))
         #expect(result.refreshedActivityProjection?.revision == ProjectionRevision(3))
-        #expect(harness.syncCallCount == 0)
+        #expect(harness.submitRunCallCount == 0)
         #expect(harness.reloadCallCount == 0)
         #expect(harness.refreshCallCount == 1)
     }
@@ -34,13 +34,13 @@ struct ActivityCommandControllerTests {
         #expect(result.message == "Review plan is no longer available.")
         #expect(result.navigationTarget == nil)
         #expect(result.refreshedActivityProjection?.revision == ProjectionRevision(3))
-        #expect(harness.syncCallCount == 0)
+        #expect(harness.submitRunCallCount == 0)
         #expect(harness.reloadCallCount == 0)
         #expect(harness.refreshCallCount == 1)
     }
 
-    @Test("run manually command runs sync")
-    func runManuallyCommandRunsSync() async {
+    @Test("run manually command submits manual observation run")
+    func runManuallyCommandSubmitsManualObservationRun() async {
         let harness = Harness(currentRevision: ProjectionRevision(2))
         let controller = harness.makeController()
 
@@ -48,35 +48,50 @@ struct ActivityCommandControllerTests {
 
         #expect(result.status == .noOp)
         #expect(result.message == "No library changes detected.")
-        #expect(harness.syncCallCount == 1)
+        #expect(harness.submitRunCallCount == 1)
         #expect(harness.reloadCallCount == 1)
-        #expect(harness.refreshCallCount == 3)
+        #expect(harness.refreshCallCount == 2)
     }
 
-    @Test("already running sync returns already covered")
-    func alreadyRunningSyncReturnsAlreadyCovered() async {
-        let harness = Harness(isSynchronizing: true)
+    @Test("already active run returns already covered")
+    func alreadyActiveRunReturnsAlreadyCovered() async {
+        let harness = Harness(runResult: .alreadyRunning(lifecycle(state: .syncingLibrary)))
         let controller = harness.makeController()
 
         let result = await controller.handle(.runManually())
 
         #expect(result.status == .alreadyCovered)
-        #expect(result.message == "A library sync is already running.")
-        #expect(harness.syncCallCount == 0)
-        #expect(harness.refreshCallCount == 0)
+        #expect(result.message == "A run is already active.")
+        #expect(harness.submitRunCallCount == 1)
+        #expect(harness.reloadCallCount == 0)
+        #expect(harness.refreshCallCount == 2)
     }
 
-    @Test("unavailable sync service returns temporary unavailable")
-    func unavailableSyncServiceReturnsTemporaryUnavailable() async {
-        let harness = Harness(isSyncAvailable: false)
+    @Test("run manually reports active run after stale guard refresh")
+    func runManuallyReportsActiveRunAfterStaleGuardRefresh() async {
+        let harness = Harness(marksRunActiveOnFirstRefresh: true)
+        let controller = harness.makeController()
+
+        let result = await controller.handle(.runManually())
+
+        #expect(result.status == .alreadyCovered)
+        #expect(result.message == "A run is already active.")
+        #expect(harness.submitRunCallCount == 0)
+        #expect(harness.reloadCallCount == 0)
+        #expect(harness.refreshCallCount == 1)
+    }
+
+    @Test("unavailable orchestrator returns temporary unavailable")
+    func unavailableOrchestratorReturnsTemporaryUnavailable() async {
+        let harness = Harness(isRunOrchestratorAvailable: false)
         let controller = harness.makeController()
 
         let result = await controller.handle(.runManually())
 
         #expect(result.status == .temporaryUnavailable)
-        #expect(result.issue?.id == "library-sync-unavailable")
+        #expect(result.issue?.id == "run-orchestrator-unavailable")
         #expect(result.issue?.category == .temporaryUnavailable)
-        #expect(harness.syncCallCount == 0)
+        #expect(harness.submitRunCallCount == 0)
         #expect(harness.refreshCallCount == 1)
     }
 
@@ -91,52 +106,36 @@ struct ActivityCommandControllerTests {
         let result = await controller.handle(.runManually())
 
         #expect(result.status == .rejectedStale)
-        #expect(result.message == "Manual sync is no longer available.")
-        #expect(harness.syncCallCount == 0)
+        #expect(result.message == "Manual check is no longer available.")
+        #expect(harness.submitRunCallCount == 0)
         #expect(harness.reloadCallCount == 0)
         #expect(harness.refreshCallCount == 1)
     }
 
-    @Test("run manually rechecks active sync after stale guard refresh")
-    func runManuallyRechecksActiveSyncAfterStaleGuardRefresh() async {
-        let harness = Harness(marksSynchronizingOnFirstRefresh: true)
-        let controller = harness.makeController()
-
-        let result = await controller.handle(.runManually())
-
-        #expect(result.status == .alreadyCovered)
-        #expect(result.message == "A library sync is already running.")
-        #expect(harness.syncCallCount == 0)
-        #expect(harness.reloadCallCount == 0)
-        #expect(harness.refreshCallCount == 1)
-    }
-
-    @Test("no delta sync returns no op")
-    func noDeltaSyncReturnsNoOp() async {
-        let harness = Harness(syncResult: SyncResult())
+    @Test("completed no-op run reloads library and returns no-op")
+    func completedNoOpRunReloadsLibraryAndReturnsNoOp() async {
+        let harness = Harness(runResult: .completedNoOp(lifecycle(state: .completedNoOp, syncResult: SyncResult())))
         let controller = harness.makeController()
 
         let result = await controller.handle(.runManually())
 
         #expect(result.status == .noOp)
         #expect(result.message == "No library changes detected.")
-        #expect(harness.syncCallCount == 1)
+        #expect(harness.submitRunCallCount == 1)
         #expect(harness.reloadCallCount == 1)
-        #expect(harness.lastSyncResult?.hasChanges == false)
-        #expect(harness.syncErrorMessage == nil)
-        #expect(harness.isSynchronizing == false)
     }
 
-    @Test("changed sync returns accepted with all delta arrays counted")
-    func changedSyncReturnsAcceptedWithAllDeltaArraysCounted() async {
+    @Test("completed run counts all delta arrays")
+    func completedRunCountsAllDeltaArrays() async {
+        let syncResult = SyncResult(
+            newTracks: [track(id: "NEW")],
+            modifiedTracks: [track(id: "MODIFIED")],
+            identityChangedTracks: [track(id: "IDENTITY")],
+            refreshedTracks: [track(id: "REFRESHED")],
+            removedTrackIDs: ["REMOVED"]
+        )
         let harness = Harness(
-            syncResult: SyncResult(
-                newTracks: [track(id: "NEW")],
-                modifiedTracks: [track(id: "MODIFIED")],
-                identityChangedTracks: [track(id: "IDENTITY")],
-                refreshedTracks: [track(id: "REFRESHED")],
-                removedTrackIDs: ["REMOVED"]
-            )
+            runResult: .completed(lifecycle(state: .completed, syncResult: syncResult))
         )
         let controller = harness.makeController()
 
@@ -144,24 +143,42 @@ struct ActivityCommandControllerTests {
 
         #expect(result.status == .accepted)
         #expect(result.message == "Library delta detected · analyzing 5 changes.")
-        #expect(harness.lastSyncResult?.hasChanges == true)
-        #expect(harness.syncErrorMessage == nil)
-        #expect(harness.isSynchronizing == false)
+        #expect(harness.submitRunCallCount == 1)
+        #expect(harness.reloadCallCount == 1)
     }
 
-    @Test("sync error returns requires attention")
-    func syncErrorReturnsRequiresAttention() async {
-        let harness = Harness(syncError: TestError(message: "Music.app is unavailable"))
+    @Test("failed run returns requires attention")
+    func failedRunReturnsRequiresAttention() async {
+        let harness = Harness(runResult: .failed(lifecycle(
+            state: .failed,
+            syncResult: nil,
+            failureMessage: "Music.app is unavailable"
+        )))
         let controller = harness.makeController()
 
         let result = await controller.handle(.runManually())
 
         #expect(result.status == .requiresAttention)
-        #expect(result.issue?.id == "library-sync-failed")
-        #expect(result.issue?.summary == "Library sync failed")
-        #expect(harness.lastSyncResult == nil)
-        #expect(harness.syncErrorMessage == "Music.app is unavailable")
-        #expect(harness.isSynchronizing == false)
+        #expect(result.message == "Manual check failed.")
+        #expect(result.issue?.id == "manual-check-failed")
+        #expect(result.issue?.summary == "Manual check failed")
+        #expect(result.issue?.technicalDetail == "Music.app is unavailable")
+        #expect(harness.submitRunCallCount == 1)
+        #expect(harness.reloadCallCount == 0)
+    }
+
+    @Test("submit error returns requires attention")
+    func submitErrorReturnsRequiresAttention() async {
+        let harness = Harness(runError: TestError(message: "Run orchestrator crashed"))
+        let controller = harness.makeController()
+
+        let result = await controller.handle(.runManually())
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.issue?.id == "manual-check-failed")
+        #expect(result.issue?.technicalDetail == "Run orchestrator crashed")
+        #expect(harness.submitRunCallCount == 1)
+        #expect(harness.reloadCallCount == 0)
     }
 
     private func track(id: String) -> Core.Track {
@@ -232,50 +249,44 @@ private func makeRunManuallyProjection(
 
 @MainActor
 private final class Harness {
-    var isSynchronizing: Bool
-    var isSyncAvailable: Bool
-    var lastSyncResult: SyncResult?
-    var syncErrorMessage: String?
-    var syncCallCount = 0
+    var isRunOrchestratorAvailable: Bool
+    var isRunActive: Bool
+    var submitRunCallCount = 0
     var reloadCallCount = 0
     var refreshCallCount = 0
 
     private var projection: ActivityProjection
-    private let syncResult: SyncResult
-    private let syncError: Error?
-    private let marksSynchronizingOnFirstRefresh: Bool
+    private let runResult: RunSubmissionResult
+    private let runError: Error?
+    private let marksRunActiveOnFirstRefresh: Bool
 
     init(
         currentRevision: ProjectionRevision = ProjectionRevision(1),
         projection: ActivityProjection? = nil,
-        isSynchronizing: Bool = false,
-        isSyncAvailable: Bool = true,
-        syncResult: SyncResult = SyncResult(),
-        syncError: Error? = nil,
-        marksSynchronizingOnFirstRefresh: Bool = false
+        isRunOrchestratorAvailable: Bool = true,
+        isRunActive: Bool = false,
+        marksRunActiveOnFirstRefresh: Bool = false,
+        runResult: RunSubmissionResult? = nil,
+        runError: Error? = nil
     ) {
         self.projection = projection ?? makeRunManuallyProjection(revision: currentRevision, isEnabled: true)
-        self.isSynchronizing = isSynchronizing
-        self.isSyncAvailable = isSyncAvailable
-        self.syncResult = syncResult
-        self.syncError = syncError
-        self.marksSynchronizingOnFirstRefresh = marksSynchronizingOnFirstRefresh
+        self.isRunOrchestratorAvailable = isRunOrchestratorAvailable
+        self.isRunActive = isRunActive
+        self.marksRunActiveOnFirstRefresh = marksRunActiveOnFirstRefresh
+        self.runResult = runResult ?? .completedNoOp(lifecycle(state: .completedNoOp, syncResult: SyncResult()))
+        self.runError = runError
     }
 
     func makeController() -> ActivityCommandController {
         ActivityCommandController(
-            currentProjection: { self.projection },
-            isSynchronizingLibrary: { self.isSynchronizing },
-            isLibrarySyncAvailable: { self.isSyncAvailable },
-            setSynchronizingLibrary: { self.isSynchronizing = $0 },
-            setLastSyncResult: { self.lastSyncResult = $0 },
-            setSyncErrorMessage: { self.syncErrorMessage = $0 },
-            synchronizeLibraryNow: {
-                self.syncCallCount += 1
-                if let syncError = self.syncError {
-                    throw syncError
+            isRunOrchestratorAvailable: { self.isRunOrchestratorAvailable },
+            hasActiveRun: { self.isRunActive },
+            submitManualObservationRun: {
+                self.submitRunCallCount += 1
+                if let runError = self.runError {
+                    throw runError
                 }
-                return self.syncResult
+                return self.runResult
             },
             reloadLibrary: { forceRefresh in
                 if forceRefresh {
@@ -284,14 +295,38 @@ private final class Harness {
             },
             refreshActivityProjection: {
                 self.refreshCallCount += 1
-                if self.marksSynchronizingOnFirstRefresh, self.refreshCallCount == 1 {
-                    self.isSynchronizing = true
+                if self.marksRunActiveOnFirstRefresh {
+                    self.isRunActive = true
                 }
                 self.projection = self.projection.withRevision(self.projection.revision.advanced())
                 return self.projection
             }
         )
     }
+}
+
+private func lifecycle(
+    state: RunLifecycleState,
+    syncResult: SyncResult? = nil,
+    failureMessage: String? = nil
+) -> RunLifecycleSnapshot {
+    RunLifecycleSnapshot(
+        runID: RunID(),
+        requestID: RunRequestID(),
+        trigger: .manualCheck,
+        intent: .observeLibrary,
+        state: state,
+        scope: ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 75,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "manualCheck"
+        ),
+        syncResult: syncResult,
+        failureMessage: failureMessage,
+        startedAt: Date(timeIntervalSince1970: 100),
+        finishedAt: Date(timeIntervalSince1970: 101)
+    )
 }
 
 private struct TestError: LocalizedError {

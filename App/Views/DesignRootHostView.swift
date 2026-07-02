@@ -17,9 +17,7 @@ struct DesignRootHostView: View {
     @State private var isLoading = false
     @State private var isLibraryReadyForUpdates = false
     @State private var loadError: LibraryLoadError?
-    @State private var isSynchronizingLibrary = false
-    @State private var syncErrorMessage: String?
-    @State private var lastSyncResult: SyncResult?
+    @State private var currentRunLifecycle: RunLifecycleSnapshot?
     @State private var hasStartedInitialLoad = false
     @State private var libraryLoadRequestID = UUID()
     @State private var workflowViewModel: WorkflowViewModel?
@@ -56,6 +54,7 @@ struct DesignRootHostView: View {
             await startInitialLoadIfNeeded()
         }
         .task { await observeActivityProjectionUpdates() }
+        .task { await observeRunLifecycleUpdates() }
         .onChange(of: defaultUpdateBehavior) {
             applyWorkflowDefaults()
             scheduleActivityProjectionRefresh()
@@ -113,11 +112,12 @@ struct DesignRootHostView: View {
             workflow: workflowDashboardState,
             pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
             changeLogEntries: changeLogEntries,
-            isSynchronizingLibrary: isSynchronizingLibrary,
-            syncErrorMessage: syncErrorMessage,
-            isLibrarySyncAvailable: dependencies.librarySyncService != nil,
+            isSynchronizingLibrary: false,
+            syncErrorMessage: nil,
+            isLibrarySyncAvailable: dependencies.isManualRunAvailable,
             isAutoSyncRunning: dependencies.isAutoSyncRunning,
-            lastSyncResult: lastSyncResult,
+            lastSyncResult: nil,
+            runLifecycle: currentRunLifecycle,
             settings: settingsSnapshot,
             now: Date()
         )
@@ -195,10 +195,8 @@ struct DesignRootHostView: View {
             isDryRun: dependencies.config.runtime.dryRun,
             workflow: workflowDashboardState,
             pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
-            lastSyncResult: lastSyncResult,
-            syncErrorMessage: syncErrorMessage,
-            isSynchronizingLibrary: isSynchronizingLibrary,
-            isLibrarySyncAvailable: dependencies.librarySyncService != nil,
+            runLifecycle: currentRunLifecycle,
+            isLibrarySyncAvailable: dependencies.isManualRunAvailable,
             isAutoSyncRunning: dependencies.isAutoSyncRunning,
             now: Date()
         ))
@@ -671,6 +669,13 @@ struct DesignRootHostView: View {
         }
     }
 
+    private func observeRunLifecycleUpdates() async {
+        for await lifecycle in await dependencies.runLifecycleUpdates() {
+            currentRunLifecycle = lifecycle
+            await refreshActivityProjection()
+        }
+    }
+
     private func scheduleActivityProjectionRefresh() {
         Task { @MainActor in
             await refreshActivityProjection()
@@ -679,14 +684,10 @@ struct DesignRootHostView: View {
 
     private var activityCommandController: ActivityCommandController {
         ActivityCommandController(
-            currentProjection: { activityProjection },
-            isSynchronizingLibrary: { isSynchronizingLibrary },
-            isLibrarySyncAvailable: { dependencies.librarySyncService != nil },
-            setSynchronizingLibrary: { isSynchronizingLibrary = $0 },
-            setLastSyncResult: { lastSyncResult = $0 },
-            setSyncErrorMessage: { syncErrorMessage = $0 },
-            synchronizeLibraryNow: {
-                try await dependencies.synchronizeLibraryNow()
+            isRunOrchestratorAvailable: { dependencies.runOrchestrator != nil },
+            hasActiveRun: { currentRunLifecycle?.isActive == true },
+            submitManualObservationRun: {
+                try await dependencies.submitManualObservationRun()
             },
             reloadLibrary: { forceRefresh in
                 await loadLibrary(forceRefresh: forceRefresh)

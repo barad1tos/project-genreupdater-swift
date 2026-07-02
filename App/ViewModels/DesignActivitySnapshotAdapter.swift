@@ -19,6 +19,7 @@ struct DesignActivitySnapshotInput {
     let isLibrarySyncAvailable: Bool
     let isAutoSyncRunning: Bool
     let lastSyncResult: SyncResult?
+    let runLifecycle: RunLifecycleSnapshot?
     let settings: DesignSettingsSnapshot
     let now: Date
 }
@@ -595,6 +596,10 @@ enum DesignActivitySnapshotAdapter {
         automationState: PipelineAutomationState,
         input: DesignActivitySnapshotInput
     ) -> String {
+        if let lifecycleLabel = makeRunLifecycleNextRunLabel(from: input.runLifecycle) {
+            return lifecycleLabel
+        }
+
         if input.isSynchronizingLibrary {
             return "Manual sync running"
         }
@@ -604,6 +609,21 @@ enum DesignActivitySnapshotAdapter {
         }
 
         return automationState == .noSyncYet ? "Manual scan only" : automationState.stageDetail
+    }
+
+    private static func makeRunLifecycleNextRunLabel(from lifecycle: RunLifecycleSnapshot?) -> String? {
+        guard let lifecycle else {
+            return nil
+        }
+
+        switch lifecycle.state {
+        case .created, .syncingLibrary:
+            return lifecycle.trigger == .manualCheck ? "Manual sync running" : "Run in progress"
+        case .failed:
+            return lifecycle.trigger == .manualCheck ? "Manual sync failed" : "Run failed"
+        case .completed, .completedNoOp:
+            return nil
+        }
     }
 
     private static func makeSyncStatusText(from input: DesignActivitySnapshotInput) -> String {

@@ -11,9 +11,7 @@ struct ActivityProjectionAssemblyContext {
     let isDryRun: Bool
     let workflow: WorkflowDashboardState
     let pendingVerification: UpdateRunPendingVerificationSummary?
-    let lastSyncResult: SyncResult?
-    let syncErrorMessage: String?
-    let isSynchronizingLibrary: Bool
+    let runLifecycle: RunLifecycleSnapshot?
     let isLibrarySyncAvailable: Bool
     let isAutoSyncRunning: Bool
     let now: Date
@@ -33,11 +31,8 @@ enum ActivityProjectionInputAssembler {
             processingMode: context.isDryRun ? .preview : .autoFix,
             workflow: makeWorkflowState(from: context.workflow),
             pendingVerification: makePendingVerification(from: context.pendingVerification),
-            syncState: makeSyncState(
-                lastSyncResult: context.lastSyncResult,
-                syncErrorMessage: context.syncErrorMessage,
-                isSynchronizingLibrary: context.isSynchronizingLibrary
-            ),
+            runLifecycle: context.runLifecycle,
+            syncState: .idle,
             isLibrarySyncAvailable: context.isLibrarySyncAvailable,
             isAutoSyncRunning: context.isAutoSyncRunning,
             now: context.now
@@ -97,28 +92,5 @@ enum ActivityProjectionInputAssembler {
             skippedByInterval: summary.skippedByInterval,
             verified: summary.verified
         )
-    }
-
-    private static func makeSyncState(
-        lastSyncResult: SyncResult?,
-        syncErrorMessage: String?,
-        isSynchronizingLibrary: Bool
-    ) -> ActivitySyncState {
-        if isSynchronizingLibrary {
-            return .running
-        }
-        if let syncErrorMessage {
-            return .failed(syncErrorMessage)
-        }
-        if let lastSyncResult {
-            return .completed(ActivitySyncSummary(
-                new: lastSyncResult.newTracks.count,
-                modified: lastSyncResult.modifiedTracks.count,
-                identityChanged: lastSyncResult.identityChangedTracks.count,
-                refreshed: lastSyncResult.refreshedTracks.count,
-                removed: lastSyncResult.removedTrackIDs.count
-            ))
-        }
-        return .idle
     }
 }

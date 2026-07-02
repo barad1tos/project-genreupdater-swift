@@ -320,12 +320,73 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.operationalIssues.first?.summary == "Library sync failed")
     }
 
+    @Test("run lifecycle syncing overrides legacy sync state")
+    func runLifecycleSyncingOverridesLegacySyncState() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                runLifecycle: lifecycle(state: .syncingLibrary),
+                syncState: .completed(ActivitySyncSummary(
+                    new: 2,
+                    modified: 0,
+                    identityChanged: 0,
+                    refreshed: 0,
+                    removed: 0
+                ))
+            )
+        )
+
+        #expect(projection.title == "Syncing library")
+        #expect(projection.syncStatusText == "Syncing")
+        #expect(projection.currentStage == .detect)
+        #expect(projection.status(for: .detect) == .current)
+        #expect(projection.secondaryCommand?.title == "Syncing")
+        #expect(projection.secondaryCommand?.isEnabled == false)
+    }
+
+    @Test("run lifecycle completed no-op projects stable no changes state")
+    func runLifecycleCompletedNoOpProjectsStableNoChangesState() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                runLifecycle: lifecycle(
+                    state: .completedNoOp,
+                    syncResult: SyncResult()
+                )
+            )
+        )
+
+        #expect(projection.syncStatusText == "Synced · no changes")
+        #expect(projection.subtitle == "No library changes detected")
+        #expect(projection.primaryCommand == nil)
+    }
+
+    @Test("run lifecycle failure projects attention state")
+    func runLifecycleFailureProjectsAttentionState() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                runLifecycle: lifecycle(
+                    state: .failed,
+                    failureMessage: "Music.app is unavailable"
+                )
+            )
+        )
+
+        #expect(projection.title == "Sync needs attention")
+        #expect(projection.syncStatusText == "Sync failed")
+        #expect(projection.status(for: .detect) == .failed)
+        #expect(projection.operationalIssues.first?.category == .temporaryUnavailable)
+        #expect(projection.operationalIssues.first?.summary == "Library sync failed")
+    }
+
     private func makeInput(
         tracks: [Track] = [],
         libraryState: ActivityLibraryState? = nil,
         lastScanDate: Date? = nil,
         metrics: ActivityProjectionMetrics? = nil,
         workflow: ActivityWorkflowState = .empty,
+        runLifecycle: RunLifecycleSnapshot? = nil,
         syncState: ActivitySyncState = .idle,
         usesDefaultScanDate: Bool = true,
         now: Date? = nil
@@ -338,6 +399,7 @@ struct ActivityProjectionBuilderTests {
             processingMode: .preview,
             workflow: workflow,
             pendingVerification: nil,
+            runLifecycle: runLifecycle,
             syncState: syncState,
             isLibrarySyncAvailable: true,
             isAutoSyncRunning: false,
@@ -354,6 +416,30 @@ struct ActivityProjectionBuilderTests {
             genre: "Rock",
             year: 2001,
             trackStatus: "purchased"
+        )
+    }
+
+    private func lifecycle(
+        state: RunLifecycleState,
+        syncResult: SyncResult? = nil,
+        failureMessage: String? = nil
+    ) -> RunLifecycleSnapshot {
+        RunLifecycleSnapshot(
+            runID: RunID(),
+            requestID: RunRequestID(),
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            state: state,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: 1,
+                createdAt: scanDate,
+                reason: "manual-check"
+            ),
+            syncResult: syncResult,
+            failureMessage: failureMessage,
+            startedAt: scanDate,
+            finishedAt: state == .created || state == .syncingLibrary ? nil : now
         )
     }
 }

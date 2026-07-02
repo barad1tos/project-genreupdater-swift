@@ -288,6 +288,19 @@ struct DesignActivitySnapshotAdapterTests {
         #expect(snapshot.pipelineActivity.secondaryAction?.isEnabled == false)
     }
 
+    @Test("maps next run from active run lifecycle before legacy sync state")
+    func mapsNextRunFromActiveRunLifecycleBeforeLegacySyncState() {
+        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                lastScanDate: scanDate,
+                runLifecycle: makeRunLifecycle(state: .syncingLibrary)
+            )
+        )
+
+        #expect(snapshot.health.nextRun == "Manual sync running")
+    }
+
     @Test("maps manual library sync failure state")
     func mapsManualLibrarySyncFailureState() {
         let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
@@ -536,6 +549,7 @@ struct DesignActivitySnapshotAdapterTests {
         isLibrarySyncAvailable: Bool = true,
         isAutoSyncRunning: Bool = false,
         lastSyncResult: SyncResult? = nil,
+        runLifecycle: RunLifecycleSnapshot? = nil,
         settings: DesignSettingsSnapshot = .preview
     ) -> DesignActivitySnapshotInput {
         DesignActivitySnapshotInput(
@@ -554,9 +568,39 @@ struct DesignActivitySnapshotAdapterTests {
             isLibrarySyncAvailable: isLibrarySyncAvailable,
             isAutoSyncRunning: isAutoSyncRunning,
             lastSyncResult: lastSyncResult,
+            runLifecycle: runLifecycle,
             settings: settings,
             now: now
         )
+    }
+
+    private func makeRunLifecycle(state: RunLifecycleState) -> RunLifecycleSnapshot {
+        RunLifecycleSnapshot(
+            runID: RunID(),
+            requestID: RunRequestID(),
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            state: state,
+            scope: .capture(
+                requestedTestArtists: [],
+                knownTrackCount: 1,
+                createdAt: scanDate,
+                reason: "test"
+            ),
+            syncResult: nil,
+            failureMessage: state == .failed ? "AppleScript timeout" : nil,
+            startedAt: scanDate,
+            finishedAt: isTerminalRunState(state) ? now : nil
+        )
+    }
+
+    private func isTerminalRunState(_ state: RunLifecycleState) -> Bool {
+        switch state {
+        case .completed, .completedNoOp, .failed:
+            true
+        case .created, .syncingLibrary:
+            false
+        }
     }
 
     private func editableTrack(id: String) -> Core.Track {

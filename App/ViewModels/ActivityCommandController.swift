@@ -2,13 +2,9 @@ import Services
 
 @MainActor
 struct ActivityCommandController {
-    let currentProjection: () -> ActivityProjection
-    let isSynchronizingLibrary: () -> Bool
-    let isLibrarySyncAvailable: () -> Bool
-    let setSynchronizingLibrary: (Bool) -> Void
-    let setLastSyncResult: (SyncResult?) -> Void
-    let setSyncErrorMessage: (String?) -> Void
-    let synchronizeLibraryNow: () async throws -> SyncResult
+    let isRunOrchestratorAvailable: () -> Bool
+    let hasActiveRun: () -> Bool
+    let submitManualObservationRun: () async throws -> RunSubmissionResult
     let reloadLibrary: (_ forceRefresh: Bool) async -> Void
     let refreshActivityProjection: () async -> ActivityProjection
 
@@ -35,90 +31,96 @@ struct ActivityCommandController {
     }
 
     private func handleRunManually() async -> UserCommandResult {
-        if isSynchronizingLibrary() {
-            return .alreadyCovered(
-                message: "A library sync is already running.",
-                refreshedActivityProjection: currentProjection()
-            )
-        }
-
-        guard isLibrarySyncAvailable() else {
+        guard isRunOrchestratorAvailable() else {
             let projection = await refreshActivityProjection()
             return .temporaryUnavailable(
-                message: "Library sync service is unavailable.",
+                message: "Run orchestration is unavailable.",
                 issue: OperationalIssue(
-                    id: "library-sync-unavailable",
+                    id: "run-orchestrator-unavailable",
                     category: .temporaryUnavailable,
-                    summary: "Library sync unavailable",
-                    technicalDetail: "AppDependencies.librarySyncService is nil"
+                    summary: "Run orchestration unavailable",
+                    technicalDetail: "AppDependencies.runOrchestrator is nil"
                 ),
                 refreshedActivityProjection: projection
             )
         }
 
         let projection = await refreshActivityProjection()
-        guard projection.secondaryCommand?.commandKind == .runManually,
-              projection.secondaryCommand?.isEnabled == true
+        guard let secondaryCommand = projection.secondaryCommand,
+              secondaryCommand.commandKind == .runManually
         else {
             return .rejectedStale(
-                message: "Manual sync is no longer available.",
+                message: "Manual check is no longer available.",
                 refreshedActivityProjection: projection
             )
         }
-        if isSynchronizingLibrary() {
+        if hasActiveRun() {
             return .alreadyCovered(
-                message: "A library sync is already running.",
+                message: "A run is already active.",
                 refreshedActivityProjection: projection
             )
         }
-
-        setSynchronizingLibrary(true)
-        setSyncErrorMessage(nil)
-        _ = await refreshActivityProjection()
+        guard secondaryCommand.isEnabled else {
+            return .rejectedStale(
+                message: "Manual check is no longer available.",
+                refreshedActivityProjection: projection
+            )
+        }
 
         do {
-            let result = try await synchronizeLibraryNow()
-            return await handleSyncSuccess(result)
+            let result = try await submitManualObservationRun()
+            return await handleManualObservationResult(result)
         } catch {
-            return await handleSyncFailure(error)
+            let refreshedProjection = await refreshActivityProjection()
+            return .requiresAttention(
+                message: "Manual check failed.",
+                issue: OperationalIssue(
+                    id: "manual-check-failed",
+                    category: .temporaryUnavailable,
+                    summary: "Manual check failed",
+                    technicalDetail: error.localizedDescription
+                ),
+                refreshedActivityProjection: refreshedProjection
+            )
         }
     }
 
-    private func handleSyncSuccess(_ result: SyncResult) async -> UserCommandResult {
-        setLastSyncResult(result)
-        await reloadLibrary(true)
-        setSynchronizingLibrary(false)
-        let projection = await refreshActivityProjection()
-        let changeCount = result.changeCount
-
-        if changeCount == 0 {
+    private func handleManualObservationResult(_ result: RunSubmissionResult) async -> UserCommandResult {
+        switch result {
+        case .alreadyRunning:
+            let projection = await refreshActivityProjection()
+            return .alreadyCovered(
+                message: "A run is already active.",
+                refreshedActivityProjection: projection
+            )
+        case let .completed(snapshot):
+            await reloadLibrary(true)
+            let projection = await refreshActivityProjection()
+            let changeCount = snapshot.syncResult?.changeCount ?? 0
+            let changeLabel = changeCount == 1 ? "change" : "changes"
+            return .accepted(
+                message: "Library delta detected · analyzing \(changeCount) \(changeLabel).",
+                refreshedActivityProjection: projection
+            )
+        case .completedNoOp:
+            await reloadLibrary(true)
+            let projection = await refreshActivityProjection()
             return .noOp(
                 message: "No library changes detected.",
                 refreshedActivityProjection: projection
             )
+        case let .failed(snapshot):
+            let projection = await refreshActivityProjection()
+            return .requiresAttention(
+                message: "Manual check failed.",
+                issue: OperationalIssue(
+                    id: "manual-check-failed",
+                    category: .temporaryUnavailable,
+                    summary: "Manual check failed",
+                    technicalDetail: snapshot.failureMessage
+                ),
+                refreshedActivityProjection: projection
+            )
         }
-
-        let changeLabel = changeCount == 1 ? "change" : "changes"
-        return .accepted(
-            message: "Library delta detected · analyzing \(changeCount) \(changeLabel).",
-            refreshedActivityProjection: projection
-        )
-    }
-
-    private func handleSyncFailure(_ error: Error) async -> UserCommandResult {
-        setLastSyncResult(nil)
-        setSyncErrorMessage(error.localizedDescription)
-        setSynchronizingLibrary(false)
-        let projection = await refreshActivityProjection()
-        return .requiresAttention(
-            message: "Library sync failed.",
-            issue: OperationalIssue(
-                id: "library-sync-failed",
-                category: .temporaryUnavailable,
-                summary: "Library sync failed",
-                technicalDetail: error.localizedDescription
-            ),
-            refreshedActivityProjection: projection
-        )
     }
 }

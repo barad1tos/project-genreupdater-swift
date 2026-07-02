@@ -8,11 +8,14 @@ private let libraryServicesLog = AppLogger.make(category: "dependencies")
 
 private enum AppDependencyServiceError: LocalizedError {
     case librarySyncUnavailable
+    case runOrchestratorUnavailable
 
     var errorDescription: String? {
         switch self {
         case .librarySyncUnavailable:
             "Library sync service is unavailable"
+        case .runOrchestratorUnavailable:
+            "Run orchestrator is unavailable"
         }
     }
 }
@@ -109,12 +112,35 @@ extension AppDependencies {
         return result
     }
 
-    func synchronizeLibraryNow() async throws -> SyncResult {
-        guard let librarySyncService else {
-            throw AppDependencyServiceError.librarySyncUnavailable
+    func submitManualObservationRun() async throws -> RunSubmissionResult {
+        guard let runOrchestrator else {
+            throw AppDependencyServiceError.runOrchestratorUnavailable
         }
 
-        return try await librarySyncService.synchronizeNow()
+        let knownTrackCount = await currentKnownTrackCount()
+        return await runOrchestrator.submit(.manualObservation(
+            requestedTestArtists: config.development.testArtists,
+            knownTrackCount: knownTrackCount
+        ))
+    }
+
+    func currentRunLifecycle() async -> RunLifecycleSnapshot? {
+        await runOrchestrator?.currentLifecycle()
+    }
+
+    var isManualRunAvailable: Bool {
+        runOrchestrator != nil
+    }
+
+    func runLifecycleUpdates() async -> AsyncStream<RunLifecycleSnapshot> {
+        guard let runOrchestrator else {
+            libraryServicesLog.warning("Run lifecycle updates requested before run orchestrator is available")
+            return AsyncStream { continuation in
+                continuation.finish()
+            }
+        }
+
+        return await runOrchestrator.lifecycleUpdates()
     }
 
     func refreshAutoSyncStatus() async {
@@ -133,5 +159,18 @@ extension AppDependencies {
             await librarySyncService.stopAutoSync()
         }
         isAutoSyncRunning = await librarySyncService.isAutoSyncRunning
+    }
+
+    private func currentKnownTrackCount() async -> Int? {
+        guard let trackStore else { return nil }
+
+        do {
+            return try await trackStore.trackCount()
+        } catch {
+            libraryServicesLog.warning(
+                "Failed to read known track count for run scope snapshot: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
     }
 }

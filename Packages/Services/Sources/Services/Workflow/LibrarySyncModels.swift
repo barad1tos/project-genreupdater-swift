@@ -20,7 +20,7 @@ public enum LibrarySyncError: Error, LocalizedError {
 // MARK: - Sync Result
 
 /// Result of comparing the current library state against the last known state.
-public struct SyncResult: Sendable {
+public struct SyncResult: Sendable, Equatable {
     public let newTracks: [Track]
     public let modifiedTracks: [Track]
     /// Tracks whose album lookup identity changed without a managed metadata delta.

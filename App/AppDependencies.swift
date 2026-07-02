@@ -114,6 +114,7 @@ final class AppDependencies {
     private(set) var trackIDMapper: TrackIDMapper?
     private(set) var checkpointManager: CheckpointManager?
     private(set) var librarySyncService: LibrarySyncService?
+    private(set) var runOrchestrator: RunOrchestrator?
     private(set) var librarySnapshotService: (any LibrarySnapshotService)?
     private(set) var analyticsService: CachedAnalyticsService?
     private(set) var maintenanceCoordinator: MaintenanceCoordinator?
@@ -448,6 +449,7 @@ final class AppDependencies {
             cache: cache
         )
         librarySyncService = syncService
+        runOrchestrator = makeRunOrchestrator(syncService: syncService)
 
         maintenanceCoordinator = MaintenanceCoordinator(
             databaseVerificationService: syncService,
@@ -473,6 +475,14 @@ final class AppDependencies {
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config),
             readProvider: libraryReadProvider
         )
+    }
+
+    private func makeRunOrchestrator(syncService: LibrarySyncService) -> RunOrchestrator {
+        RunOrchestrator(dependencies: RunOrchestrator.Dependencies(
+            synchronizeLibrary: { [syncService] in
+                try await syncService.synchronizeNow()
+            }
+        ))
     }
 }
 

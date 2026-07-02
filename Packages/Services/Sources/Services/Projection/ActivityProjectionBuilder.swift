@@ -118,6 +118,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
     public let processingMode: ActivityProcessingMode
     public let workflow: ActivityWorkflowState
     public let pendingVerification: ActivityPendingVerificationSummary?
+    public let runLifecycle: RunLifecycleSnapshot?
     public let syncState: ActivitySyncState
     public let isLibrarySyncAvailable: Bool
     public let isAutoSyncRunning: Bool
@@ -125,6 +126,29 @@ public struct ActivityProjectionInput: Equatable, Sendable {
 
     public var effectiveLastScanDate: Date? {
         lastScanDate ?? metrics?.snapshotDate
+    }
+
+    public var effectiveSyncState: ActivitySyncState {
+        guard let runLifecycle else { return syncState }
+
+        switch runLifecycle.state {
+        case .created, .syncingLibrary:
+            return .running
+        case .completed, .completedNoOp:
+            guard let syncResult = runLifecycle.syncResult else {
+                assertionFailure("Completed run lifecycle requires a SyncResult")
+                return syncState
+            }
+            return .completed(ActivitySyncSummary(
+                new: syncResult.newTracks.count,
+                modified: syncResult.modifiedTracks.count,
+                identityChanged: syncResult.identityChangedTracks.count,
+                refreshed: syncResult.refreshedTracks.count,
+                removed: syncResult.removedTrackIDs.count
+            ))
+        case .failed:
+            return .failed(runLifecycle.failureMessage ?? "Run failed")
+        }
     }
 
     public init(
@@ -135,6 +159,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         processingMode: ActivityProcessingMode,
         workflow: ActivityWorkflowState,
         pendingVerification: ActivityPendingVerificationSummary?,
+        runLifecycle: RunLifecycleSnapshot? = nil,
         syncState: ActivitySyncState,
         isLibrarySyncAvailable: Bool,
         isAutoSyncRunning: Bool,
@@ -147,6 +172,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         self.processingMode = processingMode
         self.workflow = workflow
         self.pendingVerification = pendingVerification
+        self.runLifecycle = runLifecycle
         self.syncState = syncState
         self.isLibrarySyncAvailable = isLibrarySyncAvailable
         self.isAutoSyncRunning = isAutoSyncRunning
@@ -157,7 +183,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
 public enum ActivityProjectionBuilder {
     public static func makeProjection(from input: ActivityProjectionInput) -> ActivityProjection {
         let counts = makeCounts(from: input)
-        let syncSummary = makeSyncSummary(from: input.syncState)
+        let syncSummary = makeSyncSummary(from: input.effectiveSyncState)
         let currentStage = makeCurrentStage(input: input)
         let stageDescriptors = makeStageDescriptors(input: input, currentStage: currentStage, syncSummary: syncSummary)
         let issues = makeOperationalIssues(from: input)
@@ -229,7 +255,7 @@ public enum ActivityProjectionBuilder {
             break
         }
 
-        switch input.syncState {
+        switch input.effectiveSyncState {
         case .running:
             return "Syncing library"
         case .failed:
@@ -252,7 +278,7 @@ public enum ActivityProjectionBuilder {
             return libraryStateSubtitle
         }
 
-        switch input.syncState {
+        switch input.effectiveSyncState {
         case .running:
             return "Manual sync running · detecting library delta"
         case let .failed(message):
@@ -280,7 +306,7 @@ public enum ActivityProjectionBuilder {
         case .loading:
             input.isAutoSyncRunning ? "Auto-sync running · reading Music metadata" : "Manual scan in progress"
         case .empty:
-            input.syncState == .idle ? "No Music tracks available for analysis" : nil
+            input.effectiveSyncState == .idle ? "No Music tracks available for analysis" : nil
         case .ready:
             nil
         }
@@ -290,7 +316,7 @@ public enum ActivityProjectionBuilder {
         input: ActivityProjectionInput,
         syncSummary: ActivitySyncSummary?
     ) -> String {
-        switch input.syncState {
+        switch input.effectiveSyncState {
         case .running:
             return "Syncing"
         case .failed:
@@ -329,17 +355,17 @@ public enum ActivityProjectionBuilder {
         case .loading, .permissionDenied, .failed:
             return .detect
         case .empty:
-            if input.syncState == .idle {
+            if input.effectiveSyncState == .idle {
                 return .watch
             }
         case .ready:
             break
         }
 
-        if case .running = input.syncState {
+        if case .running = input.effectiveSyncState {
             return .detect
         }
-        if case .failed = input.syncState {
+        if case .failed = input.effectiveSyncState {
             return .detect
         }
         if input.workflow.isProcessing || input.workflow.acceptedChangeCount > 0 {
@@ -348,7 +374,7 @@ public enum ActivityProjectionBuilder {
         if input.workflow.proposedChangeCount > 0 {
             return .diff
         }
-        if case .completed = input.syncState {
+        if case .completed = input.effectiveSyncState {
             return .diff
         }
         return input.isAutoSyncRunning ? .watch : .detect
@@ -407,7 +433,7 @@ public enum ActivityProjectionBuilder {
     }
 
     private static func detectDetail(input: ActivityProjectionInput) -> String {
-        switch input.syncState {
+        switch input.effectiveSyncState {
         case .running:
             "Detecting delta"
         case .failed:
@@ -421,7 +447,7 @@ public enum ActivityProjectionBuilder {
         input: ActivityProjectionInput,
         currentStage: ActivityPipelineStage
     ) -> ActivityPipelineStageStatus {
-        switch input.syncState {
+        switch input.effectiveSyncState {
         case .running:
             return .current
         case .failed:
@@ -451,7 +477,7 @@ public enum ActivityProjectionBuilder {
         if input.workflow.proposedChangeCount > 0 {
             return currentStage == .diff ? .current : .completed
         }
-        if case .completed = input.syncState {
+        if case .completed = input.effectiveSyncState {
             return currentStage == .diff ? .current : .completed
         }
         return .pending
@@ -486,10 +512,12 @@ public enum ActivityProjectionBuilder {
     }
 
     private static func makeRunManuallyCommand(input: ActivityProjectionInput) -> ActivityCommandDescriptor {
-        let isEnabled = input.syncState != .running && input.isLibrarySyncAvailable && !input.workflow.isProcessing
+        let isEnabled = input.effectiveSyncState != .running
+            && input.isLibrarySyncAvailable
+            && !input.workflow.isProcessing
         return ActivityCommandDescriptor(
             id: "run-manually",
-            title: input.syncState == .running ? "Syncing" : "Run manually",
+            title: input.effectiveSyncState == .running ? "Syncing" : "Run manually",
             style: .secondary,
             isEnabled: isEnabled,
             commandKind: .runManually
@@ -524,7 +552,7 @@ public enum ActivityProjectionBuilder {
                 detail: syncResultDetail(syncSummary)
             ))
         }
-        if case let .failed(message) = input.syncState {
+        if case let .failed(message) = input.effectiveSyncState {
             items.append(ActivityRecentItem(id: "library-sync-error", title: "Library sync failed", detail: message))
         }
         return items
@@ -578,7 +606,7 @@ public enum ActivityProjectionBuilder {
     }
 
     private static func makeOperationalIssues(from input: ActivityProjectionInput) -> [OperationalIssue] {
-        if case let .failed(message) = input.syncState {
+        if case let .failed(message) = input.effectiveSyncState {
             return [
                 OperationalIssue(
                     id: "library-sync-failed",
