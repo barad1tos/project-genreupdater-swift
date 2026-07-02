@@ -29,12 +29,16 @@ public struct SyncResult: Sendable {
     public let refreshedTracks: [Track]
     public let removedTrackIDs: [String]
 
+    public var changeCount: Int {
+        newTracks.count
+            + modifiedTracks.count
+            + identityChangedTracks.count
+            + refreshedTracks.count
+            + removedTrackIDs.count
+    }
+
     public var hasChanges: Bool {
-        !newTracks.isEmpty
-            || !modifiedTracks.isEmpty
-            || !identityChangedTracks.isEmpty
-            || !refreshedTracks.isEmpty
-            || !removedTrackIDs.isEmpty
+        changeCount > 0
     }
 
     public init(

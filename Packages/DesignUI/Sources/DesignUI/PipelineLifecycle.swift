@@ -105,7 +105,12 @@ public struct PipelineAction: Equatable, Sendable {
     public let style: PipelineActionStyle
     public let isEnabled: Bool
 
-    public init(title: String, symbol: String, style: PipelineActionStyle, isEnabled: Bool = true) {
+    public init(
+        title: String,
+        symbol: String,
+        style: PipelineActionStyle,
+        isEnabled: Bool = true
+    ) {
         self.title = title
         self.symbol = symbol
         self.style = style
@@ -136,6 +141,7 @@ public struct PipelineActivitySnapshot: Equatable, Sendable {
     public let safetyMode: PipelineSafetyMode
     public let automationState: PipelineAutomationState
     public let deltaCount: Int
+    public let deltaDetail: String
     public let interventionCount: Int
     public let protectedCount: Int
     public let failedWriteCount: Int
@@ -154,6 +160,7 @@ public struct PipelineActivitySnapshot: Equatable, Sendable {
         safetyMode: PipelineSafetyMode,
         automationState: PipelineAutomationState = .manualScanOnly,
         deltaCount: Int,
+        deltaDetail: String = "candidate fixes",
         interventionCount: Int,
         protectedCount: Int,
         failedWriteCount: Int,
@@ -169,6 +176,7 @@ public struct PipelineActivitySnapshot: Equatable, Sendable {
         self.safetyMode = safetyMode
         self.automationState = automationState
         self.deltaCount = deltaCount
+        self.deltaDetail = deltaDetail
         self.interventionCount = interventionCount
         self.protectedCount = protectedCount
         self.failedWriteCount = failedWriteCount

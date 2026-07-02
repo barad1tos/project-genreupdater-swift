@@ -86,6 +86,7 @@ final class AppDependencies {
     private(set) var appState: AppState = .loading
     var config: AppConfiguration
     var isAutoSyncRunning = false
+    @ObservationIgnored let projectionStore = ProjectionStore()
     private(set) var configurationLoadIssue: String?
     @ObservationIgnored private let configurationSaver: (AppConfiguration) throws -> Void
     @ObservationIgnored private var configurationSaveRecoveryState: AppState?

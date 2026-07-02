@@ -17,8 +17,8 @@ struct DesignUIPublicAPITests {
             pipelinePrimaryAction: {
                 _ = data.pipelineActivity.primaryAction.title
             },
-            pipelineSecondaryAction: {
-                _ = data.pipelineActivity.secondaryAction?.title
+            pipelineSecondaryAction: { action in
+                _ = action.title
             },
             setUpdateBehaviorAction: { $0 == .both },
             setMinimumConfidenceAction: { $0 >= 0 },

@@ -6,8 +6,13 @@ struct SettingsScreen: View {
     var setUpdateBehaviorAction: ((DesignUpdateBehavior) -> Bool)?
     var setMinimumConfidenceAction: ((Double) -> Bool)?
     var setReleaseYearRestoreThresholdAction: ((Int) -> Bool)?
+    var setTestArtistsAction: (([String]) -> Bool)?
+    var setAppearanceModeAction: ((DesignAppearanceMode) -> Bool)?
+    var setFastAnimationsAction: ((Bool) -> Bool)?
     @State private var tab = "general"
     @State private var stagedMinimumConfidencePercent: Double?
+    @State private var newTestArtist = ""
+    @State private var testArtistsMessage: String?
     @State private var isEditingMinimumConfidence = false
     @State private var minimumConfidenceCommitTask: Task<Void, Never>?
 
@@ -19,9 +24,10 @@ struct SettingsScreen: View {
                     Text("General").tag("general")
                     Text("API & Cache").tag("api")
                     Text("Advanced").tag("advanced")
+                    Text("Appearance").tag("appearance")
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 320)
+                .fixedSize(horizontal: true, vertical: false)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -30,6 +36,7 @@ struct SettingsScreen: View {
                     switch tab {
                     case "general": general
                     case "api": api
+                    case "appearance": appearance
                     default: advanced
                     }
                 }
@@ -94,6 +101,56 @@ struct SettingsScreen: View {
         }
     }
 
+    private var appearanceModeBinding: Binding<DesignAppearanceMode> {
+        Binding {
+            DesignAppearanceMode.supportedModes.contains(settings.appearanceMode) ? settings.appearanceMode : .dark
+        } set: { mode in
+            _ = setAppearanceModeAction?(mode)
+        }
+    }
+
+    private var fastAnimationsBinding: Binding<Bool> {
+        Binding {
+            settings.isFastAnimationsEnabled
+        } set: { isEnabled in
+            _ = setFastAnimationsAction?(isEnabled)
+        }
+    }
+
+    private var trimmedTestArtist: String {
+        newTestArtist.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func addTestArtist() {
+        guard !trimmedTestArtist.isEmpty else { return }
+        let alreadyExists = settings.testArtists.contains { artist in
+            artist.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare(trimmedTestArtist) == .orderedSame
+        }
+        guard !alreadyExists else {
+            testArtistsMessage = "Artist already exists"
+            return
+        }
+
+        guard setTestArtistsAction?(settings.testArtists + [trimmedTestArtist]) ?? false else {
+            testArtistsMessage = "Could not save artist scope"
+            return
+        }
+        newTestArtist = ""
+        testArtistsMessage = nil
+    }
+
+    private func removeTestArtist(_ artist: String) {
+        guard let artistIndex = settings.testArtists.firstIndex(of: artist) else { return }
+        var updatedArtists = settings.testArtists
+        updatedArtists.remove(at: artistIndex)
+        if setTestArtistsAction?(updatedArtists) ?? false {
+            testArtistsMessage = nil
+        } else {
+            testArtistsMessage = "Could not save artist scope"
+        }
+    }
+
     private var general: some View {
         VStack(spacing: 14) {
             group("Update behavior", "wand.and.stars", .accent) {
@@ -104,7 +161,7 @@ struct SettingsScreen: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: 220)
+                    .fixedSize(horizontal: true, vertical: false)
                     .disabled(setUpdateBehaviorAction == nil)
                 }
                 row("Safe mode (dry-run)", "Always preview proposed changes before any tag is written.") {
@@ -135,13 +192,48 @@ struct SettingsScreen: View {
             }
             group("Test artists scope", "music.note.list", .purple) {
                 row("Limit runs to these artists", "Leave empty to process the full library.") {
-                    HStack(spacing: 7) {
+                    VStack(alignment: .trailing, spacing: 8) {
                         if settings.testArtists.isEmpty {
                             TagPill(text: "Full library", tone: .neutral)
                         } else {
-                            ForEach(settings.testArtists, id: \.self) { artist in
-                                TagPill(text: artist, tone: .purple)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 7) {
+                                    ForEach(settings.testArtists, id: \.self) { artist in
+                                        testArtistToken(artist)
+                                    }
+                                }
                             }
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+
+                        HStack(spacing: 8) {
+                            TextField("Artist", text: $newTestArtist)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 12, weight: .medium))
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 6)
+                                .background(Ayu.controlFill, in: .rect(cornerRadius: 8))
+                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Ayu.glassBorder))
+                                .frame(minWidth: 120, idealWidth: 220, maxWidth: .infinity)
+                                .onSubmit(addTestArtist)
+
+                            Button(action: addTestArtist) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 12, weight: .bold))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Ayu.onAccent)
+                            .frame(width: 28, height: 28)
+                            .background(Ayu.accent, in: Circle())
+                            .disabled(trimmedTestArtist.isEmpty || setTestArtistsAction == nil)
+                            .opacity(trimmedTestArtist.isEmpty || setTestArtistsAction == nil ? 0.45 : 1)
+                            .help("Add artist")
+                        }
+
+                        if let testArtistsMessage {
+                            Text(testArtistsMessage)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Ayu.warning)
                         }
                     }
                 }
@@ -175,6 +267,29 @@ struct SettingsScreen: View {
         minimumConfidenceCommitTask = nil
         _ = setMinimumConfidenceAction?(stagedMinimumConfidencePercent)
         self.stagedMinimumConfidencePercent = nil
+    }
+
+    private func testArtistToken(_ artist: String) -> some View {
+        HStack(spacing: 5) {
+            Text(artist)
+                .lineLimit(1)
+            Button {
+                removeTestArtist(artist)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 10, weight: .bold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Ayu.fg2)
+            .disabled(setTestArtistsAction == nil)
+            .help("Remove \(artist)")
+        }
+        .font(.system(size: 11, weight: .bold))
+        .foregroundStyle(Ayu.purple)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Ayu.purple.opacity(0.14), in: Capsule())
+        .overlay(Capsule().strokeBorder(Ayu.purple.opacity(0.34)))
     }
 
     private var api: some View {
@@ -227,6 +342,40 @@ struct SettingsScreen: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
+    private var appearance: some View {
+        VStack(spacing: 14) {
+            group("Theme", "paintpalette", .accent) {
+                row("Appearance", "DesignUI currently uses dark Ayu tokens.") {
+                    Picker("", selection: appearanceModeBinding) {
+                        ForEach(DesignAppearanceMode.supportedModes) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .disabled(setAppearanceModeAction == nil)
+                }
+                row("Ayu palette", "Current DesignUI color tokens.") {
+                    HStack(spacing: 8) {
+                        colorSwatch(Ayu.window, label: "Window")
+                        colorSwatch(Ayu.card, label: "Card")
+                        colorSwatch(Ayu.accent, label: "Accent")
+                        colorSwatch(Ayu.info, label: "Info")
+                    }
+                }
+            }
+            group("Motion", "sparkles", .purple) {
+                row("Fast animations", "Shorten motion timing in legacy workflow surfaces.") {
+                    Toggle("", isOn: fastAnimationsBinding)
+                        .labelsHidden()
+                        .tint(Ayu.accent)
+                        .disabled(setFastAnimationsAction == nil)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
     private func group(
         _ title: String,
         _ symbol: String,
@@ -258,6 +407,18 @@ struct SettingsScreen: View {
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(Divider().overlay(Ayu.glassBorder), alignment: .bottom)
+    }
+
+    private func colorSwatch(_ color: Color, label: String) -> some View {
+        VStack(spacing: 5) {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(color)
+                .frame(width: 34, height: 22)
+                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Ayu.glassBorderStrong))
+            Text(label)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Ayu.fg2)
+        }
     }
 
     private func apiRow(_ name: String, _ desc: String, _ tone: Tone, _ status: String) -> some View {

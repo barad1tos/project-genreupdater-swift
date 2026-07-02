@@ -7,11 +7,14 @@ public struct RootView<UpdateContent: View>: View {
     private let data: DesignDataSnapshot
     private let selectedRoute: Binding<Route?>?
     private let pipelinePrimaryAction: (() -> Void)?
-    private let pipelineSecondaryAction: (() -> Void)?
+    private let pipelineSecondaryAction: ((PipelineAction) -> Void)?
     private let setDryRunAction: ((Bool) -> Bool)?
     private let setUpdateBehaviorAction: ((DesignUpdateBehavior) -> Bool)?
     private let setMinimumConfidenceAction: ((Double) -> Bool)?
     private let setReleaseYearRestoreThresholdAction: ((Int) -> Bool)?
+    private let setTestArtistsAction: (([String]) -> Bool)?
+    private let setAppearanceModeAction: ((DesignAppearanceMode) -> Bool)?
+    private let setFastAnimationsAction: ((Bool) -> Bool)?
     private let browseAlbumUpdateAction: ((Album, String) -> Void)?
     private let browseAlbumSelectionAction: ((Album?, String?) -> Void)?
     private let updateContent: () -> UpdateContent
@@ -21,11 +24,14 @@ public struct RootView<UpdateContent: View>: View {
         data: DesignDataSnapshot = .preview,
         selectedRoute: Binding<Route?>? = nil,
         pipelinePrimaryAction: (() -> Void)? = nil,
-        pipelineSecondaryAction: (() -> Void)? = nil,
+        pipelineSecondaryAction: ((PipelineAction) -> Void)? = nil,
         setDryRunAction: ((Bool) -> Bool)? = nil,
         setUpdateBehaviorAction: ((DesignUpdateBehavior) -> Bool)? = nil,
         setMinimumConfidenceAction: ((Double) -> Bool)? = nil,
         setReleaseYearRestoreThresholdAction: ((Int) -> Bool)? = nil,
+        setTestArtistsAction: (([String]) -> Bool)? = nil,
+        setAppearanceModeAction: ((DesignAppearanceMode) -> Bool)? = nil,
+        setFastAnimationsAction: ((Bool) -> Bool)? = nil,
         browseAlbumUpdateAction: ((Album, String) -> Void)? = nil,
         browseAlbumSelectionAction: ((Album?, String?) -> Void)? = nil,
         @ViewBuilder updateContent: @escaping () -> UpdateContent
@@ -38,6 +44,9 @@ public struct RootView<UpdateContent: View>: View {
         self.setUpdateBehaviorAction = setUpdateBehaviorAction
         self.setMinimumConfidenceAction = setMinimumConfidenceAction
         self.setReleaseYearRestoreThresholdAction = setReleaseYearRestoreThresholdAction
+        self.setTestArtistsAction = setTestArtistsAction
+        self.setAppearanceModeAction = setAppearanceModeAction
+        self.setFastAnimationsAction = setFastAnimationsAction
         self.browseAlbumUpdateAction = browseAlbumUpdateAction
         self.browseAlbumSelectionAction = browseAlbumSelectionAction
         self.updateContent = updateContent
@@ -55,7 +64,7 @@ public struct RootView<UpdateContent: View>: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .tint(Ayu.accent)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(model.data.settings.appearanceMode.designPreferredColorScheme)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 NavigationHistoryControls(model: model)
@@ -106,9 +115,19 @@ public struct RootView<UpdateContent: View>: View {
                 setDryRunAction: setDryRunAction,
                 setUpdateBehaviorAction: setUpdateBehaviorAction,
                 setMinimumConfidenceAction: setMinimumConfidenceAction,
-                setReleaseYearRestoreThresholdAction: setReleaseYearRestoreThresholdAction
+                setReleaseYearRestoreThresholdAction: setReleaseYearRestoreThresholdAction,
+                setTestArtistsAction: setTestArtistsAction,
+                setAppearanceModeAction: setAppearanceModeAction,
+                setFastAnimationsAction: setFastAnimationsAction
             )
         }
+    }
+}
+
+extension DesignAppearanceMode {
+    fileprivate var designPreferredColorScheme: ColorScheme? {
+        // DesignUI uses dark-only Ayu tokens until a full light palette exists.
+        .dark
     }
 }
 

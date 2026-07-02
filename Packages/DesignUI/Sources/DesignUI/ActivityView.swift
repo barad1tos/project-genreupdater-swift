@@ -3,7 +3,7 @@ import SwiftUI
 struct ActivityView: View {
     @Bindable var model: AppModel
     let pipelinePrimaryAction: (() -> Void)?
-    let pipelineSecondaryAction: (() -> Void)?
+    let pipelineSecondaryAction: ((PipelineAction) -> Void)?
 
     private let summaryColumns = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 14), count: 5)
     private let lowerColumns = [GridItem(.adaptive(minimum: 310), spacing: 14)]
@@ -11,7 +11,7 @@ struct ActivityView: View {
     init(
         model: AppModel,
         pipelinePrimaryAction: (() -> Void)? = nil,
-        pipelineSecondaryAction: (() -> Void)? = nil
+        pipelineSecondaryAction: ((PipelineAction) -> Void)? = nil
     ) {
         self.model = model
         self.pipelinePrimaryAction = pipelinePrimaryAction
@@ -73,7 +73,7 @@ struct ActivityView: View {
             if let secondaryAction = pipeline.secondaryAction {
                 BorderedButton(title: secondaryAction.title, symbol: secondaryAction.symbol) {
                     if let pipelineSecondaryAction {
-                        pipelineSecondaryAction()
+                        pipelineSecondaryAction(secondaryAction)
                     } else {
                         model.navigate(to: .update)
                     }
@@ -101,7 +101,7 @@ struct ActivityView: View {
                 tone: .accent,
                 label: "Delta",
                 value: "\(pipeline.deltaCount)",
-                detail: "candidate fixes"
+                detail: pipeline.deltaDetail
             )
             ActivitySummaryCard(
                 symbol: "eye",

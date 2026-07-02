@@ -26,18 +26,36 @@ struct DesignActivitySnapshotInput {
 enum DesignActivitySnapshotAdapter {
     static let reportEntryLimit = 100
 
-    static func makeSnapshot(from input: DesignActivitySnapshotInput) -> DesignDataSnapshot {
+    static func makeSnapshot(
+        from input: DesignActivitySnapshotInput,
+        activityProjection: ActivityProjection? = nil,
+        activityNotice: String? = nil
+    ) -> DesignDataSnapshot {
         let dashboard = makeDashboardSnapshot(from: input)
         let reportEntries = makeReportEntries(from: input.changeLogEntries)
+        let pipelineActivity = if let activityProjection {
+            ActivityProjectionDesignAdapter.makePipelineSnapshot(
+                from: activityProjection,
+                notice: activityNotice
+            )
+        } else {
+            makePipelineSnapshot(from: dashboard, input: input)
+        }
+        let activity = if let activityProjection {
+            ActivityProjectionDesignAdapter.makeActivityItems(from: activityProjection)
+        } else {
+            makeActivityItems(from: dashboard, input: input)
+        }
+        let syncStatusText = activityProjection?.syncStatusText ?? makeSyncStatusText(from: input)
 
         return DesignDataSnapshot(
             health: makeHealthSnapshot(from: dashboard, input: input),
-            pipelineActivity: makePipelineSnapshot(from: dashboard, input: input),
+            pipelineActivity: pipelineActivity,
             pendingVerification: makePendingVerificationSnapshot(from: input.pendingVerification),
             coverage: makeCoverageBuckets(from: dashboard),
             issues: makeIssues(from: dashboard, input: input),
             metrics: makeMetricTiles(from: dashboard, input: input),
-            activity: makeActivityItems(from: dashboard, input: input),
+            activity: activity,
             // Browse data stays empty until a dedicated bridge slice maps it from persisted/library sources.
             artists: [],
             changes: [],
@@ -54,7 +72,7 @@ enum DesignActivitySnapshotAdapter {
             updatesOverTime: makeUpdatesOverTime(from: reportEntries),
             yearDistribution: makeYearDistribution(from: reportEntries),
             settings: input.settings,
-            syncStatusText: makeSyncStatusText(from: input),
+            syncStatusText: syncStatusText,
             isPreviewBacked: false
         )
     }
@@ -602,7 +620,7 @@ enum DesignActivitySnapshotAdapter {
         }
 
         if let lastSyncResult = input.lastSyncResult {
-            let changeCount = syncResultChangeCount(lastSyncResult)
+            let changeCount = lastSyncResult.changeCount
             return changeCount > 0 ? "Synced · \(changeCount.formatted()) changes" : "Synced · no changes"
         }
 
@@ -680,7 +698,7 @@ enum DesignActivitySnapshotAdapter {
     }
 
     private static func syncResultDetail(_ result: SyncResult) -> String {
-        let changeCount = syncResultChangeCount(result)
+        let changeCount = result.changeCount
         return changeCount > 0 ? "\(changeCount.formatted()) library changes detected" : "No library changes detected"
     }
 
@@ -693,15 +711,7 @@ enum DesignActivitySnapshotAdapter {
             return "No delta"
         }
 
-        let changeCount = syncResultChangeCount(lastSyncResult)
+        let changeCount = lastSyncResult.changeCount
         return changeCount > 0 ? "\(changeCount.formatted()) library changes" : "No library delta"
-    }
-
-    private static func syncResultChangeCount(_ result: SyncResult) -> Int {
-        result.newTracks.count
-            + result.modifiedTracks.count
-            + result.identityChangedTracks.count
-            + result.refreshedTracks.count
-            + result.removedTrackIDs.count
     }
 }
