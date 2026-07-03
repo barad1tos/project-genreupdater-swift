@@ -34,9 +34,7 @@ struct DesignActivitySnapshotAdapterTests {
             phaseLabel: "Review"
         )
 
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(metricsSnapshot: metrics, workflow: workflow)
-        )
+        let snapshot = makeSnapshot(from: makeInput(metricsSnapshot: metrics, workflow: workflow))
 
         #expect(snapshot.health.totalTracks == 10)
         #expect(snapshot.health.totalAlbums == nil)
@@ -47,9 +45,7 @@ struct DesignActivitySnapshotAdapterTests {
         #expect(snapshot.health.protectedFiles == 1)
         #expect(snapshot.health.recentlyAdded == 4)
         #expect(snapshot.health.lastScan == "8m ago")
-        #expect(snapshot.syncStatusText == "Synced 8m ago")
         #expect(!snapshot.isPreviewBacked)
-        #expect(snapshot.pipelineActivity.deltaCount == 7)
         #expect(snapshot.metrics.first { $0.id == "missing-genres" }?.trendUp == false)
         #expect(snapshot.metrics.first { $0.id == "missing-genres" }?.delta == "2")
         #expect(snapshot.metrics.first { $0.id == "missing-years" }?.trendUp == true)
@@ -86,9 +82,7 @@ struct DesignActivitySnapshotAdapterTests {
             ),
         ]
 
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(tracks: tracks, lastScanDate: scanDate)
-        )
+        let snapshot = makeSnapshot(from: makeInput(tracks: tracks, lastScanDate: scanDate))
 
         #expect(snapshot.health.totalTracks == 3)
         #expect(snapshot.health.totalAlbums == 2)
@@ -97,45 +91,26 @@ struct DesignActivitySnapshotAdapterTests {
         #expect(snapshot.health.completeMetadata == 1)
         #expect(snapshot.health.protectedFiles == 0)
         #expect(snapshot.health.recentlyAdded == 0)
-        #expect(snapshot.syncStatusText == "Synced 8m ago")
-        #expect(snapshot.activity.first?.detail == "3 tracks analyzed")
     }
 
     @Test("keeps load error state ahead of library counts")
     func keepsLoadErrorStateAheadOfLibraryCounts() {
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+        let snapshot = makeSnapshot(
             from: makeInput(
-                tracks: [
-                    Core.Track(
-                        id: "1",
-                        name: "Cached",
-                        artist: "Artist",
-                        album: "Album",
-                        genre: "Rock",
-                        year: 2001,
-                        trackStatus: "purchased"
-                    ),
-                ],
+                tracks: [editableTrack(id: "1")],
                 loadError: .failed("Music access failed")
             )
         )
 
         #expect(snapshot.health.totalTracks == 1)
-        #expect(snapshot.pipelineActivity.title == "Library needs attention")
-        #expect(snapshot.pipelineActivity.subtitle == "Music access failed")
-        #expect(snapshot.pipelineActivity.status(for: .detect) == .failed)
-        #expect(snapshot.pipelineActivity.primaryAction.title == "Retry scan")
     }
 
     @Test("maps empty library state without claiming a sync")
     func mapsEmptyLibraryStateWithoutClaimingSync() {
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(from: makeInput())
+        let snapshot = makeSnapshot(from: makeInput())
 
         #expect(snapshot.health.totalTracks == 0)
         #expect(snapshot.health.lastScan == "No scan yet")
-        #expect(snapshot.pipelineActivity.title == "Library empty")
-        #expect(snapshot.syncStatusText == "No sync yet")
-        #expect(snapshot.activity.first?.detail == "No tracks found")
     }
 
     @Test("maps workflow proposed accepted and failed counts")
@@ -148,7 +123,7 @@ struct DesignActivitySnapshotAdapterTests {
             phaseLabel: "Review"
         )
 
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+        let snapshot = makeSnapshot(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 lastScanDate: scanDate,
@@ -156,9 +131,6 @@ struct DesignActivitySnapshotAdapterTests {
             )
         )
 
-        #expect(snapshot.pipelineActivity.deltaCount == 9)
-        #expect(snapshot.pipelineActivity.failedWriteCount == 2)
-        #expect(snapshot.pipelineActivity.status(for: .fix) == .failed)
         #expect(snapshot.health.ready == 4)
         #expect(snapshot.health.writeErrors == 2)
         #expect(snapshot.issues.first { $0.id == "errors" }?.count == "2")
@@ -175,7 +147,7 @@ struct DesignActivitySnapshotAdapterTests {
             phaseLabel: "Review"
         )
 
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+        let snapshot = makeSnapshot(
             from: makeInput(
                 tracks: [
                     editableTrack(id: "1"),
@@ -200,12 +172,9 @@ struct DesignActivitySnapshotAdapterTests {
             verified: 7
         )
 
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(pendingVerification: pending)
-        )
+        let snapshot = makeSnapshot(from: makeInput(pendingVerification: pending))
 
         #expect(snapshot.health.pendingVerification == 142)
-        #expect(snapshot.pipelineActivity.interventionCount == 142)
         #expect(snapshot.pendingVerification.totalAlbums == 142)
         #expect(snapshot.pendingVerification.dueAlbums == 12)
         #expect(snapshot.pendingVerification.skippedByInterval == 5)
@@ -214,15 +183,13 @@ struct DesignActivitySnapshotAdapterTests {
         #expect(snapshot.pendingVerification.unavailableReason == nil)
         #expect(snapshot.issues.first { $0.id == "pending" }?.count == "142")
         #expect(snapshot.issues.first { $0.id == "pending" }?.unit == "albums")
-        #expect(snapshot.activity.contains { $0.detail == "142 albums queued, 12 due" })
     }
 
     @Test("marks pending verification unavailable when no summary is provided")
     func marksPendingVerificationUnavailableWhenNoSummaryIsProvided() {
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(from: makeInput())
+        let snapshot = makeSnapshot(from: makeInput())
 
         #expect(snapshot.health.pendingVerification == 0)
-        #expect(snapshot.pipelineActivity.interventionCount == 0)
         #expect(snapshot.pendingVerification.totalAlbums == 0)
         #expect(snapshot.pendingVerification
             .unavailableReason == "Pending verification data not available for this run")
@@ -231,147 +198,32 @@ struct DesignActivitySnapshotAdapterTests {
 
     @Test("distinguishes auto sync running and stopped wording before first scan")
     func distinguishesAutoSyncRunningAndStoppedWordingBeforeFirstScan() {
-        let running = DesignActivitySnapshotAdapter.makeSnapshot(from: makeInput(isAutoSyncRunning: true))
-        let stopped = DesignActivitySnapshotAdapter.makeSnapshot(from: makeInput(isAutoSyncRunning: false))
+        let running = makeSnapshot(from: makeInput(isAutoSyncRunning: true))
+        let stopped = makeSnapshot(from: makeInput(isAutoSyncRunning: false))
 
-        #expect(running.syncStatusText == "Auto-sync running")
         #expect(running.health.nextRun == "Auto-sync running")
-        #expect(running.pipelineActivity.automationState == .autoSyncRunning)
-        #expect(running.pipelineActivity.detail(for: .watch) == "Auto-sync running")
-        #expect(running.pipelineActivity.detail(for: .detect) == "Periodic polling")
-        #expect(stopped.syncStatusText == "No sync yet")
         #expect(stopped.health.nextRun == "Manual scan only")
-        #expect(stopped.pipelineActivity.automationState == .noSyncYet)
-        #expect(stopped.pipelineActivity.detail(for: .watch) == "No sync yet")
     }
 
-    @Test("uses sync result wording only when a result exists")
-    func usesSyncResultWordingOnlyWhenAResultExists() {
-        let noResult = DesignActivitySnapshotAdapter.makeSnapshot(from: makeInput(lastScanDate: scanDate))
-        let emptyResult = DesignActivitySnapshotAdapter.makeSnapshot(from: makeInput(lastSyncResult: SyncResult()))
-        let changedResult = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(
-                lastSyncResult: SyncResult(
-                    newTracks: [editableTrack(id: "1")],
-                    modifiedTracks: [editableTrack(id: "2")],
-                    removedTrackIDs: ["3"]
-                )
-            )
-        )
-
-        #expect(noResult.syncStatusText == "Synced 8m ago")
-        #expect(emptyResult.syncStatusText == "Synced · no changes")
-        #expect(changedResult.syncStatusText == "Synced · 3 changes")
-        #expect(changedResult.pipelineActivity.currentStage == .diff)
-        #expect(changedResult.pipelineActivity.detail(for: .diff) == "3 library changes")
-        #expect(changedResult.activity.contains { $0.detail == "3 library changes detected" })
-    }
-
-    @Test("maps manual library sync in flight state")
-    func mapsManualLibrarySyncInFlightState() {
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                lastScanDate: scanDate,
-                isSynchronizingLibrary: true
-            )
-        )
-
-        #expect(snapshot.syncStatusText == "Syncing")
-        #expect(snapshot.health.nextRun == "Manual sync running")
-        #expect(snapshot.pipelineActivity.title == "Syncing library")
-        #expect(snapshot.pipelineActivity.subtitle == "Manual sync running · detecting library delta")
-        #expect(snapshot.pipelineActivity.currentStage == .detect)
-        #expect(snapshot.pipelineActivity.status(for: .detect) == .current)
-        #expect(snapshot.pipelineActivity.detail(for: .detect) == "Detecting delta")
-        #expect(snapshot.pipelineActivity.secondaryAction?.title == "Syncing")
-        #expect(snapshot.pipelineActivity.secondaryAction?.isEnabled == false)
-    }
-
-    @Test("maps next run from active run lifecycle before legacy sync state")
-    func mapsNextRunFromActiveRunLifecycleBeforeLegacySyncState() {
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+    @Test("maps next run from run lifecycle")
+    func mapsNextRunFromActiveRunLifecycle() {
+        let syncing = makeSnapshot(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 lastScanDate: scanDate,
                 runLifecycle: makeRunLifecycle(state: .syncingLibrary)
             )
         )
-
-        #expect(snapshot.health.nextRun == "Manual sync running")
-    }
-
-    @Test("maps manual library sync failure state")
-    func mapsManualLibrarySyncFailureState() {
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+        let failed = makeSnapshot(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 lastScanDate: scanDate,
-                syncErrorMessage: "AppleScript timeout"
+                runLifecycle: makeRunLifecycle(state: .failed)
             )
         )
 
-        #expect(snapshot.syncStatusText == "Sync failed")
-        #expect(snapshot.health.nextRun == "Manual sync failed")
-        #expect(snapshot.pipelineActivity.title == "Sync needs attention")
-        #expect(snapshot.pipelineActivity.subtitle == "AppleScript timeout")
-        #expect(snapshot.pipelineActivity.currentStage == .detect)
-        #expect(snapshot.pipelineActivity.status(for: .detect) == .failed)
-        #expect(snapshot.pipelineActivity.detail(for: .detect) == "Sync failed")
-        #expect(snapshot.activity.contains {
-            $0.title == "Library sync failed" && $0.detail == "AppleScript timeout"
-        })
-    }
-
-    @Test("disables manual sync when sync service is unavailable")
-    func disablesManualSyncWhenSyncServiceIsUnavailable() {
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(isLibrarySyncAvailable: false)
-        )
-
-        #expect(snapshot.pipelineActivity.secondaryAction?.title == "Run manually")
-        #expect(snapshot.pipelineActivity.secondaryAction?.isEnabled == false)
-    }
-
-    @Test("disables primary action until live library is ready")
-    func disablesPrimaryActionUntilLiveLibraryIsReady() {
-        let loading = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                isLoading: true,
-                isLibraryReadyForUpdates: false
-            )
-        )
-        let cachedOnly = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                isLibraryReadyForUpdates: false
-            )
-        )
-        let ready = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                isLibraryReadyForUpdates: true
-            )
-        )
-        let processing = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                isLibraryReadyForUpdates: true,
-                workflow: WorkflowDashboardState(
-                    proposedChangeCount: 1,
-                    acceptedChangeCount: 1,
-                    failedWriteCount: 0,
-                    isProcessing: true,
-                    phaseLabel: "Writing"
-                )
-            )
-        )
-
-        #expect(loading.pipelineActivity.primaryAction.isEnabled == false)
-        #expect(cachedOnly.pipelineActivity.primaryAction.isEnabled == false)
-        #expect(processing.pipelineActivity.primaryAction.isEnabled == false)
-        #expect(ready.pipelineActivity.primaryAction.isEnabled == true)
+        #expect(syncing.health.nextRun == "Manual sync running")
+        #expect(failed.health.nextRun == "Manual sync failed")
     }
 
     @Test("maps persisted change log entries for read-only reports")
@@ -415,9 +267,7 @@ struct DesignActivitySnapshotAdapterTests {
             ),
         ]
 
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(changeLogEntries: entries)
-        )
+        let snapshot = makeSnapshot(from: makeInput(changeLogEntries: entries))
 
         #expect(snapshot.changeLog.map(\.id) == [genreID.uuidString, yearID.uuidString, renameID.uuidString])
         #expect(snapshot.changeLog[0].time == "8m ago")
@@ -476,9 +326,7 @@ struct DesignActivitySnapshotAdapterTests {
             ),
         ]
 
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(changeLogEntries: entries)
-        )
+        let snapshot = makeSnapshot(from: makeInput(changeLogEntries: entries))
 
         #expect(snapshot.changeLog[0].type == .track)
         #expect(snapshot.changeLog[0].track == "Windowlicker")
@@ -523,9 +371,7 @@ struct DesignActivitySnapshotAdapterTests {
             ),
         ]
 
-        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
-            from: makeInput(changeLogEntries: entries)
-        )
+        let snapshot = makeSnapshot(from: makeInput(changeLogEntries: entries))
         let identifiers = snapshot.genreDistribution.map(\.id)
 
         #expect(Set(identifiers).count == identifiers.count)
@@ -533,43 +379,34 @@ struct DesignActivitySnapshotAdapterTests {
         #expect(identifiers.contains("genre-7-Hip Hop"))
     }
 
+    private func makeSnapshot(from input: DesignActivitySnapshotInput) -> DesignDataSnapshot {
+        DesignActivitySnapshotAdapter.makeSnapshot(from: input, activityProjection: .empty())
+    }
+
     private func makeInput(
         tracks: [Core.Track] = [],
         metricsSnapshot: PersistedMetricsSnapshot? = nil,
         lastScanDate: Date? = nil,
-        isLoading: Bool = false,
-        isLibraryReadyForUpdates: Bool = true,
         loadError: LibraryLoadError? = nil,
-        isDryRun: Bool = true,
         workflow: WorkflowDashboardState = .empty,
         pendingVerification: UpdateRunPendingVerificationSummary? = nil,
         changeLogEntries: [Core.ChangeLogEntry] = [],
-        isSynchronizingLibrary: Bool = false,
-        syncErrorMessage: String? = nil,
-        isLibrarySyncAvailable: Bool = true,
         isAutoSyncRunning: Bool = false,
-        lastSyncResult: SyncResult? = nil,
-        runLifecycle: RunLifecycleSnapshot? = nil,
-        settings: DesignSettingsSnapshot = .preview
+        runLifecycle: RunLifecycleSnapshot? = nil
     ) -> DesignActivitySnapshotInput {
         DesignActivitySnapshotInput(
             tracks: tracks,
             metricsSnapshot: metricsSnapshot,
             lastScanDate: lastScanDate,
-            isLoading: isLoading,
-            isLibraryReadyForUpdates: isLibraryReadyForUpdates,
+            isLoading: false,
             loadError: loadError,
-            isDryRun: isDryRun,
+            isDryRun: true,
             workflow: workflow,
             pendingVerification: pendingVerification,
             changeLogEntries: changeLogEntries,
-            isSynchronizingLibrary: isSynchronizingLibrary,
-            syncErrorMessage: syncErrorMessage,
-            isLibrarySyncAvailable: isLibrarySyncAvailable,
             isAutoSyncRunning: isAutoSyncRunning,
-            lastSyncResult: lastSyncResult,
             runLifecycle: runLifecycle,
-            settings: settings,
+            settings: .preview,
             now: now
         )
     }

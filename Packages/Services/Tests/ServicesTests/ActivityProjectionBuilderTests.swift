@@ -42,7 +42,7 @@ struct ActivityProjectionBuilderTests {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                syncState: .running
+                runLifecycle: lifecycle(state: .syncingLibrary)
             )
         )
 
@@ -55,8 +55,8 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.secondaryCommand?.isEnabled == false)
     }
 
-    @Test("sync state has priority over processing state")
-    func syncStateHasPriorityOverProcessingState() {
+    @Test("active run has priority over processing state")
+    func activeRunHasPriorityOverProcessingState() {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
@@ -67,7 +67,7 @@ struct ActivityProjectionBuilderTests {
                     isProcessing: true,
                     phaseLabel: "Processing"
                 ),
-                syncState: .running
+                runLifecycle: lifecycle(state: .syncingLibrary)
             )
         )
 
@@ -89,13 +89,10 @@ struct ActivityProjectionBuilderTests {
                     isProcessing: true,
                     phaseLabel: "Writing metadata"
                 ),
-                syncState: .completed(ActivitySyncSummary(
-                    new: 1,
-                    modified: 0,
-                    identityChanged: 0,
-                    refreshed: 0,
-                    removed: 0
-                ))
+                runLifecycle: lifecycle(
+                    state: .completed,
+                    syncResult: SyncResult(newTracks: [editableTrack(id: "new-1")])
+                )
             )
         )
 
@@ -110,13 +107,7 @@ struct ActivityProjectionBuilderTests {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                syncState: .completed(ActivitySyncSummary(
-                    new: 2,
-                    modified: 1,
-                    identityChanged: 0,
-                    refreshed: 1,
-                    removed: 3
-                ))
+                runLifecycle: lifecycle(state: .completed, syncResult: multiChangeSyncResult())
             )
         )
 
@@ -131,37 +122,12 @@ struct ActivityProjectionBuilderTests {
         })
     }
 
-    @Test("completed sync without changes uses stable no changes status")
-    func completedSyncWithoutChangesUsesStableNoChangesStatus() {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                syncState: .completed(ActivitySyncSummary(
-                    new: 0,
-                    modified: 0,
-                    identityChanged: 0,
-                    refreshed: 0,
-                    removed: 0
-                ))
-            )
-        )
-
-        #expect(projection.syncStatusText == "Synced · no changes")
-        #expect(projection.subtitle == "No library changes detected")
-    }
-
     @Test("empty library after completed sync keeps empty title")
     func emptyLibraryAfterCompletedSyncKeepsEmptyTitle() {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [],
-                syncState: .completed(ActivitySyncSummary(
-                    new: 0,
-                    modified: 0,
-                    identityChanged: 0,
-                    refreshed: 0,
-                    removed: 0
-                ))
+                runLifecycle: lifecycle(state: .completedNoOp, syncResult: SyncResult())
             )
         )
 
@@ -189,13 +155,7 @@ struct ActivityProjectionBuilderTests {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                syncState: .completed(ActivitySyncSummary(
-                    new: 2,
-                    modified: 1,
-                    identityChanged: 0,
-                    refreshed: 1,
-                    removed: 3
-                ))
+                runLifecycle: lifecycle(state: .completed, syncResult: multiChangeSyncResult())
             )
         )
 
@@ -218,13 +178,7 @@ struct ActivityProjectionBuilderTests {
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 workflow: workflow,
-                syncState: .completed(ActivitySyncSummary(
-                    new: 2,
-                    modified: 1,
-                    identityChanged: 0,
-                    refreshed: 1,
-                    removed: 3
-                ))
+                runLifecycle: lifecycle(state: .completed, syncResult: multiChangeSyncResult())
             )
         )
 
@@ -304,43 +258,45 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.automationState == .manualScanOnly)
     }
 
-    @Test("sync failure exposes operational issue and failed detect stage")
-    func syncFailureExposesOperationalIssueAndFailedDetectStage() {
+    @Test("projection derives intervention, failed writes, and scan activity from input")
+    func projectionDerivesInterventionFailedWritesAndScanActivityFromInput() {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                syncState: .failed("Music.app is unavailable")
+                tracks: [editableTrack(id: "1"), editableTrack(id: "2"), editableTrack(id: "3")],
+                workflow: ActivityWorkflowState(
+                    proposedChangeCount: 0,
+                    acceptedChangeCount: 0,
+                    failedWriteCount: 2,
+                    isProcessing: false,
+                    phaseLabel: "Review"
+                ),
+                pendingVerification: ActivityPendingVerificationSummary(
+                    total: 142,
+                    due: 12,
+                    problematic: 3,
+                    skippedByInterval: 5,
+                    verified: 7
+                )
             )
         )
 
-        #expect(projection.title == "Sync needs attention")
-        #expect(projection.syncStatusText == "Sync failed")
-        #expect(projection.status(for: .detect) == .failed)
-        #expect(projection.operationalIssues.first?.category == .temporaryUnavailable)
-        #expect(projection.operationalIssues.first?.summary == "Library sync failed")
+        #expect(projection.interventionCount == 142)
+        #expect(projection.failedWriteCount == 2)
+        #expect(projection.status(for: .fix) == .failed)
+        #expect(projection.recentActivity.first?.title == "Library scan")
+        #expect(projection.recentActivity.first?.detail == "3 tracks analyzed")
     }
 
-    @Test("run lifecycle syncing overrides legacy sync state")
-    func runLifecycleSyncingOverridesLegacySyncState() {
+    @Test("library sync unavailable disables run manually command")
+    func librarySyncUnavailableDisablesRunManuallyCommand() {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(state: .syncingLibrary),
-                syncState: .completed(ActivitySyncSummary(
-                    new: 2,
-                    modified: 0,
-                    identityChanged: 0,
-                    refreshed: 0,
-                    removed: 0
-                ))
+                isLibrarySyncAvailable: false
             )
         )
 
-        #expect(projection.title == "Syncing library")
-        #expect(projection.syncStatusText == "Syncing")
-        #expect(projection.currentStage == .detect)
-        #expect(projection.status(for: .detect) == .current)
-        #expect(projection.secondaryCommand?.title == "Syncing")
+        #expect(projection.secondaryCommand?.commandKind == .runManually)
         #expect(projection.secondaryCommand?.isEnabled == false)
     }
 
@@ -386,8 +342,9 @@ struct ActivityProjectionBuilderTests {
         lastScanDate: Date? = nil,
         metrics: ActivityProjectionMetrics? = nil,
         workflow: ActivityWorkflowState = .empty,
+        pendingVerification: ActivityPendingVerificationSummary? = nil,
         runLifecycle: RunLifecycleSnapshot? = nil,
-        syncState: ActivitySyncState = .idle,
+        isLibrarySyncAvailable: Bool = true,
         usesDefaultScanDate: Bool = true,
         now: Date? = nil
     ) -> ActivityProjectionInput {
@@ -398,12 +355,20 @@ struct ActivityProjectionBuilderTests {
             libraryState: libraryState ?? (tracks.isEmpty ? .empty : .ready),
             processingMode: .preview,
             workflow: workflow,
-            pendingVerification: nil,
+            pendingVerification: pendingVerification,
             runLifecycle: runLifecycle,
-            syncState: syncState,
-            isLibrarySyncAvailable: true,
+            isLibrarySyncAvailable: isLibrarySyncAvailable,
             isAutoSyncRunning: false,
             now: now ?? self.now
+        )
+    }
+
+    private func multiChangeSyncResult() -> SyncResult {
+        SyncResult(
+            newTracks: [editableTrack(id: "new-1"), editableTrack(id: "new-2")],
+            modifiedTracks: [editableTrack(id: "modified-1")],
+            refreshedTracks: [editableTrack(id: "refreshed-1")],
+            removedTrackIDs: ["removed-1", "removed-2", "removed-3"]
         )
     }
 

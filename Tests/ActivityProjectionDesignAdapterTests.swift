@@ -64,14 +64,22 @@ struct ActivityProjectionDesignAdapterTests {
         #expect(items.first?.detail == "42 tracks analyzed")
     }
 
-    @Test("snapshot adapter overrides only activity owned fields from projection")
-    func snapshotAdapterOverridesActivityOwnedFieldsFromProjection() {
-        let projection = makeProjection(
-            title: "Projection pipeline",
-            subtitle: "Projection subtitle",
-            syncStatusText: "Projection sync",
+    @Test("snapshot adapter sources activity owned fields from projection")
+    func snapshotAdapterSourcesActivityOwnedFieldsFromProjection() {
+        let firstProjection = makeProjection(
+            title: "First pipeline",
+            subtitle: "First subtitle",
+            syncStatusText: "First sync",
             recentActivity: [
-                ActivityRecentItem(id: "projection", title: "Projection event", detail: "from Services"),
+                ActivityRecentItem(id: "first", title: "First event", detail: "from Services"),
+            ]
+        )
+        let secondProjection = makeProjection(
+            title: "Second pipeline",
+            subtitle: "Second subtitle",
+            syncStatusText: "Second sync",
+            recentActivity: [
+                ActivityRecentItem(id: "second", title: "Second event", detail: "from Services"),
             ]
         )
         let input = makeInput(tracks: [
@@ -85,36 +93,41 @@ struct ActivityProjectionDesignAdapterTests {
                 trackStatus: "purchased"
             ),
         ])
-        let baselineSnapshot = DesignActivitySnapshotAdapter.makeSnapshot(from: input)
-        let projectedSnapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+        let firstSnapshot = DesignActivitySnapshotAdapter.makeSnapshot(
             from: input,
-            activityProjection: projection
+            activityProjection: firstProjection
+        )
+        let secondSnapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+            from: input,
+            activityProjection: secondProjection
         )
 
-        #expect(projectedSnapshot.pipelineActivity != baselineSnapshot.pipelineActivity)
-        #expect(
-            projectedSnapshot.pipelineActivity == ActivityProjectionDesignAdapter.makePipelineSnapshot(from: projection)
-        )
-        #expect(projectedSnapshot.activity != baselineSnapshot.activity)
-        #expect(projectedSnapshot.activity == ActivityProjectionDesignAdapter.makeActivityItems(from: projection))
-        #expect(projectedSnapshot.syncStatusText != baselineSnapshot.syncStatusText)
-        #expect(projectedSnapshot.syncStatusText == "Projection sync")
+        #expect(firstSnapshot.pipelineActivity
+            == ActivityProjectionDesignAdapter.makePipelineSnapshot(from: firstProjection))
+        #expect(secondSnapshot.pipelineActivity
+            == ActivityProjectionDesignAdapter.makePipelineSnapshot(from: secondProjection))
+        #expect(firstSnapshot.activity == ActivityProjectionDesignAdapter.makeActivityItems(from: firstProjection))
+        #expect(secondSnapshot.activity == ActivityProjectionDesignAdapter.makeActivityItems(from: secondProjection))
+        #expect(firstSnapshot.syncStatusText == "First sync")
+        #expect(secondSnapshot.syncStatusText == "Second sync")
+        #expect(firstSnapshot.pipelineActivity != secondSnapshot.pipelineActivity)
+        #expect(firstSnapshot.activity != secondSnapshot.activity)
 
-        #expect(projectedSnapshot.health == baselineSnapshot.health)
-        #expect(projectedSnapshot.pendingVerification == baselineSnapshot.pendingVerification)
-        #expect(projectedSnapshot.coverage == baselineSnapshot.coverage)
-        #expect(projectedSnapshot.issues == baselineSnapshot.issues)
-        #expect(projectedSnapshot.metrics == baselineSnapshot.metrics)
-        #expect(projectedSnapshot.artists == baselineSnapshot.artists)
-        #expect(projectedSnapshot.changes == baselineSnapshot.changes)
-        #expect(projectedSnapshot.dryRun == baselineSnapshot.dryRun)
-        #expect(projectedSnapshot.changeLog == baselineSnapshot.changeLog)
-        #expect(projectedSnapshot.reportStats == baselineSnapshot.reportStats)
-        #expect(projectedSnapshot.genreDistribution == baselineSnapshot.genreDistribution)
-        #expect(projectedSnapshot.updatesOverTime == baselineSnapshot.updatesOverTime)
-        #expect(projectedSnapshot.yearDistribution == baselineSnapshot.yearDistribution)
-        #expect(projectedSnapshot.settings == baselineSnapshot.settings)
-        #expect(projectedSnapshot.isPreviewBacked == baselineSnapshot.isPreviewBacked)
+        #expect(firstSnapshot.health == secondSnapshot.health)
+        #expect(firstSnapshot.pendingVerification == secondSnapshot.pendingVerification)
+        #expect(firstSnapshot.coverage == secondSnapshot.coverage)
+        #expect(firstSnapshot.issues == secondSnapshot.issues)
+        #expect(firstSnapshot.metrics == secondSnapshot.metrics)
+        #expect(firstSnapshot.artists == secondSnapshot.artists)
+        #expect(firstSnapshot.changes == secondSnapshot.changes)
+        #expect(firstSnapshot.dryRun == secondSnapshot.dryRun)
+        #expect(firstSnapshot.changeLog == secondSnapshot.changeLog)
+        #expect(firstSnapshot.reportStats == secondSnapshot.reportStats)
+        #expect(firstSnapshot.genreDistribution == secondSnapshot.genreDistribution)
+        #expect(firstSnapshot.updatesOverTime == secondSnapshot.updatesOverTime)
+        #expect(firstSnapshot.yearDistribution == secondSnapshot.yearDistribution)
+        #expect(firstSnapshot.settings == secondSnapshot.settings)
+        #expect(firstSnapshot.isPreviewBacked == secondSnapshot.isPreviewBacked)
     }
 
     private func makeProjection(
@@ -180,17 +193,12 @@ struct ActivityProjectionDesignAdapterTests {
             metricsSnapshot: metricsSnapshot,
             lastScanDate: lastScanDate,
             isLoading: false,
-            isLibraryReadyForUpdates: true,
             loadError: nil,
             isDryRun: true,
             workflow: workflow,
             pendingVerification: nil,
             changeLogEntries: [],
-            isSynchronizingLibrary: false,
-            syncErrorMessage: nil,
-            isLibrarySyncAvailable: true,
             isAutoSyncRunning: false,
-            lastSyncResult: nil,
             runLifecycle: nil,
             settings: .preview,
             now: now

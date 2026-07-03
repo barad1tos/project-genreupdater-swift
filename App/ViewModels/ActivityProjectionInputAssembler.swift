@@ -32,7 +32,6 @@ enum ActivityProjectionInputAssembler {
             workflow: makeWorkflowState(from: context.workflow),
             pendingVerification: makePendingVerification(from: context.pendingVerification),
             runLifecycle: context.runLifecycle,
-            syncState: .idle,
             isLibrarySyncAvailable: context.isLibrarySyncAvailable,
             isAutoSyncRunning: context.isAutoSyncRunning,
             now: context.now

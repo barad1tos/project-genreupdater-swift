@@ -119,7 +119,6 @@ public struct ActivityProjectionInput: Equatable, Sendable {
     public let workflow: ActivityWorkflowState
     public let pendingVerification: ActivityPendingVerificationSummary?
     public let runLifecycle: RunLifecycleSnapshot?
-    public let syncState: ActivitySyncState
     public let isLibrarySyncAvailable: Bool
     public let isAutoSyncRunning: Bool
     public let now: Date
@@ -129,7 +128,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
     }
 
     public var effectiveSyncState: ActivitySyncState {
-        guard let runLifecycle else { return syncState }
+        guard let runLifecycle else { return .idle }
 
         switch runLifecycle.state {
         case .created, .syncingLibrary:
@@ -137,7 +136,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         case .completed, .completedNoOp:
             guard let syncResult = runLifecycle.syncResult else {
                 assertionFailure("Completed run lifecycle requires a SyncResult")
-                return syncState
+                return .idle
             }
             return .completed(ActivitySyncSummary(
                 new: syncResult.newTracks.count,
@@ -160,7 +159,6 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         workflow: ActivityWorkflowState,
         pendingVerification: ActivityPendingVerificationSummary?,
         runLifecycle: RunLifecycleSnapshot? = nil,
-        syncState: ActivitySyncState,
         isLibrarySyncAvailable: Bool,
         isAutoSyncRunning: Bool,
         now: Date
@@ -173,7 +171,6 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         self.workflow = workflow
         self.pendingVerification = pendingVerification
         self.runLifecycle = runLifecycle
-        self.syncState = syncState
         self.isLibrarySyncAvailable = isLibrarySyncAvailable
         self.isAutoSyncRunning = isAutoSyncRunning
         self.now = now
