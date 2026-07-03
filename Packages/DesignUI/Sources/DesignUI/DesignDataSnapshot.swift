@@ -80,12 +80,50 @@ public enum DesignUpdateBehavior: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum DesignAppearanceMode: String, CaseIterable, Identifiable, Sendable {
+    case system
+    case light
+    case dark
+
+    public static var supportedModes: [Self] {
+        [.dark]
+    }
+
+    public var id: String {
+        rawValue
+    }
+
+    public var displayName: String {
+        switch self {
+        case .system:
+            "System"
+        case .light:
+            "Light"
+        case .dark:
+            "Dark"
+        }
+    }
+
+    public var symbolName: String {
+        switch self {
+        case .system:
+            "circle.lefthalf.filled"
+        case .light:
+            "sun.max"
+        case .dark:
+            "moon"
+        }
+    }
+}
+
 public struct DesignSettingsSnapshot: Equatable, Sendable {
     public static let preview = Self(
         updateBehavior: .both,
         minimumConfidencePercent: 70,
         releaseYearRestoreThresholdYears: 5,
         testArtists: ["Aphex Twin", "Boards of Canada"],
+        appearanceMode: .system,
+        isFastAnimationsEnabled: false,
         isPostWriteVerificationRequired: true
     )
 
@@ -93,6 +131,8 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
     public let minimumConfidencePercent: Double
     public let releaseYearRestoreThresholdYears: Int
     public let testArtists: [String]
+    public let appearanceMode: DesignAppearanceMode
+    public let isFastAnimationsEnabled: Bool
     public let isPostWriteVerificationRequired: Bool
 
     public init(
@@ -100,12 +140,16 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         minimumConfidencePercent: Double,
         releaseYearRestoreThresholdYears: Int,
         testArtists: [String],
+        appearanceMode: DesignAppearanceMode = .system,
+        isFastAnimationsEnabled: Bool = false,
         isPostWriteVerificationRequired: Bool
     ) {
         self.updateBehavior = updateBehavior
         self.minimumConfidencePercent = minimumConfidencePercent
         self.releaseYearRestoreThresholdYears = releaseYearRestoreThresholdYears
         self.testArtists = testArtists
+        self.appearanceMode = appearanceMode
+        self.isFastAnimationsEnabled = isFastAnimationsEnabled
         self.isPostWriteVerificationRequired = isPostWriteVerificationRequired
     }
 }

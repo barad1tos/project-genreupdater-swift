@@ -1,6 +1,8 @@
 import Core
 import DesignUI
+import Foundation
 import Services
+import SharedUI
 import SwiftData
 import SwiftUI
 
@@ -15,9 +17,7 @@ struct DesignRootHostView: View {
     @State private var isLoading = false
     @State private var isLibraryReadyForUpdates = false
     @State private var loadError: LibraryLoadError?
-    @State private var isSynchronizingLibrary = false
-    @State private var syncErrorMessage: String?
-    @State private var lastSyncResult: SyncResult?
+    @State private var currentRunLifecycle: RunLifecycleSnapshot?
     @State private var hasStartedInitialLoad = false
     @State private var libraryLoadRequestID = UUID()
     @State private var workflowViewModel: WorkflowViewModel?
@@ -25,18 +25,26 @@ struct DesignRootHostView: View {
     @State private var workflowNoticeMessage: String?
     @State private var selectedBrowseAlbum: (album: DesignUI.Album, artist: String)?
     @State private var selectedRoute: Route? = .activity
+    @State private var activityProjection: ActivityProjection = .empty()
+    @State private var activityCommandNoticeMessage: String?
+    @State private var activityCommandNoticeID = UUID()
     @AppStorage("defaultUpdateBehavior") private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
+    @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
+    @AppStorage("fastAnimations") private var fastAnimations = false
 
     var body: some View {
         RootView(
             data: snapshot,
             selectedRoute: $selectedRoute,
-            pipelinePrimaryAction: prepareDefaultUpdateForReview,
+            pipelinePrimaryAction: reviewActivityChanges,
             pipelineSecondaryAction: runManualSync,
             setDryRunAction: setDryRunMode,
             setUpdateBehaviorAction: setDefaultUpdateBehavior,
             setMinimumConfidenceAction: setMinimumConfidence,
             setReleaseYearRestoreThresholdAction: setReleaseYearRestoreThreshold,
+            setTestArtistsAction: setTestArtists,
+            setAppearanceModeAction: setAppearanceMode,
+            setFastAnimationsAction: setFastAnimationsEnabled,
             browseAlbumUpdateAction: prepareAlbumUpdate,
             browseAlbumSelectionAction: setSelectedBrowseAlbum
         ) {
@@ -45,20 +53,35 @@ struct DesignRootHostView: View {
         .task {
             await startInitialLoadIfNeeded()
         }
+        .task { await observeActivityProjectionUpdates() }
+        .task { await observeRunLifecycleUpdates() }
         .onChange(of: defaultUpdateBehavior) {
             applyWorkflowDefaults()
+            scheduleActivityProjectionRefresh()
         }
         .onChange(of: dependencies.config.runtime.dryRun) {
             applyWorkflowDefaults()
+            scheduleActivityProjectionRefresh()
         }
         .onChange(of: dependencies.config.yearRetrieval.logic.minConfidenceForNewYear) {
             applyWorkflowDefaults()
+            scheduleActivityProjectionRefresh()
         }
         .onChange(of: dependencies.config.processing.releaseYearRestoreThreshold) {
             applyWorkflowDefaults()
+            scheduleActivityProjectionRefresh()
         }
         .onChange(of: dependencies.config.development.testArtists) {
             handleTestArtistScopeChange()
+        }
+        .onChange(of: dependencies.isAutoSyncRunning) {
+            scheduleActivityProjectionRefresh()
+        }
+        .onChange(of: workflowDashboardState) {
+            scheduleActivityProjectionRefresh()
+        }
+        .onChange(of: workflowViewModel?.pendingVerificationReportSummary) {
+            scheduleActivityProjectionRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .updateSelectedTracks)) { _ in
             prepareSelectedTracksUpdate()
@@ -71,25 +94,27 @@ struct DesignRootHostView: View {
 
     private var snapshot: DesignDataSnapshot {
         DesignActivitySnapshotAdapter.makeSnapshot(
-            from: DesignActivitySnapshotInput(
-                tracks: tracks,
-                metricsSnapshot: metricsSnapshot,
-                lastScanDate: lastScanDate,
-                isLoading: isLoading,
-                isLibraryReadyForUpdates: isLibraryReadyForUpdates,
-                loadError: loadError,
-                isDryRun: dependencies.config.runtime.dryRun,
-                workflow: workflowDashboardState,
-                pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
-                changeLogEntries: changeLogEntries,
-                isSynchronizingLibrary: isSynchronizingLibrary,
-                syncErrorMessage: syncErrorMessage,
-                isLibrarySyncAvailable: dependencies.librarySyncService != nil,
-                isAutoSyncRunning: dependencies.isAutoSyncRunning,
-                lastSyncResult: lastSyncResult,
-                settings: settingsSnapshot,
-                now: Date()
-            )
+            from: designActivitySnapshotInput,
+            activityProjection: activityProjection,
+            activityNotice: activityCommandNoticeMessage
+        )
+    }
+
+    private var designActivitySnapshotInput: DesignActivitySnapshotInput {
+        DesignActivitySnapshotInput(
+            tracks: tracks,
+            metricsSnapshot: metricsSnapshot,
+            lastScanDate: lastScanDate,
+            isLoading: isLoading,
+            loadError: loadError,
+            isDryRun: dependencies.config.runtime.dryRun,
+            workflow: workflowDashboardState,
+            pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
+            changeLogEntries: changeLogEntries,
+            isAutoSyncRunning: dependencies.isAutoSyncRunning,
+            runLifecycle: currentRunLifecycle,
+            settings: settingsSnapshot,
+            now: Date()
         )
     }
 
@@ -147,10 +172,29 @@ struct DesignRootHostView: View {
             updateBehavior: DesignUpdateBehavior(rawValue: defaultUpdateBehavior) ?? .both,
             minimumConfidencePercent: dependencies.config.yearRetrieval.logic.minConfidenceForNewYear,
             releaseYearRestoreThresholdYears: dependencies.config.processing.releaseYearRestoreThreshold,
-            testArtists: dependencies.config.development.testArtists,
+            testArtists: ArtistAllowList.normalized(dependencies.config.development.testArtists),
+            appearanceMode: designAppearanceMode(from: appearanceMode),
+            isFastAnimationsEnabled: fastAnimations,
             // Writes must always be verified before the app reports them as complete.
             isPostWriteVerificationRequired: true
         )
+    }
+
+    private var activityProjectionInput: ActivityProjectionInput {
+        ActivityProjectionInputAssembler.makeInput(from: ActivityProjectionAssemblyContext(
+            tracks: tracks,
+            metricsSnapshot: metricsSnapshot,
+            lastScanDate: lastScanDate,
+            loadError: loadError,
+            isLoading: isLoading,
+            isDryRun: dependencies.config.runtime.dryRun,
+            workflow: workflowDashboardState,
+            pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
+            runLifecycle: currentRunLifecycle,
+            isLibrarySyncAvailable: dependencies.isManualRunAvailable,
+            isAutoSyncRunning: dependencies.isAutoSyncRunning,
+            now: Date()
+        ))
     }
 
     private var updateWorkflowTracks: [Core.Track] {
@@ -259,6 +303,24 @@ struct DesignRootHostView: View {
         }
     }
 
+    private func setTestArtists(_ artists: [String]) -> Bool {
+        let normalizedArtists = ArtistAllowList.normalized(artists)
+
+        return mutateConfiguration(dependencies) { configuration in
+            configuration.development.testArtists = normalizedArtists
+        }
+    }
+
+    private func setAppearanceMode(_ mode: DesignAppearanceMode) -> Bool {
+        appearanceMode = appAppearanceMode(from: mode)
+        return true
+    }
+
+    private func setFastAnimationsEnabled(_ isEnabled: Bool) -> Bool {
+        fastAnimations = isEnabled
+        return true
+    }
+
     private func prepareDefaultUpdateForReview() {
         selectedRoute = .update
         ensureWorkflowViewModel()
@@ -294,6 +356,13 @@ struct DesignRootHostView: View {
         workflowViewModel.previewOnly = true
         workflowNoticeMessage = nil
         workflowViewModel.start(tracks: scopedLibraryTracks)
+    }
+
+    private func reviewActivityChanges() {
+        clearActivityCommandNotice()
+        Task { @MainActor in
+            await reviewActivityChangesCommand()
+        }
     }
 
     private func prepareAlbumUpdate(album: DesignUI.Album, artist: String) {
@@ -392,7 +461,8 @@ struct DesignRootHostView: View {
         workflowViewModel?.reset()
         applyWorkflowDefaults()
 
-        Task {
+        Task { @MainActor in
+            await refreshActivityProjection()
             await loadLibrary(forceRefresh: true)
         }
     }
@@ -402,6 +472,7 @@ struct DesignRootHostView: View {
         hasStartedInitialLoad = true
         ensureWorkflowViewModel()
         await loadLibrary()
+        await refreshActivityProjection()
     }
 
     private func loadLibrary(forceRefresh: Bool = false) async {
@@ -426,10 +497,31 @@ struct DesignRootHostView: View {
 
         guard let provider = LibraryTrackLoader.liveProvider(from: dependencies) else {
             finishLibraryLoadIfCurrent(requestID)
+            await refreshActivityProjection()
             return
         }
 
         isLoading = true
+        await refreshActivityProjection()
+
+        let shouldRefreshProjection = await loadLiveLibrary(
+            provider: provider,
+            requestID: requestID,
+            scopedArtists: scopedArtists,
+            loadStart: loadStart,
+            hasCachedTracks: hasCachedTracks
+        )
+        guard shouldRefreshProjection else { return }
+        await refreshActivityProjection()
+    }
+
+    private func loadLiveLibrary(
+        provider: LibraryReadProvider,
+        requestID: UUID,
+        scopedArtists: [String],
+        loadStart: ContinuousClock.Instant,
+        hasCachedTracks: Bool
+    ) async -> Bool {
         defer { finishLibraryLoadIfCurrent(requestID) }
 
         do {
@@ -444,10 +536,12 @@ struct DesignRootHostView: View {
                 loadStart: loadStart
             )
         } catch is CancellationError {
-            return
+            return isCurrentLibraryLoad(requestID)
         } catch {
             await handleLibraryLoadFailure(error, hasCachedTracks: hasCachedTracks, requestID: requestID)
         }
+
+        return isCurrentLibraryLoad(requestID)
     }
 
     private func applyCachedLibraryLoad(
@@ -537,24 +631,129 @@ struct DesignRootHostView: View {
         )
     }
 
-    private func runManualSync() {
-        guard !isSynchronizingLibrary else { return }
+    @discardableResult
+    private func refreshActivityProjection() async -> ActivityProjection {
+        let inputGeneration = await dependencies.projectionStore.nextActivityProjectionInputGeneration()
+        let projectionInput = activityProjectionInput
+        let projection = ActivityProjectionBuilder.makeProjection(from: projectionInput)
+        let storedProjection = await dependencies.projectionStore.replaceActivityProjection(
+            projection,
+            inputGeneration: inputGeneration
+        )
+        applyActivityProjection(storedProjection)
+        return storedProjection
+    }
 
-        isSynchronizingLibrary = true
-        syncErrorMessage = nil
+    private func applyActivityProjection(_ projection: ActivityProjection) {
+        guard projection.revision > activityProjection.revision else { return }
+        activityProjection = projection
+    }
 
-        Task { @MainActor in
-            do {
-                let result = try await dependencies.synchronizeLibraryNow()
-                lastSyncResult = result
-                await loadLibrary(forceRefresh: true)
-                isSynchronizingLibrary = false
-            } catch {
-                lastSyncResult = nil
-                syncErrorMessage = error.localizedDescription
-                isSynchronizingLibrary = false
-            }
+    private func observeActivityProjectionUpdates() async {
+        for await projection in await dependencies.projectionStore.activityUpdates() {
+            applyActivityProjection(projection)
         }
+    }
+
+    private func observeRunLifecycleUpdates() async {
+        for await lifecycle in await dependencies.runLifecycleUpdates() {
+            currentRunLifecycle = lifecycle
+            await refreshActivityProjection()
+        }
+    }
+
+    private func scheduleActivityProjectionRefresh() {
+        Task { @MainActor in
+            await refreshActivityProjection()
+        }
+    }
+
+    private var activityCommandController: ActivityCommandController {
+        ActivityCommandController(
+            isRunOrchestratorAvailable: { dependencies.runOrchestrator != nil },
+            hasActiveRun: { currentRunLifecycle?.isActive == true },
+            submitManualObservationRun: {
+                try await dependencies.submitManualObservationRun()
+            },
+            reloadLibrary: { forceRefresh in
+                await loadLibrary(forceRefresh: forceRefresh)
+            },
+            refreshActivityProjection: {
+                await refreshActivityProjection()
+            }
+        )
+    }
+
+    private func runManualSync(_ action: PipelineAction) {
+        guard action.isEnabled else { return }
+        runManualSync()
+    }
+
+    private func runManualSync() {
+        clearActivityCommandNotice()
+        Task { @MainActor in
+            await runManualSyncCommand()
+        }
+    }
+
+    @discardableResult
+    private func runManualSyncCommand() async -> UserCommandResult {
+        let command = UserIntentCommand.runManually()
+        let result = await activityCommandController.handle(command)
+        handleActivityCommandResult(result)
+        return result
+    }
+
+    @discardableResult
+    private func reviewActivityChangesCommand() async -> UserCommandResult {
+        let command = UserIntentCommand.reviewChanges()
+        let result = await activityCommandController.handle(command)
+        handleActivityCommandResult(result)
+        return result
+    }
+
+    private func handleActivityCommandResult(_ result: UserCommandResult) {
+        if let refreshedProjection = result.refreshedActivityProjection {
+            applyActivityProjection(refreshedProjection)
+        }
+        handleActivityNavigationTarget(result.navigationTarget)
+        setActivityCommandNotice(result.message)
+    }
+
+    private func handleActivityNavigationTarget(_ target: CommandNavigationTarget?) {
+        switch target {
+        case .fixPlan:
+            prepareDefaultUpdateForReview()
+        case .activity:
+            selectedRoute = .activity
+        case .report:
+            selectedRoute = .reports
+        case .settings:
+            selectedRoute = .settings
+        case nil:
+            break
+        }
+    }
+
+    private func setActivityCommandNotice(_ message: String) {
+        guard !message.isEmpty else {
+            clearActivityCommandNotice()
+            return
+        }
+
+        let noticeID = UUID()
+        activityCommandNoticeID = noticeID
+        activityCommandNoticeMessage = message
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(8))
+            guard activityCommandNoticeID == noticeID else { return }
+            clearActivityCommandNotice()
+        }
+    }
+
+    private func clearActivityCommandNotice() {
+        activityCommandNoticeID = UUID()
+        activityCommandNoticeMessage = nil
     }
 
     private var selectedCategoryBinding: Binding<NavigationCategory?> {
@@ -569,36 +768,6 @@ struct DesignRootHostView: View {
         selectedRoute = category?.designRoute ?? .activity
         if category == .update {
             ensureWorkflowViewModel()
-        }
-    }
-}
-
-extension NavigationCategory {
-    fileprivate var designRoute: Route {
-        switch self {
-        case .dashboard:
-            .activity
-        case .browse:
-            .browse
-        case .reports:
-            .reports
-        case .update:
-            .update
-        }
-    }
-
-    fileprivate init?(designRoute: Route?) {
-        switch designRoute ?? .activity {
-        case .activity:
-            self = .dashboard
-        case .browse:
-            self = .browse
-        case .reports:
-            self = .reports
-        case .update:
-            self = .update
-        case .settings:
-            return nil
         }
     }
 }

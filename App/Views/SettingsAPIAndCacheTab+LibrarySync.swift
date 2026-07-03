@@ -10,14 +10,14 @@ extension APIAndCacheTab {
         Section("Library Sync") {
             HStack(spacing: Spacing.sm) {
                 Button {
-                    synchronizeLibraryNow()
+                    submitManualLibraryCheck()
                 } label: {
                     Label(
                         isSyncingLibrary ? "Syncing" : "Sync Now",
                         systemImage: "arrow.triangle.2.circlepath"
                     )
                 }
-                .disabled(isSyncingLibrary || dependencies.librarySyncService == nil)
+                .disabled(isSyncingLibrary || !dependencies.isManualRunAvailable)
 
                 if !librarySyncStatus.isEmpty {
                     Text(librarySyncStatus)
@@ -48,14 +48,14 @@ extension APIAndCacheTab {
         }
     }
 
-    func synchronizeLibraryNow() {
+    func submitManualLibraryCheck() {
         guard !isSyncingLibrary else { return }
         isSyncingLibrary = true
         librarySyncStatus = "Syncing library..."
 
         Task {
             do {
-                let result = try await dependencies.synchronizeLibraryNow()
+                let result = try await dependencies.submitManualObservationRun()
                 await MainActor.run {
                     librarySyncStatus = librarySyncMessage(for: result)
                     isSyncingLibrary = false
@@ -102,5 +102,18 @@ extension APIAndCacheTab {
             "\(result.refreshedTracks.count) refreshed",
             "\(result.removedTrackIDs.count) removed",
         ].joined(separator: ", ")
+    }
+
+    private func librarySyncMessage(for result: RunSubmissionResult) -> String {
+        switch result {
+        case .alreadyRunning:
+            return "Run already active"
+        case let .completed(snapshot),
+             let .completedNoOp(snapshot):
+            guard let syncResult = snapshot.syncResult else { return "Library is current" }
+            return librarySyncMessage(for: syncResult)
+        case let .failed(snapshot):
+            return "Sync failed: \(snapshot.failureMessage ?? "Unknown error")"
+        }
     }
 }

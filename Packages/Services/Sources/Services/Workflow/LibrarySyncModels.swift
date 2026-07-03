@@ -20,7 +20,7 @@ public enum LibrarySyncError: Error, LocalizedError {
 // MARK: - Sync Result
 
 /// Result of comparing the current library state against the last known state.
-public struct SyncResult: Sendable {
+public struct SyncResult: Sendable, Equatable {
     public let newTracks: [Track]
     public let modifiedTracks: [Track]
     /// Tracks whose album lookup identity changed without a managed metadata delta.
@@ -29,12 +29,16 @@ public struct SyncResult: Sendable {
     public let refreshedTracks: [Track]
     public let removedTrackIDs: [String]
 
+    public var changeCount: Int {
+        newTracks.count
+            + modifiedTracks.count
+            + identityChangedTracks.count
+            + refreshedTracks.count
+            + removedTrackIDs.count
+    }
+
     public var hasChanges: Bool {
-        !newTracks.isEmpty
-            || !modifiedTracks.isEmpty
-            || !identityChangedTracks.isEmpty
-            || !refreshedTracks.isEmpty
-            || !removedTrackIDs.isEmpty
+        changeCount > 0
     }
 
     public init(

@@ -1,0 +1,86 @@
+import Foundation
+import Services
+import Testing
+
+@Suite("Command result model")
+struct CommandResultTests {
+    @Test("projection revision starts at initial value and advances")
+    func projectionRevisionInitialAndAdvanced() {
+        let revision = ProjectionRevision.initial
+
+        #expect(revision.value == 0)
+        #expect(revision.advanced() == ProjectionRevision(1))
+    }
+
+    @Test("projection revisions compare by value")
+    func projectionRevisionsCompareByValue() {
+        let currentRevision = ProjectionRevision(2)
+        let newerRevision = ProjectionRevision(3)
+
+        #expect(currentRevision < newerRevision)
+        #expect(newerRevision > currentRevision)
+        #expect(currentRevision <= ProjectionRevision(2))
+    }
+
+    @Test("run manually command carries stable identity")
+    func runManuallyCarriesStableIdentity() {
+        let id = UUID()
+        let command = UserIntentCommand.runManually(id: id)
+
+        #expect(command.id == id)
+        #expect(command.kind == .runManually)
+    }
+
+    @Test("review changes command carries stable identity")
+    func reviewChangesCarriesStableIdentity() {
+        let id = UUID()
+        let command = UserIntentCommand.reviewChanges(id: id)
+
+        #expect(command.id == id)
+        #expect(command.kind == .reviewChanges)
+    }
+
+    @Test("stale result carries refreshed activity projection")
+    func staleResultCarriesRefreshedActivityProjection() {
+        let projection = ActivityProjection.empty(revision: ProjectionRevision(9))
+        let result = UserCommandResult.rejectedStale(
+            message: "Activity changed. Refreshing current state.",
+            refreshedActivityProjection: projection
+        )
+
+        #expect(result.status == .rejectedStale)
+        #expect(result.message == "Activity changed. Refreshing current state.")
+        #expect(result.refreshedActivityProjection == projection)
+        #expect(result.navigationTarget == nil)
+    }
+
+    @Test("navigation result exposes required navigation target")
+    func navigationResultExposesRequiredNavigationTarget() {
+        let target = CommandNavigationTarget.settings(section: .apiAndCache)
+        let result = UserCommandResult.navigated(message: "Open API and cache settings.", navigationTarget: target)
+
+        #expect(result.status == .navigated)
+        #expect(result.navigationTarget == target)
+        #expect(result.issue == nil)
+    }
+
+    @Test("attention result exposes operational issue detail")
+    func attentionResultExposesOperationalIssueDetail() {
+        let issue = OperationalIssue(
+            id: "library-sync-failed",
+            category: .temporaryUnavailable,
+            summary: "Library sync failed",
+            technicalDetail: "Music.app returned an error"
+        )
+
+        let result = UserCommandResult.requiresAttention(
+            message: "Library sync failed",
+            issue: issue,
+            refreshedActivityProjection: .empty(revision: ProjectionRevision(3))
+        )
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.issue == issue)
+        #expect(result.refreshedActivityProjection?.revision == ProjectionRevision(3))
+    }
+}

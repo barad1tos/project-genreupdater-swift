@@ -36,4 +36,20 @@ struct SyncResultTests {
         let result = SyncResult(refreshedTracks: [track])
         #expect(result.hasChanges == true)
     }
+
+    @Test("changeCount totals all sync buckets")
+    func changeCountTotalsAllSyncBuckets() {
+        let firstTrack = Track(id: "1", name: "Song 1", artist: "A", album: "B")
+        let secondTrack = Track(id: "2", name: "Song 2", artist: "A", album: "B")
+        let result = SyncResult(
+            newTracks: [firstTrack],
+            modifiedTracks: [secondTrack],
+            identityChangedTracks: [firstTrack],
+            refreshedTracks: [secondTrack],
+            removedTrackIDs: ["old-1", "old-2"]
+        )
+
+        #expect(result.changeCount == 6)
+        #expect(result.hasChanges == true)
+    }
 }
