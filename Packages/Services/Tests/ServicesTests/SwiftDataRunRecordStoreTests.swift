@@ -187,6 +187,94 @@ struct SwiftDataRunRecordStoreTests {
         #expect(try await store.loadAll().count == 1)
     }
 
+    @Test("reports filters by date range, state, and trigger, newest first")
+    func reportsFiltersByDateRangeStateAndTrigger() async throws {
+        let store = try makeStore()
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 200),
+            finishedAt: Date(timeIntervalSince1970: 201),
+            state: .failed,
+            syncSummary: nil
+        ))
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 300),
+            finishedAt: Date(timeIntervalSince1970: 301),
+            state: .completed,
+            syncSummary: ActivitySyncSummary(new: 1, modified: 0, identityChanged: 0, refreshed: 0, removed: 0)
+        ))
+
+        let all = try await store.reports(matching: RunReportQuery())
+        #expect(all.records.map(\.startedAt) == [
+            Date(timeIntervalSince1970: 300),
+            Date(timeIntervalSince1970: 200),
+            Date(timeIntervalSince1970: 100),
+        ])
+        #expect(all.skippedCorruptedCount == 0)
+
+        let dateWindow = try await store.reports(matching: RunReportQuery(
+            startedAfter: Date(timeIntervalSince1970: 150),
+            startedBefore: Date(timeIntervalSince1970: 250)
+        ))
+        #expect(dateWindow.records.map(\.startedAt) == [Date(timeIntervalSince1970: 200)])
+
+        let failedOnly = try await store.reports(matching: RunReportQuery(states: [.failed]))
+        #expect(failedOnly.records.map(\.state) == [.failed])
+
+        let limited = try await store.reports(matching: RunReportQuery(limit: 2))
+        #expect(limited.records.count == 2)
+        #expect(limited.records.first?.startedAt == Date(timeIntervalSince1970: 300))
+    }
+
+    @Test("reports filters by trigger")
+    func reportsFiltersByTrigger() async throws {
+        let store = try makeStore()
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+        try await store.upsert(makeRecord(
+            trigger: .recovery,
+            startedAt: Date(timeIntervalSince1970: 200),
+            finishedAt: Date(timeIntervalSince1970: 201),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+
+        let recoveryOnly = try await store.reports(matching: RunReportQuery(trigger: .recovery))
+
+        #expect(recoveryOnly.records.map(\.trigger) == [.recovery])
+    }
+
+    @Test("reports skips corrupted rows and counts them")
+    func reportsSkipsCorruptedRowsAndCountsThem() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = SwiftDataRunRecordStore(modelContainer: container)
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+        try insertPersistedRunRecord(
+            runID: UUID(),
+            transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+            into: container
+        )
+
+        let page = try await store.reports(matching: RunReportQuery())
+
+        #expect(page.records.count == 1)
+        #expect(page.skippedCorruptedCount == 1)
+    }
+
     private func validTransitionsData() throws -> Data {
         try JSONEncoder().encode([
             RunLifecycleTransition(state: .created, timestamp: Date(timeIntervalSince1970: 100)),
@@ -255,6 +343,7 @@ struct SwiftDataRunRecordStoreTests {
     private func makeRecord(
         runID: RunID = RunID(),
         requestID: RunRequestID = RunRequestID(),
+        trigger: RunTrigger = .manualCheck,
         startedAt: Date,
         finishedAt: Date?,
         state: RunLifecycleState,
@@ -274,7 +363,7 @@ struct SwiftDataRunRecordStoreTests {
         return RunRecord(
             runID: runID,
             requestID: requestID,
-            trigger: .manualCheck,
+            trigger: trigger,
             intent: .observeLibrary,
             scope: ProcessingScopeSnapshot.capture(
                 requestedTestArtists: ["Aphex Twin"],

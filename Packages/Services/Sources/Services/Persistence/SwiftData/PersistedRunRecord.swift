@@ -7,8 +7,8 @@ public final class PersistedRunRecord {
     public var requestID: UUID
     public var triggerRaw: String
     public var intentRaw: String
-    /// Write-only denormalization for future store-level queries; reads derive state from transitions (see
-    /// RunRecord.state).
+    /// Denormalized state column used by report-query predicates; reads still
+    /// derive the canonical state from transitions (see RunRecord.state).
     public var stateRaw: String
     public var scopeData: Data
     public var transitionsData: Data

@@ -70,6 +70,43 @@ public actor SwiftDataRunRecordStore: RunRecordStore {
         return excess.count
     }
 
+    public func reports(matching query: RunReportQuery) async throws -> RunReportPage {
+        let after = query.startedAfter ?? Date.distantPast
+        let before = query.startedBefore ?? Date.distantFuture
+        let stateFilter = Set((query.states ?? []).map(\.rawValue))
+        let filtersState = !stateFilter.isEmpty
+        let triggerFilter = query.trigger?.rawValue ?? ""
+        let filtersTrigger = !triggerFilter.isEmpty
+
+        var descriptor = FetchDescriptor<PersistedRunRecord>(
+            predicate: #Predicate { row in
+                row.startedAt >= after && row.startedAt <= before
+                    && (!filtersState || stateFilter.contains(row.stateRaw))
+                    && (!filtersTrigger || row.triggerRaw == triggerFilter)
+            },
+            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
+        )
+        if let limit = query.limit {
+            descriptor.fetchLimit = limit
+        }
+
+        var records: [RunRecord] = []
+        var skippedCorruptedCount = 0
+        for row in try modelContext.fetch(descriptor) {
+            do {
+                try records.append(makeRecord(from: row))
+            } catch {
+                skippedCorruptedCount += 1
+                log.error("""
+                Skipping corrupted run record \(row.runID.uuidString, privacy: .public) \
+                in report query: \(error.localizedDescription, privacy: .public)
+                """)
+            }
+        }
+
+        return RunReportPage(records: records, skippedCorruptedCount: skippedCorruptedCount)
+    }
+
     private func makePersisted(from record: RunRecord) throws -> PersistedRunRecord {
         try PersistedRunRecord(
             runID: record.runID.rawValue,

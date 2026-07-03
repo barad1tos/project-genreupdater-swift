@@ -68,4 +68,9 @@ public protocol RunRecordStore: Sendable {
     /// (`finishedAt == nil`) are never pruned: unresolved runs are recovery
     /// evidence, not disposable history. Returns the number of deleted rows.
     func prune(keepingLatest limit: Int) async throws -> Int
+
+    /// Lists run history for report surfaces, newest first. Unlike `loadAll()`,
+    /// corrupted rows are skipped, logged, and counted in the returned page so
+    /// one bad row cannot make the whole history unreadable.
+    func reports(matching query: RunReportQuery) async throws -> RunReportPage
 }
