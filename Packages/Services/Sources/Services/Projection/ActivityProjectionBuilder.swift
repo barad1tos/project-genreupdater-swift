@@ -83,7 +83,7 @@ public struct ActivityPendingVerificationSummary: Equatable, Sendable {
     }
 }
 
-public struct ActivitySyncSummary: Equatable, Sendable {
+public struct ActivitySyncSummary: Codable, Equatable, Sendable {
     public let new: Int
     public let modified: Int
     public let identityChanged: Int
