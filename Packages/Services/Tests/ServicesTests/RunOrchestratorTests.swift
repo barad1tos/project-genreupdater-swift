@@ -94,6 +94,33 @@ struct RunOrchestratorTests {
         }
     }
 
+    @Test("cancelling the submitter does not fail the active run")
+    func cancellingSubmitterDoesNotFailActiveRun() async {
+        let gate = SyncGate()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                await gate.waitUntilReleased()
+                try Task.checkCancellation()
+                return SyncResult()
+            },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let submitter = Task {
+            await orchestrator.submit(.manualObservation(
+                requestedTestArtists: [],
+                knownTrackCount: nil
+            ))
+        }
+        await gate.waitUntilEntered()
+        submitter.cancel()
+        await gate.release()
+
+        let result = await submitter.value
+        #expect(result.lifecycle.state == .completedNoOp)
+        #expect(await orchestrator.currentLifecycle()?.state == .completedNoOp)
+    }
+
     @Test("lifecycle updates unregister subscriber after cancellation")
     func lifecycleUpdatesUnregisterSubscriberAfterCancellation() async {
         let orchestrator = RunOrchestrator(dependencies: .init(

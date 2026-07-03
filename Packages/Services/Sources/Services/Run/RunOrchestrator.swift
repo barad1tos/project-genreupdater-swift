@@ -56,19 +56,29 @@ public actor RunOrchestrator {
             return .alreadyRunning(activeRun)
         }
 
+        // No suspension between the activeRun check and publish(created):
+        // single-flight stays airtight without extra locking.
         let startedAt = dependencies.now()
         let created = makeCreatedLifecycle(for: request, startedAt: startedAt)
         publish(created)
         let syncing = created.replacing(state: .syncingLibrary)
         publish(syncing)
 
+        // The run executes in an orchestrator-owned task: awaiting the value
+        // of a non-throwing Task does not forward the submitter's
+        // cancellation into the run.
+        let runTask = Task { await executeRun(from: syncing) }
+        return await runTask.value
+    }
+
+    private func executeRun(from lifecycle: RunLifecycleSnapshot) async -> RunSubmissionResult {
         do {
             let result = try await dependencies.synchronizeLibrary()
-            let completed = makeCompletedLifecycle(from: syncing, result: result)
+            let completed = makeCompletedLifecycle(from: lifecycle, result: result)
             publishCompleted(completed)
             return result.hasChanges ? .completed(completed) : .completedNoOp(completed)
         } catch {
-            let failed = syncing.replacing(
+            let failed = lifecycle.replacing(
                 state: .failed,
                 failureMessage: error.localizedDescription,
                 finishedAt: dependencies.now()
