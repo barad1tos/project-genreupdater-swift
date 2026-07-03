@@ -76,7 +76,7 @@ struct ActivityCommandController {
         } catch {
             log.error("""
             Manual observation run submission failed with \
-            \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .public)
+            \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)
             """)
             let refreshedProjection = await refreshActivityProjection()
             return .requiresAttention(

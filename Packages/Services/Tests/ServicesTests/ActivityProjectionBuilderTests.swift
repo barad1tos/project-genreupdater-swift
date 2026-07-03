@@ -147,7 +147,20 @@ struct ActivityProjectionBuilderTests {
         )
 
         #expect(projection.title == "Syncing library")
+        #expect(projection.subtitle == "Manual sync running · detecting library delta")
         #expect(projection.syncStatusText == "Syncing")
+    }
+
+    @Test("loading library without a run keeps the scanning title")
+    func loadingLibraryWithoutRunKeepsScanningTitle() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [],
+                libraryState: .loading
+            )
+        )
+
+        #expect(projection.title == "Scanning library")
     }
 
     @Test("failed run takes precedence over an empty library state")

@@ -168,7 +168,7 @@ extension AppDependencies {
             return try await trackStore.trackCount()
         } catch {
             libraryServicesLog.warning(
-                "Failed to read known track count for run scope snapshot: \(error.localizedDescription, privacy: .public)"
+                "Failed to read known track count for run scope snapshot: \(error.localizedDescription, privacy: .private)"
             )
             return nil
         }

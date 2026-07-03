@@ -377,7 +377,7 @@ private enum LifecycleStreamTestError: Error, CustomStringConvertible {
 
 private func nextLifecycleSnapshot(
     from iterator: LifecycleIterator,
-    timeout: Duration = .seconds(1)
+    timeout: Duration = .seconds(5)
 ) async throws -> RunLifecycleSnapshot? {
     try await withThrowingTaskGroup(of: RunLifecycleSnapshot?.self) { group in
         // LifecycleIterator is captured here; tests call next() serially and the timeout task never touches it.

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SwiftData
 
 public enum RunRecordPersistenceError: LocalizedError {
@@ -14,6 +15,8 @@ public enum RunRecordPersistenceError: LocalizedError {
 
 @ModelActor
 public actor SwiftDataRunRecordStore: RunRecordStore {
+    private let log = Logger(subsystem: "com.genreupdater", category: "RunRecordStore")
+
     public func upsert(_ record: RunRecord) async throws {
         let targetID = record.runID.rawValue
         var descriptor = FetchDescriptor<PersistedRunRecord>(
@@ -94,6 +97,11 @@ public actor SwiftDataRunRecordStore: RunRecordStore {
         do {
             scope = try JSONDecoder().decode(ProcessingScopeSnapshot.self, from: persisted.scopeData)
         } catch {
+            // Decode details stay private: scopeData embeds user artist names.
+            log.error("""
+            Corrupted scope blob in run record \(persisted.runID.uuidString, privacy: .public): \
+            \(error.localizedDescription, privacy: .private)
+            """)
             throw RunRecordPersistenceError.corruptedField(name: "scope", runID: persisted.runID)
         }
 
@@ -101,6 +109,10 @@ public actor SwiftDataRunRecordStore: RunRecordStore {
         do {
             transitions = try JSONDecoder().decode([RunLifecycleTransition].self, from: persisted.transitionsData)
         } catch {
+            log.error("""
+            Corrupted transitions blob in run record \(persisted.runID.uuidString, privacy: .public): \
+            \(error.localizedDescription, privacy: .private)
+            """)
             throw RunRecordPersistenceError.corruptedField(name: "transitions", runID: persisted.runID)
         }
         // An empty transitions list would otherwise decode as a fake `.created` record (see RunRecord.state).

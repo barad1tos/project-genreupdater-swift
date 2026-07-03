@@ -100,11 +100,11 @@ public actor RunOrchestrator {
             log.error("Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) cancelled")
             return await finishFailedRun(from: lifecycle, failureMessage: "Run cancelled")
         } catch {
-            // String(describing: error) is avoided: encoded errors could leak scope artist names.
+            // Error descriptions stay private: sync errors can embed track or artist names.
             log.error("""
             Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) failed with \
             \(String(describing: type(of: error)), privacy: .public): \
-            \(error.localizedDescription, privacy: .public)
+            \(error.localizedDescription, privacy: .private)
             """)
             return await finishFailedRun(from: lifecycle, failureMessage: error.localizedDescription)
         }
@@ -167,7 +167,7 @@ public actor RunOrchestrator {
         } catch {
             log.error("""
             Failed to persist run record \(lifecycle.runID.rawValue.uuidString, privacy: .public): \
-            \(error.localizedDescription, privacy: .public)
+            \(error.localizedDescription, privacy: .private)
             """)
         }
     }

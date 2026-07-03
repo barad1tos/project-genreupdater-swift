@@ -92,7 +92,7 @@ struct SwiftDataRunRecordStoreTests {
 
         let store = SwiftDataRunRecordStore(modelContainer: container)
 
-        await assertLoadAllThrowsCorruptedTransitions(store: store, expectedRunID: runID)
+        await assertLoadAllThrowsCorruptedField(store: store, expectedName: "transitions", expectedRunID: runID)
     }
 
     @Test("loadAll throws corruptedField naming transitions for an empty transitions array")
@@ -104,11 +104,35 @@ struct SwiftDataRunRecordStoreTests {
 
         let store = SwiftDataRunRecordStore(modelContainer: container)
 
-        await assertLoadAllThrowsCorruptedTransitions(store: store, expectedRunID: runID)
+        await assertLoadAllThrowsCorruptedField(store: store, expectedName: "transitions", expectedRunID: runID)
     }
 
-    private func assertLoadAllThrowsCorruptedTransitions(
+    @Test("loadAll throws corruptedField naming scope for garbage scope bytes")
+    func loadAllThrowsCorruptedFieldForGarbageScopeBytes() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        try insertPersistedRunRecord(
+            runID: runID,
+            transitionsData: validTransitionsData(),
+            scopeData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+            into: container
+        )
+
+        let store = SwiftDataRunRecordStore(modelContainer: container)
+
+        await assertLoadAllThrowsCorruptedField(store: store, expectedName: "scope", expectedRunID: runID)
+    }
+
+    private func validTransitionsData() throws -> Data {
+        try JSONEncoder().encode([
+            RunLifecycleTransition(state: .created, timestamp: Date(timeIntervalSince1970: 100)),
+            RunLifecycleTransition(state: .syncingLibrary, timestamp: Date(timeIntervalSince1970: 101)),
+        ])
+    }
+
+    private func assertLoadAllThrowsCorruptedField(
         store: SwiftDataRunRecordStore,
+        expectedName: String,
         expectedRunID: UUID
     ) async {
         do {
@@ -119,7 +143,7 @@ struct SwiftDataRunRecordStoreTests {
                 Issue.record("Expected corruptedField, got \(error)")
                 return
             }
-            #expect(name == "transitions")
+            #expect(name == expectedName)
             #expect(runID == expectedRunID)
         } catch {
             Issue.record("Expected RunRecordPersistenceError, got \(error)")
@@ -129,10 +153,11 @@ struct SwiftDataRunRecordStoreTests {
     private func insertPersistedRunRecord(
         runID: UUID,
         transitionsData: Data,
+        scopeData: Data? = nil,
         into container: ModelContainer
     ) throws {
         let context = ModelContext(container)
-        let scopeData = try JSONEncoder().encode(ProcessingScopeSnapshot.capture(
+        let scopeData = try scopeData ?? JSONEncoder().encode(ProcessingScopeSnapshot.capture(
             requestedTestArtists: [],
             knownTrackCount: 1,
             createdAt: Date(timeIntervalSince1970: 100),
