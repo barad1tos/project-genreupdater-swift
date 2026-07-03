@@ -304,16 +304,7 @@ struct DesignRootHostView: View {
     }
 
     private func setTestArtists(_ artists: [String]) -> Bool {
-        var normalizedArtists: [String] = []
-        for artist in artists {
-            let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedArtist.isEmpty else { continue }
-            let alreadyExists = normalizedArtists.contains { existingArtist in
-                existingArtist.localizedCaseInsensitiveCompare(trimmedArtist) == .orderedSame
-            }
-            guard !alreadyExists else { continue }
-            normalizedArtists.append(trimmedArtist)
-        }
+        let normalizedArtists = ArtistAllowList.normalized(artists)
 
         return mutateConfiguration(dependencies) { configuration in
             configuration.development.testArtists = normalizedArtists

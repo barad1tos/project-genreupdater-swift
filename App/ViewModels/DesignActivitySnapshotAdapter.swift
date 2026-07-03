@@ -112,7 +112,8 @@ enum DesignActivitySnapshotAdapter {
 
     private static func makeAlbumCount(from input: DesignActivitySnapshotInput) -> Int? {
         guard !input.tracks.isEmpty else {
-            // nil means unknown from cached metrics; 0 means a live empty library.
+            // nil = metrics-backed snapshot without album identity; 0 = no cached metrics and no
+            // live tracks (empty or not yet loaded).
             return input.metricsSnapshot == nil ? 0 : nil
         }
 

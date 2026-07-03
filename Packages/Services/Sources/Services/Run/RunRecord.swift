@@ -57,6 +57,10 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
 
 public protocol RunRecordStore: Sendable {
     func upsert(_ record: RunRecord) async throws
+
+    /// Loads every persisted run record. All-or-nothing: a single corrupted row
+    /// fails the whole load, deliberately, until a read consumer defines a
+    /// per-row degradation policy.
     func loadAll() async throws -> [RunRecord]
     func record(for runID: RunID) async throws -> RunRecord?
 }

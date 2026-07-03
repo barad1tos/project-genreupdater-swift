@@ -136,6 +136,33 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.subtitle == "No library changes detected")
     }
 
+    @Test("active run takes precedence over a loading library state")
+    func activeRunTakesPrecedenceOverLoadingLibraryState() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [],
+                libraryState: .loading,
+                runLifecycle: lifecycle(state: .syncingLibrary)
+            )
+        )
+
+        #expect(projection.title == "Syncing library")
+        #expect(projection.syncStatusText == "Syncing")
+    }
+
+    @Test("failed run takes precedence over an empty library state")
+    func failedRunTakesPrecedenceOverEmptyLibraryState() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [],
+                libraryState: .empty,
+                runLifecycle: lifecycle(state: .failed, failureMessage: "Music.app is unavailable")
+            )
+        )
+
+        #expect(projection.title == "Sync needs attention")
+    }
+
     @Test("failed library state does not mark watch completed")
     func failedLibraryStateDoesNotMarkWatchCompleted() {
         let projection = ActivityProjectionBuilder.makeProjection(

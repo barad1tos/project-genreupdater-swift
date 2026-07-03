@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Services
 
@@ -81,6 +82,80 @@ struct SwiftDataRunRecordStoreTests {
         try await store.upsert(newer)
 
         #expect(try await store.loadAll().map(\.runID) == [newer.runID, older.runID])
+    }
+
+    @Test("loadAll throws corruptedField naming transitions for garbage transition bytes")
+    func loadAllThrowsCorruptedFieldForGarbageTransitionBytes() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        try insertPersistedRunRecord(runID: runID, transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]), into: container)
+
+        let store = SwiftDataRunRecordStore(modelContainer: container)
+
+        await assertLoadAllThrowsCorruptedTransitions(store: store, expectedRunID: runID)
+    }
+
+    @Test("loadAll throws corruptedField naming transitions for an empty transitions array")
+    func loadAllThrowsCorruptedFieldForEmptyTransitionsArray() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        let emptyTransitionsData = try JSONEncoder().encode([RunLifecycleTransition]())
+        try insertPersistedRunRecord(runID: runID, transitionsData: emptyTransitionsData, into: container)
+
+        let store = SwiftDataRunRecordStore(modelContainer: container)
+
+        await assertLoadAllThrowsCorruptedTransitions(store: store, expectedRunID: runID)
+    }
+
+    private func assertLoadAllThrowsCorruptedTransitions(
+        store: SwiftDataRunRecordStore,
+        expectedRunID: UUID
+    ) async {
+        do {
+            _ = try await store.loadAll()
+            Issue.record("Expected loadAll to throw RunRecordPersistenceError.corruptedField")
+        } catch let error as RunRecordPersistenceError {
+            guard case let .corruptedField(name, runID) = error else {
+                Issue.record("Expected corruptedField, got \(error)")
+                return
+            }
+            #expect(name == "transitions")
+            #expect(runID == expectedRunID)
+        } catch {
+            Issue.record("Expected RunRecordPersistenceError, got \(error)")
+        }
+    }
+
+    private func insertPersistedRunRecord(
+        runID: UUID,
+        transitionsData: Data,
+        into container: ModelContainer
+    ) throws {
+        let context = ModelContext(container)
+        let scopeData = try JSONEncoder().encode(ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "manualCheck"
+        ))
+        context.insert(PersistedRunRecord(
+            runID: runID,
+            requestID: UUID(),
+            triggerRaw: RunTrigger.manualCheck.rawValue,
+            intentRaw: RunIntent.observeLibrary.rawValue,
+            stateRaw: RunLifecycleState.completed.rawValue,
+            scopeData: scopeData,
+            transitionsData: transitionsData,
+            syncNewCount: nil,
+            syncModifiedCount: nil,
+            syncIdentityChangedCount: nil,
+            syncRefreshedCount: nil,
+            syncRemovedCount: nil,
+            failureMessage: nil,
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil
+        ))
+        try context.save()
     }
 
     private func makeStore() throws -> SwiftDataRunRecordStore {

@@ -40,6 +40,20 @@ struct ActivityProjectionDesignAdapterTests {
         #expect(snapshot.detail(for: .diff) == "Current delta")
     }
 
+    @Test("notice overrides subtitle; nil notice keeps the projection subtitle")
+    func noticeOverridesSubtitleAndNilNoticeKeepsProjectionSubtitle() {
+        let projection = makeProjection(subtitle: "Projection subtitle")
+
+        let withNotice = ActivityProjectionDesignAdapter.makePipelineSnapshot(
+            from: projection,
+            notice: "Custom notice"
+        )
+        let withoutNotice = ActivityProjectionDesignAdapter.makePipelineSnapshot(from: projection, notice: nil)
+
+        #expect(withNotice.subtitle == "Custom notice")
+        #expect(withoutNotice.subtitle == "Projection subtitle")
+    }
+
     @Test("maps semantic delta detail from projection summary cards")
     func mapsSemanticDeltaDetailFromProjectionSummaryCards() {
         let projection = makeProjection(deltaDetail: "library changes")

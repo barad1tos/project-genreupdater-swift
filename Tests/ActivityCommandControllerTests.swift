@@ -176,6 +176,7 @@ struct ActivityCommandControllerTests {
 
         #expect(result.status == .requiresAttention)
         #expect(result.issue?.id == "manual-check-failed")
+        #expect(result.issue?.category == .internalFailure)
         #expect(result.issue?.technicalDetail == "Run orchestrator crashed")
         #expect(harness.submitRunCallCount == 1)
         #expect(harness.reloadCallCount == 0)

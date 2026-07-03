@@ -9,7 +9,7 @@ public actor RunOrchestrator {
 
         public init(
             synchronizeLibrary: @escaping @Sendable () async throws -> SyncResult,
-            persistRunRecord: @escaping @Sendable (RunRecord) async throws -> Void = { _ in },
+            persistRunRecord: @escaping @Sendable (RunRecord) async throws -> Void,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
             self.synchronizeLibrary = synchronizeLibrary
@@ -72,15 +72,15 @@ public actor RunOrchestrator {
         appendTransition(.syncingLibrary)
         publish(syncing)
 
-        // The run executes in an orchestrator-owned task: awaiting the value
-        // of a non-throwing Task does not forward the submitter's
+        // The run executes in an orchestrator-owned task: awaiting the value of
+        // an unstructured Task's value never forwards the submitter's
         // cancellation into the run.
         let runTask = Task { await executeRun(from: syncing) }
         return await runTask.value
     }
 
     private func executeRun(from lifecycle: RunLifecycleSnapshot) async -> RunSubmissionResult {
-        // Open record: interrupted-run evidence for future recovery slices.
+        // Open record: a crash mid-run leaves it with finishedAt == nil as interrupted-run evidence.
         await persistRecord(for: lifecycle, syncResult: nil, failureMessage: nil, finishedAt: nil)
 
         do {
@@ -96,23 +96,39 @@ public actor RunOrchestrator {
             )
             publishCompleted(completed)
             return result.hasChanges ? .completed(completed) : .completedNoOp(completed)
+        } catch is CancellationError {
+            log.error("Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) cancelled")
+            return await finishFailedRun(from: lifecycle, failureMessage: "Run cancelled")
         } catch {
-            publishReporting(from: lifecycle)
-            let failed = lifecycle.replacing(
-                state: .failed,
-                failureMessage: error.localizedDescription,
-                finishedAt: dependencies.now()
-            )
-            appendTransition(.failed, at: failed.finishedAt)
-            await persistRecord(
-                for: failed,
-                syncResult: nil,
-                failureMessage: failed.failureMessage,
-                finishedAt: failed.finishedAt
-            )
-            publishCompleted(failed)
-            return .failed(failed)
+            // String(describing: error) is avoided: encoded errors could leak scope artist names.
+            log.error("""
+            Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) failed with \
+            \(String(describing: type(of: error)), privacy: .public): \
+            \(error.localizedDescription, privacy: .public)
+            """)
+            return await finishFailedRun(from: lifecycle, failureMessage: error.localizedDescription)
         }
+    }
+
+    private func finishFailedRun(
+        from lifecycle: RunLifecycleSnapshot,
+        failureMessage: String
+    ) async -> RunSubmissionResult {
+        publishReporting(from: lifecycle)
+        let failed = lifecycle.replacing(
+            state: .failed,
+            failureMessage: failureMessage,
+            finishedAt: dependencies.now()
+        )
+        appendTransition(.failed, at: failed.finishedAt)
+        await persistRecord(
+            for: failed,
+            syncResult: nil,
+            failureMessage: failed.failureMessage,
+            finishedAt: failed.finishedAt
+        )
+        publishCompleted(failed)
+        return .failed(failed)
     }
 
     private func publishReporting(from lifecycle: RunLifecycleSnapshot) {

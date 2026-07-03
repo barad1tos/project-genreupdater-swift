@@ -1,7 +1,10 @@
+import OSLog
 import Services
 
 @MainActor
 struct ActivityCommandController {
+    private let log = Logger(subsystem: "com.genreupdater", category: "ActivityCommands")
+
     let isRunOrchestratorAvailable: () -> Bool
     let hasActiveRun: () -> Bool
     let submitManualObservationRun: () async throws -> RunSubmissionResult
@@ -71,12 +74,16 @@ struct ActivityCommandController {
             let result = try await submitManualObservationRun()
             return await handleManualObservationResult(result)
         } catch {
+            log.error("""
+            Manual observation run submission failed with \
+            \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .public)
+            """)
             let refreshedProjection = await refreshActivityProjection()
             return .requiresAttention(
                 message: "Manual check failed.",
                 issue: OperationalIssue(
                     id: "manual-check-failed",
-                    category: .temporaryUnavailable,
+                    category: .internalFailure,
                     summary: "Manual check failed",
                     technicalDetail: error.localizedDescription
                 ),

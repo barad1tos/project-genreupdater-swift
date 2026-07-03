@@ -10,6 +10,7 @@ struct RunOrchestratorTests {
         let clock = ClockProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in },
             now: { clock.now() }
         ))
 
@@ -32,6 +33,7 @@ struct RunOrchestratorTests {
                     Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
                 ])
             },
+            persistRunRecord: { _ in },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -50,6 +52,7 @@ struct RunOrchestratorTests {
             synchronizeLibrary: {
                 throw ProbeError(message: "Music.app unavailable")
             },
+            persistRunRecord: { _ in },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -62,6 +65,25 @@ struct RunOrchestratorTests {
         #expect(result.lifecycle.failureMessage == "Music.app unavailable")
     }
 
+    @Test("cancellation error during sync fails the run with a cancelled message")
+    func cancellationDuringSyncFailsRunWithCancelledMessage() async {
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                throw CancellationError()
+            },
+            persistRunRecord: { _ in },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let result = await orchestrator.submit(.manualObservation(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+
+        #expect(result.lifecycle.state == .failed)
+        #expect(result.lifecycle.failureMessage == "Run cancelled")
+    }
+
     @Test("manual observation rejects a second active run")
     func manualObservationRejectsSecondActiveRun() async {
         let gate = SyncGate()
@@ -70,6 +92,7 @@ struct RunOrchestratorTests {
                 await gate.waitUntilReleased()
                 return SyncResult()
             },
+            persistRunRecord: { _ in },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -103,6 +126,7 @@ struct RunOrchestratorTests {
                 try Task.checkCancellation()
                 return SyncResult()
             },
+            persistRunRecord: { _ in },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -125,6 +149,7 @@ struct RunOrchestratorTests {
     func lifecycleUpdatesUnregisterSubscriberAfterCancellation() async {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in },
             now: { Date(timeIntervalSince1970: 100) }
         ))
         let stream = await orchestrator.lifecycleUpdates()
@@ -248,6 +273,72 @@ struct RunOrchestratorTests {
         #expect(result.lifecycle.state == .completedNoOp)
         #expect(await orchestrator.currentLifecycle()?.state == .completedNoOp)
     }
+
+    @Test("lifecycle stream delivers a terminal snapshot and replays it to new subscribers")
+    func lifecycleStreamDeliversTerminalSnapshotAndReplaysIt() async throws {
+        let gate = SyncGate()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                await gate.waitUntilReleased()
+                return SyncResult()
+            },
+            persistRunRecord: { _ in },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+        let iterator = await LifecycleIterator(stream: orchestrator.lifecycleUpdates())
+
+        let submitTask = Task {
+            await orchestrator.submit(.manualObservation(
+                requestedTestArtists: [],
+                knownTrackCount: nil
+            ))
+        }
+        await gate.waitUntilEntered()
+        await gate.release()
+
+        var terminalSnapshot: RunLifecycleSnapshot?
+        while terminalSnapshot == nil {
+            guard let snapshot = try await nextLifecycleSnapshot(from: iterator) else { break }
+            if !snapshot.isActive {
+                terminalSnapshot = snapshot
+            }
+        }
+        _ = await submitTask.value
+
+        let snapshot = try #require(terminalSnapshot)
+        #expect(snapshot.state == .completedNoOp)
+
+        let replayIterator = await LifecycleIterator(stream: orchestrator.lifecycleUpdates())
+        let replayed = try await nextLifecycleSnapshot(from: replayIterator)
+
+        #expect(replayed == snapshot)
+    }
+
+    @Test("submit after a failed run is accepted, not already running")
+    func submitAfterFailedRunIsAccepted() async {
+        let toggle = SyncOutcomeToggle()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { try await toggle.syncOrFail() },
+            persistRunRecord: { _ in },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let firstResult = await orchestrator.submit(.manualObservation(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+        #expect(firstResult.lifecycle.state == .failed)
+
+        let secondResult = await orchestrator.submit(.manualObservation(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+
+        guard case .completedNoOp = secondResult else {
+            Issue.record("Expected completedNoOp, got \(secondResult)")
+            return
+        }
+    }
 }
 
 private func waitForSubscriptionCount(
@@ -262,6 +353,59 @@ private func waitForSubscriptionCount(
     }
 
     Issue.record("Expected \(expected) lifecycle subscriptions")
+}
+
+private final class LifecycleIterator: @unchecked Sendable {
+    private var iterator: AsyncStream<RunLifecycleSnapshot>.Iterator
+
+    init(stream: AsyncStream<RunLifecycleSnapshot>) {
+        iterator = stream.makeAsyncIterator()
+    }
+
+    func next() async -> RunLifecycleSnapshot? {
+        await iterator.next()
+    }
+}
+
+private enum LifecycleStreamTestError: Error, CustomStringConvertible {
+    case timedOutWaitingForSnapshot
+
+    var description: String {
+        "Timed out waiting for lifecycle snapshot"
+    }
+}
+
+private func nextLifecycleSnapshot(
+    from iterator: LifecycleIterator,
+    timeout: Duration = .seconds(1)
+) async throws -> RunLifecycleSnapshot? {
+    try await withThrowingTaskGroup(of: RunLifecycleSnapshot?.self) { group in
+        // LifecycleIterator is captured here; tests call next() serially and the timeout task never touches it.
+        group.addTask {
+            await iterator.next()
+        }
+        group.addTask {
+            try await Task.sleep(for: timeout)
+            throw LifecycleStreamTestError.timedOutWaitingForSnapshot
+        }
+
+        let snapshotResult = try await group.next()
+        group.cancelAll()
+        guard let snapshotResult else { return nil }
+        return snapshotResult
+    }
+}
+
+private actor SyncOutcomeToggle {
+    private var shouldFail = true
+
+    func syncOrFail() throws -> SyncResult {
+        if shouldFail {
+            shouldFail = false
+            throw ProbeError(message: "Music.app unavailable")
+        }
+        return SyncResult()
+    }
 }
 
 private final class ClockProbe: @unchecked Sendable {

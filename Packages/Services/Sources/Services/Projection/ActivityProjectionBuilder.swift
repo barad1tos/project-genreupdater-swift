@@ -248,20 +248,27 @@ public enum ActivityProjectionBuilder {
         switch input.libraryState {
         case .permissionDenied, .failed:
             return "Library needs attention"
-        case .loading:
-            return "Scanning library"
-        case .empty:
-            return "Library empty"
-        case .ready:
+        case .loading, .empty, .ready:
             break
         }
 
+        // An active or failed run takes precedence over a loading/empty library
+        // state so a run in flight is never hidden behind "Scanning"/"Library empty".
         switch input.effectiveSyncState {
         case .running:
             return "Syncing library"
         case .failed:
             return "Sync needs attention"
         case .idle, .completed:
+            break
+        }
+
+        switch input.libraryState {
+        case .loading:
+            return "Scanning library"
+        case .empty:
+            return "Library empty"
+        case .ready, .permissionDenied, .failed:
             break
         }
 
@@ -305,7 +312,11 @@ public enum ActivityProjectionBuilder {
         case let .permissionDenied(message), let .failed(message):
             message
         case .loading:
-            input.isAutoSyncRunning ? "Auto-sync running · reading Music metadata" : "Manual scan in progress"
+            // An active/failed run must fall through to the effectiveSyncState switch below,
+            // mirroring the .empty case's precedence instead of always hiding it.
+            input.effectiveSyncState == .idle
+                ? (input.isAutoSyncRunning ? "Auto-sync running · reading Music metadata" : "Manual scan in progress")
+                : nil
         case .empty:
             input.effectiveSyncState == .idle ? "No Music tracks available for analysis" : nil
         case .ready:

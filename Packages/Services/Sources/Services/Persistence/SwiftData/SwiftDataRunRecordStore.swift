@@ -90,6 +90,24 @@ public actor SwiftDataRunRecordStore: RunRecordStore {
             throw RunRecordPersistenceError.corruptedField(name: "intent", runID: persisted.runID)
         }
 
+        let scope: ProcessingScopeSnapshot
+        do {
+            scope = try JSONDecoder().decode(ProcessingScopeSnapshot.self, from: persisted.scopeData)
+        } catch {
+            throw RunRecordPersistenceError.corruptedField(name: "scope", runID: persisted.runID)
+        }
+
+        let transitions: [RunLifecycleTransition]
+        do {
+            transitions = try JSONDecoder().decode([RunLifecycleTransition].self, from: persisted.transitionsData)
+        } catch {
+            throw RunRecordPersistenceError.corruptedField(name: "transitions", runID: persisted.runID)
+        }
+        // An empty transitions list would otherwise decode as a fake `.created` record (see RunRecord.state).
+        guard !transitions.isEmpty else {
+            throw RunRecordPersistenceError.corruptedField(name: "transitions", runID: persisted.runID)
+        }
+
         let syncSummary: ActivitySyncSummary? = if let new = persisted.syncNewCount,
                                                    let modified = persisted.syncModifiedCount,
                                                    let identityChanged = persisted.syncIdentityChangedCount,
@@ -106,13 +124,13 @@ public actor SwiftDataRunRecordStore: RunRecordStore {
             nil
         }
 
-        return try RunRecord(
+        return RunRecord(
             runID: RunID(rawValue: persisted.runID),
             requestID: RunRequestID(rawValue: persisted.requestID),
             trigger: trigger,
             intent: intent,
-            scope: JSONDecoder().decode(ProcessingScopeSnapshot.self, from: persisted.scopeData),
-            transitions: JSONDecoder().decode([RunLifecycleTransition].self, from: persisted.transitionsData),
+            scope: scope,
+            transitions: transitions,
             syncSummary: syncSummary,
             failureMessage: persisted.failureMessage,
             startedAt: persisted.startedAt,
