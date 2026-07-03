@@ -59,18 +59,23 @@ public protocol RunRecordStore: Sendable {
     func upsert(_ record: RunRecord) async throws
 
     /// Loads every persisted run record. All-or-nothing: a single corrupted row
-    /// fails the whole load, deliberately, until a read consumer defines a
-    /// per-row degradation policy.
+    /// fails the whole load, deliberately; report surfaces that need per-row
+    /// degradation use `reports(matching:)` instead.
     func loadAll() async throws -> [RunRecord]
     func record(for runID: RunID) async throws -> RunRecord?
 
     /// Deletes the oldest terminal records beyond `limit`. Open records
     /// (`finishedAt == nil`) are never pruned: unresolved runs are recovery
-    /// evidence, not disposable history. Returns the number of deleted rows.
+    /// evidence, not disposable history. A `limit` below 1 is a no-op so a
+    /// misconfigured value cannot wipe the whole history. Returns the number
+    /// of deleted rows.
     func prune(keepingLatest limit: Int) async throws -> Int
 
     /// Lists run history for report surfaces, newest first. Unlike `loadAll()`,
     /// corrupted rows are skipped, logged, and counted in the returned page so
-    /// one bad row cannot make the whole history unreadable.
+    /// one bad row cannot make the whole history unreadable. Corrupted rows
+    /// still consume `limit` slots of the fetch window, so a page can hold
+    /// fewer than `limit` records while older valid rows exist beyond it;
+    /// `skippedCorruptedCount` covers only the fetched window.
     func reports(matching query: RunReportQuery) async throws -> RunReportPage
 }

@@ -187,6 +187,79 @@ struct SwiftDataRunRecordStoreTests {
         #expect(try await store.loadAll().count == 1)
     }
 
+    @Test("prune at exactly the limit deletes nothing")
+    func pruneAtExactlyTheLimitDeletesNothing() async throws {
+        let store = try makeStore()
+        for offset in 0 ..< 2 {
+            try await store.upsert(makeRecord(
+                startedAt: Date(timeIntervalSince1970: 100 + Double(offset) * 100),
+                finishedAt: Date(timeIntervalSince1970: 150 + Double(offset) * 100),
+                state: .completedNoOp,
+                syncSummary: nil
+            ))
+        }
+
+        #expect(try await store.prune(keepingLatest: 2) == 0)
+        #expect(try await store.loadAll().count == 2)
+    }
+
+    @Test("prune with a limit below one is a no-op")
+    func pruneWithLimitBelowOneIsNoOp() async throws {
+        let store = try makeStore()
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+
+        #expect(try await store.prune(keepingLatest: 0) == 0)
+        #expect(try await store.prune(keepingLatest: -3) == 0)
+        #expect(try await store.loadAll().count == 1)
+    }
+
+    @Test("reports date bounds are inclusive at the exact boundary")
+    func reportsDateBoundsAreInclusiveAtExactBoundary() async throws {
+        let store = try makeStore()
+        let boundary = Date(timeIntervalSince1970: 200)
+        try await store.upsert(makeRecord(
+            startedAt: boundary,
+            finishedAt: Date(timeIntervalSince1970: 201),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+
+        let page = try await store.reports(matching: RunReportQuery(
+            startedAfter: boundary,
+            startedBefore: boundary
+        ))
+
+        #expect(page.records.map(\.startedAt) == [boundary])
+    }
+
+    @Test("corrupted rows consume fetch-limit slots")
+    func corruptedRowsConsumeFetchLimitSlots() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = SwiftDataRunRecordStore(modelContainer: container)
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+        try insertPersistedRunRecord(
+            runID: UUID(),
+            transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+            startedAt: Date(timeIntervalSince1970: 200),
+            into: container
+        )
+
+        let page = try await store.reports(matching: RunReportQuery(limit: 1))
+
+        #expect(page.records.isEmpty)
+        #expect(page.skippedCorruptedCount == 1)
+    }
+
     @Test("reports filters by date range, state, and trigger, newest first")
     func reportsFiltersByDateRangeStateAndTrigger() async throws {
         let store = try makeStore()
@@ -306,6 +379,7 @@ struct SwiftDataRunRecordStoreTests {
         runID: UUID,
         transitionsData: Data,
         scopeData: Data? = nil,
+        startedAt: Date = Date(timeIntervalSince1970: 100),
         into container: ModelContainer
     ) throws {
         let context = ModelContext(container)
@@ -329,7 +403,7 @@ struct SwiftDataRunRecordStoreTests {
             syncRefreshedCount: nil,
             syncRemovedCount: nil,
             failureMessage: nil,
-            startedAt: Date(timeIntervalSince1970: 100),
+            startedAt: startedAt,
             finishedAt: nil
         ))
         try context.save()

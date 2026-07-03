@@ -49,7 +49,8 @@ public actor SwiftDataRunRecordStore: RunRecordStore {
     }
 
     public func prune(keepingLatest limit: Int) async throws -> Int {
-        guard limit >= 0 else { return 0 }
+        // limit < 1 is a no-op: an unclamped config value must not wipe the whole history.
+        guard limit >= 1 else { return 0 }
 
         let descriptor = FetchDescriptor<PersistedRunRecord>(
             predicate: #Predicate { $0.finishedAt != nil },
@@ -86,7 +87,7 @@ public actor SwiftDataRunRecordStore: RunRecordStore {
             },
             sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
         )
-        if let limit = query.limit {
+        if let limit = query.limit, limit > 0 {
             descriptor.fetchLimit = limit
         }
 
@@ -95,7 +96,7 @@ public actor SwiftDataRunRecordStore: RunRecordStore {
         for row in try modelContext.fetch(descriptor) {
             do {
                 try records.append(makeRecord(from: row))
-            } catch {
+            } catch let error as RunRecordPersistenceError {
                 skippedCorruptedCount += 1
                 log.error("""
                 Skipping corrupted run record \(row.runID.uuidString, privacy: .public) \

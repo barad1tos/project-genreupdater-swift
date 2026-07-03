@@ -1,10 +1,15 @@
 import Foundation
 
 public struct RunReportQuery: Equatable, Sendable {
+    /// Inclusive lower bound on `startedAt` (`>=`).
     public let startedAfter: Date?
+    /// Inclusive upper bound on `startedAt` (`<=`).
     public let startedBefore: Date?
+    /// Filter on the run's final/current state; nil or empty means all states.
     public let states: Set<RunLifecycleState>?
+    /// Filter on the trigger source; nil means all triggers.
     public let trigger: RunTrigger?
+    /// Fetch-window size; nil or values below 1 mean unlimited.
     public let limit: Int?
 
     public init(
