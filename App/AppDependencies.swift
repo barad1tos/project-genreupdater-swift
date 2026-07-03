@@ -500,10 +500,20 @@ final class AppDependencies {
             synchronizeLibrary: { [syncService] in
                 try await syncService.synchronizeNow()
             },
-            persistRunRecord: { [runRecordStore] record in
+            persistRunRecord: { [runRecordStore, weak self] record in
                 try await runRecordStore.upsert(record)
+                guard record.finishedAt != nil, let self else { return }
+                await self.pruneRunHistory(in: runRecordStore)
             }
         ))
+    }
+
+    private func pruneRunHistory(in runRecordStore: any RunRecordStore) async {
+        do {
+            _ = try await runRecordStore.prune(keepingLatest: config.reporting.runHistoryLimit)
+        } catch {
+            log.error("Run history pruning failed: \(error.localizedDescription, privacy: .private)")
+        }
     }
 
     private func missingWorkflowPrerequisiteNames() -> [String] {

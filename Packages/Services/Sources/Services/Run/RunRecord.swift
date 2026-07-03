@@ -63,4 +63,9 @@ public protocol RunRecordStore: Sendable {
     /// per-row degradation policy.
     func loadAll() async throws -> [RunRecord]
     func record(for runID: RunID) async throws -> RunRecord?
+
+    /// Deletes the oldest terminal records beyond `limit`. Open records
+    /// (`finishedAt == nil`) are never pruned: unresolved runs are recovery
+    /// evidence, not disposable history. Returns the number of deleted rows.
+    func prune(keepingLatest limit: Int) async throws -> Int
 }

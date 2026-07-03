@@ -62,11 +62,25 @@ struct AppConfigurationTests {
         #expect(config.databaseVerification.batchSize == 10)
         #expect(config.pendingVerification.autoVerifyDays == 14)
         #expect(config.reporting.changeDisplayMode == .compact)
+        #expect(config.reporting.runHistoryLimit == 500)
         #expect(config.logging.pendingVerificationFile == "csv/pending_year_verification.csv")
         #expect(config.albumTypeDetection.variousArtistsNames.contains("Різні виконавці"))
         #expect(config.experimental.batchUpdatesEnabled == false)
         #expect(config.development.testArtists.isEmpty)
         #expect(config.development.debugMode == false)
+    }
+
+    @Test("Persisted reporting section without runHistoryLimit decodes with the default")
+    func persistedReportingSectionWithoutRunHistoryLimitDecodesWithDefault() throws {
+        let json = Data("""
+        {"minAttemptsForReport": 5, "changeDisplayMode": "detailed"}
+        """.utf8)
+
+        let reporting = try JSONDecoder().decode(ReportingConfig.self, from: json)
+
+        #expect(reporting.minAttemptsForReport == 5)
+        #expect(reporting.changeDisplayMode == .detailed)
+        #expect(reporting.runHistoryLimit == 500)
     }
 
     @Test("Legacy temporary logs path maps to sandbox-safe app support logs")
@@ -181,6 +195,7 @@ struct AppConfigurationTests {
         #expect(decoded.artistRenamer.mappings == ["DK Energetyk": "ДК Енергетик"])
         #expect(decoded.databaseVerification.autoVerifyDays == 7)
         #expect(decoded.reporting.changeDisplayMode == .compact)
+        #expect(decoded.reporting.runHistoryLimit == 500)
     }
 
     @Test("Python-era root keys decode into Swift-native configuration owners")

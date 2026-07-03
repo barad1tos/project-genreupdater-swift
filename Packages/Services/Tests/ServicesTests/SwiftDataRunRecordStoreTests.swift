@@ -123,6 +123,70 @@ struct SwiftDataRunRecordStoreTests {
         await assertLoadAllThrowsCorruptedField(store: store, expectedName: "scope", expectedRunID: runID)
     }
 
+    @Test("prune keeps the newest terminal records and reports the deleted count")
+    func pruneKeepsNewestTerminalRecords() async throws {
+        let store = try makeStore()
+        for offset in 0 ..< 3 {
+            try await store.upsert(makeRecord(
+                startedAt: Date(timeIntervalSince1970: 100 + Double(offset) * 100),
+                finishedAt: Date(timeIntervalSince1970: 150 + Double(offset) * 100),
+                state: .completedNoOp,
+                syncSummary: nil
+            ))
+        }
+
+        let deleted = try await store.prune(keepingLatest: 2)
+
+        let remaining = try await store.loadAll()
+        #expect(deleted == 1)
+        #expect(remaining.count == 2)
+        #expect(remaining.map(\.startedAt) == [
+            Date(timeIntervalSince1970: 300),
+            Date(timeIntervalSince1970: 200),
+        ])
+    }
+
+    @Test("prune never deletes open records")
+    func pruneNeverDeletesOpenRecords() async throws {
+        let store = try makeStore()
+        let open = makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil
+        )
+        try await store.upsert(open)
+        for offset in 0 ..< 2 {
+            try await store.upsert(makeRecord(
+                startedAt: Date(timeIntervalSince1970: 200 + Double(offset) * 100),
+                finishedAt: Date(timeIntervalSince1970: 250 + Double(offset) * 100),
+                state: .completed,
+                syncSummary: nil
+            ))
+        }
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        let remaining = try await store.loadAll()
+        #expect(deleted == 1)
+        #expect(remaining.contains { $0.runID == open.runID })
+        #expect(remaining.count == 2)
+    }
+
+    @Test("prune under the limit deletes nothing")
+    func pruneUnderLimitDeletesNothing() async throws {
+        let store = try makeStore()
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+
+        #expect(try await store.prune(keepingLatest: 5) == 0)
+        #expect(try await store.loadAll().count == 1)
+    }
+
     private func validTransitionsData() throws -> Data {
         try JSONEncoder().encode([
             RunLifecycleTransition(state: .created, timestamp: Date(timeIntervalSince1970: 100)),

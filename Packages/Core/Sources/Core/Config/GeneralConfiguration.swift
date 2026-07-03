@@ -226,8 +226,24 @@ public struct DurationThresholdsConfig: Sendable, Codable {
 public struct ReportingConfig: Sendable, Codable {
     public var minAttemptsForReport: Double = 3
     public var changeDisplayMode: ChangeDisplayMode = .compact
+    /// Maximum number of terminal run records kept in history. Open (interrupted) records are never pruned.
+    public var runHistoryLimit: Int = 500
 
     public init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case minAttemptsForReport
+        case changeDisplayMode
+        case runHistoryLimit
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        minAttemptsForReport = try container.decodeIfPresent(Double.self, forKey: .minAttemptsForReport) ?? 3
+        changeDisplayMode = try container.decodeIfPresent(ChangeDisplayMode.self, forKey: .changeDisplayMode)
+            ?? .compact
+        runHistoryLimit = try container.decodeIfPresent(Int.self, forKey: .runHistoryLimit) ?? 500
+    }
 }
 
 public enum ChangeDisplayMode: String, Sendable, Codable, CaseIterable {

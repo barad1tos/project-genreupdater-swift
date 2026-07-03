@@ -48,6 +48,28 @@ public actor SwiftDataRunRecordStore: RunRecordStore {
         return try modelContext.fetch(descriptor).first.map { try makeRecord(from: $0) }
     }
 
+    public func prune(keepingLatest limit: Int) async throws -> Int {
+        guard limit >= 0 else { return 0 }
+
+        let descriptor = FetchDescriptor<PersistedRunRecord>(
+            predicate: #Predicate { $0.finishedAt != nil },
+            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
+        )
+        let terminalRecords = try modelContext.fetch(descriptor)
+        guard terminalRecords.count > limit else { return 0 }
+
+        let excess = terminalRecords[limit...]
+        for row in excess {
+            modelContext.delete(row)
+        }
+        try modelContext.save()
+        log.info("""
+        Pruned \(excess.count, privacy: .public) run records beyond the history limit of \
+        \(limit, privacy: .public)
+        """)
+        return excess.count
+    }
+
     private func makePersisted(from record: RunRecord) throws -> PersistedRunRecord {
         try PersistedRunRecord(
             runID: record.runID.rawValue,
