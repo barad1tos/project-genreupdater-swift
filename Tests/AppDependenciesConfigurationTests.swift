@@ -25,6 +25,13 @@ struct AppDependenciesConfigurationTests {
         #expect(dependencies.apiOrchestrator == nil)
     }
 
+    @Test("Workflow prerequisite failure names the missing services")
+    func workflowPrerequisiteFailureNamesTheMissingServices() {
+        let error = AppInitializationError.missingWorkflowPrerequisites(["apiOrchestrator", "trackStore"])
+
+        #expect(error.errorDescription == "Cannot initialize workflow services — missing: apiOrchestrator, trackStore")
+    }
+
     @Test("Configuration save failure surfaces app error and skips runtime apply")
     func configurationSaveFailureSurfacesAppErrorAndSkipsRuntimeApply() {
         let dependencies = AppDependencies(

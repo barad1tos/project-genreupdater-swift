@@ -67,6 +67,18 @@ enum AppState {
     case error(String)
 }
 
+/// Initialization failures that must keep the app out of the ready state.
+enum AppInitializationError: LocalizedError {
+    case missingWorkflowPrerequisites([String])
+
+    var errorDescription: String? {
+        switch self {
+        case let .missingWorkflowPrerequisites(names):
+            "Cannot initialize workflow services — missing: \(names.joined(separator: ", "))"
+        }
+    }
+}
+
 // MARK: - App Dependencies
 
 /// Central dependency container and app state manager.
@@ -211,7 +223,7 @@ final class AppDependencies {
             // Steps 5-8: Persistence, algorithms, API, and workflow services
             try await initializePersistence()
             try await initializeAlgorithmsAndAPI()
-            await initializeWorkflowServices(bridge: bridge, gate: gate)
+            try await initializeWorkflowServices(bridge: bridge, gate: gate)
 
             log.info("All services initialized successfully")
             appState = .ready
@@ -390,7 +402,7 @@ final class AppDependencies {
     }
 
     /// Step 8: Wire workflow services that depend on persistence, algorithms, and the script bridge.
-    private func initializeWorkflowServices(bridge: AppleScriptBridge, gate: FeatureGate) async {
+    private func initializeWorkflowServices(bridge: AppleScriptBridge, gate: FeatureGate) async throws {
         let checkpoint = CheckpointManager()
         checkpointManager = checkpoint
         incrementalRunTracker = Self.makeIncrementalRunTracker(configuration: config)
@@ -402,8 +414,7 @@ final class AppDependencies {
               let genreDeterm = genreDeterminator,
               let yearDeterm = yearDeterminator
         else {
-            log.error("Cannot initialize workflow services — prerequisite services are nil")
-            return
+            throw AppInitializationError.missingWorkflowPrerequisites(missingWorkflowPrerequisiteNames())
         }
 
         let mapper = TrackIDMapper()
@@ -483,6 +494,17 @@ final class AppDependencies {
                 try await syncService.synchronizeNow()
             }
         ))
+    }
+
+    private func missingWorkflowPrerequisiteNames() -> [String] {
+        [
+            changeLogStore == nil ? "changeLogStore" : nil,
+            trackStore == nil ? "trackStore" : nil,
+            cacheService == nil ? "cacheService" : nil,
+            apiOrchestrator == nil ? "apiOrchestrator" : nil,
+            genreDeterminator == nil ? "genreDeterminator" : nil,
+            yearDeterminator == nil ? "yearDeterminator" : nil,
+        ].compactMap(\.self)
     }
 }
 
