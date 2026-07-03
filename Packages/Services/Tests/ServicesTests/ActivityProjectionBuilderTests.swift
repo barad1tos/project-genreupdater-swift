@@ -317,6 +317,19 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.primaryCommand == nil)
     }
 
+    @Test("run lifecycle reporting keeps the run active")
+    func runLifecycleReportingKeepsRunActive() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                runLifecycle: lifecycle(state: .reporting)
+            )
+        )
+
+        #expect(projection.syncStatusText == "Syncing")
+        #expect(projection.secondaryCommand?.isEnabled == false)
+    }
+
     @Test("run lifecycle failure projects attention state")
     func runLifecycleFailureProjectsAttentionState() {
         let projection = ActivityProjectionBuilder.makeProjection(
@@ -404,7 +417,7 @@ struct ActivityProjectionBuilderTests {
             syncResult: syncResult,
             failureMessage: failureMessage,
             startedAt: scanDate,
-            finishedAt: state == .created || state == .syncingLibrary ? nil : now
+            finishedAt: [.completed, .completedNoOp, .failed].contains(state) ? now : nil
         )
     }
 }

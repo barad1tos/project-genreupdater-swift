@@ -3,6 +3,7 @@ import Foundation
 public enum RunLifecycleState: String, Codable, Equatable, Sendable {
     case created
     case syncingLibrary
+    case reporting
     case completed
     case completedNoOp
     case failed
@@ -21,7 +22,12 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     public let finishedAt: Date?
 
     public var isActive: Bool {
-        state == .created || state == .syncingLibrary
+        switch state {
+        case .created, .syncingLibrary, .reporting:
+            true
+        case .completed, .completedNoOp, .failed:
+            false
+        }
     }
 
     public init(

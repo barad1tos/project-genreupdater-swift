@@ -101,6 +101,16 @@ public struct ActivitySyncSummary: Codable, Equatable, Sendable {
         self.refreshed = refreshed
         self.removed = removed
     }
+
+    public init(result: SyncResult) {
+        self.init(
+            new: result.newTracks.count,
+            modified: result.modifiedTracks.count,
+            identityChanged: result.identityChangedTracks.count,
+            refreshed: result.refreshedTracks.count,
+            removed: result.removedTrackIDs.count
+        )
+    }
 }
 
 public enum ActivitySyncState: Equatable, Sendable {
@@ -131,20 +141,14 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         guard let runLifecycle else { return .idle }
 
         switch runLifecycle.state {
-        case .created, .syncingLibrary:
+        case .created, .syncingLibrary, .reporting:
             return .running
         case .completed, .completedNoOp:
             guard let syncResult = runLifecycle.syncResult else {
                 assertionFailure("Completed run lifecycle requires a SyncResult")
                 return .idle
             }
-            return .completed(ActivitySyncSummary(
-                new: syncResult.newTracks.count,
-                modified: syncResult.modifiedTracks.count,
-                identityChanged: syncResult.identityChangedTracks.count,
-                refreshed: syncResult.refreshedTracks.count,
-                removed: syncResult.removedTrackIDs.count
-            ))
+            return .completed(ActivitySyncSummary(result: syncResult))
         case .failed:
             return .failed(runLifecycle.failureMessage ?? "Run failed")
         }

@@ -127,6 +127,7 @@ final class AppDependencies {
     private(set) var checkpointManager: CheckpointManager?
     private(set) var librarySyncService: LibrarySyncService?
     private(set) var runOrchestrator: RunOrchestrator?
+    private(set) var runRecordStore: (any RunRecordStore)?
     private(set) var librarySnapshotService: (any LibrarySnapshotService)?
     private(set) var analyticsService: CachedAnalyticsService?
     private(set) var maintenanceCoordinator: MaintenanceCoordinator?
@@ -321,6 +322,8 @@ final class AppDependencies {
         let logStore = SwiftDataChangeLogStore(modelContainer: container)
         changeLogStore = logStore
 
+        runRecordStore = SwiftDataRunRecordStore(modelContainer: container)
+
         let cache = try GRDBCacheService.createDefault(
             defaultGenericTTL: Self.defaultGenericCacheTTL(configuration: config),
             apiResultTTL: Self.apiResultCacheTTL(configuration: config),
@@ -412,7 +415,8 @@ final class AppDependencies {
               let cache = cacheService,
               let orchestrator = apiOrchestrator,
               let genreDeterm = genreDeterminator,
-              let yearDeterm = yearDeterminator
+              let yearDeterm = yearDeterminator,
+              let recordStore = runRecordStore
         else {
             throw AppInitializationError.missingWorkflowPrerequisites(missingWorkflowPrerequisiteNames())
         }
@@ -460,7 +464,7 @@ final class AppDependencies {
             cache: cache
         )
         librarySyncService = syncService
-        runOrchestrator = makeRunOrchestrator(syncService: syncService)
+        runOrchestrator = makeRunOrchestrator(syncService: syncService, runRecordStore: recordStore)
 
         maintenanceCoordinator = MaintenanceCoordinator(
             databaseVerificationService: syncService,
@@ -488,10 +492,16 @@ final class AppDependencies {
         )
     }
 
-    private func makeRunOrchestrator(syncService: LibrarySyncService) -> RunOrchestrator {
+    private func makeRunOrchestrator(
+        syncService: LibrarySyncService,
+        runRecordStore: any RunRecordStore
+    ) -> RunOrchestrator {
         RunOrchestrator(dependencies: RunOrchestrator.Dependencies(
             synchronizeLibrary: { [syncService] in
                 try await syncService.synchronizeNow()
+            },
+            persistRunRecord: { [runRecordStore] record in
+                try await runRecordStore.upsert(record)
             }
         ))
     }
@@ -504,6 +514,7 @@ final class AppDependencies {
             apiOrchestrator == nil ? "apiOrchestrator" : nil,
             genreDeterminator == nil ? "genreDeterminator" : nil,
             yearDeterminator == nil ? "yearDeterminator" : nil,
+            runRecordStore == nil ? "runRecordStore" : nil,
         ].compactMap(\.self)
     }
 }

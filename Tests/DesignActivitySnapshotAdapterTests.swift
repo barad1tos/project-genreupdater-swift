@@ -435,7 +435,7 @@ struct DesignActivitySnapshotAdapterTests {
         switch state {
         case .completed, .completedNoOp, .failed:
             true
-        case .created, .syncingLibrary:
+        case .created, .syncingLibrary, .reporting:
             false
         }
     }

@@ -264,7 +264,7 @@ enum DesignActivitySnapshotAdapter {
         }
 
         switch lifecycle.state {
-        case .created, .syncingLibrary:
+        case .created, .syncingLibrary, .reporting:
             return lifecycle.trigger == .manualCheck ? "Manual sync running" : "Run in progress"
         case .failed:
             return lifecycle.trigger == .manualCheck ? "Manual sync failed" : "Run failed"

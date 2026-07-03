@@ -168,6 +168,86 @@ struct RunOrchestratorTests {
         #expect(replaced.failureMessage == "Existing failure")
         #expect(replaced.finishedAt == finishedAt)
     }
+
+    @Test("successful run persists an open record and a final record")
+    func successfulRunPersistsOpenAndFinalRecords() async throws {
+        let clock = ClockProbe()
+        let probe = RunRecordProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                SyncResult(newTracks: [
+                    Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
+                ])
+            },
+            persistRunRecord: { try await probe.append($0) },
+            now: { clock.now() }
+        ))
+
+        let result = await orchestrator.submit(.manualObservation(
+            requestedTestArtists: [],
+            knownTrackCount: 75
+        ))
+
+        let records = await probe.records
+        #expect(records.count == 2)
+
+        let open = try #require(records.first)
+        #expect(open.state == .syncingLibrary)
+        #expect(open.finishedAt == nil)
+        #expect(open.syncSummary == nil)
+        #expect(open.transitions.map(\.state) == [.created, .syncingLibrary])
+
+        let final = try #require(records.last)
+        #expect(final.runID == open.runID)
+        #expect(final.state == .completed)
+        #expect(final.transitions.map(\.state) == [.created, .syncingLibrary, .reporting, .completed])
+        #expect(final.syncSummary?.changeCount == 1)
+        #expect(final.finishedAt == result.lifecycle.finishedAt)
+        #expect(final.startedAt == result.lifecycle.startedAt)
+        #expect(final.failureMessage == nil)
+    }
+
+    @Test("failed run persists a failure record")
+    func failedRunPersistsFailureRecord() async throws {
+        let probe = RunRecordProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                throw ProbeError(message: "Music.app unavailable")
+            },
+            persistRunRecord: { try await probe.append($0) },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        _ = await orchestrator.submit(.manualObservation(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+
+        let final = try #require(await probe.records.last)
+        #expect(final.state == .failed)
+        #expect(final.transitions.map(\.state) == [.created, .syncingLibrary, .reporting, .failed])
+        #expect(final.failureMessage == "Music.app unavailable")
+        #expect(final.syncSummary == nil)
+    }
+
+    @Test("persist failure does not change the run outcome")
+    func persistFailureDoesNotChangeRunOutcome() async {
+        let probe = RunRecordProbe()
+        await probe.setPersistError(ProbeError(message: "disk full"))
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await probe.append($0) },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let result = await orchestrator.submit(.manualObservation(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+
+        #expect(result.lifecycle.state == .completedNoOp)
+        #expect(await orchestrator.currentLifecycle()?.state == .completedNoOp)
+    }
 }
 
 private func waitForSubscriptionCount(
@@ -239,5 +319,21 @@ private struct ProbeError: LocalizedError {
 
     var errorDescription: String? {
         message
+    }
+}
+
+private actor RunRecordProbe {
+    private(set) var records: [RunRecord] = []
+    private var persistError: Error?
+
+    func append(_ record: RunRecord) throws {
+        if let persistError {
+            throw persistError
+        }
+        records.append(record)
+    }
+
+    func setPersistError(_ error: Error) {
+        persistError = error
     }
 }
