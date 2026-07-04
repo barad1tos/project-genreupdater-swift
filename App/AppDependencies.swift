@@ -500,7 +500,7 @@ final class AppDependencies {
             synchronizeLibrary: { [syncService] in
                 try await syncService.synchronizeNow()
             },
-            persistRunRecord: RunRecordPersistence.makePersistSink(
+            persistRunRecord: RunRecordSink.make(
                 store: runRecordStore,
                 // nil after container teardown: the sink skips pruning rather
                 // than deleting against a guessed default limit.
