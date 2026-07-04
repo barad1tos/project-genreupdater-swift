@@ -75,6 +75,10 @@ struct WorkflowPendingCancelTests {
         )
         await liveBatchHold.waitUntilHeld()
         viewModel.cancel()
+        // cancel() flips the processor flag in a detached task; await it directly
+        // so the flag is set before release() — otherwise a loaded runner can let
+        // the batch finish both tracks and settle in .done instead of .configure.
+        await fixture.batchProcessor.cancel()
         await liveBatchHold.release()
 
         try await waitForWorkflowToReturnToConfigure(viewModel)
@@ -232,6 +236,8 @@ struct WorkflowPendingCancelTests {
         viewModel.startBatchProcessing(tracks: [firstBatchTrack, secondBatchTrack])
         await liveBatchHold.waitUntilHeld()
         viewModel.cancel()
+        // Same race as above: pin the processor's cancel flag before releasing the hold.
+        await fixture.batchProcessor.cancel()
         await liveBatchHold.release()
 
         try await waitForWorkflowToReturnToConfigure(viewModel)

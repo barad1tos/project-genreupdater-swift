@@ -88,12 +88,13 @@ func makeWorkflowFixture(
         )
     )
 
-    return WorkflowFixture(viewModel: viewModel, scriptClient: scriptClient)
+    return WorkflowFixture(viewModel: viewModel, scriptClient: scriptClient, batchProcessor: batchProcessor)
 }
 
 struct WorkflowFixture {
     let viewModel: WorkflowViewModel
     let scriptClient: DashboardStateScriptClient
+    let batchProcessor: BatchProcessor
 }
 
 actor MutationPreparationRecorder {

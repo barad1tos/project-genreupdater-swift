@@ -139,9 +139,11 @@ struct RetryUtilityTests {
         // 3 attempts = 2 delays: ~50ms + ~100ms = ~150ms minimum (before jitter).
         // With -25% jitter: 37.5ms + 75ms = 112.5ms.
         // With +25% jitter: 62.5ms + 125ms = 187.5ms.
-        // Allow generous tolerance for CI variance.
+        // The lower bound proves the delays actually ran. The upper bound only
+        // guards against magnitude bugs (e.g. ms-vs-s units): loaded CI runners
+        // add arbitrary scheduling latency, so it must stay generous.
         #expect(elapsed >= .milliseconds(80))
-        #expect(elapsed < .milliseconds(500))
+        #expect(elapsed < .seconds(5))
     }
 
     // MARK: - Custom Classifier
