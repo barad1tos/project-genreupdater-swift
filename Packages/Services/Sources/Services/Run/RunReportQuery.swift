@@ -1,5 +1,8 @@
 import Foundation
 
+/// Filter set for run-history report reads. All filters are optional and
+/// combine with logical AND; an inverted date range (`startedAfter` later
+/// than `startedBefore`) matches nothing.
 public struct RunReportQuery: Equatable, Sendable {
     /// Inclusive lower bound on `startedAt` (`>=`).
     public let startedAfter: Date?
@@ -29,6 +32,8 @@ public struct RunReportQuery: Equatable, Sendable {
 
 public struct RunReportPage: Equatable, Sendable {
     public let records: [RunRecord]
+    /// Corrupted rows skipped within the fetched window only — not a
+    /// store-wide total. Skipped rows still consume `limit` slots.
     public let skippedCorruptedCount: Int
 
     public init(records: [RunRecord], skippedCorruptedCount: Int) {

@@ -260,8 +260,8 @@ struct SwiftDataRunRecordStoreTests {
         #expect(page.skippedCorruptedCount == 1)
     }
 
-    @Test("reports filters by date range, state, and trigger, newest first")
-    func reportsFiltersByDateRangeStateAndTrigger() async throws {
+    @Test("reports filters by date range and state, newest first")
+    func reportsFiltersByDateRangeAndState() async throws {
         let store = try makeStore()
         try await store.upsert(makeRecord(
             startedAt: Date(timeIntervalSince1970: 100),
@@ -302,6 +302,32 @@ struct SwiftDataRunRecordStoreTests {
         let limited = try await store.reports(matching: RunReportQuery(limit: 2))
         #expect(limited.records.count == 2)
         #expect(limited.records.first?.startedAt == Date(timeIntervalSince1970: 300))
+    }
+
+    @Test("reports state filter sees the updated terminal state")
+    func reportsStateFilterSeesUpdatedTerminalState() async throws {
+        let store = try makeStore()
+        let open = makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil
+        )
+        try await store.upsert(open)
+        try await store.upsert(makeRecord(
+            runID: open.runID,
+            requestID: open.requestID,
+            startedAt: open.startedAt,
+            finishedAt: Date(timeIntervalSince1970: 104),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+
+        let noOp = try await store.reports(matching: RunReportQuery(states: [.completedNoOp]))
+        let stillOpen = try await store.reports(matching: RunReportQuery(states: [.syncingLibrary]))
+
+        #expect(noOp.records.map(\.runID) == [open.runID])
+        #expect(stillOpen.records.isEmpty)
     }
 
     @Test("reports filters by trigger")

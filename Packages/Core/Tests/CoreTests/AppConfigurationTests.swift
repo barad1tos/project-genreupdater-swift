@@ -83,6 +83,15 @@ struct AppConfigurationTests {
         #expect(reporting.runHistoryLimit == 500)
     }
 
+    @Test("Explicit runHistoryLimit value decodes")
+    func explicitRunHistoryLimitValueDecodes() throws {
+        let json = Data(#"{"runHistoryLimit": 200}"#.utf8)
+
+        let reporting = try JSONDecoder().decode(ReportingConfig.self, from: json)
+
+        #expect(reporting.runHistoryLimit == 200)
+    }
+
     @Test("Legacy temporary logs path maps to sandbox-safe app support logs")
     func legacyTemporaryLogsPathUsesAppSupportEffectivePath() {
         var paths = PathsConfig()
