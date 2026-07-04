@@ -302,6 +302,12 @@ struct SwiftDataRunRecordStoreTests {
         let limited = try await store.reports(matching: RunReportQuery(limit: 2))
         #expect(limited.records.count == 2)
         #expect(limited.records.first?.startedAt == Date(timeIntervalSince1970: 300))
+
+        let zeroLimit = try await store.reports(matching: RunReportQuery(limit: 0))
+        #expect(zeroLimit.records.count == 3)
+
+        let emptyStates = try await store.reports(matching: RunReportQuery(states: []))
+        #expect(emptyStates.records.count == 3)
     }
 
     @Test("reports state filter sees the updated terminal state")
