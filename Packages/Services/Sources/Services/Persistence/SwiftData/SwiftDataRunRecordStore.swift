@@ -48,6 +48,66 @@ public actor SwiftDataRunRecordStore: RunRecordStore {
         return try modelContext.fetch(descriptor).first.map { try makeRecord(from: $0) }
     }
 
+    public func prune(keepingLatest limit: Int) async throws -> Int {
+        // limit < 1 is a no-op: an unclamped config value must not wipe the whole history.
+        guard limit >= 1 else { return 0 }
+
+        let descriptor = FetchDescriptor<PersistedRunRecord>(
+            predicate: #Predicate { $0.finishedAt != nil },
+            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
+        )
+        let terminalRecords = try modelContext.fetch(descriptor)
+        guard terminalRecords.count > limit else { return 0 }
+
+        let excess = terminalRecords[limit...]
+        for row in excess {
+            modelContext.delete(row)
+        }
+        try modelContext.save()
+        log.info("""
+        Pruned \(excess.count, privacy: .public) run records beyond the history limit of \
+        \(limit, privacy: .public)
+        """)
+        return excess.count
+    }
+
+    public func reports(matching query: RunReportQuery) async throws -> RunReportPage {
+        let after = query.startedAfter ?? Date.distantPast
+        let before = query.startedBefore ?? Date.distantFuture
+        let stateFilter = Set((query.states ?? []).map(\.rawValue))
+        let filtersState = !stateFilter.isEmpty
+        let triggerFilter = query.trigger?.rawValue ?? ""
+        let filtersTrigger = !triggerFilter.isEmpty
+
+        var descriptor = FetchDescriptor<PersistedRunRecord>(
+            predicate: #Predicate { row in
+                row.startedAt >= after && row.startedAt <= before
+                    && (!filtersState || stateFilter.contains(row.stateRaw))
+                    && (!filtersTrigger || row.triggerRaw == triggerFilter)
+            },
+            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
+        )
+        if let limit = query.limit, limit > 0 {
+            descriptor.fetchLimit = limit
+        }
+
+        var records: [RunRecord] = []
+        var skippedCorruptedCount = 0
+        for row in try modelContext.fetch(descriptor) {
+            do {
+                try records.append(makeRecord(from: row))
+            } catch let error as RunRecordPersistenceError {
+                skippedCorruptedCount += 1
+                log.error("""
+                Skipping corrupted run record \(row.runID.uuidString, privacy: .public) \
+                in report query: \(error.localizedDescription, privacy: .public)
+                """)
+            }
+        }
+
+        return RunReportPage(records: records, skippedCorruptedCount: skippedCorruptedCount)
+    }
+
     private func makePersisted(from record: RunRecord) throws -> PersistedRunRecord {
         try PersistedRunRecord(
             runID: record.runID.rawValue,

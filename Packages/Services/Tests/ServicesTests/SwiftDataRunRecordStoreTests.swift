@@ -123,6 +123,263 @@ struct SwiftDataRunRecordStoreTests {
         await assertLoadAllThrowsCorruptedField(store: store, expectedName: "scope", expectedRunID: runID)
     }
 
+    @Test("prune keeps the newest terminal records and reports the deleted count")
+    func pruneKeepsNewestTerminalRecords() async throws {
+        let store = try makeStore()
+        for offset in 0 ..< 3 {
+            try await store.upsert(makeRecord(
+                startedAt: Date(timeIntervalSince1970: 100 + Double(offset) * 100),
+                finishedAt: Date(timeIntervalSince1970: 150 + Double(offset) * 100),
+                state: .completedNoOp,
+                syncSummary: nil
+            ))
+        }
+
+        let deleted = try await store.prune(keepingLatest: 2)
+
+        let remaining = try await store.loadAll()
+        #expect(deleted == 1)
+        #expect(remaining.count == 2)
+        #expect(remaining.map(\.startedAt) == [
+            Date(timeIntervalSince1970: 300),
+            Date(timeIntervalSince1970: 200),
+        ])
+    }
+
+    @Test("prune never deletes open records")
+    func pruneNeverDeletesOpenRecords() async throws {
+        let store = try makeStore()
+        let open = makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil
+        )
+        try await store.upsert(open)
+        for offset in 0 ..< 2 {
+            try await store.upsert(makeRecord(
+                startedAt: Date(timeIntervalSince1970: 200 + Double(offset) * 100),
+                finishedAt: Date(timeIntervalSince1970: 250 + Double(offset) * 100),
+                state: .completed,
+                syncSummary: nil
+            ))
+        }
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        let remaining = try await store.loadAll()
+        #expect(deleted == 1)
+        #expect(remaining.contains { $0.runID == open.runID })
+        #expect(remaining.count == 2)
+    }
+
+    @Test("prune under the limit deletes nothing")
+    func pruneUnderLimitDeletesNothing() async throws {
+        let store = try makeStore()
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+
+        #expect(try await store.prune(keepingLatest: 5) == 0)
+        #expect(try await store.loadAll().count == 1)
+    }
+
+    @Test("prune at exactly the limit deletes nothing")
+    func pruneAtExactlyTheLimitDeletesNothing() async throws {
+        let store = try makeStore()
+        for offset in 0 ..< 2 {
+            try await store.upsert(makeRecord(
+                startedAt: Date(timeIntervalSince1970: 100 + Double(offset) * 100),
+                finishedAt: Date(timeIntervalSince1970: 150 + Double(offset) * 100),
+                state: .completedNoOp,
+                syncSummary: nil
+            ))
+        }
+
+        #expect(try await store.prune(keepingLatest: 2) == 0)
+        #expect(try await store.loadAll().count == 2)
+    }
+
+    @Test("prune with a limit below one is a no-op")
+    func pruneWithLimitBelowOneIsNoOp() async throws {
+        let store = try makeStore()
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+
+        #expect(try await store.prune(keepingLatest: 0) == 0)
+        #expect(try await store.prune(keepingLatest: -3) == 0)
+        #expect(try await store.loadAll().count == 1)
+    }
+
+    @Test("reports date bounds are inclusive at the exact boundary")
+    func reportsDateBoundsAreInclusiveAtExactBoundary() async throws {
+        let store = try makeStore()
+        let boundary = Date(timeIntervalSince1970: 200)
+        try await store.upsert(makeRecord(
+            startedAt: boundary,
+            finishedAt: Date(timeIntervalSince1970: 201),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+
+        let page = try await store.reports(matching: RunReportQuery(
+            startedAfter: boundary,
+            startedBefore: boundary
+        ))
+
+        #expect(page.records.map(\.startedAt) == [boundary])
+    }
+
+    @Test("corrupted rows consume fetch-limit slots")
+    func corruptedRowsConsumeFetchLimitSlots() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = SwiftDataRunRecordStore(modelContainer: container)
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+        try insertPersistedRunRecord(
+            runID: UUID(),
+            transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+            startedAt: Date(timeIntervalSince1970: 200),
+            into: container
+        )
+
+        let page = try await store.reports(matching: RunReportQuery(limit: 1))
+
+        #expect(page.records.isEmpty)
+        #expect(page.skippedCorruptedCount == 1)
+    }
+
+    @Test("reports filters by date range and state, newest first")
+    func reportsFiltersByDateRangeAndState() async throws {
+        let store = try makeStore()
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 200),
+            finishedAt: Date(timeIntervalSince1970: 201),
+            state: .failed,
+            syncSummary: nil
+        ))
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 300),
+            finishedAt: Date(timeIntervalSince1970: 301),
+            state: .completed,
+            syncSummary: ActivitySyncSummary(new: 1, modified: 0, identityChanged: 0, refreshed: 0, removed: 0)
+        ))
+
+        let all = try await store.reports(matching: RunReportQuery())
+        #expect(all.records.map(\.startedAt) == [
+            Date(timeIntervalSince1970: 300),
+            Date(timeIntervalSince1970: 200),
+            Date(timeIntervalSince1970: 100),
+        ])
+        #expect(all.skippedCorruptedCount == 0)
+
+        let dateWindow = try await store.reports(matching: RunReportQuery(
+            startedAfter: Date(timeIntervalSince1970: 150),
+            startedBefore: Date(timeIntervalSince1970: 250)
+        ))
+        #expect(dateWindow.records.map(\.startedAt) == [Date(timeIntervalSince1970: 200)])
+
+        let failedOnly = try await store.reports(matching: RunReportQuery(states: [.failed]))
+        #expect(failedOnly.records.map(\.state) == [.failed])
+
+        let limited = try await store.reports(matching: RunReportQuery(limit: 2))
+        #expect(limited.records.count == 2)
+        #expect(limited.records.first?.startedAt == Date(timeIntervalSince1970: 300))
+
+        let zeroLimit = try await store.reports(matching: RunReportQuery(limit: 0))
+        #expect(zeroLimit.records.count == 3)
+
+        let emptyStates = try await store.reports(matching: RunReportQuery(states: []))
+        #expect(emptyStates.records.count == 3)
+    }
+
+    @Test("reports state filter sees the updated terminal state")
+    func reportsStateFilterSeesUpdatedTerminalState() async throws {
+        let store = try makeStore()
+        let open = makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil
+        )
+        try await store.upsert(open)
+        try await store.upsert(makeRecord(
+            runID: open.runID,
+            requestID: open.requestID,
+            startedAt: open.startedAt,
+            finishedAt: Date(timeIntervalSince1970: 104),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+
+        let noOp = try await store.reports(matching: RunReportQuery(states: [.completedNoOp]))
+        let stillOpen = try await store.reports(matching: RunReportQuery(states: [.syncingLibrary]))
+
+        #expect(noOp.records.map(\.runID) == [open.runID])
+        #expect(stillOpen.records.isEmpty)
+    }
+
+    @Test("reports filters by trigger")
+    func reportsFiltersByTrigger() async throws {
+        let store = try makeStore()
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+        try await store.upsert(makeRecord(
+            trigger: .recovery,
+            startedAt: Date(timeIntervalSince1970: 200),
+            finishedAt: Date(timeIntervalSince1970: 201),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+
+        let recoveryOnly = try await store.reports(matching: RunReportQuery(trigger: .recovery))
+
+        #expect(recoveryOnly.records.map(\.trigger) == [.recovery])
+    }
+
+    @Test("reports skips corrupted rows and counts them")
+    func reportsSkipsCorruptedRowsAndCountsThem() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = SwiftDataRunRecordStore(modelContainer: container)
+        try await store.upsert(makeRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        ))
+        try insertPersistedRunRecord(
+            runID: UUID(),
+            transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+            into: container
+        )
+
+        let page = try await store.reports(matching: RunReportQuery())
+
+        #expect(page.records.count == 1)
+        #expect(page.skippedCorruptedCount == 1)
+    }
+
     private func validTransitionsData() throws -> Data {
         try JSONEncoder().encode([
             RunLifecycleTransition(state: .created, timestamp: Date(timeIntervalSince1970: 100)),
@@ -154,6 +411,7 @@ struct SwiftDataRunRecordStoreTests {
         runID: UUID,
         transitionsData: Data,
         scopeData: Data? = nil,
+        startedAt: Date = Date(timeIntervalSince1970: 100),
         into container: ModelContainer
     ) throws {
         let context = ModelContext(container)
@@ -177,7 +435,7 @@ struct SwiftDataRunRecordStoreTests {
             syncRefreshedCount: nil,
             syncRemovedCount: nil,
             failureMessage: nil,
-            startedAt: Date(timeIntervalSince1970: 100),
+            startedAt: startedAt,
             finishedAt: nil
         ))
         try context.save()
@@ -191,6 +449,7 @@ struct SwiftDataRunRecordStoreTests {
     private func makeRecord(
         runID: RunID = RunID(),
         requestID: RunRequestID = RunRequestID(),
+        trigger: RunTrigger = .manualCheck,
         startedAt: Date,
         finishedAt: Date?,
         state: RunLifecycleState,
@@ -210,7 +469,7 @@ struct SwiftDataRunRecordStoreTests {
         return RunRecord(
             runID: runID,
             requestID: requestID,
-            trigger: .manualCheck,
+            trigger: trigger,
             intent: .observeLibrary,
             scope: ProcessingScopeSnapshot.capture(
                 requestedTestArtists: ["Aphex Twin"],

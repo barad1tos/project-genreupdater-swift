@@ -500,10 +500,17 @@ final class AppDependencies {
             synchronizeLibrary: { [syncService] in
                 try await syncService.synchronizeNow()
             },
-            persistRunRecord: { [runRecordStore] record in
-                try await runRecordStore.upsert(record)
-            }
+            persistRunRecord: RunRecordPersistence.makePersistSink(
+                store: runRecordStore,
+                // nil after container teardown: the sink skips pruning rather
+                // than deleting against a guessed default limit.
+                historyLimit: { [weak self] in await self?.runHistoryLimit() }
+            )
         ))
+    }
+
+    private func runHistoryLimit() -> Int {
+        config.reporting.runHistoryLimit
     }
 
     private func missingWorkflowPrerequisiteNames() -> [String] {
@@ -514,7 +521,7 @@ final class AppDependencies {
             apiOrchestrator == nil ? "apiOrchestrator" : nil,
             genreDeterminator == nil ? "genreDeterminator" : nil,
             yearDeterminator == nil ? "yearDeterminator" : nil,
-            runRecordStore == nil ? "runRecordStore" : nil,
+            runRecordStore == nil ? "runRecordStore" : nil
         ].compactMap(\.self)
     }
 }
