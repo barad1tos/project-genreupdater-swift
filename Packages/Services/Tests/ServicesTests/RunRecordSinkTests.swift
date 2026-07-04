@@ -2,12 +2,12 @@ import Foundation
 import Testing
 @testable import Services
 
-@Suite("RunRecordPersistence")
-struct RunRecordPersistenceTests {
+@Suite("RunRecordSink")
+struct RunRecordSinkTests {
     @Test("terminal persist prunes history to the current limit")
     func terminalPersistPrunesHistoryToLimit() async throws {
         let store = try makeStore()
-        let sink = RunRecordPersistence.makePersistSink(store: store, historyLimit: { 1 })
+        let sink = RunRecordSink.make(store: store, historyLimit: { 1 })
 
         try await sink(makeRecord(startedAt: 100, finishedAt: 150))
         try await sink(makeRecord(startedAt: 200, finishedAt: 250))
@@ -21,7 +21,7 @@ struct RunRecordPersistenceTests {
         let store = try makeStore()
         try await store.upsert(makeRecord(startedAt: 100, finishedAt: 150))
         try await store.upsert(makeRecord(startedAt: 200, finishedAt: 250))
-        let sink = RunRecordPersistence.makePersistSink(store: store, historyLimit: { 1 })
+        let sink = RunRecordSink.make(store: store, historyLimit: { 1 })
 
         try await sink(makeRecord(startedAt: 300, finishedAt: nil))
 
@@ -32,7 +32,7 @@ struct RunRecordPersistenceTests {
     func pruneReadsLiveHistoryLimit() async throws {
         let store = try makeStore()
         let limitBox = LimitBox(value: 10)
-        let sink = RunRecordPersistence.makePersistSink(
+        let sink = RunRecordSink.make(
             store: store,
             historyLimit: { await limitBox.current() }
         )
@@ -50,7 +50,7 @@ struct RunRecordPersistenceTests {
     @Test("nil history limit skips pruning")
     func nilHistoryLimitSkipsPruning() async throws {
         let store = PruneCountingStore()
-        let sink = RunRecordPersistence.makePersistSink(store: store, historyLimit: { nil })
+        let sink = RunRecordSink.make(store: store, historyLimit: { nil })
 
         try await sink(makeRecord(startedAt: 300, finishedAt: 350))
 
@@ -61,7 +61,7 @@ struct RunRecordPersistenceTests {
     @Test("prune failure does not fail the persist")
     func pruneFailureDoesNotFailPersist() async throws {
         let store = PruneThrowingStore()
-        let sink = RunRecordPersistence.makePersistSink(store: store, historyLimit: { 1 })
+        let sink = RunRecordSink.make(store: store, historyLimit: { 1 })
 
         try await sink(makeRecord(startedAt: 100, finishedAt: 150))
 
