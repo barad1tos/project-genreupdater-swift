@@ -379,6 +379,40 @@ struct DesignActivitySnapshotAdapterTests {
         #expect(identifiers.contains("genre-7-Hip Hop"))
     }
 
+    @Test("maps reports projection into run history")
+    func mapsReportsProjectionIntoRunHistory() {
+        let run = ReportsRunItem(
+            id: "run-1",
+            state: .completed,
+            stateLabel: "Completed",
+            triggerLabel: "Manual check",
+            startedLabel: "2m ago",
+            durationLabel: "45s",
+            changeCountLabel: "12 changes",
+            failureSummary: nil
+        )
+        let projection = ReportsProjection(revision: .initial, runs: [run], skippedCorruptedCount: 2)
+
+        let snapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+            from: makeInput(),
+            activityProjection: .empty(),
+            reportsProjection: projection
+        )
+
+        #expect(snapshot.runHistory.count == 1)
+        #expect(snapshot.runHistory.first?.id == "run-1")
+        #expect(snapshot.runHistory.first?.stateLabel == "Completed")
+        #expect(snapshot.runHistorySkippedCount == 2)
+    }
+
+    @Test("omitted reports projection yields empty run history")
+    func omittedReportsProjectionYieldsEmptyRunHistory() {
+        let snapshot = makeSnapshot(from: makeInput())
+
+        #expect(snapshot.runHistory.isEmpty)
+        #expect(snapshot.runHistorySkippedCount == 0)
+    }
+
     private func makeSnapshot(from input: DesignActivitySnapshotInput) -> DesignDataSnapshot {
         DesignActivitySnapshotAdapter.makeSnapshot(from: input, activityProjection: .empty())
     }

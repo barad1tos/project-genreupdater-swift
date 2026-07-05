@@ -339,6 +339,37 @@ public struct LogEntry: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct RunReportRow: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let stateLabel: String
+    public let tone: Tone
+    public let triggerLabel: String
+    public let startedLabel: String
+    public let durationLabel: String?
+    public let changeCountLabel: String?
+    public let failureSummary: String?
+
+    public init(
+        id: String,
+        stateLabel: String,
+        tone: Tone,
+        triggerLabel: String,
+        startedLabel: String,
+        durationLabel: String? = nil,
+        changeCountLabel: String? = nil,
+        failureSummary: String? = nil
+    ) {
+        self.id = id
+        self.stateLabel = stateLabel
+        self.tone = tone
+        self.triggerLabel = triggerLabel
+        self.startedLabel = startedLabel
+        self.durationLabel = durationLabel
+        self.changeCountLabel = changeCountLabel
+        self.failureSummary = failureSummary
+    }
+}
+
 public struct ChartDatum: Identifiable, Equatable, Sendable {
     public let id: String
     public let label: String

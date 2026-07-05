@@ -14,6 +14,8 @@ public struct DesignDataSnapshot: Equatable, Sendable {
     public let genreDistribution: [ChartDatum]
     public let updatesOverTime: [ChartDatum]
     public let yearDistribution: [ChartDatum]
+    public let runHistory: [RunReportRow]
+    public let runHistorySkippedCount: Int
     public let settings: DesignSettingsSnapshot
     public let syncStatusText: String
     public let isPreviewBacked: Bool
@@ -34,6 +36,8 @@ public struct DesignDataSnapshot: Equatable, Sendable {
         genreDistribution: [ChartDatum],
         updatesOverTime: [ChartDatum],
         yearDistribution: [ChartDatum],
+        runHistory: [RunReportRow] = [],
+        runHistorySkippedCount: Int = 0,
         settings: DesignSettingsSnapshot = .preview,
         syncStatusText: String,
         isPreviewBacked: Bool
@@ -53,6 +57,8 @@ public struct DesignDataSnapshot: Equatable, Sendable {
         self.genreDistribution = genreDistribution
         self.updatesOverTime = updatesOverTime
         self.yearDistribution = yearDistribution
+        self.runHistory = runHistory
+        self.runHistorySkippedCount = runHistorySkippedCount
         self.settings = settings
         self.syncStatusText = syncStatusText
         self.isPreviewBacked = isPreviewBacked

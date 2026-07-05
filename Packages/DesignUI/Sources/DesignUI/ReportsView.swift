@@ -22,6 +22,8 @@ struct ReportsView: View {
                     TagPill(text: "Read-only", tone: .neutral)
                 }
 
+                runHistorySection
+
                 GlassCard(padding: 0) {
                     VStack(spacing: 0) {
                         HStack(spacing: 9) {
@@ -103,6 +105,83 @@ struct ReportsView: View {
         }
         .background(Ayu.window)
         .navigationTitle("Reports")
+    }
+
+    private var runHistorySection: some View {
+        SectionCard(
+            symbol: "clock.arrow.2.circlepath",
+            tone: .accent,
+            title: "Run history",
+            subtitle: "Sync runs · newest first"
+        ) {
+            VStack(spacing: 0) {
+                if model.data.runHistory.isEmpty {
+                    Text("No runs recorded yet")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Ayu.fg2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 14)
+                } else {
+                    ForEach(model.data.runHistory) { run in
+                        runRow(run)
+                        if run.id != model.data.runHistory.last?.id {
+                            Divider().overlay(Ayu.glassBorder)
+                        }
+                    }
+                }
+
+                if model.data.runHistorySkippedCount > 0 {
+                    if !model.data.runHistory.isEmpty {
+                        Divider().overlay(Ayu.glassBorder)
+                    }
+                    skippedRunLabel(model.data.runHistorySkippedCount)
+                }
+            }
+        }
+    }
+
+    private func runRow(_ run: RunReportRow) -> some View {
+        HStack(spacing: 13) {
+            Text(run.startedLabel)
+                .font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(Ayu.fgMuted)
+                .frame(width: 70, alignment: .leading)
+            TagPill(text: run.stateLabel, tone: run.tone)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(run.triggerLabel)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Ayu.fg)
+                if let failureSummary = run.failureSummary {
+                    Text(failureSummary)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Ayu.error)
+                }
+            }
+            Spacer()
+            if let changeCountLabel = run.changeCountLabel {
+                Text(changeCountLabel)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Ayu.fg2)
+            }
+            if let durationLabel = run.durationLabel {
+                Text(durationLabel)
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(Ayu.fgMuted)
+            }
+        }
+        .padding(.vertical, 11)
+    }
+
+    private func skippedRunLabel(_ count: Int) -> some View {
+        Text(
+            count == 1
+                ? "1 corrupted run record skipped"
+                : "\(count.formatted()) corrupted run records skipped"
+        )
+        .font(.system(size: 11.5))
+        .foregroundStyle(Ayu.fg2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
     }
 
     private func stat(_ value: String, _ label: String, _ tone: Tone) -> some View {

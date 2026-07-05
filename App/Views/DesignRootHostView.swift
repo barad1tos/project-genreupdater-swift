@@ -1,3 +1,5 @@
+// swiftlint:disable file_length
+
 import Core
 import DesignUI
 import Foundation
@@ -26,6 +28,7 @@ struct DesignRootHostView: View {
     @State private var selectedBrowseAlbum: (album: DesignUI.Album, artist: String)?
     @State private var selectedRoute: Route? = .activity
     @State private var activityProjection: ActivityProjection = .empty()
+    @State private var reportsProjection: ReportsProjection = .empty()
     @State private var activityCommandNoticeMessage: String?
     @State private var activityCommandNoticeID = UUID()
     @AppStorage("defaultUpdateBehavior") private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
@@ -54,6 +57,7 @@ struct DesignRootHostView: View {
             await startInitialLoadIfNeeded()
         }
         .task { await observeActivityProjectionUpdates() }
+        .task { await observeReportsProjectionUpdates() }
         .task { await observeRunLifecycleUpdates() }
         .onChange(of: defaultUpdateBehavior) {
             applyWorkflowDefaults()
@@ -96,6 +100,7 @@ struct DesignRootHostView: View {
         DesignActivitySnapshotAdapter.makeSnapshot(
             from: designActivitySnapshotInput,
             activityProjection: activityProjection,
+            reportsProjection: reportsProjection,
             activityNotice: activityCommandNoticeMessage
         )
     }
@@ -482,6 +487,7 @@ struct DesignRootHostView: View {
         isLibraryReadyForUpdates = false
         loadCachedMetrics()
         loadChangeLogEntries()
+        await refreshReportsProjection()
         await dependencies.refreshAutoSyncStatus()
         guard isCurrentLibraryLoad(requestID) else { return }
 
@@ -659,12 +665,45 @@ struct DesignRootHostView: View {
         for await lifecycle in await dependencies.runLifecycleUpdates() {
             currentRunLifecycle = lifecycle
             await refreshActivityProjection()
+            if !lifecycle.isActive {
+                await refreshReportsProjection()
+            }
         }
     }
 
     private func scheduleActivityProjectionRefresh() {
         Task { @MainActor in
             await refreshActivityProjection()
+        }
+    }
+
+    @discardableResult
+    private func refreshReportsProjection() async -> ReportsProjection? {
+        let inputGeneration = await dependencies.projectionStore.nextReportsProjectionInputGeneration()
+        guard let page = await dependencies.loadRunReportPage(
+            limit: ReportsProjectionDesignAdapter.runHistoryLimit
+        ) else { return nil }
+        let projection = ReportsProjectionBuilder.makeProjection(from: ReportsProjectionInput(
+            records: page.records,
+            skippedCorruptedCount: page.skippedCorruptedCount,
+            now: Date()
+        ))
+        let storedProjection = await dependencies.projectionStore.replaceReportsProjection(
+            projection,
+            inputGeneration: inputGeneration
+        )
+        applyReportsProjection(storedProjection)
+        return storedProjection
+    }
+
+    private func applyReportsProjection(_ projection: ReportsProjection) {
+        guard projection.revision > reportsProjection.revision else { return }
+        reportsProjection = projection
+    }
+
+    private func observeReportsProjectionUpdates() async {
+        for await projection in await dependencies.projectionStore.reportsUpdates() {
+            applyReportsProjection(projection)
         }
     }
 
