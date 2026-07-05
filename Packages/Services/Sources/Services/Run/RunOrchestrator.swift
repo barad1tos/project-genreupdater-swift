@@ -118,7 +118,7 @@ public actor RunOrchestrator {
     ) async -> RunSubmissionResult {
         let reporting = beginReporting(from: lifecycle)
         let failed = reporting.failing(message: failureMessage, at: dependencies.now())
-        appendTransition(.failed, at: failed.finishedAt)
+        appendTransition(failed.state, at: failed.finishedAt)
         await persistRecord(
             for: failed,
             syncResult: nil,
@@ -136,7 +136,8 @@ public actor RunOrchestrator {
     }
 
     /// Records the transition and publishes the snapshot in one step so the
-    /// transitions log can never drift from the published lifecycle.
+    /// transitions log can never drift from the published lifecycle for
+    /// non-terminal (active) transitions.
     private func advance(_ lifecycle: RunLifecycleSnapshot, at timestamp: Date? = nil) {
         appendTransition(lifecycle.state, at: timestamp)
         publish(lifecycle)
