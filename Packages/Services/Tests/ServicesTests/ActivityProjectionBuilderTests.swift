@@ -42,7 +42,7 @@ struct ActivityProjectionBuilderTests {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(state: .syncingLibrary)
+                runLifecycle: lifecycle(phase: .active(.syncingLibrary))
             )
         )
 
@@ -67,7 +67,7 @@ struct ActivityProjectionBuilderTests {
                     isProcessing: true,
                     phaseLabel: "Processing"
                 ),
-                runLifecycle: lifecycle(state: .syncingLibrary)
+                runLifecycle: lifecycle(phase: .active(.syncingLibrary))
             )
         )
 
@@ -89,10 +89,10 @@ struct ActivityProjectionBuilderTests {
                     isProcessing: true,
                     phaseLabel: "Writing metadata"
                 ),
-                runLifecycle: lifecycle(
-                    state: .completed,
-                    syncResult: SyncResult(newTracks: [editableTrack(id: "new-1")])
-                )
+                runLifecycle: lifecycle(phase: .finished(
+                    .completed(SyncResult(newTracks: [editableTrack(id: "new-1")])),
+                    finishedAt: now
+                ))
             )
         )
 
@@ -107,7 +107,7 @@ struct ActivityProjectionBuilderTests {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(state: .completed, syncResult: multiChangeSyncResult())
+                runLifecycle: lifecycle(phase: .finished(.completed(multiChangeSyncResult()), finishedAt: now))
             )
         )
 
@@ -127,7 +127,7 @@ struct ActivityProjectionBuilderTests {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [],
-                runLifecycle: lifecycle(state: .completedNoOp, syncResult: SyncResult())
+                runLifecycle: lifecycle(phase: .finished(.completedNoOp(SyncResult()), finishedAt: now))
             )
         )
 
@@ -142,7 +142,7 @@ struct ActivityProjectionBuilderTests {
             from: makeInput(
                 tracks: [],
                 libraryState: .loading,
-                runLifecycle: lifecycle(state: .syncingLibrary)
+                runLifecycle: lifecycle(phase: .active(.syncingLibrary))
             )
         )
 
@@ -169,7 +169,10 @@ struct ActivityProjectionBuilderTests {
             from: makeInput(
                 tracks: [],
                 libraryState: .empty,
-                runLifecycle: lifecycle(state: .failed, failureMessage: "Music.app is unavailable")
+                runLifecycle: lifecycle(phase: .finished(
+                    .failed(message: "Music.app is unavailable"),
+                    finishedAt: now
+                ))
             )
         )
 
@@ -195,7 +198,7 @@ struct ActivityProjectionBuilderTests {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(state: .completed, syncResult: multiChangeSyncResult())
+                runLifecycle: lifecycle(phase: .finished(.completed(multiChangeSyncResult()), finishedAt: now))
             )
         )
 
@@ -218,7 +221,7 @@ struct ActivityProjectionBuilderTests {
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 workflow: workflow,
-                runLifecycle: lifecycle(state: .completed, syncResult: multiChangeSyncResult())
+                runLifecycle: lifecycle(phase: .finished(.completed(multiChangeSyncResult()), finishedAt: now))
             )
         )
 
@@ -345,10 +348,7 @@ struct ActivityProjectionBuilderTests {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(
-                    state: .completedNoOp,
-                    syncResult: SyncResult()
-                )
+                runLifecycle: lifecycle(phase: .finished(.completedNoOp(SyncResult()), finishedAt: now))
             )
         )
 
@@ -362,7 +362,7 @@ struct ActivityProjectionBuilderTests {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(state: .reporting)
+                runLifecycle: lifecycle(phase: .active(.reporting))
             )
         )
 
@@ -375,10 +375,10 @@ struct ActivityProjectionBuilderTests {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(
-                    state: .failed,
-                    failureMessage: "Music.app is unavailable"
-                )
+                runLifecycle: lifecycle(phase: .finished(
+                    .failed(message: "Music.app is unavailable"),
+                    finishedAt: now
+                ))
             )
         )
 
@@ -437,27 +437,20 @@ struct ActivityProjectionBuilderTests {
         )
     }
 
-    private func lifecycle(
-        state: RunLifecycleState,
-        syncResult: SyncResult? = nil,
-        failureMessage: String? = nil
-    ) -> RunLifecycleSnapshot {
+    private func lifecycle(phase: RunPhase) -> RunLifecycleSnapshot {
         RunLifecycleSnapshot(
             runID: RunID(),
             requestID: RunRequestID(),
             trigger: .manualCheck,
             intent: .observeLibrary,
-            state: state,
             scope: ProcessingScopeSnapshot.capture(
                 requestedTestArtists: [],
                 knownTrackCount: 1,
                 createdAt: scanDate,
                 reason: "manual-check"
             ),
-            syncResult: syncResult,
-            failureMessage: failureMessage,
             startedAt: scanDate,
-            finishedAt: [.completed, .completedNoOp, .failed].contains(state) ? now : nil
+            phase: phase
         )
     }
 }

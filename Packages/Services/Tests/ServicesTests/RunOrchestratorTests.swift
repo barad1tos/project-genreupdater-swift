@@ -42,6 +42,10 @@ struct RunOrchestratorTests {
             knownTrackCount: 35224
         ))
 
+        guard case .completed = result else {
+            Issue.record("Expected completed, got \(result)")
+            return
+        }
         #expect(result.lifecycle.state == .completed)
         #expect(result.lifecycle.syncResult?.changeCount == 1)
     }
@@ -61,6 +65,10 @@ struct RunOrchestratorTests {
             knownTrackCount: nil
         ))
 
+        guard case .failed = result else {
+            Issue.record("Expected failed, got \(result)")
+            return
+        }
         #expect(result.lifecycle.state == .failed)
         #expect(result.lifecycle.failureMessage == "Music.app unavailable")
     }
@@ -161,37 +169,6 @@ struct RunOrchestratorTests {
         observer.cancel()
         _ = await observer.result
         await waitForSubscriptionCount(orchestrator, expected: 0)
-    }
-
-    @Test("lifecycle replacement preserves omitted payload fields")
-    func lifecycleReplacementPreservesOmittedPayloadFields() {
-        let syncResult = SyncResult(newTracks: [
-            Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
-        ])
-        let finishedAt = Date(timeIntervalSince1970: 200)
-        let original = RunLifecycleSnapshot(
-            runID: RunID(),
-            requestID: RunRequestID(),
-            trigger: .manualCheck,
-            intent: .observeLibrary,
-            state: .completed,
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: [],
-                knownTrackCount: 75,
-                createdAt: Date(timeIntervalSince1970: 100),
-                reason: "manualCheck"
-            ),
-            syncResult: syncResult,
-            failureMessage: "Existing failure",
-            startedAt: Date(timeIntervalSince1970: 100),
-            finishedAt: finishedAt
-        )
-
-        let replaced = original.replacing(state: .failed)
-
-        #expect(replaced.syncResult == syncResult)
-        #expect(replaced.failureMessage == "Existing failure")
-        #expect(replaced.finishedAt == finishedAt)
     }
 
     @Test("successful run persists an open record and a final record")
@@ -327,6 +304,10 @@ struct RunOrchestratorTests {
             requestedTestArtists: [],
             knownTrackCount: nil
         ))
+        guard case .failed = firstResult else {
+            Issue.record("Expected failed, got \(firstResult)")
+            return
+        }
         #expect(firstResult.lifecycle.state == .failed)
 
         let secondResult = await orchestrator.submit(.manualObservation(

@@ -55,7 +55,7 @@ struct ActivityCommandControllerTests {
 
     @Test("already active run returns already covered")
     func alreadyActiveRunReturnsAlreadyCovered() async {
-        let harness = Harness(runResult: .alreadyRunning(lifecycle(state: .syncingLibrary)))
+        let harness = Harness(runResult: .alreadyRunning(lifecycle(phase: .active(.syncingLibrary))))
         let controller = harness.makeController()
 
         let result = await controller.handle(.runManually())
@@ -114,7 +114,9 @@ struct ActivityCommandControllerTests {
 
     @Test("completed no-op run reloads library and returns no-op")
     func completedNoOpRunReloadsLibraryAndReturnsNoOp() async {
-        let harness = Harness(runResult: .completedNoOp(lifecycle(state: .completedNoOp, syncResult: SyncResult())))
+        let harness = Harness(runResult: .completedNoOp(lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate)
+        )))
         let controller = harness.makeController()
 
         let result = await controller.handle(.runManually())
@@ -135,7 +137,7 @@ struct ActivityCommandControllerTests {
             removedTrackIDs: ["REMOVED"]
         )
         let harness = Harness(
-            runResult: .completed(lifecycle(state: .completed, syncResult: syncResult))
+            runResult: .completed(lifecycle(phase: .finished(.completed(syncResult), finishedAt: finishDate)))
         )
         let controller = harness.makeController()
 
@@ -149,11 +151,10 @@ struct ActivityCommandControllerTests {
 
     @Test("failed run returns requires attention")
     func failedRunReturnsRequiresAttention() async {
-        let harness = Harness(runResult: .failed(lifecycle(
-            state: .failed,
-            syncResult: nil,
-            failureMessage: "Music.app is unavailable"
-        )))
+        let harness = Harness(runResult: .failed(lifecycle(phase: .finished(
+            .failed(message: "Music.app is unavailable"),
+            finishedAt: finishDate
+        ))))
         let controller = harness.makeController()
 
         let result = await controller.handle(.runManually())
@@ -274,7 +275,9 @@ private final class Harness {
         self.isRunOrchestratorAvailable = isRunOrchestratorAvailable
         self.isRunActive = isRunActive
         self.marksRunActiveOnFirstRefresh = marksRunActiveOnFirstRefresh
-        self.runResult = runResult ?? .completedNoOp(lifecycle(state: .completedNoOp, syncResult: SyncResult()))
+        self.runResult = runResult ?? .completedNoOp(lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate)
+        ))
         self.runError = runError
     }
 
@@ -306,27 +309,22 @@ private final class Harness {
     }
 }
 
-private func lifecycle(
-    state: RunLifecycleState,
-    syncResult: SyncResult? = nil,
-    failureMessage: String? = nil
-) -> RunLifecycleSnapshot {
+private let finishDate = Date(timeIntervalSince1970: 101)
+
+private func lifecycle(phase: RunPhase) -> RunLifecycleSnapshot {
     RunLifecycleSnapshot(
         runID: RunID(),
         requestID: RunRequestID(),
         trigger: .manualCheck,
         intent: .observeLibrary,
-        state: state,
         scope: ProcessingScopeSnapshot.capture(
             requestedTestArtists: [],
             knownTrackCount: 75,
             createdAt: Date(timeIntervalSince1970: 100),
             reason: "manualCheck"
         ),
-        syncResult: syncResult,
-        failureMessage: failureMessage,
         startedAt: Date(timeIntervalSince1970: 100),
-        finishedAt: Date(timeIntervalSince1970: 101)
+        phase: phase
     )
 }
 

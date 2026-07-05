@@ -269,12 +269,12 @@ enum DesignActivitySnapshotAdapter {
             return nil
         }
 
-        switch lifecycle.state {
-        case .created, .syncingLibrary, .reporting:
+        switch lifecycle.phase {
+        case .active:
             return lifecycle.trigger == .manualCheck ? "Manual sync running" : "Run in progress"
-        case .failed:
+        case .finished(.failed, _):
             return lifecycle.trigger == .manualCheck ? "Manual sync failed" : "Run failed"
-        case .completed, .completedNoOp:
+        case .finished(.completed, _), .finished(.completedNoOp, _):
             return nil
         }
     }

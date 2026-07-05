@@ -140,17 +140,14 @@ public struct ActivityProjectionInput: Equatable, Sendable {
     public var effectiveSyncState: ActivitySyncState {
         guard let runLifecycle else { return .idle }
 
-        switch runLifecycle.state {
-        case .created, .syncingLibrary, .reporting:
+        switch runLifecycle.phase {
+        case .active:
             return .running
-        case .completed, .completedNoOp:
-            guard let syncResult = runLifecycle.syncResult else {
-                assertionFailure("Completed run lifecycle requires a SyncResult")
-                return .idle
-            }
-            return .completed(ActivitySyncSummary(result: syncResult))
-        case .failed:
-            return .failed(runLifecycle.failureMessage ?? "Run failed")
+        case let .finished(.completed(result), _),
+             let .finished(.completedNoOp(result), _):
+            return .completed(ActivitySyncSummary(result: result))
+        case let .finished(.failed(message), _):
+            return .failed(message)
         }
     }
 
