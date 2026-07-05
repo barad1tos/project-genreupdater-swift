@@ -24,9 +24,29 @@ struct RunReportDetailBuilderTests {
         #expect(detail.triggerLabel == "Manual check")
         #expect(detail.startedLabel == "8m ago")
         #expect(detail.durationLabel == "45s")
-        #expect(detail.summaryItems.contains(
-            RunReportSummaryItem(id: "summary-total", label: "Total changes", value: "6")
-        ))
+        #expect(detail.summaryItems == [
+            RunReportSummaryItem(id: "summary-new", label: "New", value: "2"),
+            RunReportSummaryItem(id: "summary-modified", label: "Modified", value: "2"),
+            RunReportSummaryItem(id: "summary-identity-changed", label: "Identity changed", value: "1"),
+            RunReportSummaryItem(id: "summary-refreshed", label: "Refreshed", value: "1"),
+            RunReportSummaryItem(id: "summary-removed", label: "Removed", value: "0"),
+            RunReportSummaryItem(id: "summary-total", label: "Total changes", value: "6"),
+        ])
+    }
+
+    @Test("reporting transition renders reporting stage")
+    func reportingTransitionRendersReportingStage() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .reporting,
+            syncSummary: nil
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.state == .running)
+        #expect(detail.transitions.map(\.stageLabel) == ["Created", "Syncing library", "Reporting"])
     }
 
     @Test("running detail omits duration")

@@ -189,6 +189,18 @@ struct AppDependenciesLibraryServicesTests {
         #expect(await stub.lastReportQuery()?.limit == 25)
     }
 
+    @Test("Run report record store failure returns nil")
+    func runReportRecordStoreFailureReturnsNil() async throws {
+        let fixture = try makeFixture(
+            testArtists: [],
+            runRecordStore: RunRecordStoreStub(recordError: CocoaError(.fileReadCorruptFile))
+        )
+
+        let record = await fixture.dependencies.loadRunReportRecord(id: UUID().uuidString)
+
+        #expect(record == nil)
+    }
+
     @Test("Run report record returns the stored record for a valid id")
     func runReportRecordReturnsStoredRecordForValidID() async throws {
         let record = sampleRunRecord()
@@ -257,16 +269,19 @@ private func makeFixture(
 
 private actor RunRecordStoreStub: RunRecordStore {
     private let reportsError: (any Error)?
+    private let recordError: (any Error)?
     private let storedRecord: RunRecord?
     private let reportPage: RunReportPage?
     private var receivedReportQuery: RunReportQuery?
 
     init(
         reportsError: (any Error)? = nil,
+        recordError: (any Error)? = nil,
         storedRecord: RunRecord? = nil,
         reportPage: RunReportPage? = nil
     ) {
         self.reportsError = reportsError
+        self.recordError = recordError
         self.storedRecord = storedRecord
         self.reportPage = reportPage
     }
@@ -280,6 +295,9 @@ private actor RunRecordStoreStub: RunRecordStore {
     }
 
     func record(for runID: RunID) async throws -> RunRecord? {
+        if let recordError {
+            throw recordError
+        }
         guard let storedRecord, storedRecord.runID == runID else { return nil }
         return storedRecord
     }

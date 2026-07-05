@@ -115,6 +115,21 @@ struct ReportsProjectionBuilderTests {
         #expect(item.changeCountLabel == nil)
     }
 
+    @Test("reporting state maps to running")
+    func reportingStateMapsToRunning() throws {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .reporting,
+            syncSummary: nil
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.state == .running)
+        #expect(item.stateLabel == "In progress")
+    }
+
     @Test(
         "trigger labels cover all triggers",
         arguments: zip(
@@ -159,8 +174,12 @@ struct ReportsProjectionBuilderTests {
     @Test(
         "started label formats relative buckets",
         arguments: zip(
-            [TimeInterval(0), TimeInterval(300), TimeInterval(3 * 3600), TimeInterval(2 * 86400)],
-            ["just now", "5m ago", "3h ago", "2d ago"]
+            [
+                TimeInterval(0), TimeInterval(59), TimeInterval(60), TimeInterval(300),
+                TimeInterval(3599), TimeInterval(3600), TimeInterval(3 * 3600),
+                TimeInterval(86399), TimeInterval(86400), TimeInterval(2 * 86400),
+            ],
+            ["just now", "just now", "1m ago", "5m ago", "59m ago", "1h ago", "3h ago", "23h ago", "1d ago", "2d ago"]
         )
     )
     func startedLabelFormatsRelativeBuckets(elapsed: TimeInterval, expectedLabel: String) throws {
