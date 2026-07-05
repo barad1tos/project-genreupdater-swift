@@ -155,6 +155,27 @@ struct AppDependenciesLibraryServicesTests {
         #expect(record == nil)
     }
 
+    @Test("Missing run record store returns nil run report page")
+    func missingRunRecordStoreReturnsNilRunReportPage() async throws {
+        let fixture = try makeFixture(testArtists: [])
+
+        let page = await fixture.dependencies.loadRunReportPage(limit: 10)
+
+        #expect(page == nil)
+    }
+
+    @Test("Run report page store failure returns nil")
+    func runReportPageStoreFailureReturnsNil() async throws {
+        let fixture = try makeFixture(
+            testArtists: [],
+            runRecordStore: RunRecordStoreStub(reportsError: CocoaError(.fileReadCorruptFile))
+        )
+
+        let page = await fixture.dependencies.loadRunReportPage(limit: 10)
+
+        #expect(page == nil)
+    }
+
     @Test("Reports backup import message includes safe first failure")
     func reportsBackupImportMessageIncludesSafeFirstFailure() {
         let result = YearBackupRevertResult(
@@ -209,6 +230,12 @@ private func makeFixture(
 }
 
 private actor RunRecordStoreStub: RunRecordStore {
+    private let reportsError: (any Error)?
+
+    init(reportsError: (any Error)? = nil) {
+        self.reportsError = reportsError
+    }
+
     func upsert(_ record: RunRecord) async throws {
         // Not exercised by the malformed-id and missing-store test paths.
     }
@@ -226,7 +253,10 @@ private actor RunRecordStoreStub: RunRecordStore {
     }
 
     func reports(matching query: RunReportQuery) async throws -> RunReportPage {
-        RunReportPage(records: [], skippedCorruptedCount: 0)
+        if let reportsError {
+            throw reportsError
+        }
+        return RunReportPage(records: [], skippedCorruptedCount: 0)
     }
 }
 

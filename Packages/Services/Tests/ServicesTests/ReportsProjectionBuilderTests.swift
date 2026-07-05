@@ -139,8 +139,8 @@ struct ReportsProjectionBuilderTests {
     @Test(
         "duration label formats minute and hour buckets",
         arguments: zip(
-            [60, 200, 3600, 4500],
-            ["1m", "3m 20s", "1h", "1h 15m"]
+            [59, 60, 200, 3599, 3600, 4500],
+            ["59s", "1m", "3m 20s", "59m 59s", "1h", "1h 15m"]
         )
     )
     func durationLabelFormatsMinuteAndHourBuckets(seconds: Int, expectedLabel: String) throws {
