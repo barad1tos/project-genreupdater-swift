@@ -152,7 +152,9 @@ extension AppDependencies {
         do {
             return try await runRecordStore.reports(matching: RunReportQuery(limit: limit))
         } catch {
-            libraryServicesLog.error("Failed to load run report page: \(error.localizedDescription, privacy: .public)")
+            libraryServicesLog.error(
+                "Failed to load run report page: \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)"
+            )
             return nil
         }
     }
@@ -172,7 +174,7 @@ extension AppDependencies {
             return try await runRecordStore.record(for: RunID(rawValue: runID))
         } catch {
             libraryServicesLog.error(
-                "Failed to load run report record: \(error.localizedDescription, privacy: .public)"
+                "Failed to load run report record: \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)"
             )
             return nil
         }
