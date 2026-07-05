@@ -29,6 +29,22 @@ struct RunReportDetailBuilderTests {
         ))
     }
 
+    @Test("running detail omits duration")
+    func runningDetailOmitsDuration() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.state == .running)
+        #expect(detail.stateLabel == "In progress")
+        #expect(detail.durationLabel == nil)
+    }
+
     @Test("full library scope produces scope lines")
     func fullLibraryScopeProducesScopeLines() {
         let scope = ProcessingScopeSnapshot.capture(
@@ -92,6 +108,49 @@ struct RunReportDetailBuilderTests {
         #expect(fiveArtistDetail.scopeLines.contains("Scope: Test artists (5)"))
         #expect(fiveArtistDetail.scopeLines.contains("Artists: A, B, C +2 more"))
         #expect(twoArtistDetail.scopeLines.contains("Artists: A, B"))
+    }
+
+    @Test("full library scope without known count is a single line")
+    func fullLibraryScopeWithoutKnownCountIsSingleLine() {
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: nil,
+            createdAt: startDate,
+            reason: ""
+        )
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil,
+            scope: scope
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.scopeLines == ["Scope: Full library"])
+    }
+
+    @Test("artist count at display limit omits hidden suffix")
+    func artistCountAtDisplayLimitOmitsHiddenSuffix() {
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["A", "B", "C"],
+            knownTrackCount: nil,
+            createdAt: startDate,
+            reason: ""
+        )
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil,
+            scope: scope
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.scopeLines.contains("Artists: A, B, C"))
+        #expect(!detail.scopeLines.contains { $0.contains("more") })
     }
 
     @Test("scope reason is never rendered")

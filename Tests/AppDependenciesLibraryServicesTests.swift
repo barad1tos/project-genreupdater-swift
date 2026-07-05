@@ -176,6 +176,32 @@ struct AppDependenciesLibraryServicesTests {
         #expect(page == nil)
     }
 
+    @Test("Run report page passes store results and limit through")
+    func runReportPagePassesStoreResultsAndLimitThrough() async throws {
+        let record = sampleRunRecord()
+        let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [record], skippedCorruptedCount: 2))
+        let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
+
+        let page = await fixture.dependencies.loadRunReportPage(limit: 25)
+
+        #expect(page?.records.map(\.runID) == [record.runID])
+        #expect(page?.skippedCorruptedCount == 2)
+        #expect(await stub.lastReportQuery()?.limit == 25)
+    }
+
+    @Test("Run report record returns the stored record for a valid id")
+    func runReportRecordReturnsStoredRecordForValidID() async throws {
+        let record = sampleRunRecord()
+        let fixture = try makeFixture(
+            testArtists: [],
+            runRecordStore: RunRecordStoreStub(storedRecord: record)
+        )
+
+        let loaded = await fixture.dependencies.loadRunReportRecord(id: record.runID.rawValue.uuidString)
+
+        #expect(loaded?.runID == record.runID)
+    }
+
     @Test("Reports backup import message includes safe first failure")
     func reportsBackupImportMessageIncludesSafeFirstFailure() {
         let result = YearBackupRevertResult(
@@ -231,13 +257,22 @@ private func makeFixture(
 
 private actor RunRecordStoreStub: RunRecordStore {
     private let reportsError: (any Error)?
+    private let storedRecord: RunRecord?
+    private let reportPage: RunReportPage?
+    private var receivedReportQuery: RunReportQuery?
 
-    init(reportsError: (any Error)? = nil) {
+    init(
+        reportsError: (any Error)? = nil,
+        storedRecord: RunRecord? = nil,
+        reportPage: RunReportPage? = nil
+    ) {
         self.reportsError = reportsError
+        self.storedRecord = storedRecord
+        self.reportPage = reportPage
     }
 
     func upsert(_ record: RunRecord) async throws {
-        // Not exercised by the malformed-id and missing-store test paths.
+        // Not exercised by the run report accessor test paths.
     }
 
     func loadAll() async throws -> [RunRecord] {
@@ -245,7 +280,8 @@ private actor RunRecordStoreStub: RunRecordStore {
     }
 
     func record(for runID: RunID) async throws -> RunRecord? {
-        nil
+        guard let storedRecord, storedRecord.runID == runID else { return nil }
+        return storedRecord
     }
 
     func prune(keepingLatest limit: Int) async throws -> Int {
@@ -253,11 +289,37 @@ private actor RunRecordStoreStub: RunRecordStore {
     }
 
     func reports(matching query: RunReportQuery) async throws -> RunReportPage {
+        receivedReportQuery = query
         if let reportsError {
             throw reportsError
         }
-        return RunReportPage(records: [], skippedCorruptedCount: 0)
+        return reportPage ?? RunReportPage(records: [], skippedCorruptedCount: 0)
     }
+
+    func lastReportQuery() -> RunReportQuery? {
+        receivedReportQuery
+    }
+}
+
+private func sampleRunRecord(runID: RunID = RunID()) -> RunRecord {
+    let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    return RunRecord(
+        runID: runID,
+        requestID: RunRequestID(),
+        trigger: .manualCheck,
+        intent: .observeLibrary,
+        scope: ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: nil,
+            createdAt: startedAt,
+            reason: "manualCheck"
+        ),
+        transitions: [],
+        syncSummary: nil,
+        failureMessage: nil,
+        startedAt: startedAt,
+        finishedAt: startedAt.addingTimeInterval(45)
+    )
 }
 
 private func sampleTrack() -> Track {
