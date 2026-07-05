@@ -66,11 +66,10 @@ public actor RunOrchestrator {
         // single-flight stays airtight without extra locking.
         let startedAt = dependencies.now()
         let created = makeCreatedLifecycle(for: request, startedAt: startedAt)
-        activeTransitions = [RunLifecycleTransition(state: .created, timestamp: startedAt)]
-        publish(created)
-        let syncing = created.replacing(state: .syncingLibrary)
-        appendTransition(.syncingLibrary)
-        publish(syncing)
+        activeTransitions = []
+        advance(created, at: startedAt)
+        let syncing = created.beginningSync()
+        advance(syncing)
 
         // The run executes in an orchestrator-owned task: awaiting the value of
         // an unstructured Task's value never forwards the submitter's
@@ -85,17 +84,20 @@ public actor RunOrchestrator {
 
         do {
             let result = try await dependencies.synchronizeLibrary()
-            publishReporting(from: lifecycle)
-            let completed = makeCompletedLifecycle(from: lifecycle, result: result)
+            let reporting = beginReporting(from: lifecycle)
+            let completed = reporting.finishing(result: result, at: dependencies.now())
             appendTransition(completed.state, at: completed.finishedAt)
             await persistRecord(
                 for: completed,
-                syncResult: result,
+                syncResult: completed.syncResult,
                 failureMessage: nil,
                 finishedAt: completed.finishedAt
             )
             publishCompleted(completed)
-            return result.hasChanges ? .completed(completed) : .completedNoOp(completed)
+            if case .finished(.completedNoOp, _) = completed.phase {
+                return .completedNoOp(completed)
+            }
+            return .completed(completed)
         } catch is CancellationError {
             log.error("Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) cancelled")
             return await finishFailedRun(from: lifecycle, failureMessage: "Run cancelled")
@@ -114,12 +116,8 @@ public actor RunOrchestrator {
         from lifecycle: RunLifecycleSnapshot,
         failureMessage: String
     ) async -> RunSubmissionResult {
-        publishReporting(from: lifecycle)
-        let failed = lifecycle.replacing(
-            state: .failed,
-            failureMessage: failureMessage,
-            finishedAt: dependencies.now()
-        )
+        let reporting = beginReporting(from: lifecycle)
+        let failed = reporting.failing(message: failureMessage, at: dependencies.now())
         appendTransition(.failed, at: failed.finishedAt)
         await persistRecord(
             for: failed,
@@ -131,9 +129,17 @@ public actor RunOrchestrator {
         return .failed(failed)
     }
 
-    private func publishReporting(from lifecycle: RunLifecycleSnapshot) {
-        appendTransition(.reporting)
-        publish(lifecycle.replacing(state: .reporting))
+    private func beginReporting(from lifecycle: RunLifecycleSnapshot) -> RunLifecycleSnapshot {
+        let reporting = lifecycle.beginningReporting()
+        advance(reporting)
+        return reporting
+    }
+
+    /// Records the transition and publishes the snapshot in one step so the
+    /// transitions log can never drift from the published lifecycle.
+    private func advance(_ lifecycle: RunLifecycleSnapshot, at timestamp: Date? = nil) {
+        appendTransition(lifecycle.state, at: timestamp)
+        publish(lifecycle)
     }
 
     private func appendTransition(_ state: RunLifecycleState, at timestamp: Date? = nil) {
@@ -188,23 +194,9 @@ public actor RunOrchestrator {
             requestID: request.id,
             trigger: request.trigger,
             intent: request.intent,
-            state: .created,
             scope: scope,
-            syncResult: nil,
-            failureMessage: nil,
             startedAt: startedAt,
-            finishedAt: nil
-        )
-    }
-
-    private func makeCompletedLifecycle(
-        from lifecycle: RunLifecycleSnapshot,
-        result: SyncResult
-    ) -> RunLifecycleSnapshot {
-        lifecycle.replacing(
-            state: result.hasChanges ? .completed : .completedNoOp,
-            syncResult: result,
-            finishedAt: dependencies.now()
+            phase: .active(.created)
         )
     }
 

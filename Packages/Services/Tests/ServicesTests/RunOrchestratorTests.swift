@@ -163,37 +163,6 @@ struct RunOrchestratorTests {
         await waitForSubscriptionCount(orchestrator, expected: 0)
     }
 
-    @Test("lifecycle replacement preserves omitted payload fields")
-    func lifecycleReplacementPreservesOmittedPayloadFields() {
-        let syncResult = SyncResult(newTracks: [
-            Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
-        ])
-        let finishedAt = Date(timeIntervalSince1970: 200)
-        let original = RunLifecycleSnapshot(
-            runID: RunID(),
-            requestID: RunRequestID(),
-            trigger: .manualCheck,
-            intent: .observeLibrary,
-            state: .completed,
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: [],
-                knownTrackCount: 75,
-                createdAt: Date(timeIntervalSince1970: 100),
-                reason: "manualCheck"
-            ),
-            syncResult: syncResult,
-            failureMessage: "Existing failure",
-            startedAt: Date(timeIntervalSince1970: 100),
-            finishedAt: finishedAt
-        )
-
-        let replaced = original.replacing(state: .failed)
-
-        #expect(replaced.syncResult == syncResult)
-        #expect(replaced.failureMessage == "Existing failure")
-        #expect(replaced.finishedAt == finishedAt)
-    }
-
     @Test("successful run persists an open record and a final record")
     func successfulRunPersistsOpenAndFinalRecords() async throws {
         let clock = ClockProbe()

@@ -211,14 +211,17 @@ struct DesignActivitySnapshotAdapterTests {
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 lastScanDate: scanDate,
-                runLifecycle: makeRunLifecycle(state: .syncingLibrary)
+                runLifecycle: makeRunLifecycle(phase: .active(.syncingLibrary))
             )
         )
         let failed = makeSnapshot(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 lastScanDate: scanDate,
-                runLifecycle: makeRunLifecycle(state: .failed)
+                runLifecycle: makeRunLifecycle(phase: .finished(
+                    .failed(message: "AppleScript timeout"),
+                    finishedAt: now
+                ))
             )
         )
 
@@ -445,33 +448,21 @@ struct DesignActivitySnapshotAdapterTests {
         )
     }
 
-    private func makeRunLifecycle(state: RunLifecycleState) -> RunLifecycleSnapshot {
+    private func makeRunLifecycle(phase: RunPhase) -> RunLifecycleSnapshot {
         RunLifecycleSnapshot(
             runID: RunID(),
             requestID: RunRequestID(),
             trigger: .manualCheck,
             intent: .observeLibrary,
-            state: state,
             scope: .capture(
                 requestedTestArtists: [],
                 knownTrackCount: 1,
                 createdAt: scanDate,
                 reason: "test"
             ),
-            syncResult: nil,
-            failureMessage: state == .failed ? "AppleScript timeout" : nil,
             startedAt: scanDate,
-            finishedAt: isTerminalRunState(state) ? now : nil
+            phase: phase
         )
-    }
-
-    private func isTerminalRunState(_ state: RunLifecycleState) -> Bool {
-        switch state {
-        case .completed, .completedNoOp, .failed:
-            true
-        case .created, .syncingLibrary, .reporting:
-            false
-        }
     }
 
     private func editableTrack(id: String) -> Core.Track {
