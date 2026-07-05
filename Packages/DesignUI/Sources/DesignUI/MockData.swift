@@ -364,6 +364,35 @@ struct MockData {
         ),
     ]
 
+    let runHistory: [RunReportRow] = [
+        .init(
+            id: "run-completed",
+            stateLabel: "Completed",
+            tone: .success,
+            triggerLabel: "Manual check",
+            startedLabel: "2m ago",
+            durationLabel: "45s",
+            changeCountLabel: "12 changes"
+        ),
+        .init(
+            id: "run-completed-no-op",
+            stateLabel: "Completed · no changes",
+            tone: .neutral,
+            triggerLabel: "Background sync",
+            startedLabel: "15m ago",
+            durationLabel: "38s",
+            changeCountLabel: "No changes"
+        ),
+        .init(
+            id: "run-failed",
+            stateLabel: "Failed",
+            tone: .error,
+            triggerLabel: "File system event",
+            startedLabel: "1h ago",
+            failureSummary: "Music library timed out"
+        ),
+    ]
+
     let reportStats = (processed: 211, genres: 142, years: 69)
 
     let genreDist: [ChartDatum] = [
@@ -420,6 +449,7 @@ struct MockData {
             genreDistribution: genreDist,
             updatesOverTime: overTime,
             yearDistribution: yearDist,
+            runHistory: runHistory,
             syncStatusText: "Synced 8m ago",
             isPreviewBacked: true
         )

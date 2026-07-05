@@ -25,6 +25,8 @@ enum DesignActivitySnapshotAdapter {
     static func makeSnapshot(
         from input: DesignActivitySnapshotInput,
         activityProjection: ActivityProjection,
+        reportsProjection: ReportsProjection = .empty(),
+        selectedRunReport: RunReportDetailSnapshot? = nil,
         activityNotice: String? = nil
     ) -> DesignDataSnapshot {
         let dashboard = makeDashboardSnapshot(from: input)
@@ -56,6 +58,9 @@ enum DesignActivitySnapshotAdapter {
             genreDistribution: makeGenreDistribution(from: reportEntries),
             updatesOverTime: makeUpdatesOverTime(from: reportEntries),
             yearDistribution: makeYearDistribution(from: reportEntries),
+            runHistory: ReportsProjectionDesignAdapter.makeRunHistory(from: reportsProjection),
+            runHistorySkippedCount: reportsProjection.skippedCorruptedCount,
+            selectedRunReport: selectedRunReport,
             settings: input.settings,
             syncStatusText: activityProjection.syncStatusText,
             isPreviewBacked: false

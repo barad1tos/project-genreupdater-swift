@@ -17,6 +17,7 @@ public struct RootView<UpdateContent: View>: View {
     private let setFastAnimationsAction: ((Bool) -> Bool)?
     private let browseAlbumUpdateAction: ((Album, String) -> Void)?
     private let browseAlbumSelectionAction: ((Album?, String?) -> Void)?
+    private let reportRunSelectionAction: ((String?) -> Void)?
     private let updateContent: () -> UpdateContent
     @State private var model: AppModel
 
@@ -34,6 +35,7 @@ public struct RootView<UpdateContent: View>: View {
         setFastAnimationsAction: ((Bool) -> Bool)? = nil,
         browseAlbumUpdateAction: ((Album, String) -> Void)? = nil,
         browseAlbumSelectionAction: ((Album?, String?) -> Void)? = nil,
+        reportRunSelectionAction: ((String?) -> Void)? = nil,
         @ViewBuilder updateContent: @escaping () -> UpdateContent
     ) {
         self.data = data
@@ -49,6 +51,7 @@ public struct RootView<UpdateContent: View>: View {
         self.setFastAnimationsAction = setFastAnimationsAction
         self.browseAlbumUpdateAction = browseAlbumUpdateAction
         self.browseAlbumSelectionAction = browseAlbumSelectionAction
+        self.reportRunSelectionAction = reportRunSelectionAction
         self.updateContent = updateContent
         _model = State(initialValue: AppModel(data: data))
     }
@@ -107,7 +110,7 @@ public struct RootView<UpdateContent: View>: View {
                 albumUpdateAction: browseAlbumUpdateAction,
                 albumSelectionAction: browseAlbumSelectionAction
             )
-        case .reports: ReportsView(model: model)
+        case .reports: ReportsView(model: model, runSelectionAction: reportRunSelectionAction)
         case .update: updateContent()
         case .settings:
             SettingsScreen(

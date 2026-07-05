@@ -651,10 +651,12 @@ extension AppDependencies {
 extension AppDependencies {
     func configureLibraryPersistenceForTesting(
         trackStore: SwiftDataTrackStore? = nil,
-        librarySnapshotService: (any LibrarySnapshotService)? = nil
+        librarySnapshotService: (any LibrarySnapshotService)? = nil,
+        runRecordStore: (any RunRecordStore)? = nil
     ) {
         self.trackStore = trackStore
         self.librarySnapshotService = librarySnapshotService
+        self.runRecordStore = runRecordStore
     }
 }
 #endif

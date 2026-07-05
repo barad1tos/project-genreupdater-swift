@@ -1,3 +1,5 @@
+// swiftlint:disable file_length
+
 import Core
 import DesignUI
 import Foundation
@@ -26,6 +28,9 @@ struct DesignRootHostView: View {
     @State private var selectedBrowseAlbum: (album: DesignUI.Album, artist: String)?
     @State private var selectedRoute: Route? = .activity
     @State private var activityProjection: ActivityProjection = .empty()
+    @State private var reportsProjection: ReportsProjection = .empty()
+    @State private var selectedRunReport: RunReportDetailSnapshot?
+    @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
     @State private var activityCommandNoticeID = UUID()
     @AppStorage("defaultUpdateBehavior") private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
@@ -46,7 +51,8 @@ struct DesignRootHostView: View {
             setAppearanceModeAction: setAppearanceMode,
             setFastAnimationsAction: setFastAnimationsEnabled,
             browseAlbumUpdateAction: prepareAlbumUpdate,
-            browseAlbumSelectionAction: setSelectedBrowseAlbum
+            browseAlbumSelectionAction: setSelectedBrowseAlbum,
+            reportRunSelectionAction: selectRunReport
         ) {
             updateContent
         }
@@ -54,6 +60,7 @@ struct DesignRootHostView: View {
             await startInitialLoadIfNeeded()
         }
         .task { await observeActivityProjectionUpdates() }
+        .task { await observeReportsProjectionUpdates() }
         .task { await observeRunLifecycleUpdates() }
         .onChange(of: defaultUpdateBehavior) {
             applyWorkflowDefaults()
@@ -96,6 +103,8 @@ struct DesignRootHostView: View {
         DesignActivitySnapshotAdapter.makeSnapshot(
             from: designActivitySnapshotInput,
             activityProjection: activityProjection,
+            reportsProjection: reportsProjection,
+            selectedRunReport: selectedRunReport,
             activityNotice: activityCommandNoticeMessage
         )
     }
@@ -397,6 +406,32 @@ struct DesignRootHostView: View {
         }
     }
 
+    private func selectRunReport(_ runID: String?) {
+        // New request ID invalidates any in-flight detail load, so a stale
+        // response can neither reopen a closed card nor overwrite a newer pick.
+        let requestID = UUID()
+        runReportDetailRequestID = requestID
+        guard let runID else {
+            selectedRunReport = nil
+            return
+        }
+        Task { @MainActor in
+            await loadRunReportDetail(runID: runID, requestID: requestID)
+        }
+    }
+
+    private func loadRunReportDetail(runID: String, requestID: UUID) async {
+        let record = await dependencies.loadRunReportRecord(id: runID)
+        guard runReportDetailRequestID == requestID else { return }
+
+        guard let record else {
+            selectedRunReport = .unavailable(runID: runID)
+            return
+        }
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: Date())
+        selectedRunReport = RunReportDetailDesignAdapter.makeSnapshot(from: detail)
+    }
+
     private func configureSelectedUpdateScope(_ configuration: SelectedUpdateScopeConfiguration) {
         selectedRoute = .update
         ensureWorkflowViewModel()
@@ -482,6 +517,7 @@ struct DesignRootHostView: View {
         isLibraryReadyForUpdates = false
         loadCachedMetrics()
         loadChangeLogEntries()
+        await refreshReportsProjection()
         await dependencies.refreshAutoSyncStatus()
         guard isCurrentLibraryLoad(requestID) else { return }
 
@@ -659,12 +695,45 @@ struct DesignRootHostView: View {
         for await lifecycle in await dependencies.runLifecycleUpdates() {
             currentRunLifecycle = lifecycle
             await refreshActivityProjection()
+            if !lifecycle.isActive {
+                await refreshReportsProjection()
+            }
         }
     }
 
     private func scheduleActivityProjectionRefresh() {
         Task { @MainActor in
             await refreshActivityProjection()
+        }
+    }
+
+    @discardableResult
+    private func refreshReportsProjection() async -> ReportsProjection? {
+        let inputGeneration = await dependencies.projectionStore.nextReportsProjectionInputGeneration()
+        guard let page = await dependencies.loadRunReportPage(
+            limit: ReportsProjectionDesignAdapter.runHistoryLimit
+        ) else { return nil }
+        let projection = ReportsProjectionBuilder.makeProjection(from: ReportsProjectionInput(
+            records: page.records,
+            skippedCorruptedCount: page.skippedCorruptedCount,
+            now: Date()
+        ))
+        let storedProjection = await dependencies.projectionStore.replaceReportsProjection(
+            projection,
+            inputGeneration: inputGeneration
+        )
+        applyReportsProjection(storedProjection)
+        return storedProjection
+    }
+
+    private func applyReportsProjection(_ projection: ReportsProjection) {
+        guard projection.revision > reportsProjection.revision else { return }
+        reportsProjection = projection
+    }
+
+    private func observeReportsProjectionUpdates() async {
+        for await projection in await dependencies.projectionStore.reportsUpdates() {
+            applyReportsProjection(projection)
         }
     }
 

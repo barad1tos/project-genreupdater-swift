@@ -137,6 +137,83 @@ struct AppDependenciesLibraryServicesTests {
         )) == "Revert Complete")
     }
 
+    @Test("Malformed run report id returns nil")
+    func malformedRunReportIDReturnsNil() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+
+        let record = await fixture.dependencies.loadRunReportRecord(id: "not-a-uuid")
+
+        #expect(record == nil)
+    }
+
+    @Test("Missing run record store returns nil")
+    func missingRunRecordStoreReturnsNil() async throws {
+        let fixture = try makeFixture(testArtists: [])
+
+        let record = await fixture.dependencies.loadRunReportRecord(id: UUID().uuidString)
+
+        #expect(record == nil)
+    }
+
+    @Test("Missing run record store returns nil run report page")
+    func missingRunRecordStoreReturnsNilRunReportPage() async throws {
+        let fixture = try makeFixture(testArtists: [])
+
+        let page = await fixture.dependencies.loadRunReportPage(limit: 10)
+
+        #expect(page == nil)
+    }
+
+    @Test("Run report page store failure returns nil")
+    func runReportPageStoreFailureReturnsNil() async throws {
+        let fixture = try makeFixture(
+            testArtists: [],
+            runRecordStore: RunRecordStoreStub(reportsError: CocoaError(.fileReadCorruptFile))
+        )
+
+        let page = await fixture.dependencies.loadRunReportPage(limit: 10)
+
+        #expect(page == nil)
+    }
+
+    @Test("Run report page passes store results and limit through")
+    func runReportPagePassesStoreResultsAndLimitThrough() async throws {
+        let record = sampleRunRecord()
+        let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [record], skippedCorruptedCount: 2))
+        let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
+
+        let page = await fixture.dependencies.loadRunReportPage(limit: 25)
+
+        #expect(page?.records.map(\.runID) == [record.runID])
+        #expect(page?.skippedCorruptedCount == 2)
+        #expect(await stub.lastReportQuery()?.limit == 25)
+    }
+
+    @Test("Run report record store failure returns nil")
+    func runReportRecordStoreFailureReturnsNil() async throws {
+        let fixture = try makeFixture(
+            testArtists: [],
+            runRecordStore: RunRecordStoreStub(recordError: CocoaError(.fileReadCorruptFile))
+        )
+
+        let record = await fixture.dependencies.loadRunReportRecord(id: UUID().uuidString)
+
+        #expect(record == nil)
+    }
+
+    @Test("Run report record returns the stored record for a valid id")
+    func runReportRecordReturnsStoredRecordForValidID() async throws {
+        let record = sampleRunRecord()
+        let fixture = try makeFixture(
+            testArtists: [],
+            runRecordStore: RunRecordStoreStub(storedRecord: record)
+        )
+
+        let loaded = await fixture.dependencies.loadRunReportRecord(id: record.runID.rawValue.uuidString)
+
+        #expect(loaded?.runID == record.runID)
+    }
+
     @Test("Reports backup import message includes safe first failure")
     func reportsBackupImportMessageIncludesSafeFirstFailure() {
         let result = YearBackupRevertResult(
@@ -162,7 +239,10 @@ private struct LibraryPersistenceFixture {
 }
 
 @MainActor
-private func makeFixture(testArtists: [String]) throws -> LibraryPersistenceFixture {
+private func makeFixture(
+    testArtists: [String],
+    runRecordStore: (any RunRecordStore)? = nil
+) throws -> LibraryPersistenceFixture {
     let trackStore = try SwiftDataTrackStore.createInMemory()
     let snapshotService = SnapshotServiceSpy()
     let dependencies = AppDependencies(
@@ -177,12 +257,86 @@ private func makeFixture(testArtists: [String]) throws -> LibraryPersistenceFixt
     )
     dependencies.configureLibraryPersistenceForTesting(
         trackStore: trackStore,
-        librarySnapshotService: snapshotService
+        librarySnapshotService: snapshotService,
+        runRecordStore: runRecordStore
     )
     return LibraryPersistenceFixture(
         dependencies: dependencies,
         trackStore: trackStore,
         snapshotService: snapshotService
+    )
+}
+
+private actor RunRecordStoreStub: RunRecordStore {
+    private let reportsError: (any Error)?
+    private let recordError: (any Error)?
+    private let storedRecord: RunRecord?
+    private let reportPage: RunReportPage?
+    private var receivedReportQuery: RunReportQuery?
+
+    init(
+        reportsError: (any Error)? = nil,
+        recordError: (any Error)? = nil,
+        storedRecord: RunRecord? = nil,
+        reportPage: RunReportPage? = nil
+    ) {
+        self.reportsError = reportsError
+        self.recordError = recordError
+        self.storedRecord = storedRecord
+        self.reportPage = reportPage
+    }
+
+    func upsert(_ record: RunRecord) async throws {
+        // Not exercised by the run report accessor test paths.
+    }
+
+    func loadAll() async throws -> [RunRecord] {
+        []
+    }
+
+    func record(for runID: RunID) async throws -> RunRecord? {
+        if let recordError {
+            throw recordError
+        }
+        guard let storedRecord, storedRecord.runID == runID else { return nil }
+        return storedRecord
+    }
+
+    func prune(keepingLatest limit: Int) async throws -> Int {
+        0
+    }
+
+    func reports(matching query: RunReportQuery) async throws -> RunReportPage {
+        receivedReportQuery = query
+        if let reportsError {
+            throw reportsError
+        }
+        return reportPage ?? RunReportPage(records: [], skippedCorruptedCount: 0)
+    }
+
+    func lastReportQuery() -> RunReportQuery? {
+        receivedReportQuery
+    }
+}
+
+private func sampleRunRecord(runID: RunID = RunID()) -> RunRecord {
+    let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    return RunRecord(
+        runID: runID,
+        requestID: RunRequestID(),
+        trigger: .manualCheck,
+        intent: .observeLibrary,
+        scope: ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: nil,
+            createdAt: startedAt,
+            reason: "manualCheck"
+        ),
+        transitions: [],
+        syncSummary: nil,
+        failureMessage: nil,
+        startedAt: startedAt,
+        finishedAt: startedAt.addingTimeInterval(45)
     )
 }
 
