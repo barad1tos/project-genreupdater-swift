@@ -166,7 +166,7 @@ extension AppDependencies {
         }
 
         guard let runID = UUID(uuidString: id) else {
-            libraryServicesLog.error("Run report record request had a malformed id")
+            libraryServicesLog.error("Run report record request had a malformed id: \(id, privacy: .private)")
             return nil
         }
 
@@ -174,7 +174,7 @@ extension AppDependencies {
             return try await runRecordStore.record(for: RunID(rawValue: runID))
         } catch {
             libraryServicesLog.error(
-                "Failed to load run report record: \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)"
+                "Failed to load run report record \(runID.uuidString, privacy: .public): \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)"
             )
             return nil
         }
