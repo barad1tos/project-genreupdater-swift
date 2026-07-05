@@ -1,0 +1,252 @@
+import Foundation
+import Services
+import Testing
+
+@Suite("ReportsProjectionBuilder")
+struct ReportsProjectionBuilderTests {
+    private let startDate = Date(timeIntervalSince1970: 1_800_000_000)
+    private let now = Date(timeIntervalSince1970: 1_800_000_480)
+
+    @Test("empty page produces empty projection")
+    func emptyPageProducesEmptyProjection() {
+        let projection = makeProjection(records: [])
+
+        #expect(projection.runs.isEmpty)
+        #expect(projection.skippedCorruptedCount == 0)
+        #expect(projection.revision == .initial)
+    }
+
+    @Test("empty projection preserves revision")
+    func emptyProjectionPreservesRevision() {
+        let projection = ReportsProjection.empty(revision: ProjectionRevision(7))
+
+        #expect(projection.revision == ProjectionRevision(7))
+        #expect(projection.runs.isEmpty)
+        #expect(projection.skippedCorruptedCount == 0)
+    }
+
+    @Test("completed run maps index labels")
+    func completedRunMapsIndexLabels() throws {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .completed,
+            syncSummary: ActivitySyncSummary(new: 2, modified: 1, identityChanged: 0, refreshed: 0, removed: 0)
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.id == record.runID.rawValue.uuidString)
+        #expect(item.state == .completed)
+        #expect(item.stateLabel == "Completed")
+        #expect(item.triggerLabel == "Manual check")
+        #expect(item.startedLabel == "8m ago")
+        #expect(item.durationLabel == "45s")
+        #expect(item.changeCountLabel == "3 changes")
+        #expect(item.failureSummary == nil)
+    }
+
+    @Test("completed no-op run maps no-changes labels")
+    func completedNoOpRunMapsNoChangesLabels() throws {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .completedNoOp,
+            syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 0)
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.stateLabel == "Completed · no changes")
+        #expect(item.changeCountLabel == "No changes")
+    }
+
+    @Test("single change uses singular label")
+    func singleChangeUsesSingularLabel() throws {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .completed,
+            syncSummary: ActivitySyncSummary(new: 1, modified: 0, identityChanged: 0, refreshed: 0, removed: 0)
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.changeCountLabel == "1 change")
+    }
+
+    @Test("failed run carries failure summary")
+    func failedRunCarriesFailureSummary() {
+        let recordWithMessage = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .failed,
+            syncSummary: nil,
+            failureMessage: "Music.app unavailable"
+        )
+        let recordWithoutMessage = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .failed,
+            syncSummary: nil,
+            failureMessage: nil
+        )
+
+        let items = makeProjection(records: [recordWithMessage, recordWithoutMessage]).runs
+
+        #expect(items[0].failureSummary == "Music.app unavailable")
+        #expect(items[1].failureSummary == "Run failed")
+    }
+
+    @Test("active run omits duration and changes")
+    func activeRunOmitsDurationAndChanges() throws {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.state == .running)
+        #expect(item.stateLabel == "In progress")
+        #expect(item.durationLabel == nil)
+        #expect(item.changeCountLabel == nil)
+    }
+
+    @Test(
+        "trigger labels cover all triggers",
+        arguments: zip(
+            [RunTrigger.manualCheck, .backgroundSync, .fileSystemEvent, .recovery],
+            ["Manual check", "Background sync", "File system event", "Recovery"]
+        )
+    )
+    func triggerLabelsCoverAllTriggers(trigger: RunTrigger, expectedLabel: String) throws {
+        let record = makeRunRecord(
+            trigger: trigger,
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .completed,
+            syncSummary: nil
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.triggerLabel == expectedLabel)
+    }
+
+    @Test(
+        "duration label formats minute and hour buckets",
+        arguments: zip(
+            [60, 200, 3600, 4500],
+            ["1m", "3m 20s", "1h", "1h 15m"]
+        )
+    )
+    func durationLabelFormatsMinuteAndHourBuckets(seconds: Int, expectedLabel: String) throws {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(TimeInterval(seconds)),
+            state: .completed,
+            syncSummary: nil
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.durationLabel == expectedLabel)
+    }
+
+    @Test(
+        "started label formats relative buckets",
+        arguments: zip(
+            [TimeInterval(0), TimeInterval(300), TimeInterval(3 * 3600), TimeInterval(2 * 86400)],
+            ["just now", "5m ago", "3h ago", "2d ago"]
+        )
+    )
+    func startedLabelFormatsRelativeBuckets(elapsed: TimeInterval, expectedLabel: String) throws {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil
+        )
+
+        let projection = ReportsProjectionBuilder.makeProjection(
+            from: ReportsProjectionInput(
+                records: [record],
+                skippedCorruptedCount: 0,
+                now: startDate.addingTimeInterval(elapsed)
+            )
+        )
+        let item = try #require(projection.runs.first)
+
+        #expect(item.startedLabel == expectedLabel)
+    }
+
+    @Test("skipped corrupted count passes through")
+    func skippedCorruptedCountPassesThrough() {
+        let projection = makeProjection(records: [], skippedCorruptedCount: 2)
+
+        #expect(projection.skippedCorruptedCount == 2)
+    }
+
+    @Test("records keep store order")
+    func recordsKeepStoreOrder() {
+        let first = makeRunRecord(startedAt: startDate, finishedAt: nil, state: .syncingLibrary, syncSummary: nil)
+        let second = makeRunRecord(
+            startedAt: startDate.addingTimeInterval(-100),
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil
+        )
+
+        let projection = makeProjection(records: [first, second])
+
+        #expect(projection.runs.map(\.id) == [first.runID.rawValue.uuidString, second.runID.rawValue.uuidString])
+    }
+
+    private func makeProjection(records: [RunRecord], skippedCorruptedCount: Int = 0) -> ReportsProjection {
+        ReportsProjectionBuilder.makeProjection(
+            from: ReportsProjectionInput(records: records, skippedCorruptedCount: skippedCorruptedCount, now: now)
+        )
+    }
+
+    private func makeRunRecord(
+        runID: RunID = RunID(),
+        trigger: RunTrigger = .manualCheck,
+        startedAt: Date,
+        finishedAt: Date?,
+        state: RunLifecycleState,
+        syncSummary: ActivitySyncSummary?,
+        failureMessage: String? = nil
+    ) -> RunRecord {
+        var transitions = [
+            RunLifecycleTransition(state: .created, timestamp: startedAt),
+            RunLifecycleTransition(state: .syncingLibrary, timestamp: startedAt.addingTimeInterval(1)),
+        ]
+        if state != .syncingLibrary {
+            transitions.append(RunLifecycleTransition(
+                state: state,
+                timestamp: finishedAt ?? startedAt.addingTimeInterval(2)
+            ))
+        }
+
+        return RunRecord(
+            runID: runID,
+            requestID: RunRequestID(),
+            trigger: trigger,
+            intent: .observeLibrary,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: nil,
+                createdAt: startedAt,
+                reason: "test"
+            ),
+            transitions: transitions,
+            syncSummary: syncSummary,
+            failureMessage: failureMessage,
+            startedAt: startedAt,
+            finishedAt: finishedAt
+        )
+    }
+}
