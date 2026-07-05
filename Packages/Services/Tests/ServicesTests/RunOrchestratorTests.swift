@@ -42,6 +42,10 @@ struct RunOrchestratorTests {
             knownTrackCount: 35224
         ))
 
+        guard case .completed = result else {
+            Issue.record("Expected completed, got \(result)")
+            return
+        }
         #expect(result.lifecycle.state == .completed)
         #expect(result.lifecycle.syncResult?.changeCount == 1)
     }
@@ -61,6 +65,10 @@ struct RunOrchestratorTests {
             knownTrackCount: nil
         ))
 
+        guard case .failed = result else {
+            Issue.record("Expected failed, got \(result)")
+            return
+        }
         #expect(result.lifecycle.state == .failed)
         #expect(result.lifecycle.failureMessage == "Music.app unavailable")
     }
@@ -296,6 +304,10 @@ struct RunOrchestratorTests {
             requestedTestArtists: [],
             knownTrackCount: nil
         ))
+        guard case .failed = firstResult else {
+            Issue.record("Expected failed, got \(firstResult)")
+            return
+        }
         #expect(firstResult.lifecycle.state == .failed)
 
         let secondResult = await orchestrator.submit(.manualObservation(

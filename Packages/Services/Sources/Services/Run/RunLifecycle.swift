@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let log = Logger(subsystem: "com.genreupdater", category: "RunLifecycle")
 
 /// Wire vocabulary for run lifecycle states.
 ///
@@ -95,21 +98,21 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
 
     public func beginningSync() -> Self {
         if phase != .active(.created) {
-            assertionFailure("beginningSync() expected phase .active(.created), got \(phase)")
+            reportIllegalTransition("beginningSync()", expected: ".active(.created)")
         }
         return withPhase(.active(.syncingLibrary))
     }
 
     public func beginningReporting() -> Self {
         if phase != .active(.syncingLibrary) {
-            assertionFailure("beginningReporting() expected phase .active(.syncingLibrary), got \(phase)")
+            reportIllegalTransition("beginningReporting()", expected: ".active(.syncingLibrary)")
         }
         return withPhase(.active(.reporting))
     }
 
     public func finishing(result: SyncResult, at finishedAt: Date) -> Self {
         if phase != .active(.reporting) {
-            assertionFailure("finishing(result:at:) expected phase .active(.reporting), got \(phase)")
+            reportIllegalTransition("finishing(result:at:)", expected: ".active(.reporting)")
         }
         let outcome: RunOutcome = result.hasChanges ? .completed(result) : .completedNoOp(result)
         return withPhase(.finished(outcome, finishedAt: finishedAt))
@@ -117,9 +120,21 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
 
     public func failing(message: String, at finishedAt: Date) -> Self {
         if case .active = phase {} else {
-            assertionFailure("failing(message:at:) expected an active phase, got \(phase)")
+            reportIllegalTransition("failing(message:at:)", expected: "an active phase")
         }
         return withPhase(.finished(.failed(message: message), finishedAt: finishedAt))
+    }
+
+    /// assertionFailure alone compiles to a no-op in Release, so a violated
+    /// invariant would leave no trail in shipped builds; the log line keeps the
+    /// evidence. Only the wire-state name is logged: interpolating the full
+    /// phase would dump SyncResult payloads into the log.
+    private func reportIllegalTransition(_ transition: String, expected: String) {
+        assertionFailure("\(transition) expected phase \(expected), got \(phase)")
+        log.error("""
+        Run lifecycle invariant violated: \(transition, privacy: .public) expected \
+        \(expected, privacy: .public), got \(phase.state.rawValue, privacy: .public)
+        """)
     }
 
     private func withPhase(_ phase: RunPhase) -> Self {
