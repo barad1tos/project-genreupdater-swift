@@ -29,6 +29,8 @@ struct DesignRootHostView: View {
     @State private var selectedRoute: Route? = .activity
     @State private var activityProjection: ActivityProjection = .empty()
     @State private var reportsProjection: ReportsProjection = .empty()
+    @State private var selectedRunReport: RunReportDetailSnapshot?
+    @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
     @State private var activityCommandNoticeID = UUID()
     @AppStorage("defaultUpdateBehavior") private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
@@ -49,7 +51,8 @@ struct DesignRootHostView: View {
             setAppearanceModeAction: setAppearanceMode,
             setFastAnimationsAction: setFastAnimationsEnabled,
             browseAlbumUpdateAction: prepareAlbumUpdate,
-            browseAlbumSelectionAction: setSelectedBrowseAlbum
+            browseAlbumSelectionAction: setSelectedBrowseAlbum,
+            reportRunSelectionAction: selectRunReport
         ) {
             updateContent
         }
@@ -101,6 +104,7 @@ struct DesignRootHostView: View {
             from: designActivitySnapshotInput,
             activityProjection: activityProjection,
             reportsProjection: reportsProjection,
+            selectedRunReport: selectedRunReport,
             activityNotice: activityCommandNoticeMessage
         )
     }
@@ -400,6 +404,32 @@ struct DesignRootHostView: View {
         } else {
             selectedBrowseAlbum = nil
         }
+    }
+
+    private func selectRunReport(_ runID: String?) {
+        // New request ID invalidates any in-flight detail load, so a stale
+        // response can neither reopen a closed card nor overwrite a newer pick.
+        let requestID = UUID()
+        runReportDetailRequestID = requestID
+        guard let runID else {
+            selectedRunReport = nil
+            return
+        }
+        Task { @MainActor in
+            await loadRunReportDetail(runID: runID, requestID: requestID)
+        }
+    }
+
+    private func loadRunReportDetail(runID: String, requestID: UUID) async {
+        let record = await dependencies.loadRunReportRecord(id: runID)
+        guard runReportDetailRequestID == requestID else { return }
+
+        guard let record else {
+            selectedRunReport = .unavailable(runID: runID)
+            return
+        }
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: Date())
+        selectedRunReport = RunReportDetailDesignAdapter.makeSnapshot(from: detail)
     }
 
     private func configureSelectedUpdateScope(_ configuration: SelectedUpdateScopeConfiguration) {

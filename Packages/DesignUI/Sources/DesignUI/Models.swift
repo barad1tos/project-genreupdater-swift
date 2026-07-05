@@ -370,6 +370,87 @@ public struct RunReportRow: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct RunReportTransitionRow: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let stageLabel: String
+    public let timeLabel: String
+
+    public init(id: String, stageLabel: String, timeLabel: String) {
+        self.id = id
+        self.stageLabel = stageLabel
+        self.timeLabel = timeLabel
+    }
+}
+
+public struct RunReportSummaryRow: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let label: String
+    public let value: String
+
+    public init(id: String, label: String, value: String) {
+        self.id = id
+        self.label = label
+        self.value = value
+    }
+}
+
+public struct RunReportDetailSnapshot: Equatable, Sendable {
+    public static func unavailable(runID: String) -> Self {
+        Self(unavailableRunID: runID)
+    }
+
+    public let runID: String
+    public let stateLabel: String
+    public let tone: Tone
+    public let triggerLabel: String
+    public let startedLabel: String
+    public let durationLabel: String?
+    public let scopeLines: [String]
+    public let transitions: [RunReportTransitionRow]
+    public let summaryItems: [RunReportSummaryRow]
+    public let failureMessage: String?
+    public let unavailableReason: String?
+
+    public init(
+        runID: String,
+        stateLabel: String,
+        tone: Tone,
+        triggerLabel: String,
+        startedLabel: String,
+        durationLabel: String? = nil,
+        scopeLines: [String],
+        transitions: [RunReportTransitionRow],
+        summaryItems: [RunReportSummaryRow],
+        failureMessage: String? = nil
+    ) {
+        self.runID = runID
+        self.stateLabel = stateLabel
+        self.tone = tone
+        self.triggerLabel = triggerLabel
+        self.startedLabel = startedLabel
+        self.durationLabel = durationLabel
+        self.scopeLines = scopeLines
+        self.transitions = transitions
+        self.summaryItems = summaryItems
+        self.failureMessage = failureMessage
+        unavailableReason = nil
+    }
+
+    private init(unavailableRunID: String) {
+        runID = unavailableRunID
+        stateLabel = ""
+        tone = .neutral
+        triggerLabel = ""
+        startedLabel = ""
+        durationLabel = nil
+        scopeLines = []
+        transitions = []
+        summaryItems = []
+        failureMessage = nil
+        unavailableReason = "This run report is no longer available"
+    }
+}
+
 public struct ChartDatum: Identifiable, Equatable, Sendable {
     public let id: String
     public let label: String

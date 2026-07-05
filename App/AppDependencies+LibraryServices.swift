@@ -157,6 +157,27 @@ extension AppDependencies {
         }
     }
 
+    func loadRunReportRecord(id: String) async -> RunRecord? {
+        guard let runRecordStore else {
+            libraryServicesLog.warning("Run report record requested before run record store is available")
+            return nil
+        }
+
+        guard let runID = UUID(uuidString: id) else {
+            libraryServicesLog.error("Run report record request had a malformed id")
+            return nil
+        }
+
+        do {
+            return try await runRecordStore.record(for: RunID(rawValue: runID))
+        } catch {
+            libraryServicesLog.error(
+                "Failed to load run report record: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
+    }
+
     func refreshAutoSyncStatus() async {
         isAutoSyncRunning = await librarySyncService?.isAutoSyncRunning ?? false
     }

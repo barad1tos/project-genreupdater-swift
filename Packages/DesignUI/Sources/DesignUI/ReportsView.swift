@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ReportsView: View {
     @Bindable var model: AppModel
+    var runSelectionAction: ((String?) -> Void)?
     private let cols = [GridItem(.adaptive(minimum: 260), spacing: 14)]
 
     var body: some View {
@@ -23,6 +24,10 @@ struct ReportsView: View {
                 }
 
                 runHistorySection
+
+                if let selectedRunReport = model.data.selectedRunReport {
+                    runDetailCard(selectedRunReport)
+                }
 
                 GlassCard(padding: 0) {
                     VStack(spacing: 0) {
@@ -141,35 +146,127 @@ struct ReportsView: View {
     }
 
     private func runRow(_ run: RunReportRow) -> some View {
-        HStack(spacing: 13) {
-            Text(run.startedLabel)
-                .font(.system(size: 11).monospacedDigit())
-                .foregroundStyle(Ayu.fgMuted)
-                .frame(width: 70, alignment: .leading)
-            TagPill(text: run.stateLabel, tone: run.tone)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(run.triggerLabel)
-                    .font(.system(size: 13))
-                    .foregroundStyle(Ayu.fg)
-                if let failureSummary = run.failureSummary {
-                    Text(failureSummary)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(Ayu.error)
+        let isSelected = model.data.selectedRunReport?.runID == run.id
+        return Button {
+            runSelectionAction?(run.id)
+        } label: {
+            HStack(spacing: 13) {
+                Text(run.startedLabel)
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(Ayu.fgMuted)
+                    .frame(width: 70, alignment: .leading)
+                TagPill(text: run.stateLabel, tone: run.tone)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(run.triggerLabel)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Ayu.fg)
+                    if let failureSummary = run.failureSummary {
+                        Text(failureSummary)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Ayu.error)
+                    }
+                }
+                Spacer()
+                if let changeCountLabel = run.changeCountLabel {
+                    Text(changeCountLabel)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Ayu.fg2)
+                }
+                if let durationLabel = run.durationLabel {
+                    Text(durationLabel)
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(Ayu.fgMuted)
                 }
             }
-            Spacer()
-            if let changeCountLabel = run.changeCountLabel {
-                Text(changeCountLabel)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Ayu.fg2)
+            .padding(.vertical, 11)
+            .background(isSelected ? Ayu.controlFill : Color.clear)
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func runDetailCard(_ detail: RunReportDetailSnapshot) -> some View {
+        SectionCard(symbol: "doc.text.magnifyingglass", tone: detail.tone, title: "Run report") {
+            VStack(alignment: .leading, spacing: 14) {
+                runDetailHeader(detail)
+                if let unavailableReason = detail.unavailableReason {
+                    Text(unavailableReason)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Ayu.fg2)
+                } else {
+                    runDetailBody(detail)
+                }
             }
-            if let durationLabel = run.durationLabel {
+        }
+    }
+
+    private func runDetailHeader(_ detail: RunReportDetailSnapshot) -> some View {
+        HStack(spacing: 10) {
+            if detail.unavailableReason == nil {
+                TagPill(text: detail.stateLabel, tone: detail.tone)
+            }
+            Text(detail.triggerLabel)
+                .font(.system(size: 13))
+                .foregroundStyle(Ayu.fg)
+            Text(detail.startedLabel)
+                .font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(Ayu.fgMuted)
+            if let durationLabel = detail.durationLabel {
                 Text(durationLabel)
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(Ayu.fgMuted)
             }
+            Spacer()
+            Button {
+                runSelectionAction?(nil)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 22, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Ayu.fgMuted)
+            .accessibilityLabel("Close run report")
         }
-        .padding(.vertical, 11)
+    }
+
+    private func runDetailBody(_ detail: RunReportDetailSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(detail.scopeLines, id: \.self) { line in
+                Text(line)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Ayu.fg2)
+            }
+            ForEach(detail.transitions) { transition in
+                HStack(spacing: 10) {
+                    Text(transition.timeLabel)
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(Ayu.fgMuted)
+                        .frame(width: 60, alignment: .leading)
+                    Text(transition.stageLabel)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Ayu.fg)
+                }
+            }
+            ForEach(detail.summaryItems) { item in
+                HStack {
+                    Text(item.label)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Ayu.fg2)
+                    Spacer()
+                    Text(item.value)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Ayu.fg)
+                }
+            }
+            if let failureMessage = detail.failureMessage {
+                Text(failureMessage)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Ayu.error)
+            }
+        }
     }
 
     private func skippedRunLabel(_ count: Int) -> some View {

@@ -137,6 +137,24 @@ struct AppDependenciesLibraryServicesTests {
         )) == "Revert Complete")
     }
 
+    @Test("Malformed run report id returns nil")
+    func malformedRunReportIDReturnsNil() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+
+        let record = await fixture.dependencies.loadRunReportRecord(id: "not-a-uuid")
+
+        #expect(record == nil)
+    }
+
+    @Test("Missing run record store returns nil")
+    func missingRunRecordStoreReturnsNil() async throws {
+        let fixture = try makeFixture(testArtists: [])
+
+        let record = await fixture.dependencies.loadRunReportRecord(id: UUID().uuidString)
+
+        #expect(record == nil)
+    }
+
     @Test("Reports backup import message includes safe first failure")
     func reportsBackupImportMessageIncludesSafeFirstFailure() {
         let result = YearBackupRevertResult(
@@ -162,7 +180,10 @@ private struct LibraryPersistenceFixture {
 }
 
 @MainActor
-private func makeFixture(testArtists: [String]) throws -> LibraryPersistenceFixture {
+private func makeFixture(
+    testArtists: [String],
+    runRecordStore: (any RunRecordStore)? = nil
+) throws -> LibraryPersistenceFixture {
     let trackStore = try SwiftDataTrackStore.createInMemory()
     let snapshotService = SnapshotServiceSpy()
     let dependencies = AppDependencies(
@@ -177,13 +198,36 @@ private func makeFixture(testArtists: [String]) throws -> LibraryPersistenceFixt
     )
     dependencies.configureLibraryPersistenceForTesting(
         trackStore: trackStore,
-        librarySnapshotService: snapshotService
+        librarySnapshotService: snapshotService,
+        runRecordStore: runRecordStore
     )
     return LibraryPersistenceFixture(
         dependencies: dependencies,
         trackStore: trackStore,
         snapshotService: snapshotService
     )
+}
+
+private actor RunRecordStoreStub: RunRecordStore {
+    func upsert(_ record: RunRecord) async throws {
+        // Not exercised by the malformed-id and missing-store test paths.
+    }
+
+    func loadAll() async throws -> [RunRecord] {
+        []
+    }
+
+    func record(for runID: RunID) async throws -> RunRecord? {
+        nil
+    }
+
+    func prune(keepingLatest limit: Int) async throws -> Int {
+        0
+    }
+
+    func reports(matching query: RunReportQuery) async throws -> RunReportPage {
+        RunReportPage(records: [], skippedCorruptedCount: 0)
+    }
 }
 
 private func sampleTrack() -> Track {
