@@ -258,10 +258,11 @@ struct FixPlanTests {
             capturedAt: Date(timeIntervalSince1970: 100)
         )
 
+        let sourceRunID = RunID()
         let plan = try #require(
             FixPlanCapture.makePlan(
                 from: [proposal],
-                sourceRunID: RunID(),
+                sourceRunID: sourceRunID,
                 scope: scope,
                 configuration: configuration,
                 createdAt: Date(timeIntervalSince1970: 200)
@@ -269,6 +270,7 @@ struct FixPlanTests {
         )
 
         #expect(plan.revision == .initial)
+        #expect(plan.sourceRunID == sourceRunID)
         #expect(plan.scope == scope)
         #expect(plan.configuration == configuration)
         #expect(plan.createdAt == Date(timeIntervalSince1970: 200))

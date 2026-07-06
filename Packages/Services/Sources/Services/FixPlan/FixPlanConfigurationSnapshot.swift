@@ -6,6 +6,8 @@ import Foundation
 /// Deliberately excludes `autoAccept`: that knob governs write authority, not
 /// change determination (ADR 0001).
 public struct FixPlanConfigurationSnapshot: Codable, Equatable, Sendable {
+    /// Fresh per capture, so two captures of identical options are never
+    /// `==`-equal; compare `fingerprint` when option equality is the question.
     public let id: UUID
     public let capturedAt: Date
     public let updateGenre: Bool

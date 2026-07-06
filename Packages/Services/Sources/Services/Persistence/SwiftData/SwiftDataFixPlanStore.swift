@@ -38,6 +38,14 @@ public actor SwiftDataFixPlanStore: FixPlanStore {
         // both writes land in the single save below so a plan without a
         // decision is unrepresentable.
         if let decisionRow = try fetchDecisionRow(planID: targetPlanID) {
+            // The reset is deliberate, but a user's in-progress review vanishes
+            // here — leave lineage evidence (IDs, revisions, counts are not
+            // user metadata).
+            log.info("""
+            Fix plan \(targetPlanID.uuidString, privacy: .public) revision \(targetRevision, privacy: .public) \
+            supersedes decision revision \(decisionRow.decisionRevision, privacy: .public) \
+            for plan revision \(decisionRow.planRevision, privacy: .public)
+            """)
             try apply(initialDecision, to: decisionRow)
         } else {
             try modelContext.insert(makePersisted(from: initialDecision))

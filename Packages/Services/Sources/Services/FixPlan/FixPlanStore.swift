@@ -19,6 +19,9 @@ public enum FixPlanPersistenceError: Error, LocalizedError, Sendable {
 
 public enum FixPlanDecisionWriteResult: Equatable, Sendable {
     case saved(FixPlanReviewDecision)
+    /// Collapses three causes -- stale plan revision, replayed decision
+    /// revision, skipped decision revision -- into one case; callers diff
+    /// `current` against their attempt when the distinction matters.
     case conflict(current: FixPlanReviewDecision) // ADR 0011 rejected-stale substrate
 }
 
