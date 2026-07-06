@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import Services
 import Testing
@@ -225,5 +226,211 @@ struct FixPlanTests {
         #expect(ReviewDecisionRevision.initial.value == 1)
         #expect(ReviewDecisionRevision.initial.advanced().value == 2)
         #expect(ReviewDecisionRevision(1) < ReviewDecisionRevision(2))
+    }
+
+    // MARK: - FixPlanCapture
+
+    @Test("makePlan maps every ProposedChange field into a FixPlanItem")
+    func makePlanMapsEveryProposedChangeFieldIntoFixPlanItem() throws {
+        let track = Track(
+            id: "MK1",
+            name: "Track Name",
+            artist: "Track Artist",
+            album: "Track Album",
+            appleScriptID: "AS-42"
+        )
+        let proposal = ProposedChange(
+            track: track,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Alternative Rock",
+            confidence: 85,
+            source: "musicbrainz"
+        )
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 10,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "unit-test"
+        )
+        let configuration = FixPlanConfigurationSnapshot.capture(
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let plan = try #require(
+            FixPlanCapture.makePlan(
+                from: [proposal],
+                sourceRunID: RunID(),
+                scope: scope,
+                configuration: configuration,
+                createdAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+
+        #expect(plan.revision == .initial)
+        #expect(plan.scope == scope)
+        #expect(plan.configuration == configuration)
+        #expect(plan.createdAt == Date(timeIntervalSince1970: 200))
+        #expect(plan.items.count == 1)
+
+        let item = try #require(plan.items.first)
+        #expect(item.id == proposal.id)
+        #expect(item.identity.readID == "MK1")
+        #expect(item.identity.appleScriptID == "AS-42")
+        #expect(item.identity.artist == "Track Artist")
+        #expect(item.identity.album == "Track Album")
+        #expect(item.identity.trackName == "Track Name")
+        #expect(item.changeType == .genreUpdate)
+        #expect(item.oldValue == "Rock")
+        #expect(item.newValue == "Alternative Rock")
+        #expect(item.confidence == 85)
+        #expect(item.source == "musicbrainz")
+    }
+
+    @Test("makePlan preserves proposal order and item ids")
+    func makePlanPreservesProposalOrderAndItemIDs() throws {
+        let proposals = (0 ..< 3).map { index in
+            ProposedChange(
+                track: Track(id: "T\(index)", name: "Track \(index)", artist: "Artist", album: "Album"),
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Pop",
+                confidence: 80,
+                source: "manual"
+            )
+        }
+
+        let plan = try #require(
+            FixPlanCapture.makePlan(
+                from: proposals,
+                sourceRunID: RunID(),
+                scope: ProcessingScopeSnapshot.capture(
+                    requestedTestArtists: [],
+                    knownTrackCount: 3,
+                    createdAt: Date(timeIntervalSince1970: 100),
+                    reason: "unit-test"
+                ),
+                configuration: FixPlanConfigurationSnapshot.capture(
+                    options: UpdateOptions(),
+                    capturedAt: Date(timeIntervalSince1970: 100)
+                ),
+                createdAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+
+        #expect(plan.items.map(\.id) == proposals.map(\.id))
+        #expect(plan.items.map(\.identity.readID) == ["T0", "T1", "T2"])
+    }
+
+    @Test("makePlan passes through a nil appleScriptID")
+    func makePlanPassesThroughNilAppleScriptID() throws {
+        let track = Track(id: "MK1", name: "Track", artist: "Artist", album: "Album")
+        #expect(track.appleScriptID == nil)
+        let proposal = ProposedChange(
+            track: track,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Pop",
+            confidence: 80,
+            source: "manual"
+        )
+
+        let plan = try #require(
+            FixPlanCapture.makePlan(
+                from: [proposal],
+                sourceRunID: RunID(),
+                scope: ProcessingScopeSnapshot.capture(
+                    requestedTestArtists: [],
+                    knownTrackCount: 1,
+                    createdAt: Date(timeIntervalSince1970: 100),
+                    reason: "unit-test"
+                ),
+                configuration: FixPlanConfigurationSnapshot.capture(
+                    options: UpdateOptions(),
+                    capturedAt: Date(timeIntervalSince1970: 100)
+                ),
+                createdAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+
+        let item = try #require(plan.items.first)
+        #expect(item.identity.appleScriptID == nil)
+    }
+
+    @Test("makePlan returns nil for empty proposals")
+    func makePlanReturnsNilForEmptyProposals() {
+        let plan = FixPlanCapture.makePlan(
+            from: [],
+            sourceRunID: RunID(),
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: 0,
+                createdAt: Date(timeIntervalSince1970: 100),
+                reason: "unit-test"
+            ),
+            configuration: FixPlanConfigurationSnapshot.capture(
+                options: UpdateOptions(),
+                capturedAt: Date(timeIntervalSince1970: 100)
+            ),
+            createdAt: Date(timeIntervalSince1970: 200)
+        )
+
+        #expect(plan == nil)
+    }
+
+    @Test("makePlan output ignores isAccepted — acceptance belongs to the review decision")
+    func makePlanOutputIgnoresIsAccepted() throws {
+        let sharedTrack = Track(id: "MK1", name: "Track", artist: "Artist", album: "Album")
+        let acceptedProposal = ProposedChange(
+            track: sharedTrack,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Pop",
+            confidence: 80,
+            source: "manual",
+            isAccepted: true
+        )
+        let rejectedProposal = ProposedChange(
+            id: acceptedProposal.id,
+            track: sharedTrack,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Pop",
+            confidence: 80,
+            source: "manual",
+            isAccepted: false
+        )
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "unit-test"
+        )
+        let configuration = FixPlanConfigurationSnapshot.capture(
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let acceptedPlan = try #require(
+            FixPlanCapture.makePlan(
+                from: [acceptedProposal],
+                sourceRunID: RunID(),
+                scope: scope,
+                configuration: configuration,
+                createdAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+        let rejectedPlan = try #require(
+            FixPlanCapture.makePlan(
+                from: [rejectedProposal],
+                sourceRunID: RunID(),
+                scope: scope,
+                configuration: configuration,
+                createdAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+
+        #expect(acceptedPlan.items == rejectedPlan.items)
     }
 }
