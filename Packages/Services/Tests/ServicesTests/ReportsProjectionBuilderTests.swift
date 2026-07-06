@@ -130,6 +130,21 @@ struct ReportsProjectionBuilderTests {
         #expect(item.stateLabel == "In progress")
     }
 
+    @Test("planning fixes state maps to running")
+    func planningFixesStateMapsToRunning() throws {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .planningFixes,
+            syncSummary: nil
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.state == .running)
+        #expect(item.stateLabel == "In progress")
+    }
+
     @Test(
         "trigger labels cover all triggers",
         arguments: zip(

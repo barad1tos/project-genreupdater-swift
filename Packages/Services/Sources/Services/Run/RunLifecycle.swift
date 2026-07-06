@@ -11,6 +11,7 @@ private let log = Logger(subsystem: "com.genreupdater", category: "RunLifecycle"
 public enum RunLifecycleState: String, Codable, Equatable, Sendable {
     case created
     case syncingLibrary
+    case planningFixes
     case reporting
     case completed
     case completedNoOp
@@ -20,6 +21,7 @@ public enum RunLifecycleState: String, Codable, Equatable, Sendable {
 public enum RunActiveStage: Equatable, Sendable {
     case created
     case syncingLibrary
+    case planningFixes
     case reporting
 }
 
@@ -38,6 +40,7 @@ public enum RunPhase: Equatable, Sendable {
         switch self {
         case .active(.created): .created
         case .active(.syncingLibrary): .syncingLibrary
+        case .active(.planningFixes): .planningFixes
         case .active(.reporting): .reporting
         case .finished(.completed, _): .completed
         case .finished(.completedNoOp, _): .completedNoOp
@@ -103,18 +106,32 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         return withPhase(.active(.syncingLibrary))
     }
 
-    public func beginningReporting() -> Self {
+    public func beginningFixPlanning() -> Self {
         if phase != .active(.syncingLibrary) {
-            reportIllegalTransition("beginningReporting()", expected: ".active(.syncingLibrary)")
+            reportIllegalTransition("beginningFixPlanning()", expected: ".active(.syncingLibrary)")
+        }
+        return withPhase(.active(.planningFixes))
+    }
+
+    public func beginningReporting() -> Self {
+        if phase != .active(.syncingLibrary), phase != .active(.planningFixes) {
+            reportIllegalTransition(
+                "beginningReporting()",
+                expected: ".active(.syncingLibrary) or .active(.planningFixes)"
+            )
         }
         return withPhase(.active(.reporting))
     }
 
     public func finishing(result: SyncResult, at finishedAt: Date) -> Self {
+        finishing(result: result, hasActionableWork: result.hasChanges, at: finishedAt)
+    }
+
+    public func finishing(result: SyncResult, hasActionableWork: Bool, at finishedAt: Date) -> Self {
         if phase != .active(.reporting) {
-            reportIllegalTransition("finishing(result:at:)", expected: ".active(.reporting)")
+            reportIllegalTransition("finishing(result:hasActionableWork:at:)", expected: ".active(.reporting)")
         }
-        let outcome: RunOutcome = result.hasChanges ? .completed(result) : .completedNoOp(result)
+        let outcome: RunOutcome = hasActionableWork ? .completed(result) : .completedNoOp(result)
         return withPhase(.finished(outcome, finishedAt: finishedAt))
     }
 

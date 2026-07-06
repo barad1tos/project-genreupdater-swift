@@ -49,6 +49,21 @@ struct RunReportDetailBuilderTests {
         #expect(detail.transitions.map(\.stageLabel) == ["Created", "Syncing library", "Reporting"])
     }
 
+    @Test("planning fixes transition renders planning fixes stage")
+    func planningFixesTransitionRendersPlanningFixesStage() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .planningFixes,
+            syncSummary: nil
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.state == .running)
+        #expect(detail.transitions.map(\.stageLabel) == ["Created", "Syncing library", "Planning fixes"])
+    }
+
     @Test("running detail omits duration")
     func runningDetailOmitsDuration() {
         let record = makeRunRecord(

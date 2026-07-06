@@ -14,6 +14,7 @@ struct RunPhaseTests {
 
         #expect(RunPhase.active(.created).state == .created)
         #expect(RunPhase.active(.syncingLibrary).state == .syncingLibrary)
+        #expect(RunPhase.active(.planningFixes).state == .planningFixes)
         #expect(RunPhase.active(.reporting).state == .reporting)
         #expect(RunPhase.finished(.completed(result), finishedAt: finishedAt).state == .completed)
         #expect(RunPhase.finished(.completedNoOp(result), finishedAt: finishedAt).state == .completedNoOp)
@@ -61,6 +62,76 @@ struct RunPhaseTests {
         #expect(completed.state == .completedNoOp)
         #expect(completed.syncResult == result)
         #expect(completed.finishedAt == finishedAt)
+    }
+
+    @Test("preview walk passes through planning fixes before reporting")
+    func previewWalkPassesThroughPlanningFixesBeforeReporting() {
+        let result = SyncResult(newTracks: [
+            Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
+        ])
+        let created = makeCreatedSnapshot()
+
+        let syncing = created.beginningSync()
+        let planning = syncing.beginningFixPlanning()
+        #expect(planning.phase == .active(.planningFixes))
+        #expect(planning.state == .planningFixes)
+        #expect(planning.isActive)
+
+        let reporting = planning.beginningReporting()
+        #expect(reporting.phase == .active(.reporting))
+        #expect(reporting.state == .reporting)
+
+        let completed = reporting.finishing(result: result, at: finishedAt)
+        #expect(completed.phase == .finished(.completed(result), finishedAt: finishedAt))
+        #expect(completed.state == .completed)
+    }
+
+    @Test("finishing with actionable work true always completes, regardless of the sync result")
+    func finishingWithActionableWorkTrueAlwaysCompletes() {
+        let reportingWithChanges = makeCreatedSnapshot().beginningSync().beginningReporting()
+        let changedResult = SyncResult(newTracks: [
+            Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
+        ])
+        let noChangeResult = SyncResult()
+
+        let completedWithChanges = reportingWithChanges.finishing(
+            result: changedResult, hasActionableWork: true, at: finishedAt
+        )
+        let completedWithoutChanges = reportingWithChanges.finishing(
+            result: noChangeResult, hasActionableWork: true, at: finishedAt
+        )
+
+        #expect(completedWithChanges.state == .completed)
+        #expect(completedWithChanges.phase == .finished(.completed(changedResult), finishedAt: finishedAt))
+        #expect(completedWithoutChanges.state == .completed)
+        #expect(completedWithoutChanges.phase == .finished(.completed(noChangeResult), finishedAt: finishedAt))
+    }
+
+    @Test("finishing with actionable work false always completes as no-op, regardless of the sync result")
+    func finishingWithActionableWorkFalseAlwaysCompletesNoOp() {
+        let reporting = makeCreatedSnapshot().beginningSync().beginningReporting()
+        let changedResult = SyncResult(newTracks: [
+            Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
+        ])
+        let noChangeResult = SyncResult()
+
+        let noOpWithChanges = reporting.finishing(result: changedResult, hasActionableWork: false, at: finishedAt)
+        let noOpWithoutChanges = reporting.finishing(result: noChangeResult, hasActionableWork: false, at: finishedAt)
+
+        #expect(noOpWithChanges.state == .completedNoOp)
+        #expect(noOpWithChanges.phase == .finished(.completedNoOp(changedResult), finishedAt: finishedAt))
+        #expect(noOpWithoutChanges.state == .completedNoOp)
+        #expect(noOpWithoutChanges.phase == .finished(.completedNoOp(noChangeResult), finishedAt: finishedAt))
+    }
+
+    @Test("beginningReporting accepts planning fixes as the prior phase")
+    func beginningReportingAcceptsPlanningFixesAsPriorPhase() {
+        let planning = makeCreatedSnapshot().beginningSync().beginningFixPlanning()
+
+        let reporting = planning.beginningReporting()
+
+        #expect(reporting.phase == .active(.reporting))
+        #expect(reporting.state == .reporting)
     }
 
     @Test("failing from an active phase records the failure payload")

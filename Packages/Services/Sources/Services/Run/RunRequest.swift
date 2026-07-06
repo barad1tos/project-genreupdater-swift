@@ -9,6 +9,7 @@ public enum RunTrigger: String, Codable, Equatable, Sendable {
 
 public enum RunIntent: String, Codable, Equatable, Sendable {
     case observeLibrary
+    case previewFixes
 }
 
 public struct RunRequest: Equatable, Sendable {
@@ -39,6 +40,18 @@ public struct RunRequest: Equatable, Sendable {
         Self(
             trigger: .manualCheck,
             intent: .observeLibrary,
+            requestedTestArtists: requestedTestArtists,
+            knownTrackCount: knownTrackCount
+        )
+    }
+
+    public static func manualPreview(
+        requestedTestArtists: [String],
+        knownTrackCount: Int?
+    ) -> Self {
+        Self(
+            trigger: .manualCheck,
+            intent: .previewFixes,
             requestedTestArtists: requestedTestArtists,
             knownTrackCount: knownTrackCount
         )

@@ -3,7 +3,7 @@ import Foundation
 enum ReportsRunLabels {
     static func runState(from state: RunLifecycleState) -> ReportsRunState {
         switch state {
-        case .created, .syncingLibrary, .reporting:
+        case .created, .syncingLibrary, .planningFixes, .reporting:
             .running
         case .completed:
             .completed
@@ -46,6 +46,8 @@ enum ReportsRunLabels {
             "Created"
         case .syncingLibrary:
             "Syncing library"
+        case .planningFixes:
+            "Planning fixes"
         case .reporting:
             "Reporting"
         case .completed:
