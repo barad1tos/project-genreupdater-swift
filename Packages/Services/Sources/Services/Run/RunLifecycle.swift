@@ -27,6 +27,9 @@ public enum RunActiveStage: Equatable, Sendable {
 
 public enum RunOutcome: Equatable, Sendable {
     case completed(SyncResult)
+    /// The run finished without actionable work for its intent. The associated
+    /// sync result can still contain library changes; consumers that need sync
+    /// deltas should inspect the result instead of inferring from this state.
     case completedNoOp(SyncResult)
     case failed(message: String)
 }
@@ -127,6 +130,9 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         finishing(result: result, hasActionableWork: result.hasChanges, at: finishedAt)
     }
 
+    /// Finishes the run using intent-specific actionable-work semantics.
+    /// Observation runs normally pass `result.hasChanges`; preview runs pass
+    /// whether a fix plan was produced.
     public func finishing(result: SyncResult, hasActionableWork: Bool, at finishedAt: Date) -> Self {
         if phase != .active(.reporting) {
             reportIllegalTransition("finishing(result:hasActionableWork:at:)", expected: ".active(.reporting)")
