@@ -128,6 +128,7 @@ final class AppDependencies {
     private(set) var librarySyncService: LibrarySyncService?
     private(set) var runOrchestrator: RunOrchestrator?
     private(set) var runRecordStore: (any RunRecordStore)?
+    private(set) var fixPlanStore: (any FixPlanStore)?
     private(set) var librarySnapshotService: (any LibrarySnapshotService)?
     private(set) var analyticsService: CachedAnalyticsService?
     private(set) var maintenanceCoordinator: MaintenanceCoordinator?
@@ -323,6 +324,7 @@ final class AppDependencies {
         changeLogStore = logStore
 
         runRecordStore = SwiftDataRunRecordStore(modelContainer: container)
+        fixPlanStore = SwiftDataFixPlanStore(modelContainer: container)
 
         let cache = try GRDBCacheService.createDefault(
             defaultGenericTTL: Self.defaultGenericCacheTTL(configuration: config),
@@ -652,11 +654,13 @@ extension AppDependencies {
     func configureLibraryPersistenceForTesting(
         trackStore: SwiftDataTrackStore? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
-        runRecordStore: (any RunRecordStore)? = nil
+        runRecordStore: (any RunRecordStore)? = nil,
+        fixPlanStore: (any FixPlanStore)? = nil
     ) {
         self.trackStore = trackStore
         self.librarySnapshotService = librarySnapshotService
         self.runRecordStore = runRecordStore
+        self.fixPlanStore = fixPlanStore
     }
 }
 #endif
