@@ -21,6 +21,7 @@ public actor SwiftDataFixPlanStore: FixPlanStore {
         )
         let targetPlanID = plan.id.rawValue
         let targetRevision = plan.revision.value
+        try validateItemAlignment(of: initialDecision, with: plan.items, planID: targetPlanID)
 
         // SwiftData unique constraints upsert instead of throwing, so the
         // immutability guarantee needs an explicit duplicate probe.
@@ -103,9 +104,40 @@ public actor SwiftDataFixPlanStore: FixPlanStore {
             return .conflict(current: storedDecision)
         }
 
+        // Decisions can be assembled at the UI boundary via the public init,
+        // so the store is the last line against verdicts for items the plan
+        // never proposed. The plan row for this revision exists whenever the
+        // CAS guard passes (savePlan atomicity).
+        let planItems = try fetchPlanItems(planID: targetPlanID, revision: decisionRow.planRevision)
+        try validateItemAlignment(of: decision, with: planItems, planID: targetPlanID)
+
         try apply(decision, to: decisionRow)
         try saveOrRollback()
         return .saved(decision)
+    }
+
+    private func fetchPlanItems(planID: UUID, revision: Int) throws -> [FixPlanItem] {
+        var descriptor = FetchDescriptor<PersistedFixPlan>(
+            predicate: #Predicate { $0.planID == planID && $0.revision == revision }
+        )
+        descriptor.fetchLimit = 1
+        guard let row = try modelContext.fetch(descriptor).first else {
+            throw FixPlanPersistenceError.missingPlan(planID: planID)
+        }
+        return try decodeBlob([FixPlanItem].self, from: row.itemsData, field: "items", planID: planID)
+    }
+
+    private func validateItemAlignment(
+        of decision: FixPlanReviewDecision,
+        with planItems: [FixPlanItem],
+        planID: UUID
+    ) throws {
+        let decisionItemIDs = decision.itemDecisions.map(\.itemID)
+        guard decisionItemIDs.count == planItems.count,
+              Set(decisionItemIDs) == Set(planItems.map(\.id))
+        else {
+            throw FixPlanPersistenceError.invalidDecisionItems(planID: planID)
+        }
     }
 
     /// A failed save leaves pending mutations in the context; without rollback a

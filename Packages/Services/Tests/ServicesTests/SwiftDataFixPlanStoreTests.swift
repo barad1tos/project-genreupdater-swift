@@ -133,6 +133,80 @@ struct SwiftDataFixPlanStoreTests {
         #expect(try await store.currentDecision(for: plan.id) == successor)
     }
 
+    @Test("recordDecision rejects a decision naming an item the plan never proposed")
+    func recordDecisionRejectsUnknownItem() async throws {
+        let store = try makeStore()
+        let plan = makePlan()
+        let initial = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 101))
+        try await store.savePlan(plan, initialDecision: initial)
+        let malformed = FixPlanReviewDecision(
+            planID: plan.id,
+            planRevision: plan.revision,
+            revision: initial.revision.advanced(),
+            decidedAt: Date(timeIntervalSince1970: 102),
+            itemDecisions: [FixPlanItemDecision(itemID: UUID(), verdict: .accepted)]
+        )
+
+        await expectInvalidDecisionItems { _ = try await store.recordDecision(malformed) }
+        #expect(try await store.currentDecision(for: plan.id) == initial)
+    }
+
+    @Test("recordDecision rejects a decision missing plan items")
+    func recordDecisionRejectsMissingItems() async throws {
+        let store = try makeStore()
+        let plan = makePlan()
+        let initial = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 101))
+        try await store.savePlan(plan, initialDecision: initial)
+        let malformed = FixPlanReviewDecision(
+            planID: plan.id,
+            planRevision: plan.revision,
+            revision: initial.revision.advanced(),
+            decidedAt: Date(timeIntervalSince1970: 102),
+            itemDecisions: []
+        )
+
+        await expectInvalidDecisionItems { _ = try await store.recordDecision(malformed) }
+        #expect(try await store.currentDecision(for: plan.id) == initial)
+    }
+
+    @Test("recordDecision rejects duplicate item decisions")
+    func recordDecisionRejectsDuplicateItems() async throws {
+        let store = try makeStore()
+        let plan = makePlan()
+        let itemID = try #require(plan.items.first?.id)
+        let initial = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 101))
+        try await store.savePlan(plan, initialDecision: initial)
+        let malformed = FixPlanReviewDecision(
+            planID: plan.id,
+            planRevision: plan.revision,
+            revision: initial.revision.advanced(),
+            decidedAt: Date(timeIntervalSince1970: 102),
+            itemDecisions: [
+                FixPlanItemDecision(itemID: itemID, verdict: .accepted),
+                FixPlanItemDecision(itemID: itemID, verdict: .rejected),
+            ]
+        )
+
+        await expectInvalidDecisionItems { _ = try await store.recordDecision(malformed) }
+        #expect(try await store.currentDecision(for: plan.id) == initial)
+    }
+
+    @Test("savePlan rejects an initial decision misaligned with plan items")
+    func savePlanRejectsMisalignedInitialDecision() async throws {
+        let store = try makeStore()
+        let plan = makePlan()
+        let malformed = FixPlanReviewDecision(
+            planID: plan.id,
+            planRevision: plan.revision,
+            revision: .initial,
+            decidedAt: Date(timeIntervalSince1970: 101),
+            itemDecisions: [FixPlanItemDecision(itemID: UUID(), verdict: .accepted)]
+        )
+
+        await expectInvalidDecisionItems { try await store.savePlan(plan, initialDecision: malformed) }
+        #expect(try await store.latestPlan() == nil)
+    }
+
     @Test("recordDecision replaying the stored revision conflicts without mutation")
     func recordDecisionReplaySameRevisionConflicts() async throws {
         let store = try makeStore()
@@ -402,6 +476,20 @@ struct SwiftDataFixPlanStoreTests {
             itemDecisionsData: itemDecisionsData
         ))
         try context.save()
+    }
+
+    private func expectInvalidDecisionItems(operation: () async throws -> Void) async {
+        do {
+            try await operation()
+            Issue.record("Expected FixPlanPersistenceError.invalidDecisionItems to be thrown")
+        } catch let error as FixPlanPersistenceError {
+            guard case .invalidDecisionItems = error else {
+                Issue.record("Expected invalidDecisionItems, got \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected FixPlanPersistenceError, got \(error)")
+        }
     }
 
     private func expectCorruptedField(

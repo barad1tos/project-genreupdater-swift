@@ -4,6 +4,7 @@ public enum FixPlanPersistenceError: Error, LocalizedError, Sendable {
     case corruptedField(name: String, planID: UUID)
     case duplicatePlan(planID: UUID, revision: Int)
     case missingPlan(planID: UUID)
+    case invalidDecisionItems(planID: UUID)
 
     public var errorDescription: String? {
         switch self {
@@ -13,6 +14,8 @@ public enum FixPlanPersistenceError: Error, LocalizedError, Sendable {
             "Fix plan \(planID.uuidString) revision \(revision) already exists; plans are immutable"
         case let .missingPlan(planID):
             "No fix plan stored for \(planID.uuidString)"
+        case let .invalidDecisionItems(planID):
+            "Decision items do not match the items of fix plan \(planID.uuidString)"
         }
     }
 }
