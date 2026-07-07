@@ -129,7 +129,7 @@ final class WorkflowViewModel {
     // MARK: - Computed Properties
 
     var confidencePercentage: Int {
-        Int(minConfidence * 100)
+        UpdateOptions.clampedConfidencePercent(fromRatio: minConfidence)
     }
 
     var acceptedCount: Int {

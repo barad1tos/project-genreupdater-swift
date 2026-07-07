@@ -36,7 +36,7 @@ struct PreviewRunOptionsTests {
         "min confidence matches MainView clamp semantics",
         arguments: [
             (configured: 30.0, expected: 30),
-            (configured: 57.0, expected: 56),
+            (configured: 57.0, expected: 57),
             (configured: 10.0, expected: 30),
             (configured: 250.0, expected: 100),
         ]

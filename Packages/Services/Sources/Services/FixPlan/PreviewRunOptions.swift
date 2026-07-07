@@ -7,8 +7,9 @@ public enum PreviewRunOptions {
         updateGenre: Bool,
         updateYear: Bool
     ) -> UpdateOptions {
-        let configuredValue = configuration.yearRetrieval.logic.minConfidenceForNewYear / 100
-        let minConfidence = Int(min(max(configuredValue, 0.3), 1.0) * 100)
+        let minConfidence = UpdateOptions.clampedConfidencePercent(
+            fromRatio: configuration.yearRetrieval.logic.minConfidenceForNewYear / 100
+        )
         return UpdateOptions(
             updateGenre: updateGenre,
             updateYear: updateYear,

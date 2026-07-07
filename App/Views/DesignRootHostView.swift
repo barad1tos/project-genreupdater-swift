@@ -165,8 +165,9 @@ struct DesignRootHostView: View {
     }
 
     private var configuredMinConfidence: Double {
-        let configuredValue = dependencies.config.yearRetrieval.logic.minConfidenceForNewYear / 100
-        return min(max(configuredValue, 0.3), 1.0)
+        UpdateOptions.clampedConfidenceRatio(
+            dependencies.config.yearRetrieval.logic.minConfidenceForNewYear / 100
+        )
     }
 
     private var settingsSnapshot: DesignSettingsSnapshot {

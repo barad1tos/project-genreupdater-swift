@@ -66,7 +66,7 @@ final class UpdateViewModel {
     }
 
     var confidencePercentage: Int {
-        Int(minConfidence * 100)
+        UpdateOptions.clampedConfidencePercent(fromRatio: minConfidence)
     }
 
     // MARK: - Dependencies
