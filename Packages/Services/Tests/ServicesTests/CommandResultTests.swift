@@ -40,6 +40,15 @@ struct CommandResultTests {
         #expect(command.kind == .reviewChanges)
     }
 
+    @Test("resume recovery command carries stable identity")
+    func resumeRecoveryIdentity() {
+        let id = UUID()
+        let command = UserIntentCommand.resumeRecovery(id: id)
+
+        #expect(command.id == id)
+        #expect(command.kind == .resumeRecovery)
+    }
+
     @Test("stale result carries refreshed activity projection")
     func staleResultCarriesRefreshedActivityProjection() {
         let projection = ActivityProjection.empty(revision: ProjectionRevision(9))
@@ -56,8 +65,8 @@ struct CommandResultTests {
 
     @Test("navigation result exposes required navigation target")
     func navigationResultExposesRequiredNavigationTarget() {
-        let target = CommandNavigationTarget.settings(section: .apiAndCache)
-        let result = UserCommandResult.navigated(message: "Open API and cache settings.", navigationTarget: target)
+        let target = CommandNavigationTarget.recovery(runID: "run-1")
+        let result = UserCommandResult.navigated(message: "Opening recovery.", navigationTarget: target)
 
         #expect(result.status == .navigated)
         #expect(result.navigationTarget == target)

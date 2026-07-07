@@ -1,7 +1,7 @@
 import DesignUI
 import Services
 
-enum ActivityProjectionDesignAdapter {
+enum ActivityDesignAdapter {
     static func makePipelineSnapshot(
         from projection: ActivityProjection,
         notice: String? = nil
@@ -136,6 +136,8 @@ enum ActivityProjectionDesignAdapter {
         switch commandKind {
         case .reviewChanges:
             "checklist"
+        case .resumeRecovery:
+            "shield.checkerboard"
         case .runManually:
             "arrow.clockwise"
         }

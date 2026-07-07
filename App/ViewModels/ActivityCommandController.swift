@@ -12,6 +12,18 @@ struct ActivityCommandController {
     let refreshActivityProjection: () async -> ActivityProjection
     let currentFixPlanID: () -> String?
 
+    static func command(for descriptor: ActivityCommandDescriptor?) -> UserIntentCommand? {
+        guard let descriptor, descriptor.isEnabled else { return nil }
+        switch descriptor.commandKind {
+        case .reviewChanges:
+            return .reviewChanges()
+        case .resumeRecovery:
+            return .resumeRecovery()
+        case .runManually:
+            return .runManually()
+        }
+    }
+
     func handle(_ command: UserIntentCommand) async -> UserCommandResult {
         switch command.kind {
         case .reviewChanges:
@@ -34,6 +46,29 @@ struct ActivityCommandController {
             return UserCommandResult.navigated(
                 message: "Opening review.",
                 navigationTarget: .fixPlan(id: currentFixPlanID() ?? "current"),
+                refreshedActivityProjection: projection
+            )
+        case .resumeRecovery:
+            let projection = await refreshActivityProjection()
+            if let blocker = libraryBlocker(in: projection) {
+                return .temporaryUnavailable(
+                    message: blocker.summary,
+                    issue: blocker,
+                    refreshedActivityProjection: projection
+                )
+            }
+            guard let issue = recoveryIssue(in: projection),
+                  projection.primaryCommand?.commandKind == .resumeRecovery,
+                  projection.primaryCommand?.isEnabled == true
+            else {
+                return .rejectedStale(
+                    message: "Recovery is no longer required.",
+                    refreshedActivityProjection: projection
+                )
+            }
+            return .navigated(
+                message: "Opening recovery.",
+                navigationTarget: .recovery(runID: issue.technicalDetail),
                 refreshedActivityProjection: projection
             )
         case .runManually:
@@ -102,6 +137,19 @@ struct ActivityCommandController {
 
     private func recoveryIssue(in projection: ActivityProjection) -> OperationalIssue? {
         projection.operationalIssues.first { $0.category == .recoveryRequired }
+    }
+
+    private func libraryBlocker(in projection: ActivityProjection) -> OperationalIssue? {
+        projection.operationalIssues.first { issue in
+            switch issue.category {
+            case .temporaryUnavailable, .musicPermissionRequired, .musicUnavailable, .musicKitUnavailable:
+                true
+            case .permissionRequired, .configurationRequired, .recoveryRequired, .safetyBlocked, .staleAction,
+                 .internalFailure, .automationPermissionRequired, .applicationScriptsUnavailable,
+                 .appleScriptWriteUnavailable:
+                false
+            }
+        }
     }
 
     private func handleManualObservationResult(_ result: RunSubmissionResult) async -> UserCommandResult {

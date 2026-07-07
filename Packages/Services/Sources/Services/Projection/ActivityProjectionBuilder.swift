@@ -607,7 +607,7 @@ public enum ActivityProjectionBuilder {
         input: ActivityProjectionInput,
         currentStage: ActivityPipelineStage
     ) -> ActivityPipelineStageStatus {
-        if input.hasRecovery, !hasLibraryBlocker(input: input) {
+        if input.hasRecovery {
             return .gated
         }
         if input.workflow.failedWriteCount > 0 {
@@ -623,6 +623,16 @@ public enum ActivityProjectionBuilder {
     }
 
     private static func makePrimaryCommand(input: ActivityProjectionInput) -> ActivityCommandDescriptor? {
+        if input.hasRecovery, !hasLibraryBlocker(input: input) {
+            return ActivityCommandDescriptor(
+                id: "resume-recovery",
+                title: "Resume safely",
+                style: .primary,
+                isEnabled: true,
+                commandKind: .resumeRecovery
+            )
+        }
+
         guard !input.hasRecovery else { return nil }
         guard input.proposedFixCount > 0 else { return nil }
 
@@ -731,25 +741,25 @@ public enum ActivityProjectionBuilder {
 
     private static func makeOperationalIssues(from input: ActivityProjectionInput) -> [OperationalIssue] {
         if input.hasRecovery, !hasLibraryBlocker(input: input) {
-            return [
-                OperationalIssue(
-                    id: "recovery-needed",
-                    category: .recoveryRequired,
-                    summary: "Previous run needs recovery",
-                    technicalDetail: input.recovery?.latestRunID
-                ),
-            ]
+            return [OperationalIssue(
+                id: "recovery-needed",
+                category: .recoveryRequired,
+                summary: "Previous run needs recovery",
+                technicalDetail: input.recovery?.latestRunID
+            )]
+        }
+
+        if let issue = input.libraryState.operationalIssue {
+            return [issue]
         }
 
         if case let .failed(message) = input.effectiveSyncState {
-            return [
-                OperationalIssue(
-                    id: "library-sync-failed",
-                    category: .temporaryUnavailable,
-                    summary: "Library sync failed",
-                    technicalDetail: message
-                )
-            ]
+            return [OperationalIssue(
+                id: "library-sync-failed",
+                category: .temporaryUnavailable,
+                summary: "Library sync failed",
+                technicalDetail: message
+            )]
         }
         return []
     }
