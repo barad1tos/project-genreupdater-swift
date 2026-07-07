@@ -280,6 +280,33 @@ struct LibraryServicesTests {
         #expect(loaded?.runID == record.runID)
     }
 
+    @Test("Recovery preflight returns blocked without run record store")
+    func missingStoreBlocks() async throws {
+        let fixture = try makeFixture(testArtists: [])
+        let runID = RunID()
+
+        let outcome = await fixture.dependencies.runRecoveryPreflight(runID: runID)
+
+        #expect(outcome == .blocked(runID: runID, reason: .storeUnavailable))
+    }
+
+    @Test("Recovery preflight uses run record store")
+    func preflightUsesStore() async throws {
+        let record = sampleRunRecord(
+            runID: RunID(),
+            state: .syncingLibrary,
+            finishedAt: nil
+        )
+        let fixture = try makeFixture(
+            testArtists: [],
+            runRecordStore: RunRecordStoreStub(storedRecord: record)
+        )
+
+        let outcome = await fixture.dependencies.runRecoveryPreflight(runID: record.runID)
+
+        #expect(outcome == .inspectable(runID: record.runID, state: .syncingLibrary))
+    }
+
     @Test("Submit preview run requires a run orchestrator")
     func previewRequiresOrchestrator() async throws {
         let fixture = try makeFixture(testArtists: [])
