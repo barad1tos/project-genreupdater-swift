@@ -5,6 +5,7 @@ public enum ReportsRunState: String, Equatable, Sendable {
     case completed
     case completedNoOp
     case failed
+    case recoveryNeeded
 }
 
 public struct ReportsRunItem: Identifiable, Equatable, Sendable {

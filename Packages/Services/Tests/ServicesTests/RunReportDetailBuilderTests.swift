@@ -59,7 +59,7 @@ struct RunReportDetailBuilderTests {
             syncSummary: nil
         )
 
-        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now, activeRunID: record.runID)
 
         #expect(detail.state == .running)
         #expect(detail.transitions.map(\.stageLabel) == ["Created", "Syncing library", "Reporting"])
@@ -74,7 +74,7 @@ struct RunReportDetailBuilderTests {
             syncSummary: nil
         )
 
-        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now, activeRunID: record.runID)
 
         #expect(detail.state == .running)
         #expect(detail.transitions.map(\.stageLabel) == ["Created", "Syncing library", "Planning fixes"])
@@ -89,11 +89,29 @@ struct RunReportDetailBuilderTests {
             syncSummary: nil
         )
 
-        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now, activeRunID: record.runID)
 
         #expect(detail.state == .running)
         #expect(detail.stateLabel == "In progress")
         #expect(detail.durationLabel == nil)
+    }
+
+    @Test("open persisted detail maps to recovery needed")
+    func openRunRecovery() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .reporting,
+            syncSummary: nil
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.state == .recoveryNeeded)
+        #expect(detail.stateLabel == "Recovery needed")
+        #expect(detail.durationLabel == nil)
+        #expect(detail.failureMessage == "Previous run needs recovery")
+        #expect(detail.transitions.map(\.stageLabel) == ["Created", "Syncing library", "Reporting"])
     }
 
     @Test("full library scope produces scope lines")

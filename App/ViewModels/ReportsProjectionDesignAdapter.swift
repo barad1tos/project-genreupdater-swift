@@ -29,6 +29,8 @@ enum ReportsProjectionDesignAdapter {
             .neutral
         case .failed:
             .error
+        case .recoveryNeeded:
+            .warning
         }
     }
 }

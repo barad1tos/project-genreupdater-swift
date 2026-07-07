@@ -123,12 +123,30 @@ struct ReportsProjectionBuilderTests {
             syncSummary: nil
         )
 
-        let item = try #require(makeProjection(records: [record]).runs.first)
+        let item = try #require(makeProjection(records: [record], activeRunID: record.runID).runs.first)
 
         #expect(item.state == .running)
         #expect(item.stateLabel == "In progress")
         #expect(item.durationLabel == nil)
         #expect(item.changeCountLabel == nil)
+    }
+
+    @Test("open persisted run maps to recovery needed")
+    func openRunRecovery() throws {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .reporting,
+            syncSummary: nil
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.state == .recoveryNeeded)
+        #expect(item.stateLabel == "Recovery needed")
+        #expect(item.durationLabel == nil)
+        #expect(item.changeCountLabel == nil)
+        #expect(item.failureSummary == "Previous run needs recovery")
     }
 
     @Test("reporting state maps to running")
@@ -140,7 +158,7 @@ struct ReportsProjectionBuilderTests {
             syncSummary: nil
         )
 
-        let item = try #require(makeProjection(records: [record]).runs.first)
+        let item = try #require(makeProjection(records: [record], activeRunID: record.runID).runs.first)
 
         #expect(item.state == .running)
         #expect(item.stateLabel == "In progress")
@@ -155,7 +173,7 @@ struct ReportsProjectionBuilderTests {
             syncSummary: nil
         )
 
-        let item = try #require(makeProjection(records: [record]).runs.first)
+        let item = try #require(makeProjection(records: [record], activeRunID: record.runID).runs.first)
 
         #expect(item.state == .running)
         #expect(item.stateLabel == "In progress")
@@ -255,9 +273,18 @@ struct ReportsProjectionBuilderTests {
         #expect(projection.runs.map(\.id) == [first.runID.rawValue.uuidString, second.runID.rawValue.uuidString])
     }
 
-    private func makeProjection(records: [RunRecord], skippedCorruptedCount: Int = 0) -> ReportsProjection {
+    private func makeProjection(
+        records: [RunRecord],
+        skippedCorruptedCount: Int = 0,
+        activeRunID: RunID? = nil
+    ) -> ReportsProjection {
         ReportsProjectionBuilder.makeProjection(
-            from: ReportsProjectionInput(records: records, skippedCorruptedCount: skippedCorruptedCount, now: now)
+            from: ReportsProjectionInput(
+                records: records,
+                skippedCorruptedCount: skippedCorruptedCount,
+                now: now,
+                activeRunID: activeRunID
+            )
         )
     }
 

@@ -130,6 +130,10 @@ struct DesignRootHostView: View {
         )
     }
 
+    private var activeRunID: RunID? {
+        currentRunLifecycle?.isActive == true ? currentRunLifecycle?.runID : nil
+    }
+
     @ViewBuilder
     private var updateContent: some View {
         if fixPlanProjection.status != .empty {
@@ -428,7 +432,7 @@ struct DesignRootHostView: View {
             selectedRunReport = .unavailable(runID: runID)
             return
         }
-        let detail = RunReportDetailBuilder.makeDetail(from: record, now: Date())
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: Date(), activeRunID: activeRunID)
         selectedRunReport = RunReportDetailDesignAdapter.makeSnapshot(from: detail)
     }
 
@@ -719,7 +723,8 @@ struct DesignRootHostView: View {
         let projection = ReportsProjectionBuilder.makeProjection(from: ReportsProjectionInput(
             records: page.records,
             skippedCorruptedCount: page.skippedCorruptedCount,
-            now: Date()
+            now: Date(),
+            activeRunID: activeRunID
         ))
         let storedProjection = await dependencies.projectionStore.replaceReportsProjection(
             projection,
