@@ -72,6 +72,33 @@ struct ActivityInputBuilderTests {
         #expect(input.acceptedFixCount == 3)
     }
 
+    @Test("recovery report rows map to activity summary")
+    func mapsRecoveryRows() {
+        let input = ActivityInputBuilder.makeInput(from: makeContext(
+            tracks: [track(id: "1")],
+            loadError: nil,
+            isLoading: false,
+            reportsProjection: ReportsProjection(
+                revision: .initial,
+                runs: [
+                    ReportsRunItem(
+                        id: "run-1",
+                        state: .recoveryNeeded,
+                        stateLabel: "Recovery needed",
+                        triggerLabel: "Manual check",
+                        startedLabel: "8m ago",
+                        durationLabel: nil,
+                        changeCountLabel: nil,
+                        failureSummary: "Previous run needs recovery"
+                    ),
+                ],
+                skippedCorruptedCount: 0
+            )
+        ))
+
+        #expect(input.recovery == ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1"))
+    }
+
     private func track(id: String) -> Core.Track {
         Core.Track(id: id, name: "Track \(id)", artist: "Artist", album: "Album")
     }
@@ -80,7 +107,8 @@ struct ActivityInputBuilderTests {
         tracks: [Core.Track] = [],
         loadError: LibraryLoadError?,
         isLoading: Bool,
-        fixPlanProjection: FixPlanProjection = .empty()
+        fixPlanProjection: FixPlanProjection = .empty(),
+        reportsProjection: ReportsProjection = .empty()
     ) -> ActivityInputContext {
         ActivityInputContext(
             tracks: tracks,
@@ -91,6 +119,7 @@ struct ActivityInputBuilderTests {
             isDryRun: false,
             workflow: .empty,
             fixPlanProjection: fixPlanProjection,
+            reportsProjection: reportsProjection,
             pendingVerification: nil,
             runLifecycle: nil,
             isLibrarySyncAvailable: true,

@@ -202,6 +202,7 @@ struct DesignRootHostView: View {
             isDryRun: dependencies.config.runtime.dryRun,
             workflow: workflowDashboardState,
             fixPlanProjection: fixPlanProjection,
+            reportsProjection: reportsProjection,
             pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
             runLifecycle: currentRunLifecycle,
             isLibrarySyncAvailable: dependencies.isManualRunAvailable,
