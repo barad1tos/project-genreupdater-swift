@@ -29,6 +29,7 @@ struct DesignRootHostView: View {
     @State private var selectedRoute: Route? = .activity
     @State private var activityProjection: ActivityProjection = .empty()
     @State private var reportsProjection: ReportsProjection = .empty()
+    @State private var fixPlanProjection: FixPlanProjection = .empty()
     @State private var selectedRunReport: RunReportDetailSnapshot?
     @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
@@ -61,6 +62,7 @@ struct DesignRootHostView: View {
         }
         .task { await observeActivityProjectionUpdates() }
         .task { await observeReportsProjectionUpdates() }
+        .task { await observeFixPlanUpdates() }
         .task { await observeRunLifecycleUpdates() }
         .onChange(of: defaultUpdateBehavior) {
             applyWorkflowDefaults()
@@ -129,7 +131,9 @@ struct DesignRootHostView: View {
 
     @ViewBuilder
     private var updateContent: some View {
-        if let workflowViewModel {
+        if fixPlanProjection.status != .empty {
+            FixPlanView(snapshot: FixPlanAdapter.makeSnapshot(from: fixPlanProjection))
+        } else if let workflowViewModel {
             UpdateWorkflowView(
                 viewModel: workflowViewModel,
                 tracks: updateWorkflowTracks,
@@ -184,7 +188,7 @@ struct DesignRootHostView: View {
     }
 
     private var activityProjectionInput: ActivityProjectionInput {
-        ActivityProjectionInputAssembler.makeInput(from: ActivityProjectionAssemblyContext(
+        ActivityInputBuilder.makeInput(from: ActivityInputContext(
             tracks: tracks,
             metricsSnapshot: metricsSnapshot,
             lastScanDate: lastScanDate,
@@ -192,6 +196,7 @@ struct DesignRootHostView: View {
             isLoading: isLoading,
             isDryRun: dependencies.config.runtime.dryRun,
             workflow: workflowDashboardState,
+            fixPlanProjection: fixPlanProjection,
             pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
             runLifecycle: currentRunLifecycle,
             isLibrarySyncAvailable: dependencies.isManualRunAvailable,
@@ -731,6 +736,19 @@ struct DesignRootHostView: View {
         }
     }
 
+    private func applyFixPlanProjection(_ projection: FixPlanProjection) -> Bool {
+        guard projection.revision > fixPlanProjection.revision else { return false }
+        fixPlanProjection = projection
+        return true
+    }
+
+    private func observeFixPlanUpdates() async {
+        for await projection in await dependencies.projectionStore.fixPlanUpdates()
+            where applyFixPlanProjection(projection) {
+            await refreshActivityProjection()
+        }
+    }
+
     private var activityCommandController: ActivityCommandController {
         ActivityCommandController(
             isRunOrchestratorAvailable: { dependencies.runOrchestrator != nil },
@@ -743,6 +761,9 @@ struct DesignRootHostView: View {
             },
             refreshActivityProjection: {
                 await refreshActivityProjection()
+            },
+            currentFixPlanID: {
+                fixPlanProjection.planID?.description
             }
         )
     }
@@ -786,7 +807,7 @@ struct DesignRootHostView: View {
     private func handleActivityNavigationTarget(_ target: CommandNavigationTarget?) {
         switch target {
         case .fixPlan:
-            prepareDefaultUpdateForReview()
+            selectedRoute = .update
         case .activity:
             selectedRoute = .activity
         case .report:

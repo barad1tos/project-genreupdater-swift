@@ -256,6 +256,34 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.secondaryCommand?.commandKind == .runManually)
     }
 
+    @Test("fix plan summary exposes review state without workflow counts")
+    func usesFixPlanSummary() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                fixPlan: ActivityFixPlanSummary(
+                    status: .ready,
+                    itemCount: 4,
+                    acceptedCount: 3,
+                    canApply: true
+                )
+            )
+        )
+
+        let deltaCard = projection.summaryCards.first { $0.id == "delta" }
+        let primaryCommand = projection.primaryCommand
+
+        #expect(projection.title == "Fix plan ready")
+        #expect(projection.subtitle == "4 candidate fixes · preview mode · no Music tags written")
+        #expect(projection.deltaCount == 4)
+        #expect(projection.currentStage == .fix)
+        #expect(projection.status(for: .diff) == .completed)
+        #expect(projection.status(for: .fix) == .gated)
+        #expect(deltaCard?.value == "4")
+        #expect(deltaCard?.detail == "candidate fixes")
+        #expect(primaryCommand?.commandKind == .reviewChanges)
+    }
+
     @Test("summary cards expose semantic kinds instead of UI symbols")
     func summaryCardsExposeSemanticKindsInsteadOfUISymbols() {
         let projection = ActivityProjectionBuilder.makeProjection(
@@ -395,6 +423,7 @@ struct ActivityProjectionBuilderTests {
         lastScanDate: Date? = nil,
         metrics: ActivityProjectionMetrics? = nil,
         workflow: ActivityWorkflowState = .empty,
+        fixPlan: ActivityFixPlanSummary? = nil,
         pendingVerification: ActivityPendingVerificationSummary? = nil,
         runLifecycle: RunLifecycleSnapshot? = nil,
         isLibrarySyncAvailable: Bool = true,
@@ -408,6 +437,7 @@ struct ActivityProjectionBuilderTests {
             libraryState: libraryState ?? (tracks.isEmpty ? .empty : .ready),
             processingMode: .preview,
             workflow: workflow,
+            fixPlan: fixPlan,
             pendingVerification: pendingVerification,
             runLifecycle: runLifecycle,
             isLibrarySyncAvailable: isLibrarySyncAvailable,
