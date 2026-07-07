@@ -216,16 +216,23 @@ struct PendingWorkflowTests {
             entries: [randomAccessMemoriesPendingEntry()],
             dueEntries: [randomAccessMemoriesPendingEntry()]
         )
+        func isBatchTrack(_ track: Track) -> Bool {
+            batchTrackIDs.contains(track.id)
+        }
+        func isPendingAlbumTrack(_ track: Track) -> Bool {
+            track.id == "ram-1" || track.id == "ram-2"
+        }
+
         let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
             options.additionalEnrichedTracks = [batchTrack]
             options.idMapper = idMapper
             options.resolveIncrementalTracks = { tracks, _ in
-                tracks.filter { batchTrackIDs.contains($0.id) }
+                tracks.filter(isBatchTrack)
             }
             options.runMaintenancePreflight = { pendingDuePreflight() }
             options.prepareMutationMetadata = { tracks in
                 await recorder.record(tracks)
-                guard tracks.contains(where: { $0.id == "ram-1" || $0.id == "ram-2" }) else {
+                guard tracks.contains(where: isPendingAlbumTrack) else {
                     return
                 }
                 await idMapper.seed(
