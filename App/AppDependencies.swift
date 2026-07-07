@@ -584,7 +584,7 @@ final class AppDependencies {
 
     private func latestFixPlanProjection() async throws -> FixPlanProjection {
         guard let fixPlanStore else {
-            return .unavailable(message: "Fix plan store is unavailable")
+            return .empty()
         }
         guard let plan = try await fixPlanStore.latestPlan() else {
             return .empty()

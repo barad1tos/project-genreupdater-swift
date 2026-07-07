@@ -278,6 +278,21 @@ struct AppDependenciesConfigurationTests {
         #expect(projection.status == .ready)
         #expect(storedProjection == projection)
     }
+
+    @Test("Missing fix plan store keeps projection empty")
+    func emptyFixPlanWithoutStore() async {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // This test verifies startup projection state before persistence is wired.
+            }
+        )
+
+        let projection = await dependencies.refreshFixPlanProjection()
+
+        #expect(projection.status == .empty)
+        #expect(projection.operationalIssues.isEmpty)
+    }
 }
 
 private enum StubConfigurationError: LocalizedError {
