@@ -91,13 +91,23 @@ enum ReportsRunLabels {
         return remainderMinutes == 0 ? "\(hours)h" : "\(hours)h \(remainderMinutes)m"
     }
 
-    static func changeCountLabel(for summary: ActivitySyncSummary?) -> String? {
+    static func changeCountLabel(for summary: ActivitySyncSummary?, intent: RunIntent) -> String? {
+        guard showsSyncSummary(for: intent) else { return nil }
         guard let summary else { return nil }
         let count = summary.changeCount
         if count == 0 {
             return "No changes"
         }
         return count == 1 ? "1 change" : "\(count.formatted()) changes"
+    }
+
+    static func showsSyncSummary(for intent: RunIntent) -> Bool {
+        switch intent {
+        case .observeLibrary:
+            true
+        case .previewFixes:
+            false
+        }
     }
 
     static func failureSummary(state: ReportsRunState, failureMessage: String?) -> String? {

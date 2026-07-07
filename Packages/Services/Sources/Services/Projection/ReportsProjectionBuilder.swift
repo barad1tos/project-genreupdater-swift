@@ -30,7 +30,7 @@ public enum ReportsProjectionBuilder {
             triggerLabel: ReportsRunLabels.triggerLabel(for: record.trigger),
             startedLabel: ReportsRunLabels.relativeLabel(since: record.startedAt, now: now),
             durationLabel: ReportsRunLabels.durationLabel(startedAt: record.startedAt, finishedAt: record.finishedAt),
-            changeCountLabel: ReportsRunLabels.changeCountLabel(for: record.syncSummary),
+            changeCountLabel: ReportsRunLabels.changeCountLabel(for: record.syncSummary, intent: record.intent),
             failureSummary: ReportsRunLabels.failureSummary(state: state, failureMessage: record.failureMessage)
         )
     }

@@ -61,6 +61,22 @@ struct ReportsProjectionBuilderTests {
         #expect(item.changeCountLabel == "No changes")
     }
 
+    @Test("preview no-op omits library delta from index labels")
+    func previewHidesDelta() throws {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .completedNoOp,
+            syncSummary: ActivitySyncSummary(new: 2, modified: 3, identityChanged: 0, refreshed: 0, removed: 0),
+            intent: .previewFixes
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.stateLabel == "Completed · no changes")
+        #expect(item.changeCountLabel == nil)
+    }
+
     @Test("single change uses singular label")
     func singleChangeUsesSingularLabel() throws {
         let record = makeRunRecord(
@@ -252,7 +268,8 @@ struct ReportsProjectionBuilderTests {
         finishedAt: Date?,
         state: RunLifecycleState,
         syncSummary: ActivitySyncSummary?,
-        failureMessage: String? = nil
+        failureMessage: String? = nil,
+        intent: RunIntent = .observeLibrary
     ) -> RunRecord {
         var transitions = [
             RunLifecycleTransition(state: .created, timestamp: startedAt),
@@ -269,7 +286,7 @@ struct ReportsProjectionBuilderTests {
             runID: runID,
             requestID: RunRequestID(),
             trigger: trigger,
-            intent: .observeLibrary,
+            intent: intent,
             scope: ProcessingScopeSnapshot.capture(
                 requestedTestArtists: [],
                 knownTrackCount: nil,
