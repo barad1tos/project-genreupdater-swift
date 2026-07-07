@@ -100,28 +100,27 @@ struct BrowseView: View {
 
     // MARK: - Artist List
 
+    @ViewBuilder
     private func artistList(proxy _: ScrollViewProxy) -> some View {
-        Group {
-            if viewModel.sections.isEmpty {
-                filterEmptyState
-            } else {
-                List {
-                    ForEach(viewModel.sections) { section in
-                        Section {
-                            ForEach(section.artists) { artist in
-                                artistRow(artist)
-                            }
-                        } header: {
-                            Text(section.letter)
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(Ayu.fgMuted)
-                                .padding(.leading, Spacing.xs)
-                                .id(section.letter)
+        if viewModel.sections.isEmpty {
+            filterEmptyState
+        } else {
+            List {
+                ForEach(viewModel.sections) { section in
+                    Section {
+                        ForEach(section.artists) { artist in
+                            artistRow(artist)
                         }
+                    } header: {
+                        Text(section.letter)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Ayu.fgMuted)
+                            .padding(.leading, Spacing.xs)
+                            .id(section.letter)
                     }
                 }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
             }
+            .listStyle(.inset(alternatesRowBackgrounds: true))
         }
     }
 

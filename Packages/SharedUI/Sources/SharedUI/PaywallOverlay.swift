@@ -148,13 +148,12 @@ public struct PaywallOverlay: View {
         }
     }
 
+    @ViewBuilder
     private var restoreButton: some View {
-        Group {
-            if let onRestore {
-                Button("Restore Purchases", action: onRestore)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        if let onRestore {
+            Button("Restore Purchases", action: onRestore)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

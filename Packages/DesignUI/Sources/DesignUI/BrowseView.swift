@@ -146,19 +146,18 @@ struct BrowseView: View {
         }
     }
 
+    @ViewBuilder
     private var detailPane: some View {
-        Group {
-            if let (album, artist) = selectedAlbum {
-                AlbumDetail(album: album, artist: artist) {
-                    if let albumUpdateAction {
-                        albumUpdateAction(album, artist)
-                    } else {
-                        model.navigate(to: .update)
-                    }
+        if let (album, artist) = selectedAlbum {
+            AlbumDetail(album: album, artist: artist) {
+                if let albumUpdateAction {
+                    albumUpdateAction(album, artist)
+                } else {
+                    model.navigate(to: .update)
                 }
-            } else {
-                ContentUnavailableView("Select an album", systemImage: "music.note")
             }
+        } else {
+            ContentUnavailableView("Select an album", systemImage: "music.note")
         }
     }
 
@@ -167,7 +166,9 @@ struct BrowseView: View {
             Circle().fill(healthTone(album.health).color).frame(width: 7, height: 7)
             Text(album.name).font(.system(size: 13)).lineLimit(1)
             Spacer()
-            if album.genre == nil { TagPill(text: "no genre", tone: .warning) }
+            if album.genre == nil {
+                TagPill(text: "no genre", tone: .warning)
+            }
             if let year = album.year {
                 Text(String(year)).font(.system(size: 11.5).monospacedDigit()).foregroundStyle(Ayu.fg2)
             } else {
@@ -284,7 +285,9 @@ struct AlbumDetail: View {
                                 .frame(width: 40, alignment: .trailing)
                         }
                         .padding(.vertical, 9)
-                        if trackNumber < album.tracks { Divider().overlay(Ayu.glassBorder) }
+                        if trackNumber < album.tracks {
+                            Divider().overlay(Ayu.glassBorder)
+                        }
                     }
                 }
             }

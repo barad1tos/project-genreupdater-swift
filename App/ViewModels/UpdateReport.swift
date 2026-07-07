@@ -139,7 +139,9 @@ extension UpdateRunReport {
         trackLookup: [String: Track]
     ) -> [UpdateRunOutcomeBreakdown] {
         let skippedTrackIDs = trackStatuses.compactMap { trackID, status -> String? in
-            if case .skipped = status { return trackID }
+            if case .skipped = status {
+                return trackID
+            }
             return nil
         }
         guard !skippedTrackIDs.isEmpty else { return [] }

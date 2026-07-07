@@ -224,7 +224,9 @@ struct APIAndCacheTab: View {
         guard seconds > 0 else { return "Off" }
 
         let days = Int(seconds / 86400)
-        if days >= 1 { return "\(days)d" }
+        if days >= 1 {
+            return "\(days)d"
+        }
 
         let hours = Int(seconds / 3600)
         return "\(max(1, hours))h"
@@ -235,10 +237,14 @@ struct APIAndCacheTab: View {
         guard seconds > 0 else { return "Off" }
 
         let days = seconds / 86400
-        if days >= 1 { return "\(days)d" }
+        if days >= 1 {
+            return "\(days)d"
+        }
 
         let hours = seconds / 3600
-        if hours >= 1 { return "\(hours)h" }
+        if hours >= 1 {
+            return "\(hours)h"
+        }
 
         return "\(max(1, seconds / 60))m"
     }

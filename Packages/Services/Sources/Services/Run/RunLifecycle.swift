@@ -66,11 +66,19 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     }
 
     public var isActive: Bool {
-        if case .active = phase { true } else { false }
+        if case .active = phase {
+            true
+        } else {
+            false
+        }
     }
 
     public var finishedAt: Date? {
-        if case let .finished(_, finishedAt) = phase { finishedAt } else { nil }
+        if case let .finished(_, finishedAt) = phase {
+            finishedAt
+        } else {
+            nil
+        }
     }
 
     public var syncResult: SyncResult? {
@@ -81,7 +89,11 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     }
 
     public var failureMessage: String? {
-        if case let .finished(.failed(message), _) = phase { message } else { nil }
+        if case let .finished(.failed(message), _) = phase {
+            message
+        } else {
+            nil
+        }
     }
 
     public init(

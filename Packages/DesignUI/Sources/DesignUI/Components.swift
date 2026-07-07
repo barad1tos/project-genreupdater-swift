@@ -8,7 +8,9 @@ struct TagPill: View {
     var dot: Bool = false
     var body: some View {
         HStack(spacing: 5) {
-            if dot { Circle().fill(tone.color).frame(width: 5.5, height: 5.5) }
+            if dot {
+                Circle().fill(tone.color).frame(width: 5.5, height: 5.5)
+            }
             Text(text)
                 .font(.system(size: 11, weight: .semibold))
                 .lineLimit(1)
@@ -32,7 +34,9 @@ struct PrimaryButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 7) {
-                if let symbol { Image(systemName: symbol) }
+                if let symbol {
+                    Image(systemName: symbol)
+                }
                 Text(title)
             }
             .font(.system(size: 13, weight: .semibold))
@@ -58,7 +62,9 @@ struct BorderedButton: View {
             },
             label: {
                 HStack(spacing: 7) {
-                    if let symbol { Image(systemName: symbol) }
+                    if let symbol {
+                        Image(systemName: symbol)
+                    }
                     Text(title)
                 }
                 .font(.system(size: 13, weight: .medium))

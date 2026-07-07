@@ -574,7 +574,9 @@ public actor APIOrchestrator {
             .min { lhs, rhs in
                 let lhsRank = bestSourceRank(for: lhs, in: results, sourceRank: sourceRank)
                 let rhsRank = bestSourceRank(for: rhs, in: results, sourceRank: sourceRank)
-                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                if lhsRank != rhsRank {
+                    return lhsRank < rhsRank
+                }
                 return lhs < rhs
             }
 

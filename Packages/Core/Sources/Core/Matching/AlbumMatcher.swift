@@ -18,8 +18,12 @@ public func levenshteinDistance(_ s1: String, _ s2: String) -> Int {
     let len1 = s1.count
     let len2 = s2.count
 
-    if len1 == 0 { return len2 }
-    if len2 == 0 { return len1 }
+    if len1 == 0 {
+        return len2
+    }
+    if len2 == 0 {
+        return len1
+    }
 
     let s1Chars = Array(s1)
     let s2Chars = Array(s2)
@@ -72,7 +76,9 @@ public func fuzzyAlbumMatch(_ album1: String, _ album2: String, threshold: Doubl
     let norm2 = normalizeForMatching(album2)
 
     // Exact match after normalization
-    if norm1 == norm2 { return true }
+    if norm1 == norm2 {
+        return true
+    }
 
     return normalizedSimilarity(norm1, norm2) >= threshold
 }
@@ -93,7 +99,9 @@ public func isAlbumVariant(_ album1: String, _ album2: String, threshold: Double
     let cleaned1 = normalizeAlbumForComparison(album1)
     let cleaned2 = normalizeAlbumForComparison(album2)
 
-    if cleaned1 == cleaned2 { return true }
+    if cleaned1 == cleaned2 {
+        return true
+    }
 
     return normalizedSimilarity(cleaned1, cleaned2) >= threshold
 }

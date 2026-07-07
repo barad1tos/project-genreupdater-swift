@@ -4,8 +4,6 @@ import Core
 import SharedUI
 import SwiftUI
 
-// MARK: - Update Behavior
-
 enum UpdateBehavior: String, CaseIterable, Identifiable {
     case genreOnly = "genre_only"
     case yearOnly = "year_only"
@@ -21,6 +19,21 @@ enum UpdateBehavior: String, CaseIterable, Identifiable {
         case .yearOnly: "Year only"
         case .both: "Both"
         }
+    }
+
+    var enabledTargets: (updateGenre: Bool, updateYear: Bool) {
+        switch self {
+        case .genreOnly:
+            (true, false)
+        case .yearOnly:
+            (false, true)
+        case .both:
+            (true, true)
+        }
+    }
+
+    static func resolved(from rawValue: String?) -> Self {
+        rawValue.flatMap(Self.init(rawValue:)) ?? .both
     }
 }
 

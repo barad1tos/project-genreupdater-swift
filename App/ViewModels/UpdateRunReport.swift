@@ -56,7 +56,9 @@ struct UpdateRunReport: Equatable {
             trackStatuses: trackStatuses
         )
         skippedCount = trackStatuses.values.count { status in
-            if case .skipped = status { return true }
+            if case .skipped = status {
+                return true
+            }
             return false
         }
         scannedTrackCount = trackStatuses.isEmpty ? tracks.count : trackStatuses.count

@@ -410,9 +410,15 @@ final class DashboardViewModel {
             let hasGenre = GenreUtilities.hasPresentGenre(track.genre)
             let hasYear = track.year != nil
 
-            if hasGenre { genreCount += 1 }
-            if hasYear { yearCount += 1 }
-            if hasGenre, hasYear { bothCount += 1 }
+            if hasGenre {
+                genreCount += 1
+            }
+            if hasYear {
+                yearCount += 1
+            }
+            if hasGenre, hasYear {
+                bothCount += 1
+            }
 
             if let dateAdded = track.dateAdded,
                let cutoff = sevenDaysAgo,
@@ -462,8 +468,12 @@ extension DashboardViewModel {
         guard let previous = previousMetrics else { return nil }
         let current = metrics.recentlyAdded
         let prev = previous.recentlyAdded
-        if current > prev { return .up }
-        if current < prev { return .down }
+        if current > prev {
+            return .up
+        }
+        if current < prev {
+            return .down
+        }
         return .flat
     }
 
@@ -487,8 +497,12 @@ extension DashboardViewModel {
 
     /// Trend for metrics where decrease is good (fewer tracks needing attention).
     private func trendForDecreasing(current: Int, previous: Int) -> TrendDirection {
-        if current < previous { return .down }
-        if current > previous { return .up }
+        if current < previous {
+            return .down
+        }
+        if current > previous {
+            return .up
+        }
         return .flat
     }
 }

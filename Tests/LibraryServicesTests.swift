@@ -6,7 +6,7 @@ import Testing
 
 @Suite("AppDependencies library services")
 @MainActor
-struct AppDependenciesLibraryServicesTests {
+struct LibraryServicesTests {
     @Test("Scoped test-artist load skips full-library snapshot")
     func scopedTestArtistLoadSkipsFullLibrarySnapshot() async throws {
         let fixture = try makeFixture(testArtists: ["Clutch"])
@@ -212,6 +212,15 @@ struct AppDependenciesLibraryServicesTests {
         let loaded = await fixture.dependencies.loadRunReportRecord(id: record.runID.rawValue.uuidString)
 
         #expect(loaded?.runID == record.runID)
+    }
+
+    @Test("Submit preview run requires a run orchestrator")
+    func previewRequiresOrchestrator() async throws {
+        let fixture = try makeFixture(testArtists: [])
+
+        await #expect(throws: AppDependencyServiceError.runOrchestratorUnavailable) {
+            try await fixture.dependencies.submitPreviewRun()
+        }
     }
 
     @Test("Reports backup import message includes safe first failure")

@@ -71,7 +71,9 @@ public struct YearFallbackStrategy: Sendable {
         _ ctx: FallbackContext, bestYear: Int
     ) -> FallbackDecision {
         // Rule 3: Special album type (before confidence checks)
-        if let result = ruleSpecialAlbum(ctx) { return result }
+        if let result = ruleSpecialAlbum(ctx) {
+            return result
+        }
 
         // Rule 4: Max verification attempts → use best available
         if ctx.verificationAttempts >= config.maxVerificationAttempts {

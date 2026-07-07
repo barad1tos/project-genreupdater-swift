@@ -266,7 +266,9 @@ struct UpdateStreamingSection: View {
 
     private var doneCount: Int {
         viewModel.trackStatuses.values.count(where: { status in
-            if case .done = status { return true }
+            if case .done = status {
+                return true
+            }
             return false
         })
     }

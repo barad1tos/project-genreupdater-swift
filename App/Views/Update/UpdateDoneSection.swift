@@ -184,8 +184,12 @@ struct UpdateDoneSection: View {
     }
 
     private var actionBarHelp: String {
-        if report.hasFailures { return "Review failed tracks before another write run." }
-        if report.changedEntries.isEmpty { return "Start another update when you are ready." }
+        if report.hasFailures {
+            return "Review failed tracks before another write run."
+        }
+        if report.changedEntries.isEmpty {
+            return "Start another update when you are ready."
+        }
         return "Review the changed album metadata or copy the audit report."
     }
 
@@ -648,8 +652,12 @@ private struct UpdateRunTrackRow: View {
     }
 
     private var resultLabel: String {
-        if track.hasFailure { return "Failed" }
-        if track.hasChanges { return "Changed" }
+        if track.hasFailure {
+            return "Failed"
+        }
+        if track.hasChanges {
+            return "Changed"
+        }
         guard let processingStatus = track.processingStatus else { return "Scanned" }
         return processingStatus.resultLabel
     }
@@ -668,8 +676,12 @@ private struct UpdateRunTrackRow: View {
     }
 
     private var resultTint: Color {
-        if track.hasFailure { return Ayu.error }
-        if track.hasChanges { return Ayu.success }
+        if track.hasFailure {
+            return Ayu.error
+        }
+        if track.hasChanges {
+            return Ayu.success
+        }
         return track.processingStatus?.resultTint ?? Ayu.fgMuted
     }
 

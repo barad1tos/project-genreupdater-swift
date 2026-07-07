@@ -144,9 +144,15 @@ final class WorkflowViewModel {
     }
 
     var canStart: Bool {
-        if case .configure = phase { return true }
-        if case .done = phase { return true }
-        if case .error = phase { return true }
+        if case .configure = phase {
+            return true
+        }
+        if case .done = phase {
+            return true
+        }
+        if case .error = phase {
+            return true
+        }
         return false
     }
 

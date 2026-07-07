@@ -116,7 +116,9 @@ struct LibraryDashboardSnapshot: Equatable {
 
     var allowsReviewActions: Bool {
         guard case .ready = scanState else { return false }
-        if case .writing = writeState { return false }
+        if case .writing = writeState {
+            return false
+        }
         return true
     }
 
@@ -499,7 +501,9 @@ private enum DashboardSnapshotContent {
     }
 
     private static func protectedFileSeverity(counts: TrackDashboardCounts) -> DashboardIssueSeverity {
-        if counts.protectedFileCount > 0 { return .critical }
+        if counts.protectedFileCount > 0 {
+            return .critical
+        }
         return counts.isProtectedFileCountKnown ? .info : .warning
     }
 }

@@ -441,8 +441,12 @@ extension UpdateConfigSection {
 
 extension MaintenancePreflightResult {
     fileprivate var hasVisibleMaintenanceStatus: Bool {
-        if isPendingVerificationDue { return true }
-        if databaseVerificationError != nil { return true }
+        if isPendingVerificationDue {
+            return true
+        }
+        if databaseVerificationError != nil {
+            return true
+        }
         return (databaseVerification?.removedCount ?? 0) > 0
     }
 }

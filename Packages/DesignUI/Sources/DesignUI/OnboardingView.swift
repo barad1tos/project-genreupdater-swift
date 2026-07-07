@@ -61,7 +61,11 @@ struct OnboardingView: View {
             }
             return
         }
-        if step < steps.count - 1 { step += 1 } else { onFinish() }
+        if step < steps.count - 1 {
+            step += 1
+        } else {
+            onFinish()
+        }
     }
 
     var body: some View {

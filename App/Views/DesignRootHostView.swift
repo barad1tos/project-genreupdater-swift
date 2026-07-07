@@ -33,7 +33,7 @@ struct DesignRootHostView: View {
     @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
     @State private var activityCommandNoticeID = UUID()
-    @AppStorage("defaultUpdateBehavior") private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
+    @AppStorage(AppStorageKey.defaultUpdateBehavior) private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("fastAnimations") private var fastAnimations = false
 
@@ -157,14 +157,7 @@ struct DesignRootHostView: View {
     }
 
     private var configuredUpdateSelection: (updateGenre: Bool, updateYear: Bool) {
-        switch UpdateBehavior(rawValue: defaultUpdateBehavior) ?? .both {
-        case .genreOnly:
-            (true, false)
-        case .yearOnly:
-            (false, true)
-        case .both:
-            (true, true)
-        }
+        UpdateBehavior.resolved(from: defaultUpdateBehavior).enabledTargets
     }
 
     private var configuredPreviewOnly: Bool {
