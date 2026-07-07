@@ -216,6 +216,35 @@ struct LibraryServicesTests {
         #expect(queries.last?.states == [.created, .syncingLibrary, .planningFixes, .reporting])
     }
 
+    @Test("Recovery hold is active for open run records")
+    func recoveryHoldIsActiveForOpenRunRecords() async throws {
+        let open = sampleRunRecord(
+            runID: RunID(),
+            state: .syncingLibrary,
+            finishedAt: nil
+        )
+        let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [open], skippedCorruptedCount: 0))
+        let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
+
+        let isHeld = await fixture.dependencies.hasRecoveryHold()
+        let query = await stub.lastReportQuery()
+
+        #expect(isHeld)
+        #expect(query?.states == [.created, .syncingLibrary, .planningFixes, .reporting])
+    }
+
+    @Test("Recovery hold fails closed when run records cannot be read")
+    func recoveryHoldFailsClosedOnStoreError() async throws {
+        let fixture = try makeFixture(
+            testArtists: [],
+            runRecordStore: RunRecordStoreStub(reportsError: CocoaError(.fileReadCorruptFile))
+        )
+
+        let isHeld = await fixture.dependencies.hasRecoveryHold()
+
+        #expect(isHeld)
+    }
+
     @Test("Run report record store failure returns nil")
     func runReportRecordStoreFailureReturnsNil() async throws {
         let fixture = try makeFixture(

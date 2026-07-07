@@ -30,6 +30,7 @@ func makeWorkflowFixture(
     idMapper: (any TrackIDMapping)? = nil,
     problematicAlbumReportMinAttempts: @escaping () -> Int = { 3 },
     runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
+    hasRecoveryHold: @escaping () async -> Bool = { false },
     prepareMutationMetadata: (([Track]) async throws -> Void)? = noOpPrepareMutationMetadata,
     invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
@@ -80,6 +81,7 @@ func makeWorkflowFixture(
             pendingVerificationService: pendingVerificationService,
             featureGate: featureGate,
             runMaintenancePreflight: runMaintenancePreflight,
+            hasRecoveryHold: hasRecoveryHold,
             prepareMutationMetadata: prepareMutationMetadata,
             resolveIncrementalTracks: resolveIncrementalTracks,
             invalidateAlbumYearCache: invalidateAlbumYearCache,
@@ -566,7 +568,9 @@ actor PendingSnapshotDelay {
 
     func waitForCapturedFirstSnapshot() async throws {
         for _ in 0 ..< Self.maximumWaitIterations {
-            if hasCapturedFirstSnapshot { return }
+            if hasCapturedFirstSnapshot {
+                return
+            }
             try await Task.sleep(for: .milliseconds(10))
         }
 
@@ -598,7 +602,9 @@ actor PendingSnapshotDelay {
 
     func waitForDelayedPendingScopeRefreshCompletion() async throws {
         for _ in 0 ..< Self.maximumWaitIterations {
-            if hasCompletedDelayedPendingScopeRefresh { return }
+            if hasCompletedDelayedPendingScopeRefresh {
+                return
+            }
             try await Task.sleep(for: .milliseconds(10))
         }
 

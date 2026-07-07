@@ -1,4 +1,4 @@
-// WorkflowViewModel+Filtering.swift -- Smart filters and workflow error handling.
+// WorkflowFilters.swift -- Smart filters and workflow error handling.
 
 import Core
 import Services

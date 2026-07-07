@@ -50,6 +50,7 @@ extension WorkflowViewModel {
         let refreshGeneration = preparePendingVerificationRun()
 
         processingTask = Task {
+            guard await !stopForRecoveryHold() else { return }
             await runPendingVerification(
                 tracks: tracks,
                 pendingVerificationService: pendingVerificationService,
@@ -188,7 +189,7 @@ extension WorkflowViewModel {
                 tracks,
                 entries: dueEntries
             )
-            guard await prepareMutationMetadataIfNeeded(tracks: pendingScopeTracks) else {
+            guard await prepareWriteMetadata(for: pendingScopeTracks) else {
                 return PendingEntryOutcome()
             }
 

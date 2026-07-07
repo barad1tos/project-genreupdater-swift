@@ -308,13 +308,13 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.status(for: .fix) == .gated)
         #expect(projection.primaryCommand == nil)
         #expect(projection.secondaryCommand?.commandKind == .runManually)
-        #expect(projection.secondaryCommand?.isEnabled == false)
+        #expect(projection.secondaryCommand?.isEnabled == true)
         #expect(issue.category == .recoveryRequired)
         #expect(issue.summary == "Previous run needs recovery")
     }
 
     @Test("library blockers take precedence over recovery summary")
-    func libraryBlockerRecoveryPriority() throws {
+    func libraryBlockerRecoveryPriority() {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],

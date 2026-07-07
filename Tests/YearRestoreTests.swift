@@ -5,7 +5,7 @@ import Testing
 
 @Suite("Workflow release-year restore")
 @MainActor
-struct WorkflowRestoreTests {
+struct YearRestoreTests {
     @Test("Release-year restore marks tied consensus tracks as skipped")
     func releaseYearRestoreMarksTiedConsensusTracksAsSkipped() async {
         let fixture = makeWorkflowFixture()
@@ -77,6 +77,41 @@ struct WorkflowRestoreTests {
             #expect(Bool(false), "empty release-year restore should complete")
             return
         }
+    }
+
+    @Test("Release-year restore stops when recovery hold is active")
+    func releaseYearRestoreStopsWhenRecoveryHoldIsActive() async {
+        let recorder = MutationPreparationRecorder()
+        let fixture = makeWorkflowFixture(
+            hasRecoveryHold: { true },
+            prepareMutationMetadata: { tracks in
+                await recorder.record(tracks)
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .releaseYearRestore
+        viewModel.releaseYearRestoreThreshold = 5
+
+        viewModel.start(tracks: [
+            Track(
+                id: "restore-target",
+                name: "Plainsong",
+                artist: "The Cure",
+                album: "Disintegration",
+                year: 2025,
+                releaseYear: 1989
+            ),
+        ])
+        await viewModel.processingTask?.value
+        await Task.yield()
+
+        guard case let .error(message) = viewModel.phase else {
+            #expect(Bool(false), "recovery hold should stop release-year restore writes")
+            return
+        }
+        #expect(message == "Previous run needs recovery before writes continue.")
+        #expect(await recorder.recordedCallCount() == 0)
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
     @Test("Release-year restore cancellation during preparation returns to configuration")
