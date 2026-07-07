@@ -76,7 +76,9 @@ private actor RunRecordStoreProbe: RunRecordStore {
         self.error = error
     }
 
-    func upsert(_: RunRecord) async throws {}
+    func upsert(_: RunRecord) async throws {
+        // This probe only exercises read paths; writes are intentionally ignored.
+    }
 
     func loadAll() async throws -> [RunRecord] {
         []
