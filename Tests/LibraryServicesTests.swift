@@ -179,14 +179,41 @@ struct LibraryServicesTests {
     @Test("Run report page passes store results and limit through")
     func runReportPagePassesStoreResultsAndLimitThrough() async throws {
         let record = sampleRunRecord()
-        let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [record], skippedCorruptedCount: 2))
+        let stub = RunRecordStoreStub(reportPages: [
+            RunReportPage(records: [record], skippedCorruptedCount: 2),
+            RunReportPage(records: [], skippedCorruptedCount: 0),
+        ])
         let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
 
         let page = await fixture.dependencies.loadRunReportPage(limit: 25)
+        let queries = await stub.reportQueries()
 
         #expect(page?.records.map(\.runID) == [record.runID])
         #expect(page?.skippedCorruptedCount == 2)
-        #expect(await stub.lastReportQuery()?.limit == 25)
+        #expect(queries.first?.limit == 25)
+    }
+
+    @Test("Run report page includes open records outside the capped history")
+    func includesOlderOpenRuns() async throws {
+        let recent = sampleRunRecord()
+        let open = sampleRunRecord(
+            runID: RunID(),
+            state: .reporting,
+            finishedAt: nil
+        )
+        let stub = RunRecordStoreStub(reportPages: [
+            RunReportPage(records: [recent], skippedCorruptedCount: 1),
+            RunReportPage(records: [open], skippedCorruptedCount: 0),
+        ])
+        let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
+
+        let page = await fixture.dependencies.loadRunReportPage(limit: 1)
+        let queries = await stub.reportQueries()
+
+        #expect(page?.records.map(\.runID) == [recent.runID, open.runID])
+        #expect(page?.skippedCorruptedCount == 1)
+        #expect(queries.map(\.limit) == [1, nil])
+        #expect(queries.last?.states == [.created, .syncingLibrary, .planningFixes, .reporting])
     }
 
     @Test("Run report record store failure returns nil")
@@ -280,19 +307,20 @@ private actor RunRecordStoreStub: RunRecordStore {
     private let reportsError: (any Error)?
     private let recordError: (any Error)?
     private let storedRecord: RunRecord?
-    private let reportPage: RunReportPage?
-    private var receivedReportQuery: RunReportQuery?
+    private let reportPages: [RunReportPage]
+    private var receivedReportQueries: [RunReportQuery] = []
 
     init(
         reportsError: (any Error)? = nil,
         recordError: (any Error)? = nil,
         storedRecord: RunRecord? = nil,
-        reportPage: RunReportPage? = nil
+        reportPage: RunReportPage? = nil,
+        reportPages: [RunReportPage]? = nil
     ) {
         self.reportsError = reportsError
         self.recordError = recordError
         self.storedRecord = storedRecord
-        self.reportPage = reportPage
+        self.reportPages = reportPages ?? reportPage.map { [$0] } ?? []
     }
 
     func upsert(_: RunRecord) async throws {
@@ -316,19 +344,30 @@ private actor RunRecordStoreStub: RunRecordStore {
     }
 
     func reports(matching query: RunReportQuery) async throws -> RunReportPage {
-        receivedReportQuery = query
+        receivedReportQueries.append(query)
         if let reportsError {
             throw reportsError
         }
-        return reportPage ?? RunReportPage(records: [], skippedCorruptedCount: 0)
+        guard !reportPages.isEmpty else {
+            return RunReportPage(records: [], skippedCorruptedCount: 0)
+        }
+        return reportPages[min(receivedReportQueries.count - 1, reportPages.count - 1)]
     }
 
     func lastReportQuery() -> RunReportQuery? {
-        receivedReportQuery
+        receivedReportQueries.last
+    }
+
+    func reportQueries() -> [RunReportQuery] {
+        receivedReportQueries
     }
 }
 
-private func sampleRunRecord(runID: RunID = RunID()) -> RunRecord {
+private func sampleRunRecord(
+    runID: RunID = RunID(),
+    state: RunLifecycleState = .completed,
+    finishedAt: Date? = Date(timeIntervalSince1970: 1_800_000_045)
+) -> RunRecord {
     let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
     return RunRecord(
         runID: runID,
@@ -341,11 +380,11 @@ private func sampleRunRecord(runID: RunID = RunID()) -> RunRecord {
             createdAt: startedAt,
             reason: "manualCheck"
         ),
-        transitions: [],
+        transitions: [RunLifecycleTransition(state: state, timestamp: startedAt)],
         syncSummary: nil,
         failureMessage: nil,
         startedAt: startedAt,
-        finishedAt: startedAt.addingTimeInterval(45)
+        finishedAt: finishedAt
     )
 }
 
