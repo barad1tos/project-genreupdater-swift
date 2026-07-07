@@ -197,6 +197,14 @@ extension AppDependencies {
         }
     }
 
+    func runRecoveryPreflight(runID: RunID) async -> RecoveryPreflightOutcome {
+        guard let runRecordStore else {
+            return .blocked(runID: runID, reason: .storeUnavailable)
+        }
+
+        return await RecoveryPreflightService(store: runRecordStore).run(for: runID)
+    }
+
     private func mergeRunReportPages(_ recentPage: RunReportPage, _ openPage: RunReportPage) -> RunReportPage {
         var seen = Set<UUID>()
         let openRecords = openPage.records.filter { $0.finishedAt == nil }

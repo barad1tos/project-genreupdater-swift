@@ -789,6 +789,13 @@ struct DesignRootHostView: View {
             refreshActivityProjection: {
                 await refreshActivityProjection()
             },
+            runRecoveryPreflight: { runID in
+                let outcome = await dependencies.runRecoveryPreflight(runID: runID)
+                if case .resolved = outcome {
+                    await refreshReportsProjection()
+                }
+                return outcome
+            },
             currentFixPlanID: {
                 fixPlanProjection.planID?.description
             }

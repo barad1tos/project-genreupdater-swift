@@ -1,3 +1,4 @@
+import Foundation
 import OSLog
 import Services
 
@@ -10,6 +11,7 @@ struct ActivityCommandController {
     let submitManualObservationRun: () async throws -> RunSubmissionResult
     let reloadLibrary: (_ forceRefresh: Bool) async -> Void
     let refreshActivityProjection: () async -> ActivityProjection
+    let runRecoveryPreflight: (RunID) async -> RecoveryPreflightOutcome
     let currentFixPlanID: () -> String?
 
     static func command(for descriptor: ActivityCommandDescriptor?) -> UserIntentCommand? {
@@ -66,14 +68,82 @@ struct ActivityCommandController {
                     refreshedActivityProjection: projection
                 )
             }
-            return .navigated(
-                message: "Opening recovery.",
-                navigationTarget: .recovery(runID: issue.technicalDetail),
-                refreshedActivityProjection: projection
-            )
+            guard let runID = recoveryRunID(from: issue) else {
+                return malformedRecoveryResult(projection: projection, issue: issue)
+            }
+            let outcome = await runRecoveryPreflight(runID)
+            return makeRecoveryResult(outcome, projection: projection)
         case .runManually:
             return await handleRunManually()
         }
+    }
+
+    private func recoveryRunID(from issue: OperationalIssue) -> RunID? {
+        guard let rawID = issue.technicalDetail,
+              let uuid = UUID(uuidString: rawID)
+        else { return nil }
+
+        return RunID(rawValue: uuid)
+    }
+
+    private func makeRecoveryResult(
+        _ outcome: RecoveryPreflightOutcome,
+        projection: ActivityProjection
+    ) -> UserCommandResult {
+        switch outcome {
+        case let .inspectable(runID, _):
+            return .navigated(
+                message: "Opening recovery.",
+                navigationTarget: .recovery(runID: runID.rawValue.uuidString),
+                refreshedActivityProjection: projection
+            )
+        case .resolved:
+            return .noOp(
+                message: "Recovery is no longer required.",
+                refreshedActivityProjection: projection
+            )
+        case let .needsAttention(_, reason):
+            let detail: String = switch reason {
+            case let .writeAdjacentState(state): state.rawValue
+            }
+            return .requiresAttention(
+                message: "Recovery needs review.",
+                issue: OperationalIssue(
+                    id: "recovery-needs-attention",
+                    category: .safetyBlocked,
+                    summary: "Recovery needs review",
+                    technicalDetail: detail
+                ),
+                refreshedActivityProjection: projection
+            )
+        case .blocked:
+            return .requiresAttention(
+                message: "Recovery preflight is unavailable.",
+                issue: OperationalIssue(
+                    id: "recovery-preflight-blocked",
+                    category: .temporaryUnavailable,
+                    summary: "Recovery preflight unavailable",
+                    technicalDetail: nil
+                ),
+                refreshedActivityProjection: projection
+            )
+        }
+    }
+
+    private func malformedRecoveryResult(
+        projection: ActivityProjection,
+        issue: OperationalIssue
+    ) -> UserCommandResult {
+        .requiresAttention(
+            message: "Recovery record is unavailable.",
+            issue: OperationalIssue(
+                id: "recovery-record-unavailable",
+                category: .recoveryRequired,
+                summary: "Recovery record unavailable",
+                technicalDetail: issue.technicalDetail
+            ),
+            refreshedActivityProjection: projection
+        )
     }
 
     private func handleRunManually() async -> UserCommandResult {

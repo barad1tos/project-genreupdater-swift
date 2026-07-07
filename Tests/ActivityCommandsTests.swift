@@ -128,7 +128,7 @@ struct ActivityCommandsTests {
         #expect(harness.refreshCallCount == 1)
     }
 
-    @Test("resume recovery navigates to recovery notice")
+    @Test("resume recovery runs preflight before navigation")
     func resumeRecoveryNavigates() async {
         let harness = Harness(projection: makeRecoveryProjection(revision: ProjectionRevision(2)))
         let controller = harness.makeController()
@@ -137,10 +137,84 @@ struct ActivityCommandsTests {
 
         #expect(result.status == .navigated)
         #expect(result.message == "Opening recovery.")
-        #expect(result.navigationTarget == .recovery(runID: "run-1"))
+        #expect(result.navigationTarget == .recovery(runID: recoveryRunIDString))
+        #expect(harness.preflightRunIDs == [recoveryRunID])
         #expect(harness.submitRunCallCount == 0)
         #expect(harness.reloadCallCount == 0)
         #expect(harness.refreshCallCount == 1)
+    }
+
+    @Test("resume recovery resolves when preflight finds terminal record")
+    func resolvedRecoveryNoOps() async {
+        let harness = Harness(
+            projection: makeRecoveryProjection(revision: ProjectionRevision(2)),
+            preflightOutcome: .resolved(runID: recoveryRunID, reason: .alreadyFinished)
+        )
+        let controller = harness.makeController()
+
+        let result = await controller.handle(.resumeRecovery())
+
+        #expect(result.status == .noOp)
+        #expect(result.message == "Recovery is no longer required.")
+        #expect(result.navigationTarget == nil)
+        #expect(harness.preflightRunIDs == [recoveryRunID])
+        #expect(harness.refreshCallCount == 1)
+    }
+
+    @Test("resume recovery surfaces write-adjacent preflight attention")
+    func writeAdjacentReview() async {
+        let harness = Harness(
+            projection: makeRecoveryProjection(revision: ProjectionRevision(2)),
+            preflightOutcome: .needsAttention(runID: recoveryRunID, reason: .writeAdjacentState(.reporting))
+        )
+        let controller = harness.makeController()
+
+        let result = await controller.handle(.resumeRecovery())
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.message == "Recovery needs review.")
+        #expect(result.issue?.id == "recovery-needs-attention")
+        #expect(result.issue?.category == .safetyBlocked)
+        #expect(result.issue?.technicalDetail == "reporting")
+        #expect(result.navigationTarget == nil)
+        #expect(harness.preflightRunIDs == [recoveryRunID])
+    }
+
+    @Test("resume recovery surfaces blocked preflight")
+    func blockedNeedsAttention() async {
+        let harness = Harness(
+            projection: makeRecoveryProjection(revision: ProjectionRevision(2)),
+            preflightOutcome: .blocked(runID: recoveryRunID, reason: .storeUnavailable)
+        )
+        let controller = harness.makeController()
+
+        let result = await controller.handle(.resumeRecovery())
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.message == "Recovery preflight is unavailable.")
+        #expect(result.issue?.id == "recovery-preflight-blocked")
+        #expect(result.issue?.category == .temporaryUnavailable)
+        #expect(result.navigationTarget == nil)
+        #expect(harness.preflightRunIDs == [recoveryRunID])
+    }
+
+    @Test("resume recovery rejects malformed run id before preflight")
+    func invalidIDBlocks() async {
+        let harness = Harness(projection: makeRecoveryProjection(
+            revision: ProjectionRevision(2),
+            runID: "not-a-uuid"
+        ))
+        let controller = harness.makeController()
+
+        let result = await controller.handle(.resumeRecovery())
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.message == "Recovery record is unavailable.")
+        #expect(result.issue?.id == "recovery-record-unavailable")
+        #expect(result.issue?.category == .recoveryRequired)
+        #expect(result.issue?.technicalDetail == "not-a-uuid")
+        #expect(result.navigationTarget == nil)
+        #expect(harness.preflightRunIDs.isEmpty)
     }
 
     @Test("primary resolver dispatches recovery command")
@@ -319,7 +393,10 @@ private func makeRunManuallyProjection(
     )
 }
 
-private func makeRecoveryProjection(revision: ProjectionRevision) -> ActivityProjection {
+private func makeRecoveryProjection(
+    revision: ProjectionRevision,
+    runID: String = recoveryRunIDString
+) -> ActivityProjection {
     ActivityProjection(
         revision: revision,
         title: "Recovery needed",
@@ -355,7 +432,7 @@ private func makeRecoveryProjection(revision: ProjectionRevision) -> ActivityPro
                 id: "recovery-needed",
                 category: .recoveryRequired,
                 summary: "Previous run needs recovery",
-                technicalDetail: "run-1"
+                technicalDetail: runID
             ),
         ]
     )
@@ -404,8 +481,10 @@ private final class Harness {
     var submitRunCallCount = 0
     var reloadCallCount = 0
     var refreshCallCount = 0
+    var preflightRunIDs: [RunID] = []
 
     private var projection: ActivityProjection
+    private let preflightOutcome: RecoveryPreflightOutcome?
     private let runResult: RunSubmissionResult
     private let runError: Error?
     private let marksRunActiveOnFirstRefresh: Bool
@@ -416,6 +495,7 @@ private final class Harness {
         isRunOrchestratorAvailable: Bool = true,
         isRunActive: Bool = false,
         marksRunActiveOnFirstRefresh: Bool = false,
+        preflightOutcome: RecoveryPreflightOutcome? = nil,
         runResult: RunSubmissionResult? = nil,
         runError: Error? = nil
     ) {
@@ -423,6 +503,7 @@ private final class Harness {
         self.isRunOrchestratorAvailable = isRunOrchestratorAvailable
         self.isRunActive = isRunActive
         self.marksRunActiveOnFirstRefresh = marksRunActiveOnFirstRefresh
+        self.preflightOutcome = preflightOutcome
         self.runResult = runResult ?? .completedNoOp(lifecycle(
             phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate)
         ))
@@ -453,6 +534,10 @@ private final class Harness {
                 self.projection = self.projection.withRevision(self.projection.revision.advanced())
                 return self.projection
             },
+            runRecoveryPreflight: { runID in
+                self.preflightRunIDs.append(runID)
+                return self.preflightOutcome ?? .inspectable(runID: runID, state: .syncingLibrary)
+            },
             currentFixPlanID: {
                 "plan-1"
             }
@@ -460,6 +545,8 @@ private final class Harness {
     }
 }
 
+private let recoveryRunIDString = "00000000-0000-0000-0000-000000000097"
+private let recoveryRunID = RunID(rawValue: UUID(uuidString: recoveryRunIDString) ?? UUID())
 private let finishDate = Date(timeIntervalSince1970: 101)
 
 private func lifecycle(phase: RunPhase) -> RunLifecycleSnapshot {
