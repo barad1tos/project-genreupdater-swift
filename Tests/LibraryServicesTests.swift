@@ -295,7 +295,7 @@ private actor RunRecordStoreStub: RunRecordStore {
         self.reportPage = reportPage
     }
 
-    func upsert(_ record: RunRecord) async throws {
+    func upsert(_: RunRecord) async throws {
         // Not exercised by the run report accessor test paths.
     }
 
@@ -311,7 +311,7 @@ private actor RunRecordStoreStub: RunRecordStore {
         return storedRecord
     }
 
-    func prune(keepingLatest limit: Int) async throws -> Int {
+    func prune(keepingLatest _: Int) async throws -> Int {
         0
     }
 

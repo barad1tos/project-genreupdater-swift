@@ -172,7 +172,7 @@ struct AppDependenciesConfigurationTests {
     }
 
     @Test("Preview producer resolves current update behavior and saves a plan")
-    func previewProducerResolvesCurrentUpdateBehaviorAndSavesPlan() async throws {
+    func previewProducerSavesPlan() async throws {
         let previousBehavior = UserDefaults.standard.object(forKey: AppStorageKey.defaultUpdateBehavior)
         UserDefaults.standard.set(UpdateBehavior.yearOnly.rawValue, forKey: AppStorageKey.defaultUpdateBehavior)
         defer {
@@ -187,7 +187,9 @@ struct AppDependenciesConfigurationTests {
         configuration.yearRetrieval.logic.minConfidenceForNewYear = 73
         let dependencies = AppDependencies(
             configurationLoader: { configuration },
-            configurationSaver: { _ in }
+            configurationSaver: { _ in
+                // This test only verifies preview option resolution, not config persistence.
+            }
         )
         let probe = PreviewProducerProbe()
         let producer = dependencies.makePreviewProducer(dependencies: FixPlanProducer.Dependencies(
@@ -231,6 +233,50 @@ struct AppDependenciesConfigurationTests {
         #expect(snapshot.savedPlan?.configuration.minConfidence == 73)
         #expect(snapshot.savedDecision?.planID == snapshot.savedPlan?.id)
         #expect(snapshot.savedDecision?.planRevision == snapshot.savedPlan?.revision)
+    }
+
+    @Test("Stored latest fix plan is published as projection")
+    func publishesLatestFixPlan() async throws {
+        let previousBehavior = UserDefaults.standard.object(forKey: AppStorageKey.defaultUpdateBehavior)
+        UserDefaults.standard.set(UpdateBehavior.yearOnly.rawValue, forKey: AppStorageKey.defaultUpdateBehavior)
+        defer {
+            if let previousBehavior {
+                UserDefaults.standard.set(previousBehavior, forKey: AppStorageKey.defaultUpdateBehavior)
+            } else {
+                UserDefaults.standard.removeObject(forKey: AppStorageKey.defaultUpdateBehavior)
+            }
+        }
+
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.logic.minConfidenceForNewYear = 73
+        let dependencies = AppDependencies(
+            configurationLoader: { configuration },
+            configurationSaver: { _ in
+                // This test reads a stored fix plan without mutating app configuration.
+            }
+        )
+        let plan = try #require(makeStoredFixPlan(configuration: FixPlanConfigurationSnapshot.capture(
+            options: PreviewRunOptions.make(
+                configuration: configuration,
+                updateGenre: false,
+                updateYear: true
+            ),
+            capturedAt: Date(timeIntervalSince1970: 1_800_000_100)
+        )))
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
+        dependencies.configureLibraryPersistenceForTesting(
+            fixPlanStore: StoredFixPlanStore(plan: plan, decision: decision)
+        )
+
+        let projection = await dependencies.refreshFixPlanProjection()
+        let storedProjection = await dependencies.projectionStore.fixPlanProjection()
+
+        #expect(projection.planID == plan.id)
+        #expect(projection.sourceRunID == plan.sourceRunID)
+        #expect(projection.itemCount == 1)
+        #expect(projection.acceptedCount == 1)
+        #expect(projection.status == .ready)
+        #expect(storedProjection == projection)
     }
 }
 
@@ -337,6 +383,71 @@ private struct PreviewProducerProbeSnapshot {
     let options: UpdateOptions?
     let savedPlan: FixPlan?
     let savedDecision: FixPlanReviewDecision?
+}
+
+private actor StoredFixPlanStore: FixPlanStore {
+    private let plan: FixPlan?
+    private var decision: FixPlanReviewDecision?
+
+    init(plan: FixPlan?, decision: FixPlanReviewDecision?) {
+        self.plan = plan
+        self.decision = decision
+    }
+
+    func savePlan(_: FixPlan, initialDecision _: FixPlanReviewDecision) async throws {
+        // Projection refresh tests exercise reads only; writes are intentionally unused.
+    }
+
+    func plan(id: FixPlanID, revision: FixPlanRevision) async throws -> FixPlan? {
+        guard plan?.id == id, plan?.revision == revision else { return nil }
+        return plan
+    }
+
+    func latestPlan() async throws -> FixPlan? {
+        plan
+    }
+
+    func currentDecision(for planID: FixPlanID) async throws -> FixPlanReviewDecision? {
+        guard plan?.id == planID else { return nil }
+        return decision
+    }
+
+    func recordDecision(_ decision: FixPlanReviewDecision) async throws -> FixPlanDecisionWriteResult {
+        self.decision = decision
+        return .saved(decision)
+    }
+}
+
+private func makeStoredFixPlan(configuration: FixPlanConfigurationSnapshot) -> FixPlan? {
+    let track = Track(
+        id: "stored-track",
+        name: "Stored Track",
+        artist: "Stored Artist",
+        album: "Stored Album",
+        genre: "Rock",
+        year: 2000,
+        trackStatus: "purchased"
+    )
+    let proposal = ProposedChange(
+        track: track,
+        changeType: .yearUpdate,
+        oldValue: "2000",
+        newValue: "2001",
+        confidence: 73,
+        source: "test"
+    )
+    return FixPlanCapture.makePlan(
+        from: [proposal],
+        sourceRunID: RunID(),
+        scope: ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: nil,
+            createdAt: Date(timeIntervalSince1970: 1_800_000_100),
+            reason: "stored-plan-test"
+        ),
+        configuration: configuration,
+        createdAt: Date(timeIntervalSince1970: 1_800_000_100)
+    )
 }
 
 private func isAppError(_ state: AppState, containing expectedMessage: String) -> Bool {

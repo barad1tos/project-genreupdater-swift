@@ -568,6 +568,55 @@ final class AppDependencies {
         }
     }
 
+    func refreshFixPlanProjection() async -> FixPlanProjection {
+        let inputGeneration = await projectionStore.nextFixPlanInputGeneration()
+        let projection: FixPlanProjection
+        do {
+            projection = try await latestFixPlanProjection()
+        } catch {
+            projection = .unavailable(message: error.localizedDescription)
+        }
+        return await projectionStore.replaceFixPlanProjection(
+            projection,
+            inputGeneration: inputGeneration
+        )
+    }
+
+    private func latestFixPlanProjection() async throws -> FixPlanProjection {
+        guard let fixPlanStore else {
+            return .unavailable(message: "Fix plan store is unavailable")
+        }
+        guard let plan = try await fixPlanStore.latestPlan() else {
+            return .empty()
+        }
+        guard let decision = try await fixPlanStore.currentDecision(for: plan.id) else {
+            return .unavailable(
+                message: "Review decision is missing for fix plan \(plan.id.rawValue.uuidString)"
+            )
+        }
+
+        let now = Date()
+        let currentScope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: config.development.testArtists,
+            knownTrackCount: nil,
+            createdAt: now,
+            reason: "fixPlanProjectionRefresh"
+        )
+        let currentConfiguration = FixPlanConfigurationSnapshot.capture(
+            options: previewRunOptions(),
+            capturedAt: now
+        )
+        return FixPlanProjector.makeProjection(
+            plan: plan,
+            decision: decision,
+            staleness: FixPlanStaleness.evaluate(
+                plan: plan,
+                currentScope: currentScope,
+                currentConfiguration: currentConfiguration
+            )
+        )
+    }
+
     private func missingPreviewInputs() -> [String] {
         [
             updateCoordinator == nil ? "updateCoordinator" : nil,

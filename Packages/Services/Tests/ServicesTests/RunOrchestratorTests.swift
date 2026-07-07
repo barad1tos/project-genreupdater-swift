@@ -411,7 +411,9 @@ struct RunOrchestratorTests {
         let gate = SyncGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in },
+            persistRunRecord: { _ in
+                // This overlap test does not inspect persisted run history.
+            },
             produceFixPlan: { _, _ in
                 await gate.waitUntilReleased()
                 return .empty
@@ -656,7 +658,9 @@ private actor SyncGate {
     private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
 
     func waitUntilEntered() async {
-        if hasEntered { return }
+        if hasEntered {
+            return
+        }
 
         await withCheckedContinuation { continuation in
             enteredContinuations.append(continuation)
@@ -667,7 +671,9 @@ private actor SyncGate {
         hasEntered = true
         resumeEnteredContinuations()
 
-        if isReleased { return }
+        if isReleased {
+            return
+        }
 
         await withCheckedContinuation { continuation in
             releaseContinuations.append(continuation)

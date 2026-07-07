@@ -13,29 +13,37 @@ struct FixPlanAdapterTests {
         let projection = FixPlanProjection(
             revision: ProjectionRevision(2),
             status: .ready,
-            planID: FixPlanID(),
-            planRevision: FixPlanRevision(3),
-            decisionRevision: ReviewDecisionRevision(4),
-            sourceRunID: RunID(),
-            itemCount: 1,
-            acceptedCount: 1,
-            rejectedCount: 0,
-            genreCount: 0,
-            yearCount: 1,
-            averageConfidence: 91,
-            canApply: true,
+            lineage: FixPlanProjection.Lineage(
+                planID: FixPlanID(),
+                planRevision: FixPlanRevision(3),
+                decisionRevision: ReviewDecisionRevision(4),
+                sourceRunID: RunID()
+            ),
+            summary: FixPlanProjection.Summary(
+                itemCount: 1,
+                acceptedCount: 1,
+                rejectedCount: 0,
+                genreCount: 0,
+                yearCount: 1,
+                averageConfidence: 91,
+                canApply: true
+            ),
             stalenessReasons: [],
             items: [
                 FixPlanProjectionItem(
                     id: itemID,
-                    trackName: "Idioteque",
-                    artist: "Radiohead",
-                    album: "Kid A",
-                    changeType: Core.ChangeType.yearUpdate,
-                    oldValue: nil,
-                    newValue: "2000",
-                    confidence: 91,
-                    source: "MusicBrainz",
+                    identity: FixPlanProjectionItem.Identity(
+                        trackName: "Idioteque",
+                        artist: "Radiohead",
+                        album: "Kid A"
+                    ),
+                    change: FixPlanProjectionItem.Change(
+                        type: Core.ChangeType.yearUpdate,
+                        oldValue: nil,
+                        newValue: "2000",
+                        confidence: 91,
+                        source: "MusicBrainz"
+                    ),
                     verdict: .accepted
                 )
             ],

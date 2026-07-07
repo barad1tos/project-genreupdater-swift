@@ -59,6 +59,7 @@ struct DesignRootHostView: View {
         }
         .task {
             await startInitialLoadIfNeeded()
+            await refreshFixPlanProjection()
         }
         .task { await observeActivityProjectionUpdates() }
         .task { await observeReportsProjectionUpdates() }
@@ -695,6 +696,9 @@ struct DesignRootHostView: View {
             currentRunLifecycle = lifecycle
             await refreshActivityProjection()
             if !lifecycle.isActive {
+                if lifecycle.intent == .previewFixes {
+                    await refreshFixPlanProjection()
+                }
                 await refreshReportsProjection()
             }
         }
@@ -740,6 +744,15 @@ struct DesignRootHostView: View {
         guard projection.revision > fixPlanProjection.revision else { return false }
         fixPlanProjection = projection
         return true
+    }
+
+    @discardableResult
+    private func refreshFixPlanProjection() async -> FixPlanProjection {
+        let projection = await dependencies.refreshFixPlanProjection()
+        if applyFixPlanProjection(projection) {
+            await refreshActivityProjection()
+        }
+        return projection
     }
 
     private func observeFixPlanUpdates() async {

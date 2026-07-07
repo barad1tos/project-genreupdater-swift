@@ -103,17 +103,21 @@ struct ActivityInputBuilderTests {
         FixPlanProjection(
             revision: .initial,
             status: .ready,
-            planID: nil,
-            planRevision: nil,
-            decisionRevision: nil,
-            sourceRunID: nil,
-            itemCount: 4,
-            acceptedCount: 3,
-            rejectedCount: 1,
-            genreCount: 3,
-            yearCount: 1,
-            averageConfidence: 92,
-            canApply: true,
+            lineage: FixPlanProjection.Lineage(
+                planID: nil,
+                planRevision: nil,
+                decisionRevision: nil,
+                sourceRunID: nil
+            ),
+            summary: FixPlanProjection.Summary(
+                itemCount: 4,
+                acceptedCount: 3,
+                rejectedCount: 1,
+                genreCount: 3,
+                yearCount: 1,
+                averageConfidence: 92,
+                canApply: true
+            ),
             stalenessReasons: [],
             items: [],
             operationalIssues: []
