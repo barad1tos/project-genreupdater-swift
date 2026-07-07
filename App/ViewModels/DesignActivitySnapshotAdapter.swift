@@ -34,7 +34,7 @@ enum DesignActivitySnapshotAdapter {
 
         return DesignDataSnapshot(
             health: makeHealthSnapshot(from: dashboard, input: input),
-            pipelineActivity: ActivityProjectionDesignAdapter.makePipelineSnapshot(
+            pipelineActivity: ActivityDesignAdapter.makePipelineSnapshot(
                 from: activityProjection,
                 notice: activityNotice
             ),
@@ -42,7 +42,7 @@ enum DesignActivitySnapshotAdapter {
             coverage: makeCoverageBuckets(from: dashboard),
             issues: makeIssues(from: dashboard, input: input),
             metrics: makeMetricTiles(from: dashboard, input: input),
-            activity: ActivityProjectionDesignAdapter.makeActivityItems(from: activityProjection),
+            activity: ActivityDesignAdapter.makeActivityItems(from: activityProjection),
             // Browse data stays empty until a dedicated bridge slice maps it from persisted/library sources.
             artists: [],
             changes: [],

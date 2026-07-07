@@ -2,6 +2,7 @@ import Foundation
 
 public enum UserIntentCommandKind: String, Equatable, Sendable {
     case reviewChanges
+    case resumeRecovery
     case runManually
 }
 
@@ -16,6 +17,10 @@ public struct UserIntentCommand: Equatable, Sendable {
 
     public static func reviewChanges(id: UUID = UUID()) -> Self {
         Self(id: id, kind: .reviewChanges)
+    }
+
+    public static func resumeRecovery(id: UUID = UUID()) -> Self {
+        Self(id: id, kind: .resumeRecovery)
     }
 
     public static func runManually(id: UUID = UUID()) -> Self {
@@ -48,6 +53,7 @@ public enum CommandNavigationTarget: Equatable, Sendable {
     case activity
     case fixPlan(id: String)
     case report(id: String)
+    case recovery(runID: String?)
     case settings(section: CommandSettingsSection?)
 }
 

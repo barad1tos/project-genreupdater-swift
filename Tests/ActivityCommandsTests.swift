@@ -128,6 +128,46 @@ struct ActivityCommandsTests {
         #expect(harness.refreshCallCount == 1)
     }
 
+    @Test("resume recovery navigates to recovery notice")
+    func resumeRecoveryNavigates() async {
+        let harness = Harness(projection: makeRecoveryProjection(revision: ProjectionRevision(2)))
+        let controller = harness.makeController()
+
+        let result = await controller.handle(.resumeRecovery())
+
+        #expect(result.status == .navigated)
+        #expect(result.message == "Opening recovery.")
+        #expect(result.navigationTarget == .recovery(runID: "run-1"))
+        #expect(harness.submitRunCallCount == 0)
+        #expect(harness.reloadCallCount == 0)
+        #expect(harness.refreshCallCount == 1)
+    }
+
+    @Test("primary resolver dispatches recovery command")
+    func primaryDispatchesRecovery() {
+        let command = ActivityCommandController.command(for: makeRecoveryProjection(
+            revision: ProjectionRevision(2)
+        ).primaryCommand)
+
+        #expect(command?.kind == .resumeRecovery)
+    }
+
+    @Test("resume recovery reports library blocker")
+    func recoveryReportsBlocker() async {
+        let harness = Harness(projection: blockedRecoveryProjection(revision: ProjectionRevision(2)))
+        let controller = harness.makeController()
+
+        let result = await controller.handle(.resumeRecovery())
+
+        #expect(result.status == .temporaryUnavailable)
+        #expect(result.message == "Music permission required")
+        #expect(result.issue?.category == .musicPermissionRequired)
+        #expect(result.navigationTarget == nil)
+        #expect(harness.submitRunCallCount == 0)
+        #expect(harness.reloadCallCount == 0)
+        #expect(harness.refreshCallCount == 1)
+    }
+
     @Test("run manually submits during recovery hold")
     func runManuallySubmitsDuringRecoveryHold() async {
         let harness = Harness(projection: makeRecoveryProjection(revision: ProjectionRevision(2)))
@@ -293,7 +333,13 @@ private func makeRecoveryProjection(revision: ProjectionRevision) -> ActivityPro
         protectedCount: 0,
         failedWriteCount: 0,
         isUndoReady: false,
-        primaryCommand: nil,
+        primaryCommand: ActivityCommandDescriptor(
+            id: "resume-recovery",
+            title: "Resume safely",
+            style: .primary,
+            isEnabled: true,
+            commandKind: .resumeRecovery
+        ),
         secondaryCommand: ActivityCommandDescriptor(
             id: "run-manually",
             title: "Run manually",
@@ -310,6 +356,42 @@ private func makeRecoveryProjection(revision: ProjectionRevision) -> ActivityPro
                 category: .recoveryRequired,
                 summary: "Previous run needs recovery",
                 technicalDetail: "run-1"
+            ),
+        ]
+    )
+}
+
+private func blockedRecoveryProjection(revision: ProjectionRevision) -> ActivityProjection {
+    ActivityProjection(
+        revision: revision,
+        title: "Library needs attention",
+        subtitle: "Music access denied",
+        syncStatusText: "Synced 8m ago",
+        currentStage: .detect,
+        processingMode: .preview,
+        automationState: .manualScanOnly,
+        deltaCount: 0,
+        interventionCount: 0,
+        protectedCount: 0,
+        failedWriteCount: 0,
+        isUndoReady: false,
+        primaryCommand: nil,
+        secondaryCommand: ActivityCommandDescriptor(
+            id: "run-manually",
+            title: "Run manually",
+            style: .secondary,
+            isEnabled: true,
+            commandKind: .runManually
+        ),
+        stageDescriptors: [],
+        recentActivity: [],
+        summaryCards: [],
+        operationalIssues: [
+            OperationalIssue(
+                id: "music-permission-required",
+                category: .musicPermissionRequired,
+                summary: "Music permission required",
+                technicalDetail: "Music access denied"
             ),
         ]
     )

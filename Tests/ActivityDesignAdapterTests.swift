@@ -5,15 +5,15 @@ import Services
 import Testing
 @testable import Genre_Updater
 
-@Suite("ActivityProjectionDesignAdapter")
-struct ActivityProjectionDesignAdapterTests {
+@Suite("ActivityDesignAdapter")
+struct ActivityDesignAdapterTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_480)
 
     @Test("maps projection fields to pipeline snapshot")
     func mapsProjectionFieldsToPipelineSnapshot() throws {
         let projection = makeProjection()
 
-        let snapshot = ActivityProjectionDesignAdapter.makePipelineSnapshot(from: projection)
+        let snapshot = ActivityDesignAdapter.makePipelineSnapshot(from: projection)
 
         #expect(snapshot.title == "Fix plan ready")
         #expect(snapshot.subtitle == "7 candidate fixes \u{00B7} preview mode \u{00B7} no Music tags written")
@@ -40,15 +40,52 @@ struct ActivityProjectionDesignAdapterTests {
         #expect(snapshot.detail(for: .diff) == "Current delta")
     }
 
+    @Test("maps recovery command to resume action")
+    func mapsRecoveryAction() {
+        let projection = ActivityProjection(
+            revision: .initial.advanced(),
+            title: "Recovery needed",
+            subtitle: "Previous run needs recovery before writes continue",
+            syncStatusText: "Recovery needed",
+            currentStage: .fix,
+            processingMode: .preview,
+            automationState: .manualScanOnly,
+            deltaCount: 0,
+            interventionCount: 0,
+            protectedCount: 0,
+            failedWriteCount: 0,
+            isUndoReady: false,
+            primaryCommand: ActivityCommandDescriptor(
+                id: "resume-recovery",
+                title: "Resume safely",
+                style: .primary,
+                isEnabled: true,
+                commandKind: .resumeRecovery
+            ),
+            secondaryCommand: nil,
+            stageDescriptors: [],
+            recentActivity: [],
+            summaryCards: [],
+            operationalIssues: []
+        )
+
+        let snapshot = ActivityDesignAdapter.makePipelineSnapshot(from: projection)
+
+        #expect(snapshot.primaryAction.title == "Resume safely")
+        #expect(snapshot.primaryAction.symbol == "shield.checkerboard")
+        #expect(snapshot.primaryAction.style == .primary)
+        #expect(snapshot.primaryAction.isEnabled)
+    }
+
     @Test("notice overrides subtitle; nil notice keeps the projection subtitle")
     func noticeOverridesSubtitleAndNilNoticeKeepsProjectionSubtitle() {
         let projection = makeProjection(subtitle: "Projection subtitle")
 
-        let withNotice = ActivityProjectionDesignAdapter.makePipelineSnapshot(
+        let withNotice = ActivityDesignAdapter.makePipelineSnapshot(
             from: projection,
             notice: "Custom notice"
         )
-        let withoutNotice = ActivityProjectionDesignAdapter.makePipelineSnapshot(from: projection, notice: nil)
+        let withoutNotice = ActivityDesignAdapter.makePipelineSnapshot(from: projection, notice: nil)
 
         #expect(withNotice.subtitle == "Custom notice")
         #expect(withoutNotice.subtitle == "Projection subtitle")
@@ -58,7 +95,7 @@ struct ActivityProjectionDesignAdapterTests {
     func mapsSemanticDeltaDetailFromProjectionSummaryCards() {
         let projection = makeProjection(deltaDetail: "library changes")
 
-        let snapshot = ActivityProjectionDesignAdapter.makePipelineSnapshot(from: projection)
+        let snapshot = ActivityDesignAdapter.makePipelineSnapshot(from: projection)
 
         #expect(snapshot.deltaCount == 7)
         #expect(snapshot.deltaDetail == "library changes")
@@ -71,7 +108,7 @@ struct ActivityProjectionDesignAdapterTests {
             ActivityRecentItem(id: "library-sync", title: "Library sync", detail: "7 library changes detected"),
         ])
 
-        let items = ActivityProjectionDesignAdapter.makeActivityItems(from: projection)
+        let items = ActivityDesignAdapter.makeActivityItems(from: projection)
 
         #expect(items.map(\.id) == ["scan", "library-sync"])
         #expect(items.first?.title == "Library scan")
@@ -117,11 +154,11 @@ struct ActivityProjectionDesignAdapterTests {
         )
 
         #expect(firstSnapshot.pipelineActivity
-            == ActivityProjectionDesignAdapter.makePipelineSnapshot(from: firstProjection))
+            == ActivityDesignAdapter.makePipelineSnapshot(from: firstProjection))
         #expect(secondSnapshot.pipelineActivity
-            == ActivityProjectionDesignAdapter.makePipelineSnapshot(from: secondProjection))
-        #expect(firstSnapshot.activity == ActivityProjectionDesignAdapter.makeActivityItems(from: firstProjection))
-        #expect(secondSnapshot.activity == ActivityProjectionDesignAdapter.makeActivityItems(from: secondProjection))
+            == ActivityDesignAdapter.makePipelineSnapshot(from: secondProjection))
+        #expect(firstSnapshot.activity == ActivityDesignAdapter.makeActivityItems(from: firstProjection))
+        #expect(secondSnapshot.activity == ActivityDesignAdapter.makeActivityItems(from: secondProjection))
         #expect(firstSnapshot.syncStatusText == "First sync")
         #expect(secondSnapshot.syncStatusText == "Second sync")
         #expect(firstSnapshot.pipelineActivity != secondSnapshot.pipelineActivity)

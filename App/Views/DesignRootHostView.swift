@@ -42,7 +42,7 @@ struct DesignRootHostView: View {
         RootView(
             data: snapshot,
             selectedRoute: $selectedRoute,
-            pipelinePrimaryAction: reviewActivityChanges,
+            pipelinePrimaryAction: runPrimaryCommand,
             pipelineSecondaryAction: runManualSync,
             setDryRunAction: setDryRunMode,
             setUpdateBehaviorAction: setDefaultUpdateBehavior,
@@ -375,10 +375,11 @@ struct DesignRootHostView: View {
         workflowViewModel.start(tracks: scopedLibraryTracks)
     }
 
-    private func reviewActivityChanges() {
+    private func runPrimaryCommand() {
+        guard let command = ActivityCommandController.command(for: activityProjection.primaryCommand) else { return }
         clearActivityCommandNotice()
         Task { @MainActor in
-            await reviewActivityChangesCommand()
+            await runActivityCommand(command)
         }
     }
 
@@ -808,15 +809,11 @@ struct DesignRootHostView: View {
 
     @discardableResult
     private func runManualSyncCommand() async -> UserCommandResult {
-        let command = UserIntentCommand.runManually()
-        let result = await activityCommandController.handle(command)
-        handleActivityCommandResult(result)
-        return result
+        await runActivityCommand(.runManually())
     }
 
     @discardableResult
-    private func reviewActivityChangesCommand() async -> UserCommandResult {
-        let command = UserIntentCommand.reviewChanges()
+    private func runActivityCommand(_ command: UserIntentCommand) async -> UserCommandResult {
         let result = await activityCommandController.handle(command)
         handleActivityCommandResult(result)
         return result
@@ -834,10 +831,14 @@ struct DesignRootHostView: View {
         switch target {
         case .fixPlan:
             selectedRoute = .update
+        case let .recovery(runID):
+            selectedRoute = .reports
+            selectRunReport(runID)
         case .activity:
             selectedRoute = .activity
-        case .report:
+        case let .report(id):
             selectedRoute = .reports
+            selectRunReport(id)
         case .settings:
             selectedRoute = .settings
         case nil:

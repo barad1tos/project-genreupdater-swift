@@ -306,7 +306,11 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.syncStatusText == "Recovery needed")
         #expect(projection.currentStage == .fix)
         #expect(projection.status(for: .fix) == .gated)
-        #expect(projection.primaryCommand == nil)
+        #expect(projection.primaryCommand?.id == "resume-recovery")
+        #expect(projection.primaryCommand?.title == "Resume safely")
+        #expect(projection.primaryCommand?.style == .primary)
+        #expect(projection.primaryCommand?.isEnabled == true)
+        #expect(projection.primaryCommand?.commandKind == .resumeRecovery)
         #expect(projection.secondaryCommand?.commandKind == .runManually)
         #expect(projection.secondaryCommand?.isEnabled == true)
         #expect(issue.category == .recoveryRequired)
@@ -328,6 +332,8 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.syncStatusText == "Synced 8m ago")
         #expect(projection.currentStage == .detect)
         #expect(projection.status(for: .fix) == .pending)
+        #expect(projection.operationalIssues.first?.category == .musicPermissionRequired)
+        #expect(projection.operationalIssues.first?.summary == "Music permission required")
         #expect(projection.operationalIssues.allSatisfy { $0.category != .recoveryRequired })
     }
 
