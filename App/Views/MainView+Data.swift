@@ -218,14 +218,7 @@ extension MainView {
     }
 
     var configuredUpdateSelection: (updateGenre: Bool, updateYear: Bool) {
-        switch UpdateBehavior(rawValue: defaultUpdateBehavior) ?? .both {
-        case .genreOnly:
-            (true, false)
-        case .yearOnly:
-            (false, true)
-        case .both:
-            (true, true)
-        }
+        UpdateBehavior.resolved(from: defaultUpdateBehavior).enabledTargets
     }
 
     var configuredPreviewOnly: Bool {
@@ -233,8 +226,9 @@ extension MainView {
     }
 
     var configuredMinConfidence: Double {
-        let configuredValue = dependencies.config.yearRetrieval.logic.minConfidenceForNewYear / 100
-        return min(max(configuredValue, 0.3), 1.0)
+        UpdateOptions.clampedConfidenceRatio(
+            dependencies.config.yearRetrieval.logic.minConfidenceForNewYear / 100
+        )
     }
 
     func applyWorkflowDefaults() {
@@ -439,9 +433,15 @@ func makeDashboardMetricsSnapshotValues(
         let hasGenre = GenreUtilities.hasPresentGenre(track.genre)
         let hasYear = track.year != nil
 
-        if hasGenre { genreCount += 1 }
-        if hasYear { yearCount += 1 }
-        if hasGenre, hasYear { bothCount += 1 }
+        if hasGenre {
+            genreCount += 1
+        }
+        if hasYear {
+            yearCount += 1
+        }
+        if hasGenre, hasYear {
+            bothCount += 1
+        }
 
         if let dateAdded = track.dateAdded,
            let cutoff = sevenDaysAgo,

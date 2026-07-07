@@ -274,7 +274,9 @@ public struct ReportsChangeLog: View {
                 sessionStart = entry.timestamp
             } else {
                 currentEntries.append(entry)
-                if sessionStart == nil { sessionStart = entry.timestamp }
+                if sessionStart == nil {
+                    sessionStart = entry.timestamp
+                }
             }
         }
 

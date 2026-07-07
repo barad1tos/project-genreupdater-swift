@@ -8,10 +8,17 @@ struct RunLifecycleTests {
     func stateRawValuesAreStable() {
         #expect(RunLifecycleState.created.rawValue == "created")
         #expect(RunLifecycleState.syncingLibrary.rawValue == "syncingLibrary")
+        #expect(RunLifecycleState.planningFixes.rawValue == "planningFixes")
         #expect(RunLifecycleState.reporting.rawValue == "reporting")
         #expect(RunLifecycleState.completed.rawValue == "completed")
         #expect(RunLifecycleState.completedNoOp.rawValue == "completedNoOp")
         #expect(RunLifecycleState.failed.rawValue == "failed")
+    }
+
+    @Test("intent raw values are stable")
+    func intentRawValuesAreStable() {
+        #expect(RunIntent.observeLibrary.rawValue == "observeLibrary")
+        #expect(RunIntent.previewFixes.rawValue == "previewFixes")
     }
 
     @Test("legacy transitions blob decodes")
@@ -34,7 +41,7 @@ struct RunLifecycleTests {
     @Test("all cases round trip through Codable")
     func allCasesRoundTripThroughCodable() throws {
         let states: [RunLifecycleState] = [
-            .created, .syncingLibrary, .reporting, .completed, .completedNoOp, .failed,
+            .created, .syncingLibrary, .planningFixes, .reporting, .completed, .completedNoOp, .failed,
         ]
 
         for state in states {

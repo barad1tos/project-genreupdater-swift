@@ -109,6 +109,18 @@ public struct UpdateOptions: Sendable {
         self.minConfidence = minConfidence
         self.autoAccept = autoAccept
     }
+
+    /// Returns the workflow confidence threshold as a rounded percentage.
+    public static func clampedConfidencePercent(fromRatio confidence: Double) -> Int {
+        Int((clampedConfidenceRatio(confidence) * 100).rounded())
+    }
+
+    /// Clamps confidence to the workflow-supported 0.3...1.0 range.
+    ///
+    /// The floor preserves the app's minimum accepted year-lookup confidence; the ceiling is the natural ratio maximum.
+    public static func clampedConfidenceRatio(_ confidence: Double) -> Double {
+        min(max(confidence, 0.3), 1.0)
+    }
 }
 
 /// Runtime configuration applied by update workflows.

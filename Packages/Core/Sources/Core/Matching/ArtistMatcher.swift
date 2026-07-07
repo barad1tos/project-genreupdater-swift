@@ -180,7 +180,9 @@ public func fuzzyArtistMatch(
     let norm2 = normalizeArtistForMatching(artist2)
 
     // Exact match after normalization
-    if norm1 == norm2 { return true }
+    if norm1 == norm2 {
+        return true
+    }
 
     // CJK artists: use exact match only (fuzzy less reliable for ideographic scripts)
     if isCJK(norm1) || isCJK(norm2) {

@@ -34,7 +34,9 @@ extension UpdateCoordinator {
             track: track,
             albumTracks: albumTracks,
             forceYearLookup: forceYearLookup
-        ) { return nil }
+        ) {
+            return nil
+        }
 
         let releaseYearConflict = releaseYearConflict(
             for: track,

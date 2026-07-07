@@ -1,4 +1,4 @@
-// AppDependencies+LibraryServices.swift -- library cache, sync, and maintenance helpers.
+// LibraryServices.swift -- library cache, sync, and maintenance helpers.
 
 import Core
 import Foundation
@@ -6,7 +6,7 @@ import Services
 
 private let libraryServicesLog = AppLogger.make(category: "dependencies")
 
-private enum AppDependencyServiceError: LocalizedError {
+enum AppDependencyServiceError: LocalizedError, Equatable {
     case librarySyncUnavailable
     case runOrchestratorUnavailable
 
@@ -113,15 +113,30 @@ extension AppDependencies {
     }
 
     func submitManualObservationRun() async throws -> RunSubmissionResult {
+        try await submitRun { knownTrackCount in
+            .manualObservation(
+                requestedTestArtists: config.development.testArtists,
+                knownTrackCount: knownTrackCount
+            )
+        }
+    }
+
+    func submitPreviewRun() async throws -> RunSubmissionResult {
+        try await submitRun { knownTrackCount in
+            .manualPreview(
+                requestedTestArtists: config.development.testArtists,
+                knownTrackCount: knownTrackCount
+            )
+        }
+    }
+
+    private func submitRun(makeRequest: (Int?) -> RunRequest) async throws -> RunSubmissionResult {
         guard let runOrchestrator else {
             throw AppDependencyServiceError.runOrchestratorUnavailable
         }
 
         let knownTrackCount = await currentKnownTrackCount()
-        return await runOrchestrator.submit(.manualObservation(
-            requestedTestArtists: config.development.testArtists,
-            knownTrackCount: knownTrackCount
-        ))
+        return await runOrchestrator.submit(makeRequest(knownTrackCount))
     }
 
     func currentRunLifecycle() async -> RunLifecycleSnapshot? {

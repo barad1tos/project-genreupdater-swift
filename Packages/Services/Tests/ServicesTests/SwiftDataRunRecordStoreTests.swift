@@ -21,6 +21,43 @@ struct SwiftDataRunRecordStoreTests {
         #expect(loaded == [record])
     }
 
+    @Test("upsert round-trips preview intent and planning transition")
+    func upsertRoundTripsPreviewPlanning() async throws {
+        let store = try makeStore()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let finishedAt = Date(timeIntervalSince1970: 104)
+        let record = RunRecord(
+            runID: RunID(),
+            requestID: RunRequestID(),
+            trigger: .manualCheck,
+            intent: .previewFixes,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: ["Aphex Twin"],
+                knownTrackCount: 75,
+                createdAt: startedAt,
+                reason: "manualCheck"
+            ),
+            transitions: [
+                RunLifecycleTransition(state: .created, timestamp: startedAt),
+                RunLifecycleTransition(state: .syncingLibrary, timestamp: startedAt.addingTimeInterval(1)),
+                RunLifecycleTransition(state: .planningFixes, timestamp: startedAt.addingTimeInterval(2)),
+                RunLifecycleTransition(state: .reporting, timestamp: startedAt.addingTimeInterval(3)),
+                RunLifecycleTransition(state: .completed, timestamp: finishedAt),
+            ],
+            syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 0),
+            failureMessage: nil,
+            startedAt: startedAt,
+            finishedAt: finishedAt
+        )
+
+        try await store.upsert(record)
+        let loaded = try await store.loadAll()
+
+        #expect(loaded == [record])
+        #expect(loaded.first?.intent == .previewFixes)
+        #expect(loaded.first?.transitions.map(\.state).contains(.planningFixes) == true)
+    }
+
     @Test("upsert with the same run updates the open record to final")
     func upsertSameRunUpdatesOpenRecordToFinal() async throws {
         let store = try makeStore()

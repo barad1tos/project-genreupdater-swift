@@ -34,6 +34,22 @@ struct RunReportDetailBuilderTests {
         ])
     }
 
+    @Test("preview no-op omits library delta from detail summary")
+    func previewHidesDelta() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .completedNoOp,
+            syncSummary: ActivitySyncSummary(new: 2, modified: 3, identityChanged: 0, refreshed: 0, removed: 0),
+            intent: .previewFixes
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.stateLabel == "Completed · no changes")
+        #expect(detail.summaryItems.isEmpty)
+    }
+
     @Test("reporting transition renders reporting stage")
     func reportingTransitionRendersReportingStage() {
         let record = makeRunRecord(
@@ -47,6 +63,21 @@ struct RunReportDetailBuilderTests {
 
         #expect(detail.state == .running)
         #expect(detail.transitions.map(\.stageLabel) == ["Created", "Syncing library", "Reporting"])
+    }
+
+    @Test("planning fixes transition renders planning fixes stage")
+    func planningFixesTransitionRendersPlanningFixesStage() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .planningFixes,
+            syncSummary: nil
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.state == .running)
+        #expect(detail.transitions.map(\.stageLabel) == ["Created", "Syncing library", "Planning fixes"])
     }
 
     @Test("running detail omits duration")
@@ -249,7 +280,8 @@ struct RunReportDetailBuilderTests {
         state: RunLifecycleState,
         syncSummary: ActivitySyncSummary?,
         failureMessage: String? = nil,
-        scope: ProcessingScopeSnapshot? = nil
+        scope: ProcessingScopeSnapshot? = nil,
+        intent: RunIntent = .observeLibrary
     ) -> RunRecord {
         var transitions = [
             RunLifecycleTransition(state: .created, timestamp: startedAt),
@@ -266,7 +298,7 @@ struct RunReportDetailBuilderTests {
             runID: runID,
             requestID: RunRequestID(),
             trigger: trigger,
-            intent: .observeLibrary,
+            intent: intent,
             scope: scope ?? ProcessingScopeSnapshot.capture(
                 requestedTestArtists: [],
                 knownTrackCount: nil,

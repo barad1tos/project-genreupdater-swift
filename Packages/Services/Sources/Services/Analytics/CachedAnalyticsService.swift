@@ -88,9 +88,15 @@ public actor CachedAnalyticsService: AnalyticsService {
 
     private func durationBucket(for seconds: Double) -> String {
         let thresholds = configuration.durationThresholds
-        if seconds <= thresholds.shortMax { return "short" }
-        if seconds <= thresholds.mediumMax { return "medium" }
-        if seconds <= thresholds.longMax { return "long" }
+        if seconds <= thresholds.shortMax {
+            return "short"
+        }
+        if seconds <= thresholds.mediumMax {
+            return "medium"
+        }
+        if seconds <= thresholds.longMax {
+            return "long"
+        }
         return "very_long"
     }
 }

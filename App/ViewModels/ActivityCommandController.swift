@@ -10,6 +10,7 @@ struct ActivityCommandController {
     let submitManualObservationRun: () async throws -> RunSubmissionResult
     let reloadLibrary: (_ forceRefresh: Bool) async -> Void
     let refreshActivityProjection: () async -> ActivityProjection
+    let currentFixPlanID: () -> String?
 
     func handle(_ command: UserIntentCommand) async -> UserCommandResult {
         switch command.kind {
@@ -25,7 +26,7 @@ struct ActivityCommandController {
             }
             return UserCommandResult.navigated(
                 message: "Opening review.",
-                navigationTarget: .fixPlan(id: "current"),
+                navigationTarget: .fixPlan(id: currentFixPlanID() ?? "current"),
                 refreshedActivityProjection: projection
             )
         case .runManually:

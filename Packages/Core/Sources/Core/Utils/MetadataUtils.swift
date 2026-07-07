@@ -74,7 +74,9 @@ public func stripAlbumSuffixes(_ album: String, suffixes: [String]) -> String {
             matched = true
             break
         }
-        if !matched { break }
+        if !matched {
+            break
+        }
     }
 
     return cleaned

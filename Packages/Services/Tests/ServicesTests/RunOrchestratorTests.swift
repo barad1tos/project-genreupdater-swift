@@ -209,6 +209,240 @@ struct RunOrchestratorTests {
         #expect(final.failureMessage == nil)
     }
 
+    @Test("preview run syncs first, plans fixes, and persists preview intent")
+    func previewProducesPlan() async throws {
+        let clock = ClockProbe()
+        let probe = RunRecordProbe()
+        let producer = FixPlanProducerProbe(production: FixPlanProduction(
+            planID: FixPlanID(),
+            proposalCount: 2
+        ))
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await probe.append($0) },
+            produceFixPlan: { try await producer.produce(runID: $0, scope: $1) },
+            now: { clock.now() }
+        ))
+
+        let result = await orchestrator.submit(.manualPreview(
+            requestedTestArtists: [" Aphex Twin "],
+            knownTrackCount: 75
+        ))
+
+        guard case .completed = result else {
+            Issue.record("Expected completed, got \(result)")
+            return
+        }
+
+        let call = try #require(await producer.calls.first)
+        #expect(call.runID == result.lifecycle.runID)
+        #expect(call.scope == result.lifecycle.scope)
+
+        let final = try #require(await probe.records.last)
+        #expect(final.intent == .previewFixes)
+        #expect(final.transitions.map(\.state) == [
+            .created,
+            .syncingLibrary,
+            .planningFixes,
+            .reporting,
+            .completed,
+        ])
+        #expect(final.syncSummary?.changeCount == 0)
+        #expect(final.finishedAt == result.lifecycle.finishedAt)
+    }
+
+    @Test("preview run with an empty production finishes no-op even when sync changed")
+    func previewEmptyFinishesNoOp() async throws {
+        let probe = RunRecordProbe()
+        let producer = FixPlanProducerProbe(production: .empty)
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                SyncResult(newTracks: [
+                    Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
+                ])
+            },
+            persistRunRecord: { try await probe.append($0) },
+            produceFixPlan: { try await producer.produce(runID: $0, scope: $1) },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let result = await orchestrator.submit(.manualPreview(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+
+        guard case .completedNoOp = result else {
+            Issue.record("Expected completedNoOp, got \(result)")
+            return
+        }
+
+        let final = try #require(await probe.records.last)
+        #expect(final.state == .completedNoOp)
+        #expect(final.syncSummary?.changeCount == 1)
+        #expect(final.transitions.map(\.state) == [
+            .created,
+            .syncingLibrary,
+            .planningFixes,
+            .reporting,
+            .completedNoOp,
+        ])
+    }
+
+    @Test("preview run records producer failures after the planning stage")
+    func producerFailureFailsPreview() async throws {
+        let probe = RunRecordProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await probe.append($0) },
+            produceFixPlan: { _, _ in throw ProbeError(message: "Plan store unavailable") },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let result = await orchestrator.submit(.manualPreview(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+
+        guard case .failed = result else {
+            Issue.record("Expected failed, got \(result)")
+            return
+        }
+
+        let final = try #require(await probe.records.last)
+        #expect(final.state == .failed)
+        #expect(final.failureMessage == "Plan store unavailable")
+        #expect(final.transitions.map(\.state) == [
+            .created,
+            .syncingLibrary,
+            .planningFixes,
+            .reporting,
+            .failed,
+        ])
+    }
+
+    @Test("preview run records producer cancellation after the planning stage")
+    func planningCancellationFails() async throws {
+        let probe = RunRecordProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await probe.append($0) },
+            produceFixPlan: { _, _ in throw CancellationError() },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let result = await orchestrator.submit(.manualPreview(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+
+        guard case .failed = result else {
+            Issue.record("Expected failed, got \(result)")
+            return
+        }
+
+        let final = try #require(await probe.records.last)
+        #expect(final.state == .failed)
+        #expect(final.failureMessage == "Run cancelled")
+        #expect(final.transitions.map(\.state) == [
+            .created,
+            .syncingLibrary,
+            .planningFixes,
+            .reporting,
+            .failed,
+        ])
+    }
+
+    @Test("preview run without a producer fails fast after sync")
+    func previewWithoutProducerFails() async throws {
+        let probe = RunRecordProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await probe.append($0) },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let result = await orchestrator.submit(.manualPreview(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+
+        guard case .failed = result else {
+            Issue.record("Expected failed, got \(result)")
+            return
+        }
+
+        let final = try #require(await probe.records.last)
+        #expect(final.failureMessage == "Fix plan producer is unavailable")
+        #expect(final.transitions.map(\.state) == [
+            .created,
+            .syncingLibrary,
+            .reporting,
+            .failed,
+        ])
+    }
+
+    @Test("manual observation never calls the fix plan producer")
+    func observationSkipsProducer() async throws {
+        let probe = RunRecordProbe()
+        let producer = FixPlanProducerProbe(production: FixPlanProduction(
+            planID: FixPlanID(),
+            proposalCount: 1
+        ))
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await probe.append($0) },
+            produceFixPlan: { try await producer.produce(runID: $0, scope: $1) },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let result = await orchestrator.submit(.manualObservation(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+
+        #expect(result.lifecycle.state == .completedNoOp)
+        #expect(await producer.calls.isEmpty)
+        let final = try #require(await probe.records.last)
+        #expect(final.transitions.map(\.state) == [.created, .syncingLibrary, .reporting, .completedNoOp])
+    }
+
+    @Test("active preview run rejects overlapping submissions")
+    func previewRejectsOverlap() async {
+        let gate = SyncGate()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in
+                // This overlap test does not inspect persisted run history.
+            },
+            produceFixPlan: { _, _ in
+                await gate.waitUntilReleased()
+                return .empty
+            },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let first = Task {
+            await orchestrator.submit(.manualPreview(
+                requestedTestArtists: [],
+                knownTrackCount: nil
+            ))
+        }
+        await gate.waitUntilEntered()
+
+        let second = await orchestrator.submit(.manualPreview(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+        await gate.release()
+        _ = await first.value
+
+        guard case let .alreadyRunning(snapshot) = second else {
+            Issue.record("Expected alreadyRunning, got \(second)")
+            return
+        }
+        #expect(snapshot.state == .planningFixes)
+    }
+
     @Test("failed run persists a failure record")
     func failedRunPersistsFailureRecord() async throws {
         let probe = RunRecordProbe()
@@ -398,6 +632,25 @@ private final class ClockProbe: @unchecked Sendable {
     }
 }
 
+private struct FixPlanProducerCall: Equatable {
+    let runID: RunID
+    let scope: ProcessingScopeSnapshot
+}
+
+private actor FixPlanProducerProbe {
+    private(set) var calls: [FixPlanProducerCall] = []
+    private let production: FixPlanProduction
+
+    init(production: FixPlanProduction) {
+        self.production = production
+    }
+
+    func produce(runID: RunID, scope: ProcessingScopeSnapshot) throws -> FixPlanProduction {
+        calls.append(FixPlanProducerCall(runID: runID, scope: scope))
+        return production
+    }
+}
+
 private actor SyncGate {
     private var hasEntered = false
     private var isReleased = false
@@ -405,7 +658,9 @@ private actor SyncGate {
     private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
 
     func waitUntilEntered() async {
-        if hasEntered { return }
+        if hasEntered {
+            return
+        }
 
         await withCheckedContinuation { continuation in
             enteredContinuations.append(continuation)
@@ -416,7 +671,9 @@ private actor SyncGate {
         hasEntered = true
         resumeEnteredContinuations()
 
-        if isReleased { return }
+        if isReleased {
+            return
+        }
 
         await withCheckedContinuation { continuation in
             releaseContinuations.append(continuation)

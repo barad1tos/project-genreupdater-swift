@@ -14,7 +14,7 @@ public enum RunReportDetailBuilder {
             durationLabel: ReportsRunLabels.durationLabel(startedAt: record.startedAt, finishedAt: record.finishedAt),
             scopeLines: makeScopeLines(from: record.scope),
             transitions: makeTransitions(from: record.transitions, now: now),
-            summaryItems: makeSummaryItems(from: record.syncSummary),
+            summaryItems: makeSummaryItems(from: record.syncSummary, intent: record.intent),
             failureMessage: ReportsRunLabels.failureSummary(state: state, failureMessage: record.failureMessage)
         )
     }
@@ -57,7 +57,11 @@ public enum RunReportDetailBuilder {
         }
     }
 
-    private static func makeSummaryItems(from summary: ActivitySyncSummary?) -> [RunReportSummaryItem] {
+    private static func makeSummaryItems(
+        from summary: ActivitySyncSummary?,
+        intent: RunIntent
+    ) -> [RunReportSummaryItem] {
+        guard ReportsRunLabels.showsSyncSummary(for: intent) else { return [] }
         guard let summary else { return [] }
         return [
             RunReportSummaryItem(id: "summary-new", label: "New", value: summary.new.formatted()),

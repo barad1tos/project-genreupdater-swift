@@ -2,7 +2,7 @@ import Core
 import Foundation
 import Services
 
-struct ActivityProjectionAssemblyContext {
+struct ActivityInputContext {
     let tracks: [Core.Track]
     let metricsSnapshot: PersistedMetricsSnapshot?
     let lastScanDate: Date?
@@ -10,6 +10,7 @@ struct ActivityProjectionAssemblyContext {
     let isLoading: Bool
     let isDryRun: Bool
     let workflow: WorkflowDashboardState
+    let fixPlanProjection: FixPlanProjection
     let pendingVerification: UpdateRunPendingVerificationSummary?
     let runLifecycle: RunLifecycleSnapshot?
     let isLibrarySyncAvailable: Bool
@@ -17,8 +18,8 @@ struct ActivityProjectionAssemblyContext {
     let now: Date
 }
 
-enum ActivityProjectionInputAssembler {
-    static func makeInput(from context: ActivityProjectionAssemblyContext) -> ActivityProjectionInput {
+enum ActivityInputBuilder {
+    static func makeInput(from context: ActivityInputContext) -> ActivityProjectionInput {
         ActivityProjectionInput(
             tracks: context.tracks,
             metrics: makeMetrics(from: context.metricsSnapshot),
@@ -30,6 +31,7 @@ enum ActivityProjectionInputAssembler {
             ),
             processingMode: context.isDryRun ? .preview : .autoFix,
             workflow: makeWorkflowState(from: context.workflow),
+            fixPlan: makeFixPlanSummary(from: context.fixPlanProjection),
             pendingVerification: makePendingVerification(from: context.pendingVerification),
             runLifecycle: context.runLifecycle,
             isLibrarySyncAvailable: context.isLibrarySyncAvailable,
@@ -78,6 +80,11 @@ enum ActivityProjectionInputAssembler {
             isProcessing: workflow.isProcessing,
             phaseLabel: workflow.phaseLabel
         )
+    }
+
+    private static func makeFixPlanSummary(from projection: FixPlanProjection) -> ActivityFixPlanSummary? {
+        guard projection.status != .empty else { return nil }
+        return ActivityFixPlanSummary(projection: projection)
     }
 
     private static func makePendingVerification(

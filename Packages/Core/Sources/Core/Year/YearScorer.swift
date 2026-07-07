@@ -128,9 +128,7 @@ public struct YearScorer: Sendable {
         breakdown.sourceReliability = scoreSourceReliability(candidate.source)
 
         // 13. Future year penalty
-        let calendarYear = Calendar.current.component(
-            Calendar.Component.year, from: Date()
-        )
+        let calendarYear = Calendar.current.component(.year, from: Date())
         breakdown.futureYearPenalty = candidate.year > calendarYear
             ? config.futureYearPenalty : 0
 
@@ -168,18 +166,8 @@ public struct YearScorer: Sendable {
             return YearResult()
         }
 
-        // Step 1: Dedup — MAX score per year
-        var bestPerYear: [Int: Int] = [:]
-        for release in scored {
-            let year = release.candidate.year
-            bestPerYear[year] = max(bestPerYear[year] ?? Int.min, release.totalScore)
-        }
-
-        // Step 2: Sort by score DESC, then year ASC
-        let sortedYears = bestPerYear.sorted { lhs, rhs in
-            if lhs.value != rhs.value { return lhs.value > rhs.value }
-            return lhs.key < rhs.key
-        }
+        let bestPerYear = bestYearScores(from: scored)
+        let sortedYears = rankedYears(from: bestPerYear)
 
         guard let (bestYear, bestScore) = sortedYears.first else {
             return YearResult()
@@ -242,6 +230,24 @@ public struct YearScorer: Sendable {
     }
 
     // MARK: - Resolution Helpers
+
+    private func bestYearScores(from scored: [ScoredRelease]) -> [Int: Int] {
+        var bestPerYear: [Int: Int] = [:]
+        for release in scored {
+            let year = release.candidate.year
+            bestPerYear[year] = max(bestPerYear[year] ?? Int.min, release.totalScore)
+        }
+        return bestPerYear
+    }
+
+    private func rankedYears(from bestPerYear: [Int: Int]) -> [(key: Int, value: Int)] {
+        bestPerYear.sorted { lhs, rhs in
+            if lhs.value != rhs.value {
+                return lhs.value > rhs.value
+            }
+            return lhs.key < rhs.key
+        }
+    }
 
     private func applyExistingYearBoost(
         bestScore: Int,

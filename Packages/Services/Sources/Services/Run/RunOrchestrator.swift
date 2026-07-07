@@ -5,15 +5,18 @@ public actor RunOrchestrator {
     public struct Dependencies: Sendable {
         public let synchronizeLibrary: @Sendable () async throws -> SyncResult
         public let persistRunRecord: @Sendable (RunRecord) async throws -> Void
+        public let produceFixPlan: (@Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction)?
         public let now: @Sendable () -> Date
 
         public init(
             synchronizeLibrary: @escaping @Sendable () async throws -> SyncResult,
             persistRunRecord: @escaping @Sendable (RunRecord) async throws -> Void,
+            produceFixPlan: (@Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
             self.synchronizeLibrary = synchronizeLibrary
             self.persistRunRecord = persistRunRecord
+            self.produceFixPlan = produceFixPlan
             self.now = now
         }
     }
@@ -84,8 +87,27 @@ public actor RunOrchestrator {
 
         do {
             let result = try await dependencies.synchronizeLibrary()
-            let reporting = beginReporting(from: lifecycle)
-            let completed = reporting.finishing(result: result, at: dependencies.now())
+            let reportingSource: RunLifecycleSnapshot
+            let hasActionableWork: Bool
+            switch lifecycle.intent {
+            case .observeLibrary:
+                reportingSource = lifecycle
+                hasActionableWork = result.hasChanges
+            case .previewFixes:
+                guard let produceFixPlan = dependencies.produceFixPlan else {
+                    return await finishFailedRun(from: lifecycle, failureMessage: "Fix plan producer is unavailable")
+                }
+                let planning = beginFixPlanning(from: lifecycle)
+                let production = try await produceFixPlan(planning.runID, planning.scope)
+                reportingSource = planning
+                hasActionableWork = production.producedPlan
+            }
+            let reporting = beginReporting(from: reportingSource)
+            let completed = reporting.finishing(
+                result: result,
+                hasActionableWork: hasActionableWork,
+                at: dependencies.now()
+            )
             appendTransition(completed.state, at: completed.finishedAt)
             await persistRecord(
                 for: completed,
@@ -100,7 +122,7 @@ public actor RunOrchestrator {
             return .completed(completed)
         } catch is CancellationError {
             log.error("Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) cancelled")
-            return await finishFailedRun(from: lifecycle, failureMessage: "Run cancelled")
+            return await finishFailedRun(from: activeRun ?? lifecycle, failureMessage: "Run cancelled")
         } catch {
             // Error descriptions stay private: sync errors can embed track or artist names.
             log.error("""
@@ -108,7 +130,7 @@ public actor RunOrchestrator {
             \(String(describing: type(of: error)), privacy: .public): \
             \(error.localizedDescription, privacy: .private)
             """)
-            return await finishFailedRun(from: lifecycle, failureMessage: error.localizedDescription)
+            return await finishFailedRun(from: activeRun ?? lifecycle, failureMessage: error.localizedDescription)
         }
     }
 
@@ -127,6 +149,12 @@ public actor RunOrchestrator {
         )
         publishCompleted(failed)
         return .failed(failed)
+    }
+
+    private func beginFixPlanning(from lifecycle: RunLifecycleSnapshot) -> RunLifecycleSnapshot {
+        let planning = lifecycle.beginningFixPlanning()
+        advance(planning)
+        return planning
     }
 
     private func beginReporting(from lifecycle: RunLifecycleSnapshot) -> RunLifecycleSnapshot {

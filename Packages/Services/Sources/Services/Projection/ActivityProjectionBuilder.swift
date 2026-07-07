@@ -67,6 +67,38 @@ public struct ActivityWorkflowState: Equatable, Sendable {
     }
 }
 
+public struct ActivityFixPlanSummary: Equatable, Sendable {
+    public let status: FixPlanProjectionStatus
+    public let itemCount: Int
+    public let acceptedCount: Int
+    public let canApply: Bool
+
+    public var isReviewable: Bool {
+        itemCount > 0 && (status == .ready || status == .stale)
+    }
+
+    public init(
+        status: FixPlanProjectionStatus,
+        itemCount: Int,
+        acceptedCount: Int,
+        canApply: Bool
+    ) {
+        self.status = status
+        self.itemCount = itemCount
+        self.acceptedCount = acceptedCount
+        self.canApply = canApply
+    }
+
+    public init(projection: FixPlanProjection) {
+        self.init(
+            status: projection.status,
+            itemCount: projection.itemCount,
+            acceptedCount: projection.acceptedCount,
+            canApply: projection.canApply
+        )
+    }
+}
+
 public struct ActivityPendingVerificationSummary: Equatable, Sendable {
     public let total: Int
     public let due: Int
@@ -127,6 +159,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
     public let libraryState: ActivityLibraryState
     public let processingMode: ActivityProcessingMode
     public let workflow: ActivityWorkflowState
+    public let fixPlan: ActivityFixPlanSummary?
     public let pendingVerification: ActivityPendingVerificationSummary?
     public let runLifecycle: RunLifecycleSnapshot?
     public let isLibrarySyncAvailable: Bool
@@ -135,6 +168,20 @@ public struct ActivityProjectionInput: Equatable, Sendable {
 
     public var effectiveLastScanDate: Date? {
         lastScanDate ?? metrics?.snapshotDate
+    }
+
+    public var proposedFixCount: Int {
+        guard let fixPlan, fixPlan.isReviewable else {
+            return workflow.proposedChangeCount
+        }
+        return fixPlan.itemCount
+    }
+
+    public var acceptedFixCount: Int {
+        guard let fixPlan, fixPlan.isReviewable else {
+            return workflow.acceptedChangeCount
+        }
+        return fixPlan.acceptedCount
     }
 
     public var effectiveSyncState: ActivitySyncState {
@@ -158,6 +205,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         libraryState: ActivityLibraryState,
         processingMode: ActivityProcessingMode,
         workflow: ActivityWorkflowState,
+        fixPlan: ActivityFixPlanSummary? = nil,
         pendingVerification: ActivityPendingVerificationSummary?,
         runLifecycle: RunLifecycleSnapshot? = nil,
         isLibrarySyncAvailable: Bool,
@@ -170,6 +218,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         self.libraryState = libraryState
         self.processingMode = processingMode
         self.workflow = workflow
+        self.fixPlan = fixPlan
         self.pendingVerification = pendingVerification
         self.runLifecycle = runLifecycle
         self.isLibrarySyncAvailable = isLibrarySyncAvailable
@@ -212,8 +261,8 @@ public enum ActivityProjectionBuilder {
         input: ActivityProjectionInput,
         syncSummary: ActivitySyncSummary?
     ) -> Int {
-        if input.workflow.proposedChangeCount > 0 {
-            return input.workflow.proposedChangeCount
+        if input.proposedFixCount > 0 {
+            return input.proposedFixCount
         }
         return syncSummary?.changeCount ?? 0
     }
@@ -272,7 +321,7 @@ public enum ActivityProjectionBuilder {
         if input.workflow.isProcessing {
             return input.workflow.phaseLabel
         }
-        if input.workflow.proposedChangeCount > 0 {
+        if input.proposedFixCount > 0 {
             return "Fix plan ready"
         }
         return "Library ready"
@@ -288,17 +337,17 @@ public enum ActivityProjectionBuilder {
             return "Manual sync running · detecting library delta"
         case let .failed(message):
             return message
-        case .idle:
+        case .idle, .completed:
             break
-        case .completed:
-            if let syncSummary {
-                return syncResultDetail(syncSummary)
-            }
         }
 
-        if input.workflow.proposedChangeCount > 0 {
+        if input.proposedFixCount > 0 {
             let mode = input.processingMode == .preview ? "preview mode · no Music tags written" : "write mode"
-            return "\(input.workflow.proposedChangeCount.formatted()) candidate fixes · \(mode)"
+            return "\(input.proposedFixCount.formatted()) candidate fixes · \(mode)"
+        }
+
+        if case .completed = input.effectiveSyncState, let syncSummary {
+            return syncResultDetail(syncSummary)
         }
 
         return "Library ready"
@@ -377,10 +426,10 @@ public enum ActivityProjectionBuilder {
         if case .failed = input.effectiveSyncState {
             return .detect
         }
-        if input.workflow.isProcessing || input.workflow.acceptedChangeCount > 0 {
+        if input.workflow.isProcessing || input.acceptedFixCount > 0 {
             return .fix
         }
-        if input.workflow.proposedChangeCount > 0 {
+        if input.proposedFixCount > 0 {
             return .diff
         }
         if case .completed = input.effectiveSyncState {
@@ -483,7 +532,7 @@ public enum ActivityProjectionBuilder {
         input: ActivityProjectionInput,
         currentStage: ActivityPipelineStage
     ) -> ActivityPipelineStageStatus {
-        if input.workflow.proposedChangeCount > 0 {
+        if input.proposedFixCount > 0 {
             return currentStage == .diff ? .current : .completed
         }
         if case .completed = input.effectiveSyncState {
@@ -502,14 +551,14 @@ public enum ActivityProjectionBuilder {
         if input.workflow.isProcessing {
             return currentStage == .fix ? .current : .pending
         }
-        if input.workflow.proposedChangeCount > 0 || input.workflow.acceptedChangeCount > 0 {
+        if input.proposedFixCount > 0 || input.acceptedFixCount > 0 {
             return input.processingMode == .preview ? .gated : .pending
         }
         return .pending
     }
 
     private static func makePrimaryCommand(input: ActivityProjectionInput) -> ActivityCommandDescriptor? {
-        guard input.workflow.proposedChangeCount > 0 else { return nil }
+        guard input.proposedFixCount > 0 else { return nil }
 
         return ActivityCommandDescriptor(
             id: "review-changes",
@@ -575,8 +624,8 @@ public enum ActivityProjectionBuilder {
         let automationState = makeAutomationState(input: input)
         let deltaValue: Int
         let deltaDetail: String
-        if input.workflow.proposedChangeCount > 0 {
-            deltaValue = input.workflow.proposedChangeCount
+        if input.proposedFixCount > 0 {
+            deltaValue = input.proposedFixCount
             deltaDetail = "candidate fixes"
         } else {
             deltaValue = syncSummary?.changeCount ?? 0

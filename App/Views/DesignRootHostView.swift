@@ -29,11 +29,12 @@ struct DesignRootHostView: View {
     @State private var selectedRoute: Route? = .activity
     @State private var activityProjection: ActivityProjection = .empty()
     @State private var reportsProjection: ReportsProjection = .empty()
+    @State private var fixPlanProjection: FixPlanProjection = .empty()
     @State private var selectedRunReport: RunReportDetailSnapshot?
     @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
     @State private var activityCommandNoticeID = UUID()
-    @AppStorage("defaultUpdateBehavior") private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
+    @AppStorage(AppStorageKey.defaultUpdateBehavior) private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("fastAnimations") private var fastAnimations = false
 
@@ -58,9 +59,11 @@ struct DesignRootHostView: View {
         }
         .task {
             await startInitialLoadIfNeeded()
+            await refreshFixPlanProjection()
         }
         .task { await observeActivityProjectionUpdates() }
         .task { await observeReportsProjectionUpdates() }
+        .task { await observeFixPlanUpdates() }
         .task { await observeRunLifecycleUpdates() }
         .onChange(of: defaultUpdateBehavior) {
             applyWorkflowDefaults()
@@ -129,7 +132,9 @@ struct DesignRootHostView: View {
 
     @ViewBuilder
     private var updateContent: some View {
-        if let workflowViewModel {
+        if fixPlanProjection.status != .empty {
+            FixPlanView(snapshot: FixPlanAdapter.makeSnapshot(from: fixPlanProjection))
+        } else if let workflowViewModel {
             UpdateWorkflowView(
                 viewModel: workflowViewModel,
                 tracks: updateWorkflowTracks,
@@ -157,14 +162,7 @@ struct DesignRootHostView: View {
     }
 
     private var configuredUpdateSelection: (updateGenre: Bool, updateYear: Bool) {
-        switch UpdateBehavior(rawValue: defaultUpdateBehavior) ?? .both {
-        case .genreOnly:
-            (true, false)
-        case .yearOnly:
-            (false, true)
-        case .both:
-            (true, true)
-        }
+        UpdateBehavior.resolved(from: defaultUpdateBehavior).enabledTargets
     }
 
     private var configuredPreviewOnly: Bool {
@@ -172,8 +170,9 @@ struct DesignRootHostView: View {
     }
 
     private var configuredMinConfidence: Double {
-        let configuredValue = dependencies.config.yearRetrieval.logic.minConfidenceForNewYear / 100
-        return min(max(configuredValue, 0.3), 1.0)
+        UpdateOptions.clampedConfidenceRatio(
+            dependencies.config.yearRetrieval.logic.minConfidenceForNewYear / 100
+        )
     }
 
     private var settingsSnapshot: DesignSettingsSnapshot {
@@ -190,7 +189,7 @@ struct DesignRootHostView: View {
     }
 
     private var activityProjectionInput: ActivityProjectionInput {
-        ActivityProjectionInputAssembler.makeInput(from: ActivityProjectionAssemblyContext(
+        ActivityInputBuilder.makeInput(from: ActivityInputContext(
             tracks: tracks,
             metricsSnapshot: metricsSnapshot,
             lastScanDate: lastScanDate,
@@ -198,6 +197,7 @@ struct DesignRootHostView: View {
             isLoading: isLoading,
             isDryRun: dependencies.config.runtime.dryRun,
             workflow: workflowDashboardState,
+            fixPlanProjection: fixPlanProjection,
             pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
             runLifecycle: currentRunLifecycle,
             isLibrarySyncAvailable: dependencies.isManualRunAvailable,
@@ -696,6 +696,9 @@ struct DesignRootHostView: View {
             currentRunLifecycle = lifecycle
             await refreshActivityProjection()
             if !lifecycle.isActive {
+                if lifecycle.intent == .previewFixes {
+                    await refreshFixPlanProjection()
+                }
                 await refreshReportsProjection()
             }
         }
@@ -737,6 +740,28 @@ struct DesignRootHostView: View {
         }
     }
 
+    private func applyFixPlanProjection(_ projection: FixPlanProjection) -> Bool {
+        guard projection.revision > fixPlanProjection.revision else { return false }
+        fixPlanProjection = projection
+        return true
+    }
+
+    @discardableResult
+    private func refreshFixPlanProjection() async -> FixPlanProjection {
+        let projection = await dependencies.refreshFixPlanProjection()
+        if applyFixPlanProjection(projection) {
+            await refreshActivityProjection()
+        }
+        return projection
+    }
+
+    private func observeFixPlanUpdates() async {
+        for await projection in await dependencies.projectionStore.fixPlanUpdates()
+            where applyFixPlanProjection(projection) {
+            await refreshActivityProjection()
+        }
+    }
+
     private var activityCommandController: ActivityCommandController {
         ActivityCommandController(
             isRunOrchestratorAvailable: { dependencies.runOrchestrator != nil },
@@ -749,6 +774,9 @@ struct DesignRootHostView: View {
             },
             refreshActivityProjection: {
                 await refreshActivityProjection()
+            },
+            currentFixPlanID: {
+                fixPlanProjection.planID?.description
             }
         )
     }
@@ -792,7 +820,7 @@ struct DesignRootHostView: View {
     private func handleActivityNavigationTarget(_ target: CommandNavigationTarget?) {
         switch target {
         case .fixPlan:
-            prepareDefaultUpdateForReview()
+            selectedRoute = .update
         case .activity:
             selectedRoute = .activity
         case .report:

@@ -329,7 +329,9 @@ public actor BatchProcessor {
         currentState = .paused
         while pauseRequested {
             try await Task.sleep(for: .milliseconds(100))
-            if cancelRequested { break }
+            if cancelRequested {
+                break
+            }
         }
         currentState = .running
     }

@@ -589,7 +589,9 @@ public actor LibrarySyncService {
     }
 
     private func shouldRefreshCommonTrackMetadata(force: Bool) async throws -> Bool {
-        if force { return true }
+        if force {
+            return true
+        }
         guard runtimeConfiguration.forceMetadataScanIntervalDays > 0,
               let metadata = await librarySnapshotService?.getSnapshotMetadata()
         else { return false }

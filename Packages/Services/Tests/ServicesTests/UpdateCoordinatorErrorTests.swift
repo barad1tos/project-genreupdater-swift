@@ -195,6 +195,18 @@ struct UpdateOptionsTests {
         #expect(options.minConfidence == 90)
         #expect(options.autoAccept == true)
     }
+
+    @Test(
+        "confidence ratio clamps to workflow bounds",
+        arguments: [
+            (input: 0.1, expected: 0.3),
+            (input: 0.57, expected: 0.57),
+            (input: 2.5, expected: 1.0),
+        ]
+    )
+    func clampedConfidenceRatio(input: Double, expected: Double) {
+        #expect(UpdateOptions.clampedConfidenceRatio(input) == expected)
+    }
 }
 
 // MARK: - UpdateCoordinator write failure Tests

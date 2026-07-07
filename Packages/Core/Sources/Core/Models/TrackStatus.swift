@@ -109,7 +109,9 @@ public func normalizeTrackStatus(_ rawStatus: String?) -> TrackKind? {
     guard let rawStatus, !rawStatus.isEmpty else { return nil }
 
     let trimmed = rawStatus.trimmingCharacters(in: .whitespaces).lowercased()
-    if trimmed.isEmpty { return nil }
+    if trimmed.isEmpty {
+        return nil
+    }
 
     // Try direct rawValue match first
     if let kind = TrackKind(rawValue: trimmed) {

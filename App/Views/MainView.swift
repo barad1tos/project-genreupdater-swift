@@ -234,7 +234,7 @@ struct MainView: View {
     @State var hasNavigated = false
     @AppStorage("sidebarCompact") var isSidebarCompact = false
     @AppStorage("sidebarBadgesEnabled") var areSidebarBadgesEnabled = false
-    @AppStorage("defaultUpdateBehavior") var defaultUpdateBehavior = UpdateBehavior.both.rawValue
+    @AppStorage(AppStorageKey.defaultUpdateBehavior) var defaultUpdateBehavior = UpdateBehavior.both.rawValue
 
     var body: some View {
         navigationShell
@@ -252,7 +252,9 @@ struct MainView: View {
                 handleBrowseAction(notification)
             }
             .onChange(of: selectedCategory) {
-                if !hasNavigated { hasNavigated = true }
+                if !hasNavigated {
+                    hasNavigated = true
+                }
                 updateColumnVisibility()
             }
             .onChange(of: browseViewModel.selectedAlbum) { updateColumnVisibility() }

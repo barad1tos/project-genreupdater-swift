@@ -6,7 +6,7 @@ import Testing
 
 @Suite("AppDependencies library services")
 @MainActor
-struct AppDependenciesLibraryServicesTests {
+struct LibraryServicesTests {
     @Test("Scoped test-artist load skips full-library snapshot")
     func scopedTestArtistLoadSkipsFullLibrarySnapshot() async throws {
         let fixture = try makeFixture(testArtists: ["Clutch"])
@@ -214,6 +214,15 @@ struct AppDependenciesLibraryServicesTests {
         #expect(loaded?.runID == record.runID)
     }
 
+    @Test("Submit preview run requires a run orchestrator")
+    func previewRequiresOrchestrator() async throws {
+        let fixture = try makeFixture(testArtists: [])
+
+        await #expect(throws: AppDependencyServiceError.runOrchestratorUnavailable) {
+            try await fixture.dependencies.submitPreviewRun()
+        }
+    }
+
     @Test("Reports backup import message includes safe first failure")
     func reportsBackupImportMessageIncludesSafeFirstFailure() {
         let result = YearBackupRevertResult(
@@ -286,7 +295,7 @@ private actor RunRecordStoreStub: RunRecordStore {
         self.reportPage = reportPage
     }
 
-    func upsert(_ record: RunRecord) async throws {
+    func upsert(_: RunRecord) async throws {
         // Not exercised by the run report accessor test paths.
     }
 
@@ -302,7 +311,7 @@ private actor RunRecordStoreStub: RunRecordStore {
         return storedRecord
     }
 
-    func prune(keepingLatest limit: Int) async throws -> Int {
+    func prune(keepingLatest _: Int) async throws -> Int {
         0
     }
 

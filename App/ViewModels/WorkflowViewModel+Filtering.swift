@@ -7,7 +7,9 @@ import Services
 
 extension WorkflowViewModel {
     var hasEnabledOperation: Bool {
-        if mode == .pendingVerification || mode == .releaseYearRestore { return true }
+        if mode == .pendingVerification || mode == .releaseYearRestore {
+            return true
+        }
         return updateGenre || updateYear || cleanTrackNames || cleanAlbumNames
     }
 

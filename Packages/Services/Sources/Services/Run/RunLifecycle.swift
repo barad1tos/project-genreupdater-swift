@@ -11,6 +11,7 @@ private let log = Logger(subsystem: "com.genreupdater", category: "RunLifecycle"
 public enum RunLifecycleState: String, Codable, Equatable, Sendable {
     case created
     case syncingLibrary
+    case planningFixes
     case reporting
     case completed
     case completedNoOp
@@ -20,11 +21,15 @@ public enum RunLifecycleState: String, Codable, Equatable, Sendable {
 public enum RunActiveStage: Equatable, Sendable {
     case created
     case syncingLibrary
+    case planningFixes
     case reporting
 }
 
 public enum RunOutcome: Equatable, Sendable {
     case completed(SyncResult)
+    /// The run finished without actionable work for its intent. The associated
+    /// sync result can still contain library changes; consumers that need sync
+    /// deltas should inspect the result instead of inferring from this state.
     case completedNoOp(SyncResult)
     case failed(message: String)
 }
@@ -38,6 +43,7 @@ public enum RunPhase: Equatable, Sendable {
         switch self {
         case .active(.created): .created
         case .active(.syncingLibrary): .syncingLibrary
+        case .active(.planningFixes): .planningFixes
         case .active(.reporting): .reporting
         case .finished(.completed, _): .completed
         case .finished(.completedNoOp, _): .completedNoOp
@@ -60,11 +66,19 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     }
 
     public var isActive: Bool {
-        if case .active = phase { true } else { false }
+        if case .active = phase {
+            true
+        } else {
+            false
+        }
     }
 
     public var finishedAt: Date? {
-        if case let .finished(_, finishedAt) = phase { finishedAt } else { nil }
+        if case let .finished(_, finishedAt) = phase {
+            finishedAt
+        } else {
+            nil
+        }
     }
 
     public var syncResult: SyncResult? {
@@ -75,7 +89,11 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     }
 
     public var failureMessage: String? {
-        if case let .finished(.failed(message), _) = phase { message } else { nil }
+        if case let .finished(.failed(message), _) = phase {
+            message
+        } else {
+            nil
+        }
     }
 
     public init(
@@ -103,18 +121,35 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         return withPhase(.active(.syncingLibrary))
     }
 
-    public func beginningReporting() -> Self {
+    public func beginningFixPlanning() -> Self {
         if phase != .active(.syncingLibrary) {
-            reportIllegalTransition("beginningReporting()", expected: ".active(.syncingLibrary)")
+            reportIllegalTransition("beginningFixPlanning()", expected: ".active(.syncingLibrary)")
+        }
+        return withPhase(.active(.planningFixes))
+    }
+
+    public func beginningReporting() -> Self {
+        if phase != .active(.syncingLibrary), phase != .active(.planningFixes) {
+            reportIllegalTransition(
+                "beginningReporting()",
+                expected: ".active(.syncingLibrary) or .active(.planningFixes)"
+            )
         }
         return withPhase(.active(.reporting))
     }
 
     public func finishing(result: SyncResult, at finishedAt: Date) -> Self {
+        finishing(result: result, hasActionableWork: result.hasChanges, at: finishedAt)
+    }
+
+    /// Finishes the run using intent-specific actionable-work semantics.
+    /// Observation runs normally pass `result.hasChanges`; preview runs pass
+    /// whether a fix plan was produced.
+    public func finishing(result: SyncResult, hasActionableWork: Bool, at finishedAt: Date) -> Self {
         if phase != .active(.reporting) {
-            reportIllegalTransition("finishing(result:at:)", expected: ".active(.reporting)")
+            reportIllegalTransition("finishing(result:hasActionableWork:at:)", expected: ".active(.reporting)")
         }
-        let outcome: RunOutcome = result.hasChanges ? .completed(result) : .completedNoOp(result)
+        let outcome: RunOutcome = hasActionableWork ? .completed(result) : .completedNoOp(result)
         return withPhase(.finished(outcome, finishedAt: finishedAt))
     }
 

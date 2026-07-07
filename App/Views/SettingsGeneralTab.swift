@@ -9,7 +9,7 @@ import SwiftUI
 
 struct GeneralTab: View {
     @Environment(AppDependencies.self) private var dependencies
-    @AppStorage("defaultUpdateBehavior") private var updateBehavior: String = UpdateBehavior.both.rawValue
+    @AppStorage(AppStorageKey.defaultUpdateBehavior) private var updateBehavior: String = UpdateBehavior.both.rawValue
     @AppStorage("showNotifications") private var showNotifications = true
 
     var body: some View {

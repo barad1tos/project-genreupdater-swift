@@ -16,7 +16,7 @@ struct ActivityCommandControllerTests {
 
         #expect(result.status == .navigated)
         #expect(result.message == "Opening review.")
-        #expect(result.navigationTarget == .fixPlan(id: "current"))
+        #expect(result.navigationTarget == .fixPlan(id: "plan-1"))
         #expect(result.refreshedActivityProjection?.revision == ProjectionRevision(3))
         #expect(harness.submitRunCallCount == 0)
         #expect(harness.reloadCallCount == 0)
@@ -304,6 +304,9 @@ private final class Harness {
                 }
                 self.projection = self.projection.withRevision(self.projection.revision.advanced())
                 return self.projection
+            },
+            currentFixPlanID: {
+                "plan-1"
             }
         )
     }
