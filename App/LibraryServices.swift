@@ -187,6 +187,7 @@ extension AppDependencies {
 
         do {
             let page = try await runRecordStore.reports(matching: RunReportQuery(states: openRunReportStates))
+            guard page.skippedCorruptedCount == 0 else { return true }
             return page.records.contains { $0.finishedAt == nil }
         } catch {
             libraryServicesLog.error(

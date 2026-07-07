@@ -245,6 +245,16 @@ struct LibraryServicesTests {
         #expect(isHeld)
     }
 
+    @Test("Recovery hold fails closed for skipped corrupted run rows")
+    func recoveryHoldFailsClosedOnSkippedCorruptedRows() async throws {
+        let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [], skippedCorruptedCount: 1))
+        let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
+
+        let isHeld = await fixture.dependencies.hasRecoveryHold()
+
+        #expect(isHeld)
+    }
+
     @Test("Run report record store failure returns nil")
     func runReportRecordStoreFailureReturnsNil() async throws {
         let fixture = try makeFixture(

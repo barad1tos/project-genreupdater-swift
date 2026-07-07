@@ -385,13 +385,15 @@ final class WorkflowViewModel {
     /// Apply only the accepted proposed changes from the review phase.
     func applyAccepted() {
         guard !previewOnly else { return }
+        guard !isProcessing else { return }
 
         let accepted = proposedChanges.filter(\.isAccepted)
         guard !accepted.isEmpty else { return }
 
+        phase = .applying
+
         processingTask = Task {
             guard await !stopForRecoveryHold() else { return }
-            phase = .applying
 
             do {
                 let acceptedTracks = Self.uniqueTracks(accepted.map(\.track))

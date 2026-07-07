@@ -110,6 +110,36 @@ struct MutationMetadataTests {
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
+    @Test("apply accepted ignores reentry while recovery check is pending")
+    func applyAcceptedIgnoresReentryWhileRecoveryCheckIsPending() async {
+        let recoveryHold = MutationPreparationHold()
+        let recorder = MutationPreparationRecorder()
+        let fixture = makeWorkflowFixture(
+            hasRecoveryHold: {
+                await recoveryHold.hold()
+                return false
+            },
+            prepareMutationMetadata: { tracks in
+                await recorder.record(tracks)
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [
+            makeProposedChange(id: "accepted", isAccepted: true),
+        ]
+
+        viewModel.applyAccepted()
+        await recoveryHold.waitUntilStarted()
+        viewModel.applyAccepted()
+        await recoveryHold.release()
+        await viewModel.processingTask?.value
+        await Task.yield()
+
+        #expect(await recorder.recordedCallCount() == 1)
+    }
+
     @Test("apply accepted prepares each track once")
     func applyAcceptedPreparesEachTrackOnce() async {
         let recorder = MutationPreparationRecorder()

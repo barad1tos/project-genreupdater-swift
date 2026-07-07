@@ -9,15 +9,14 @@ extension WorkflowViewModel {
             tracks,
             threshold: releaseYearRestoreThreshold
         )
+        let runGeneration = prepareReleaseYearRestoreRun(scopedTracks: scopedTracks)
+        let progressHandler = makeReleaseYearRestoreProgressHandler(
+            scopedTracks: scopedTracks,
+            runGeneration: runGeneration
+        )
 
         processingTask = Task {
             guard await !stopForRecoveryHold() else { return }
-            let runGeneration = prepareReleaseYearRestoreRun(scopedTracks: scopedTracks)
-            let progressHandler = makeReleaseYearRestoreProgressHandler(
-                scopedTracks: scopedTracks,
-                runGeneration: runGeneration
-            )
-
             guard await prepareMutationMetadataIfNeeded(tracks: scopedTracks) else { return }
             let restoreResult = await updateCoordinator.restoreReleaseYears(
                 in: scopedTracks,
