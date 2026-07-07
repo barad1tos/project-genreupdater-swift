@@ -130,6 +130,10 @@ struct DesignRootHostView: View {
         )
     }
 
+    private var activeRunID: RunID? {
+        currentRunLifecycle?.isActive == true ? currentRunLifecycle?.runID : nil
+    }
+
     @ViewBuilder
     private var updateContent: some View {
         if fixPlanProjection.status != .empty {
@@ -198,6 +202,7 @@ struct DesignRootHostView: View {
             isDryRun: dependencies.config.runtime.dryRun,
             workflow: workflowDashboardState,
             fixPlanProjection: fixPlanProjection,
+            reportsProjection: reportsProjection,
             pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
             runLifecycle: currentRunLifecycle,
             isLibrarySyncAvailable: dependencies.isManualRunAvailable,
@@ -428,7 +433,7 @@ struct DesignRootHostView: View {
             selectedRunReport = .unavailable(runID: runID)
             return
         }
-        let detail = RunReportDetailBuilder.makeDetail(from: record, now: Date())
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: Date(), activeRunID: activeRunID)
         selectedRunReport = RunReportDetailDesignAdapter.makeSnapshot(from: detail)
     }
 
@@ -719,24 +724,29 @@ struct DesignRootHostView: View {
         let projection = ReportsProjectionBuilder.makeProjection(from: ReportsProjectionInput(
             records: page.records,
             skippedCorruptedCount: page.skippedCorruptedCount,
-            now: Date()
+            now: Date(),
+            activeRunID: activeRunID
         ))
         let storedProjection = await dependencies.projectionStore.replaceReportsProjection(
             projection,
             inputGeneration: inputGeneration
         )
-        applyReportsProjection(storedProjection)
+        if applyReportsProjection(storedProjection) {
+            await refreshActivityProjection()
+        }
         return storedProjection
     }
 
-    private func applyReportsProjection(_ projection: ReportsProjection) {
-        guard projection.revision > reportsProjection.revision else { return }
+    private func applyReportsProjection(_ projection: ReportsProjection) -> Bool {
+        guard projection.revision > reportsProjection.revision else { return false }
         reportsProjection = projection
+        return true
     }
 
     private func observeReportsProjectionUpdates() async {
-        for await projection in await dependencies.projectionStore.reportsUpdates() {
-            applyReportsProjection(projection)
+        for await projection in await dependencies.projectionStore.reportsUpdates()
+            where applyReportsProjection(projection) {
+            await refreshActivityProjection()
         }
     }
 

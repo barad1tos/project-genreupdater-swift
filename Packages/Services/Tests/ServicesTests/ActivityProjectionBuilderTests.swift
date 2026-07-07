@@ -284,6 +284,53 @@ struct ActivityProjectionBuilderTests {
         #expect(primaryCommand?.commandKind == .reviewChanges)
     }
 
+    @Test("recovery summary takes precedence over fix plan review")
+    func recoverySummaryPriority() throws {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                fixPlan: ActivityFixPlanSummary(
+                    status: .ready,
+                    itemCount: 4,
+                    acceptedCount: 3,
+                    canApply: true
+                ),
+                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1")
+            )
+        )
+
+        let issue = try #require(projection.operationalIssues.first)
+
+        #expect(projection.title == "Recovery needed")
+        #expect(projection.subtitle == "Previous run needs recovery before writes continue")
+        #expect(projection.syncStatusText == "Recovery needed")
+        #expect(projection.currentStage == .fix)
+        #expect(projection.status(for: .fix) == .gated)
+        #expect(projection.primaryCommand == nil)
+        #expect(projection.secondaryCommand?.commandKind == .runManually)
+        #expect(projection.secondaryCommand?.isEnabled == false)
+        #expect(issue.category == .recoveryRequired)
+        #expect(issue.summary == "Previous run needs recovery")
+    }
+
+    @Test("library blockers take precedence over recovery summary")
+    func libraryBlockerRecoveryPriority() throws {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                libraryState: .permissionDenied("Music access denied"),
+                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1")
+            )
+        )
+
+        #expect(projection.title == "Library needs attention")
+        #expect(projection.subtitle == "Music access denied")
+        #expect(projection.syncStatusText == "Synced 8m ago")
+        #expect(projection.currentStage == .detect)
+        #expect(projection.status(for: .fix) == .pending)
+        #expect(projection.operationalIssues.allSatisfy { $0.category != .recoveryRequired })
+    }
+
     @Test("summary cards expose semantic kinds instead of UI symbols")
     func summaryCardsExposeSemanticKindsInsteadOfUISymbols() {
         let projection = ActivityProjectionBuilder.makeProjection(
@@ -424,6 +471,7 @@ struct ActivityProjectionBuilderTests {
         metrics: ActivityProjectionMetrics? = nil,
         workflow: ActivityWorkflowState = .empty,
         fixPlan: ActivityFixPlanSummary? = nil,
+        recovery: ActivityRecoverySummary? = nil,
         pendingVerification: ActivityPendingVerificationSummary? = nil,
         runLifecycle: RunLifecycleSnapshot? = nil,
         isLibrarySyncAvailable: Bool = true,
@@ -438,6 +486,7 @@ struct ActivityProjectionBuilderTests {
             processingMode: .preview,
             workflow: workflow,
             fixPlan: fixPlan,
+            recovery: recovery,
             pendingVerification: pendingVerification,
             runLifecycle: runLifecycle,
             isLibrarySyncAvailable: isLibrarySyncAvailable,

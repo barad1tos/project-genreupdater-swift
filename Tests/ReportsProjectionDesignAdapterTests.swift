@@ -34,8 +34,8 @@ struct ReportsProjectionDesignAdapterTests {
     @Test(
         "tone per run state",
         arguments: zip(
-            [ReportsRunState.running, .completed, .completedNoOp, .failed],
-            [Tone.info, .success, .neutral, .error]
+            [ReportsRunState.running, .completed, .completedNoOp, .failed, .recoveryNeeded],
+            [Tone.info, .success, .neutral, .error, .warning]
         )
     )
     func tonePerRunState(state: ReportsRunState, expectedTone: Tone) {

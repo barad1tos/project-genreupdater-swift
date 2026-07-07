@@ -5,6 +5,12 @@ import Foundation
 import Services
 
 private let libraryServicesLog = AppLogger.make(category: "dependencies")
+private let openRunReportStates: Set<RunLifecycleState> = [
+    .created,
+    .syncingLibrary,
+    .planningFixes,
+    .reporting,
+]
 
 enum AppDependencyServiceError: LocalizedError, Equatable {
     case librarySyncUnavailable
@@ -165,13 +171,28 @@ extension AppDependencies {
         }
 
         do {
-            return try await runRecordStore.reports(matching: RunReportQuery(limit: limit))
+            let recentPage = try await runRecordStore.reports(matching: RunReportQuery(limit: limit))
+            let openPage = try await runRecordStore.reports(matching: RunReportQuery(states: openRunReportStates))
+            return mergeRunReportPages(recentPage, openPage)
         } catch {
             libraryServicesLog.error(
                 "Failed to load run report page: \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)"
             )
             return nil
         }
+    }
+
+    private func mergeRunReportPages(_ recentPage: RunReportPage, _ openPage: RunReportPage) -> RunReportPage {
+        var seen = Set<UUID>()
+        let openRecords = openPage.records.filter { $0.finishedAt == nil }
+        let records = (recentPage.records + openRecords).filter { record in
+            seen.insert(record.runID.rawValue).inserted
+        }
+
+        return RunReportPage(
+            records: records,
+            skippedCorruptedCount: recentPage.skippedCorruptedCount + openPage.skippedCorruptedCount
+        )
     }
 
     func loadRunReportRecord(id: String) async -> RunRecord? {

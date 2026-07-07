@@ -3,8 +3,12 @@ import Foundation
 public enum RunReportDetailBuilder {
     private static let scopeArtistDisplayLimit = 3
 
-    public static func makeDetail(from record: RunRecord, now: Date) -> RunReportDetailProjection {
-        let state = ReportsRunLabels.runState(from: record.state)
+    public static func makeDetail(
+        from record: RunRecord,
+        now: Date,
+        activeRunID: RunID? = nil
+    ) -> RunReportDetailProjection {
+        let state = ReportsRunLabels.runState(from: record, activeRunID: activeRunID)
         return RunReportDetailProjection(
             runID: record.runID.rawValue.uuidString,
             state: state,

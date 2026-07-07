@@ -99,6 +99,20 @@ public struct ActivityFixPlanSummary: Equatable, Sendable {
     }
 }
 
+public struct ActivityRecoverySummary: Equatable, Sendable {
+    public let unresolvedRunCount: Int
+    public let latestRunID: String?
+
+    public var isActive: Bool {
+        unresolvedRunCount > 0
+    }
+
+    public init(unresolvedRunCount: Int, latestRunID: String?) {
+        self.unresolvedRunCount = unresolvedRunCount
+        self.latestRunID = latestRunID
+    }
+}
+
 public struct ActivityPendingVerificationSummary: Equatable, Sendable {
     public let total: Int
     public let due: Int
@@ -160,6 +174,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
     public let processingMode: ActivityProcessingMode
     public let workflow: ActivityWorkflowState
     public let fixPlan: ActivityFixPlanSummary?
+    public let recovery: ActivityRecoverySummary?
     public let pendingVerification: ActivityPendingVerificationSummary?
     public let runLifecycle: RunLifecycleSnapshot?
     public let isLibrarySyncAvailable: Bool
@@ -184,6 +199,10 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         return fixPlan.acceptedCount
     }
 
+    public var hasRecovery: Bool {
+        recovery?.isActive == true
+    }
+
     public var effectiveSyncState: ActivitySyncState {
         guard let runLifecycle else { return .idle }
 
@@ -206,6 +225,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         processingMode: ActivityProcessingMode,
         workflow: ActivityWorkflowState,
         fixPlan: ActivityFixPlanSummary? = nil,
+        recovery: ActivityRecoverySummary? = nil,
         pendingVerification: ActivityPendingVerificationSummary?,
         runLifecycle: RunLifecycleSnapshot? = nil,
         isLibrarySyncAvailable: Bool,
@@ -219,6 +239,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         self.processingMode = processingMode
         self.workflow = workflow
         self.fixPlan = fixPlan
+        self.recovery = recovery
         self.pendingVerification = pendingVerification
         self.runLifecycle = runLifecycle
         self.isLibrarySyncAvailable = isLibrarySyncAvailable
@@ -291,45 +312,69 @@ public enum ActivityProjectionBuilder {
     }
 
     private static func makeTitle(input: ActivityProjectionInput) -> String {
+        makeBlockingLibraryTitle(input: input)
+            ?? makeRecoveryTitle(input: input)
+            ?? makeSyncTitle(input: input)
+            ?? makeLibraryProgressTitle(input: input)
+            ?? makeWorkflowTitle(input: input)
+            ?? "Library ready"
+    }
+
+    private static func makeBlockingLibraryTitle(input: ActivityProjectionInput) -> String? {
         switch input.libraryState {
         case .permissionDenied, .failed:
-            return "Library needs attention"
+            "Library needs attention"
         case .loading, .empty, .ready:
-            break
+            nil
         }
+    }
 
+    private static func makeRecoveryTitle(input: ActivityProjectionInput) -> String? {
+        guard input.hasRecovery else { return nil }
+        return "Recovery needed"
+    }
+
+    private static func makeSyncTitle(input: ActivityProjectionInput) -> String? {
         // An active or failed run takes precedence over a loading/empty library
         // state so a run in flight is never hidden behind "Scanning"/"Library empty".
         switch input.effectiveSyncState {
         case .running:
-            return "Syncing library"
+            "Syncing library"
         case .failed:
-            return "Sync needs attention"
+            "Sync needs attention"
         case .idle, .completed:
-            break
+            nil
         }
+    }
 
+    private static func makeLibraryProgressTitle(input: ActivityProjectionInput) -> String? {
         switch input.libraryState {
         case .loading:
-            return "Scanning library"
+            "Scanning library"
         case .empty:
-            return "Library empty"
+            "Library empty"
         case .ready, .permissionDenied, .failed:
-            break
+            nil
         }
+    }
 
+    private static func makeWorkflowTitle(input: ActivityProjectionInput) -> String? {
         if input.workflow.isProcessing {
             return input.workflow.phaseLabel
         }
         if input.proposedFixCount > 0 {
             return "Fix plan ready"
         }
-        return "Library ready"
+        return nil
     }
 
     private static func makeSubtitle(input: ActivityProjectionInput, syncSummary: ActivitySyncSummary?) -> String {
         if let libraryStateSubtitle = makeLibraryStateSubtitle(input: input) {
             return libraryStateSubtitle
+        }
+
+        if input.hasRecovery {
+            return "Previous run needs recovery before writes continue"
         }
 
         switch input.effectiveSyncState {
@@ -370,10 +415,23 @@ public enum ActivityProjectionBuilder {
         }
     }
 
+    private static func hasLibraryBlocker(input: ActivityProjectionInput) -> Bool {
+        switch input.libraryState {
+        case .permissionDenied, .failed:
+            true
+        case .loading, .empty, .ready:
+            false
+        }
+    }
+
     private static func makeSyncStatusText(
         input: ActivityProjectionInput,
         syncSummary: ActivitySyncSummary?
     ) -> String {
+        if input.hasRecovery, !hasLibraryBlocker(input: input) {
+            return "Recovery needed"
+        }
+
         switch input.effectiveSyncState {
         case .running:
             return "Syncing"
@@ -418,6 +476,10 @@ public enum ActivityProjectionBuilder {
             }
         case .ready:
             break
+        }
+
+        if input.hasRecovery {
+            return .fix
         }
 
         if case .running = input.effectiveSyncState {
@@ -545,6 +607,9 @@ public enum ActivityProjectionBuilder {
         input: ActivityProjectionInput,
         currentStage: ActivityPipelineStage
     ) -> ActivityPipelineStageStatus {
+        if input.hasRecovery, !hasLibraryBlocker(input: input) {
+            return .gated
+        }
         if input.workflow.failedWriteCount > 0 {
             return .failed
         }
@@ -558,6 +623,7 @@ public enum ActivityProjectionBuilder {
     }
 
     private static func makePrimaryCommand(input: ActivityProjectionInput) -> ActivityCommandDescriptor? {
+        guard !input.hasRecovery else { return nil }
         guard input.proposedFixCount > 0 else { return nil }
 
         return ActivityCommandDescriptor(
@@ -573,6 +639,7 @@ public enum ActivityProjectionBuilder {
         let isEnabled = input.effectiveSyncState != .running
             && input.isLibrarySyncAvailable
             && !input.workflow.isProcessing
+            && !input.hasRecovery
         return ActivityCommandDescriptor(
             id: "run-manually",
             title: input.effectiveSyncState == .running ? "Syncing" : "Run manually",
@@ -664,6 +731,17 @@ public enum ActivityProjectionBuilder {
     }
 
     private static func makeOperationalIssues(from input: ActivityProjectionInput) -> [OperationalIssue] {
+        if input.hasRecovery, !hasLibraryBlocker(input: input) {
+            return [
+                OperationalIssue(
+                    id: "recovery-needed",
+                    category: .recoveryRequired,
+                    summary: "Previous run needs recovery",
+                    technicalDetail: input.recovery?.latestRunID
+                ),
+            ]
+        }
+
         if case let .failed(message) = input.effectiveSyncState {
             return [
                 OperationalIssue(

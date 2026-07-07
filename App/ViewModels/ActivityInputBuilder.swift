@@ -11,6 +11,7 @@ struct ActivityInputContext {
     let isDryRun: Bool
     let workflow: WorkflowDashboardState
     let fixPlanProjection: FixPlanProjection
+    let reportsProjection: ReportsProjection
     let pendingVerification: UpdateRunPendingVerificationSummary?
     let runLifecycle: RunLifecycleSnapshot?
     let isLibrarySyncAvailable: Bool
@@ -32,6 +33,7 @@ enum ActivityInputBuilder {
             processingMode: context.isDryRun ? .preview : .autoFix,
             workflow: makeWorkflowState(from: context.workflow),
             fixPlan: makeFixPlanSummary(from: context.fixPlanProjection),
+            recovery: makeRecoverySummary(from: context.reportsProjection),
             pendingVerification: makePendingVerification(from: context.pendingVerification),
             runLifecycle: context.runLifecycle,
             isLibrarySyncAvailable: context.isLibrarySyncAvailable,
@@ -85,6 +87,15 @@ enum ActivityInputBuilder {
     private static func makeFixPlanSummary(from projection: FixPlanProjection) -> ActivityFixPlanSummary? {
         guard projection.status != .empty else { return nil }
         return ActivityFixPlanSummary(projection: projection)
+    }
+
+    private static func makeRecoverySummary(from projection: ReportsProjection) -> ActivityRecoverySummary? {
+        let recoveryRuns = projection.runs.filter { $0.state == .recoveryNeeded }
+        guard !recoveryRuns.isEmpty else { return nil }
+        return ActivityRecoverySummary(
+            unresolvedRunCount: recoveryRuns.count,
+            latestRunID: recoveryRuns.first?.id
+        )
     }
 
     private static func makePendingVerification(

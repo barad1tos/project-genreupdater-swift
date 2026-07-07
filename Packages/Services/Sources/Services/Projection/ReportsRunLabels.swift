@@ -1,6 +1,14 @@
 import Foundation
 
 enum ReportsRunLabels {
+    static func runState(from record: RunRecord, activeRunID: RunID? = nil) -> ReportsRunState {
+        let state = runState(from: record.state)
+        guard state == .running, record.finishedAt == nil, record.runID != activeRunID else {
+            return state
+        }
+        return .recoveryNeeded
+    }
+
     static func runState(from state: RunLifecycleState) -> ReportsRunState {
         switch state {
         case .created, .syncingLibrary, .planningFixes, .reporting:
@@ -24,6 +32,8 @@ enum ReportsRunLabels {
             "Completed · no changes"
         case .failed:
             "Failed"
+        case .recoveryNeeded:
+            "Recovery needed"
         }
     }
 
@@ -111,7 +121,13 @@ enum ReportsRunLabels {
     }
 
     static func failureSummary(state: ReportsRunState, failureMessage: String?) -> String? {
-        guard state == .failed else { return nil }
-        return failureMessage ?? "Run failed"
+        switch state {
+        case .failed:
+            failureMessage ?? "Run failed"
+        case .recoveryNeeded:
+            "Previous run needs recovery"
+        case .running, .completed, .completedNoOp:
+            nil
+        }
     }
 }
