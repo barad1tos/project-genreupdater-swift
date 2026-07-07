@@ -731,18 +731,22 @@ struct DesignRootHostView: View {
             projection,
             inputGeneration: inputGeneration
         )
-        applyReportsProjection(storedProjection)
+        if applyReportsProjection(storedProjection) {
+            await refreshActivityProjection()
+        }
         return storedProjection
     }
 
-    private func applyReportsProjection(_ projection: ReportsProjection) {
-        guard projection.revision > reportsProjection.revision else { return }
+    private func applyReportsProjection(_ projection: ReportsProjection) -> Bool {
+        guard projection.revision > reportsProjection.revision else { return false }
         reportsProjection = projection
+        return true
     }
 
     private func observeReportsProjectionUpdates() async {
-        for await projection in await dependencies.projectionStore.reportsUpdates() {
-            applyReportsProjection(projection)
+        for await projection in await dependencies.projectionStore.reportsUpdates()
+            where applyReportsProjection(projection) {
+            await refreshActivityProjection()
         }
     }
 
