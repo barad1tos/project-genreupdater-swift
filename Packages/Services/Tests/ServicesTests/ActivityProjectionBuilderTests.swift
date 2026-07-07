@@ -318,7 +318,7 @@ struct ActivityProjectionBuilderTests {
     }
 
     @Test("library blockers take precedence over recovery summary")
-    func libraryBlockerRecoveryPriority() {
+    func blocksRecoverySummary() {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
@@ -331,10 +331,71 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.subtitle == "Music access denied")
         #expect(projection.syncStatusText == "Synced 8m ago")
         #expect(projection.currentStage == .detect)
-        #expect(projection.status(for: .fix) == .pending)
+        #expect(projection.status(for: .fix) == .gated)
         #expect(projection.operationalIssues.first?.category == .musicPermissionRequired)
         #expect(projection.operationalIssues.first?.summary == "Music permission required")
         #expect(projection.operationalIssues.allSatisfy { $0.category != .recoveryRequired })
+    }
+
+    @Test("library blocker suppresses review command during recovery")
+    func blocksReviewCommand() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                libraryState: .permissionDenied("Music access denied"),
+                fixPlan: ActivityFixPlanSummary(
+                    status: .ready,
+                    itemCount: 2,
+                    acceptedCount: 0,
+                    canApply: true
+                ),
+                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1")
+            )
+        )
+
+        #expect(projection.primaryCommand == nil)
+        #expect(projection.operationalIssues.first?.category == .musicPermissionRequired)
+        #expect(projection.operationalIssues.allSatisfy { $0.category != .recoveryRequired })
+    }
+
+    @Test("library blocker gates auto-fix status during recovery")
+    func gatesAutoFix() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                libraryState: .permissionDenied("Music access denied"),
+                fixPlan: ActivityFixPlanSummary(
+                    status: .ready,
+                    itemCount: 2,
+                    acceptedCount: 0,
+                    canApply: true
+                ),
+                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1"),
+                processingMode: .autoFix
+            )
+        )
+
+        #expect(projection.status(for: .fix) == .gated)
+    }
+
+    @Test("recovery gates failed writes during library blocker")
+    func gatesFailedWrites() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                libraryState: .permissionDenied("Music access denied"),
+                workflow: ActivityWorkflowState(
+                    proposedChangeCount: 0,
+                    acceptedChangeCount: 0,
+                    failedWriteCount: 1,
+                    isProcessing: false,
+                    phaseLabel: "Idle"
+                ),
+                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1")
+            )
+        )
+
+        #expect(projection.status(for: .fix) == .gated)
     }
 
     @Test("summary cards expose semantic kinds instead of UI symbols")
@@ -480,6 +541,7 @@ struct ActivityProjectionBuilderTests {
         recovery: ActivityRecoverySummary? = nil,
         pendingVerification: ActivityPendingVerificationSummary? = nil,
         runLifecycle: RunLifecycleSnapshot? = nil,
+        processingMode: ActivityProcessingMode = .preview,
         isLibrarySyncAvailable: Bool = true,
         usesDefaultScanDate: Bool = true,
         now: Date? = nil
@@ -489,7 +551,7 @@ struct ActivityProjectionBuilderTests {
             metrics: metrics,
             lastScanDate: lastScanDate ?? (usesDefaultScanDate ? scanDate : nil),
             libraryState: libraryState ?? (tracks.isEmpty ? .empty : .ready),
-            processingMode: .preview,
+            processingMode: processingMode,
             workflow: workflow,
             fixPlan: fixPlan,
             recovery: recovery,

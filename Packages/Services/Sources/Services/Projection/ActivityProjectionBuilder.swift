@@ -607,7 +607,7 @@ public enum ActivityProjectionBuilder {
         input: ActivityProjectionInput,
         currentStage: ActivityPipelineStage
     ) -> ActivityPipelineStageStatus {
-        if input.hasRecovery, !hasLibraryBlocker(input: input) {
+        if input.hasRecovery {
             return .gated
         }
         if input.workflow.failedWriteCount > 0 {
@@ -633,6 +633,7 @@ public enum ActivityProjectionBuilder {
             )
         }
 
+        guard !input.hasRecovery else { return nil }
         guard input.proposedFixCount > 0 else { return nil }
 
         return ActivityCommandDescriptor(
