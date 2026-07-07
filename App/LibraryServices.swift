@@ -182,6 +182,21 @@ extension AppDependencies {
         }
     }
 
+    func hasRecoveryHold() async -> Bool {
+        guard let runRecordStore else { return false }
+
+        do {
+            let page = try await runRecordStore.reports(matching: RunReportQuery(states: openRunReportStates))
+            guard page.skippedCorruptedCount == 0 else { return true }
+            return page.records.contains { $0.finishedAt == nil }
+        } catch {
+            libraryServicesLog.error(
+                "Failed to read recovery hold state: \(error.localizedDescription, privacy: .private)"
+            )
+            return true
+        }
+    }
+
     private func mergeRunReportPages(_ recentPage: RunReportPage, _ openPage: RunReportPage) -> RunReportPage {
         var seen = Set<UUID>()
         let openRecords = openPage.records.filter { $0.finishedAt == nil }

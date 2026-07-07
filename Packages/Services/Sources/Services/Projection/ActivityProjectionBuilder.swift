@@ -639,7 +639,6 @@ public enum ActivityProjectionBuilder {
         let isEnabled = input.effectiveSyncState != .running
             && input.isLibrarySyncAvailable
             && !input.workflow.isProcessing
-            && !input.hasRecovery
         return ActivityCommandDescriptor(
             id: "run-manually",
             title: input.effectiveSyncState == .running ? "Syncing" : "Run manually",

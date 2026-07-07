@@ -6,7 +6,7 @@ import Testing
 
 @Suite("Workflow pending verification")
 @MainActor
-struct WorkflowPendingTests {
+struct PendingWorkflowTests {
     @Test("ignores unrelated missing canonical guest album title")
     func ignoresUnrelatedMissingCanonicalGuestAlbumTitle() async throws {
         let pendingEntry = PendingAlbumEntry(
@@ -113,6 +113,31 @@ struct WorkflowPendingTests {
         expectPendingSummary(summary, total: 1, due: 0, problematic: 0)
     }
 
+    @Test("recovery hold blocks direct pending verification")
+    func recoveryHoldBlocksDirectPendingVerification() async {
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry()]
+        )
+        let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
+            options.hasRecoveryHold = { true }
+        }
+        let viewModel = fixture.viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.startPendingVerification(tracks: randomAccessMemoriesMusicKitTracks())
+        await viewModel.processingTask?.value
+        await Task.yield()
+
+        guard case let .error(message) = viewModel.phase else {
+            #expect(Bool(false), "recovery hold should stop pending verification writes")
+            return
+        }
+        #expect(message == "Previous run needs recovery before writes continue.")
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+        #expect(await pendingVerification.removedAlbums().isEmpty)
+    }
+
     @Test("auto verifies due pending albums before live full-library batch")
     func autoVerifiesDuePendingAlbumsBeforeLiveFullLibraryBatch() async throws {
         let pendingVerification = WorkflowPendingVerificationService(
@@ -191,16 +216,23 @@ struct WorkflowPendingTests {
             entries: [randomAccessMemoriesPendingEntry()],
             dueEntries: [randomAccessMemoriesPendingEntry()]
         )
+        func isBatchTrack(_ track: Track) -> Bool {
+            batchTrackIDs.contains(track.id)
+        }
+        func isPendingAlbumTrack(_ track: Track) -> Bool {
+            track.id == "ram-1" || track.id == "ram-2"
+        }
+
         let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
             options.additionalEnrichedTracks = [batchTrack]
             options.idMapper = idMapper
             options.resolveIncrementalTracks = { tracks, _ in
-                tracks.filter { batchTrackIDs.contains($0.id) }
+                tracks.filter(isBatchTrack)
             }
             options.runMaintenancePreflight = { pendingDuePreflight() }
             options.prepareMutationMetadata = { tracks in
                 await recorder.record(tracks)
-                guard tracks.contains(where: { $0.id == "ram-1" || $0.id == "ram-2" }) else {
+                guard tracks.contains(where: isPendingAlbumTrack) else {
                     return
                 }
                 await idMapper.seed(

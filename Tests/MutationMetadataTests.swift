@@ -6,7 +6,7 @@ import Testing
 
 @Suite("Workflow mutation preparation")
 @MainActor
-struct WorkflowMutationPreparationTests {
+struct MutationMetadataTests {
     @Test("preview skips mutation metadata before dry-run")
     func previewSkipsMutationMetadataBeforeDryRun() async throws {
         let recorder = MutationPreparationRecorder()
@@ -33,6 +33,31 @@ struct WorkflowMutationPreparationTests {
         #expect(await recorder.preparedTrackIDs.isEmpty)
     }
 
+    @Test("preview continues while recovery hold is active")
+    func previewContinuesWhileRecoveryHoldIsActive() async throws {
+        let fixture = makeWorkflowFixture(
+            hasRecoveryHold: { true }
+        )
+        let viewModel = fixture.viewModel
+        let tracks = [
+            Track(id: "selected-1", name: "Battery", artist: "Metallica", album: "Master of Puppets"),
+        ]
+        viewModel.configureSelectedTracksScope(
+            tracks: tracks,
+            updateGenre: true,
+            updateYear: false,
+            previewOnly: true
+        )
+
+        viewModel.start(tracks: tracks)
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        guard case .review = viewModel.phase else {
+            #expect(Bool(false), "preview should remain available during recovery hold")
+            return
+        }
+    }
+
     @Test("apply accepted prepares mutation metadata before write")
     func applyAcceptedPreparesMutationMetadataBeforeWrite() async {
         let recorder = MutationPreparationRecorder()
@@ -54,6 +79,65 @@ struct WorkflowMutationPreparationTests {
         await Task.yield()
 
         #expect(await recorder.preparedTrackIDs == ["accepted"])
+    }
+
+    @Test("apply accepted stops when recovery hold is active")
+    func applyAcceptedStopsWhenRecoveryHoldIsActive() async {
+        let recorder = MutationPreparationRecorder()
+        let fixture = makeWorkflowFixture(
+            hasRecoveryHold: { true },
+            prepareMutationMetadata: { tracks in
+                await recorder.record(tracks)
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [
+            makeProposedChange(id: "accepted", isAccepted: true),
+        ]
+
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+        await Task.yield()
+
+        guard case let .error(message) = viewModel.phase else {
+            #expect(Bool(false), "recovery hold should stop the write workflow")
+            return
+        }
+        #expect(message == "Previous run needs recovery before writes continue.")
+        #expect(await recorder.recordedCallCount() == 0)
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+    }
+
+    @Test("apply accepted ignores reentry while recovery check is pending")
+    func applyAcceptedIgnoresReentryWhileRecoveryCheckIsPending() async {
+        let recoveryHold = MutationPreparationHold()
+        let recorder = MutationPreparationRecorder()
+        let fixture = makeWorkflowFixture(
+            hasRecoveryHold: {
+                await recoveryHold.hold()
+                return false
+            },
+            prepareMutationMetadata: { tracks in
+                await recorder.record(tracks)
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [
+            makeProposedChange(id: "accepted", isAccepted: true),
+        ]
+
+        viewModel.applyAccepted()
+        await recoveryHold.waitUntilStarted()
+        viewModel.applyAccepted()
+        await recoveryHold.release()
+        await viewModel.processingTask?.value
+        await Task.yield()
+
+        #expect(await recorder.recordedCallCount() == 1)
     }
 
     @Test("apply accepted prepares each track once")
@@ -203,6 +287,36 @@ struct WorkflowMutationPreparationTests {
         await Task.yield()
 
         #expect(await recorder.preparedTrackIDs == ["processable"])
+    }
+
+    @Test("full library write stops when recovery hold is active")
+    func fullLibraryWriteStopsWhenRecoveryHoldIsActive() async {
+        let recorder = MutationPreparationRecorder()
+        let fixture = makeWorkflowFixture(
+            hasRecoveryHold: { true },
+            prepareMutationMetadata: { tracks in
+                await recorder.record(tracks)
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = true
+        viewModel.updateYear = false
+
+        viewModel.start(tracks: [
+            Track(id: "processable", name: "Battery", artist: "Metallica", album: "Master of Puppets"),
+        ])
+        await viewModel.processingTask?.value
+        await Task.yield()
+
+        guard case let .error(message) = viewModel.phase else {
+            #expect(Bool(false), "recovery hold should stop full-library writes")
+            return
+        }
+        #expect(message == "Previous run needs recovery before writes continue.")
+        #expect(await recorder.recordedCallCount() == 0)
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
     @Test("empty full library processing scope skips mutation metadata preparation")

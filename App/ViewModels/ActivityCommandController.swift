@@ -16,6 +16,13 @@ struct ActivityCommandController {
         switch command.kind {
         case .reviewChanges:
             let projection = await refreshActivityProjection()
+            if let issue = recoveryIssue(in: projection) {
+                return .blockedByRecovery(
+                    message: "Previous run needs recovery before writes continue.",
+                    issue: issue,
+                    refreshedActivityProjection: projection
+                )
+            }
             guard projection.primaryCommand?.commandKind == .reviewChanges,
                   projection.primaryCommand?.isEnabled == true
             else {
@@ -91,6 +98,10 @@ struct ActivityCommandController {
                 refreshedActivityProjection: refreshedProjection
             )
         }
+    }
+
+    private func recoveryIssue(in projection: ActivityProjection) -> OperationalIssue? {
+        projection.operationalIssues.first { $0.category == .recoveryRequired }
     }
 
     private func handleManualObservationResult(_ result: RunSubmissionResult) async -> UserCommandResult {

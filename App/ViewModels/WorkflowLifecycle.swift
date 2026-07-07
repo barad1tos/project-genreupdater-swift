@@ -1,4 +1,4 @@
-// WorkflowViewModel+Lifecycle.swift -- Workflow reset and default handling.
+// WorkflowLifecycle.swift -- Workflow reset and default handling.
 
 import Core
 import Services

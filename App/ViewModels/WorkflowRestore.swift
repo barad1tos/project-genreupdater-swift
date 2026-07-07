@@ -1,4 +1,4 @@
-// WorkflowViewModel+ReleaseYearRestore.swift -- Release-year restore workflow.
+// WorkflowRestore.swift -- Release-year restore workflow.
 
 import Core
 import Services
@@ -16,6 +16,7 @@ extension WorkflowViewModel {
         )
 
         processingTask = Task {
+            guard await !stopForRecoveryHold() else { return }
             guard await prepareMutationMetadataIfNeeded(tracks: scopedTracks) else { return }
             let restoreResult = await updateCoordinator.restoreReleaseYears(
                 in: scopedTracks,

@@ -241,6 +241,9 @@ struct DesignRootHostView: View {
                 runMaintenancePreflight: {
                     await dependencies.runMaintenancePreflight()
                 },
+                hasRecoveryHold: {
+                    await dependencies.hasRecoveryHold()
+                },
                 prepareMutationMetadata: { tracks in
                     _ = try await dependencies.refreshTrackIDMappingOrThrow(
                         musicKitTracks: tracks,

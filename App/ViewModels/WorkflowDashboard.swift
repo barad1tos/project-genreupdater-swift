@@ -1,4 +1,4 @@
-// WorkflowViewModel+DashboardState.swift -- Dashboard adapter for workflow progress.
+// WorkflowDashboard.swift -- Dashboard adapter for workflow progress.
 
 extension WorkflowViewModel {
     var dashboardState: WorkflowDashboardState {

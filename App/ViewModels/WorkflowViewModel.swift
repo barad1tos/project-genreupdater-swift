@@ -184,6 +184,7 @@ final class WorkflowViewModel {
     let featureGate: FeatureGate?
     let recordProcessedTracks: (Int) -> Void
     let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
+    let hasRecoveryHold: () async -> Bool
     let prepareMutationMetadata: (([Track]) async throws -> Void)?
     let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
     let invalidateAlbumYearCache: (() async -> Void)?
@@ -207,6 +208,7 @@ final class WorkflowViewModel {
         featureGate = dependencies.featureGate
         recordProcessedTracks = dependencies.recordProcessedTracks
         runMaintenancePreflight = dependencies.runMaintenancePreflight
+        hasRecoveryHold = dependencies.hasRecoveryHold
         prepareMutationMetadata = dependencies.prepareMutationMetadata
         resolveIncrementalTracks = dependencies.resolveIncrementalTracks
         invalidateAlbumYearCache = dependencies.invalidateAlbumYearCache
@@ -383,6 +385,7 @@ final class WorkflowViewModel {
     /// Apply only the accepted proposed changes from the review phase.
     func applyAccepted() {
         guard !previewOnly else { return }
+        guard !isProcessing else { return }
 
         let accepted = proposedChanges.filter(\.isAccepted)
         guard !accepted.isEmpty else { return }
@@ -390,6 +393,8 @@ final class WorkflowViewModel {
         phase = .applying
 
         processingTask = Task {
+            guard await !stopForRecoveryHold() else { return }
+
             do {
                 let acceptedTracks = Self.uniqueTracks(accepted.map(\.track))
                 guard await prepareMutationMetadataIfNeeded(tracks: acceptedTracks) else { return }
@@ -469,7 +474,7 @@ final class WorkflowViewModel {
             }
 
             if shouldRunBatch {
-                guard await prepareMutationMetadataIfNeeded(tracks: processingTracks) else { return }
+                guard await prepareWriteMetadata(for: processingTracks) else { return }
             }
 
             let preflightResult = await runMaintenancePreflight?()
@@ -535,6 +540,19 @@ final class WorkflowViewModel {
             finishCancelledProcessing()
             return false
         }
+        return true
+    }
+
+    func prepareWriteMetadata(for tracks: [Track]) async -> Bool {
+        guard await !stopForRecoveryHold() else { return false }
+        return await prepareMutationMetadataIfNeeded(tracks: tracks)
+    }
+
+    func stopForRecoveryHold() async -> Bool {
+        guard await hasRecoveryHold() else { return false }
+
+        phase = .error("Previous run needs recovery before writes continue.")
+        progress = nil
         return true
     }
 

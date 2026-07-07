@@ -6,7 +6,7 @@ import Testing
 
 @Suite("ActivityCommandController")
 @MainActor
-struct ActivityCommandControllerTests {
+struct ActivityCommandsTests {
     @Test("review changes command returns navigation result")
     func reviewChangesCommandReturnsNavigationResult() async {
         let harness = Harness(projection: makeReviewProjection(revision: ProjectionRevision(2)))
@@ -110,6 +110,36 @@ struct ActivityCommandControllerTests {
         #expect(harness.submitRunCallCount == 0)
         #expect(harness.reloadCallCount == 0)
         #expect(harness.refreshCallCount == 1)
+    }
+
+    @Test("review changes returns blocked by recovery for recovery hold")
+    func reviewChangesReturnsBlockedByRecoveryForRecoveryHold() async {
+        let harness = Harness(projection: makeRecoveryProjection(revision: ProjectionRevision(2)))
+        let controller = harness.makeController()
+
+        let result = await controller.handle(.reviewChanges())
+
+        #expect(result.status == .blockedByRecovery)
+        #expect(result.message == "Previous run needs recovery before writes continue.")
+        #expect(result.issue?.id == "recovery-needed")
+        #expect(result.issue?.category == .recoveryRequired)
+        #expect(harness.submitRunCallCount == 0)
+        #expect(harness.reloadCallCount == 0)
+        #expect(harness.refreshCallCount == 1)
+    }
+
+    @Test("run manually submits during recovery hold")
+    func runManuallySubmitsDuringRecoveryHold() async {
+        let harness = Harness(projection: makeRecoveryProjection(revision: ProjectionRevision(2)))
+        let controller = harness.makeController()
+
+        let result = await controller.handle(.runManually())
+
+        #expect(result.status == .noOp)
+        #expect(result.message == "No library changes detected.")
+        #expect(harness.submitRunCallCount == 1)
+        #expect(harness.reloadCallCount == 1)
+        #expect(harness.refreshCallCount == 2)
     }
 
     @Test("completed no-op run reloads library and returns no-op")
@@ -246,6 +276,42 @@ private func makeRunManuallyProjection(
         recentActivity: [],
         summaryCards: [],
         operationalIssues: []
+    )
+}
+
+private func makeRecoveryProjection(revision: ProjectionRevision) -> ActivityProjection {
+    ActivityProjection(
+        revision: revision,
+        title: "Recovery needed",
+        subtitle: "Previous run needs recovery before writes continue",
+        syncStatusText: "Recovery needed",
+        currentStage: .fix,
+        processingMode: .preview,
+        automationState: .manualScanOnly,
+        deltaCount: 0,
+        interventionCount: 0,
+        protectedCount: 0,
+        failedWriteCount: 0,
+        isUndoReady: false,
+        primaryCommand: nil,
+        secondaryCommand: ActivityCommandDescriptor(
+            id: "run-manually",
+            title: "Run manually",
+            style: .secondary,
+            isEnabled: true,
+            commandKind: .runManually
+        ),
+        stageDescriptors: [],
+        recentActivity: [],
+        summaryCards: [],
+        operationalIssues: [
+            OperationalIssue(
+                id: "recovery-needed",
+                category: .recoveryRequired,
+                summary: "Previous run needs recovery",
+                technicalDetail: "run-1"
+            ),
+        ]
     )
 }
 
