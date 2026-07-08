@@ -163,41 +163,48 @@ struct ActivityCommands {
         }
 
         let projection = await refreshActivityProjection()
-        guard let secondaryCommand = projection.secondaryCommand,
-              secondaryCommand.commandKind == .runManually
-        else {
-            return .rejectedStale(
-                message: "Manual check is no longer available.",
-                refreshedActivityProjection: projection
-            )
+        guard let secondaryCommand = projection.secondaryCommand else {
+            // Builder projections always include the secondary command; standard copy is a defensive default.
+            return unavailableRunResult(projection: projection, copy: runCommandCopy(for: .standard))
+        }
+        let copy = runCommandCopy(for: secondaryCommand.variant)
+        guard secondaryCommand.commandKind == .runManually else {
+            return unavailableRunResult(projection: projection, copy: copy)
         }
         guard secondaryCommand.isEnabled else {
-            return .rejectedStale(
-                message: "Manual check is no longer available.",
-                refreshedActivityProjection: projection
-            )
+            return unavailableRunResult(projection: projection, copy: copy)
         }
 
         do {
             let result = try await submitManualRun()
-            return await makeManualRunResult(result)
+            return await makeManualRunResult(result, copy: copy)
         } catch {
             log.error("""
-            Manual observation run submission failed with \
+            \(copy.failedSummary, privacy: .public) submission failed with \
             \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)
             """)
             let refreshedProjection = await refreshActivityProjection()
             return .requiresAttention(
-                message: "Manual check failed.",
+                message: copy.failedMessage,
                 issue: OperationalIssue(
-                    id: "manual-check-failed",
+                    id: copy.failedIssueID,
                     category: .internalFailure,
-                    summary: "Manual check failed",
+                    summary: copy.failedSummary,
                     technicalDetail: error.localizedDescription
                 ),
                 refreshedActivityProjection: refreshedProjection
             )
         }
+    }
+
+    private func unavailableRunResult(
+        projection: ActivityProjection,
+        copy: RunCommandCopy
+    ) -> UserCommandResult {
+        .rejectedStale(
+            message: copy.unavailable,
+            refreshedActivityProjection: projection
+        )
     }
 
     private func recoveryIssue(in projection: ActivityProjection) -> OperationalIssue? {
@@ -207,65 +214,140 @@ struct ActivityCommands {
     private func libraryBlocker(in projection: ActivityProjection) -> OperationalIssue? {
         projection.operationalIssues.first { issue in
             switch issue.category {
-            case .temporaryUnavailable, .musicPermissionRequired, .musicUnavailable, .musicKitUnavailable:
+            case .temporaryUnavailable,
+                 .musicPermissionRequired,
+                 .musicUnavailable,
+                 .musicKitUnavailable:
                 true
-            case .permissionRequired, .configurationRequired, .recoveryRequired, .safetyBlocked, .staleAction,
-                 .internalFailure, .automationPermissionRequired, .applicationScriptsUnavailable,
+            case .permissionRequired,
+                 .configurationRequired,
+                 .recoveryRequired,
+                 .safetyBlocked,
+                 .staleAction,
+                 .internalFailure,
+                 .automationPermissionRequired,
+                 .applicationScriptsUnavailable,
                  .appleScriptWriteUnavailable:
                 false
             }
         }
     }
 
-    private func makeManualRunResult(_ result: RunSubmissionResult) async -> UserCommandResult {
+    private func makeManualRunResult(
+        _ result: RunSubmissionResult,
+        copy: RunCommandCopy
+    ) async -> UserCommandResult {
         switch result {
         case .alreadyCovered:
             let projection = await refreshActivityProjection()
             return .alreadyCovered(
-                message: "A run is already active.",
+                message: copy.alreadyActive,
                 refreshedActivityProjection: projection
             )
         case let .queued(activeRun):
             queueManualReload(activeRun.runID)
             let projection = await refreshActivityProjection()
             return .queued(
-                message: "Manual check queued after current run.",
+                message: copy.queued,
                 refreshedActivityProjection: projection
             )
         case let .completed(snapshot):
+            // Read-only view refresh; metadata writes remain gated by the observe-only run.
             await reloadLibrary(true)
             let projection = await refreshActivityProjection()
             let changeCount = snapshot.syncResult?.changeCount ?? 0
-            let changeLabel = changeCount == 1 ? "change" : "changes"
             return .accepted(
-                message: "Library delta detected · analyzing \(changeCount) \(changeLabel).",
+                message: copy.completedMessage(changeCount: changeCount),
                 refreshedActivityProjection: projection
             )
         case .completedNoOp:
+            // Read-only view refresh; metadata writes remain gated by the observe-only run.
             await reloadLibrary(true)
             let projection = await refreshActivityProjection()
             return .noOp(
-                message: "No library changes detected.",
+                message: copy.noChanges,
                 refreshedActivityProjection: projection
             )
         case .cancelled:
             let projection = await refreshActivityProjection()
             return .noOp(
-                message: "Manual check cancelled.",
+                message: copy.cancelled,
                 refreshedActivityProjection: projection
             )
         case let .failed(snapshot):
             let projection = await refreshActivityProjection()
             return .requiresAttention(
-                message: "Manual check failed.",
+                message: copy.failedMessage,
                 issue: OperationalIssue(
-                    id: "manual-check-failed",
+                    id: copy.failedIssueID,
                     category: .temporaryUnavailable,
-                    summary: "Manual check failed",
+                    summary: copy.failedSummary,
                     technicalDetail: snapshot.failureMessage
                 ),
                 refreshedActivityProjection: projection
             )
+        }
+    }
+
+    private func runCommandCopy(for variant: ActivityCommandVariant) -> RunCommandCopy {
+        switch variant {
+        case .standard:
+            RunCommandCopy(
+                alreadyActive: "A run is already active.",
+                queued: "Manual check queued after current run.",
+                unavailable: "Manual check is no longer available.",
+                cancelled: "Manual check cancelled.",
+                noChanges: "No library changes detected.",
+                failedSummary: "Manual check failed",
+                failedIssueID: "manual-check-failed",
+                completed: .standard
+            )
+        case .libraryCheck:
+            // Manual runs are observe-only; builder/app tests pin hold eligibility and copy.
+            RunCommandCopy(
+                alreadyActive: "A library check is already active · writes remain held.",
+                queued: "Library check queued after current run.",
+                unavailable: "Library check is no longer available.",
+                cancelled: "Library check cancelled.",
+                noChanges: "No library changes detected · writes remain held.",
+                failedSummary: "Library check failed",
+                failedIssueID: "library-check-failed",
+                completed: .libraryCheck
+            )
+        }
+    }
+
+    private struct RunCommandCopy {
+        let alreadyActive: String
+        let queued: String
+        let unavailable: String
+        let cancelled: String
+        let noChanges: String
+        let failedSummary: String
+        let failedIssueID: String
+        let completed: CompletedRunCopy
+
+        var failedMessage: String {
+            "\(failedSummary)."
+        }
+
+        func completedMessage(changeCount: Int) -> String {
+            completed.message(changeCount: changeCount)
+        }
+    }
+
+    private enum CompletedRunCopy {
+        case standard
+        case libraryCheck
+
+        func message(changeCount: Int) -> String {
+            let changeLabel = changeCount == 1 ? "change" : "changes"
+            switch self {
+            case .standard:
+                return "Library delta detected · analyzing \(changeCount) \(changeLabel)."
+            case .libraryCheck:
+                return "Library check found \(changeCount) \(changeLabel) · writes remain held."
+            }
         }
     }
 }

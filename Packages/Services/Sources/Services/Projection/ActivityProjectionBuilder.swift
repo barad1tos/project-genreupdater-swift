@@ -77,7 +77,7 @@ public enum ActivityProjectionBuilder {
     }
 
     private static func makePrimaryCommand(input: ActivityProjectionInput) -> ActivityCommandDescriptor? {
-        if input.hasRecovery, !hasLibraryBlocker(input: input) {
+        if showsRecoveryNotice(input: input) {
             return ActivityCommandDescriptor(
                 id: "resume-recovery",
                 title: "Resume safely",
@@ -102,20 +102,48 @@ public enum ActivityProjectionBuilder {
 
     private static func makeRunManuallyCommand(input: ActivityProjectionInput) -> ActivityCommandDescriptor {
         let canQueue = input.runLifecycle?.canQueueManual == true
+        let isLibraryCheck = showsLibraryCheck(input: input)
         let isEnabled = input.isLibrarySyncAvailable
             && !input.workflow.isProcessing
             && (input.effectiveSyncState != .running || canQueue)
         return ActivityCommandDescriptor(
             id: "run-manually",
-            title: canQueue ? "Queue manual" : "Run manually",
+            title: makeManualTitle(canQueue: canQueue, isLibraryCheck: isLibraryCheck),
             style: .secondary,
             isEnabled: isEnabled,
-            commandKind: .runManually
+            commandKind: .runManually,
+            variant: isLibraryCheck ? .libraryCheck : .standard
         )
     }
 
+    private static func showsLibraryCheck(input: ActivityProjectionInput) -> Bool {
+        canSurfaceRecovery(input: input)
+            && (input.hasRecovery || input.effectiveSyncState.requiresRecoveryAttention)
+    }
+
+    private static func showsRecoveryNotice(input: ActivityProjectionInput) -> Bool {
+        canSurfaceRecovery(input: input) && input.hasRecovery
+    }
+
+    private static func canSurfaceRecovery(input: ActivityProjectionInput) -> Bool {
+        !hasLibraryBlocker(input: input)
+    }
+
+    private static func makeManualTitle(canQueue: Bool, isLibraryCheck: Bool) -> String {
+        if isLibraryCheck {
+            if canQueue {
+                return "Queue check"
+            }
+            return "Check library"
+        }
+        if canQueue {
+            return "Queue manual"
+        }
+        return "Run manually"
+    }
+
     private static func makeOperationalIssues(from input: ActivityProjectionInput) -> [OperationalIssue] {
-        if input.hasRecovery, !hasLibraryBlocker(input: input) {
+        if showsRecoveryNotice(input: input) {
             return [OperationalIssue(
                 id: "recovery-needed",
                 category: .recoveryRequired,

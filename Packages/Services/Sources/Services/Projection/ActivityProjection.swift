@@ -37,25 +37,33 @@ public enum ActivityCommandStyle: String, Equatable, Sendable {
     case secondary
 }
 
+public enum ActivityCommandVariant: String, Equatable, Sendable {
+    case standard
+    case libraryCheck
+}
+
 public struct ActivityCommandDescriptor: Identifiable, Equatable, Sendable {
     public let id: String
     public let title: String
     public let style: ActivityCommandStyle
     public let isEnabled: Bool
     public let commandKind: UserIntentCommandKind
+    public let variant: ActivityCommandVariant
 
     public init(
         id: String,
         title: String,
         style: ActivityCommandStyle,
         isEnabled: Bool,
-        commandKind: UserIntentCommandKind
+        commandKind: UserIntentCommandKind,
+        variant: ActivityCommandVariant = .standard
     ) {
         self.id = id
         self.title = title
         self.style = style
         self.isEnabled = isEnabled
         self.commandKind = commandKind
+        self.variant = variant
     }
 }
 
