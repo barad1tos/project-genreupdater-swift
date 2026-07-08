@@ -5,8 +5,8 @@ import Services
 import Testing
 @testable import Genre_Updater
 
-@Suite("ActivityDesignAdapter")
-struct ActivityDesignAdapterTests {
+@Suite("ActivityDesign")
+struct ActivityDesignTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_480)
 
     @Test("maps projection fields to pipeline snapshot")
@@ -144,11 +144,11 @@ struct ActivityDesignAdapterTests {
                 trackStatus: "purchased"
             ),
         ])
-        let firstSnapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+        let firstSnapshot = ActivitySnapshotAdapter.makeSnapshot(
             from: input,
             activityProjection: firstProjection
         )
-        let secondSnapshot = DesignActivitySnapshotAdapter.makeSnapshot(
+        let secondSnapshot = ActivitySnapshotAdapter.makeSnapshot(
             from: input,
             activityProjection: secondProjection
         )

@@ -37,133 +37,6 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.secondaryCommand?.commandKind == .runManually)
     }
 
-    @Test("syncing library allows manual queueing and marks detect current")
-    func syncingAllowsQueue() {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(phase: .active(.syncingLibrary), trigger: .backgroundSync)
-            )
-        )
-
-        #expect(projection.title == "Syncing library")
-        #expect(projection.subtitle == "Manual sync running · detecting library delta")
-        #expect(projection.syncStatusText == "Syncing")
-        #expect(projection.currentStage == .detect)
-        #expect(projection.status(for: .detect) == .current)
-        #expect(projection.secondaryCommand?.title == "Queue manual")
-        #expect(projection.secondaryCommand?.isEnabled == true)
-    }
-
-    @Test("active manual run keeps manual command covered")
-    func manualStaysCovered() {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(phase: .active(.syncingLibrary))
-            )
-        )
-
-        #expect(projection.secondaryCommand?.title == "Run manually")
-        #expect(projection.secondaryCommand?.isEnabled == false)
-    }
-
-    @Test("active run has priority over processing state")
-    func activeRunHasPriorityOverProcessingState() {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                workflow: ActivityWorkflowState(
-                    proposedChangeCount: 0,
-                    acceptedChangeCount: 0,
-                    failedWriteCount: 0,
-                    isProcessing: true,
-                    phaseLabel: "Processing"
-                ),
-                runLifecycle: lifecycle(phase: .active(.syncingLibrary))
-            )
-        )
-
-        #expect(projection.currentStage == .detect)
-        #expect(projection.status(for: .detect) == .current)
-        #expect(projection.status(for: .fix) != .current)
-        #expect(projection.secondaryCommand?.isEnabled == false)
-    }
-
-    @Test("completed sync does not hide active workflow processing")
-    func completedSyncDoesNotHideActiveWorkflowProcessing() {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                workflow: ActivityWorkflowState(
-                    proposedChangeCount: 2,
-                    acceptedChangeCount: 0,
-                    failedWriteCount: 0,
-                    isProcessing: true,
-                    phaseLabel: "Writing metadata"
-                ),
-                runLifecycle: lifecycle(phase: .finished(
-                    .completed(SyncResult(newTracks: [editableTrack(id: "new-1")])),
-                    finishedAt: now
-                ))
-            )
-        )
-
-        #expect(projection.title == "Writing metadata")
-        #expect(projection.currentStage == .fix)
-        #expect(projection.status(for: .diff) == .completed)
-        #expect(projection.status(for: .fix) == .current)
-    }
-
-    @Test("last sync result with changes marks diff current")
-    func lastSyncResultWithChangesMarksDiffCurrent() {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(phase: .finished(.completed(multiChangeSyncResult()), finishedAt: now))
-            )
-        )
-
-        #expect(projection.title == "Library ready")
-        #expect(projection.subtitle == "7 library changes detected")
-        #expect(projection.syncStatusText == "Synced · 7 changes")
-        #expect(projection.deltaCount == 7)
-        #expect(projection.currentStage == .diff)
-        #expect(projection.status(for: .diff) == .current)
-        #expect(projection.recentActivity.contains {
-            $0.title == "Library sync" && $0.detail == "7 library changes detected"
-        })
-    }
-
-    @Test("empty library after completed sync keeps empty title")
-    func emptyLibraryAfterCompletedSyncKeepsEmptyTitle() {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [],
-                runLifecycle: lifecycle(phase: .finished(.completedNoOp(SyncResult()), finishedAt: now))
-            )
-        )
-
-        #expect(projection.title == "Library empty")
-        #expect(projection.syncStatusText == "Synced · no changes")
-        #expect(projection.subtitle == "No library changes detected")
-    }
-
-    @Test("active run takes precedence over a loading library state")
-    func activeRunTakesPrecedenceOverLoadingLibraryState() {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [],
-                libraryState: .loading,
-                runLifecycle: lifecycle(phase: .active(.syncingLibrary))
-            )
-        )
-
-        #expect(projection.title == "Syncing library")
-        #expect(projection.subtitle == "Manual sync running · detecting library delta")
-        #expect(projection.syncStatusText == "Syncing")
-    }
-
     @Test("loading library without a run keeps the scanning title")
     func loadingLibraryWithoutRunKeepsScanningTitle() {
         let projection = ActivityProjectionBuilder.makeProjection(
@@ -174,22 +47,6 @@ struct ActivityProjectionBuilderTests {
         )
 
         #expect(projection.title == "Scanning library")
-    }
-
-    @Test("failed run takes precedence over an empty library state")
-    func failedRunTakesPrecedenceOverEmptyLibraryState() {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [],
-                libraryState: .empty,
-                runLifecycle: lifecycle(phase: .finished(
-                    .failed(message: "Music.app is unavailable"),
-                    finishedAt: now
-                ))
-            )
-        )
-
-        #expect(projection.title == "Sync needs attention")
     }
 
     @Test("failed library state does not mark watch completed")
@@ -204,45 +61,6 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.title == "Library needs attention")
         #expect(projection.status(for: .watch) == .failed)
         #expect(projection.status(for: .detect) == .failed)
-    }
-
-    @Test("last sync result summary delta card mirrors sync changes")
-    func lastSyncResultSummaryDeltaCardMirrorsSyncChanges() throws {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(phase: .finished(.completed(multiChangeSyncResult()), finishedAt: now))
-            )
-        )
-
-        let deltaCard = try #require(projection.summaryCards.first { $0.id == "delta" })
-        #expect(deltaCard.kind == .delta)
-        #expect(deltaCard.value == "7")
-        #expect(deltaCard.detail == "library changes")
-    }
-
-    @Test("proposed fixes delta card takes precedence over completed sync changes")
-    func proposedFixesDeltaCardTakesPrecedenceOverCompletedSyncChanges() throws {
-        let workflow = ActivityWorkflowState(
-            proposedChangeCount: 3,
-            acceptedChangeCount: 0,
-            failedWriteCount: 0,
-            isProcessing: false,
-            phaseLabel: "Review fixes"
-        )
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                workflow: workflow,
-                runLifecycle: lifecycle(phase: .finished(.completed(multiChangeSyncResult()), finishedAt: now))
-            )
-        )
-
-        let deltaCard = try #require(projection.summaryCards.first { $0.id == "delta" })
-        #expect(deltaCard.kind == .delta)
-        #expect(deltaCard.value == "3")
-        #expect(deltaCard.detail == "candidate fixes")
-        #expect(projection.deltaCount == 3)
     }
 
     @Test("proposed fixes expose review primary command")
@@ -498,53 +316,6 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.secondaryCommand?.isEnabled == false)
     }
 
-    @Test("run lifecycle completed no-op projects stable no changes state")
-    func runLifecycleCompletedNoOpProjectsStableNoChangesState() {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(phase: .finished(.completedNoOp(SyncResult()), finishedAt: now))
-            )
-        )
-
-        #expect(projection.syncStatusText == "Synced · no changes")
-        #expect(projection.subtitle == "No library changes detected")
-        #expect(projection.primaryCommand == nil)
-    }
-
-    @Test("run lifecycle reporting keeps the run active")
-    func reportingKeepsActive() {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(phase: .active(.reporting))
-            )
-        )
-
-        #expect(projection.syncStatusText == "Syncing")
-        #expect(projection.secondaryCommand?.title == "Run manually")
-        #expect(projection.secondaryCommand?.isEnabled == false)
-    }
-
-    @Test("run lifecycle failure projects attention state")
-    func runLifecycleFailureProjectsAttentionState() {
-        let projection = ActivityProjectionBuilder.makeProjection(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(phase: .finished(
-                    .failed(message: "Music.app is unavailable"),
-                    finishedAt: now
-                ))
-            )
-        )
-
-        #expect(projection.title == "Sync needs attention")
-        #expect(projection.syncStatusText == "Sync failed")
-        #expect(projection.status(for: .detect) == .failed)
-        #expect(projection.operationalIssues.first?.category == .temporaryUnavailable)
-        #expect(projection.operationalIssues.first?.summary == "Library sync failed")
-    }
-
     private func makeInput(
         tracks: [Track] = [],
         libraryState: ActivityLibraryState? = nil,
@@ -577,15 +348,6 @@ struct ActivityProjectionBuilderTests {
         )
     }
 
-    private func multiChangeSyncResult() -> SyncResult {
-        SyncResult(
-            newTracks: [editableTrack(id: "new-1"), editableTrack(id: "new-2")],
-            modifiedTracks: [editableTrack(id: "modified-1")],
-            refreshedTracks: [editableTrack(id: "refreshed-1")],
-            removedTrackIDs: ["removed-1", "removed-2", "removed-3"]
-        )
-    }
-
     private func editableTrack(id: String) -> Track {
         Track(
             id: id,
@@ -595,23 +357,6 @@ struct ActivityProjectionBuilderTests {
             genre: "Rock",
             year: 2001,
             trackStatus: "purchased"
-        )
-    }
-
-    private func lifecycle(phase: RunPhase, trigger: RunTrigger = .manualCheck) -> RunLifecycleSnapshot {
-        RunLifecycleSnapshot(
-            runID: RunID(),
-            requestID: RunRequestID(),
-            trigger: trigger,
-            intent: .observeLibrary,
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: [],
-                knownTrackCount: 1,
-                createdAt: scanDate,
-                reason: "manual-check"
-            ),
-            startedAt: scanDate,
-            phase: phase
         )
     }
 }

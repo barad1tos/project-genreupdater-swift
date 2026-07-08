@@ -7,12 +7,21 @@ struct RunLifecycleTests {
     @Test("state raw values are stable")
     func stateRawValuesAreStable() {
         #expect(RunLifecycleState.created.rawValue == "created")
+        #expect(RunLifecycleState.queued.rawValue == "queued")
         #expect(RunLifecycleState.syncingLibrary.rawValue == "syncingLibrary")
+        #expect(RunLifecycleState.analyzingDelta.rawValue == "analyzingDelta")
         #expect(RunLifecycleState.planningFixes.rawValue == "planningFixes")
+        #expect(RunLifecycleState.awaitingReview.rawValue == "awaitingReview")
+        #expect(RunLifecycleState.writing.rawValue == "writing")
+        #expect(RunLifecycleState.verifying.rawValue == "verifying")
         #expect(RunLifecycleState.reporting.rawValue == "reporting")
         #expect(RunLifecycleState.completed.rawValue == "completed")
         #expect(RunLifecycleState.completedNoOp.rawValue == "completedNoOp")
+        #expect(RunLifecycleState.blocked.rawValue == "blocked")
         #expect(RunLifecycleState.failed.rawValue == "failed")
+        #expect(RunLifecycleState.cancelled.rawValue == "cancelled")
+        #expect(RunLifecycleState.recoverable.rawValue == "recoverable")
+        #expect(RunLifecycleState.recovering.rawValue == "recovering")
     }
 
     @Test("intent raw values are stable")
@@ -40,14 +49,40 @@ struct RunLifecycleTests {
 
     @Test("all cases round trip through Codable")
     func allCasesRoundTripThroughCodable() throws {
-        let states: [RunLifecycleState] = [
-            .created, .syncingLibrary, .planningFixes, .reporting, .completed, .completedNoOp, .failed,
-        ]
-
-        for state in states {
+        for state in RunLifecycleState.allCases {
             let encoded = try JSONEncoder().encode(state)
             let decoded = try JSONDecoder().decode(RunLifecycleState.self, from: encoded)
             #expect(decoded == state)
+        }
+    }
+
+    @Test("phase maps every canonical state")
+    func mapsCanonicalPhases() {
+        let phases: [(RunPhase, RunLifecycleState)] = [
+            (.active(.created), .created),
+            (.active(.queued), .queued),
+            (.active(.syncingLibrary), .syncingLibrary),
+            (.active(.analyzingDelta), .analyzingDelta),
+            (.active(.planningFixes), .planningFixes),
+            (.active(.awaitingReview), .awaitingReview),
+            (.active(.writing), .writing),
+            (.active(.verifying), .verifying),
+            (.active(.reporting), .reporting),
+            (.active(.recovering), .recovering),
+            (.suspended(.blocked), .blocked),
+            (.suspended(.recoverable), .recoverable),
+            (.finished(.completed(.init()), finishedAt: Date(timeIntervalSinceReferenceDate: 1)), .completed),
+            (.finished(.completedNoOp(.init()), finishedAt: Date(timeIntervalSinceReferenceDate: 1)), .completedNoOp),
+            (.finished(.failed(message: "failed"), finishedAt: Date(timeIntervalSinceReferenceDate: 1)), .failed),
+            (
+                .finished(.cancelled(message: "cancelled"), finishedAt: Date(timeIntervalSinceReferenceDate: 1)),
+                .cancelled
+            ),
+        ]
+
+        #expect(phases.map(\.1.rawValue).sorted() == RunLifecycleState.allCases.map(\.rawValue).sorted())
+        for (phase, state) in phases {
+            #expect(phase.state == state)
         }
     }
 

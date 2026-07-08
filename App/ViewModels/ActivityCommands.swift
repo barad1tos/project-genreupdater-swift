@@ -105,6 +105,7 @@ struct ActivityCommands {
         case let .needsAttention(_, reason):
             let detail: String = switch reason {
             case let .writeAdjacentState(state): state.rawValue
+            case let .unresolvedState(state): state.rawValue
             }
             return .requiresAttention(
                 message: "Recovery needs review.",
@@ -245,6 +246,12 @@ struct ActivityCommands {
             let projection = await refreshActivityProjection()
             return .noOp(
                 message: "No library changes detected.",
+                refreshedActivityProjection: projection
+            )
+        case .cancelled:
+            let projection = await refreshActivityProjection()
+            return .noOp(
+                message: "Manual check cancelled.",
                 refreshedActivityProjection: projection
             )
         case let .failed(snapshot):

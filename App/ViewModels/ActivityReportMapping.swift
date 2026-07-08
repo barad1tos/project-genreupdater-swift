@@ -2,7 +2,7 @@ import Core
 import DesignUI
 import Foundation
 
-extension DesignActivitySnapshotAdapter {
+extension ActivitySnapshotAdapter {
     static func makeReportEntries(from entries: [Core.ChangeLogEntry]) -> [Core.ChangeLogEntry] {
         Array(entries.sorted { $0.timestamp > $1.timestamp }.prefix(reportEntryLimit))
     }

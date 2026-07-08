@@ -73,13 +73,14 @@ struct RunOrchestratorTests {
         #expect(result.lifecycle.failureMessage == "Music.app unavailable")
     }
 
-    @Test("cancellation error during sync fails the run with a cancelled message")
-    func cancellationDuringSyncFailsRunWithCancelledMessage() async {
+    @Test("cancellation error during sync cancels the run with a cancelled message")
+    func cancellationDuringSyncCancelsRunWithCancelledMessage() async throws {
+        let probe = RunRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: {
                 throw CancellationError()
             },
-            persistRunRecord: ignoreRunRecord,
+            persistRunRecord: { try await probe.append($0) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -88,8 +89,18 @@ struct RunOrchestratorTests {
             knownTrackCount: nil
         ))
 
-        #expect(result.lifecycle.state == .failed)
+        guard case .cancelled = result else {
+            Issue.record("Expected cancelled, got \(result)")
+            return
+        }
+        #expect(result.lifecycle.state == .cancelled)
         #expect(result.lifecycle.failureMessage == "Run cancelled")
+
+        let final = try #require(await probe.records.last)
+        #expect(final.state == .cancelled)
+        #expect(final.failureMessage == "Run cancelled")
+        #expect(final.finishedAt != nil)
+        #expect(final.transitions.map(\.state) == [.created, .syncingLibrary, .reporting, .cancelled])
     }
 
     @Test("manual observation covers duplicate active run")
@@ -509,7 +520,7 @@ struct RunOrchestratorTests {
     }
 
     @Test("preview run records producer cancellation after the planning stage")
-    func planningCancellationFails() async throws {
+    func planningCancellationCancels() async throws {
         let probe = RunRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
@@ -523,20 +534,20 @@ struct RunOrchestratorTests {
             knownTrackCount: nil
         ))
 
-        guard case .failed = result else {
-            Issue.record("Expected failed, got \(result)")
+        guard case .cancelled = result else {
+            Issue.record("Expected cancelled, got \(result)")
             return
         }
 
         let final = try #require(await probe.records.last)
-        #expect(final.state == .failed)
+        #expect(final.state == .cancelled)
         #expect(final.failureMessage == "Run cancelled")
         #expect(final.transitions.map(\.state) == [
             .created,
             .syncingLibrary,
             .planningFixes,
             .reporting,
-            .failed,
+            .cancelled,
         ])
     }
 

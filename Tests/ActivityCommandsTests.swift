@@ -83,6 +83,21 @@ struct ActivityCommandsTests {
         #expect(harness.refreshCallCount == 2)
     }
 
+    @Test("cancelled manual run returns no-op result")
+    func manualRunReturnsCancelledNoOp() async {
+        let cancelled = lifecycle(phase: .finished(.cancelled(message: "Run cancelled"), finishedAt: finishDate))
+        let harness = Harness(runResult: .cancelled(cancelled))
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.runManually())
+
+        #expect(result.status == .noOp)
+        #expect(result.message == "Manual check cancelled.")
+        #expect(harness.submitRunCallCount == 1)
+        #expect(harness.reloadCallCount == 0)
+        #expect(harness.refreshCallCount == 2)
+    }
+
     @Test("active background projection queues manual run")
     func backgroundQueuesManual() async {
         let active = lifecycle(phase: .active(.syncingLibrary), trigger: .backgroundSync)

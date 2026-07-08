@@ -19,7 +19,7 @@ struct DesignActivitySnapshotInput {
     let now: Date
 }
 
-enum DesignActivitySnapshotAdapter {
+enum ActivitySnapshotAdapter {
     static let reportEntryLimit = 100
 
     static func makeSnapshot(
@@ -58,7 +58,7 @@ enum DesignActivitySnapshotAdapter {
             genreDistribution: makeGenreDistribution(from: reportEntries),
             updatesOverTime: makeUpdatesOverTime(from: reportEntries),
             yearDistribution: makeYearDistribution(from: reportEntries),
-            runHistory: ReportsProjectionDesignAdapter.makeRunHistory(from: reportsProjection),
+            runHistory: RunHistoryAdapter.makeRunHistory(from: reportsProjection),
             runHistorySkippedCount: reportsProjection.skippedCorruptedCount,
             selectedRunReport: selectedRunReport,
             settings: input.settings,
@@ -272,8 +272,14 @@ enum DesignActivitySnapshotAdapter {
         switch lifecycle.phase {
         case .active:
             return lifecycle.trigger == .manualCheck ? "Manual sync running" : "Run in progress"
+        case .suspended(.blocked):
+            return lifecycle.trigger == .manualCheck ? "Manual sync blocked" : "Run blocked"
+        case .suspended(.recoverable):
+            return lifecycle.trigger == .manualCheck ? "Manual sync needs recovery" : "Recovery needed"
         case .finished(.failed, _):
             return lifecycle.trigger == .manualCheck ? "Manual sync failed" : "Run failed"
+        case .finished(.cancelled, _):
+            return lifecycle.trigger == .manualCheck ? "Manual sync cancelled" : "Run cancelled"
         case .finished(.completed, _), .finished(.completedNoOp, _):
             return nil
         }

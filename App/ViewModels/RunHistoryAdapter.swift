@@ -1,7 +1,7 @@
 import DesignUI
 import Services
 
-enum ReportsProjectionDesignAdapter {
+enum RunHistoryAdapter {
     static let runHistoryLimit = 50
 
     static func makeRunHistory(from projection: ReportsProjection) -> [RunReportRow] {
@@ -23,12 +23,18 @@ enum ReportsProjectionDesignAdapter {
         switch state {
         case .running:
             .info
+        case .awaitingReview:
+            .warning
         case .completed:
             .success
         case .completedNoOp:
             .neutral
+        case .blocked:
+            .warning
         case .failed:
             .error
+        case .cancelled:
+            .neutral
         case .recoveryNeeded:
             .warning
         }

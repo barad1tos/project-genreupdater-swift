@@ -1,12 +1,12 @@
 import DesignUI
 import Services
 
-enum RunReportDetailDesignAdapter {
+enum ReportDetailAdapter {
     static func makeSnapshot(from detail: RunReportDetailProjection) -> RunReportDetailSnapshot {
         RunReportDetailSnapshot(
             runID: detail.runID,
             stateLabel: detail.stateLabel,
-            tone: ReportsProjectionDesignAdapter.makeTone(from: detail.state),
+            tone: RunHistoryAdapter.makeTone(from: detail.state),
             triggerLabel: detail.triggerLabel,
             startedLabel: detail.startedLabel,
             durationLabel: detail.durationLabel,

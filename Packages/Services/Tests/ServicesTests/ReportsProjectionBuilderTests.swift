@@ -179,6 +179,47 @@ struct ReportsProjectionBuilderTests {
         #expect(item.stateLabel == "In progress")
     }
 
+    @Test("canonical lifecycle states map to report labels")
+    func mapsCanonicalLifecycleLabels() throws {
+        let cases: [(RunLifecycleState, ReportsRunState, String)] = [
+            (.queued, .running, "In progress"),
+            (.analyzingDelta, .running, "In progress"),
+            (.awaitingReview, .awaitingReview, "Awaiting review"),
+            (.writing, .running, "In progress"),
+            (.verifying, .running, "In progress"),
+            (.blocked, .blocked, "Blocked"),
+            (.cancelled, .cancelled, "Cancelled"),
+            (.recoverable, .recoveryNeeded, "Recovery needed"),
+            (.recovering, .running, "In progress"),
+        ]
+
+        for (lifecycleState, runState, stateLabel) in cases {
+            let record = makeRunRecord(
+                startedAt: startDate,
+                finishedAt: startDate.addingTimeInterval(45),
+                state: lifecycleState,
+                syncSummary: nil
+            )
+            let item = try #require(makeProjection(records: [record]).runs.first)
+
+            #expect(item.state == runState)
+            #expect(item.stateLabel == stateLabel)
+        }
+    }
+
+    @Test("open review and blocked states do not become recovery needed")
+    func keepsOpenReviewBlockedLabels() {
+        let records = [
+            makeRunRecord(startedAt: startDate, finishedAt: nil, state: .awaitingReview, syncSummary: nil),
+            makeRunRecord(startedAt: startDate, finishedAt: nil, state: .blocked, syncSummary: nil),
+        ]
+
+        let items = makeProjection(records: records).runs
+
+        #expect(items.map(\.state) == [.awaitingReview, .blocked])
+        #expect(items.map(\.stateLabel) == ["Awaiting review", "Blocked"])
+    }
+
     @Test(
         "trigger labels cover all triggers",
         arguments: zip(

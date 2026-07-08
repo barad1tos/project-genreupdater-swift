@@ -2,9 +2,12 @@ import Foundation
 
 public enum ReportsRunState: String, Equatable, Sendable {
     case running
+    case awaitingReview
     case completed
     case completedNoOp
+    case blocked
     case failed
+    case cancelled
     case recoveryNeeded
 }
 

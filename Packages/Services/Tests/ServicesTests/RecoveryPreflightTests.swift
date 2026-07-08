@@ -28,32 +28,60 @@ struct RecoveryPreflightTests {
         #expect(outcome == .resolved(runID: runID, reason: .alreadyFinished))
     }
 
-    @Test("open read-only record is inspectable")
+    @Test("open read-only records are inspectable")
     func readOnlyInspectable() async {
         let runID = RunID()
-        let service = RecoveryPreflightService(store: RunRecordStoreProbe(record: makeRecord(
-            runID: runID,
-            state: .syncingLibrary,
-            finishedAt: nil
-        )))
+        for state in [
+            RunLifecycleState.created,
+            .queued,
+            .syncingLibrary,
+            .analyzingDelta,
+            .planningFixes,
+            .awaitingReview,
+            .reporting,
+        ] {
+            let service = RecoveryPreflightService(store: RunRecordStoreProbe(record: makeRecord(
+                runID: runID,
+                state: state,
+                finishedAt: nil
+            )))
 
-        let outcome = await service.run(for: runID)
+            let outcome = await service.run(for: runID)
 
-        #expect(outcome == .inspectable(runID: runID, state: .syncingLibrary))
+            #expect(outcome == .inspectable(runID: runID, state: state))
+        }
     }
 
-    @Test("open write-adjacent record needs attention")
+    @Test("open write-adjacent records need attention")
     func writeAdjacentReview() async {
         let runID = RunID()
-        let service = RecoveryPreflightService(store: RunRecordStoreProbe(record: makeRecord(
-            runID: runID,
-            state: .reporting,
-            finishedAt: nil
-        )))
+        for state in [RunLifecycleState.writing, .verifying] {
+            let service = RecoveryPreflightService(store: RunRecordStoreProbe(record: makeRecord(
+                runID: runID,
+                state: state,
+                finishedAt: nil
+            )))
 
-        let outcome = await service.run(for: runID)
+            let outcome = await service.run(for: runID)
 
-        #expect(outcome == .needsAttention(runID: runID, reason: .writeAdjacentState(.reporting)))
+            #expect(outcome == .needsAttention(runID: runID, reason: .writeAdjacentState(state)))
+        }
+    }
+
+    @Test("open unresolved recovery records need attention")
+    func unresolvedNeedsAttention() async {
+        let runID = RunID()
+        for state in [RunLifecycleState.blocked, .recoverable, .recovering] {
+            let service = RecoveryPreflightService(store: RunRecordStoreProbe(record: makeRecord(
+                runID: runID,
+                state: state,
+                finishedAt: nil
+            )))
+
+            let outcome = await service.run(for: runID)
+
+            #expect(outcome == .needsAttention(runID: runID, reason: .unresolvedState(state)))
+        }
     }
 
     @Test("store failure blocks recovery")
