@@ -162,7 +162,7 @@ struct ActivityProjectionBuilderTests {
         )
 
         #expect(projection.secondaryCommand?.id == "run-manually")
-        #expect(projection.secondaryCommand?.title == "Queue check")
+        #expect(projection.secondaryCommand?.title == "Queue library check")
         #expect(projection.secondaryCommand?.variant == .libraryCheck)
         #expect(projection.secondaryCommand?.isEnabled == true)
         #expect(projection.operationalIssues.first?.category == .recoveryRequired)

@@ -308,7 +308,7 @@ struct ActivityCommands {
                 alreadyActive: "A library check is already active · writes remain held.",
                 queued: "Library check queued after current run.",
                 unavailable: "Library check is no longer available.",
-                cancelled: "Library check cancelled.",
+                cancelled: "Library check cancelled · writes remain held.",
                 noChanges: "No library changes detected · writes remain held.",
                 failedSummary: "Library check failed",
                 failedIssueID: "library-check-failed",

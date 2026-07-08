@@ -53,7 +53,7 @@ struct ActivityRecoveryTests {
         let result = await commands.handle(.runManually())
 
         #expect(result.status == .noOp)
-        #expect(result.message == "Library check cancelled.")
+        #expect(result.message == "Library check cancelled · writes remain held.")
         #expect((harness.submitRunCallCount, harness.reloadCallCount, harness.refreshCallCount) == (1, 0, 2))
     }
 }

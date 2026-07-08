@@ -77,7 +77,7 @@ public enum ActivityProjectionBuilder {
     }
 
     private static func makePrimaryCommand(input: ActivityProjectionInput) -> ActivityCommandDescriptor? {
-        if showsRecoveryNotice(input: input) {
+        if shouldShowRecoveryNotice(input: input) {
             return ActivityCommandDescriptor(
                 id: "resume-recovery",
                 title: "Resume safely",
@@ -102,7 +102,7 @@ public enum ActivityProjectionBuilder {
 
     private static func makeRunManuallyCommand(input: ActivityProjectionInput) -> ActivityCommandDescriptor {
         let canQueue = input.runLifecycle?.canQueueManual == true
-        let isLibraryCheck = showsLibraryCheck(input: input)
+        let isLibraryCheck = shouldShowLibraryCheck(input: input)
         let isEnabled = input.isLibrarySyncAvailable
             && !input.workflow.isProcessing
             && (input.effectiveSyncState != .running || canQueue)
@@ -116,12 +116,12 @@ public enum ActivityProjectionBuilder {
         )
     }
 
-    private static func showsLibraryCheck(input: ActivityProjectionInput) -> Bool {
+    private static func shouldShowLibraryCheck(input: ActivityProjectionInput) -> Bool {
         canSurfaceRecovery(input: input)
             && (input.hasRecovery || input.effectiveSyncState.requiresRecoveryAttention)
     }
 
-    private static func showsRecoveryNotice(input: ActivityProjectionInput) -> Bool {
+    private static func shouldShowRecoveryNotice(input: ActivityProjectionInput) -> Bool {
         canSurfaceRecovery(input: input) && input.hasRecovery
     }
 
@@ -132,7 +132,7 @@ public enum ActivityProjectionBuilder {
     private static func makeManualTitle(canQueue: Bool, isLibraryCheck: Bool) -> String {
         if isLibraryCheck {
             if canQueue {
-                return "Queue check"
+                return "Queue library check"
             }
             return "Check library"
         }
@@ -143,7 +143,7 @@ public enum ActivityProjectionBuilder {
     }
 
     private static func makeOperationalIssues(from input: ActivityProjectionInput) -> [OperationalIssue] {
-        if showsRecoveryNotice(input: input) {
+        if shouldShowRecoveryNotice(input: input) {
             return [OperationalIssue(
                 id: "recovery-needed",
                 category: .recoveryRequired,
