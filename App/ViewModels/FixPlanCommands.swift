@@ -1,0 +1,243 @@
+import Foundation
+import Services
+
+@MainActor
+struct FixPlanCommands {
+    private enum DecisionUpdate {
+        case changed(FixPlanReviewDecision)
+        case noOp
+        case unavailableItem
+    }
+
+    private enum DecisionResolution {
+        case update(FixPlanReviewDecision)
+        case result(UserCommandResult)
+    }
+
+    let fixPlanStore: (any FixPlanStore)?
+    let refreshFixPlanProjection: () async -> FixPlanProjection
+    let refreshActivityProjection: () async -> ActivityProjection
+    let now: () -> Date
+
+    func handle(_ command: UserIntentCommand) async -> UserCommandResult {
+        guard isFixPlanCommand(command.kind) else {
+            return await invalidCommand(command)
+        }
+        guard let target = command.fixPlanTarget else {
+            let projection = await refreshFixPlanProjection()
+            return await invalidTargetResult(
+                detail: "Missing fix plan command target",
+                projection: projection
+            )
+        }
+        guard let fixPlanStore else {
+            return await unavailableStoreResult(target: target)
+        }
+
+        let projection = await refreshFixPlanProjection()
+        guard isCurrentTarget(target, in: projection) else {
+            return await staleResult(message: "Review changed. Refreshing current plan.", projection: projection)
+        }
+
+        do {
+            guard let decision = try await fixPlanStore.currentDecision(for: target.planID) else {
+                return await invalidTargetResult(detail: "Missing review decision for fix plan", projection: projection)
+            }
+            guard decision.planRevision == target.planRevision,
+                  decision.revision == target.decisionRevision
+            else {
+                return await staleResult(message: "Review changed. Refreshing current plan.", projection: projection)
+            }
+            switch await resolveDecisionUpdate(for: command, current: decision, projection: projection) {
+            case let .update(nextDecision):
+                return try await recordDecision(nextDecision, in: fixPlanStore)
+            case let .result(result):
+                return result
+            }
+        } catch {
+            if isMissingPlan(error) {
+                return await conflictResult()
+            }
+            return await failureResult(error, projection: projection)
+        }
+    }
+
+    private func isMissingPlan(_ error: any Error) -> Bool {
+        guard let error = error as? FixPlanPersistenceError else { return false }
+        if case .missingPlan = error {
+            return true
+        }
+        return false
+    }
+
+    private func isFixPlanCommand(_ kind: UserIntentCommandKind) -> Bool {
+        switch kind {
+        case .acceptFixPlan,
+             .rejectFixPlan,
+             .togglePlanItem:
+            true
+        case .reviewChanges,
+             .resumeRecovery,
+             .runManually:
+            false
+        }
+    }
+
+    private func isCurrentTarget(
+        _ target: FixPlanCommandTarget,
+        in projection: FixPlanProjection
+    ) -> Bool {
+        projection.status == .ready &&
+            projection.planID == target.planID &&
+            projection.planRevision == target.planRevision &&
+            projection.decisionRevision == target.decisionRevision &&
+            projection.revision == target.projectionRevision
+    }
+
+    private func decisionUpdate(
+        for command: UserIntentCommand,
+        current decision: FixPlanReviewDecision
+    ) -> DecisionUpdate {
+        switch command.kind {
+        case .acceptFixPlan:
+            if decision.itemDecisions.allSatisfy({ $0.verdict == .accepted }) {
+                return .noOp
+            }
+            return .changed(FixPlanReviewer.acceptingAll(decision, at: now()))
+        case .rejectFixPlan:
+            if decision.itemDecisions.allSatisfy({ $0.verdict == .rejected }) {
+                return .noOp
+            }
+            return .changed(FixPlanReviewer.rejectingAll(decision, at: now()))
+        case .togglePlanItem:
+            guard let itemID = command.targetItemID,
+                  let nextDecision = FixPlanReviewer.togglingItem(itemID, in: decision, at: now())
+            else {
+                return .unavailableItem
+            }
+            return .changed(nextDecision)
+        case .reviewChanges,
+             .resumeRecovery,
+             .runManually:
+            return .unavailableItem
+        }
+    }
+
+    private func resolveDecisionUpdate(
+        for command: UserIntentCommand,
+        current decision: FixPlanReviewDecision,
+        projection: FixPlanProjection
+    ) async -> DecisionResolution {
+        switch decisionUpdate(for: command, current: decision) {
+        case let .changed(nextDecision):
+            return .update(nextDecision)
+        case .noOp:
+            let result = await noOpResult(projection: projection)
+            return .result(result)
+        case .unavailableItem:
+            let result = await staleResult(message: "Review item is no longer available.", projection: projection)
+            return .result(result)
+        }
+    }
+
+    private func recordDecision(
+        _ nextDecision: FixPlanReviewDecision,
+        in fixPlanStore: any FixPlanStore
+    ) async throws -> UserCommandResult {
+        switch try await fixPlanStore.recordDecision(nextDecision) {
+        case .saved:
+            let refreshedFixPlan = await refreshFixPlanProjection()
+            let refreshedActivity = await refreshActivityProjection()
+            return .accepted(
+                message: "Review updated.",
+                refreshedActivityProjection: refreshedActivity,
+                refreshedFixPlanProjection: refreshedFixPlan
+            )
+        case .conflict:
+            return await conflictResult()
+        }
+    }
+
+    private func noOpResult(projection: FixPlanProjection) async -> UserCommandResult {
+        let activity = await refreshActivityProjection()
+        return .noOp(
+            message: "Review already up to date.",
+            refreshedActivityProjection: activity,
+            refreshedFixPlanProjection: projection
+        )
+    }
+
+    private func conflictResult() async -> UserCommandResult {
+        let projection = await refreshFixPlanProjection()
+        return await staleResult(
+            message: "Review changed. Refreshing current plan.",
+            projection: projection
+        )
+    }
+
+    private func staleResult(
+        message: String,
+        projection: FixPlanProjection
+    ) async -> UserCommandResult {
+        let activity = await refreshActivityProjection()
+        return .rejectedStale(
+            message: message,
+            refreshedActivityProjection: activity,
+            refreshedFixPlanProjection: projection
+        )
+    }
+
+    private func invalidCommand(_ command: UserIntentCommand) async -> UserCommandResult {
+        let projection = await refreshFixPlanProjection()
+        return await invalidTargetResult(
+            detail: "Unsupported command kind: \(command.kind.rawValue)",
+            projection: projection
+        )
+    }
+
+    private func invalidTargetResult(detail: String, projection: FixPlanProjection) async -> UserCommandResult {
+        let activity = await refreshActivityProjection()
+        return .rejectedInvalid(
+            message: "Review action is unavailable.",
+            issue: OperationalIssue(
+                id: "fix-plan-command-invalid",
+                category: .staleAction,
+                summary: "Review action unavailable",
+                technicalDetail: detail
+            ),
+            refreshedActivityProjection: activity,
+            refreshedFixPlanProjection: projection
+        )
+    }
+
+    private func unavailableStoreResult(target: FixPlanCommandTarget) async -> UserCommandResult {
+        let projection = await refreshFixPlanProjection()
+        let activity = await refreshActivityProjection()
+        return .temporaryUnavailable(
+            message: "Review storage is unavailable.",
+            issue: OperationalIssue(
+                id: "fix-plan-store-unavailable",
+                category: .temporaryUnavailable,
+                summary: "Review storage unavailable",
+                technicalDetail: target.planID.description
+            ),
+            refreshedActivityProjection: activity,
+            refreshedFixPlanProjection: projection
+        )
+    }
+
+    private func failureResult(_ error: any Error, projection: FixPlanProjection) async -> UserCommandResult {
+        let activity = await refreshActivityProjection()
+        return .requiresAttention(
+            message: "Review update failed.",
+            issue: OperationalIssue(
+                id: "fix-plan-review-failed",
+                category: .internalFailure,
+                summary: "Review update failed",
+                technicalDetail: error.localizedDescription
+            ),
+            refreshedActivityProjection: activity,
+            refreshedFixPlanProjection: projection
+        )
+    }
+}

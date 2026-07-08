@@ -53,6 +53,9 @@ public struct FixPlanSnapshot: Equatable, Sendable {
     public static let empty = Self(
         status: .empty,
         planID: nil,
+        planRevision: nil,
+        decisionRevision: nil,
+        projectionRevision: 0,
         itemCount: 0,
         acceptedCount: 0,
         rejectedCount: 0,
@@ -66,6 +69,9 @@ public struct FixPlanSnapshot: Equatable, Sendable {
 
     public let status: FixPlanStatus
     public let planID: String?
+    public let planRevision: Int?
+    public let decisionRevision: Int?
+    public let projectionRevision: UInt64
     public let itemCount: Int
     public let acceptedCount: Int
     public let rejectedCount: Int
@@ -79,6 +85,9 @@ public struct FixPlanSnapshot: Equatable, Sendable {
     public init(
         status: FixPlanStatus,
         planID: String?,
+        planRevision: Int?,
+        decisionRevision: Int?,
+        projectionRevision: UInt64,
         itemCount: Int,
         acceptedCount: Int,
         rejectedCount: Int,
@@ -91,6 +100,9 @@ public struct FixPlanSnapshot: Equatable, Sendable {
     ) {
         self.status = status
         self.planID = planID
+        self.planRevision = planRevision
+        self.decisionRevision = decisionRevision
+        self.projectionRevision = projectionRevision
         self.itemCount = itemCount
         self.acceptedCount = acceptedCount
         self.rejectedCount = rejectedCount
@@ -105,15 +117,36 @@ public struct FixPlanSnapshot: Equatable, Sendable {
 
 public struct FixPlanView: View {
     public let snapshot: FixPlanSnapshot
+    public let noticeMessage: String?
+    public let noticeTone: Tone
+    public let isReviewBusy: Bool
+    public let onAccept: (() -> Void)?
+    public let onReject: (() -> Void)?
+    public let onToggleItem: ((String) -> Void)?
 
-    public init(snapshot: FixPlanSnapshot) {
+    public init(
+        snapshot: FixPlanSnapshot,
+        noticeMessage: String? = nil,
+        noticeTone: Tone = .info,
+        isReviewBusy: Bool = false,
+        onAccept: (() -> Void)? = nil,
+        onReject: (() -> Void)? = nil,
+        onToggleItem: ((String) -> Void)? = nil
+    ) {
         self.snapshot = snapshot
+        self.noticeMessage = noticeMessage
+        self.noticeTone = noticeTone
+        self.isReviewBusy = isReviewBusy
+        self.onAccept = onAccept
+        self.onReject = onReject
+        self.onToggleItem = onToggleItem
     }
 
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 header
+                notice
                 stats
                 issues
                 itemList
@@ -148,6 +181,38 @@ public struct FixPlanView: View {
                 }
 
                 Spacer()
+
+                HStack(spacing: 8) {
+                    Button {
+                        onReject?()
+                    } label: {
+                        Label("Reject all", systemImage: "xmark.circle")
+                    }
+                    .disabled(!canReject)
+
+                    Button {
+                        onAccept?()
+                    } label: {
+                        Label("Accept all", systemImage: "checkmark.circle")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canAccept)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var notice: some View {
+        if let noticeMessage {
+            SectionCard(
+                symbol: noticeSymbol,
+                tone: noticeTone,
+                title: "Review status"
+            ) {
+                Text(noticeMessage)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Ayu.fg2)
             }
         }
     }
@@ -254,6 +319,16 @@ public struct FixPlanView: View {
             DiffRow(old: item.old, new: item.new)
                 .font(.system(size: 11.5))
             ConfidenceBadge(conf: item.confidence)
+            Button {
+                onToggleItem?(item.id)
+            } label: {
+                Image(systemName: item.verdict.toggleSymbol)
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .disabled(!canToggle)
+            .help(item.verdict.toggleHelp)
+            .accessibilityLabel(item.verdict.toggleHelp)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 11)
@@ -305,6 +380,19 @@ public struct FixPlanView: View {
             : "No reviewable changes are available yet."
     }
 
+    private var noticeSymbol: String {
+        switch noticeTone {
+        case .success:
+            "checkmark.circle"
+        case .warning:
+            "exclamationmark.triangle"
+        case .error:
+            "exclamationmark.octagon"
+        default:
+            "info.circle"
+        }
+    }
+
     private var statusLabel: String {
         switch snapshot.status {
         case .empty:
@@ -343,6 +431,26 @@ public struct FixPlanView: View {
             .error
         }
     }
+
+    private var canReview: Bool {
+        !isReviewBusy &&
+            snapshot.status == .ready &&
+            snapshot.planID != nil &&
+            snapshot.planRevision != nil &&
+            snapshot.decisionRevision != nil
+    }
+
+    private var canAccept: Bool {
+        canReview && onAccept != nil && snapshot.acceptedCount < snapshot.itemCount
+    }
+
+    private var canReject: Bool {
+        canReview && onReject != nil && snapshot.rejectedCount < snapshot.itemCount
+    }
+
+    private var canToggle: Bool {
+        canReview && onToggleItem != nil
+    }
 }
 
 extension FixPlanVerdict {
@@ -363,12 +471,33 @@ extension FixPlanVerdict {
             .warning
         }
     }
+
+    fileprivate var toggleSymbol: String {
+        switch self {
+        case .accepted:
+            "xmark.circle"
+        case .rejected:
+            "checkmark.circle"
+        }
+    }
+
+    fileprivate var toggleHelp: String {
+        switch self {
+        case .accepted:
+            "Reject this change"
+        case .rejected:
+            "Accept this change"
+        }
+    }
 }
 
 #Preview {
     FixPlanView(snapshot: FixPlanSnapshot(
         status: .ready,
         planID: "preview",
+        planRevision: 1,
+        decisionRevision: 1,
+        projectionRevision: 1,
         itemCount: 2,
         acceptedCount: 1,
         rejectedCount: 1,

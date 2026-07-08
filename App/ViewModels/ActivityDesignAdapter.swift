@@ -134,10 +134,16 @@ enum ActivityDesignAdapter {
 
     private static func makeSymbol(for command: ActivityCommandDescriptor) -> String {
         switch command.commandKind {
+        case .acceptFixPlan:
+            "checkmark.circle"
+        case .rejectFixPlan:
+            "xmark.circle"
         case .reviewChanges:
             "checklist"
         case .resumeRecovery:
             "shield.checkerboard"
+        case .togglePlanItem:
+            "arrow.triangle.2.circlepath"
         case .runManually:
             switch command.variant {
             case .standard:

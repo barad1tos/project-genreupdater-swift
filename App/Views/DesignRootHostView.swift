@@ -34,6 +34,10 @@ struct DesignRootHostView: View {
     @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
     @State private var activityCommandNoticeID = UUID()
+    @State private var fixPlanNoticeMessage: String?
+    @State private var fixPlanNoticeTone: Tone = .info
+    @State private var fixPlanNoticeID = UUID()
+    @State private var isReviewBusy = false
     @State private var queuedManualReload: QueuedManualReload?
     @AppStorage(AppStorageKey.defaultUpdateBehavior) private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
@@ -138,7 +142,15 @@ struct DesignRootHostView: View {
     @ViewBuilder
     private var updateContent: some View {
         if fixPlanProjection.status != .empty {
-            FixPlanView(snapshot: FixPlanAdapter.makeSnapshot(from: fixPlanProjection))
+            FixPlanView(
+                snapshot: FixPlanAdapter.makeSnapshot(from: fixPlanProjection),
+                noticeMessage: fixPlanNoticeMessage,
+                noticeTone: fixPlanNoticeTone,
+                isReviewBusy: isReviewBusy,
+                onAccept: acceptFixPlan,
+                onReject: rejectFixPlan,
+                onToggleItem: toggleFixPlanItem
+            )
         } else if let workflowViewModel {
             UpdateWorkflowView(
                 viewModel: workflowViewModel,
@@ -782,64 +794,24 @@ struct DesignRootHostView: View {
         }
     }
 
-    private var activityCommands: ActivityCommands {
-        ActivityCommands(
-            isRunOrchestratorAvailable: { dependencies.runOrchestrator != nil },
-            submitManualRun: {
-                try await dependencies.submitManualRun()
-            },
-            queueManualReload: { runID in
-                queuedManualReload = .waitingForActive(runID)
-            },
-            reloadLibrary: { forceRefresh in
-                await loadLibrary(forceRefresh: forceRefresh)
-            },
-            refreshActivityProjection: {
-                await refreshActivityProjection()
-            },
-            runRecoveryPreflight: { runID in
-                let outcome = await dependencies.runRecoveryPreflight(runID: runID)
-                if case .resolved = outcome {
-                    await refreshReportsProjection()
-                }
-                return outcome
-            },
-            currentFixPlanID: {
-                fixPlanProjection.planID?.description
-            }
-        )
-    }
-
-    private func runManualSync(_ action: PipelineAction) {
-        guard action.isEnabled else { return }
-        runManualSync()
-    }
-
-    private func runManualSync() {
-        clearActivityCommandNotice()
-        Task { @MainActor in
-            await runManualSyncCommand()
-        }
-    }
-
-    @discardableResult
-    private func runManualSyncCommand() async -> UserCommandResult {
-        await runActivityCommand(.runManually())
-    }
-
     @discardableResult
     private func runActivityCommand(_ command: UserIntentCommand) async -> UserCommandResult {
         let result = await activityCommands.handle(command)
-        handleActivityCommandResult(result)
+        handleCommandResult(result)
         return result
     }
 
-    private func handleActivityCommandResult(_ result: UserCommandResult) {
+    private func handleCommandResult(_ result: UserCommandResult, showsActivityNotice: Bool = true) {
+        if let refreshedProjection = result.refreshedFixPlanProjection {
+            _ = applyFixPlanProjection(refreshedProjection)
+        }
         if let refreshedProjection = result.refreshedActivityProjection {
             applyActivityProjection(refreshedProjection)
         }
         handleActivityNavigationTarget(result.navigationTarget)
-        setActivityCommandNotice(result.message)
+        if showsActivityNotice {
+            setActivityCommandNotice(result.message)
+        }
     }
 
     private func handleActivityNavigationTarget(_ target: CommandNavigationTarget?) {
@@ -882,6 +854,29 @@ struct DesignRootHostView: View {
         activityCommandNoticeMessage = nil
     }
 
+    private func setFixPlanNotice(_ message: String, tone: Tone) {
+        guard !message.isEmpty else {
+            clearFixPlanNotice()
+            return
+        }
+
+        let noticeID = UUID()
+        fixPlanNoticeID = noticeID
+        fixPlanNoticeTone = tone
+        fixPlanNoticeMessage = message
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(8))
+            guard fixPlanNoticeID == noticeID else { return }
+            clearFixPlanNotice()
+        }
+    }
+
+    private func clearFixPlanNotice() {
+        fixPlanNoticeID = UUID()
+        fixPlanNoticeMessage = nil
+        fixPlanNoticeTone = .info
+    }
+
     private var selectedCategoryBinding: Binding<NavigationCategory?> {
         Binding {
             NavigationCategory(designRoute: selectedRoute)
@@ -895,6 +890,150 @@ struct DesignRootHostView: View {
         if category == .update {
             ensureWorkflowViewModel()
         }
+    }
+}
+
+extension DesignRootHostView {
+    private var activityCommands: ActivityCommands {
+        ActivityCommands(
+            isRunOrchestratorAvailable: { dependencies.runOrchestrator != nil },
+            submitManualRun: {
+                try await dependencies.submitManualRun()
+            },
+            queueManualReload: { runID in
+                queuedManualReload = .waitingForActive(runID)
+            },
+            reloadLibrary: { forceRefresh in
+                await loadLibrary(forceRefresh: forceRefresh)
+            },
+            refreshActivityProjection: {
+                await refreshActivityProjection()
+            },
+            runRecoveryPreflight: { runID in
+                let outcome = await dependencies.runRecoveryPreflight(runID: runID)
+                if case .resolved = outcome {
+                    await refreshReportsProjection()
+                }
+                return outcome
+            },
+            currentFixPlanID: {
+                fixPlanProjection.planID?.description
+            }
+        )
+    }
+
+    private var fixPlanCommands: FixPlanCommands {
+        FixPlanCommands(
+            fixPlanStore: dependencies.fixPlanStore,
+            refreshFixPlanProjection: {
+                await refreshFixPlanOnly()
+            },
+            refreshActivityProjection: {
+                await refreshActivityProjection()
+            },
+            now: { Date() }
+        )
+    }
+
+    private func runManualSync(_ action: PipelineAction) {
+        guard action.isEnabled else { return }
+        runManualSync()
+    }
+
+    private func runManualSync() {
+        clearActivityCommandNotice()
+        Task { @MainActor in
+            await runManualSyncCommand()
+        }
+    }
+
+    @discardableResult
+    private func runManualSyncCommand() async -> UserCommandResult {
+        await runActivityCommand(.runManually())
+    }
+
+    private func acceptFixPlan() {
+        guard let target = currentFixPlanTarget() else {
+            setFixPlanNotice("Review plan is no longer available.", tone: .warning)
+            return
+        }
+        runFixPlanCommand(.acceptFixPlan(target: target))
+    }
+
+    private func rejectFixPlan() {
+        guard let target = currentFixPlanTarget() else {
+            setFixPlanNotice("Review plan is no longer available.", tone: .warning)
+            return
+        }
+        runFixPlanCommand(.rejectFixPlan(target: target))
+    }
+
+    private func toggleFixPlanItem(_ itemID: String) {
+        guard let target = currentFixPlanTarget(),
+              let uuid = UUID(uuidString: itemID)
+        else {
+            setFixPlanNotice("Review item is no longer available.", tone: .warning)
+            return
+        }
+        runFixPlanCommand(.togglePlanItem(uuid, target: target))
+    }
+
+    private func runFixPlanCommand(_ command: UserIntentCommand) {
+        guard !isReviewBusy else {
+            setFixPlanNotice("Review update is already in progress.", tone: .info)
+            return
+        }
+        isReviewBusy = true
+        clearFixPlanNotice()
+        Task { @MainActor in
+            defer { isReviewBusy = false }
+            let result = await fixPlanCommands.handle(command)
+            handleCommandResult(result, showsActivityNotice: false)
+            setFixPlanNotice(result.message, tone: commandTone(for: result.status))
+        }
+    }
+
+    private func commandTone(for status: CommandResultStatus) -> Tone {
+        switch status {
+        case .accepted:
+            .success
+        case .alreadyCovered,
+             .navigated,
+             .noOp,
+             .queued:
+            .info
+        case .blockedByRecovery,
+             .rejectedStale:
+            .warning
+        case .blockedByPermission,
+             .rejectedInvalid,
+             .requiresAttention,
+             .temporaryUnavailable:
+            .error
+        }
+    }
+
+    private func currentFixPlanTarget() -> FixPlanCommandTarget? {
+        guard fixPlanProjection.status == .ready,
+              let planID = fixPlanProjection.planID,
+              let planRevision = fixPlanProjection.planRevision,
+              let decisionRevision = fixPlanProjection.decisionRevision
+        else { return nil }
+
+        return FixPlanCommandTarget(
+            planID: planID,
+            planRevision: planRevision,
+            decisionRevision: decisionRevision,
+            projectionRevision: fixPlanProjection.revision
+        )
+    }
+
+    @discardableResult
+    private func refreshFixPlanOnly() async -> FixPlanProjection {
+        // FixPlanCommands refreshes activity after it classifies the command result.
+        let projection = await dependencies.refreshFixPlanProjection()
+        _ = applyFixPlanProjection(projection)
+        return projection
     }
 }
 
