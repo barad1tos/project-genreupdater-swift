@@ -40,8 +40,9 @@ public actor RunOrchestrator {
 
     public func lifecycleUpdates() -> AsyncStream<RunLifecycleSnapshot> {
         let subscriptionID = UUID()
+        // Terminal snapshots drive UI refreshes; a queued follow-up must not overwrite them for slow subscribers.
         let (stream, continuation) = AsyncStream<RunLifecycleSnapshot>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
+            bufferingPolicy: .unbounded
         )
 
         if let lifecycle = currentLifecycle() {

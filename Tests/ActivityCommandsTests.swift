@@ -4,15 +4,15 @@ import Services
 import Testing
 @testable import Genre_Updater
 
-@Suite("ActivityCommandController")
+@Suite("ActivityCommands")
 @MainActor
 struct ActivityCommandsTests {
     @Test("review changes command returns navigation result")
     func reviewChangesCommandReturnsNavigationResult() async {
         let harness = Harness(projection: makeReviewProjection(revision: ProjectionRevision(2)))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.reviewChanges())
+        let result = await commands.handle(.reviewChanges())
 
         #expect(result.status == .navigated)
         #expect(result.message == "Opening review.")
@@ -26,9 +26,9 @@ struct ActivityCommandsTests {
     @Test("review changes command rejects stale empty plan")
     func reviewChangesCommandRejectsStaleEmptyPlan() async {
         let harness = Harness(currentRevision: ProjectionRevision(2))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.reviewChanges())
+        let result = await commands.handle(.reviewChanges())
 
         #expect(result.status == .rejectedStale)
         #expect(result.message == "Review plan is no longer available.")
@@ -42,9 +42,9 @@ struct ActivityCommandsTests {
     @Test("run manually command submits manual observation run")
     func runManuallyCommandSubmitsManualObservationRun() async {
         let harness = Harness(currentRevision: ProjectionRevision(2))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.runManually())
+        let result = await commands.handle(.runManually())
 
         #expect(result.status == .noOp)
         #expect(result.message == "No library changes detected.")
@@ -56,9 +56,9 @@ struct ActivityCommandsTests {
     @Test("already active run returns already covered")
     func activeRunReturnsCovered() async {
         let harness = Harness(runResult: .alreadyCovered(lifecycle(phase: .active(.syncingLibrary))))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.runManually())
+        let result = await commands.handle(.runManually())
 
         #expect(result.status == .alreadyCovered)
         #expect(result.message == "A run is already active.")
@@ -69,14 +69,16 @@ struct ActivityCommandsTests {
 
     @Test("queued manual run returns queued result")
     func manualRunReturnsQueued() async {
-        let harness = Harness(runResult: .queued(lifecycle(phase: .active(.syncingLibrary))))
-        let controller = harness.makeController()
+        let active = lifecycle(phase: .active(.syncingLibrary))
+        let harness = Harness(runResult: .queued(active))
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.runManually())
+        let result = await commands.handle(.runManually())
 
         #expect(result.status == .queued)
         #expect(result.message == "Manual check queued after current run.")
         #expect(harness.submitRunCallCount == 1)
+        #expect(harness.queuedReloadBarriers == [active.runID])
         #expect(harness.reloadCallCount == 0)
         #expect(harness.refreshCallCount == 2)
     }
@@ -84,9 +86,9 @@ struct ActivityCommandsTests {
     @Test("unavailable orchestrator returns temporary unavailable")
     func unavailableOrchestratorReturnsTemporaryUnavailable() async {
         let harness = Harness(isRunOrchestratorAvailable: false)
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.runManually())
+        let result = await commands.handle(.runManually())
 
         #expect(result.status == .temporaryUnavailable)
         #expect(result.issue?.id == "run-orchestrator-unavailable")
@@ -101,9 +103,9 @@ struct ActivityCommandsTests {
             revision: ProjectionRevision(2),
             isEnabled: false
         ))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.runManually())
+        let result = await commands.handle(.runManually())
 
         #expect(result.status == .rejectedStale)
         #expect(result.message == "Manual check is no longer available.")
@@ -115,9 +117,9 @@ struct ActivityCommandsTests {
     @Test("review changes returns blocked by recovery for recovery hold")
     func reviewChangesReturnsBlockedByRecoveryForRecoveryHold() async {
         let harness = Harness(projection: makeRecoveryProjection(revision: ProjectionRevision(2)))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.reviewChanges())
+        let result = await commands.handle(.reviewChanges())
 
         #expect(result.status == .blockedByRecovery)
         #expect(result.message == "Previous run needs recovery before writes continue.")
@@ -131,9 +133,9 @@ struct ActivityCommandsTests {
     @Test("resume recovery runs preflight before navigation")
     func resumeRecoveryNavigates() async {
         let harness = Harness(projection: makeRecoveryProjection(revision: ProjectionRevision(2)))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.resumeRecovery())
+        let result = await commands.handle(.resumeRecovery())
 
         #expect(result.status == .navigated)
         #expect(result.message == "Opening recovery.")
@@ -150,9 +152,9 @@ struct ActivityCommandsTests {
             projection: makeRecoveryProjection(revision: ProjectionRevision(2)),
             preflightOutcome: .resolved(runID: recoveryRunID, reason: .alreadyFinished)
         )
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.resumeRecovery())
+        let result = await commands.handle(.resumeRecovery())
 
         #expect(result.status == .noOp)
         #expect(result.message == "Recovery is no longer required.")
@@ -167,9 +169,9 @@ struct ActivityCommandsTests {
             projection: makeRecoveryProjection(revision: ProjectionRevision(2)),
             preflightOutcome: .needsAttention(runID: recoveryRunID, reason: .writeAdjacentState(.reporting))
         )
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.resumeRecovery())
+        let result = await commands.handle(.resumeRecovery())
 
         #expect(result.status == .requiresAttention)
         #expect(result.message == "Recovery needs review.")
@@ -186,9 +188,9 @@ struct ActivityCommandsTests {
             projection: makeRecoveryProjection(revision: ProjectionRevision(2)),
             preflightOutcome: .blocked(runID: recoveryRunID, reason: .storeUnavailable)
         )
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.resumeRecovery())
+        let result = await commands.handle(.resumeRecovery())
 
         #expect(result.status == .requiresAttention)
         #expect(result.message == "Recovery preflight is unavailable.")
@@ -204,9 +206,9 @@ struct ActivityCommandsTests {
             revision: ProjectionRevision(2),
             runID: "not-a-uuid"
         ))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.resumeRecovery())
+        let result = await commands.handle(.resumeRecovery())
 
         #expect(result.status == .requiresAttention)
         #expect(result.message == "Recovery record is unavailable.")
@@ -219,7 +221,7 @@ struct ActivityCommandsTests {
 
     @Test("primary resolver dispatches recovery command")
     func primaryDispatchesRecovery() {
-        let command = ActivityCommandController.command(for: makeRecoveryProjection(
+        let command = ActivityCommands.command(for: makeRecoveryProjection(
             revision: ProjectionRevision(2)
         ).primaryCommand)
 
@@ -229,9 +231,9 @@ struct ActivityCommandsTests {
     @Test("resume recovery reports library blocker")
     func recoveryReportsBlocker() async {
         let harness = Harness(projection: blockedRecoveryProjection(revision: ProjectionRevision(2)))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.resumeRecovery())
+        let result = await commands.handle(.resumeRecovery())
 
         #expect(result.status == .temporaryUnavailable)
         #expect(result.message == "Music permission required")
@@ -245,9 +247,9 @@ struct ActivityCommandsTests {
     @Test("run manually submits during recovery hold")
     func runManuallySubmitsDuringRecoveryHold() async {
         let harness = Harness(projection: makeRecoveryProjection(revision: ProjectionRevision(2)))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.runManually())
+        let result = await commands.handle(.runManually())
 
         #expect(result.status == .noOp)
         #expect(result.message == "No library changes detected.")
@@ -261,9 +263,9 @@ struct ActivityCommandsTests {
         let harness = Harness(runResult: .completedNoOp(lifecycle(
             phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate)
         )))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.runManually())
+        let result = await commands.handle(.runManually())
 
         #expect(result.status == .noOp)
         #expect(result.message == "No library changes detected.")
@@ -283,9 +285,9 @@ struct ActivityCommandsTests {
         let harness = Harness(
             runResult: .completed(lifecycle(phase: .finished(.completed(syncResult), finishedAt: finishDate)))
         )
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.runManually())
+        let result = await commands.handle(.runManually())
 
         #expect(result.status == .accepted)
         #expect(result.message == "Library delta detected · analyzing 5 changes.")
@@ -299,9 +301,9 @@ struct ActivityCommandsTests {
             .failed(message: "Music.app is unavailable"),
             finishedAt: finishDate
         ))))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.runManually())
+        let result = await commands.handle(.runManually())
 
         #expect(result.status == .requiresAttention)
         #expect(result.message == "Manual check failed.")
@@ -315,9 +317,9 @@ struct ActivityCommandsTests {
     @Test("submit error returns requires attention")
     func submitErrorReturnsRequiresAttention() async {
         let harness = Harness(runError: TestError(message: "Run orchestrator crashed"))
-        let controller = harness.makeController()
+        let commands = harness.makeCommands()
 
-        let result = await controller.handle(.runManually())
+        let result = await commands.handle(.runManually())
 
         #expect(result.status == .requiresAttention)
         #expect(result.issue?.id == "manual-check-failed")
@@ -325,6 +327,54 @@ struct ActivityCommandsTests {
         #expect(result.issue?.technicalDetail == "Run orchestrator crashed")
         #expect(harness.submitRunCallCount == 1)
         #expect(harness.reloadCallCount == 0)
+    }
+
+    @Test("queued reload waits for queued manual terminal")
+    func queuedReloadWaitsForQueuedManualTerminal() {
+        let activeRunID = RunID()
+        let activeTerminal = lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate),
+            runID: activeRunID,
+            trigger: .backgroundSync
+        )
+
+        let afterActive = advanceQueuedReload(.waitingForActive(activeRunID), lifecycle: activeTerminal)
+
+        #expect(afterActive.next == .waitingForQueued)
+        #expect(!afterActive.shouldReload)
+
+        let queuedTerminal = lifecycle(phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate))
+        let afterQueued = advanceQueuedReload(afterActive.next, lifecycle: queuedTerminal)
+
+        #expect(afterQueued.next == nil)
+        #expect(afterQueued.shouldReload)
+    }
+
+    @Test("queued reload clears after replacement terminal")
+    func queuedReloadClearsAfterReplacementTerminal() {
+        let activeRunID = RunID()
+        let activeTerminal = lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate),
+            runID: activeRunID,
+            trigger: .backgroundSync
+        )
+        let afterActive = advanceQueuedReload(.waitingForActive(activeRunID), lifecycle: activeTerminal)
+
+        let previewTerminal = lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate),
+            trigger: .manualCheck,
+            intent: .previewFixes
+        )
+        let afterPreview = advanceQueuedReload(afterActive.next, lifecycle: previewTerminal)
+
+        #expect(afterPreview.next == nil)
+        #expect(!afterPreview.shouldReload)
+
+        let directManualTerminal = lifecycle(phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate))
+        let afterDirectManual = advanceQueuedReload(afterPreview.next, lifecycle: directManualTerminal)
+
+        #expect(afterDirectManual.next == nil)
+        #expect(!afterDirectManual.shouldReload)
     }
 
     private func track(id: String) -> Core.Track {
@@ -481,6 +531,7 @@ private final class Harness {
     var reloadCallCount = 0
     var refreshCallCount = 0
     var preflightRunIDs: [RunID] = []
+    var queuedReloadBarriers: [RunID] = []
 
     private var projection: ActivityProjection
     private let preflightOutcome: RecoveryPreflightOutcome?
@@ -504,8 +555,8 @@ private final class Harness {
         self.runError = runError
     }
 
-    func makeController() -> ActivityCommandController {
-        ActivityCommandController(
+    func makeCommands() -> ActivityCommands {
+        ActivityCommands(
             isRunOrchestratorAvailable: { self.isRunOrchestratorAvailable },
             submitManualRun: {
                 self.submitRunCallCount += 1
@@ -513,6 +564,9 @@ private final class Harness {
                     throw runError
                 }
                 return self.runResult
+            },
+            queueManualReload: { runID in
+                self.queuedReloadBarriers.append(runID)
             },
             reloadLibrary: { forceRefresh in
                 if forceRefresh {
@@ -539,17 +593,22 @@ private let recoveryRunIDString = "00000000-0000-0000-0000-000000000097"
 private let recoveryRunID = RunID(rawValue: UUID(uuidString: recoveryRunIDString) ?? UUID())
 private let finishDate = Date(timeIntervalSince1970: 101)
 
-private func lifecycle(phase: RunPhase) -> RunLifecycleSnapshot {
+private func lifecycle(
+    phase: RunPhase,
+    runID: RunID = RunID(),
+    trigger: RunTrigger = .manualCheck,
+    intent: RunIntent = .observeLibrary
+) -> RunLifecycleSnapshot {
     RunLifecycleSnapshot(
-        runID: RunID(),
+        runID: runID,
         requestID: RunRequestID(),
-        trigger: .manualCheck,
-        intent: .observeLibrary,
+        trigger: trigger,
+        intent: intent,
         scope: ProcessingScopeSnapshot.capture(
             requestedTestArtists: [],
             knownTrackCount: 75,
             createdAt: Date(timeIntervalSince1970: 100),
-            reason: "manualCheck"
+            reason: trigger.rawValue
         ),
         startedAt: Date(timeIntervalSince1970: 100),
         phase: phase

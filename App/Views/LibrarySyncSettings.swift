@@ -1,4 +1,4 @@
-// SettingsAPIAndCacheTab+LibrarySync.swift -- library sync controls for API & Cache settings.
+// LibrarySyncSettings.swift -- library sync controls for API & Cache settings.
 
 import Core
 import Services
@@ -100,7 +100,7 @@ extension APIAndCacheTab {
             "\(result.modifiedTracks.count) modified",
             "\(result.identityChangedTracks.count) identity changed",
             "\(result.refreshedTracks.count) refreshed",
-            "\(result.removedTrackIDs.count) removed",
+            "\(result.removedTrackIDs.count) removed"
         ].joined(separator: ", ")
     }
 

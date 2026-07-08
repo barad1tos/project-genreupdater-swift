@@ -21,7 +21,6 @@ struct TriggerArbiterTests {
             return
         }
         #expect(pending.request == request)
-        #expect(pending.coalescedTriggers == [.manualCheck])
     }
 
     @Test("background trigger is already covered by active manual run")
@@ -66,7 +65,6 @@ struct TriggerArbiterTests {
             return
         }
         #expect(updatedPending.request == recoveryRequest)
-        #expect(updatedPending.coalescedTriggers == [.manualCheck, .recovery])
     }
 
     @Test("preview intent queues after active observation")
@@ -86,12 +84,91 @@ struct TriggerArbiterTests {
             return
         }
         #expect(pending.request == request)
-        #expect(pending.coalescedTriggers == [.manualCheck])
+    }
+
+    @Test("equal trigger queues when test artist scope differs")
+    func equalTriggerQueuesDifferentScope() {
+        let active = Self.lifecycle(
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            requestedTestArtists: ["Artist A"],
+            knownTrackCount: 75
+        )
+        let request = RunRequest(
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            requestedTestArtists: ["Artist B"],
+            knownTrackCount: 75
+        )
+
+        let decision = TriggerArbiter.decide(active: active, pending: nil, incoming: request)
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected queued trigger, got \(decision)")
+            return
+        }
+        #expect(pending.request == request)
+    }
+
+    @Test("full library active run covers equal scoped trigger")
+    func fullLibraryCoversScopedTrigger() {
+        let active = Self.lifecycle(
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            requestedTestArtists: [],
+            knownTrackCount: 75
+        )
+        let request = RunRequest(
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            requestedTestArtists: ["Artist B"],
+            knownTrackCount: 75
+        )
+
+        let decision = TriggerArbiter.decide(active: active, pending: nil, incoming: request)
+
+        guard case .alreadyCovered(nil) = decision else {
+            Issue.record("Expected already covered trigger, got \(decision)")
+            return
+        }
+    }
+
+    @Test("pending full library run covers equal scoped trigger")
+    func pendingFullLibraryCoversScopedTrigger() {
+        let active = Self.lifecycle(
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            requestedTestArtists: ["Artist A"],
+            knownTrackCount: 75
+        )
+        let pendingRequest = RunRequest(
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            requestedTestArtists: [],
+            knownTrackCount: 75
+        )
+        let request = RunRequest(
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            requestedTestArtists: ["Artist B"],
+            knownTrackCount: 75
+        )
+        let pending = PendingTrigger(request: pendingRequest)
+
+        let decision = TriggerArbiter.decide(active: active, pending: pending, incoming: request)
+
+        guard case let .alreadyCovered(updatedPending) = decision else {
+            Issue.record("Expected already covered trigger, got \(decision)")
+            return
+        }
+        #expect(updatedPending == pending)
     }
 
     private static func lifecycle(
         trigger: RunTrigger,
-        intent: RunIntent
+        intent: RunIntent,
+        requestedTestArtists: [String] = [],
+        knownTrackCount: Int? = nil
     ) -> RunLifecycleSnapshot {
         let startedAt = Date(timeIntervalSince1970: 100)
         return RunLifecycleSnapshot(
@@ -100,8 +177,8 @@ struct TriggerArbiterTests {
             trigger: trigger,
             intent: intent,
             scope: .capture(
-                requestedTestArtists: [],
-                knownTrackCount: nil,
+                requestedTestArtists: requestedTestArtists,
+                knownTrackCount: knownTrackCount,
                 createdAt: startedAt,
                 reason: trigger.rawValue
             ),

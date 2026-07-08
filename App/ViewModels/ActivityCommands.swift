@@ -3,11 +3,12 @@ import OSLog
 import Services
 
 @MainActor
-struct ActivityCommandController {
+struct ActivityCommands {
     private let log = Logger(subsystem: "com.genreupdater", category: "ActivityCommands")
 
     let isRunOrchestratorAvailable: () -> Bool
     let submitManualRun: () async throws -> RunSubmissionResult
+    let queueManualReload: (RunID) -> Void
     let reloadLibrary: (_ forceRefresh: Bool) async -> Void
     let refreshActivityProjection: () async -> ActivityProjection
     let runRecoveryPreflight: (RunID) async -> RecoveryPreflightOutcome
@@ -223,7 +224,8 @@ struct ActivityCommandController {
                 message: "A run is already active.",
                 refreshedActivityProjection: projection
             )
-        case .queued:
+        case let .queued(activeRun):
+            queueManualReload(activeRun.runID)
             let projection = await refreshActivityProjection()
             return .queued(
                 message: "Manual check queued after current run.",
