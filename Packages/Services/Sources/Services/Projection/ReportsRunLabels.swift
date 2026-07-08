@@ -9,15 +9,28 @@ enum ReportsRunLabels {
         switch state {
         case .running:
             return .recoveryNeeded
-        case .awaitingReview, .completed, .completedNoOp, .blocked, .failed, .cancelled, .recoveryNeeded:
+        case .awaitingReview,
+             .completed,
+             .completedNoOp,
+             .blocked,
+             .failed,
+             .cancelled,
+             .recoveryNeeded:
             return state
         }
     }
 
     static func runState(from state: RunLifecycleState) -> ReportsRunState {
         switch state {
-        case .created, .queued, .syncingLibrary, .analyzingDelta, .planningFixes, .writing, .verifying,
-             .reporting, .recovering:
+        case .created,
+             .queued,
+             .syncingLibrary,
+             .analyzingDelta,
+             .planningFixes,
+             .writing,
+             .verifying,
+             .reporting,
+             .recovering:
             .running
         case .awaitingReview:
             .awaitingReview
