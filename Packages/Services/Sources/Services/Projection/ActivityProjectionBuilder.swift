@@ -88,6 +88,7 @@ public enum ActivityProjectionBuilder {
         }
 
         guard !input.hasRecovery else { return nil }
+        guard !input.effectiveSyncState.requiresRecoveryAttention else { return nil }
         guard input.proposedFixCount > 0 else { return nil }
 
         return ActivityCommandDescriptor(

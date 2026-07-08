@@ -196,6 +196,12 @@ struct ActivityLifecycleTests {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
+                fixPlan: ActivityFixPlanSummary(
+                    status: .ready,
+                    itemCount: 2,
+                    acceptedCount: 0,
+                    canApply: true
+                ),
                 runLifecycle: lifecycle(phase: .suspended(.blocked))
             )
         )
@@ -205,6 +211,7 @@ struct ActivityLifecycleTests {
         #expect(projection.syncStatusText == "Blocked")
         #expect(projection.currentStage == .fix)
         #expect(projection.status(for: .fix) == .gated)
+        #expect(projection.primaryCommand == nil)
         #expect(issue.summary == "Run blocked")
         #expect(issue.category == .safetyBlocked)
         #expect(projection.recentActivity.allSatisfy { $0.title != "Library sync failed" })
@@ -215,6 +222,12 @@ struct ActivityLifecycleTests {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
+                fixPlan: ActivityFixPlanSummary(
+                    status: .ready,
+                    itemCount: 2,
+                    acceptedCount: 0,
+                    canApply: true
+                ),
                 runLifecycle: lifecycle(phase: .suspended(.recoverable))
             )
         )
@@ -224,6 +237,7 @@ struct ActivityLifecycleTests {
         #expect(projection.syncStatusText == "Recovery needed")
         #expect(projection.currentStage == .fix)
         #expect(projection.status(for: .fix) == .gated)
+        #expect(projection.primaryCommand == nil)
         #expect(issue.summary == "Recovery needed")
         #expect(issue.category == .recoveryRequired)
         #expect(projection.recentActivity.allSatisfy { $0.title != "Library sync failed" })
