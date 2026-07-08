@@ -918,8 +918,10 @@ func advanceQueuedReload(
 
     switch state {
     case let .waitingForActive(runID):
-        let next: QueuedManualReload? = lifecycle.runID == runID ? .waitingForQueued : state
-        return QueuedReloadAdvance(next: next, shouldReload: false)
+        if lifecycle.runID == runID {
+            return QueuedReloadAdvance(next: .waitingForQueued, shouldReload: false)
+        }
+        return QueuedReloadAdvance(next: nil, shouldReload: lifecycle.isCompletedManualObservation)
     case .waitingForQueued:
         let shouldReload = lifecycle.isCompletedManualObservation
         return QueuedReloadAdvance(next: nil, shouldReload: shouldReload)

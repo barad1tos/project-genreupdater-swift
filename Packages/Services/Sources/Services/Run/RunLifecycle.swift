@@ -73,6 +73,16 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         }
     }
 
+    var canQueueManual: Bool {
+        guard isActive else { return false }
+        switch trigger {
+        case .backgroundSync, .fileSystemEvent:
+            return true
+        case .manualCheck, .recovery:
+            return false
+        }
+    }
+
     public var finishedAt: Date? {
         if case let .finished(_, finishedAt) = phase {
             finishedAt
@@ -154,8 +164,9 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     }
 
     public func failing(message: String, at finishedAt: Date) -> Self {
-        if case .active = phase {} else {
+        guard case .active = phase else {
             reportIllegalTransition("failing(message:at:)", expected: "an active phase")
+            return withPhase(.finished(.failed(message: message), finishedAt: finishedAt))
         }
         return withPhase(.finished(.failed(message: message), finishedAt: finishedAt))
     }
@@ -186,12 +197,14 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
 }
 
 public enum RunSubmissionResult: Equatable, Sendable {
-    case alreadyCovered(RunLifecycleSnapshot)
-    case queued(RunLifecycleSnapshot)
+    case alreadyCovered(activeRun: RunLifecycleSnapshot)
+    case queued(activeRun: RunLifecycleSnapshot)
     case completed(RunLifecycleSnapshot)
     case completedNoOp(RunLifecycleSnapshot)
     case failed(RunLifecycleSnapshot)
 
+    /// The run snapshot associated with this response. For `alreadyCovered`
+    /// and `queued`, this is the active run that covered or delayed the request.
     public var lifecycle: RunLifecycleSnapshot {
         switch self {
         case let .alreadyCovered(snapshot),

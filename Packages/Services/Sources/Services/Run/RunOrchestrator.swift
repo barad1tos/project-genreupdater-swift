@@ -67,10 +67,10 @@ public actor RunOrchestrator {
             switch TriggerArbiter.decide(active: activeRun, pending: pendingTrigger, incoming: request) {
             case let .alreadyCovered(pending):
                 pendingTrigger = pending
-                return .alreadyCovered(activeRun)
+                return .alreadyCovered(activeRun: activeRun)
             case let .queue(pending):
                 pendingTrigger = pending
-                return .queued(activeRun)
+                return .queued(activeRun: activeRun)
             }
         }
 

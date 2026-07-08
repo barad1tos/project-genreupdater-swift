@@ -55,7 +55,7 @@ struct ActivityCommandsTests {
 
     @Test("already active run returns already covered")
     func activeRunReturnsCovered() async {
-        let harness = Harness(runResult: .alreadyCovered(lifecycle(phase: .active(.syncingLibrary))))
+        let harness = Harness(runResult: .alreadyCovered(activeRun: lifecycle(phase: .active(.syncingLibrary))))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.runManually())
@@ -70,7 +70,7 @@ struct ActivityCommandsTests {
     @Test("queued manual run returns queued result")
     func manualRunReturnsQueued() async {
         let active = lifecycle(phase: .active(.syncingLibrary))
-        let harness = Harness(runResult: .queued(active))
+        let harness = Harness(runResult: .queued(activeRun: active))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.runManually())
@@ -81,6 +81,23 @@ struct ActivityCommandsTests {
         #expect(harness.queuedReloadBarriers == [active.runID])
         #expect(harness.reloadCallCount == 0)
         #expect(harness.refreshCallCount == 2)
+    }
+
+    @Test("active background projection queues manual run")
+    func backgroundQueuesManual() async {
+        let active = lifecycle(phase: .active(.syncingLibrary), trigger: .backgroundSync)
+        let harness = Harness(
+            projection: makeActiveProjection(revision: ProjectionRevision(2), lifecycle: active),
+            runResult: .queued(activeRun: active)
+        )
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.runManually())
+
+        #expect(result.status == .queued)
+        #expect(harness.submitRunCallCount == 1)
+        #expect(harness.queuedReloadBarriers == [active.runID])
+        #expect(harness.reloadCallCount == 0)
     }
 
     @Test("unavailable orchestrator returns temporary unavailable")
@@ -330,7 +347,7 @@ struct ActivityCommandsTests {
     }
 
     @Test("queued reload waits for queued manual terminal")
-    func queuedReloadWaitsForQueuedManualTerminal() {
+    func queuedReloadWaits() {
         let activeRunID = RunID()
         let activeTerminal = lifecycle(
             phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate),
@@ -351,7 +368,7 @@ struct ActivityCommandsTests {
     }
 
     @Test("queued reload clears after replacement terminal")
-    func queuedReloadClearsAfterReplacementTerminal() {
+    func queuedReloadClears() {
         let activeRunID = RunID()
         let activeTerminal = lifecycle(
             phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate),
@@ -375,6 +392,35 @@ struct ActivityCommandsTests {
 
         #expect(afterDirectManual.next == nil)
         #expect(!afterDirectManual.shouldReload)
+    }
+
+    @Test("queued reload tolerates missed active terminal")
+    func missedActiveQueues() {
+        let activeRunID = RunID()
+        let queuedTerminal = lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate),
+            trigger: .manualCheck
+        )
+
+        let afterQueued = advanceQueuedReload(.waitingForActive(activeRunID), lifecycle: queuedTerminal)
+
+        #expect(afterQueued.next == nil)
+        #expect(afterQueued.shouldReload)
+    }
+
+    @Test("queued reload clears replacement after missed active terminal")
+    func missedActiveClears() {
+        let activeRunID = RunID()
+        let previewTerminal = lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate),
+            trigger: .manualCheck,
+            intent: .previewFixes
+        )
+
+        let afterPreview = advanceQueuedReload(.waitingForActive(activeRunID), lifecycle: previewTerminal)
+
+        #expect(afterPreview.next == nil)
+        #expect(!afterPreview.shouldReload)
     }
 
     private func track(id: String) -> Core.Track {
@@ -441,6 +487,25 @@ private func makeRunManuallyProjection(
         summaryCards: [],
         operationalIssues: []
     )
+}
+
+private func makeActiveProjection(
+    revision: ProjectionRevision,
+    lifecycle: RunLifecycleSnapshot
+) -> ActivityProjection {
+    ActivityProjectionBuilder.makeProjection(from: ActivityProjectionInput(
+        tracks: [Core.Track(id: "1", name: "Track 1", artist: "Artist", album: "Album")],
+        metrics: nil,
+        lastScanDate: Date(timeIntervalSince1970: 1_800_000_000),
+        libraryState: .ready,
+        processingMode: .preview,
+        workflow: .empty,
+        pendingVerification: nil,
+        runLifecycle: lifecycle,
+        isLibrarySyncAvailable: true,
+        isAutoSyncRunning: false,
+        now: Date(timeIntervalSince1970: 1_800_000_480)
+    )).withRevision(revision)
 }
 
 private func makeRecoveryProjection(
