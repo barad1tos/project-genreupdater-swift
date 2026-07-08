@@ -77,6 +77,24 @@ struct ActivityDesignTests {
         #expect(snapshot.primaryAction.isEnabled)
     }
 
+    @Test("maps library check command to search symbol")
+    func mapsLibraryCheckAction() throws {
+        let projection = makeProjection(secondaryCommand: ActivityCommandDescriptor(
+            id: "run-manually",
+            title: "Check library",
+            style: .secondary,
+            isEnabled: true,
+            commandKind: .runManually,
+            variant: .libraryCheck
+        ))
+
+        let snapshot = ActivityDesignAdapter.makePipelineSnapshot(from: projection)
+        let secondaryAction = try #require(snapshot.secondaryAction)
+
+        #expect(secondaryAction.title == "Check library")
+        #expect(secondaryAction.symbol == "magnifyingglass")
+    }
+
     @Test("notice overrides subtitle; nil notice keeps the projection subtitle")
     func noticeOverridesSubtitleAndNilNoticeKeepsProjectionSubtitle() {
         let projection = makeProjection(subtitle: "Projection subtitle")
@@ -188,7 +206,14 @@ struct ActivityDesignTests {
         deltaDetail: String = "candidate fixes",
         recentActivity: [ActivityRecentItem] = [
             ActivityRecentItem(id: "scan", title: "Library scan", detail: "42 tracks analyzed"),
-        ]
+        ],
+        secondaryCommand: ActivityCommandDescriptor = ActivityCommandDescriptor(
+            id: "run-manually",
+            title: "Run manually",
+            style: .secondary,
+            isEnabled: true,
+            commandKind: .runManually
+        )
     ) -> ActivityProjection {
         ActivityProjection(
             revision: .initial.advanced(),
@@ -204,13 +229,7 @@ struct ActivityDesignTests {
             failedWriteCount: 1,
             isUndoReady: true,
             primaryCommand: nil,
-            secondaryCommand: ActivityCommandDescriptor(
-                id: "run-manually",
-                title: "Run manually",
-                style: .secondary,
-                isEnabled: true,
-                commandKind: .runManually
-            ),
+            secondaryCommand: secondaryCommand,
             stageDescriptors: [
                 ActivityPipelineStageDescriptor(stage: .watch, detail: "Manual scan only", status: .completed),
                 ActivityPipelineStageDescriptor(stage: .detect, detail: "Polling enabled", status: .completed),

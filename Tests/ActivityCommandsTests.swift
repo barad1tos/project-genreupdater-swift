@@ -9,7 +9,7 @@ import Testing
 struct ActivityCommandsTests {
     @Test("review changes command returns navigation result")
     func reviewChangesCommandReturnsNavigationResult() async {
-        let harness = Harness(projection: makeReviewProjection(revision: ProjectionRevision(2)))
+        let harness = ActivityFixtures.Harness(projection: makeReviewProjection(revision: ProjectionRevision(2)))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.reviewChanges())
@@ -25,7 +25,7 @@ struct ActivityCommandsTests {
 
     @Test("review changes command rejects stale empty plan")
     func reviewChangesCommandRejectsStaleEmptyPlan() async {
-        let harness = Harness(currentRevision: ProjectionRevision(2))
+        let harness = ActivityFixtures.Harness(currentRevision: ProjectionRevision(2))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.reviewChanges())
@@ -41,7 +41,7 @@ struct ActivityCommandsTests {
 
     @Test("run manually command submits manual observation run")
     func runManuallyCommandSubmitsManualObservationRun() async {
-        let harness = Harness(currentRevision: ProjectionRevision(2))
+        let harness = ActivityFixtures.Harness(currentRevision: ProjectionRevision(2))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.runManually())
@@ -55,7 +55,8 @@ struct ActivityCommandsTests {
 
     @Test("already active run returns already covered")
     func activeRunReturnsCovered() async {
-        let harness = Harness(runResult: .alreadyCovered(activeRun: lifecycle(phase: .active(.syncingLibrary))))
+        let activeRun = ActivityFixtures.lifecycle(phase: .active(.syncingLibrary))
+        let harness = ActivityFixtures.Harness(runResult: .alreadyCovered(activeRun: activeRun))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.runManually())
@@ -69,8 +70,8 @@ struct ActivityCommandsTests {
 
     @Test("queued manual run returns queued result")
     func manualRunReturnsQueued() async {
-        let active = lifecycle(phase: .active(.syncingLibrary))
-        let harness = Harness(runResult: .queued(activeRun: active))
+        let active = ActivityFixtures.lifecycle(phase: .active(.syncingLibrary))
+        let harness = ActivityFixtures.Harness(runResult: .queued(activeRun: active))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.runManually())
@@ -85,8 +86,10 @@ struct ActivityCommandsTests {
 
     @Test("cancelled manual run returns no-op result")
     func manualRunReturnsCancelledNoOp() async {
-        let cancelled = lifecycle(phase: .finished(.cancelled(message: "Run cancelled"), finishedAt: finishDate))
-        let harness = Harness(runResult: .cancelled(cancelled))
+        let cancelled = ActivityFixtures.lifecycle(
+            phase: .finished(.cancelled(message: "Run cancelled"), finishedAt: ActivityFixtures.finishDate)
+        )
+        let harness = ActivityFixtures.Harness(runResult: .cancelled(cancelled))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.runManually())
@@ -100,8 +103,8 @@ struct ActivityCommandsTests {
 
     @Test("active background projection queues manual run")
     func backgroundQueuesManual() async {
-        let active = lifecycle(phase: .active(.syncingLibrary), trigger: .backgroundSync)
-        let harness = Harness(
+        let active = ActivityFixtures.lifecycle(phase: .active(.syncingLibrary), trigger: .backgroundSync)
+        let harness = ActivityFixtures.Harness(
             projection: makeActiveProjection(revision: ProjectionRevision(2), lifecycle: active),
             runResult: .queued(activeRun: active)
         )
@@ -117,7 +120,7 @@ struct ActivityCommandsTests {
 
     @Test("unavailable orchestrator returns temporary unavailable")
     func unavailableOrchestratorReturnsTemporaryUnavailable() async {
-        let harness = Harness(isRunOrchestratorAvailable: false)
+        let harness = ActivityFixtures.Harness(isRunOrchestratorAvailable: false)
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.runManually())
@@ -131,7 +134,7 @@ struct ActivityCommandsTests {
 
     @Test("run manually rejects stale disabled command")
     func runManuallyRejectsStaleDisabledCommand() async {
-        let harness = Harness(projection: makeRunManuallyProjection(
+        let harness = ActivityFixtures.Harness(projection: ActivityFixtures.makeManualProjection(
             revision: ProjectionRevision(2),
             isEnabled: false
         ))
@@ -146,9 +149,38 @@ struct ActivityCommandsTests {
         #expect(harness.refreshCallCount == 1)
     }
 
+    @Test("run manually rejects missing secondary command")
+    func rejectsMissingSecondary() async {
+        let harness = ActivityFixtures.Harness(projection: makeReviewProjection(revision: ProjectionRevision(2)))
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.runManually())
+
+        #expect(result.status == .rejectedStale)
+        #expect(result.message == "Manual check is no longer available.")
+        #expect(harness.submitRunCallCount == 0)
+        #expect(harness.reloadCallCount == 0)
+    }
+
+    @Test("disabled library check rejects with recovery wording")
+    func rejectsDisabledCheck() async {
+        let harness = ActivityFixtures.Harness(projection: ActivityFixtures.makeRecoveryProjection(
+            revision: ProjectionRevision(2),
+            isSecondaryEnabled: false
+        ))
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.runManually())
+
+        #expect(result.status == .rejectedStale)
+        #expect(result.message == "Library check is no longer available.")
+        #expect((harness.submitRunCallCount, harness.reloadCallCount, harness.refreshCallCount) == (0, 0, 1))
+    }
+
     @Test("review changes returns blocked by recovery for recovery hold")
     func reviewChangesReturnsBlockedByRecoveryForRecoveryHold() async {
-        let harness = Harness(projection: makeRecoveryProjection(revision: ProjectionRevision(2)))
+        let harness = ActivityFixtures.Harness(projection: ActivityFixtures
+            .makeRecoveryProjection(revision: ProjectionRevision(2)))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.reviewChanges())
@@ -164,15 +196,16 @@ struct ActivityCommandsTests {
 
     @Test("resume recovery runs preflight before navigation")
     func resumeRecoveryNavigates() async {
-        let harness = Harness(projection: makeRecoveryProjection(revision: ProjectionRevision(2)))
+        let harness = ActivityFixtures.Harness(projection: ActivityFixtures
+            .makeRecoveryProjection(revision: ProjectionRevision(2)))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.resumeRecovery())
 
         #expect(result.status == .navigated)
         #expect(result.message == "Opening recovery.")
-        #expect(result.navigationTarget == .recovery(runID: recoveryRunIDString))
-        #expect(harness.preflightRunIDs == [recoveryRunID])
+        #expect(result.navigationTarget == .recovery(runID: ActivityFixtures.recoveryRunIDString))
+        #expect(harness.preflightRunIDs == [ActivityFixtures.recoveryRunID])
         #expect(harness.submitRunCallCount == 0)
         #expect(harness.reloadCallCount == 0)
         #expect(harness.refreshCallCount == 1)
@@ -180,9 +213,9 @@ struct ActivityCommandsTests {
 
     @Test("resume recovery resolves when preflight finds terminal record")
     func resolvedRecoveryNoOps() async {
-        let harness = Harness(
-            projection: makeRecoveryProjection(revision: ProjectionRevision(2)),
-            preflightOutcome: .resolved(runID: recoveryRunID, reason: .alreadyFinished)
+        let harness = ActivityFixtures.Harness(
+            projection: ActivityFixtures.makeRecoveryProjection(revision: ProjectionRevision(2)),
+            preflightOutcome: .resolved(runID: ActivityFixtures.recoveryRunID, reason: .alreadyFinished)
         )
         let commands = harness.makeCommands()
 
@@ -191,15 +224,18 @@ struct ActivityCommandsTests {
         #expect(result.status == .noOp)
         #expect(result.message == "Recovery is no longer required.")
         #expect(result.navigationTarget == nil)
-        #expect(harness.preflightRunIDs == [recoveryRunID])
+        #expect(harness.preflightRunIDs == [ActivityFixtures.recoveryRunID])
         #expect(harness.refreshCallCount == 1)
     }
 
     @Test("resume recovery surfaces write-adjacent preflight attention")
     func writeAdjacentReview() async {
-        let harness = Harness(
-            projection: makeRecoveryProjection(revision: ProjectionRevision(2)),
-            preflightOutcome: .needsAttention(runID: recoveryRunID, reason: .writeAdjacentState(.reporting))
+        let harness = ActivityFixtures.Harness(
+            projection: ActivityFixtures.makeRecoveryProjection(revision: ProjectionRevision(2)),
+            preflightOutcome: .needsAttention(
+                runID: ActivityFixtures.recoveryRunID,
+                reason: .writeAdjacentState(.reporting)
+            )
         )
         let commands = harness.makeCommands()
 
@@ -211,14 +247,14 @@ struct ActivityCommandsTests {
         #expect(result.issue?.category == .safetyBlocked)
         #expect(result.issue?.technicalDetail == "reporting")
         #expect(result.navigationTarget == nil)
-        #expect(harness.preflightRunIDs == [recoveryRunID])
+        #expect(harness.preflightRunIDs == [ActivityFixtures.recoveryRunID])
     }
 
     @Test("resume recovery surfaces blocked preflight")
     func blockedNeedsAttention() async {
-        let harness = Harness(
-            projection: makeRecoveryProjection(revision: ProjectionRevision(2)),
-            preflightOutcome: .blocked(runID: recoveryRunID, reason: .storeUnavailable)
+        let harness = ActivityFixtures.Harness(
+            projection: ActivityFixtures.makeRecoveryProjection(revision: ProjectionRevision(2)),
+            preflightOutcome: .blocked(runID: ActivityFixtures.recoveryRunID, reason: .storeUnavailable)
         )
         let commands = harness.makeCommands()
 
@@ -229,12 +265,12 @@ struct ActivityCommandsTests {
         #expect(result.issue?.id == "recovery-preflight-blocked")
         #expect(result.issue?.category == .temporaryUnavailable)
         #expect(result.navigationTarget == nil)
-        #expect(harness.preflightRunIDs == [recoveryRunID])
+        #expect(harness.preflightRunIDs == [ActivityFixtures.recoveryRunID])
     }
 
     @Test("resume recovery rejects malformed run id before preflight")
     func invalidIDBlocks() async {
-        let harness = Harness(projection: makeRecoveryProjection(
+        let harness = ActivityFixtures.Harness(projection: ActivityFixtures.makeRecoveryProjection(
             revision: ProjectionRevision(2),
             runID: "not-a-uuid"
         ))
@@ -253,7 +289,7 @@ struct ActivityCommandsTests {
 
     @Test("primary resolver dispatches recovery command")
     func primaryDispatchesRecovery() {
-        let command = ActivityCommands.command(for: makeRecoveryProjection(
+        let command = ActivityCommands.command(for: ActivityFixtures.makeRecoveryProjection(
             revision: ProjectionRevision(2)
         ).primaryCommand)
 
@@ -262,7 +298,7 @@ struct ActivityCommandsTests {
 
     @Test("resume recovery reports library blocker")
     func recoveryReportsBlocker() async {
-        let harness = Harness(projection: blockedRecoveryProjection(revision: ProjectionRevision(2)))
+        let harness = ActivityFixtures.Harness(projection: blockedRecoveryProjection(revision: ProjectionRevision(2)))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.resumeRecovery())
@@ -276,24 +312,111 @@ struct ActivityCommandsTests {
         #expect(harness.refreshCallCount == 1)
     }
 
-    @Test("run manually submits during recovery hold")
-    func runManuallySubmitsDuringRecoveryHold() async {
-        let harness = Harness(projection: makeRecoveryProjection(revision: ProjectionRevision(2)))
+    @Test("run manually behaves as library check during recovery hold")
+    func checksLibraryDuringRecovery() async {
+        let harness = ActivityFixtures.Harness(projection: ActivityFixtures
+            .makeRecoveryProjection(revision: ProjectionRevision(2)))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.runManually())
 
         #expect(result.status == .noOp)
-        #expect(result.message == "No library changes detected.")
+        #expect(result.message == "No library changes detected · writes remain held.")
+        #expect((harness.submitRunCallCount, harness.reloadCallCount, harness.refreshCallCount) == (1, 1, 2))
+    }
+
+    @Test("run manually uses builder variant during recovery hold")
+    func usesBuilderVariant() async {
+        let projection = ActivityProjectionBuilder.makeProjection(from: ActivityProjectionInput(
+            tracks: [track(id: "1")],
+            metrics: nil,
+            lastScanDate: Date(timeIntervalSince1970: 1_800_000_000),
+            libraryState: .ready,
+            processingMode: .preview,
+            workflow: .empty,
+            recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: ActivityFixtures.recoveryRunIDString),
+            pendingVerification: nil,
+            isLibrarySyncAvailable: true,
+            isAutoSyncRunning: false,
+            now: Date(timeIntervalSince1970: 1_800_000_480)
+        ))
+        let harness = ActivityFixtures.Harness(projection: projection)
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.runManually())
+
+        #expect(result.message == "No library changes detected · writes remain held.")
+        #expect(harness.submitRunCallCount == 1)
+    }
+
+    @Test("library check reports recovery-held changes")
+    func reportsHeldChanges() async {
+        let syncResult = SyncResult(
+            newTracks: [track(id: "NEW")],
+            modifiedTracks: [track(id: "MODIFIED")]
+        )
+        let harness = ActivityFixtures.Harness(
+            projection: ActivityFixtures.makeRecoveryProjection(revision: ProjectionRevision(2)),
+            runResult: .completed(ActivityFixtures.lifecycle(phase: .finished(
+                .completed(syncResult),
+                finishedAt: ActivityFixtures.finishDate
+            )))
+        )
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.runManually())
+
+        #expect(result.status == .accepted)
+        #expect(result.message == "Library check found 2 changes · writes remain held.")
         #expect(harness.submitRunCallCount == 1)
         #expect(harness.reloadCallCount == 1)
-        #expect(harness.refreshCallCount == 2)
+    }
+
+    @Test("library check failure uses recovery wording")
+    func usesRecoveryFailureCopy() async {
+        let harness = ActivityFixtures.Harness(
+            projection: ActivityFixtures.makeRecoveryProjection(revision: ProjectionRevision(2)),
+            runError: TestError(errorDescription: "Run orchestrator crashed")
+        )
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.runManually())
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.message == "Library check failed.")
+        #expect(result.issue?.id == "library-check-failed")
+        #expect(result.issue?.summary == "Library check failed")
+        #expect(harness.submitRunCallCount == 1)
+        #expect(harness.reloadCallCount == 0)
+    }
+
+    @Test("failed library check result uses recovery wording")
+    func surfacesCheckFailure() async {
+        let harness = ActivityFixtures.Harness(
+            projection: ActivityFixtures.makeRecoveryProjection(revision: ProjectionRevision(2)),
+            runResult: .failed(ActivityFixtures.lifecycle(phase: .finished(
+                .failed(message: "Music.app is unavailable"),
+                finishedAt: ActivityFixtures.finishDate
+            )))
+        )
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.runManually())
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.message == "Library check failed.")
+        #expect(result.issue?.id == "library-check-failed")
+        #expect(result.issue?.category == .temporaryUnavailable)
+        #expect(result.issue?.summary == "Library check failed")
+        #expect(result.issue?.technicalDetail == "Music.app is unavailable")
+        #expect(harness.submitRunCallCount == 1)
+        #expect(harness.reloadCallCount == 0)
     }
 
     @Test("completed no-op run reloads library and returns no-op")
     func completedNoOpRunReloadsLibraryAndReturnsNoOp() async {
-        let harness = Harness(runResult: .completedNoOp(lifecycle(
-            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate)
+        let harness = ActivityFixtures.Harness(runResult: .completedNoOp(ActivityFixtures.lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate)
         )))
         let commands = harness.makeCommands()
 
@@ -314,8 +437,11 @@ struct ActivityCommandsTests {
             refreshedTracks: [track(id: "REFRESHED")],
             removedTrackIDs: ["REMOVED"]
         )
-        let harness = Harness(
-            runResult: .completed(lifecycle(phase: .finished(.completed(syncResult), finishedAt: finishDate)))
+        let harness = ActivityFixtures.Harness(
+            runResult: .completed(ActivityFixtures.lifecycle(phase: .finished(
+                .completed(syncResult),
+                finishedAt: ActivityFixtures.finishDate
+            )))
         )
         let commands = harness.makeCommands()
 
@@ -329,9 +455,9 @@ struct ActivityCommandsTests {
 
     @Test("failed run returns requires attention")
     func failedRunReturnsRequiresAttention() async {
-        let harness = Harness(runResult: .failed(lifecycle(phase: .finished(
+        let harness = ActivityFixtures.Harness(runResult: .failed(ActivityFixtures.lifecycle(phase: .finished(
             .failed(message: "Music.app is unavailable"),
-            finishedAt: finishDate
+            finishedAt: ActivityFixtures.finishDate
         ))))
         let commands = harness.makeCommands()
 
@@ -348,7 +474,7 @@ struct ActivityCommandsTests {
 
     @Test("submit error returns requires attention")
     func submitErrorReturnsRequiresAttention() async {
-        let harness = Harness(runError: TestError(message: "Run orchestrator crashed"))
+        let harness = ActivityFixtures.Harness(runError: TestError(errorDescription: "Run orchestrator crashed"))
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.runManually())
@@ -364,8 +490,8 @@ struct ActivityCommandsTests {
     @Test("queued reload waits for queued manual terminal")
     func queuedReloadWaits() {
         let activeRunID = RunID()
-        let activeTerminal = lifecycle(
-            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate),
+        let activeTerminal = ActivityFixtures.lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate),
             runID: activeRunID,
             trigger: .backgroundSync
         )
@@ -375,7 +501,10 @@ struct ActivityCommandsTests {
         #expect(afterActive.next == .waitingForQueued)
         #expect(!afterActive.shouldReload)
 
-        let queuedTerminal = lifecycle(phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate))
+        let queuedTerminal = ActivityFixtures.lifecycle(phase: .finished(
+            .completedNoOp(SyncResult()),
+            finishedAt: ActivityFixtures.finishDate
+        ))
         let afterQueued = advanceQueuedReload(afterActive.next, lifecycle: queuedTerminal)
 
         #expect(afterQueued.next == nil)
@@ -385,15 +514,15 @@ struct ActivityCommandsTests {
     @Test("queued reload clears after replacement terminal")
     func queuedReloadClears() {
         let activeRunID = RunID()
-        let activeTerminal = lifecycle(
-            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate),
+        let activeTerminal = ActivityFixtures.lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate),
             runID: activeRunID,
             trigger: .backgroundSync
         )
         let afterActive = advanceQueuedReload(.waitingForActive(activeRunID), lifecycle: activeTerminal)
 
-        let previewTerminal = lifecycle(
-            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate),
+        let previewTerminal = ActivityFixtures.lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate),
             trigger: .manualCheck,
             intent: .previewFixes
         )
@@ -402,7 +531,9 @@ struct ActivityCommandsTests {
         #expect(afterPreview.next == nil)
         #expect(!afterPreview.shouldReload)
 
-        let directManualTerminal = lifecycle(phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate))
+        let directManualTerminal = ActivityFixtures.lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate)
+        )
         let afterDirectManual = advanceQueuedReload(afterPreview.next, lifecycle: directManualTerminal)
 
         #expect(afterDirectManual.next == nil)
@@ -412,8 +543,8 @@ struct ActivityCommandsTests {
     @Test("queued reload tolerates missed active terminal")
     func missedActiveQueues() {
         let activeRunID = RunID()
-        let queuedTerminal = lifecycle(
-            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate),
+        let queuedTerminal = ActivityFixtures.lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate),
             trigger: .manualCheck
         )
 
@@ -426,8 +557,8 @@ struct ActivityCommandsTests {
     @Test("queued reload clears replacement after missed active terminal")
     func missedActiveClears() {
         let activeRunID = RunID()
-        let previewTerminal = lifecycle(
-            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate),
+        let previewTerminal = ActivityFixtures.lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate),
             trigger: .manualCheck,
             intent: .previewFixes
         )
@@ -472,38 +603,6 @@ struct ActivityCommandsTests {
     }
 }
 
-private func makeRunManuallyProjection(
-    revision: ProjectionRevision,
-    isEnabled: Bool
-) -> ActivityProjection {
-    ActivityProjection(
-        revision: revision,
-        title: "Library ready",
-        subtitle: "Library ready",
-        syncStatusText: "Synced just now",
-        currentStage: .detect,
-        processingMode: .preview,
-        automationState: .manualScanOnly,
-        deltaCount: 0,
-        interventionCount: 0,
-        protectedCount: 0,
-        failedWriteCount: 0,
-        isUndoReady: false,
-        primaryCommand: nil,
-        secondaryCommand: ActivityCommandDescriptor(
-            id: "run-manually",
-            title: "Run manually",
-            style: .secondary,
-            isEnabled: isEnabled,
-            commandKind: .runManually
-        ),
-        stageDescriptors: [],
-        recentActivity: [],
-        summaryCards: [],
-        operationalIssues: []
-    )
-}
-
 private func makeActiveProjection(
     revision: ProjectionRevision,
     lifecycle: RunLifecycleSnapshot
@@ -521,51 +620,6 @@ private func makeActiveProjection(
         isAutoSyncRunning: false,
         now: Date(timeIntervalSince1970: 1_800_000_480)
     )).withRevision(revision)
-}
-
-private func makeRecoveryProjection(
-    revision: ProjectionRevision,
-    runID: String = recoveryRunIDString
-) -> ActivityProjection {
-    ActivityProjection(
-        revision: revision,
-        title: "Recovery needed",
-        subtitle: "Previous run needs recovery before writes continue",
-        syncStatusText: "Recovery needed",
-        currentStage: .fix,
-        processingMode: .preview,
-        automationState: .manualScanOnly,
-        deltaCount: 0,
-        interventionCount: 0,
-        protectedCount: 0,
-        failedWriteCount: 0,
-        isUndoReady: false,
-        primaryCommand: ActivityCommandDescriptor(
-            id: "resume-recovery",
-            title: "Resume safely",
-            style: .primary,
-            isEnabled: true,
-            commandKind: .resumeRecovery
-        ),
-        secondaryCommand: ActivityCommandDescriptor(
-            id: "run-manually",
-            title: "Run manually",
-            style: .secondary,
-            isEnabled: true,
-            commandKind: .runManually
-        ),
-        stageDescriptors: [],
-        recentActivity: [],
-        summaryCards: [],
-        operationalIssues: [
-            OperationalIssue(
-                id: "recovery-needed",
-                category: .recoveryRequired,
-                summary: "Previous run needs recovery",
-                technicalDetail: runID
-            ),
-        ]
-    )
 }
 
 private func blockedRecoveryProjection(revision: ProjectionRevision) -> ActivityProjection {
@@ -599,106 +653,11 @@ private func blockedRecoveryProjection(revision: ProjectionRevision) -> Activity
                 category: .musicPermissionRequired,
                 summary: "Music permission required",
                 technicalDetail: "Music access denied"
-            ),
+            )
         ]
     )
 }
 
-@MainActor
-private final class Harness {
-    var isRunOrchestratorAvailable: Bool
-    var submitRunCallCount = 0
-    var reloadCallCount = 0
-    var refreshCallCount = 0
-    var preflightRunIDs: [RunID] = []
-    var queuedReloadBarriers: [RunID] = []
-
-    private var projection: ActivityProjection
-    private let preflightOutcome: RecoveryPreflightOutcome?
-    private let runResult: RunSubmissionResult
-    private let runError: Error?
-
-    init(
-        currentRevision: ProjectionRevision = ProjectionRevision(1),
-        projection: ActivityProjection? = nil,
-        isRunOrchestratorAvailable: Bool = true,
-        preflightOutcome: RecoveryPreflightOutcome? = nil,
-        runResult: RunSubmissionResult? = nil,
-        runError: Error? = nil
-    ) {
-        self.projection = projection ?? makeRunManuallyProjection(revision: currentRevision, isEnabled: true)
-        self.isRunOrchestratorAvailable = isRunOrchestratorAvailable
-        self.preflightOutcome = preflightOutcome
-        self.runResult = runResult ?? .completedNoOp(lifecycle(
-            phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate)
-        ))
-        self.runError = runError
-    }
-
-    func makeCommands() -> ActivityCommands {
-        ActivityCommands(
-            isRunOrchestratorAvailable: { self.isRunOrchestratorAvailable },
-            submitManualRun: {
-                self.submitRunCallCount += 1
-                if let runError = self.runError {
-                    throw runError
-                }
-                return self.runResult
-            },
-            queueManualReload: { runID in
-                self.queuedReloadBarriers.append(runID)
-            },
-            reloadLibrary: { forceRefresh in
-                if forceRefresh {
-                    self.reloadCallCount += 1
-                }
-            },
-            refreshActivityProjection: {
-                self.refreshCallCount += 1
-                self.projection = self.projection.withRevision(self.projection.revision.advanced())
-                return self.projection
-            },
-            runRecoveryPreflight: { runID in
-                self.preflightRunIDs.append(runID)
-                return self.preflightOutcome ?? .inspectable(runID: runID, state: .syncingLibrary)
-            },
-            currentFixPlanID: {
-                "plan-1"
-            }
-        )
-    }
-}
-
-private let recoveryRunIDString = "00000000-0000-0000-0000-000000000097"
-private let recoveryRunID = RunID(rawValue: UUID(uuidString: recoveryRunIDString) ?? UUID())
-private let finishDate = Date(timeIntervalSince1970: 101)
-
-private func lifecycle(
-    phase: RunPhase,
-    runID: RunID = RunID(),
-    trigger: RunTrigger = .manualCheck,
-    intent: RunIntent = .observeLibrary
-) -> RunLifecycleSnapshot {
-    RunLifecycleSnapshot(
-        runID: runID,
-        requestID: RunRequestID(),
-        trigger: trigger,
-        intent: intent,
-        scope: ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: 75,
-            createdAt: Date(timeIntervalSince1970: 100),
-            reason: trigger.rawValue
-        ),
-        startedAt: Date(timeIntervalSince1970: 100),
-        phase: phase
-    )
-}
-
 private struct TestError: LocalizedError {
-    let message: String
-
-    var errorDescription: String? {
-        message
-    }
+    let errorDescription: String?
 }

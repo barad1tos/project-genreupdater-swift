@@ -142,10 +142,30 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.primaryCommand?.style == .primary)
         #expect(projection.primaryCommand?.isEnabled == true)
         #expect(projection.primaryCommand?.commandKind == .resumeRecovery)
+        #expect(projection.secondaryCommand?.id == "run-manually")
+        #expect(projection.secondaryCommand?.title == "Check library")
         #expect(projection.secondaryCommand?.commandKind == .runManually)
+        #expect(projection.secondaryCommand?.variant == .libraryCheck)
         #expect(projection.secondaryCommand?.isEnabled == true)
         #expect(issue.category == .recoveryRequired)
         #expect(issue.summary == "Previous run needs recovery")
+    }
+
+    @Test("recovery hold queues library check during active background run")
+    func recoveryQueuesCheck() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1"),
+                runLifecycle: lifecycle(phase: .active(.syncingLibrary), trigger: .backgroundSync)
+            )
+        )
+
+        #expect(projection.secondaryCommand?.id == "run-manually")
+        #expect(projection.secondaryCommand?.title == "Queue library check")
+        #expect(projection.secondaryCommand?.variant == .libraryCheck)
+        #expect(projection.secondaryCommand?.isEnabled == true)
+        #expect(projection.operationalIssues.first?.category == .recoveryRequired)
     }
 
     @Test("library blockers take precedence over recovery summary")
@@ -163,6 +183,9 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.syncStatusText == "Synced 8m ago")
         #expect(projection.currentStage == .detect)
         #expect(projection.status(for: .fix) == .gated)
+        #expect(projection.secondaryCommand?.id == "run-manually")
+        #expect(projection.secondaryCommand?.title == "Run manually")
+        #expect(projection.secondaryCommand?.variant == .standard)
         #expect(projection.operationalIssues.first?.category == .musicPermissionRequired)
         #expect(projection.operationalIssues.first?.summary == "Music permission required")
         #expect(projection.operationalIssues.allSatisfy { $0.category != .recoveryRequired })
@@ -357,6 +380,23 @@ struct ActivityProjectionBuilderTests {
             genre: "Rock",
             year: 2001,
             trackStatus: "purchased"
+        )
+    }
+
+    private func lifecycle(phase: RunPhase, trigger: RunTrigger) -> RunLifecycleSnapshot {
+        RunLifecycleSnapshot(
+            runID: RunID(),
+            requestID: RunRequestID(),
+            trigger: trigger,
+            intent: .observeLibrary,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: 1,
+                createdAt: scanDate,
+                reason: "manual-check"
+            ),
+            startedAt: scanDate,
+            phase: phase
         )
     }
 }

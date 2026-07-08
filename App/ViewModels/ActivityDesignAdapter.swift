@@ -55,7 +55,7 @@ enum ActivityDesignAdapter {
     private static func makeAction(from command: ActivityCommandDescriptor) -> PipelineAction {
         PipelineAction(
             title: command.title,
-            symbol: makeSymbol(for: command.commandKind),
+            symbol: makeSymbol(for: command),
             style: makeActionStyle(from: command.style),
             isEnabled: command.isEnabled
         )
@@ -132,14 +132,19 @@ enum ActivityDesignAdapter {
         }
     }
 
-    private static func makeSymbol(for commandKind: UserIntentCommandKind) -> String {
-        switch commandKind {
+    private static func makeSymbol(for command: ActivityCommandDescriptor) -> String {
+        switch command.commandKind {
         case .reviewChanges:
             "checklist"
         case .resumeRecovery:
             "shield.checkerboard"
         case .runManually:
-            "arrow.clockwise"
+            switch command.variant {
+            case .standard:
+                "arrow.clockwise"
+            case .libraryCheck:
+                "magnifyingglass"
+            }
         }
     }
 }
