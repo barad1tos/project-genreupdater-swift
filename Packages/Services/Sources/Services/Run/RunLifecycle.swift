@@ -8,21 +8,41 @@ private let log = Logger(subsystem: "com.genreupdater", category: "RunLifecycle"
 /// Raw values are persisted in `PersistedRunRecord.stateRaw` and the transitions
 /// blob; never rename cases. In-memory consumers should switch on `RunPhase`
 /// instead of this flat enum.
-public enum RunLifecycleState: String, Codable, Equatable, Sendable {
+public enum RunLifecycleState: String, CaseIterable, Codable, Equatable, Sendable {
     case created
+    case queued
     case syncingLibrary
+    case analyzingDelta
     case planningFixes
+    case awaitingReview
+    case writing
+    case verifying
     case reporting
     case completed
     case completedNoOp
+    case blocked
     case failed
+    case cancelled
+    case recoverable
+    case recovering
 }
 
 public enum RunActiveStage: Equatable, Sendable {
     case created
+    case queued
     case syncingLibrary
+    case analyzingDelta
     case planningFixes
+    case awaitingReview
+    case writing
+    case verifying
     case reporting
+    case recovering
+}
+
+public enum RunSuspendedState: Equatable, Sendable {
+    case blocked
+    case recoverable
 }
 
 public enum RunOutcome: Equatable, Sendable {
@@ -32,22 +52,33 @@ public enum RunOutcome: Equatable, Sendable {
     /// deltas should inspect the result instead of inferring from this state.
     case completedNoOp(SyncResult)
     case failed(message: String)
+    case cancelled(message: String)
 }
 
 public enum RunPhase: Equatable, Sendable {
     case active(RunActiveStage)
+    case suspended(RunSuspendedState)
     case finished(RunOutcome, finishedAt: Date)
 
     /// The ONLY place phase maps to wire vocabulary.
     public var state: RunLifecycleState {
         switch self {
         case .active(.created): .created
+        case .active(.queued): .queued
         case .active(.syncingLibrary): .syncingLibrary
+        case .active(.analyzingDelta): .analyzingDelta
         case .active(.planningFixes): .planningFixes
+        case .active(.awaitingReview): .awaitingReview
+        case .active(.writing): .writing
+        case .active(.verifying): .verifying
         case .active(.reporting): .reporting
+        case .active(.recovering): .recovering
+        case .suspended(.blocked): .blocked
+        case .suspended(.recoverable): .recoverable
         case .finished(.completed, _): .completed
         case .finished(.completedNoOp, _): .completedNoOp
         case .finished(.failed, _): .failed
+        case .finished(.cancelled, _): .cancelled
         }
     }
 }
@@ -94,12 +125,14 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     public var syncResult: SyncResult? {
         switch phase {
         case let .finished(.completed(result), _), let .finished(.completedNoOp(result), _): result
-        case .active, .finished(.failed, _): nil
+        case .active, .suspended, .finished(.failed, _), .finished(.cancelled, _): nil
         }
     }
 
     public var failureMessage: String? {
         if case let .finished(.failed(message), _) = phase {
+            message
+        } else if case let .finished(.cancelled(message), _) = phase {
             message
         } else {
             nil
@@ -171,6 +204,14 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         return withPhase(.finished(.failed(message: message), finishedAt: finishedAt))
     }
 
+    public func cancelling(message: String, at finishedAt: Date) -> Self {
+        guard case .active = phase else {
+            reportIllegalTransition("cancelling(message:at:)", expected: "an active phase")
+            return withPhase(.finished(.cancelled(message: message), finishedAt: finishedAt))
+        }
+        return withPhase(.finished(.cancelled(message: message), finishedAt: finishedAt))
+    }
+
     /// assertionFailure alone compiles to a no-op in Release, so a violated
     /// invariant would leave no trail in shipped builds; the log line keeps the
     /// evidence. Only the wire-state name is logged: interpolating the full
@@ -202,6 +243,7 @@ public enum RunSubmissionResult: Equatable, Sendable {
     case completed(RunLifecycleSnapshot)
     case completedNoOp(RunLifecycleSnapshot)
     case failed(RunLifecycleSnapshot)
+    case cancelled(RunLifecycleSnapshot)
 
     /// The run snapshot associated with this response. For `alreadyCovered`
     /// and `queued`, this is the active run that covered or delayed the request.
@@ -211,7 +253,8 @@ public enum RunSubmissionResult: Equatable, Sendable {
              let .queued(snapshot),
              let .completed(snapshot),
              let .completedNoOp(snapshot),
-             let .failed(snapshot):
+             let .failed(snapshot),
+             let .cancelled(snapshot):
             snapshot
         }
     }

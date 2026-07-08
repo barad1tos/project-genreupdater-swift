@@ -5,12 +5,31 @@ import Foundation
 import Services
 
 private let libraryServicesLog = AppLogger.make(category: "dependencies")
-private let openRunReportStates: Set<RunLifecycleState> = [
-    .created,
-    .syncingLibrary,
-    .planningFixes,
-    .reporting,
-]
+
+private let openRunReportStates = Set(RunLifecycleState.allCases.filter(isOpenReportState))
+
+private func isOpenReportState(_ state: RunLifecycleState) -> Bool {
+    switch state {
+    case .created,
+         .queued,
+         .syncingLibrary,
+         .analyzingDelta,
+         .planningFixes,
+         .awaitingReview,
+         .writing,
+         .verifying,
+         .reporting,
+         .blocked,
+         .recoverable,
+         .recovering:
+        true
+    case .completed,
+         .completedNoOp,
+         .failed,
+         .cancelled:
+        false
+    }
+}
 
 enum AppDependencyServiceError: LocalizedError, Equatable {
     case librarySyncUnavailable
@@ -176,7 +195,11 @@ extension AppDependencies {
             return mergeRunReportPages(recentPage, openPage)
         } catch {
             libraryServicesLog.error(
-                "Failed to load run report page: \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)"
+                """
+                Failed to load run report page: \
+                \(String(describing: type(of: error)), privacy: .public): \
+                \(error.localizedDescription, privacy: .private)
+                """
             )
             return nil
         }
@@ -233,7 +256,11 @@ extension AppDependencies {
             return try await runRecordStore.record(for: RunID(rawValue: runID))
         } catch {
             libraryServicesLog.error(
-                "Failed to load run report record \(runID.uuidString, privacy: .public): \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)"
+                """
+                Failed to load run report record \(runID.uuidString, privacy: .public): \
+                \(String(describing: type(of: error)), privacy: .public): \
+                \(error.localizedDescription, privacy: .private)
+                """
             )
             return nil
         }
@@ -264,7 +291,10 @@ extension AppDependencies {
             return try await trackStore.trackCount()
         } catch {
             libraryServicesLog.warning(
-                "Failed to read known track count for run scope snapshot: \(error.localizedDescription, privacy: .private)"
+                """
+                Failed to read known track count for run scope snapshot: \
+                \(error.localizedDescription, privacy: .private)
+                """
             )
             return nil
         }

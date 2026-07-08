@@ -104,7 +104,7 @@ struct DesignRootHostView: View {
     }
 
     private var snapshot: DesignDataSnapshot {
-        DesignActivitySnapshotAdapter.makeSnapshot(
+        ActivitySnapshotAdapter.makeSnapshot(
             from: designActivitySnapshotInput,
             activityProjection: activityProjection,
             reportsProjection: reportsProjection,
@@ -439,7 +439,7 @@ struct DesignRootHostView: View {
             return
         }
         let detail = RunReportDetailBuilder.makeDetail(from: record, now: Date(), activeRunID: activeRunID)
-        selectedRunReport = RunReportDetailDesignAdapter.makeSnapshot(from: detail)
+        selectedRunReport = ReportDetailAdapter.makeSnapshot(from: detail)
     }
 
     private func configureSelectedUpdateScope(_ configuration: SelectedUpdateScopeConfiguration) {
@@ -658,7 +658,7 @@ struct DesignRootHostView: View {
         var descriptor = FetchDescriptor<PersistedChangeLogEntry>(
             sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
         )
-        descriptor.fetchLimit = DesignActivitySnapshotAdapter.reportEntryLimit
+        descriptor.fetchLimit = ActivitySnapshotAdapter.reportEntryLimit
         changeLogEntries = (try? modelContext.fetch(descriptor).map { $0.toChangeLogEntry() }) ?? []
     }
 
@@ -729,7 +729,7 @@ struct DesignRootHostView: View {
     private func refreshReportsProjection() async -> ReportsProjection? {
         let inputGeneration = await dependencies.projectionStore.nextReportsProjectionInputGeneration()
         guard let page = await dependencies.loadRunReportPage(
-            limit: ReportsProjectionDesignAdapter.runHistoryLimit
+            limit: RunHistoryAdapter.runHistoryLimit
         ) else { return nil }
         let projection = ReportsProjectionBuilder.makeProjection(from: ReportsProjectionInput(
             records: page.records,

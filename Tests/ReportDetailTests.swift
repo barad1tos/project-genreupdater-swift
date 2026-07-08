@@ -3,8 +3,8 @@ import Services
 import Testing
 @testable import Genre_Updater
 
-@Suite("RunReportDetailDesignAdapter")
-struct RunReportDetailDesignAdapterTests {
+@Suite("ReportDetailAdapter")
+struct ReportDetailTests {
     @Test("maps detail projection fields to snapshot")
     func mapsDetailProjectionToSnapshot() {
         let projection = RunReportDetailProjection(
@@ -24,7 +24,7 @@ struct RunReportDetailDesignAdapterTests {
             failureMessage: nil
         )
 
-        let snapshot = RunReportDetailDesignAdapter.makeSnapshot(from: projection)
+        let snapshot = ReportDetailAdapter.makeSnapshot(from: projection)
 
         #expect(snapshot.runID == "run-1")
         #expect(snapshot.stateLabel == "Completed")
@@ -58,7 +58,7 @@ struct RunReportDetailDesignAdapterTests {
             failureMessage: "Music.app unavailable"
         )
 
-        let snapshot = RunReportDetailDesignAdapter.makeSnapshot(from: projection)
+        let snapshot = ReportDetailAdapter.makeSnapshot(from: projection)
 
         #expect(snapshot.tone == .error)
         #expect(snapshot.failureMessage == "Music.app unavailable")

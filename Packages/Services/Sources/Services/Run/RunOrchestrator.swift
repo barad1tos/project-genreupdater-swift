@@ -138,7 +138,7 @@ public actor RunOrchestrator {
             return .completed(completed)
         } catch is CancellationError {
             log.error("Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) cancelled")
-            return await finishFailedRun(from: activeRun ?? lifecycle, failureMessage: "Run cancelled")
+            return await finishCancelledRun(from: activeRun ?? lifecycle, message: "Run cancelled")
         } catch {
             // Error descriptions stay private: sync errors can embed track or artist names.
             log.error("""
@@ -166,6 +166,24 @@ public actor RunOrchestrator {
         publishCompleted(failed)
         startPendingRun()
         return .failed(failed)
+    }
+
+    private func finishCancelledRun(
+        from lifecycle: RunLifecycleSnapshot,
+        message: String
+    ) async -> RunSubmissionResult {
+        let reporting = beginReporting(from: lifecycle)
+        let cancelled = reporting.cancelling(message: message, at: dependencies.now())
+        appendTransition(cancelled.state, at: cancelled.finishedAt)
+        await persistRecord(
+            for: cancelled,
+            syncResult: nil,
+            failureMessage: cancelled.failureMessage,
+            finishedAt: cancelled.finishedAt
+        )
+        publishCompleted(cancelled)
+        startPendingRun()
+        return .cancelled(cancelled)
     }
 
     private func startPendingRun() {

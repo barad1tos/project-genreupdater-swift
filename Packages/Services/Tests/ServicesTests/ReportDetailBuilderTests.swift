@@ -3,7 +3,7 @@ import Services
 import Testing
 
 @Suite("RunReportDetailBuilder")
-struct RunReportDetailBuilderTests {
+struct ReportDetailBuilderTests {
     private let startDate = Date(timeIntervalSince1970: 1_800_000_000)
     private let now = Date(timeIntervalSince1970: 1_800_000_480)
 
@@ -78,6 +78,54 @@ struct RunReportDetailBuilderTests {
 
         #expect(detail.state == .running)
         #expect(detail.transitions.map(\.stageLabel) == ["Created", "Syncing library", "Planning fixes"])
+    }
+
+    @Test("canonical lifecycle transitions have display labels")
+    func canonicalTransitionsHaveLabels() {
+        let cases: [(RunLifecycleState, String)] = [
+            (.created, "Created"),
+            (.queued, "Queued"),
+            (.syncingLibrary, "Syncing library"),
+            (.analyzingDelta, "Analyzing delta"),
+            (.planningFixes, "Planning fixes"),
+            (.awaitingReview, "Awaiting review"),
+            (.writing, "Writing"),
+            (.verifying, "Verifying"),
+            (.reporting, "Reporting"),
+            (.completed, "Completed"),
+            (.completedNoOp, "Completed · no changes"),
+            (.blocked, "Blocked"),
+            (.failed, "Failed"),
+            (.cancelled, "Cancelled"),
+            (.recoverable, "Recoverable"),
+            (.recovering, "Recovering"),
+        ]
+        #expect(cases.map(\.0) == Array(RunLifecycleState.allCases))
+
+        let transitions = cases.enumerated().map { index, entry in
+            RunLifecycleTransition(state: entry.0, timestamp: startDate.addingTimeInterval(Double(index)))
+        }
+        let record = RunRecord(
+            runID: RunID(),
+            requestID: RunRequestID(),
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: nil,
+                createdAt: startDate,
+                reason: ""
+            ),
+            transitions: transitions,
+            syncSummary: nil,
+            failureMessage: nil,
+            startedAt: startDate,
+            finishedAt: nil
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now, activeRunID: record.runID)
+
+        #expect(detail.transitions.map(\.stageLabel) == cases.map(\.1))
     }
 
     @Test("running detail omits duration")

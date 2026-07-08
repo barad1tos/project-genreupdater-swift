@@ -3,8 +3,8 @@ import Services
 import Testing
 @testable import Genre_Updater
 
-@Suite("ReportsProjectionDesignAdapter")
-struct ReportsProjectionDesignAdapterTests {
+@Suite("RunHistoryAdapter")
+struct RunHistoryTests {
     @Test("maps run item fields to row")
     func mapsRunItemFieldsToRow() throws {
         let item = ReportsRunItem(
@@ -19,7 +19,7 @@ struct ReportsProjectionDesignAdapterTests {
         )
         let projection = ReportsProjection(revision: .initial, runs: [item], skippedCorruptedCount: 0)
 
-        let row = try #require(ReportsProjectionDesignAdapter.makeRunHistory(from: projection).first)
+        let row = try #require(RunHistoryAdapter.makeRunHistory(from: projection).first)
 
         #expect(row.id == "run-1")
         #expect(row.stateLabel == "Completed")
@@ -34,11 +34,20 @@ struct ReportsProjectionDesignAdapterTests {
     @Test(
         "tone per run state",
         arguments: zip(
-            [ReportsRunState.running, .completed, .completedNoOp, .failed, .recoveryNeeded],
-            [Tone.info, .success, .neutral, .error, .warning]
+            [
+                ReportsRunState.running,
+                .awaitingReview,
+                .completed,
+                .completedNoOp,
+                .blocked,
+                .failed,
+                .cancelled,
+                .recoveryNeeded
+            ],
+            [Tone.info, .warning, .success, .neutral, .warning, .error, .neutral, .warning]
         )
     )
     func tonePerRunState(state: ReportsRunState, expectedTone: Tone) {
-        #expect(ReportsProjectionDesignAdapter.makeTone(from: state) == expectedTone)
+        #expect(RunHistoryAdapter.makeTone(from: state) == expectedTone)
     }
 }

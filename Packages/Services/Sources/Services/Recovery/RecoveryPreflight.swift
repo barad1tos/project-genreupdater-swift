@@ -10,6 +10,7 @@ public enum RecoveryPreflightResolution: Equatable, Sendable {
 
 public enum RecoveryPreflightAttention: Equatable, Sendable {
     case writeAdjacentState(RunLifecycleState)
+    case unresolvedState(RunLifecycleState)
 }
 
 public enum RecoveryPreflightBlocker: Equatable, Sendable {
@@ -30,11 +31,14 @@ public enum RecoveryPreflight {
         }
 
         switch record.state {
-        case .created, .syncingLibrary:
+        // planningFixes/reporting are read-side checkpoints; write-adjacent work is explicit writing/verifying.
+        case .created, .queued, .syncingLibrary, .analyzingDelta, .planningFixes, .awaitingReview, .reporting:
             return .inspectable(runID: record.runID, state: record.state)
-        case .planningFixes, .reporting:
+        case .writing, .verifying:
             return .needsAttention(runID: record.runID, reason: .writeAdjacentState(record.state))
-        case .completed, .completedNoOp, .failed:
+        case .blocked, .recoverable, .recovering:
+            return .needsAttention(runID: record.runID, reason: .unresolvedState(record.state))
+        case .completed, .completedNoOp, .failed, .cancelled:
             return .resolved(runID: record.runID, reason: .alreadyFinished)
         }
     }

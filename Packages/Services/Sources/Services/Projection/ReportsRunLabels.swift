@@ -3,22 +3,36 @@ import Foundation
 enum ReportsRunLabels {
     static func runState(from record: RunRecord, activeRunID: RunID? = nil) -> ReportsRunState {
         let state = runState(from: record.state)
-        guard state == .running, record.finishedAt == nil, record.runID != activeRunID else {
+        guard record.finishedAt == nil, record.runID != activeRunID else {
             return state
         }
-        return .recoveryNeeded
+        switch state {
+        case .running:
+            return .recoveryNeeded
+        case .awaitingReview, .completed, .completedNoOp, .blocked, .failed, .cancelled, .recoveryNeeded:
+            return state
+        }
     }
 
     static func runState(from state: RunLifecycleState) -> ReportsRunState {
         switch state {
-        case .created, .syncingLibrary, .planningFixes, .reporting:
+        case .created, .queued, .syncingLibrary, .analyzingDelta, .planningFixes, .writing, .verifying,
+             .reporting, .recovering:
             .running
+        case .awaitingReview:
+            .awaitingReview
         case .completed:
             .completed
         case .completedNoOp:
             .completedNoOp
+        case .blocked:
+            .blocked
         case .failed:
             .failed
+        case .cancelled:
+            .cancelled
+        case .recoverable:
+            .recoveryNeeded
         }
     }
 
@@ -26,12 +40,18 @@ enum ReportsRunLabels {
         switch state {
         case .running:
             "In progress"
+        case .awaitingReview:
+            "Awaiting review"
         case .completed:
             "Completed"
         case .completedNoOp:
             "Completed · no changes"
+        case .blocked:
+            "Blocked"
         case .failed:
             "Failed"
+        case .cancelled:
+            "Cancelled"
         case .recoveryNeeded:
             "Recovery needed"
         }
@@ -50,22 +70,42 @@ enum ReportsRunLabels {
         }
     }
 
+    // Keep this switch exhaustive so adding a RunLifecycleState requires a matching report label.
+    // swiftlint:disable:next cyclomatic_complexity
     static func stageLabel(for state: RunLifecycleState) -> String {
         switch state {
         case .created:
             "Created"
+        case .queued:
+            "Queued"
         case .syncingLibrary:
             "Syncing library"
+        case .analyzingDelta:
+            "Analyzing delta"
         case .planningFixes:
             "Planning fixes"
+        case .awaitingReview:
+            "Awaiting review"
+        case .writing:
+            "Writing"
+        case .verifying:
+            "Verifying"
         case .reporting:
             "Reporting"
         case .completed:
             "Completed"
         case .completedNoOp:
             "Completed · no changes"
+        case .blocked:
+            "Blocked"
         case .failed:
             "Failed"
+        case .cancelled:
+            "Cancelled"
+        case .recoverable:
+            "Recoverable"
+        case .recovering:
+            "Recovering"
         }
     }
 
@@ -124,9 +164,13 @@ enum ReportsRunLabels {
         switch state {
         case .failed:
             failureMessage ?? "Run failed"
+        case .blocked:
+            failureMessage ?? "Run blocked"
+        case .cancelled:
+            failureMessage ?? "Run cancelled"
         case .recoveryNeeded:
             "Previous run needs recovery"
-        case .running, .completed, .completedNoOp:
+        case .running, .awaitingReview, .completed, .completedNoOp:
             nil
         }
     }

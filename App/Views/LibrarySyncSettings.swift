@@ -116,6 +116,8 @@ extension APIAndCacheTab {
             return librarySyncMessage(for: syncResult)
         case let .failed(snapshot):
             return "Sync failed: \(snapshot.failureMessage ?? "Unknown error")"
+        case .cancelled:
+            return "Sync cancelled"
         }
     }
 }
