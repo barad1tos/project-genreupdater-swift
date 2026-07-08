@@ -186,14 +186,16 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
 }
 
 public enum RunSubmissionResult: Equatable, Sendable {
-    case alreadyRunning(RunLifecycleSnapshot)
+    case alreadyCovered(RunLifecycleSnapshot)
+    case queued(RunLifecycleSnapshot)
     case completed(RunLifecycleSnapshot)
     case completedNoOp(RunLifecycleSnapshot)
     case failed(RunLifecycleSnapshot)
 
     public var lifecycle: RunLifecycleSnapshot {
         switch self {
-        case let .alreadyRunning(snapshot),
+        case let .alreadyCovered(snapshot),
+             let .queued(snapshot),
              let .completed(snapshot),
              let .completedNoOp(snapshot),
              let .failed(snapshot):

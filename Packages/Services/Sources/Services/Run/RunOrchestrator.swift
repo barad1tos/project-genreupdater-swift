@@ -26,6 +26,7 @@ public actor RunOrchestrator {
     private var activeRun: RunLifecycleSnapshot?
     private var latestRun: RunLifecycleSnapshot?
     private var activeTransitions: [RunLifecycleTransition] = []
+    private var pendingTrigger: PendingTrigger?
     private var continuations: [UUID: AsyncStream<RunLifecycleSnapshot>.Continuation]
 
     public init(dependencies: Dependencies) {
@@ -62,12 +63,26 @@ public actor RunOrchestrator {
 
     public func submit(_ request: RunRequest) async -> RunSubmissionResult {
         if let activeRun {
-            return .alreadyRunning(activeRun)
+            switch TriggerArbiter.decide(active: activeRun, pending: pendingTrigger, incoming: request) {
+            case let .alreadyCovered(pending):
+                pendingTrigger = pending
+                return .alreadyCovered(activeRun)
+            case let .queue(pending):
+                pendingTrigger = pending
+                return .queued(activeRun)
+            }
         }
 
+        let runTask = startRun(for: request, startedAt: dependencies.now())
+        return await runTask.value
+    }
+
+    private func startRun(
+        for request: RunRequest,
+        startedAt: Date
+    ) -> Task<RunSubmissionResult, Never> {
         // No suspension between the activeRun check and publish(created):
         // single-flight stays airtight without extra locking.
-        let startedAt = dependencies.now()
         let created = makeCreatedLifecycle(for: request, startedAt: startedAt)
         activeTransitions = []
         advance(created, at: startedAt)
@@ -77,8 +92,7 @@ public actor RunOrchestrator {
         // The run executes in an orchestrator-owned task: awaiting the value of
         // an unstructured Task's value never forwards the submitter's
         // cancellation into the run.
-        let runTask = Task { await executeRun(from: syncing) }
-        return await runTask.value
+        return Task { await executeRun(from: syncing) }
     }
 
     private func executeRun(from lifecycle: RunLifecycleSnapshot) async -> RunSubmissionResult {
@@ -116,6 +130,7 @@ public actor RunOrchestrator {
                 finishedAt: completed.finishedAt
             )
             publishCompleted(completed)
+            startPendingRun()
             if case .finished(.completedNoOp, _) = completed.phase {
                 return .completedNoOp(completed)
             }
@@ -148,7 +163,14 @@ public actor RunOrchestrator {
             finishedAt: failed.finishedAt
         )
         publishCompleted(failed)
+        startPendingRun()
         return .failed(failed)
+    }
+
+    private func startPendingRun() {
+        guard let pending = pendingTrigger else { return }
+        pendingTrigger = nil
+        _ = startRun(for: pending.request, startedAt: dependencies.now())
     }
 
     private func beginFixPlanning(from lifecycle: RunLifecycleSnapshot) -> RunLifecycleSnapshot {

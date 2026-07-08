@@ -7,8 +7,7 @@ struct ActivityCommandController {
     private let log = Logger(subsystem: "com.genreupdater", category: "ActivityCommands")
 
     let isRunOrchestratorAvailable: () -> Bool
-    let hasActiveRun: () -> Bool
-    let submitManualObservationRun: () async throws -> RunSubmissionResult
+    let submitManualRun: () async throws -> RunSubmissionResult
     let reloadLibrary: (_ forceRefresh: Bool) async -> Void
     let refreshActivityProjection: () async -> ActivityProjection
     let runRecoveryPreflight: (RunID) async -> RecoveryPreflightOutcome
@@ -170,12 +169,6 @@ struct ActivityCommandController {
                 refreshedActivityProjection: projection
             )
         }
-        if hasActiveRun() {
-            return .alreadyCovered(
-                message: "A run is already active.",
-                refreshedActivityProjection: projection
-            )
-        }
         guard secondaryCommand.isEnabled else {
             return .rejectedStale(
                 message: "Manual check is no longer available.",
@@ -184,8 +177,8 @@ struct ActivityCommandController {
         }
 
         do {
-            let result = try await submitManualObservationRun()
-            return await handleManualObservationResult(result)
+            let result = try await submitManualRun()
+            return await makeManualRunResult(result)
         } catch {
             log.error("""
             Manual observation run submission failed with \
@@ -222,12 +215,18 @@ struct ActivityCommandController {
         }
     }
 
-    private func handleManualObservationResult(_ result: RunSubmissionResult) async -> UserCommandResult {
+    private func makeManualRunResult(_ result: RunSubmissionResult) async -> UserCommandResult {
         switch result {
-        case .alreadyRunning:
+        case .alreadyCovered:
             let projection = await refreshActivityProjection()
             return .alreadyCovered(
                 message: "A run is already active.",
+                refreshedActivityProjection: projection
+            )
+        case .queued:
+            let projection = await refreshActivityProjection()
+            return .queued(
+                message: "Manual check queued after current run.",
                 refreshedActivityProjection: projection
             )
         case let .completed(snapshot):

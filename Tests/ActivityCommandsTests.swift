@@ -54,8 +54,8 @@ struct ActivityCommandsTests {
     }
 
     @Test("already active run returns already covered")
-    func alreadyActiveRunReturnsAlreadyCovered() async {
-        let harness = Harness(runResult: .alreadyRunning(lifecycle(phase: .active(.syncingLibrary))))
+    func activeRunReturnsCovered() async {
+        let harness = Harness(runResult: .alreadyCovered(lifecycle(phase: .active(.syncingLibrary))))
         let controller = harness.makeController()
 
         let result = await controller.handle(.runManually())
@@ -67,18 +67,18 @@ struct ActivityCommandsTests {
         #expect(harness.refreshCallCount == 2)
     }
 
-    @Test("run manually reports active run after stale guard refresh")
-    func runManuallyReportsActiveRunAfterStaleGuardRefresh() async {
-        let harness = Harness(marksRunActiveOnFirstRefresh: true)
+    @Test("queued manual run returns queued result")
+    func manualRunReturnsQueued() async {
+        let harness = Harness(runResult: .queued(lifecycle(phase: .active(.syncingLibrary))))
         let controller = harness.makeController()
 
         let result = await controller.handle(.runManually())
 
-        #expect(result.status == .alreadyCovered)
-        #expect(result.message == "A run is already active.")
-        #expect(harness.submitRunCallCount == 0)
+        #expect(result.status == .queued)
+        #expect(result.message == "Manual check queued after current run.")
+        #expect(harness.submitRunCallCount == 1)
         #expect(harness.reloadCallCount == 0)
-        #expect(harness.refreshCallCount == 1)
+        #expect(harness.refreshCallCount == 2)
     }
 
     @Test("unavailable orchestrator returns temporary unavailable")
@@ -477,7 +477,6 @@ private func blockedRecoveryProjection(revision: ProjectionRevision) -> Activity
 @MainActor
 private final class Harness {
     var isRunOrchestratorAvailable: Bool
-    var isRunActive: Bool
     var submitRunCallCount = 0
     var reloadCallCount = 0
     var refreshCallCount = 0
@@ -487,22 +486,17 @@ private final class Harness {
     private let preflightOutcome: RecoveryPreflightOutcome?
     private let runResult: RunSubmissionResult
     private let runError: Error?
-    private let marksRunActiveOnFirstRefresh: Bool
 
     init(
         currentRevision: ProjectionRevision = ProjectionRevision(1),
         projection: ActivityProjection? = nil,
         isRunOrchestratorAvailable: Bool = true,
-        isRunActive: Bool = false,
-        marksRunActiveOnFirstRefresh: Bool = false,
         preflightOutcome: RecoveryPreflightOutcome? = nil,
         runResult: RunSubmissionResult? = nil,
         runError: Error? = nil
     ) {
         self.projection = projection ?? makeRunManuallyProjection(revision: currentRevision, isEnabled: true)
         self.isRunOrchestratorAvailable = isRunOrchestratorAvailable
-        self.isRunActive = isRunActive
-        self.marksRunActiveOnFirstRefresh = marksRunActiveOnFirstRefresh
         self.preflightOutcome = preflightOutcome
         self.runResult = runResult ?? .completedNoOp(lifecycle(
             phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate)
@@ -513,8 +507,7 @@ private final class Harness {
     func makeController() -> ActivityCommandController {
         ActivityCommandController(
             isRunOrchestratorAvailable: { self.isRunOrchestratorAvailable },
-            hasActiveRun: { self.isRunActive },
-            submitManualObservationRun: {
+            submitManualRun: {
                 self.submitRunCallCount += 1
                 if let runError = self.runError {
                     throw runError
@@ -528,9 +521,6 @@ private final class Harness {
             },
             refreshActivityProjection: {
                 self.refreshCallCount += 1
-                if self.marksRunActiveOnFirstRefresh {
-                    self.isRunActive = true
-                }
                 self.projection = self.projection.withRevision(self.projection.revision.advanced())
                 return self.projection
             },

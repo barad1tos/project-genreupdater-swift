@@ -92,8 +92,8 @@ struct RunOrchestratorTests {
         #expect(result.lifecycle.failureMessage == "Run cancelled")
     }
 
-    @Test("manual observation rejects a second active run")
-    func manualObservationRejectsSecondActiveRun() async {
+    @Test("manual observation covers duplicate active run")
+    func manualCoversDuplicate() async {
         let gate = SyncGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: {
@@ -119,10 +119,48 @@ struct RunOrchestratorTests {
         await gate.release()
         _ = await first.value
 
-        guard case .alreadyRunning = second else {
-            Issue.record("Expected alreadyRunning, got \(second)")
+        guard case .alreadyCovered = second else {
+            Issue.record("Expected alreadyCovered, got \(second)")
             return
         }
+    }
+
+    @Test("manual observation queues behind active background sync")
+    func manualQueuesAfterBackground() async {
+        let gate = SyncGate()
+        let syncCalls = SyncCallProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                await syncCalls.recordCall()
+                await gate.waitUntilReleased()
+                return SyncResult()
+            },
+            persistRunRecord: { _ in },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let first = Task {
+            await orchestrator.submit(RunRequest(
+                trigger: .backgroundSync,
+                intent: .observeLibrary,
+                requestedTestArtists: [],
+                knownTrackCount: nil
+            ))
+        }
+        await syncCalls.waitUntilCount(1)
+
+        let second = await orchestrator.submit(.manualObservation(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+        guard case .queued = second else {
+            Issue.record("Expected queued, got \(second)")
+            return
+        }
+
+        await gate.release()
+        _ = await first.value
+        await syncCalls.waitUntilCount(2)
     }
 
     @Test("cancelling the submitter does not fail the active run")
@@ -406,8 +444,8 @@ struct RunOrchestratorTests {
         #expect(final.transitions.map(\.state) == [.created, .syncingLibrary, .reporting, .completedNoOp])
     }
 
-    @Test("active preview run rejects overlapping submissions")
-    func previewRejectsOverlap() async {
+    @Test("active preview covers duplicate submission")
+    func previewCoversDuplicate() async {
         let gate = SyncGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
@@ -436,8 +474,8 @@ struct RunOrchestratorTests {
         await gate.release()
         _ = await first.value
 
-        guard case let .alreadyRunning(snapshot) = second else {
-            Issue.record("Expected alreadyRunning, got \(second)")
+        guard case let .alreadyCovered(snapshot) = second else {
+            Issue.record("Expected alreadyCovered, got \(second)")
             return
         }
         #expect(snapshot.state == .planningFixes)
@@ -620,6 +658,38 @@ private actor SyncOutcomeToggle {
             throw ProbeError(message: "Music.app unavailable")
         }
         return SyncResult()
+    }
+}
+
+private actor SyncCallProbe {
+    private var count = 0
+    private var continuations: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    func recordCall() {
+        count += 1
+        resumeContinuations()
+    }
+
+    func waitUntilCount(_ target: Int) async {
+        if count >= target {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            continuations.append((target, continuation))
+        }
+    }
+
+    private func resumeContinuations() {
+        var waiting: [(Int, CheckedContinuation<Void, Never>)] = []
+        for (target, continuation) in continuations {
+            if count >= target {
+                continuation.resume()
+            } else {
+                waiting.append((target, continuation))
+            }
+        }
+        continuations = waiting
     }
 }
 

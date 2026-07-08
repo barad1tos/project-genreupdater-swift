@@ -779,9 +779,8 @@ struct DesignRootHostView: View {
     private var activityCommandController: ActivityCommandController {
         ActivityCommandController(
             isRunOrchestratorAvailable: { dependencies.runOrchestrator != nil },
-            hasActiveRun: { currentRunLifecycle?.isActive == true },
-            submitManualObservationRun: {
-                try await dependencies.submitManualObservationRun()
+            submitManualRun: {
+                try await dependencies.submitManualRun()
             },
             reloadLibrary: { forceRefresh in
                 await loadLibrary(forceRefresh: forceRefresh)
