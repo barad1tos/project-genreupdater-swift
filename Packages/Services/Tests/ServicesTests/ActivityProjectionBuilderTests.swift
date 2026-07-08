@@ -37,12 +37,12 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.secondaryCommand?.commandKind == .runManually)
     }
 
-    @Test("syncing library disables run manually and marks detect current")
-    func syncingLibraryDisablesRunManuallyAndMarksDetectCurrent() {
+    @Test("syncing library allows manual queueing and marks detect current")
+    func syncingAllowsQueue() {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                runLifecycle: lifecycle(phase: .active(.syncingLibrary))
+                runLifecycle: lifecycle(phase: .active(.syncingLibrary), trigger: .backgroundSync)
             )
         )
 
@@ -51,7 +51,20 @@ struct ActivityProjectionBuilderTests {
         #expect(projection.syncStatusText == "Syncing")
         #expect(projection.currentStage == .detect)
         #expect(projection.status(for: .detect) == .current)
-        #expect(projection.secondaryCommand?.title == "Syncing")
+        #expect(projection.secondaryCommand?.title == "Queue manual")
+        #expect(projection.secondaryCommand?.isEnabled == true)
+    }
+
+    @Test("active manual run keeps manual command covered")
+    func manualStaysCovered() {
+        let projection = ActivityProjectionBuilder.makeProjection(
+            from: makeInput(
+                tracks: [editableTrack(id: "1")],
+                runLifecycle: lifecycle(phase: .active(.syncingLibrary))
+            )
+        )
+
+        #expect(projection.secondaryCommand?.title == "Run manually")
         #expect(projection.secondaryCommand?.isEnabled == false)
     }
 
@@ -500,7 +513,7 @@ struct ActivityProjectionBuilderTests {
     }
 
     @Test("run lifecycle reporting keeps the run active")
-    func runLifecycleReportingKeepsRunActive() {
+    func reportingKeepsActive() {
         let projection = ActivityProjectionBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
@@ -509,6 +522,7 @@ struct ActivityProjectionBuilderTests {
         )
 
         #expect(projection.syncStatusText == "Syncing")
+        #expect(projection.secondaryCommand?.title == "Run manually")
         #expect(projection.secondaryCommand?.isEnabled == false)
     }
 
@@ -584,11 +598,11 @@ struct ActivityProjectionBuilderTests {
         )
     }
 
-    private func lifecycle(phase: RunPhase) -> RunLifecycleSnapshot {
+    private func lifecycle(phase: RunPhase, trigger: RunTrigger = .manualCheck) -> RunLifecycleSnapshot {
         RunLifecycleSnapshot(
             runID: RunID(),
             requestID: RunRequestID(),
-            trigger: .manualCheck,
+            trigger: trigger,
             intent: .observeLibrary,
             scope: ProcessingScopeSnapshot.capture(
                 requestedTestArtists: [],

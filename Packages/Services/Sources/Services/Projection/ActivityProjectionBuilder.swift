@@ -401,17 +401,19 @@ public enum ActivityProjectionBuilder {
     private static func makeLibraryStateSubtitle(input: ActivityProjectionInput) -> String? {
         switch input.libraryState {
         case let .permissionDenied(message), let .failed(message):
-            message
+            return message
         case .loading:
             // An active/failed run must fall through to the effectiveSyncState switch below,
             // mirroring the .empty case's precedence instead of always hiding it.
-            input.effectiveSyncState == .idle
-                ? (input.isAutoSyncRunning ? "Auto-sync running · reading Music metadata" : "Manual scan in progress")
-                : nil
+            guard input.effectiveSyncState == .idle else { return nil }
+            if input.isAutoSyncRunning {
+                return "Auto-sync running · reading Music metadata"
+            }
+            return "Manual scan in progress"
         case .empty:
-            input.effectiveSyncState == .idle ? "No Music tracks available for analysis" : nil
+            return input.effectiveSyncState == .idle ? "No Music tracks available for analysis" : nil
         case .ready:
-            nil
+            return nil
         }
     }
 
@@ -646,12 +648,13 @@ public enum ActivityProjectionBuilder {
     }
 
     private static func makeRunManuallyCommand(input: ActivityProjectionInput) -> ActivityCommandDescriptor {
-        let isEnabled = input.effectiveSyncState != .running
-            && input.isLibrarySyncAvailable
+        let canQueue = input.runLifecycle?.canQueueManual == true
+        let isEnabled = input.isLibrarySyncAvailable
             && !input.workflow.isProcessing
+            && (input.effectiveSyncState != .running || canQueue)
         return ActivityCommandDescriptor(
             id: "run-manually",
-            title: input.effectiveSyncState == .running ? "Syncing" : "Run manually",
+            title: canQueue ? "Queue manual" : "Run manually",
             style: .secondary,
             isEnabled: isEnabled,
             commandKind: .runManually
