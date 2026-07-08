@@ -10,7 +10,7 @@ struct RunOrchestratorTests {
         let clock = ClockProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             now: { clock.now() }
         ))
 
@@ -33,7 +33,7 @@ struct RunOrchestratorTests {
                     Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
                 ])
             },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -56,7 +56,7 @@ struct RunOrchestratorTests {
             synchronizeLibrary: {
                 throw ProbeError(message: "Music.app unavailable")
             },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -79,7 +79,7 @@ struct RunOrchestratorTests {
             synchronizeLibrary: {
                 throw CancellationError()
             },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -100,7 +100,7 @@ struct RunOrchestratorTests {
                 await gate.waitUntilReleased()
                 return SyncResult()
             },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -135,7 +135,7 @@ struct RunOrchestratorTests {
                 await gate.waitUntilReleased()
                 return SyncResult()
             },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -176,7 +176,7 @@ struct RunOrchestratorTests {
                 }
                 return SyncResult()
             },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -220,7 +220,7 @@ struct RunOrchestratorTests {
                 await gate.waitUntilReleased()
                 return SyncResult()
             },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             produceFixPlan: { try await producer.produce(runID: $0, scope: $1) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
@@ -268,7 +268,7 @@ struct RunOrchestratorTests {
                 await gate.waitUntilReleased()
                 return SyncResult()
             },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
         let iterator = await LifecycleIterator(stream: orchestrator.lifecycleUpdates())
@@ -322,7 +322,7 @@ struct RunOrchestratorTests {
                 try Task.checkCancellation()
                 return SyncResult()
             },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -345,7 +345,7 @@ struct RunOrchestratorTests {
     func lifecycleUpdatesUnregisterSubscriberAfterCancellation() async {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
         let stream = await orchestrator.lifecycleUpdates()
@@ -599,9 +599,7 @@ struct RunOrchestratorTests {
         let gate = SyncGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in
-                // This overlap test does not inspect persisted run history.
-            },
+            persistRunRecord: ignoreRunRecord,
             produceFixPlan: { _, _ in
                 await gate.waitUntilReleased()
                 return .empty
@@ -681,7 +679,7 @@ struct RunOrchestratorTests {
                 await gate.waitUntilReleased()
                 return SyncResult()
             },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
         let iterator = await LifecycleIterator(stream: orchestrator.lifecycleUpdates())
@@ -718,7 +716,7 @@ struct RunOrchestratorTests {
         let toggle = SyncOutcomeToggle()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { try await toggle.syncOrFail() },
-            persistRunRecord: { _ in },
+            persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -948,6 +946,10 @@ private struct ProbeError: LocalizedError {
     var errorDescription: String? {
         message
     }
+}
+
+private func ignoreRunRecord(_ record: RunRecord) async throws {
+    _ = record
 }
 
 private actor RunRecordProbe {
