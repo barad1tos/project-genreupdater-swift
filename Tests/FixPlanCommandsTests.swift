@@ -168,6 +168,58 @@ struct FixPlanCommandsTests {
         #expect(await harness.store.verdicts() == [.accepted, .accepted])
     }
 
+    @Test("fix plan route includes issue detail")
+    func routeShowsDetail() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        await harness.store.throwOnNextRecord()
+        let commands = harness.makeCommands()
+        var handledResult: UserCommandResult?
+        var showsActivityNotice: Bool?
+        var shownNotice: FixPlanCommands.Notice?
+
+        let result = await commands.handle(.rejectFixPlan(target: harness.target))
+        FixPlanCommands.showResult(
+            result,
+            handleResult: { result, showsNotice in
+                handledResult = result
+                showsActivityNotice = showsNotice
+            },
+            showNotice: { notice in
+                shownNotice = notice
+            }
+        )
+
+        #expect(handledResult?.status == .requiresAttention)
+        #expect(showsActivityNotice == false)
+        #expect(shownNotice == FixPlanCommands.Notice(
+            message: "Review update failed. Test store write failed",
+            status: .requiresAttention
+        ))
+    }
+
+    @Test("fix plan notice omits repeated issue summary")
+    func noticeDeduplicatesIssue() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.runManually())
+
+        #expect(
+            FixPlanCommands.noticeText(for: result) ==
+                "Review action is unavailable. Unsupported command kind: runManually"
+        )
+    }
+
+    @Test("fix plan notice keeps plain success text")
+    func noticeKeepsSuccess() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .rejected)
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.acceptFixPlan(target: harness.target))
+
+        #expect(FixPlanCommands.noticeText(for: result) == "Review updated.")
+    }
+
     @Test("stale command rejects without recording a newer decision")
     func staleCommandRejectsWithoutRecording() async {
         let harness = FixPlanCommandHarness(startingVerdict: .accepted)
@@ -382,9 +434,9 @@ private struct StoreWriteError: LocalizedError {
 
 private func makeCommandPlan() -> FixPlan {
     FixPlan(
-        id: FixPlanID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000101")!),
+        id: FixPlanID(rawValue: commandUUID("00000000-0000-0000-0000-000000000101")),
         revision: .initial,
-        sourceRunID: RunID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000102")!),
+        sourceRunID: RunID(rawValue: commandUUID("00000000-0000-0000-0000-000000000102")),
         createdAt: Date(timeIntervalSince1970: 1_800_000_100),
         configuration: FixPlanConfigurationSnapshot.capture(
             options: UpdateOptions(
@@ -413,7 +465,7 @@ private func makeCommandPlan() -> FixPlan {
 }
 
 private func makeCommandItem(id: String, type: ChangeType) -> FixPlanItem {
-    let itemID = UUID(uuidString: id)!
+    let itemID = commandUUID(id)
     return FixPlanItem(
         id: itemID,
         identity: FixPlanItemIdentity(
@@ -429,4 +481,11 @@ private func makeCommandItem(id: String, type: ChangeType) -> FixPlanItem {
         confidence: 92,
         source: "MusicBrainz"
     )
+}
+
+private func commandUUID(_ rawValue: String) -> UUID {
+    guard let uuid = UUID(uuidString: rawValue) else {
+        preconditionFailure("Invalid fix-plan command fixture UUID: \(rawValue)")
+    }
+    return uuid
 }

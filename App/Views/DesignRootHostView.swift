@@ -988,8 +988,9 @@ extension DesignRootHostView {
         Task { @MainActor in
             defer { isReviewBusy = false }
             let result = await fixPlanCommands.handle(command)
-            handleCommandResult(result, showsActivityNotice: false)
-            setFixPlanNotice(result.message, tone: commandTone(for: result.status))
+            FixPlanCommands.showResult(result, handleResult: handleCommandResult) { notice in
+                setFixPlanNotice(notice.message, tone: commandTone(for: notice.status))
+            }
         }
     }
 

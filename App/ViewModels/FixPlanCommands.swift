@@ -3,6 +3,25 @@ import Services
 
 @MainActor
 struct FixPlanCommands {
+    struct Notice: Equatable {
+        let message: String
+        let status: CommandResultStatus
+    }
+
+    static func showResult(
+        _ result: UserCommandResult,
+        handleResult: (UserCommandResult, Bool) -> Void,
+        showNotice: (Notice) -> Void
+    ) {
+        handleResult(result, false)
+        showNotice(Notice(message: noticeText(for: result), status: result.status))
+    }
+
+    static func noticeText(for result: UserCommandResult) -> String {
+        guard let detail = result.issue?.technicalDetail, !detail.isEmpty else { return result.message }
+        return "\(result.message) \(detail)"
+    }
+
     private enum DecisionUpdate {
         case changed(FixPlanReviewDecision)
         case noOp
