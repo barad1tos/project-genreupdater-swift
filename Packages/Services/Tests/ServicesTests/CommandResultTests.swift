@@ -40,6 +40,43 @@ struct CommandResultTests {
         #expect(command.kind == .reviewChanges)
     }
 
+    @Test("fix plan accept command carries target revisions")
+    func fixPlanAcceptCarriesTargetRevisions() {
+        let id = UUID()
+        let planID = FixPlanID()
+        let target = FixPlanCommandTarget(
+            planID: planID,
+            planRevision: FixPlanRevision(3),
+            decisionRevision: ReviewDecisionRevision(5),
+            projectionRevision: ProjectionRevision(7)
+        )
+
+        let command = UserIntentCommand.acceptFixPlan(target: target, id: id)
+
+        #expect(command.id == id)
+        #expect(command.kind == .acceptFixPlan)
+        #expect(command.fixPlanTarget == target)
+        #expect(command.fixPlanTarget?.planID == planID)
+        #expect(command.targetItemID == nil)
+    }
+
+    @Test("fix plan item toggle command carries item target")
+    func fixPlanToggleCarriesItemTarget() {
+        let itemID = UUID()
+        let target = FixPlanCommandTarget(
+            planID: FixPlanID(),
+            planRevision: FixPlanRevision(3),
+            decisionRevision: ReviewDecisionRevision(5),
+            projectionRevision: ProjectionRevision(7)
+        )
+
+        let command = UserIntentCommand.togglePlanItem(itemID, target: target)
+
+        #expect(command.kind == .togglePlanItem)
+        #expect(command.fixPlanTarget == target)
+        #expect(command.targetItemID == itemID)
+    }
+
     @Test("resume recovery command carries stable identity")
     func resumeRecoveryIdentity() {
         let id = UUID()

@@ -17,6 +17,11 @@ struct ActivityCommands {
     static func command(for descriptor: ActivityCommandDescriptor?) -> UserIntentCommand? {
         guard let descriptor, descriptor.isEnabled else { return nil }
         switch descriptor.commandKind {
+        case .acceptFixPlan,
+             .rejectFixPlan,
+             .togglePlanItem:
+            // Fix-plan actions route through FixPlanCommands; Activity keeps these cases exhaustive.
+            return nil
         case .reviewChanges:
             return .reviewChanges()
         case .resumeRecovery:
@@ -28,6 +33,11 @@ struct ActivityCommands {
 
     func handle(_ command: UserIntentCommand) async -> UserCommandResult {
         switch command.kind {
+        case .acceptFixPlan,
+             .rejectFixPlan,
+             .togglePlanItem:
+            // Defensive only: Activity descriptors never construct fix-plan commands.
+            return await unavailableFixPlanCommand(command)
         case .reviewChanges:
             let projection = await refreshActivityProjection()
             if let issue = recoveryIssue(in: projection) {
@@ -76,6 +86,20 @@ struct ActivityCommands {
         case .runManually:
             return await handleRunManually()
         }
+    }
+
+    private func unavailableFixPlanCommand(_ command: UserIntentCommand) async -> UserCommandResult {
+        let projection = await refreshActivityProjection()
+        return .rejectedInvalid(
+            message: "Fix plan action is unavailable from Activity.",
+            issue: OperationalIssue(
+                id: "fix-plan-command-unavailable",
+                category: .staleAction,
+                summary: "Fix plan action unavailable",
+                technicalDetail: command.kind.rawValue
+            ),
+            refreshedActivityProjection: projection
+        )
     }
 
     private func recoveryRunID(from issue: OperationalIssue) -> RunID? {

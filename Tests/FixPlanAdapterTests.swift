@@ -60,6 +60,10 @@ struct FixPlanAdapterTests {
         let snapshot = FixPlanAdapter.makeSnapshot(from: projection)
 
         #expect(snapshot.status == .ready)
+        #expect(snapshot.planID == projection.planID?.description)
+        #expect(snapshot.planRevision == 3)
+        #expect(snapshot.decisionRevision == 4)
+        #expect(snapshot.projectionRevision == 2)
         #expect(snapshot.itemCount == 1)
         #expect(snapshot.acceptedCount == 1)
         #expect(snapshot.yearCount == 1)

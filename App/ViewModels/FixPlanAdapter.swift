@@ -8,6 +8,9 @@ enum FixPlanAdapter {
         DesignUI.FixPlanSnapshot(
             status: makeStatus(projection.status),
             planID: projection.planID?.description,
+            planRevision: projection.planRevision?.value,
+            decisionRevision: projection.decisionRevision?.value,
+            projectionRevision: projection.revision.value,
             itemCount: projection.itemCount,
             acceptedCount: projection.acceptedCount,
             rejectedCount: projection.rejectedCount,
