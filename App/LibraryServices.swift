@@ -118,7 +118,7 @@ extension AppDependencies {
         return result
     }
 
-    func submitManualObservationRun() async throws -> RunSubmissionResult {
+    func submitManualRun() async throws -> RunSubmissionResult {
         try await submitRun { knownTrackCount in
             .manualObservation(
                 requestedTestArtists: config.development.testArtists,

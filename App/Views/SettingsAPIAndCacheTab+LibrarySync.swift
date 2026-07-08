@@ -55,7 +55,7 @@ extension APIAndCacheTab {
 
         Task {
             do {
-                let result = try await dependencies.submitManualObservationRun()
+                let result = try await dependencies.submitManualRun()
                 await MainActor.run {
                     librarySyncStatus = librarySyncMessage(for: result)
                     isSyncingLibrary = false
@@ -106,8 +106,10 @@ extension APIAndCacheTab {
 
     private func librarySyncMessage(for result: RunSubmissionResult) -> String {
         switch result {
-        case .alreadyRunning:
+        case .alreadyCovered:
             return "Run already active"
+        case .queued:
+            return "Run queued"
         case let .completed(snapshot),
              let .completedNoOp(snapshot):
             guard let syncResult = snapshot.syncResult else { return "Library is current" }
