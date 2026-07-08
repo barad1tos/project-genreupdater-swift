@@ -1,22 +1,11 @@
 import Foundation
 
-struct PendingTrigger: Equatable, Sendable {
+struct PendingTrigger: Equatable {
     let request: RunRequest
-    let coalescedTriggers: [RunTrigger]
-
-    init(request: RunRequest, coalescedTriggers: [RunTrigger]? = nil) {
-        self.request = request
-        self.coalescedTriggers = coalescedTriggers ?? [request.trigger]
-    }
-
-    func coalescing(_ trigger: RunTrigger) -> Self {
-        guard !coalescedTriggers.contains(trigger) else { return self }
-        return Self(request: request, coalescedTriggers: coalescedTriggers + [trigger])
-    }
 }
 
 enum TriggerArbiter {
-    enum Decision: Equatable, Sendable {
+    enum Decision: Equatable {
         case alreadyCovered(PendingTrigger?)
         case queue(PendingTrigger)
     }
@@ -26,21 +15,43 @@ enum TriggerArbiter {
         pending: PendingTrigger?,
         incoming: RunRequest
     ) -> Decision {
-        let incomingRank = rank(trigger: incoming.trigger, intent: incoming.intent)
-        let activeRank = rank(trigger: active.trigger, intent: active.intent)
-        let pendingRank = pending.map { rank(trigger: $0.request.trigger, intent: $0.request.intent) }
-        let strongestRank = [activeRank, pendingRank].compactMap(\.self).max() ?? activeRank
+        let incomingKey = RequestKey(request: incoming)
+        let activeKey = RequestKey(lifecycle: active)
+        let pendingKey = pending.map { RequestKey(request: $0.request) }
+        let candidateKeys = [activeKey, pendingKey].compactMap(\.self)
+        let strongestRank = candidateKeys.map(\.rank).max() ?? activeKey.rank
 
-        guard incomingRank > strongestRank else {
-            return .alreadyCovered(pending?.coalescing(incoming.trigger))
+        if incomingKey.rank < strongestRank {
+            return .alreadyCovered(pending)
         }
 
-        let coalescedTriggers = pending.map { $0.coalescedTriggers + [incoming.trigger] } ?? [incoming.trigger]
-        return .queue(PendingTrigger(request: incoming, coalescedTriggers: coalescedTriggers.uniqued()))
+        if incomingKey.rank == strongestRank {
+            let isCovered = candidateKeys.contains { key in
+                key.rank == strongestRank && key.scope.covers(incomingKey.scope)
+            }
+            return isCovered ? .alreadyCovered(pending) : .queue(PendingTrigger(request: incoming))
+        }
+
+        return .queue(PendingTrigger(request: incoming))
     }
 
-    private static func rank(trigger: RunTrigger, intent: RunIntent) -> RequestRank {
+    fileprivate static func rank(trigger: RunTrigger, intent: RunIntent) -> RequestRank {
         RequestRank(triggerPriority: trigger.priority, intentPriority: intent.priority)
+    }
+}
+
+private struct RequestKey {
+    let rank: RequestRank
+    let scope: ScopeKey
+
+    init(lifecycle: RunLifecycleSnapshot) {
+        rank = TriggerArbiter.rank(trigger: lifecycle.trigger, intent: lifecycle.intent)
+        scope = ScopeKey(snapshot: lifecycle.scope)
+    }
+
+    init(request: RunRequest) {
+        rank = TriggerArbiter.rank(trigger: request.trigger, intent: request.intent)
+        scope = ScopeKey(request: request)
     }
 }
 
@@ -56,13 +67,58 @@ private struct RequestRank: Comparable {
     }
 }
 
+private struct ScopeKey: Equatable {
+    let source: ProcessingScopeSource
+    let artists: [String]
+    let knownTrackCount: Int?
+
+    init(snapshot: ProcessingScopeSnapshot) {
+        source = snapshot.source
+        artists = snapshot.normalizedTestArtists
+        knownTrackCount = snapshot.knownTrackCount
+    }
+
+    init(request: RunRequest) {
+        self.init(snapshot: .capture(
+            requestedTestArtists: request.requestedTestArtists,
+            knownTrackCount: request.knownTrackCount,
+            createdAt: Date(timeIntervalSince1970: 0),
+            reason: request.trigger.rawValue
+        ))
+    }
+
+    func covers(_ other: Self) -> Bool {
+        guard knownTrackCount == other.knownTrackCount else { return false }
+        switch (source, other.source) {
+        case (.fullLibrary, _):
+            return true
+        case (.testArtists, .testArtists):
+            return artists == other.artists
+        case (.testArtists, .fullLibrary):
+            return false
+        }
+    }
+}
+
+private enum TriggerPriority {
+    static let backgroundSync = 0
+    static let fileSystemEvent = 1
+    static let manualCheck = 2
+    static let recovery = 3
+}
+
+private enum IntentPriority {
+    static let observeLibrary = 0
+    static let previewFixes = 1
+}
+
 extension RunTrigger {
     fileprivate var priority: Int {
         switch self {
-        case .backgroundSync: 0
-        case .fileSystemEvent: 1
-        case .manualCheck: 2
-        case .recovery: 3
+        case .backgroundSync: TriggerPriority.backgroundSync
+        case .fileSystemEvent: TriggerPriority.fileSystemEvent
+        case .manualCheck: TriggerPriority.manualCheck
+        case .recovery: TriggerPriority.recovery
         }
     }
 }
@@ -70,17 +126,8 @@ extension RunTrigger {
 extension RunIntent {
     fileprivate var priority: Int {
         switch self {
-        case .observeLibrary: 0
-        case .previewFixes: 1
-        }
-    }
-}
-
-extension Array where Element: Equatable {
-    fileprivate func uniqued() -> Self {
-        reduce(into: []) { result, element in
-            guard !result.contains(element) else { return }
-            result.append(element)
+        case .observeLibrary: IntentPriority.observeLibrary
+        case .previewFixes: IntentPriority.previewFixes
         }
     }
 }

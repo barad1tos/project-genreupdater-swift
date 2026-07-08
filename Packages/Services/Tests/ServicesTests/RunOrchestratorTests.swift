@@ -163,6 +163,156 @@ struct RunOrchestratorTests {
         await syncCalls.waitUntilCount(2)
     }
 
+    @Test("manual observation queues after active background sync failure")
+    func manualQueuesAfterBackgroundFailure() async {
+        let gate = SyncGate()
+        let syncCalls = SyncCallProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                let callIndex = await syncCalls.recordCall()
+                await gate.waitUntilReleased()
+                if callIndex == 1 {
+                    throw ProbeError(message: "Music.app unavailable")
+                }
+                return SyncResult()
+            },
+            persistRunRecord: { _ in },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let first = Task {
+            await orchestrator.submit(RunRequest(
+                trigger: .backgroundSync,
+                intent: .observeLibrary,
+                requestedTestArtists: [],
+                knownTrackCount: nil
+            ))
+        }
+        await syncCalls.waitUntilCount(1)
+
+        let second = await orchestrator.submit(.manualObservation(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+        guard case .queued = second else {
+            Issue.record("Expected queued, got \(second)")
+            return
+        }
+
+        await gate.release()
+        let firstResult = await first.value
+        guard case .failed = firstResult else {
+            Issue.record("Expected failed, got \(firstResult)")
+            return
+        }
+        await syncCalls.waitUntilCount(2)
+        #expect(await orchestrator.currentLifecycle()?.trigger == .manualCheck)
+    }
+
+    @Test("queued preview starts with pending request scope")
+    func queuedPreviewUsesPendingRequest() async throws {
+        let gate = SyncGate()
+        let syncCalls = SyncCallProbe()
+        let producer = FixPlanProducerProbe(production: .empty)
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                await syncCalls.recordCall()
+                await gate.waitUntilReleased()
+                return SyncResult()
+            },
+            persistRunRecord: { _ in },
+            produceFixPlan: { try await producer.produce(runID: $0, scope: $1) },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let first = Task {
+            await orchestrator.submit(RunRequest(
+                trigger: .backgroundSync,
+                intent: .observeLibrary,
+                requestedTestArtists: ["Artist A"],
+                knownTrackCount: 12
+            ))
+        }
+        await syncCalls.waitUntilCount(1)
+
+        let previewRequest = RunRequest(
+            trigger: .manualCheck,
+            intent: .previewFixes,
+            requestedTestArtists: [" Artist B "],
+            knownTrackCount: 44
+        )
+        let second = await orchestrator.submit(previewRequest)
+        guard case .queued = second else {
+            Issue.record("Expected queued, got \(second)")
+            return
+        }
+
+        await gate.release()
+        _ = await first.value
+        await syncCalls.waitUntilCount(2)
+        await producer.waitUntilCallCount(1)
+
+        let call = try #require(await producer.calls.first)
+        #expect(call.scope.source == .testArtists)
+        #expect(call.scope.normalizedTestArtists == ["Artist B"])
+        #expect(call.scope.knownTrackCount == 44)
+    }
+
+    @Test("lifecycle stream preserves terminal snapshot before queued run")
+    func lifecycleStreamPreservesTerminalBeforeQueuedRun() async throws {
+        let gate = SyncGate()
+        let syncCalls = SyncCallProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                await syncCalls.recordCall()
+                await gate.waitUntilReleased()
+                return SyncResult()
+            },
+            persistRunRecord: { _ in },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+        let iterator = await LifecycleIterator(stream: orchestrator.lifecycleUpdates())
+
+        let first = Task {
+            await orchestrator.submit(RunRequest(
+                trigger: .backgroundSync,
+                intent: .observeLibrary,
+                requestedTestArtists: [],
+                knownTrackCount: nil
+            ))
+        }
+        await syncCalls.waitUntilCount(1)
+
+        let second = await orchestrator.submit(.manualObservation(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+        guard case .queued = second else {
+            Issue.record("Expected queued, got \(second)")
+            return
+        }
+
+        await gate.release()
+        let firstResult = await first.value
+        await syncCalls.waitUntilCount(2)
+
+        var snapshots: [RunLifecycleSnapshot] = []
+        for _ in 0 ..< 6 {
+            if let snapshot = try await nextLifecycleSnapshot(from: iterator) {
+                snapshots.append(snapshot)
+            }
+        }
+
+        let firstRunID = firstResult.lifecycle.runID
+        let firstTerminalIndex = try #require(snapshots.firstIndex {
+            $0.runID == firstRunID && !$0.isActive
+        })
+        let queuedActiveIndex = try #require(snapshots.firstIndex {
+            $0.runID != firstRunID && $0.isActive
+        })
+        #expect(firstTerminalIndex < queuedActiveIndex)
+    }
+
     @Test("cancelling the submitter does not fail the active run")
     func cancellingSubmitterDoesNotFailActiveRun() async {
         let gate = SyncGate()
@@ -665,9 +815,11 @@ private actor SyncCallProbe {
     private var count = 0
     private var continuations: [(Int, CheckedContinuation<Void, Never>)] = []
 
-    func recordCall() {
+    @discardableResult
+    func recordCall() -> Int {
         count += 1
         resumeContinuations()
+        return count
     }
 
     func waitUntilCount(_ target: Int) async {
@@ -710,6 +862,7 @@ private struct FixPlanProducerCall: Equatable {
 private actor FixPlanProducerProbe {
     private(set) var calls: [FixPlanProducerCall] = []
     private let production: FixPlanProduction
+    private var continuations: [(Int, CheckedContinuation<Void, Never>)] = []
 
     init(production: FixPlanProduction) {
         self.production = production
@@ -717,7 +870,30 @@ private actor FixPlanProducerProbe {
 
     func produce(runID: RunID, scope: ProcessingScopeSnapshot) throws -> FixPlanProduction {
         calls.append(FixPlanProducerCall(runID: runID, scope: scope))
+        resumeContinuations()
         return production
+    }
+
+    func waitUntilCallCount(_ target: Int) async {
+        if calls.count >= target {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            continuations.append((target, continuation))
+        }
+    }
+
+    private func resumeContinuations() {
+        var waiting: [(Int, CheckedContinuation<Void, Never>)] = []
+        for (target, continuation) in continuations {
+            if calls.count >= target {
+                continuation.resume()
+            } else {
+                waiting.append((target, continuation))
+            }
+        }
+        continuations = waiting
     }
 }
 

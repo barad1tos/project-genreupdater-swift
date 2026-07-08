@@ -34,6 +34,7 @@ struct DesignRootHostView: View {
     @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
     @State private var activityCommandNoticeID = UUID()
+    @State private var queuedManualReload: QueuedManualReload?
     @AppStorage(AppStorageKey.defaultUpdateBehavior) private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("fastAnimations") private var fastAnimations = false
@@ -376,7 +377,7 @@ struct DesignRootHostView: View {
     }
 
     private func runPrimaryCommand() {
-        guard let command = ActivityCommandController.command(for: activityProjection.primaryCommand) else { return }
+        guard let command = ActivityCommands.command(for: activityProjection.primaryCommand) else { return }
         clearActivityCommandNotice()
         Task { @MainActor in
             await runActivityCommand(command)
@@ -705,6 +706,11 @@ struct DesignRootHostView: View {
             currentRunLifecycle = lifecycle
             await refreshActivityProjection()
             if !lifecycle.isActive {
+                let reloadAdvance = advanceQueuedReload(queuedManualReload, lifecycle: lifecycle)
+                queuedManualReload = reloadAdvance.next
+                if reloadAdvance.shouldReload {
+                    await loadLibrary(forceRefresh: true)
+                }
                 if lifecycle.intent == .previewFixes {
                     await refreshFixPlanProjection()
                 }
@@ -776,11 +782,14 @@ struct DesignRootHostView: View {
         }
     }
 
-    private var activityCommandController: ActivityCommandController {
-        ActivityCommandController(
+    private var activityCommands: ActivityCommands {
+        ActivityCommands(
             isRunOrchestratorAvailable: { dependencies.runOrchestrator != nil },
             submitManualRun: {
                 try await dependencies.submitManualRun()
+            },
+            queueManualReload: { runID in
+                queuedManualReload = .waitingForActive(runID)
             },
             reloadLibrary: { forceRefresh in
                 await loadLibrary(forceRefresh: forceRefresh)
@@ -820,7 +829,7 @@ struct DesignRootHostView: View {
 
     @discardableResult
     private func runActivityCommand(_ command: UserIntentCommand) async -> UserCommandResult {
-        let result = await activityCommandController.handle(command)
+        let result = await activityCommands.handle(command)
         handleActivityCommandResult(result)
         return result
     }
@@ -886,5 +895,41 @@ struct DesignRootHostView: View {
         if category == .update {
             ensureWorkflowViewModel()
         }
+    }
+}
+
+enum QueuedManualReload: Equatable {
+    case waitingForActive(RunID)
+    case waitingForQueued
+}
+
+struct QueuedReloadAdvance: Equatable {
+    let next: QueuedManualReload?
+    let shouldReload: Bool
+}
+
+func advanceQueuedReload(
+    _ state: QueuedManualReload?,
+    lifecycle: RunLifecycleSnapshot
+) -> QueuedReloadAdvance {
+    guard let state, !lifecycle.isActive else {
+        return QueuedReloadAdvance(next: state, shouldReload: false)
+    }
+
+    switch state {
+    case let .waitingForActive(runID):
+        let next: QueuedManualReload? = lifecycle.runID == runID ? .waitingForQueued : state
+        return QueuedReloadAdvance(next: next, shouldReload: false)
+    case .waitingForQueued:
+        let shouldReload = lifecycle.isCompletedManualObservation
+        return QueuedReloadAdvance(next: nil, shouldReload: shouldReload)
+    }
+}
+
+extension RunLifecycleSnapshot {
+    fileprivate var isCompletedManualObservation: Bool {
+        (state == .completed || state == .completedNoOp) &&
+            trigger == .manualCheck &&
+            intent == .observeLibrary
     }
 }
