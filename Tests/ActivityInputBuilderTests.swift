@@ -82,7 +82,17 @@ struct ActivityInputBuilderTests {
                 revision: .initial,
                 runs: [
                     ReportsRunItem(
-                        id: "run-1",
+                        id: "run-blocked",
+                        state: .blocked,
+                        stateLabel: "Blocked",
+                        triggerLabel: "Manual check",
+                        startedLabel: "4m ago",
+                        durationLabel: nil,
+                        changeCountLabel: nil,
+                        failureSummary: "Run blocked"
+                    ),
+                    ReportsRunItem(
+                        id: "run-recovery",
                         state: .recoveryNeeded,
                         stateLabel: "Recovery needed",
                         triggerLabel: "Manual check",
@@ -91,12 +101,22 @@ struct ActivityInputBuilderTests {
                         changeCountLabel: nil,
                         failureSummary: "Previous run needs recovery"
                     ),
+                    ReportsRunItem(
+                        id: "run-failed",
+                        state: .failed,
+                        stateLabel: "Failed",
+                        triggerLabel: "Manual check",
+                        startedLabel: "12m ago",
+                        durationLabel: nil,
+                        changeCountLabel: nil,
+                        failureSummary: "Run failed"
+                    ),
                 ],
                 skippedCorruptedCount: 0
             )
         ))
 
-        #expect(input.recovery == ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1"))
+        #expect(input.recovery == ActivityRecoverySummary(unresolvedRunCount: 2, latestRunID: "run-blocked"))
     }
 
     private func track(id: String) -> Core.Track {

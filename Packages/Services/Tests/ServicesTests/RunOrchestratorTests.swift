@@ -74,12 +74,13 @@ struct RunOrchestratorTests {
     }
 
     @Test("cancellation error during sync cancels the run with a cancelled message")
-    func cancellationDuringSyncCancelsRunWithCancelledMessage() async {
+    func cancellationDuringSyncCancelsRunWithCancelledMessage() async throws {
+        let probe = RunRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: {
                 throw CancellationError()
             },
-            persistRunRecord: ignoreRunRecord,
+            persistRunRecord: { try await probe.append($0) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -94,6 +95,12 @@ struct RunOrchestratorTests {
         }
         #expect(result.lifecycle.state == .cancelled)
         #expect(result.lifecycle.failureMessage == "Run cancelled")
+
+        let final = try #require(await probe.records.last)
+        #expect(final.state == .cancelled)
+        #expect(final.failureMessage == "Run cancelled")
+        #expect(final.finishedAt != nil)
+        #expect(final.transitions.map(\.state) == [.created, .syncingLibrary, .reporting, .cancelled])
     }
 
     @Test("manual observation covers duplicate active run")
