@@ -32,7 +32,7 @@ struct MockData {
         .init(id: "genre-electronic", label: "Electronic", ratio: 0.88, tone: .info),
         .init(id: "genre-rock", label: "Rock", ratio: 0.82, tone: .purple),
         .init(id: "genre-hip-hop", label: "Hip-Hop", ratio: 0.71, tone: .warning),
-        .init(id: "genre-unknown", label: "Unknown", ratio: 0.18, tone: .error),
+        .init(id: "genre-unknown", label: "Unknown", ratio: 0.18, tone: .error)
     ]
 
     let issues: [Issue] = [
@@ -46,7 +46,7 @@ struct MockData {
             route: .update
         ),
         .init(id: "protected", label: "Protected files", count: "18", tone: .neutral, symbol: "lock"),
-        .init(id: "errors", label: "Write errors", count: "0", tone: .success, symbol: "checkmark.circle"),
+        .init(id: "errors", label: "Write errors", count: "0", tone: .success, symbol: "checkmark.circle")
     ]
 
     let metrics: [MetricTile] = [
@@ -74,13 +74,13 @@ struct MockData {
             value: "33,008",
             symbol: "checkmark.seal",
             tone: .success
-        ),
+        )
     ]
 
     let activity: [ActivityItem] = [
         .init(id: "library-scan", title: "Library scan", detail: "42,318 tracks analyzed"),
         .init(id: "updates-staged", title: "Updates staged", detail: "211 changes ready for review"),
-        .init(id: "dry-run-preview", title: "Dry-run preview", detail: "no tags written to Music"),
+        .init(id: "dry-run-preview", title: "Dry-run preview", detail: "no tags written to Music")
     ]
 
     let artists: [Artist] = [
@@ -94,7 +94,7 @@ struct MockData {
                 health: 1.0
             ),
             .init(id: "album-aphex-drukqs", name: "Drukqs", genre: "Electronic", year: 2001, tracks: 30, health: 0.9),
-            .init(id: "album-aphex-syro", name: "Syro", genre: nil, year: 2014, tracks: 12, health: 0.4),
+            .init(id: "album-aphex-syro", name: "Syro", genre: nil, year: 2014, tracks: 12, health: 0.4)
         ]),
         Artist(id: "artist-bach", name: "Bach, J.S.", genre: "Classical", albums: [
             .init(
@@ -112,7 +112,7 @@ struct MockData {
                 year: nil,
                 tracks: 36,
                 health: 0.6
-            ),
+            )
         ]),
         Artist(id: "artist-boards-of-canada", name: "Boards of Canada", genre: "Electronic", albums: [
             .init(
@@ -130,7 +130,7 @@ struct MockData {
                 year: 2002,
                 tracks: 23,
                 health: 0.95
-            ),
+            )
         ]),
         Artist(id: "artist-metallica", name: "Metallica", genre: "Metal", albums: [
             .init(
@@ -156,7 +156,7 @@ struct MockData {
                 year: 1991,
                 tracks: 12,
                 health: 1.0
-            ),
+            )
         ]),
         Artist(id: "artist-miles-davis", name: "Miles Davis", genre: "Jazz", albums: [
             .init(
@@ -174,7 +174,7 @@ struct MockData {
                 year: 1970,
                 tracks: 6,
                 health: 0.85
-            ),
+            )
         ]),
         Artist(id: "artist-radiohead", name: "Radiohead", genre: "Alternative", albums: [
             .init(
@@ -193,8 +193,8 @@ struct MockData {
                 year: nil,
                 tracks: 10,
                 health: 0.3
-            ),
-        ]),
+            )
+        ])
     ]
 
     let changes: [Change] = [
@@ -296,7 +296,7 @@ struct MockData {
             old: "Metal",
             new: "Thrash Metal",
             conf: 0.93
-        ),
+        )
     ]
 
     let dryRun = (changes: 211, tracks: 198, avgConfidence: 88, genre: 142, year: 69)
@@ -361,7 +361,7 @@ struct MockData {
             old: "Rock",
             new: "Art Rock",
             conf: 0.84
-        ),
+        )
     ]
 
     let runHistory: [RunReportRow] = [
@@ -371,6 +371,8 @@ struct MockData {
             tone: .success,
             triggerLabel: "Manual check",
             startedLabel: "2m ago",
+            modeLabel: "Preview",
+            scopeLabel: "Test artists (3)",
             durationLabel: "45s",
             changeCountLabel: "12 changes"
         ),
@@ -380,6 +382,8 @@ struct MockData {
             tone: .neutral,
             triggerLabel: "Background sync",
             startedLabel: "15m ago",
+            modeLabel: "Library check",
+            scopeLabel: "Full library · 42,318 tracks",
             durationLabel: "38s",
             changeCountLabel: "No changes"
         ),
@@ -389,8 +393,10 @@ struct MockData {
             tone: .error,
             triggerLabel: "File system event",
             startedLabel: "1h ago",
+            modeLabel: "Auto-fix",
+            scopeLabel: "Full library",
             failureSummary: "Music library timed out"
-        ),
+        )
     ]
 
     let reportStats = (processed: 211, genres: 142, years: 69)
@@ -401,7 +407,7 @@ struct MockData {
         .init(id: "genre-art-rock", label: "Art Rock", count: 24),
         .init(id: "genre-modal-jazz", label: "Modal Jazz", count: 19),
         .init(id: "genre-ambient", label: "Ambient", count: 16),
-        .init(id: "genre-jazz-fusion", label: "Jazz Fusion", count: 14),
+        .init(id: "genre-jazz-fusion", label: "Jazz Fusion", count: 14)
     ]
     let overTime: [ChartDatum] = ["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W9", "W10", "W11", "W12"]
         .enumerated()
@@ -419,7 +425,7 @@ struct MockData {
         .init(id: "decade-90s", label: "90s", count: 27),
         .init(id: "decade-00s", label: "00s", count: 22),
         .init(id: "decade-10s", label: "10s", count: 14),
-        .init(id: "decade-20s", label: "20s", count: 8),
+        .init(id: "decade-20s", label: "20s", count: 8)
     ]
 
     var designSnapshot: DesignDataSnapshot {

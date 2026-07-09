@@ -13,6 +13,8 @@ struct RunHistoryTests {
             stateLabel: "Completed",
             triggerLabel: "Manual check",
             startedLabel: "2m ago",
+            modeLabel: "Preview",
+            scopeLabel: "Test artists (2)",
             durationLabel: "45s",
             changeCountLabel: "12 changes",
             failureSummary: nil
@@ -26,6 +28,8 @@ struct RunHistoryTests {
         #expect(row.tone == .success)
         #expect(row.triggerLabel == "Manual check")
         #expect(row.startedLabel == "2m ago")
+        #expect(row.modeLabel == "Preview")
+        #expect(row.scopeLabel == "Test artists (2)")
         #expect(row.durationLabel == "45s")
         #expect(row.changeCountLabel == "12 changes")
         #expect(row.failureSummary == nil)

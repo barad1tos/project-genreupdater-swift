@@ -41,6 +41,8 @@ struct ReportsBuilderTests {
         #expect(item.stateLabel == "Completed")
         #expect(item.triggerLabel == "Manual check")
         #expect(item.startedLabel == "8m ago")
+        #expect(item.modeLabel == "Library check")
+        #expect(item.scopeLabel == "Full library")
         #expect(item.durationLabel == "45s")
         #expect(item.changeCountLabel == "3 changes")
         #expect(item.failureSummary == nil)
@@ -89,6 +91,77 @@ struct ReportsBuilderTests {
         let item = try #require(makeProjection(records: [record]).runs.first)
 
         #expect(item.changeCountLabel == "1 change")
+    }
+
+    @Test("preview test-artist scope omits full-library track count")
+    func mapsPreviewScope() throws {
+        let record = makeRunRecord(
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: ["Aphex Twin", "Boards of Canada"],
+                knownTrackCount: 44,
+                createdAt: startDate,
+                reason: "test"
+            ),
+            intent: .previewFixes
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.modeLabel == "Preview")
+        #expect(item.scopeLabel == "Test artists (2)")
+    }
+
+    @Test("full library scope uses plural track count")
+    func mapsFullLibrary() throws {
+        let record = makeRunRecord(
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: 44,
+                createdAt: startDate,
+                reason: "test"
+            ),
+            intent: .observeLibrary
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.modeLabel == "Library check")
+        #expect(item.scopeLabel == "Full library · 44 tracks")
+    }
+
+    @Test("test artist scope without track count omits count suffix")
+    func mapsArtistScope() throws {
+        let record = makeRunRecord(
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: ["Aphex Twin"],
+                knownTrackCount: nil,
+                createdAt: startDate,
+                reason: "test"
+            ),
+            intent: .previewFixes
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.scopeLabel == "Test artists (1)")
+    }
+
+    @Test("write intent and singular scope count reach index labels")
+    func mapsWriteScope() throws {
+        let record = makeRunRecord(
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: 1,
+                createdAt: startDate,
+                reason: "test"
+            ),
+            intent: .writeFixes
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.modeLabel == "Auto-fix")
+        #expect(item.scopeLabel == "Full library · 1 track")
     }
 
     @Test("failed run carries failure summary")
@@ -365,6 +438,24 @@ struct ReportsBuilderTests {
             failureMessage: failureMessage,
             startedAt: startedAt,
             finishedAt: finishedAt
+        )
+    }
+
+    private func makeRunRecord(scope: ProcessingScopeSnapshot, intent: RunIntent) -> RunRecord {
+        RunRecord(
+            runID: RunID(),
+            requestID: RunRequestID(),
+            trigger: .manualCheck,
+            intent: intent,
+            scope: scope,
+            transitions: [
+                RunLifecycleTransition(state: .created, timestamp: startDate),
+                RunLifecycleTransition(state: .completed, timestamp: startDate.addingTimeInterval(45))
+            ],
+            syncSummary: nil,
+            failureMessage: nil,
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45)
         )
     }
 }

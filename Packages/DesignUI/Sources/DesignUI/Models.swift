@@ -345,6 +345,9 @@ public struct RunReportRow: Identifiable, Equatable, Sendable {
     public let tone: Tone
     public let triggerLabel: String
     public let startedLabel: String
+    /// Optional for DesignUI previews that are not backed by run projections.
+    public let modeLabel: String?
+    public let scopeLabel: String?
     public let durationLabel: String?
     public let changeCountLabel: String?
     public let failureSummary: String?
@@ -355,6 +358,8 @@ public struct RunReportRow: Identifiable, Equatable, Sendable {
         tone: Tone,
         triggerLabel: String,
         startedLabel: String,
+        modeLabel: String? = nil,
+        scopeLabel: String? = nil,
         durationLabel: String? = nil,
         changeCountLabel: String? = nil,
         failureSummary: String? = nil
@@ -364,6 +369,8 @@ public struct RunReportRow: Identifiable, Equatable, Sendable {
         self.tone = tone
         self.triggerLabel = triggerLabel
         self.startedLabel = startedLabel
+        self.modeLabel = modeLabel
+        self.scopeLabel = scopeLabel
         self.durationLabel = durationLabel
         self.changeCountLabel = changeCountLabel
         self.failureSummary = failureSummary

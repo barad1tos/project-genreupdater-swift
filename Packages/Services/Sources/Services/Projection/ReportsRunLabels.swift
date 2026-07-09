@@ -83,6 +83,41 @@ enum ReportsRunLabels {
         }
     }
 
+    static func modeLabel(for intent: RunIntent) -> String {
+        switch intent {
+        case .observeLibrary:
+            "Library check"
+        case .previewFixes:
+            "Preview"
+        case .writeFixes:
+            "Auto-fix"
+        }
+    }
+
+    static func scopeLabel(for scope: ProcessingScopeSnapshot) -> String {
+        let scopeText = scopeSourceLabel(for: scope)
+
+        switch scope.source {
+        case .fullLibrary:
+            guard let trackCount = scope.knownTrackCount else {
+                return scopeText
+            }
+            let trackText = trackCount == 1 ? "1 track" : "\(trackCount.formatted()) tracks"
+            return "\(scopeText) · \(trackText)"
+        case .testArtists:
+            return scopeText
+        }
+    }
+
+    static func scopeSourceLabel(for scope: ProcessingScopeSnapshot) -> String {
+        switch scope.source {
+        case .fullLibrary:
+            "Full library"
+        case .testArtists:
+            "Test artists (\(scope.normalizedTestArtists.count))"
+        }
+    }
+
     // Keep this switch exhaustive so adding a RunLifecycleState requires a matching report label.
     // swiftlint:disable:next cyclomatic_complexity
     static func stageLabel(for state: RunLifecycleState) -> String {

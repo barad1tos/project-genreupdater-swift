@@ -31,6 +31,8 @@ public enum ReportsBuilder {
             stateLabel: ReportsRunLabels.stateLabel(for: state),
             triggerLabel: ReportsRunLabels.triggerLabel(for: record.trigger),
             startedLabel: ReportsRunLabels.relativeLabel(since: record.startedAt, now: now),
+            modeLabel: ReportsRunLabels.modeLabel(for: record.intent),
+            scopeLabel: ReportsRunLabels.scopeLabel(for: record.scope),
             durationLabel: ReportsRunLabels.durationLabel(startedAt: record.startedAt, finishedAt: record.finishedAt),
             changeCountLabel: ReportsRunLabels.changeCountLabel(for: record.syncSummary, intent: record.intent),
             failureSummary: ReportsRunLabels.failureSummary(state: state, failureMessage: record.failureMessage)
