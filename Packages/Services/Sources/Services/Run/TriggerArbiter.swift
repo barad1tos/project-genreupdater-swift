@@ -110,6 +110,7 @@ private enum TriggerPriority {
 private enum IntentPriority {
     static let observeLibrary = 0
     static let previewFixes = 1
+    static let writeFixes = 2
 }
 
 extension RunTrigger {
@@ -128,6 +129,7 @@ extension RunIntent {
         switch self {
         case .observeLibrary: IntentPriority.observeLibrary
         case .previewFixes: IntentPriority.previewFixes
+        case .writeFixes: IntentPriority.writeFixes
         }
     }
 }

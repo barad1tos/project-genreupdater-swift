@@ -34,6 +34,8 @@ struct FixPlanCommands {
     }
 
     let fixPlanStore: (any FixPlanStore)?
+    let submitFixPlanWrite: (FixPlanApplyTarget) async throws -> RunSubmissionResult
+    let hasRecoveryHold: () async -> Bool
     let refreshFixPlanProjection: () async -> FixPlanProjection
     let refreshActivityProjection: () async -> ActivityProjection
     let now: () -> Date
@@ -67,17 +69,36 @@ struct FixPlanCommands {
             else {
                 return await staleResult(message: "Review changed. Refreshing current plan.", projection: projection)
             }
-            switch await resolveDecisionUpdate(for: command, current: decision, projection: projection) {
-            case let .update(nextDecision):
-                return try await recordDecision(nextDecision, in: fixPlanStore)
-            case let .result(result):
-                return result
-            }
+            return try await handleValidatedCommand(
+                command,
+                target: target,
+                decision: decision,
+                projection: projection,
+                store: fixPlanStore
+            )
         } catch {
             if isMissingPlan(error) {
                 return await conflictResult()
             }
             return await failureResult(error, projection: projection)
+        }
+    }
+
+    private func handleValidatedCommand(
+        _ command: UserIntentCommand,
+        target: FixPlanCommandTarget,
+        decision: FixPlanReviewDecision,
+        projection: FixPlanProjection,
+        store: any FixPlanStore
+    ) async throws -> UserCommandResult {
+        if command.kind == .applyFixPlan {
+            return await applyPlan(target: target, decision: decision, projection: projection)
+        }
+        switch await resolveDecisionUpdate(for: command, current: decision, projection: projection) {
+        case let .update(nextDecision):
+            return try await recordDecision(nextDecision, in: store)
+        case let .result(result):
+            return result
         }
     }
 
@@ -92,6 +113,7 @@ struct FixPlanCommands {
     private func isFixPlanCommand(_ kind: UserIntentCommandKind) -> Bool {
         switch kind {
         case .acceptFixPlan,
+             .applyFixPlan,
              .rejectFixPlan,
              .togglePlanItem:
             true
@@ -135,7 +157,8 @@ struct FixPlanCommands {
                 return .unavailableItem
             }
             return .changed(nextDecision)
-        case .reviewChanges,
+        case .applyFixPlan,
+             .reviewChanges,
              .resumeRecovery,
              .runManually:
             return .unavailableItem
@@ -175,6 +198,125 @@ struct FixPlanCommands {
         case .conflict:
             return await conflictResult()
         }
+    }
+
+    private func applyPlan(
+        target: FixPlanCommandTarget,
+        decision: FixPlanReviewDecision,
+        projection: FixPlanProjection
+    ) async -> UserCommandResult {
+        guard decision.itemDecisions.contains(where: { $0.verdict == .accepted }), projection.canApply else {
+            return await noAcceptedResult(projection: projection)
+        }
+        if await hasRecoveryHold() {
+            return await recoveryHoldResult(target: target, projection: projection)
+        }
+
+        do {
+            let result = try await submitFixPlanWrite(target.applyTarget)
+            return await writeResult(result, fallbackAcceptedCount: projection.acceptedCount)
+        } catch {
+            return await writeFailureResult(error, projection: projection)
+        }
+    }
+
+    private func writeResult(
+        _ result: RunSubmissionResult,
+        fallbackAcceptedCount: Int
+    ) async -> UserCommandResult {
+        let refreshedFixPlan = await refreshFixPlanProjection()
+        let refreshedActivity = await refreshActivityProjection()
+        switch result {
+        case .alreadyCovered:
+            return .alreadyCovered(
+                message: "A write run is already active.",
+                refreshedActivityProjection: refreshedActivity
+            )
+        case .queued:
+            return .queued(
+                message: "Write run queued after current run.",
+                refreshedActivityProjection: refreshedActivity
+            )
+        case let .completed(snapshot):
+            let changeCount = snapshot.syncResult?.changeCount ?? fallbackAcceptedCount
+            return .accepted(
+                message: "Applied \(changeCount) \(changeLabel(for: changeCount)).",
+                refreshedActivityProjection: refreshedActivity,
+                refreshedFixPlanProjection: refreshedFixPlan
+            )
+        case .completedNoOp:
+            return .noOp(
+                message: "Accepted changes are already up to date.",
+                refreshedActivityProjection: refreshedActivity,
+                refreshedFixPlanProjection: refreshedFixPlan
+            )
+        case .cancelled:
+            return .noOp(
+                message: "Write run cancelled.",
+                refreshedActivityProjection: refreshedActivity,
+                refreshedFixPlanProjection: refreshedFixPlan
+            )
+        case let .failed(snapshot):
+            return .requiresAttention(
+                message: "Write run failed.",
+                issue: OperationalIssue(
+                    id: "fix-plan-write-failed",
+                    category: .internalFailure,
+                    summary: "Write run failed",
+                    technicalDetail: snapshot.failureMessage
+                ),
+                refreshedActivityProjection: refreshedActivity,
+                refreshedFixPlanProjection: refreshedFixPlan
+            )
+        }
+    }
+
+    private func changeLabel(for count: Int) -> String {
+        count == 1 ? "change" : "changes"
+    }
+
+    private func noAcceptedResult(projection: FixPlanProjection) async -> UserCommandResult {
+        let activity = await refreshActivityProjection()
+        return .noOp(
+            message: "No accepted changes to apply.",
+            refreshedActivityProjection: activity,
+            refreshedFixPlanProjection: projection
+        )
+    }
+
+    private func recoveryHoldResult(
+        target: FixPlanCommandTarget,
+        projection _: FixPlanProjection
+    ) async -> UserCommandResult {
+        let activity = await refreshActivityProjection()
+        return .blockedByRecovery(
+            message: "Recovery must be resolved before writes continue.",
+            issue: OperationalIssue(
+                id: "fix-plan-write-held",
+                category: .recoveryRequired,
+                summary: "Write held by recovery",
+                technicalDetail: target.planID.description
+            ),
+            refreshedActivityProjection: activity
+        )
+    }
+
+    private func writeFailureResult(
+        _ error: any Error,
+        projection: FixPlanProjection
+    ) async -> UserCommandResult {
+        let activity = await refreshActivityProjection()
+        return .requiresAttention(
+            message: "Write run failed.",
+            issue: OperationalIssue(
+                id: "fix-plan-write-failed",
+                category: .internalFailure,
+                summary: "Write run failed",
+                technicalDetail: error.localizedDescription
+            ),
+            refreshedActivityProjection: activity,
+            refreshedFixPlanProjection: projection
+        )
     }
 
     private func noOpResult(projection: FixPlanProjection) async -> UserCommandResult {

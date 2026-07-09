@@ -28,6 +28,7 @@ struct RunLifecycleTests {
     func intentRawValuesAreStable() {
         #expect(RunIntent.observeLibrary.rawValue == "observeLibrary")
         #expect(RunIntent.previewFixes.rawValue == "previewFixes")
+        #expect(RunIntent.writeFixes.rawValue == "writeFixes")
     }
 
     @Test("legacy transitions blob decodes")
@@ -84,6 +85,32 @@ struct RunLifecycleTests {
         for (phase, state) in phases {
             #expect(phase.state == state)
         }
+    }
+
+    @Test("write run transitions from sync to writing, verifying, and reporting")
+    func writeRunUsesWriteStages() {
+        let snapshot = RunLifecycleSnapshot(
+            runID: RunID(),
+            requestID: RunRequestID(),
+            trigger: .manualCheck,
+            intent: .writeFixes,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: nil,
+                createdAt: Date(timeIntervalSinceReferenceDate: 20),
+                reason: "write"
+            ),
+            startedAt: Date(timeIntervalSinceReferenceDate: 20),
+            phase: .active(.syncingLibrary)
+        )
+
+        let writing = snapshot.beginningWriting()
+        let verifying = writing.beginningVerifying()
+        let reporting = verifying.beginningReporting()
+
+        #expect(writing.state == .writing)
+        #expect(verifying.state == .verifying)
+        #expect(reporting.state == .reporting)
     }
 
     @Test("transitions encode as bare state strings and reference-date seconds")

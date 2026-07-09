@@ -136,6 +136,8 @@ enum ActivityDesignAdapter {
         switch command.commandKind {
         case .acceptFixPlan:
             "checkmark.circle"
+        case .applyFixPlan:
+            "square.and.arrow.down"
         case .rejectFixPlan:
             "xmark.circle"
         case .reviewChanges:

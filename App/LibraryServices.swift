@@ -146,6 +146,16 @@ extension AppDependencies {
         }
     }
 
+    func submitFixPlanWrite(target: FixPlanApplyTarget) async throws -> RunSubmissionResult {
+        try await submitRun { knownTrackCount in
+            .manualWrite(
+                target: target,
+                requestedTestArtists: config.development.testArtists,
+                knownTrackCount: knownTrackCount
+            )
+        }
+    }
+
     func submitPreviewRun() async throws -> RunSubmissionResult {
         try await submitRun { knownTrackCount in
             .manualPreview(

@@ -49,3 +49,19 @@ public struct ReviewDecisionRevision: Hashable, Comparable, Sendable, Codable {
         lhs.value < rhs.value
     }
 }
+
+public struct FixPlanApplyTarget: Equatable, Sendable {
+    public let planID: FixPlanID
+    public let planRevision: FixPlanRevision
+    public let decisionRevision: ReviewDecisionRevision
+
+    public init(
+        planID: FixPlanID,
+        planRevision: FixPlanRevision,
+        decisionRevision: ReviewDecisionRevision
+    ) {
+        self.planID = planID
+        self.planRevision = planRevision
+        self.decisionRevision = decisionRevision
+    }
+}

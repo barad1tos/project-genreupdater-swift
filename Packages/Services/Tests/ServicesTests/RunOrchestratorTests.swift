@@ -580,6 +580,77 @@ struct RunOrchestratorTests {
         ])
     }
 
+    @Test("write run syncs first, applies fixes, verifies, and persists write intent")
+    func writeRunAppliesTarget() async throws {
+        let probe = RunRecordProbe()
+        let target = makeWriteTarget()
+        let writer = FixPlanWriteProbe(result: BatchUpdateResult(
+            entries: [makeWriteEntry()],
+            failedTrackIDs: [],
+            errorDescriptions: []
+        ))
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await probe.append($0) },
+            applyFixPlan: { try await writer.apply(target: $0) },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(
+            target: target,
+            requestedTestArtists: ["Björk"],
+            knownTrackCount: 12
+        ))
+
+        guard case .completed = result else {
+            Issue.record("Expected completed, got \(result)")
+            return
+        }
+        #expect(await writer.calls == [target])
+
+        let final = try #require(await probe.records.last)
+        #expect(final.intent == .writeFixes)
+        #expect(final.syncSummary?.modified == 1)
+        #expect(final.transitions.map(\.state) == [
+            .created,
+            .syncingLibrary,
+            .writing,
+            .verifying,
+            .reporting,
+            .completed,
+        ])
+    }
+
+    @Test("write run without a writer fails fast after sync")
+    func writeWithoutRunnerFails() async throws {
+        let probe = RunRecordProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await probe.append($0) },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(
+            target: makeWriteTarget(),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+
+        guard case .failed = result else {
+            Issue.record("Expected failed, got \(result)")
+            return
+        }
+
+        let final = try #require(await probe.records.last)
+        #expect(final.failureMessage == "Fix plan write runner is unavailable")
+        #expect(final.transitions.map(\.state) == [
+            .created,
+            .syncingLibrary,
+            .reporting,
+            .failed,
+        ])
+    }
+
     @Test("manual observation never calls the fix plan producer")
     func observationSkipsProducer() async throws {
         let probe = RunRecordProbe()
@@ -904,6 +975,41 @@ private actor FixPlanProducerProbe {
         }
         continuations = waiting
     }
+}
+
+private actor FixPlanWriteProbe {
+    private(set) var calls: [FixPlanApplyTarget] = []
+    private let result: BatchUpdateResult
+
+    init(result: BatchUpdateResult) {
+        self.result = result
+    }
+
+    func apply(target: FixPlanApplyTarget) throws -> BatchUpdateResult {
+        calls.append(target)
+        return result
+    }
+}
+
+private func makeWriteTarget() -> FixPlanApplyTarget {
+    FixPlanApplyTarget(
+        planID: FixPlanID(),
+        planRevision: .initial,
+        decisionRevision: .initial
+    )
+}
+
+private func makeWriteEntry() -> ChangeLogEntry {
+    var entry = ChangeLogEntry(
+        changeType: .genreUpdate,
+        trackID: "track-1",
+        artist: "Björk",
+        trackName: "Jóga",
+        albumName: "Homogenic"
+    )
+    entry.oldGenre = "Alternative"
+    entry.newGenre = "Art Pop"
+    return entry
 }
 
 private actor SyncGate {

@@ -9,29 +9,6 @@ import SwiftUI
 
 private let log = AppLogger.make(category: "dependencies")
 private let configurationSaveErrorPrefix = "Failed to save configuration:"
-
-private enum AppDependencyInitializationError: LocalizedError {
-    case missingModelContainer
-
-    var errorDescription: String? {
-        switch self {
-        case .missingModelContainer:
-            "SwiftData model container is unavailable"
-        }
-    }
-}
-
-private enum PreviewRunError: LocalizedError {
-    case appDependenciesReleased
-
-    var errorDescription: String? {
-        switch self {
-        case .appDependenciesReleased:
-            "App dependencies were released before the preview run"
-        }
-    }
-}
-
 enum APIAuthReferenceResolver {
     static func resolve(
         _ reference: String,
@@ -395,7 +372,7 @@ final class AppDependencies {
         yearDeterminator = yearDeterm
 
         guard let container = modelContainer else {
-            throw AppDependencyInitializationError.missingModelContainer
+            throw DependencySetupError.missingModelContainer
         }
 
         let pendingVerification = SwiftDataPendingVerificationService(modelContainer: container, configuration: config)
@@ -519,7 +496,8 @@ final class AppDependencies {
                 // than deleting against a guessed default limit.
                 historyLimit: { [weak self] in await self?.runHistoryLimit() }
             ),
-            produceFixPlan: makePreviewProducer()
+            produceFixPlan: makePreviewProducer(),
+            applyFixPlan: makeWriteRunner()
         ))
     }
 
@@ -565,6 +543,37 @@ final class AppDependencies {
             }
             let options = await self.previewRunOptions()
             return try await producer.producePlan(sourceRunID: runID, scope: scope, options: options)
+        }
+    }
+
+    private func makeWriteRunner() -> (@Sendable (FixPlanApplyTarget) async throws -> BatchUpdateResult)? {
+        guard let updateCoordinator,
+              let fixPlanStore
+        else {
+            log.warning("Fix plan writer unavailable: missing updateCoordinator or fixPlanStore")
+            assertionFailure("Fix plan writer unavailable: missing updateCoordinator or fixPlanStore")
+            return nil
+        }
+
+        return { [updateCoordinator, fixPlanStore] target in
+            guard let plan = try await fixPlanStore.plan(id: target.planID, revision: target.planRevision) else {
+                throw FixPlanWrite.Failure.missingPlan(target.planID)
+            }
+            guard let decision = try await fixPlanStore.currentDecision(for: target.planID) else {
+                throw FixPlanWrite.Failure.missingDecision(target.planID)
+            }
+            guard decision.planRevision == target.planRevision,
+                  decision.revision == target.decisionRevision
+            else {
+                throw FixPlanWrite.Failure.staleDecision
+            }
+
+            let changes = FixPlanWrite.proposedChanges(from: plan, decision: decision)
+            guard changes.contains(where: \.isAccepted) else {
+                throw FixPlanWrite.Failure.noAcceptedItems
+            }
+
+            return try await updateCoordinator.applyAcceptedChanges(changes) { _ in }
         }
     }
 

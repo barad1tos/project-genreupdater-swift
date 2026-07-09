@@ -121,6 +121,7 @@ public struct FixPlanView: View {
     public let noticeTone: Tone
     public let isReviewBusy: Bool
     public let onAccept: (() -> Void)?
+    public let onApply: (() -> Void)?
     public let onReject: (() -> Void)?
     public let onToggleItem: ((String) -> Void)?
 
@@ -130,6 +131,7 @@ public struct FixPlanView: View {
         noticeTone: Tone = .info,
         isReviewBusy: Bool = false,
         onAccept: (() -> Void)? = nil,
+        onApply: (() -> Void)? = nil,
         onReject: (() -> Void)? = nil,
         onToggleItem: ((String) -> Void)? = nil
     ) {
@@ -138,6 +140,7 @@ public struct FixPlanView: View {
         self.noticeTone = noticeTone
         self.isReviewBusy = isReviewBusy
         self.onAccept = onAccept
+        self.onApply = onApply
         self.onReject = onReject
         self.onToggleItem = onToggleItem
     }
@@ -195,8 +198,15 @@ public struct FixPlanView: View {
                     } label: {
                         Label("Accept all", systemImage: "checkmark.circle")
                     }
-                    .buttonStyle(.borderedProminent)
                     .disabled(!canAccept)
+
+                    Button {
+                        onApply?()
+                    } label: {
+                        Label("Apply \(snapshot.acceptedCount)", systemImage: "square.and.arrow.down")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canApplyChanges)
                 }
             }
         }
@@ -446,6 +456,10 @@ public struct FixPlanView: View {
 
     private var canReject: Bool {
         canReview && onReject != nil && snapshot.rejectedCount < snapshot.itemCount
+    }
+
+    private var canApplyChanges: Bool {
+        canReview && onApply != nil && snapshot.canApply
     }
 
     private var canToggle: Bool {

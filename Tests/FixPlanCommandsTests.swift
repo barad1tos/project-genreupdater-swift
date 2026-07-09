@@ -220,6 +220,61 @@ struct FixPlanCommandsTests {
         #expect(FixPlanCommands.noticeText(for: result) == "Review updated.")
     }
 
+    @Test("apply command submits the exact reviewed fix plan target")
+    func applyCommandSubmitsTarget() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyFixPlan(target: harness.target))
+
+        #expect(result.status == .accepted)
+        #expect(result.message == "Applied 2 changes.")
+        #expect(harness.writeCallCount() == 1)
+        #expect(harness.lastWriteTarget() == harness.target.applyTarget)
+        #expect(await harness.store.recordCallCount() == 0)
+    }
+
+    @Test("apply command is a no-op when no items are accepted")
+    func applyWithoutAcceptedIsNoOp() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .rejected)
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyFixPlan(target: harness.target))
+
+        #expect(result.status == .noOp)
+        #expect(result.message == "No accepted changes to apply.")
+        #expect(harness.writeCallCount() == 0)
+        #expect(await harness.store.recordCallCount() == 0)
+    }
+
+    @Test("apply command is blocked while recovery holds writes")
+    func applyBlockedByRecoveryHold() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        harness.recoveryHold = true
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyFixPlan(target: harness.target))
+
+        #expect(result.status == .blockedByRecovery)
+        #expect(result.issue?.id == "fix-plan-write-held")
+        #expect(harness.writeCallCount() == 0)
+    }
+
+    @Test("apply command surfaces write submission failure")
+    func applyFailureNeedsAttention() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        harness.failNextWrite(StoreWriteError())
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyFixPlan(target: harness.target))
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.message == "Write run failed.")
+        #expect(result.issue?.id == "fix-plan-write-failed")
+        #expect(result.issue?.technicalDetail == "Test store write failed")
+        #expect(harness.writeCallCount() == 1)
+    }
+
     @Test("stale command rejects without recording a newer decision")
     func staleCommandRejectsWithoutRecording() async {
         let harness = FixPlanCommandHarness(startingVerdict: .accepted)
@@ -259,6 +314,10 @@ private final class FixPlanCommandHarness {
     let store: MemoryFixPlanStore
     private var fixPlanProjection: FixPlanProjection
     private var activityProjection = ActivityProjection.empty(revision: ProjectionRevision(10))
+    private var writeResult: RunSubmissionResult?
+    private var writeError: (any Error)?
+    private var writeTargets: [FixPlanApplyTarget] = []
+    var recoveryHold = false
 
     init(startingVerdict: FixPlanItemVerdict) {
         plan = makeCommandPlan()
@@ -286,6 +345,12 @@ private final class FixPlanCommandHarness {
     func makeCommands(fixPlanStore: (any FixPlanStore)?) -> FixPlanCommands {
         FixPlanCommands(
             fixPlanStore: fixPlanStore,
+            submitFixPlanWrite: { [self] target in
+                try await submitWrite(target: target)
+            },
+            hasRecoveryHold: { [self] in
+                recoveryHold
+            },
             refreshFixPlanProjection: { [self] in
                 await refreshFixPlanProjection()
             },
@@ -294,6 +359,31 @@ private final class FixPlanCommandHarness {
             },
             now: { Date(timeIntervalSince1970: 1_800_000_200) }
         )
+    }
+
+    func setWriteResult(_ result: RunSubmissionResult) {
+        writeResult = result
+    }
+
+    func failNextWrite(_ error: any Error) {
+        writeError = error
+    }
+
+    func writeCallCount() -> Int {
+        writeTargets.count
+    }
+
+    func lastWriteTarget() -> FixPlanApplyTarget? {
+        writeTargets.last
+    }
+
+    private func submitWrite(target: FixPlanApplyTarget) async throws -> RunSubmissionResult {
+        writeTargets.append(target)
+        if let writeError {
+            self.writeError = nil
+            throw writeError
+        }
+        return writeResult ?? .completed(Self.writeLifecycle(changeCount: 2))
     }
 
     private func refreshFixPlanProjection() async -> FixPlanProjection {
@@ -326,6 +416,31 @@ private final class FixPlanCommandHarness {
                 currentConfiguration: plan.configuration
             )
         )
+    }
+
+    private static func writeLifecycle(changeCount: Int) -> RunLifecycleSnapshot {
+        RunLifecycleSnapshot(
+            runID: RunID(rawValue: commandUUID("00000000-0000-0000-0000-000000000301")),
+            requestID: RunRequestID(rawValue: commandUUID("00000000-0000-0000-0000-000000000302")),
+            trigger: .manualCheck,
+            intent: .writeFixes,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: ["Björk"],
+                knownTrackCount: 12,
+                createdAt: Date(timeIntervalSince1970: 1_800_000_250),
+                reason: "fixPlanWrite"
+            ),
+            startedAt: Date(timeIntervalSince1970: 1_800_000_250),
+            phase: .finished(.completed(writeSyncResult(changeCount: changeCount)), finishedAt: Date(
+                timeIntervalSince1970: 1_800_000_260
+            ))
+        )
+    }
+
+    private static func writeSyncResult(changeCount: Int) -> SyncResult {
+        SyncResult(modifiedTracks: (0 ..< changeCount).map { index in
+            Track(id: "written-\(index)", name: "Jóga", artist: "Björk", album: "Homogenic")
+        })
     }
 }
 

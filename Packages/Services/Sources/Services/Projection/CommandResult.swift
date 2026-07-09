@@ -2,6 +2,7 @@ import Foundation
 
 public enum UserIntentCommandKind: String, Equatable, Sendable {
     case acceptFixPlan
+    case applyFixPlan
     case rejectFixPlan
     case reviewChanges
     case resumeRecovery
@@ -26,6 +27,14 @@ public struct FixPlanCommandTarget: Equatable, Sendable {
         self.decisionRevision = decisionRevision
         self.projectionRevision = projectionRevision
     }
+
+    public var applyTarget: FixPlanApplyTarget {
+        FixPlanApplyTarget(
+            planID: planID,
+            planRevision: planRevision,
+            decisionRevision: decisionRevision
+        )
+    }
 }
 
 public struct UserIntentCommand: Equatable, Sendable {
@@ -48,6 +57,10 @@ public struct UserIntentCommand: Equatable, Sendable {
 
     public static func acceptFixPlan(target: FixPlanCommandTarget, id: UUID = UUID()) -> Self {
         Self(id: id, kind: .acceptFixPlan, fixPlanTarget: target)
+    }
+
+    public static func applyFixPlan(target: FixPlanCommandTarget, id: UUID = UUID()) -> Self {
+        Self(id: id, kind: .applyFixPlan, fixPlanTarget: target)
     }
 
     public static func rejectFixPlan(target: FixPlanCommandTarget, id: UUID = UUID()) -> Self {

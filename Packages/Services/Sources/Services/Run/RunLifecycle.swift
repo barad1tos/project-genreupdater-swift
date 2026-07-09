@@ -171,11 +171,27 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         return withPhase(.active(.planningFixes))
     }
 
+    public func beginningWriting() -> Self {
+        if phase != .active(.syncingLibrary) {
+            reportIllegalTransition("beginningWriting()", expected: ".active(.syncingLibrary)")
+        }
+        return withPhase(.active(.writing))
+    }
+
+    public func beginningVerifying() -> Self {
+        if phase != .active(.writing) {
+            reportIllegalTransition("beginningVerifying()", expected: ".active(.writing)")
+        }
+        return withPhase(.active(.verifying))
+    }
+
     public func beginningReporting() -> Self {
-        if phase != .active(.syncingLibrary), phase != .active(.planningFixes) {
+        if phase != .active(.syncingLibrary),
+           phase != .active(.planningFixes),
+           phase != .active(.verifying) {
             reportIllegalTransition(
                 "beginningReporting()",
-                expected: ".active(.syncingLibrary) or .active(.planningFixes)"
+                expected: ".active(.syncingLibrary), .active(.planningFixes), or .active(.verifying)"
             )
         }
         return withPhase(.active(.reporting))
@@ -186,8 +202,8 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     }
 
     /// Finishes the run using intent-specific actionable-work semantics.
-    /// Observation runs normally pass `result.hasChanges`; preview runs pass
-    /// whether a fix plan was produced.
+    /// Observation runs normally pass `result.hasChanges`; preview and write
+    /// runs pass whether a plan or write outcome did useful work.
     public func finishing(result: SyncResult, hasActionableWork: Bool, at finishedAt: Date) -> Self {
         if phase != .active(.reporting) {
             reportIllegalTransition("finishing(result:hasActionableWork:at:)", expected: ".active(.reporting)")
