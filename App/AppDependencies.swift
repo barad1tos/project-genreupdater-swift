@@ -9,29 +9,6 @@ import SwiftUI
 
 private let log = AppLogger.make(category: "dependencies")
 private let configurationSaveErrorPrefix = "Failed to save configuration:"
-
-private enum AppDependencyInitializationError: LocalizedError {
-    case missingModelContainer
-
-    var errorDescription: String? {
-        switch self {
-        case .missingModelContainer:
-            "SwiftData model container is unavailable"
-        }
-    }
-}
-
-private enum PreviewRunError: LocalizedError {
-    case appDependenciesReleased
-
-    var errorDescription: String? {
-        switch self {
-        case .appDependenciesReleased:
-            "App dependencies were released before the preview run"
-        }
-    }
-}
-
 enum APIAuthReferenceResolver {
     static func resolve(
         _ reference: String,
@@ -395,7 +372,7 @@ final class AppDependencies {
         yearDeterminator = yearDeterm
 
         guard let container = modelContainer else {
-            throw AppDependencyInitializationError.missingModelContainer
+            throw DependencySetupError.missingModelContainer
         }
 
         let pendingVerification = SwiftDataPendingVerificationService(modelContainer: container, configuration: config)
@@ -519,7 +496,8 @@ final class AppDependencies {
                 // than deleting against a guessed default limit.
                 historyLimit: { [weak self] in await self?.runHistoryLimit() }
             ),
-            produceFixPlan: makePreviewProducer()
+            produceFixPlan: makePreviewProducer(),
+            applyFixPlan: makeWriteRunner()
         ))
     }
 

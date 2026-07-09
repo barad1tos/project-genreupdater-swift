@@ -18,6 +18,7 @@ private let expectedOpenRunStates: Set<RunLifecycleState> = [
     .recoverable,
     .recovering
 ]
+private let expectedRecoveryHoldStates: Set<RunLifecycleState> = [.blocked, .recoverable, .recovering]
 
 @Suite("AppDependencies library services")
 @MainActor
@@ -231,8 +232,8 @@ struct LibraryServicesTests {
         #expect(queries.last?.states == expectedOpenRunStates)
     }
 
-    @Test("Recovery hold is active for open run records")
-    func recoveryHoldIsActive() async throws {
+    @Test("Recovery hold ignores normal active runs")
+    func normalActiveRunDoesNotHoldRecovery() async throws {
         let open = sampleRunRecord(
             runID: RunID(),
             state: .syncingLibrary,
@@ -244,8 +245,25 @@ struct LibraryServicesTests {
         let isHeld = await fixture.dependencies.hasRecoveryHold()
         let query = await stub.lastReportQuery()
 
+        #expect(!isHeld)
+        #expect(query?.states == expectedRecoveryHoldStates)
+    }
+
+    @Test("Recovery hold is active for open recovery records")
+    func recoveryRecordHoldsWrites() async throws {
+        let open = sampleRunRecord(
+            runID: RunID(),
+            state: .recoverable,
+            finishedAt: nil
+        )
+        let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [open], skippedCorruptedCount: 0))
+        let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
+
+        let isHeld = await fixture.dependencies.hasRecoveryHold()
+        let query = await stub.lastReportQuery()
+
         #expect(isHeld)
-        #expect(query?.states == expectedOpenRunStates)
+        #expect(query?.states == expectedRecoveryHoldStates)
     }
 
     @Test("Recovery hold fails closed when run records cannot be read")

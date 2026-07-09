@@ -58,6 +58,41 @@ struct TrackIDMapperTests {
         #expect(result2 == "AS-HEX-2")
     }
 
+    @Test("Seeded mapping preserves current AppleScript metadata")
+    func seededMappingPreservesCurrentMetadata() async throws {
+        let mapper = TrackIDMapper()
+        let musicKitTrack = makeTrack(
+            id: "MK1",
+            name: "Jóga",
+            artist: "Björk",
+            album: "Homogenic",
+            genre: "Alternative",
+            year: 1998
+        )
+        let appleScriptTrack = makeTrack(
+            id: "AS-HEX-1",
+            name: "Jóga",
+            artist: "Björk",
+            album: "Homogenic",
+            genre: "Art Pop",
+            year: 1997
+        )
+
+        await mapper.seedKnownMappings([(
+            musicKitTrack: musicKitTrack,
+            appleScriptTrack: appleScriptTrack
+        )])
+
+        let writeID = await mapper.appleScriptID(forMusicKitID: "MK1")
+        let enrichedTrack = try #require(await mapper.trackWithAppleScriptMetadata(for: musicKitTrack))
+
+        #expect(writeID == "AS-HEX-1")
+        #expect(enrichedTrack.id == "MK1")
+        #expect(enrichedTrack.genre == "Art Pop")
+        #expect(enrichedTrack.year == 1997)
+        #expect(enrichedTrack.appleScriptID == "AS-HEX-1")
+    }
+
     @Test("Unmatched track returns nil")
     func unmatchedTrackReturnsNil() async {
         let mapper = TrackIDMapper()

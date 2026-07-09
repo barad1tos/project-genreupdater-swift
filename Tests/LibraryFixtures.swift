@@ -86,7 +86,11 @@ actor RunRecordStoreStub: RunRecordStore {
         guard !reportPages.isEmpty else {
             return RunReportPage(records: [], skippedCorruptedCount: 0)
         }
-        return reportPages[min(receivedReportQueries.count - 1, reportPages.count - 1)]
+        let page = reportPages[min(receivedReportQueries.count - 1, reportPages.count - 1)]
+        return RunReportPage(
+            records: page.records.filter { record in matches(record, query: query) },
+            skippedCorruptedCount: page.skippedCorruptedCount
+        )
     }
 
     func lastReportQuery() -> RunReportQuery? {
@@ -95,6 +99,22 @@ actor RunRecordStoreStub: RunRecordStore {
 
     func reportQueries() -> [RunReportQuery] {
         receivedReportQueries
+    }
+
+    private func matches(_ record: RunRecord, query: RunReportQuery) -> Bool {
+        if let startedAfter = query.startedAfter, record.startedAt < startedAfter {
+            return false
+        }
+        if let startedBefore = query.startedBefore, record.startedAt > startedBefore {
+            return false
+        }
+        if let states = query.states, !states.isEmpty, !states.contains(record.state) {
+            return false
+        }
+        if let trigger = query.trigger, record.trigger != trigger {
+            return false
+        }
+        return true
     }
 }
 

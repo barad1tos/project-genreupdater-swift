@@ -6,7 +6,7 @@ import Testing
 // MARK: - UpdateCoordinatorError Tests
 
 @Suite("UpdateCoordinatorError — error descriptions and construction")
-struct UpdateCoordinatorErrorTests {
+struct CoordinatorErrorTests {
     @Test("trackNotEditable includes track ID in description")
     func trackNotEditable() {
         let error = UpdateCoordinatorError.trackNotEditable(trackID: "ABC123")
@@ -87,6 +87,15 @@ struct UpdateCoordinatorErrorTests {
         let error = UpdateCoordinatorError.missingAppleScriptID(trackID: "MK1")
         let description = error.errorDescription ?? ""
         #expect(description.contains("MK1"))
+    }
+
+    @Test("reviewedChangeStale describes the protected write")
+    func reviewedChangeStale() {
+        let error = UpdateCoordinatorError.reviewedChangeStale(trackID: "MK1", property: "genre")
+        let description = error.errorDescription ?? ""
+        #expect(description.contains("MK1"))
+        #expect(description.contains("genre"))
+        #expect(description.contains("reviewed value no longer matches Music.app"))
     }
 }
 
@@ -209,10 +218,10 @@ struct UpdateOptionsTests {
     }
 }
 
-// MARK: - UpdateCoordinator write failure Tests
+// MARK: - Write failure tests
 
 @Suite("UpdateCoordinator — write failure handling")
-struct UpdateCoordinatorWriteFailureTests {
+struct WriteFailureTests {
     private func makeCoordinator(
         scriptBridge: MockAppleScriptClient
     ) async -> UpdateCoordinator {

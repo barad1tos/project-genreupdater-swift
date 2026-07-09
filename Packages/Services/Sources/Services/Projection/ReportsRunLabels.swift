@@ -166,7 +166,8 @@ enum ReportsRunLabels {
 
     static func showsSyncSummary(for intent: RunIntent) -> Bool {
         switch intent {
-        case .observeLibrary:
+        case .observeLibrary,
+             .writeFixes:
             true
         case .previewFixes:
             false

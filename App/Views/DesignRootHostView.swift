@@ -148,6 +148,7 @@ struct DesignRootHostView: View {
                 noticeTone: fixPlanNoticeTone,
                 isReviewBusy: isReviewBusy,
                 onAccept: acceptFixPlan,
+                onApply: applyFixPlan,
                 onReject: rejectFixPlan,
                 onToggleItem: toggleFixPlanItem
             )
@@ -925,6 +926,12 @@ extension DesignRootHostView {
     private var fixPlanCommands: FixPlanCommands {
         FixPlanCommands(
             fixPlanStore: dependencies.fixPlanStore,
+            submitFixPlanWrite: { target in
+                try await dependencies.submitFixPlanWrite(target: target)
+            },
+            hasRecoveryHold: {
+                await dependencies.hasRecoveryHold()
+            },
             refreshFixPlanProjection: {
                 await refreshFixPlanOnly()
             },
@@ -958,6 +965,14 @@ extension DesignRootHostView {
             return
         }
         runFixPlanCommand(.acceptFixPlan(target: target))
+    }
+
+    private func applyFixPlan() {
+        guard let target = currentFixPlanTarget() else {
+            setFixPlanNotice("Review plan is no longer available.", tone: .warning)
+            return
+        }
+        runFixPlanCommand(.applyFixPlan(target: target))
     }
 
     private func rejectFixPlan() {

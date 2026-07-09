@@ -60,6 +60,24 @@ struct CommandResultTests {
         #expect(command.targetItemID == nil)
     }
 
+    @Test("fix plan apply command carries write target revisions")
+    func applyCarriesRevisions() {
+        let target = FixPlanCommandTarget(
+            planID: FixPlanID(),
+            planRevision: FixPlanRevision(3),
+            decisionRevision: ReviewDecisionRevision(5),
+            projectionRevision: ProjectionRevision(7)
+        )
+
+        let command = UserIntentCommand.applyFixPlan(target: target)
+
+        #expect(command.kind == .applyFixPlan)
+        #expect(command.fixPlanTarget == target)
+        #expect(command.fixPlanTarget?.applyTarget.planRevision == FixPlanRevision(3))
+        #expect(command.fixPlanTarget?.applyTarget.decisionRevision == ReviewDecisionRevision(5))
+        #expect(command.targetItemID == nil)
+    }
+
     @Test("fix plan item toggle command carries item target")
     func fixPlanToggleCarriesItemTarget() {
         let itemID = UUID()

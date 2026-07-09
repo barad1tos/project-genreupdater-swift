@@ -6,19 +6,19 @@ struct PendingTrigger: Equatable {
 
 enum TriggerArbiter {
     enum Decision: Equatable {
-        case alreadyCovered(PendingTrigger?)
-        case queue(PendingTrigger)
+        case alreadyCovered([PendingTrigger])
+        case queue([PendingTrigger])
     }
 
     static func decide(
         active: RunLifecycleSnapshot,
-        pending: PendingTrigger?,
+        pending: [PendingTrigger],
         incoming: RunRequest
     ) -> Decision {
         let incomingKey = RequestKey(request: incoming)
         let activeKey = RequestKey(lifecycle: active)
-        let pendingKey = pending.map { RequestKey(request: $0.request) }
-        let candidateKeys = [activeKey, pendingKey].compactMap(\.self)
+        let pendingKeys = pending.map { RequestKey(request: $0.request) }
+        let candidateKeys = [activeKey] + pendingKeys
         let strongestRank = candidateKeys.map(\.rank).max() ?? activeKey.rank
 
         if incomingKey.rank < strongestRank {
@@ -27,12 +27,12 @@ enum TriggerArbiter {
 
         if incomingKey.rank == strongestRank {
             let isCovered = candidateKeys.contains { key in
-                key.rank == strongestRank && key.scope.covers(incomingKey.scope)
+                key.rank == strongestRank && key.covers(incomingKey)
             }
-            return isCovered ? .alreadyCovered(pending) : .queue(PendingTrigger(request: incoming))
+            return isCovered ? .alreadyCovered(pending) : .queue(pending + [PendingTrigger(request: incoming)])
         }
 
-        return .queue(PendingTrigger(request: incoming))
+        return .queue([PendingTrigger(request: incoming)])
     }
 
     fileprivate static func rank(trigger: RunTrigger, intent: RunIntent) -> RequestRank {
@@ -43,15 +43,28 @@ enum TriggerArbiter {
 private struct RequestKey {
     let rank: RequestRank
     let scope: ScopeKey
+    let applyTarget: FixPlanApplyTarget?
 
     init(lifecycle: RunLifecycleSnapshot) {
         rank = TriggerArbiter.rank(trigger: lifecycle.trigger, intent: lifecycle.intent)
         scope = ScopeKey(snapshot: lifecycle.scope)
+        applyTarget = lifecycle.applyTarget
     }
 
     init(request: RunRequest) {
         rank = TriggerArbiter.rank(trigger: request.trigger, intent: request.intent)
         scope = ScopeKey(request: request)
+        applyTarget = request.applyTarget
+    }
+
+    func covers(_ other: Self) -> Bool {
+        guard scope.covers(other.scope) else { return false }
+        guard rank.intentPriority == IntentPriority.writeFixes,
+              other.rank.intentPriority == IntentPriority.writeFixes
+        else {
+            return true
+        }
+        return applyTarget == other.applyTarget
     }
 }
 
@@ -110,6 +123,7 @@ private enum TriggerPriority {
 private enum IntentPriority {
     static let observeLibrary = 0
     static let previewFixes = 1
+    static let writeFixes = 2
 }
 
 extension RunTrigger {
@@ -128,6 +142,7 @@ extension RunIntent {
         switch self {
         case .observeLibrary: IntentPriority.observeLibrary
         case .previewFixes: IntentPriority.previewFixes
+        case .writeFixes: IntentPriority.writeFixes
         }
     }
 }

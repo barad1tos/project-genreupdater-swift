@@ -18,6 +18,7 @@ struct ActivityCommands {
         guard let descriptor, descriptor.isEnabled else { return nil }
         switch descriptor.commandKind {
         case .acceptFixPlan,
+             .applyFixPlan,
              .rejectFixPlan,
              .togglePlanItem:
             // Fix-plan actions route through FixPlanCommands; Activity keeps these cases exhaustive.
@@ -34,6 +35,7 @@ struct ActivityCommands {
     func handle(_ command: UserIntentCommand) async -> UserCommandResult {
         switch command.kind {
         case .acceptFixPlan,
+             .applyFixPlan,
              .rejectFixPlan,
              .togglePlanItem:
             // Defensive only: Activity descriptors never construct fix-plan commands.

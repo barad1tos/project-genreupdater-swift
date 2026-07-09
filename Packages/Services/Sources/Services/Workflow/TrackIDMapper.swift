@@ -104,6 +104,16 @@ public actor TrackIDMapper: TrackIDMapping {
         }
     }
 
+    public func seedKnownMappings(_ entries: [(musicKitTrack: Track, appleScriptTrack: Track)]) {
+        for entry in entries {
+            let appleScriptID = entry.appleScriptTrack.appleScriptID ?? entry.appleScriptTrack.id
+            mapping[entry.musicKitTrack.id] = appleScriptID
+            appleScriptMetadataByMusicKitID[entry.musicKitTrack.id] = entry.appleScriptTrack
+        }
+
+        log.info("Seeded ID mapping for \(entries.count, privacy: .public) reviewed write tracks")
+    }
+
     public func appleScriptID(forMusicKitID musicKitID: String) -> String? {
         mapping[musicKitID]
     }
