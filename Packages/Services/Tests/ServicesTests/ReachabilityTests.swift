@@ -3,7 +3,7 @@ import Testing
 @testable import Services
 
 @Suite("NetworkReachabilityMonitor — lifecycle")
-struct NetworkReachabilityMonitorTests {
+struct ReachabilityTests {
     @Test("Initial state is connected")
     func initialStateIsConnected() async {
         let monitor = NetworkReachabilityMonitor()

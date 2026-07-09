@@ -495,7 +495,7 @@ struct PendingVerificationFlowTests {
         let apiProbe = APIRequestProbe()
         let pendingVerification = RecordingPendingVerificationService()
         let fixture = await makePendingCoordinator(
-            apiService: UpdateCoordinatorRecordingAPIService(
+            apiService: UpdateAPIDouble(
                 probe: apiProbe,
                 yearResult: YearResult(
                     year: 2013,

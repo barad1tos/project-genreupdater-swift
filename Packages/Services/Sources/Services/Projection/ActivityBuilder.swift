@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ActivityProjectionBuilder {
+public enum ActivityBuilder {
     public static func makeProjection(from input: ActivityProjectionInput) -> ActivityProjection {
         let counts = makeCounts(from: input)
         let syncSummary = input.effectiveSyncState.summary

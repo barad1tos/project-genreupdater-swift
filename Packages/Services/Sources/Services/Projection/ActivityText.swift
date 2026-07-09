@@ -1,6 +1,6 @@
 import Foundation
 
-extension ActivityProjectionBuilder {
+extension ActivityBuilder {
     static func makeTitle(input: ActivityProjectionInput) -> String {
         makeBlockingLibraryTitle(input: input)
             ?? makeRecoveryTitle(input: input)

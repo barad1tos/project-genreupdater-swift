@@ -8,7 +8,7 @@ struct AlbumIdentityFlowTests {
     @Test("Year API lookup uses album identity artist")
     func yearAPILookupUsesAlbumIdentityArtist() async throws {
         let apiProbe = APIRequestProbe()
-        let apiService = UpdateCoordinatorRecordingAPIService(
+        let apiService = UpdateAPIDouble(
             probe: apiProbe,
             yearResult: YearResult(
                 year: 2013,
@@ -41,7 +41,7 @@ struct AlbumIdentityFlowTests {
     @Test("Candidate scoring uses album identity artist activity period")
     func candidateScoringUsesAlbumIdentityArtistActivityPeriod() async throws {
         let apiProbe = APIRequestProbe()
-        let apiService = UpdateCoordinatorRecordingAPIService(
+        let apiService = UpdateAPIDouble(
             probe: apiProbe,
             releaseCandidates: [
                 ReleaseCandidate(
@@ -131,7 +131,7 @@ struct AlbumIdentityFlowTests {
     @Test("Year cache store uses album identity artist")
     func yearCacheStoreUsesAlbumIdentityArtist() async throws {
         let cache = MockCacheService()
-        let apiService = UpdateCoordinatorRecordingAPIService(
+        let apiService = UpdateAPIDouble(
             probe: APIRequestProbe(),
             yearResult: YearResult(
                 year: 2013,
@@ -192,7 +192,7 @@ struct AlbumIdentityFlowTests {
     func freshAlbumPendingMarkUsesAlbumIdentityArtist() async throws {
         let currentYear = Calendar.current.component(.year, from: Date())
         let pending = PendingVerificationProbe(entry: nil, isVerificationNeeded: false)
-        let apiService = UpdateCoordinatorRecordingAPIService(
+        let apiService = UpdateAPIDouble(
             probe: APIRequestProbe(),
             yearResult: YearResult(
                 year: currentYear - 1,
@@ -230,7 +230,7 @@ struct AlbumIdentityFlowTests {
     @Test("Recent fallback rejection lookup uses album identity artist")
     func recentFallbackRejectionLookupUsesAlbumIdentityArtist() async throws {
         let apiProbe = APIRequestProbe()
-        let apiService = UpdateCoordinatorRecordingAPIService(probe: apiProbe)
+        let apiService = UpdateAPIDouble(probe: apiProbe)
         let pendingEntry = PendingAlbumEntry(
             id: "daft-punk-random-access-memories",
             artist: "Daft Punk",
@@ -263,7 +263,7 @@ struct AlbumIdentityFlowTests {
     @Test("Recent fallback rejection lookup accepts legacy artist aliases")
     func recentFallbackRejectionLookupAcceptsLegacyArtistAliases() async throws {
         let apiProbe = APIRequestProbe()
-        let apiService = UpdateCoordinatorRecordingAPIService(probe: apiProbe)
+        let apiService = UpdateAPIDouble(probe: apiProbe)
         let pendingEntry = PendingAlbumEntry(
             id: "daft-punk-feat-pharrell-williams-random-access-memories",
             artist: "Daft Punk feat. Pharrell Williams",
@@ -297,7 +297,7 @@ struct AlbumIdentityFlowTests {
     @Test("Recent fallback rejection checks legacy aliases after non-fallback canonical entry")
     func recentFallbackRejectionChecksLegacyAliasesAfterNonFallbackCanonicalEntry() async throws {
         let apiProbe = APIRequestProbe()
-        let apiService = UpdateCoordinatorRecordingAPIService(probe: apiProbe)
+        let apiService = UpdateAPIDouble(probe: apiProbe)
         let canonicalEntry = PendingAlbumEntry(
             id: "daft-punk-random-access-memories",
             artist: "Daft Punk",

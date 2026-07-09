@@ -14,7 +14,7 @@ public struct ReportsProjectionInput: Equatable, Sendable {
     }
 }
 
-public enum ReportsProjectionBuilder {
+public enum ReportsBuilder {
     public static func makeProjection(from input: ReportsProjectionInput) -> ReportsProjection {
         ReportsProjection(
             revision: .initial,

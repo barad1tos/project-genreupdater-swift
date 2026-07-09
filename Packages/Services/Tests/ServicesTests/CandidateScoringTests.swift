@@ -735,13 +735,13 @@ struct CandidateScoringTests {
         let cache = MockCacheService()
         let apiProbe = APIRequestProbe()
         let api = makeAPIOrchestrator(
-            musicBrainz: UpdateCoordinatorRecordingAPIService(probe: apiProbe, yearResult: YearResult(
+            musicBrainz: UpdateAPIDouble(probe: apiProbe, yearResult: YearResult(
                 year: year,
                 isDefinitive: true,
                 confidence: 100
             )),
-            discogs: UpdateCoordinatorRecordingAPIService(probe: apiProbe),
-            appleMusic: UpdateCoordinatorRecordingAPIService(probe: apiProbe)
+            discogs: UpdateAPIDouble(probe: apiProbe),
+            appleMusic: UpdateAPIDouble(probe: apiProbe)
         )
         let coordinator = makeCoordinator(
             api: api,

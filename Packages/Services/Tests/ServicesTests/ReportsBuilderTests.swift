@@ -2,8 +2,8 @@ import Foundation
 import Services
 import Testing
 
-@Suite("ReportsProjectionBuilder")
-struct ReportsProjectionBuilderTests {
+@Suite("ReportsBuilder")
+struct ReportsBuilderTests {
     private let startDate = Date(timeIntervalSince1970: 1_800_000_000)
     private let now = Date(timeIntervalSince1970: 1_800_000_480)
 
@@ -280,7 +280,7 @@ struct ReportsProjectionBuilderTests {
             syncSummary: nil
         )
 
-        let projection = ReportsProjectionBuilder.makeProjection(
+        let projection = ReportsBuilder.makeProjection(
             from: ReportsProjectionInput(
                 records: [record],
                 skippedCorruptedCount: 0,
@@ -319,7 +319,7 @@ struct ReportsProjectionBuilderTests {
         skippedCorruptedCount: Int = 0,
         activeRunID: RunID? = nil
     ) -> ReportsProjection {
-        ReportsProjectionBuilder.makeProjection(
+        ReportsBuilder.makeProjection(
             from: ReportsProjectionInput(
                 records: records,
                 skippedCorruptedCount: skippedCorruptedCount,

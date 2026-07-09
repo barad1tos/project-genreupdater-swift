@@ -3,8 +3,8 @@ import Foundation
 import Services
 import Testing
 
-@Suite("ActivityProjectionBuilder")
-struct ActivityProjectionBuilderTests {
+@Suite("ActivityBuilder")
+struct ActivityBuilderTests {
     private let scanDate = Date(timeIntervalSince1970: 1_800_000_000)
     private let now = Date(timeIntervalSince1970: 1_800_000_480)
 
@@ -21,7 +21,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("ready library exposes run manually command")
     func readyLibraryExposesRunManuallyCommand() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")]
             )
@@ -39,7 +39,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("loading library without a run keeps the scanning title")
     func loadingLibraryWithoutRunKeepsScanningTitle() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [],
                 libraryState: .loading
@@ -51,7 +51,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("failed library state does not mark watch completed")
     func failedLibraryStateDoesNotMarkWatchCompleted() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [],
                 libraryState: .failed("Music.app is unavailable")
@@ -65,7 +65,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("proposed fixes expose review primary command")
     func proposedFixesExposeReviewPrimaryCommand() throws {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 workflow: ActivityWorkflowState(
@@ -89,7 +89,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("fix plan summary exposes review state without workflow counts")
     func usesFixPlanSummary() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 fixPlan: ActivityFixPlanSummary(
@@ -117,7 +117,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("recovery summary takes precedence over fix plan review")
     func recoverySummaryPriority() throws {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 fixPlan: ActivityFixPlanSummary(
@@ -153,7 +153,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("recovery hold queues library check during active background run")
     func recoveryQueuesCheck() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1"),
@@ -170,7 +170,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("library blockers take precedence over recovery summary")
     func blocksRecoverySummary() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 libraryState: .permissionDenied("Music access denied"),
@@ -193,7 +193,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("library blocker suppresses review command during recovery")
     func blocksReviewCommand() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 libraryState: .permissionDenied("Music access denied"),
@@ -214,7 +214,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("library blocker gates auto-fix status during recovery")
     func gatesAutoFix() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 libraryState: .permissionDenied("Music access denied"),
@@ -234,7 +234,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("recovery gates failed writes during library blocker")
     func gatesFailedWrites() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 libraryState: .permissionDenied("Music access denied"),
@@ -254,7 +254,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("summary cards expose semantic kinds instead of UI symbols")
     func summaryCardsExposeSemanticKindsInsteadOfUISymbols() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(tracks: [editableTrack(id: "1")])
         )
 
@@ -263,7 +263,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("recent last scan status says synced just now")
     func recentLastScanStatusSaysSyncedJustNow() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 lastScanDate: now.addingTimeInterval(-30),
@@ -276,7 +276,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("metrics snapshot date backs sync status when explicit scan date is missing")
     func metricsSnapshotDateBacksSyncStatusWhenExplicitScanDateIsMissing() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 lastScanDate: nil,
@@ -299,7 +299,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("projection derives intervention, failed writes, and scan activity from input")
     func projectionDerivesInterventionFailedWritesAndScanActivityFromInput() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1"), editableTrack(id: "2"), editableTrack(id: "3")],
                 workflow: ActivityWorkflowState(
@@ -328,7 +328,7 @@ struct ActivityProjectionBuilderTests {
 
     @Test("library sync unavailable disables run manually command")
     func librarySyncUnavailableDisablesRunManuallyCommand() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 isLibrarySyncAvailable: false

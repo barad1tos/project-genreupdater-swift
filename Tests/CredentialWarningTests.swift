@@ -6,7 +6,7 @@ import Testing
 
 @Suite("Dashboard credential warnings")
 @MainActor
-struct DashboardCredentialWarningTests {
+struct CredentialWarningTests {
     @Test("dashboard exposes credential warning message when Discogs credential issue exists")
     func dashboardExposesCredentialWarningMessage() {
         let view = DashboardView(

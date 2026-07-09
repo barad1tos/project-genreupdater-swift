@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("UpdateCoordinator — metadata cleaning")
-struct UpdateCoordinatorCleaningTests {
+struct MetadataCleaningTests {
     @Test("Cleaning options propose track and album changes")
     func cleaningOptionsProposeMetadataChanges() async throws {
         let coordinator = await makeCoordinator()
@@ -276,7 +276,7 @@ struct UpdateCoordinatorCleaningTests {
                 undoCoordinator: UndoCoordinator(
                     scriptBridge: scriptBridge,
                     directory: FileManager.default.temporaryDirectory
-                        .appendingPathComponent("UpdateCoordinatorCleaningTests-\(UUID().uuidString)")
+                        .appendingPathComponent("MetadataCleaningTests-\(UUID().uuidString)")
                 )
             ),
             genreDeterminator: GenreDeterminator(),

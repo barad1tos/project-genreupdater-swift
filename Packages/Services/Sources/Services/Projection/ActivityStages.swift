@@ -1,4 +1,4 @@
-extension ActivityProjectionBuilder {
+extension ActivityBuilder {
     static func makeCurrentStage(input: ActivityProjectionInput) -> ActivityPipelineStage {
         if let libraryStage = makeLibraryCurrentStage(input: input) {
             return libraryStage

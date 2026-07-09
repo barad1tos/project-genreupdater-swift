@@ -16,7 +16,7 @@ actor APIRequestProbe {
     }
 }
 
-struct UpdateCoordinatorRecordingAPIService: ExternalAPIService {
+struct UpdateAPIDouble: ExternalAPIService {
     let probe: APIRequestProbe
     let yearResult: YearResult
     let releaseCandidates: [ReleaseCandidate]

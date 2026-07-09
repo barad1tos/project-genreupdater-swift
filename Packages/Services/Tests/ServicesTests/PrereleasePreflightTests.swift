@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("UpdateCoordinator - prerelease preflight")
-struct UpdateCoordinatorPrereleaseTests {
+struct PrereleasePreflightTests {
     @Test("Marks prerelease tracks pending before AppleScript ID lookup")
     func marksPrereleaseTracksPendingBeforeAppleScriptIDLookup() async throws {
         let track = makePrereleaseTrack()
@@ -150,9 +150,9 @@ struct UpdateCoordinatorPrereleaseTests {
 
     private func makeAPI(probe: APIRequestProbe) -> APIOrchestrator {
         makeAPIOrchestrator(
-            musicBrainz: UpdateCoordinatorRecordingAPIService(probe: probe),
-            discogs: UpdateCoordinatorRecordingAPIService(probe: probe),
-            appleMusic: UpdateCoordinatorRecordingAPIService(probe: probe)
+            musicBrainz: UpdateAPIDouble(probe: probe),
+            discogs: UpdateAPIDouble(probe: probe),
+            appleMusic: UpdateAPIDouble(probe: probe)
         )
     }
 
@@ -165,7 +165,7 @@ struct UpdateCoordinatorPrereleaseTests {
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
     ) -> UpdateCoordinator {
         let undoDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("UpdateCoordinatorPrereleaseTests-\(UUID().uuidString)")
+            .appendingPathComponent("PrereleasePreflightTests-\(UUID().uuidString)")
         return UpdateCoordinator(
             dependencies: UpdateCoordinatorDependencies(
                 apiOrchestrator: api,
