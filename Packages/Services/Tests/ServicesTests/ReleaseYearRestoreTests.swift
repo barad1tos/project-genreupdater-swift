@@ -15,7 +15,7 @@ private func makeReleaseYearRestoreFixture(
     let store = MockTrackStore()
     let cache = MockCacheService()
     let undoDirectory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("UpdateCoordinatorReleaseYearRestoreTests-\(UUID().uuidString)")
+        .appendingPathComponent("ReleaseYearRestoreTests-\(UUID().uuidString)")
     let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
     let apiService = MockAPIService()
     let orchestrator = makeAPIOrchestrator(
@@ -59,7 +59,7 @@ private func makeReleaseYearTrack(
 }
 
 @Suite("UpdateCoordinator - release year restore")
-struct UpdateCoordinatorReleaseYearRestoreTests {
+struct ReleaseYearRestoreTests {
     @Test("Restores tracks whose year differs from release year beyond threshold")
     func restoresTracksBeyondThreshold() async {
         let fixture = await makeReleaseYearRestoreFixture()

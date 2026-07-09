@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("UpdateCoordinator — artist start year parity")
-struct UpdateCoordinatorArtistStartTests {
+struct ArtistStartTests {
     @Test("Artist start fallback preserves existing year when proposed API year predates artist")
     func artistStartFallbackPreservesExistingYearWhenProposedYearPredatesArtist() async throws {
         let apiResult = YearResult(
@@ -102,7 +102,7 @@ struct UpdateCoordinatorArtistStartTests {
         let store = MockTrackStore()
         let cache = MockCacheService()
         let undoDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("UpdateCoordinatorArtistStartTests-\(UUID().uuidString)")
+            .appendingPathComponent("ArtistStartTests-\(UUID().uuidString)")
         return UpdateCoordinator(
             dependencies: UpdateCoordinatorDependencies(
                 apiOrchestrator: apiOrchestrator,

@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("UpdateCoordinator album identity")
-struct UpdateCoordinatorAlbumIdentityTests {
+struct AlbumIdentityFlowTests {
     @Test("Year API lookup uses album identity artist")
     func yearAPILookupUsesAlbumIdentityArtist() async throws {
         let apiProbe = APIRequestProbe()
@@ -651,7 +651,7 @@ struct UpdateCoordinatorAlbumIdentityTests {
             disabledSources: disabledSources
         )
         let undoDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("UpdateCoordinatorAlbumIdentityTests-\(UUID().uuidString)")
+            .appendingPathComponent("AlbumIdentityFlowTests-\(UUID().uuidString)")
         return UpdateCoordinator(
             dependencies: UpdateCoordinatorDependencies(
                 apiOrchestrator: api,

@@ -1,4 +1,4 @@
-// APIOrchestrator+PendingVerification.swift -- Pending verification sync rules.
+// PendingVerificationAPI.swift -- Pending verification sync rules.
 
 import Core
 

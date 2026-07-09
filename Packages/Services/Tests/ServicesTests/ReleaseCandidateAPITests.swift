@@ -3,7 +3,7 @@ import Testing
 @testable import Services
 
 @Suite("APIOrchestrator - release candidate collection")
-struct APIOrchestratorReleaseCandidateTests {
+struct ReleaseCandidateAPITests {
     @Test("Common legacy initializer labels remain available")
     func commonLegacyInitializerLabelsRemainAvailable() async {
         let orchestrator = APIOrchestrator(

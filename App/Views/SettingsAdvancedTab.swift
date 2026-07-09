@@ -36,7 +36,7 @@ struct AdvancedTab: View {
             yearPenaltySection
             CountryScoringSection(dependencies: dependencies)
             ScoringWeightsSection(dependencies: dependencies)
-            SettingsAdvancedVerificationSection(dependencies: dependencies)
+            VerificationSettingsSection(dependencies: dependencies)
             advancedJSONSection
             resetSection
         }

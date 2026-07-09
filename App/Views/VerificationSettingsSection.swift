@@ -1,10 +1,10 @@
-// SettingsAdvancedVerificationSection.swift — database and pending verification controls.
+// VerificationSettingsSection.swift — database and pending verification controls.
 
 import Core
 import Services
 import SwiftUI
 
-struct SettingsAdvancedVerificationSection: View {
+struct VerificationSettingsSection: View {
     let dependencies: AppDependencies
 
     @State private var isVerifyingDatabase = false

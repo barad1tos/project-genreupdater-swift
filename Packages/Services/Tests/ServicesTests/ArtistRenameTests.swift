@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("UpdateCoordinator — artist rename mappings")
-struct UpdateCoordinatorArtistRenameTests {
+struct ArtistRenameTests {
     @Test("Artist rename mappings propose artist changes")
     func artistRenameMappingsProposeArtistChanges() async throws {
         let fixture = await makeCoordinator(
@@ -140,7 +140,7 @@ struct UpdateCoordinatorArtistRenameTests {
                 undoCoordinator: UndoCoordinator(
                     scriptBridge: bridge,
                     directory: FileManager.default.temporaryDirectory
-                        .appendingPathComponent("UpdateCoordinatorArtistRenameTests-\(UUID().uuidString)")
+                        .appendingPathComponent("ArtistRenameTests-\(UUID().uuidString)")
                 )
             ),
             genreDeterminator: GenreDeterminator(),

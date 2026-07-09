@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("UpdateCoordinator - API release candidate scoring")
-struct UpdateCoordinatorCandidateScoringTests {
+struct CandidateScoringTests {
     @Test("uses API release candidates when legacy YearResult is empty")
     func usesAPIReleaseCandidatesWhenLegacyResultIsEmpty() async throws {
         let track = Track(
@@ -772,7 +772,7 @@ struct UpdateCoordinatorCandidateScoringTests {
         pendingVerificationService: (any PendingVerificationService)? = nil
     ) -> UpdateCoordinator {
         let undoDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("UpdateCoordinatorCandidateScoringTests-\(UUID().uuidString)")
+            .appendingPathComponent("CandidateScoringTests-\(UUID().uuidString)")
         return UpdateCoordinator(
             dependencies: UpdateCoordinatorDependencies(
                 apiOrchestrator: api,

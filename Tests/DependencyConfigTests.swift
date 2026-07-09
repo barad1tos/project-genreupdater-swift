@@ -7,7 +7,7 @@ import Testing
 
 @Suite("AppDependencies configuration persistence")
 @MainActor
-struct AppDependenciesConfigurationTests {
+struct DependencyConfigTests {
     @Test("Configuration load failure surfaces app error instead of silently using defaults")
     func configurationLoadFailureSurfacesAppError() async {
         let dependencies = AppDependencies(
@@ -488,6 +488,6 @@ private func isAppLoading(_ state: AppState) -> Bool {
 
 private func temporaryConfigurationTestDirectory() -> URL {
     FileManager.default.temporaryDirectory
-        .appendingPathComponent("GenreUpdaterAppDependenciesConfigurationTests", isDirectory: true)
+        .appendingPathComponent("GenreUpdaterDependencyConfigTests", isDirectory: true)
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
 }

@@ -1,4 +1,4 @@
-// UpdateCoordinator+YearDetermination.swift — Year update decision flow
+// YearDetermination.swift — Year update decision flow
 
 import Core
 import Foundation

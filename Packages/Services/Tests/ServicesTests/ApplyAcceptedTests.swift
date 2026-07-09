@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("UpdateCoordinator — accepted review application")
-struct UpdateCoordinatorApplyAcceptedTests {
+struct ApplyAcceptedTests {
     @Test("Applying reviewed changes writes only accepted proposals")
     func applyingReviewedChangesWritesOnlyAcceptedProposals() async throws {
         let fixture = await makeCoordinator()
@@ -707,7 +707,7 @@ struct UpdateCoordinatorApplyAcceptedTests {
             appleMusic: apiService
         )
         let undoDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("UpdateCoordinatorApplyAcceptedTests-\(UUID().uuidString)")
+            .appendingPathComponent("ApplyAcceptedTests-\(UUID().uuidString)")
         let cache = MockCacheService()
         let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
         let coordinator = UpdateCoordinator(

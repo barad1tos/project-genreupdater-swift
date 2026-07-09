@@ -7,7 +7,7 @@ import Testing
 /// from Python config values. These are not parity gaps — they are
 /// different-by-design decisions documented in the config crosswalk.
 @Suite("Config parity — different-by-design intervals")
-struct ConfigParityDifferentByDesignTests {
+struct ConfigParityTests {
     @Test("Album year cache TTL defaults to 30 days (Swift-specific GRDB eviction)")
     func albumYearCacheTTLDefaultsToThirtyDays() {
         // Python uses cache_ttl_days: 36500 (effectively no eviction) for album years.

@@ -3,7 +3,7 @@ import Testing
 @testable import Services
 
 @Suite("APIOrchestrator — disabled sources")
-struct APIOrchestratorDisabledSourceTests {
+struct DisabledSourceAPITests {
     @Test("Disabled sources are skipped before API calls")
     func disabledSourcesAreSkippedBeforeAPICalls() async {
         let recorder = APISourceCallRecorder()

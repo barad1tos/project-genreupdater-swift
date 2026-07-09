@@ -1,4 +1,4 @@
-// SettingsAPIAndCacheTab+DiscogsHost.swift -- Discogs endpoint controls.
+// DiscogsHostSettings.swift -- Discogs endpoint controls.
 
 import Core
 import SharedUI

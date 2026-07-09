@@ -1,4 +1,4 @@
-// AppleMusicSearchClientIntegrationTests.swift — App-hosted MusicKit catalog tests
+// AppleMusicSearchTests.swift — App-hosted MusicKit catalog tests
 //
 // These tests exercise Apple Music catalog search through MusicKit in the
 // GenreUpdater app test host. They are READ-ONLY and skip unless MusicKit access
@@ -10,7 +10,7 @@ import XCTest
 
 // MARK: - AppleMusic Search Client Integration Tests
 
-final class AppleMusicSearchClientIntegrationTests: XCTestCase {
+final class AppleMusicSearchTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
 

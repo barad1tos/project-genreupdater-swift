@@ -1,4 +1,4 @@
-// APIOrchestrator+ReleaseCandidates.swift — Raw release candidate collection
+// ReleaseCandidatesAPI.swift — Raw release candidate collection
 
 import Core
 import Foundation

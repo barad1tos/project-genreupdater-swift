@@ -130,7 +130,7 @@ private struct PendingCanonicalAPIService: ExternalAPIService {
 }
 
 @Suite("UpdateCoordinator - pending verification")
-struct PendingVerificationCoordinatorTests {
+struct PendingVerificationFlowTests {
     @Test("Applies resolved API year to album tracks")
     func appliesResolvedYearToAlbumTracks() async throws {
         let fixture = await makePendingCoordinator(year: 1997, confidence: 55)

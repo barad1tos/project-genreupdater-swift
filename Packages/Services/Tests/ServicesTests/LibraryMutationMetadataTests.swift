@@ -3,7 +3,7 @@ import Testing
 @testable import Services
 
 @Suite("LibrarySyncService — read provider mutation metadata")
-struct ReadProviderMetadataTests {
+struct LibraryMutationMetadataTests {
     @Test("Read provider mutation metadata uses scoped artist fetch when candidates share one artist")
     func readProviderMutationMetadataUsesScopedArtistFetch() async throws {
         let context = await makeSyncContext()

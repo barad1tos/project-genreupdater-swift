@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("APIOrchestrator - pending verification sync")
-struct APIOrchestratorPendingVerificationTests {
+struct PendingVerificationAPITests {
     @Test("Marks album pending when APIs return no usable year")
     func noUsableYearMarksPendingVerification() async {
         let pendingVerification = RecordingPendingVerificationService()

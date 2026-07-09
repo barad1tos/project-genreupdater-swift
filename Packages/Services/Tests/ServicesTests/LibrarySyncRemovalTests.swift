@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("LibrarySyncService — read-provider removals")
-struct LibrarySyncReadProviderRemovalTests {
+struct LibrarySyncRemovalTests {
     @Test("Keeps confirmed unmapped removals when mapped verification is empty")
     func keepsConfirmedUnmappedRemovalsWhenMappedVerificationIsEmpty() async throws {
         let bridge = QueuedFetchAllTrackIDsScriptClient(

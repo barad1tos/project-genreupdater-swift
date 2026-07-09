@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("UpdateCoordinator — local-first year repair")
-struct UpdateCoordinatorYearLocalFirstTests {
+struct YearLocalFirstTests {
     /// Coordinator whose API orchestrator yields no usable year, reproducing an
     /// album absent from external catalogs (the runtime case that surfaced this).
     private func makeCoordinator() async -> UpdateCoordinator {

@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("APIOrchestrator — negative API cache")
-struct APIOrchestratorNegativeCacheTests {
+struct NegativeCacheAPITests {
     @Test("Negative cache hit skips matching source request")
     func negativeCacheHitSkipsMatchingSourceRequest() async {
         let cache = MockCacheService()

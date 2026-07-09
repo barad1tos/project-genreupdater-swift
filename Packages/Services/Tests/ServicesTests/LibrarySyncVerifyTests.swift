@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("LibrarySyncService — database verification")
-struct LibrarySyncDatabaseVerificationTests {
+struct LibrarySyncVerifyTests {
     @Test("Runtime configuration maps legacy temporary logs directory to app support token")
     func runtimeConfigurationMapsLegacyTemporaryLogsDirectory() {
         var configuration = AppConfiguration()

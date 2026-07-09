@@ -9,8 +9,8 @@ private struct LegacyPendingVerificationTestStore: Codable {
     var lastAutoVerification: Date?
 }
 
-@Suite("SwiftDataPendingVerificationService - persistent pending albums")
-struct SwiftDataPendingVerificationServiceTests {
+@Suite("PendingVerificationStore - persistent pending albums")
+struct PendingVerificationStoreTests {
     private let day: TimeInterval = 86400
 
     private func makeTempDirectory() throws -> URL {
@@ -27,8 +27,8 @@ struct SwiftDataPendingVerificationServiceTests {
         autoVerifyDays: Int = 14,
         prereleaseRecheckDays: Int? = nil,
         legacyStorageURL: URL? = nil
-    ) -> SwiftDataPendingVerificationService {
-        SwiftDataPendingVerificationService(
+    ) -> PendingVerificationStore {
+        PendingVerificationStore(
             modelContainer: container,
             legacyStorageURL: legacyStorageURL,
             verificationIntervalDays: verificationIntervalDays,
@@ -122,7 +122,7 @@ struct SwiftDataPendingVerificationServiceTests {
         configuration.processing.pendingVerificationIntervalDays = 30
         configuration.processing.prereleaseRecheckDays = 7
 
-        let service = SwiftDataPendingVerificationService(
+        let service = PendingVerificationStore(
             modelContainer: container,
             configuration: configuration,
             baseDirectory: directory,
@@ -134,7 +134,7 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(entry.recheckInterval == 7 * day)
         #expect(entry.metadata["recheck_days"] == "7")
 
-        let beforeRecheck = SwiftDataPendingVerificationService(
+        let beforeRecheck = PendingVerificationStore(
             modelContainer: container,
             configuration: configuration,
             baseDirectory: directory,
@@ -142,7 +142,7 @@ struct SwiftDataPendingVerificationServiceTests {
         )
         #expect(await !(beforeRecheck.isVerificationNeeded(artist: "Slowdive", album: "Everything Is Alive")))
 
-        let afterRecheck = SwiftDataPendingVerificationService(
+        let afterRecheck = PendingVerificationStore(
             modelContainer: container,
             configuration: configuration,
             baseDirectory: directory,
@@ -158,7 +158,7 @@ struct SwiftDataPendingVerificationServiceTests {
         let container = try ModelContainerFactory.createInMemory()
         let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-        let service = SwiftDataPendingVerificationService(
+        let service = PendingVerificationStore(
             modelContainer: container,
             legacyStorageURL: nil,
             verificationIntervalDays: 30,
@@ -185,7 +185,7 @@ struct SwiftDataPendingVerificationServiceTests {
         configuration.processing.pendingVerificationIntervalDays = 30
         configuration.processing.prereleaseRecheckDays = 7
 
-        let initial = SwiftDataPendingVerificationService(
+        let initial = PendingVerificationStore(
             modelContainer: container,
             configuration: configuration,
             baseDirectory: directory,
@@ -194,7 +194,7 @@ struct SwiftDataPendingVerificationServiceTests {
         await initial.markForVerification(artist: "Portishead", album: "Dummy", reason: "no_year_found")
         await initial.markForVerification(artist: "Slowdive", album: "Everything Is Alive", reason: "prerelease")
 
-        let afterPrereleaseInterval = SwiftDataPendingVerificationService(
+        let afterPrereleaseInterval = PendingVerificationStore(
             modelContainer: container,
             configuration: configuration,
             baseDirectory: directory,
@@ -230,7 +230,7 @@ struct SwiftDataPendingVerificationServiceTests {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(envelope).write(to: legacyURL, options: .atomic)
 
-        let beforeRecheck = SwiftDataPendingVerificationService(
+        let beforeRecheck = PendingVerificationStore(
             modelContainer: container,
             legacyStorageURL: legacyURL,
             verificationIntervalDays: 30,
@@ -240,7 +240,7 @@ struct SwiftDataPendingVerificationServiceTests {
         try await beforeRecheck.initialize()
         #expect(await !(beforeRecheck.isVerificationNeeded(artist: "Slowdive", album: "Everything Is Alive")))
 
-        let afterRecheck = SwiftDataPendingVerificationService(
+        let afterRecheck = PendingVerificationStore(
             modelContainer: container,
             legacyStorageURL: legacyURL,
             verificationIntervalDays: 30,
@@ -263,7 +263,7 @@ struct SwiftDataPendingVerificationServiceTests {
         """
         try csv.write(to: legacyURL, atomically: true, encoding: .utf8)
 
-        let beforeRecheck = SwiftDataPendingVerificationService(
+        let beforeRecheck = PendingVerificationStore(
             modelContainer: container,
             legacyStorageURL: legacyURL,
             verificationIntervalDays: 30,
@@ -278,7 +278,7 @@ struct SwiftDataPendingVerificationServiceTests {
         #expect(await !(beforeRecheck.isVerificationNeeded(artist: "Slowdive", album: "Everything Is Alive")))
         #expect(await !(beforeRecheck.isVerificationNeeded(artist: "Missing", album: "Album")))
 
-        let afterRecheck = SwiftDataPendingVerificationService(
+        let afterRecheck = PendingVerificationStore(
             modelContainer: container,
             legacyStorageURL: legacyURL,
             verificationIntervalDays: 30,
@@ -556,7 +556,7 @@ struct SwiftDataPendingVerificationServiceTests {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(envelope).write(to: legacyURL, options: .atomic)
 
-        let service = SwiftDataPendingVerificationService(
+        let service = PendingVerificationStore(
             modelContainer: container,
             legacyStorageURL: legacyURL,
             verificationIntervalDays: 30,

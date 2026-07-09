@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("UpdateCoordinator — test artist scope")
-struct UpdateCoordinatorTestArtistScopeTests {
+struct TestArtistScopeTests {
     @Test("Test artist allow-list skips out-of-scope write mode updates")
     func artistAllowListSkipsOutOfScopeWriteModeUpdates() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)
@@ -41,7 +41,7 @@ struct UpdateCoordinatorTestArtistScopeTests {
         let store = MockTrackStore()
         let cache = MockCacheService()
         let undoDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("UpdateCoordinatorTestArtistScopeTests-\(UUID().uuidString)")
+            .appendingPathComponent("TestArtistScopeTests-\(UUID().uuidString)")
         let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
         let yearScores: [Int: Int] = if let year {
             [year: confidence]

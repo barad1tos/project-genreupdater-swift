@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("CachedLibrarySnapshotService")
-struct CachedLibrarySnapshotServiceTests {
+struct LibrarySnapshotCacheTests {
     @Test("Save and load snapshot through cache service")
     func saveAndLoadSnapshot() async throws {
         let cache = try GRDBCacheService.createInMemory()

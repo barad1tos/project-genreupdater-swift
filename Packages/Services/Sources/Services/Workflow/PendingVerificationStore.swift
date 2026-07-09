@@ -1,4 +1,4 @@
-// SwiftDataPendingVerificationService.swift -- SwiftData-backed pending year verification queue.
+// PendingVerificationStore.swift -- SwiftData-backed pending year verification queue.
 
 import Core
 import CryptoKit
@@ -48,7 +48,7 @@ private enum PendingCSVMetadataValue: Decodable {
 ///
 /// The legacy JSON path is only read as a migration source. New runtime state
 /// is persisted through the shared SwiftData container.
-public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerificationService {
+public actor PendingVerificationStore: ModelActor, Core.PendingVerificationService {
     nonisolated public let modelExecutor: any ModelExecutor
     nonisolated public let modelContainer: ModelContainer
 
@@ -245,7 +245,7 @@ public actor SwiftDataPendingVerificationService: ModelActor, Core.PendingVerifi
     }
 }
 
-extension SwiftDataPendingVerificationService {
+extension PendingVerificationStore {
     private func ensureInitialized() {
         guard !hasInitialized else { return }
         do {

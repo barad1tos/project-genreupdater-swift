@@ -5,7 +5,7 @@ import Testing
 
 @Suite("Selected update scope configuration")
 @MainActor
-struct SelectedUpdateScopeConfigurationTests {
+struct UpdateScopeConfigTests {
     @Test("genres action updates only genres")
     func genresActionUpdatesOnlyGenres() {
         let configuration = makeConfiguration(action: .genres)
