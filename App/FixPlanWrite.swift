@@ -33,7 +33,7 @@ enum FixPlanWrite {
         from plan: FixPlan,
         decision: FixPlanReviewDecision
     ) throws -> [ProposedChange] {
-        let verdicts = try verdictsByItemID(from: decision, matching: plan)
+        let verdicts = try itemVerdicts(from: decision, matching: plan)
         return plan.items.map { item in
             ProposedChange(
                 id: item.id,
@@ -48,7 +48,7 @@ enum FixPlanWrite {
         }
     }
 
-    private static func verdictsByItemID(
+    private static func itemVerdicts(
         from decision: FixPlanReviewDecision,
         matching plan: FixPlan
     ) throws -> [UUID: FixPlanItemVerdict] {
