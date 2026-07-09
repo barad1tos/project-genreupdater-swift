@@ -1,4 +1,3 @@
-// AppleMusicSearchTests.swift — App-hosted MusicKit catalog tests
 //
 // These tests exercise Apple Music catalog search through MusicKit in the
 // GenreUpdater app test host. They are READ-ONLY and skip unless MusicKit access
@@ -22,7 +21,7 @@ final class AppleMusicSearchTests: XCTestCase {
     }
 
     func testAlbumYearSearchDoesNotCrashInAppHost() async throws {
-        let client = AppleMusicSearchClient()
+        let client = CatalogSearchClient()
 
         let result = try await client.getAlbumYear(
             artist: "Daft Punk",

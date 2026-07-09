@@ -5,7 +5,7 @@ import Services
 import SharedUI
 import SwiftUI
 
-extension APIAndCacheTab {
+extension APICacheTab {
     var librarySyncSection: some View {
         Section("Library Sync") {
             HStack(spacing: Spacing.sm) {

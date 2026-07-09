@@ -4,7 +4,7 @@ import Core
 import SharedUI
 import SwiftUI
 
-extension APIAndCacheTab {
+extension APICacheTab {
     var discogsHostEditor: some View {
         VStack(alignment: .leading, spacing: 8) {
             TextField("API Host", text: $discogsHostInput)

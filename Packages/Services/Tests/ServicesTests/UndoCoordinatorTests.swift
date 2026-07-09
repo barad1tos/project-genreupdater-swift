@@ -688,13 +688,13 @@ struct UndoCoordinatorPersistenceTests {
         let directory = makeTempDirectory()
         let bridge = MockAppleScriptClient()
         let container = try ModelContainerFactory.createInMemory()
-        let store1 = SwiftDataChangeLogStore(modelContainer: container)
+        let store1 = ChangeLogDataStore(modelContainer: container)
 
         let coordinator1 = UndoCoordinator(scriptBridge: bridge, changeLogStore: store1, directory: directory)
         await coordinator1.recordChange(makeGenreEntry(trackID: "T1"))
         await coordinator1.recordChange(makeYearEntry(trackID: "T2"))
 
-        let store2 = SwiftDataChangeLogStore(modelContainer: container)
+        let store2 = ChangeLogDataStore(modelContainer: container)
         let coordinator2 = UndoCoordinator(scriptBridge: bridge, changeLogStore: store2, directory: directory)
         let history = await coordinator2.getHistory()
         #expect(history.count == 2)
@@ -723,7 +723,7 @@ struct UndoCoordinatorPersistenceTests {
         let historyURL = directory.appendingPathComponent("undo-history.json")
         let bridge = MockAppleScriptClient()
         let container = try ModelContainerFactory.createInMemory()
-        let store = SwiftDataChangeLogStore(modelContainer: container)
+        let store = ChangeLogDataStore(modelContainer: container)
         let legacyEntries = [
             makeGenreEntry(trackID: "T1"),
             makeYearEntry(trackID: "T2"),

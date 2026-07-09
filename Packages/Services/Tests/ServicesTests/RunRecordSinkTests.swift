@@ -68,9 +68,9 @@ struct RunRecordSinkTests {
         #expect(await store.upsertedCount() == 1)
     }
 
-    private func makeStore() throws -> SwiftDataRunRecordStore {
+    private func makeStore() throws -> RunRecordDataStore {
         let container = try ModelContainerFactory.createInMemory()
-        return SwiftDataRunRecordStore(modelContainer: container)
+        return RunRecordDataStore(modelContainer: container)
     }
 
     private func makeRecord(startedAt: TimeInterval, finishedAt: TimeInterval?) -> RunRecord {

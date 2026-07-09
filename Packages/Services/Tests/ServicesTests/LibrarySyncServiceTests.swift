@@ -1034,7 +1034,7 @@ struct LibrarySyncServiceTests {
     @Test("Persisted release metadata does not repeat force-scan deltas")
     func persistedReleaseMetadataDoesNotRepeatForceScanDeltas() async throws {
         let bridge = SyncMockScriptClient()
-        let store = try SwiftDataTrackStore.createInMemory()
+        let store = try TrackDataStore.createInMemory()
         let gate = await FeatureGate(fixedTier: .free)
         let track = Track(
             id: "T1",

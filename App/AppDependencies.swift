@@ -1,5 +1,3 @@
-// AppDependencies.swift — Composition root and app state management.
-
 import Core
 import Foundation
 import OSLog
@@ -103,8 +101,8 @@ final class AppDependencies {
     private(set) var apiOrchestrator: APIOrchestrator?
     private(set) var pendingVerificationService: (any PendingVerificationService)?
     private(set) var cacheService: GRDBCacheService?
-    private(set) var trackStore: SwiftDataTrackStore?
-    private(set) var changeLogStore: SwiftDataChangeLogStore?
+    private(set) var trackStore: TrackDataStore?
+    private(set) var changeLogStore: ChangeLogDataStore?
     private(set) var modelContainer: ModelContainer?
     private(set) var genreDeterminator: GenreDeterminator?
     private(set) var yearDeterminator: YearDeterminator?
@@ -192,7 +190,7 @@ final class AppDependencies {
                 testArtists: config.development.testArtists
             )
             musicReader = reader
-            libraryReadProvider = MusicKitLibraryReadProvider(reader: reader)
+            libraryReadProvider = MusicKitReadProvider(reader: reader)
 
             // Step 4: Start subscription service + feature gate
             let subscription = SubscriptionService()
@@ -304,15 +302,15 @@ final class AppDependencies {
             modelContainer = container
         }
 
-        let store = SwiftDataTrackStore(modelContainer: container)
+        let store = TrackDataStore(modelContainer: container)
         try await store.initialize()
         trackStore = store
 
-        let logStore = SwiftDataChangeLogStore(modelContainer: container)
+        let logStore = ChangeLogDataStore(modelContainer: container)
         changeLogStore = logStore
 
-        runRecordStore = SwiftDataRunRecordStore(modelContainer: container)
-        fixPlanStore = SwiftDataFixPlanStore(modelContainer: container)
+        runRecordStore = RunRecordDataStore(modelContainer: container)
+        fixPlanStore = FixPlanDataStore(modelContainer: container)
 
         let cache = try GRDBCacheService.createDefault(
             defaultGenericTTL: Self.defaultGenericCacheTTL(configuration: config),
@@ -755,7 +753,7 @@ extension AppDependencies {
 #if DEBUG
 extension AppDependencies {
     func configureLibraryPersistenceForTesting(
-        trackStore: SwiftDataTrackStore? = nil,
+        trackStore: TrackDataStore? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runRecordStore: (any RunRecordStore)? = nil,
         fixPlanStore: (any FixPlanStore)? = nil
