@@ -190,7 +190,7 @@ struct ReportsBuilderTests {
             (.blocked, .blocked, "Blocked"),
             (.cancelled, .cancelled, "Cancelled"),
             (.recoverable, .recoveryNeeded, "Recovery needed"),
-            (.recovering, .running, "In progress"),
+            (.recovering, .running, "In progress")
         ]
 
         for (lifecycleState, runState, stateLabel) in cases {
@@ -211,7 +211,7 @@ struct ReportsBuilderTests {
     func keepsOpenReviewBlockedLabels() {
         let records = [
             makeRunRecord(startedAt: startDate, finishedAt: nil, state: .awaitingReview, syncSummary: nil),
-            makeRunRecord(startedAt: startDate, finishedAt: nil, state: .blocked, syncSummary: nil),
+            makeRunRecord(startedAt: startDate, finishedAt: nil, state: .blocked, syncSummary: nil)
         ]
 
         let items = makeProjection(records: records).runs
@@ -267,7 +267,7 @@ struct ReportsBuilderTests {
             [
                 TimeInterval(0), TimeInterval(59), TimeInterval(60), TimeInterval(300),
                 TimeInterval(3599), TimeInterval(3600), TimeInterval(3 * 3600),
-                TimeInterval(86399), TimeInterval(86400), TimeInterval(2 * 86400),
+                TimeInterval(86399), TimeInterval(86400), TimeInterval(2 * 86400)
             ],
             ["just now", "just now", "1m ago", "5m ago", "59m ago", "1h ago", "3h ago", "23h ago", "1d ago", "2d ago"]
         )
@@ -330,7 +330,6 @@ struct ReportsBuilderTests {
     }
 
     private func makeRunRecord(
-        runID: RunID = RunID(),
         trigger: RunTrigger = .manualCheck,
         startedAt: Date,
         finishedAt: Date?,
@@ -341,7 +340,7 @@ struct ReportsBuilderTests {
     ) -> RunRecord {
         var transitions = [
             RunLifecycleTransition(state: .created, timestamp: startedAt),
-            RunLifecycleTransition(state: .syncingLibrary, timestamp: startedAt.addingTimeInterval(1)),
+            RunLifecycleTransition(state: .syncingLibrary, timestamp: startedAt.addingTimeInterval(1))
         ]
         if state != .syncingLibrary {
             transitions.append(RunLifecycleTransition(
@@ -351,7 +350,7 @@ struct ReportsBuilderTests {
         }
 
         return RunRecord(
-            runID: runID,
+            runID: RunID(),
             requestID: RunRequestID(),
             trigger: trigger,
             intent: intent,

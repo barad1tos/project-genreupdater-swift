@@ -157,7 +157,10 @@ struct ActivityBuilderTests {
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1"),
-                runLifecycle: lifecycle(phase: .active(.syncingLibrary), trigger: .backgroundSync)
+                environment: InputEnvironment(runLifecycle: lifecycle(
+                    phase: .active(.syncingLibrary),
+                    trigger: .backgroundSync
+                ))
             )
         )
 
@@ -225,7 +228,7 @@ struct ActivityBuilderTests {
                     canApply: true
                 ),
                 recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1"),
-                processingMode: .autoFix
+                environment: InputEnvironment(processingMode: .autoFix)
             )
         )
 
@@ -266,8 +269,10 @@ struct ActivityBuilderTests {
         let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                lastScanDate: now.addingTimeInterval(-30),
-                now: now
+                environment: InputEnvironment(
+                    lastScanDate: now.addingTimeInterval(-30),
+                    now: now
+                )
             )
         )
 
@@ -279,17 +284,19 @@ struct ActivityBuilderTests {
         let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                lastScanDate: nil,
-                metrics: ActivityProjectionMetrics(
-                    totalTracks: 1,
-                    tracksWithGenre: 1,
-                    tracksWithYear: 1,
-                    tracksWithBoth: 1,
-                    protectedFileCount: 0,
-                    recentlyAdded: 0,
-                    snapshotDate: scanDate
-                ),
-                usesDefaultScanDate: false
+                environment: InputEnvironment(
+                    lastScanDate: nil,
+                    metrics: ActivityProjectionMetrics(
+                        totalTracks: 1,
+                        tracksWithGenre: 1,
+                        tracksWithYear: 1,
+                        tracksWithBoth: 1,
+                        protectedFileCount: 0,
+                        recentlyAdded: 0,
+                        snapshotDate: scanDate
+                    ),
+                    usesDefaultScanDate: false
+                )
             )
         )
 
@@ -331,7 +338,7 @@ struct ActivityBuilderTests {
         let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                isLibrarySyncAvailable: false
+                environment: InputEnvironment(isLibrarySyncAvailable: false)
             )
         )
 
@@ -342,33 +349,37 @@ struct ActivityBuilderTests {
     private func makeInput(
         tracks: [Track] = [],
         libraryState: ActivityLibraryState? = nil,
-        lastScanDate: Date? = nil,
-        metrics: ActivityProjectionMetrics? = nil,
         workflow: ActivityWorkflowState = .empty,
         fixPlan: ActivityFixPlanSummary? = nil,
         recovery: ActivityRecoverySummary? = nil,
         pendingVerification: ActivityPendingVerificationSummary? = nil,
-        runLifecycle: RunLifecycleSnapshot? = nil,
-        processingMode: ActivityProcessingMode = .preview,
-        isLibrarySyncAvailable: Bool = true,
-        usesDefaultScanDate: Bool = true,
-        now: Date? = nil
+        environment: InputEnvironment = InputEnvironment()
     ) -> ActivityProjectionInput {
         ActivityProjectionInput(
             tracks: tracks,
-            metrics: metrics,
-            lastScanDate: lastScanDate ?? (usesDefaultScanDate ? scanDate : nil),
+            metrics: environment.metrics,
+            lastScanDate: environment.lastScanDate ?? (environment.usesDefaultScanDate ? scanDate : nil),
             libraryState: libraryState ?? (tracks.isEmpty ? .empty : .ready),
-            processingMode: processingMode,
+            processingMode: environment.processingMode,
             workflow: workflow,
             fixPlan: fixPlan,
             recovery: recovery,
             pendingVerification: pendingVerification,
-            runLifecycle: runLifecycle,
-            isLibrarySyncAvailable: isLibrarySyncAvailable,
+            runLifecycle: environment.runLifecycle,
+            isLibrarySyncAvailable: environment.isLibrarySyncAvailable,
             isAutoSyncRunning: false,
-            now: now ?? self.now
+            now: environment.now ?? self.now
         )
+    }
+
+    private struct InputEnvironment {
+        var lastScanDate: Date?
+        var metrics: ActivityProjectionMetrics?
+        var runLifecycle: RunLifecycleSnapshot?
+        var processingMode: ActivityProcessingMode = .preview
+        var isLibrarySyncAvailable = true
+        var usesDefaultScanDate = true
+        var now: Date?
     }
 
     private func editableTrack(id: String) -> Track {
