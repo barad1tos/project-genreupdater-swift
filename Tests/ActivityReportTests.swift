@@ -171,6 +171,8 @@ struct ActivityReportTests {
             stateLabel: "Completed",
             triggerLabel: "Manual check",
             startedLabel: "2m ago",
+            modeLabel: "Preview",
+            scopeLabel: "Test artists (2) · 44 tracks",
             durationLabel: "45s",
             changeCountLabel: "12 changes",
             failureSummary: nil
@@ -186,6 +188,8 @@ struct ActivityReportTests {
         #expect(snapshot.runHistory.count == 1)
         #expect(snapshot.runHistory.first?.id == "run-1")
         #expect(snapshot.runHistory.first?.stateLabel == "Completed")
+        #expect(snapshot.runHistory.first?.modeLabel == "Preview")
+        #expect(snapshot.runHistory.first?.scopeLabel == "Test artists (2) · 44 tracks")
         #expect(snapshot.runHistorySkippedCount == 2)
     }
 

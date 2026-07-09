@@ -17,6 +17,8 @@ public struct ReportsRunItem: Identifiable, Equatable, Sendable {
     public let stateLabel: String
     public let triggerLabel: String
     public let startedLabel: String
+    public let modeLabel: String
+    public let scopeLabel: String
     public let durationLabel: String?
     public let changeCountLabel: String?
     public let failureSummary: String?
@@ -27,6 +29,8 @@ public struct ReportsRunItem: Identifiable, Equatable, Sendable {
         stateLabel: String,
         triggerLabel: String,
         startedLabel: String,
+        modeLabel: String,
+        scopeLabel: String,
         durationLabel: String?,
         changeCountLabel: String?,
         failureSummary: String?
@@ -36,6 +40,8 @@ public struct ReportsRunItem: Identifiable, Equatable, Sendable {
         self.stateLabel = stateLabel
         self.triggerLabel = triggerLabel
         self.startedLabel = startedLabel
+        self.modeLabel = modeLabel
+        self.scopeLabel = scopeLabel
         self.durationLabel = durationLabel
         self.changeCountLabel = changeCountLabel
         self.failureSummary = failureSummary

@@ -87,6 +87,8 @@ struct ActivityInputBuilderTests {
                         stateLabel: "Blocked",
                         triggerLabel: "Manual check",
                         startedLabel: "4m ago",
+                        modeLabel: "Library check",
+                        scopeLabel: "Full library",
                         durationLabel: nil,
                         changeCountLabel: nil,
                         failureSummary: "Run blocked"
@@ -97,6 +99,8 @@ struct ActivityInputBuilderTests {
                         stateLabel: "Recovery needed",
                         triggerLabel: "Manual check",
                         startedLabel: "8m ago",
+                        modeLabel: "Library check",
+                        scopeLabel: "Full library",
                         durationLabel: nil,
                         changeCountLabel: nil,
                         failureSummary: "Previous run needs recovery"
@@ -107,6 +111,8 @@ struct ActivityInputBuilderTests {
                         stateLabel: "Failed",
                         triggerLabel: "Manual check",
                         startedLabel: "12m ago",
+                        modeLabel: "Library check",
+                        scopeLabel: "Full library",
                         durationLabel: nil,
                         changeCountLabel: nil,
                         failureSummary: "Run failed"

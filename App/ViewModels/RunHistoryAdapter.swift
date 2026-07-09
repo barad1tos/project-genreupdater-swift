@@ -12,6 +12,8 @@ enum RunHistoryAdapter {
                 tone: makeTone(from: run.state),
                 triggerLabel: run.triggerLabel,
                 startedLabel: run.startedLabel,
+                modeLabel: run.modeLabel,
+                scopeLabel: run.scopeLabel,
                 durationLabel: run.durationLabel,
                 changeCountLabel: run.changeCountLabel,
                 failureSummary: run.failureSummary

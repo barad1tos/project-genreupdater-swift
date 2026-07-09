@@ -25,11 +25,11 @@ public enum RunReportDetailBuilder {
 
     private static func makeScopeLines(from scope: ProcessingScopeSnapshot) -> [String] {
         var lines: [String] = []
+        lines.append("Scope: \(ReportsRunLabels.scopeSourceLabel(for: scope))")
         switch scope.source {
         case .fullLibrary:
-            lines.append("Scope: Full library")
+            break
         case .testArtists:
-            lines.append("Scope: Test artists (\(scope.normalizedTestArtists.count))")
             lines.append(makeArtistLine(from: scope.normalizedTestArtists))
         }
         if let knownTrackCount = scope.knownTrackCount {

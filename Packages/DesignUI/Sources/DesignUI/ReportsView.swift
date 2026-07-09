@@ -147,6 +147,9 @@ struct ReportsView: View {
 
     private func runRow(_ run: RunReportRow) -> some View {
         let isSelected = model.data.selectedRunReport?.runID == run.id
+        let metadataLabel = [run.modeLabel, run.scopeLabel]
+            .compactMap(\.self)
+            .joined(separator: " · ")
         return Button {
             runSelectionAction?(run.id)
         } label: {
@@ -160,6 +163,12 @@ struct ReportsView: View {
                     Text(run.triggerLabel)
                         .font(.system(size: 13))
                         .foregroundStyle(Ayu.fg)
+                    if !metadataLabel.isEmpty {
+                        Text(metadataLabel)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Ayu.fgMuted)
+                            .lineLimit(1)
+                    }
                     if let failureSummary = run.failureSummary {
                         Text(failureSummary)
                             .font(.system(size: 11.5))
