@@ -3,7 +3,7 @@ import Services
 import Testing
 
 @Suite("RunLifecycle wire format")
-struct RunLifecycleTests {
+struct LifecycleTests {
     @Test("state raw values are stable")
     func stateRawValuesAreStable() {
         #expect(RunLifecycleState.created.rawValue == "created")

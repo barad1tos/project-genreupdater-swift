@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("RunOrchestrator preview runs")
-struct RunPreviewTests {
+struct PreviewTests {
     @Test("queued preview starts with pending request scope")
     func previewUsesPending() async throws {
         let gate = PreviewGate()

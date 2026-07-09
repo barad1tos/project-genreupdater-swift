@@ -3,7 +3,7 @@ import Testing
 @testable import Services
 
 @Suite("TriggerArbiter")
-struct TriggerArbiterTests {
+struct ArbiterTests {
     @Test("manual trigger queues after active background sync")
     func manualQueuesAfterBackground() {
         let active = Self.lifecycle(trigger: .backgroundSync, intent: .observeLibrary)

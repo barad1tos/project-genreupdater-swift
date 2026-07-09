@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("RunOrchestrator write runs")
-struct RunWriteTests {
+struct WriteTests {
     @Test("write run syncs first, applies fixes, verifies, and persists write intent")
     func writeRunAppliesTarget() async throws {
         let probe = WriteRecordProbe()

@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("RunOrchestrator")
-struct RunOrchestratorTests {
+struct OrchestratorTests {
     @Test("manual observation captures immutable test artist scope")
     func manualObservationCapturesScope() async {
         let clock = ClockProbe()
