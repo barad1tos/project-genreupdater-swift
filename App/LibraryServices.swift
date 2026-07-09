@@ -7,6 +7,7 @@ import Services
 private let libraryServicesLog = AppLogger.make(category: "dependencies")
 
 private let openRunReportStates = Set(RunLifecycleState.allCases.filter(isOpenReportState))
+private let recoveryHoldStates: Set<RunLifecycleState> = [.blocked, .recoverable, .recovering]
 
 private func isOpenReportState(_ state: RunLifecycleState) -> Bool {
     switch state {
@@ -219,7 +220,7 @@ extension AppDependencies {
         guard let runRecordStore else { return false }
 
         do {
-            let page = try await runRecordStore.reports(matching: RunReportQuery(states: openRunReportStates))
+            let page = try await runRecordStore.reports(matching: RunReportQuery(states: recoveryHoldStates))
             guard page.skippedCorruptedCount == 0 else { return true }
             return page.records.contains { $0.finishedAt == nil }
         } catch {

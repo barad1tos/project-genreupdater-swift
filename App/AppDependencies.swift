@@ -546,37 +546,6 @@ final class AppDependencies {
         }
     }
 
-    private func makeWriteRunner() -> (@Sendable (FixPlanApplyTarget) async throws -> BatchUpdateResult)? {
-        guard let updateCoordinator,
-              let fixPlanStore
-        else {
-            log.warning("Fix plan writer unavailable: missing updateCoordinator or fixPlanStore")
-            assertionFailure("Fix plan writer unavailable: missing updateCoordinator or fixPlanStore")
-            return nil
-        }
-
-        return { [updateCoordinator, fixPlanStore] target in
-            guard let plan = try await fixPlanStore.plan(id: target.planID, revision: target.planRevision) else {
-                throw FixPlanWrite.Failure.missingPlan(target.planID)
-            }
-            guard let decision = try await fixPlanStore.currentDecision(for: target.planID) else {
-                throw FixPlanWrite.Failure.missingDecision(target.planID)
-            }
-            guard decision.planRevision == target.planRevision,
-                  decision.revision == target.decisionRevision
-            else {
-                throw FixPlanWrite.Failure.staleDecision
-            }
-
-            let changes = FixPlanWrite.proposedChanges(from: plan, decision: decision)
-            guard changes.contains(where: \.isAccepted) else {
-                throw FixPlanWrite.Failure.noAcceptedItems
-            }
-
-            return try await updateCoordinator.applyAcceptedChanges(changes) { _ in }
-        }
-    }
-
     func refreshFixPlanProjection() async -> FixPlanProjection {
         let inputGeneration = await projectionStore.nextFixPlanInputGeneration()
         let projection: FixPlanProjection

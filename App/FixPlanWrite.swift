@@ -8,6 +8,7 @@ enum FixPlanWrite {
         case missingDecision(FixPlanID)
         case staleDecision
         case noAcceptedItems
+        case missingWriteTracks(Int)
 
         var errorDescription: String? {
             switch self {
@@ -19,6 +20,8 @@ enum FixPlanWrite {
                 "Review decision changed before write run started"
             case .noAcceptedItems:
                 "Fix plan has no accepted items to write"
+            case let .missingWriteTracks(count):
+                "Could not refresh \(count) reviewed write tracks from Music.app"
             }
         }
     }
@@ -42,6 +45,39 @@ enum FixPlanWrite {
         }
     }
 
+    static func prepareWriteIDs(
+        for changes: [ProposedChange],
+        mapper: TrackIDMapper,
+        bridge: AppleScriptBridge
+    ) async throws {
+        var targetsByReadID: [String: (track: Track, appleScriptID: String)] = [:]
+        for change in changes {
+            guard let appleScriptID = change.track.appleScriptID else { continue }
+            targetsByReadID[change.track.id] = (change.track, appleScriptID)
+        }
+        guard !targetsByReadID.isEmpty else { return }
+
+        let appleScriptIDs = Array(Set(targetsByReadID.values.map(\.appleScriptID)))
+        let currentTracks = try await bridge.fetchTracksByIDs(
+            appleScriptIDs,
+            batchSize: max(appleScriptIDs.count, 1)
+        )
+        var currentTracksByID: [String: Track] = [:]
+        for track in currentTracks {
+            currentTracksByID[track.appleScriptID ?? track.id] = track
+        }
+        let entries = targetsByReadID.values.compactMap { target in
+            currentTracksByID[target.appleScriptID].map { currentTrack in
+                (musicKitTrack: target.track, appleScriptTrack: currentTrack)
+            }
+        }
+        guard entries.count == targetsByReadID.count else {
+            throw Failure.missingWriteTracks(targetsByReadID.count - entries.count)
+        }
+
+        await mapper.seedKnownMappings(entries)
+    }
+
     private static func track(from item: FixPlanItem) -> Track {
         Track(
             id: item.identity.readID,
@@ -56,5 +92,47 @@ enum FixPlanWrite {
 
     private static func year(from value: String?) -> Int? {
         value.flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+}
+
+extension AppDependencies {
+    func makeWriteRunner() -> (@Sendable (FixPlanApplyTarget) async throws -> BatchUpdateResult)? {
+        guard let updateCoordinator,
+              let fixPlanStore,
+              let mapper = trackIDMapper,
+              let bridge = applescriptBridge
+        else {
+            AppLogger.make(category: "dependencies")
+                .warning("Fix plan writer unavailable: missing write prerequisites")
+            assertionFailure("Fix plan writer unavailable: missing write prerequisites")
+            return nil
+        }
+
+        return { [updateCoordinator, fixPlanStore, mapper, bridge] target in
+            guard let plan = try await fixPlanStore.plan(id: target.planID, revision: target.planRevision) else {
+                throw FixPlanWrite.Failure.missingPlan(target.planID)
+            }
+            guard let decision = try await fixPlanStore.currentDecision(for: target.planID) else {
+                throw FixPlanWrite.Failure.missingDecision(target.planID)
+            }
+            guard decision.planRevision == target.planRevision,
+                  decision.revision == target.decisionRevision
+            else {
+                throw FixPlanWrite.Failure.staleDecision
+            }
+
+            let changes = FixPlanWrite.proposedChanges(from: plan, decision: decision)
+            let acceptedChanges = changes.filter(\.isAccepted)
+            guard !acceptedChanges.isEmpty else {
+                throw FixPlanWrite.Failure.noAcceptedItems
+            }
+
+            try await FixPlanWrite.prepareWriteIDs(
+                for: acceptedChanges,
+                mapper: mapper,
+                bridge: bridge
+            )
+            return try await updateCoordinator.applyAcceptedChanges(changes) { _ in }
+        }
     }
 }

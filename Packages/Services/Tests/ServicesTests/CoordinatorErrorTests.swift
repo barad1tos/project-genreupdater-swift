@@ -6,7 +6,7 @@ import Testing
 // MARK: - UpdateCoordinatorError Tests
 
 @Suite("UpdateCoordinatorError — error descriptions and construction")
-struct UpdateCoordinatorErrorTests {
+struct CoordinatorErrorTests {
     @Test("trackNotEditable includes track ID in description")
     func trackNotEditable() {
         let error = UpdateCoordinatorError.trackNotEditable(trackID: "ABC123")
