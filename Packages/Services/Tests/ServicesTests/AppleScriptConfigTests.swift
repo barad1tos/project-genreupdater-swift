@@ -28,7 +28,7 @@ struct AppleScriptConfigTests {
     func retryClassifierRejectsPermanentAppleScriptFailures() {
         let missing = AppleScriptBridgeError.scriptNotFound(
             name: "missing",
-            searchPath: URL(fileURLWithPath: "/tmp")
+            searchPath: FileManager.default.temporaryDirectory
         )
         let parseError = AppleScriptBridgeError.parseError(scriptName: "fetch_tracks", detail: "bad output")
         let notInstalled = AppleScriptBridgeError.scriptsNotInstalled

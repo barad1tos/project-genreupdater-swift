@@ -39,13 +39,17 @@ struct FixPlanWriteTests {
 
 private actor WriteIDScriptSpy: AppleScriptClient {
     private var tracksByID: [String: Track] = [:]
+    private(set) var initializeCount = 0
     private(set) var fetchCalls: [(trackIDs: [String], batchSize: Int)] = []
+    private(set) var batchUpdates: [[(trackID: String, property: String, value: String)]] = []
 
     func setTracks(_ tracks: [Track]) {
         tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        initializeCount += 1
+    }
 
     func runScript(
         name _: String,
@@ -80,7 +84,9 @@ private actor WriteIDScriptSpy: AppleScriptClient {
         .noChange
     }
 
-    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {}
+    func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
+        batchUpdates.append(updates)
+    }
 }
 
 private func musicKitTrack(index: Int) -> Track {
