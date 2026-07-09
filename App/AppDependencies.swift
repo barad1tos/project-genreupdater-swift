@@ -1,5 +1,3 @@
-// AppDependencies.swift — Composition root and app state management.
-
 import Core
 import Foundation
 import OSLog
@@ -103,8 +101,8 @@ final class AppDependencies {
     private(set) var apiOrchestrator: APIOrchestrator?
     private(set) var pendingVerificationService: (any PendingVerificationService)?
     private(set) var cacheService: GRDBCacheService?
-    private(set) var trackStore: SwiftDataTrackStore?
-    private(set) var changeLogStore: SwiftDataChangeLogStore?
+    private(set) var trackStore: TrackDataStore?
+    private(set) var changeLogStore: ChangeLogDataStore?
     private(set) var modelContainer: ModelContainer?
     private(set) var genreDeterminator: GenreDeterminator?
     private(set) var yearDeterminator: YearDeterminator?
@@ -192,7 +190,7 @@ final class AppDependencies {
                 testArtists: config.development.testArtists
             )
             musicReader = reader
-            libraryReadProvider = MusicKitLibraryReadProvider(reader: reader)
+            libraryReadProvider = MusicKitReadProvider(reader: reader)
 
             // Step 4: Start subscription service + feature gate
             let subscription = SubscriptionService()
@@ -304,15 +302,15 @@ final class AppDependencies {
             modelContainer = container
         }
 
-        let store = SwiftDataTrackStore(modelContainer: container)
+        let store = TrackDataStore(modelContainer: container)
         try await store.initialize()
         trackStore = store
 
-        let logStore = SwiftDataChangeLogStore(modelContainer: container)
+        let logStore = ChangeLogDataStore(modelContainer: container)
         changeLogStore = logStore
 
-        runRecordStore = SwiftDataRunRecordStore(modelContainer: container)
-        fixPlanStore = SwiftDataFixPlanStore(modelContainer: container)
+        runRecordStore = RunRecordDataStore(modelContainer: container)
+        fixPlanStore = FixPlanDataStore(modelContainer: container)
 
         let cache = try GRDBCacheService.createDefault(
             defaultGenericTTL: Self.defaultGenericCacheTTL(configuration: config),
@@ -375,7 +373,7 @@ final class AppDependencies {
             throw DependencySetupError.missingModelContainer
         }
 
-        let pendingVerification = SwiftDataPendingVerificationService(modelContainer: container, configuration: config)
+        let pendingVerification = PendingVerificationStore(modelContainer: container, configuration: config)
         try await pendingVerification.initialize()
         pendingVerificationService = pendingVerification
 
@@ -635,38 +633,38 @@ extension AppDependencies {
     func applyRuntimeConfiguration() {
         let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
         incrementalRunTracker = Self.makeIncrementalRunTracker(configuration: config)
-        let configuredPendingVerificationService = modelContainer.map {
-            SwiftDataPendingVerificationService(modelContainer: $0, configuration: config)
+        let pendingVerificationStore = modelContainer.map {
+            PendingVerificationStore(modelContainer: $0, configuration: config)
         }
         let configuredAPIOrchestrator = Self.makeAPIOrchestrator(
             configuration: config,
             cache: cacheService,
-            pendingVerificationService: configuredPendingVerificationService,
+            pendingVerificationService: pendingVerificationStore,
             reachability: networkReachabilityMonitor,
             factoryOverrides: APIClientFactoryOverrides(discogsCredentialIssueHandler: { [weak self] issue in
                 self?.discogsCredentialIssue = issue
             })
         )
         yearDeterminator = configuredYearDeterminator
-        pendingVerificationService = configuredPendingVerificationService
+        pendingVerificationService = pendingVerificationStore
         apiOrchestrator = configuredAPIOrchestrator
         if let librarySyncService {
             maintenanceCoordinator = MaintenanceCoordinator(
                 databaseVerificationService: librarySyncService,
-                pendingVerificationService: configuredPendingVerificationService
+                pendingVerificationService: pendingVerificationStore
             )
         }
-        let configuredLibrarySnapshotService: (any LibrarySnapshotService)?
+        let snapshotService: (any LibrarySnapshotService)?
         if let cacheService {
-            let snapshotService = Self.makeLibrarySnapshotService(cache: cacheService, configuration: config)
-            librarySnapshotService = snapshotService
-            configuredLibrarySnapshotService = snapshotService
+            let newSnapshotService = Self.makeLibrarySnapshotService(cache: cacheService, configuration: config)
+            librarySnapshotService = newSnapshotService
+            snapshotService = newSnapshotService
             analyticsService = CachedAnalyticsService(
                 cache: cacheService,
                 configuration: config.analytics
             )
         } else {
-            configuredLibrarySnapshotService = nil
+            snapshotService = nil
         }
 
         let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: config)
@@ -674,13 +672,13 @@ extension AppDependencies {
         let librarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: config)
         let batchProcessingConfiguration = BatchProcessingConfiguration(configuration: config)
         Task {
-            try? await configuredPendingVerificationService?.initialize()
+            try? await pendingVerificationStore?.initialize()
             await applescriptBridge?.updateConfiguration(appleScriptConfiguration)
             await musicReader?.updateTestArtists(config.development.testArtists)
             await librarySyncService?.updateRuntimeConfiguration(
                 librarySyncRuntimeConfiguration,
-                librarySnapshotService: configuredLibrarySnapshotService,
-                pendingVerificationService: configuredPendingVerificationService
+                librarySnapshotService: snapshotService,
+                pendingVerificationService: pendingVerificationStore
             )
             await batchProcessor?.updateProcessingConfiguration(batchProcessingConfiguration)
             await analyticsService?.updateConfiguration(config.analytics)
@@ -688,9 +686,9 @@ extension AppDependencies {
                 runtimeConfiguration,
                 yearDeterminator: configuredYearDeterminator,
                 apiOrchestrator: configuredAPIOrchestrator,
-                librarySnapshotService: configuredLibrarySnapshotService
+                librarySnapshotService: snapshotService
             )
-            await updateUndoRuntimeDependencies(librarySnapshotService: configuredLibrarySnapshotService)
+            await updateUndoRuntimeDependencies(librarySnapshotService: snapshotService)
         }
     }
 
@@ -755,7 +753,7 @@ extension AppDependencies {
 #if DEBUG
 extension AppDependencies {
     func configureLibraryPersistenceForTesting(
-        trackStore: SwiftDataTrackStore? = nil,
+        trackStore: TrackDataStore? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runRecordStore: (any RunRecordStore)? = nil,
         fixPlanStore: (any FixPlanStore)? = nil

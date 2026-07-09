@@ -10,7 +10,7 @@ struct ActivityLifecycleTests {
 
     @Test("syncing library allows manual queueing and marks detect current")
     func syncingAllowsQueue() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 runLifecycle: lifecycle(phase: .active(.syncingLibrary), trigger: .backgroundSync)
@@ -28,7 +28,7 @@ struct ActivityLifecycleTests {
 
     @Test("active manual run keeps manual command covered")
     func manualStaysCovered() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 runLifecycle: lifecycle(phase: .active(.syncingLibrary))
@@ -41,7 +41,7 @@ struct ActivityLifecycleTests {
 
     @Test("active run has priority over processing state")
     func activeRunHasPriorityOverProcessingState() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 workflow: ActivityWorkflowState(
@@ -63,7 +63,7 @@ struct ActivityLifecycleTests {
 
     @Test("completed sync does not hide active workflow processing")
     func completedSyncDoesNotHideActiveWorkflowProcessing() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 workflow: ActivityWorkflowState(
@@ -88,7 +88,7 @@ struct ActivityLifecycleTests {
 
     @Test("last sync result with changes marks diff current")
     func lastSyncResultWithChangesMarksDiffCurrent() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 runLifecycle: lifecycle(phase: .finished(.completed(multiChangeSyncResult()), finishedAt: now))
@@ -108,7 +108,7 @@ struct ActivityLifecycleTests {
 
     @Test("empty library after completed sync keeps empty title")
     func emptyLibraryAfterCompletedSyncKeepsEmptyTitle() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [],
                 runLifecycle: lifecycle(phase: .finished(.completedNoOp(SyncResult()), finishedAt: now))
@@ -122,7 +122,7 @@ struct ActivityLifecycleTests {
 
     @Test("active run takes precedence over a loading library state")
     func activeRunTakesPrecedenceOverLoadingLibraryState() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [],
                 libraryState: .loading,
@@ -137,7 +137,7 @@ struct ActivityLifecycleTests {
 
     @Test("failed run takes precedence over an empty library state")
     func failedRunTakesPrecedenceOverEmptyLibraryState() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [],
                 libraryState: .empty,
@@ -153,7 +153,7 @@ struct ActivityLifecycleTests {
 
     @Test("awaiting review uses diff stage")
     func awaitingReviewUsesDiff() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 runLifecycle: lifecycle(phase: .active(.awaitingReview))
@@ -170,7 +170,7 @@ struct ActivityLifecycleTests {
 
     @Test("cancelled run is not a sync failure")
     func cancelledRunIsNeutral() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 runLifecycle: lifecycle(phase: .finished(
@@ -193,7 +193,7 @@ struct ActivityLifecycleTests {
 
     @Test("blocked run is gated without sync failure copy")
     func blockedRunIsGated() throws {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 fixPlan: ActivityFixPlanSummary(
@@ -221,7 +221,7 @@ struct ActivityLifecycleTests {
 
     @Test("recoverable run is gated without sync failure copy")
     func recoverableRunIsGated() throws {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 fixPlan: ActivityFixPlanSummary(
@@ -249,7 +249,7 @@ struct ActivityLifecycleTests {
 
     @Test("last sync result summary delta card mirrors sync changes")
     func lastSyncResultSummaryDeltaCardMirrorsSyncChanges() throws {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 runLifecycle: lifecycle(phase: .finished(.completed(multiChangeSyncResult()), finishedAt: now))
@@ -271,7 +271,7 @@ struct ActivityLifecycleTests {
             isProcessing: false,
             phaseLabel: "Review fixes"
         )
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 workflow: workflow,
@@ -288,7 +288,7 @@ struct ActivityLifecycleTests {
 
     @Test("run lifecycle completed no-op projects stable no changes state")
     func runLifecycleCompletedNoOpProjectsStableNoChangesState() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 runLifecycle: lifecycle(phase: .finished(.completedNoOp(SyncResult()), finishedAt: now))
@@ -302,7 +302,7 @@ struct ActivityLifecycleTests {
 
     @Test("run lifecycle reporting keeps the run active")
     func reportingKeepsActive() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 runLifecycle: lifecycle(phase: .active(.reporting))
@@ -316,7 +316,7 @@ struct ActivityLifecycleTests {
 
     @Test("run lifecycle failure projects attention state")
     func runLifecycleFailureProjectsAttentionState() {
-        let projection = ActivityProjectionBuilder.makeProjection(
+        let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 runLifecycle: lifecycle(phase: .finished(

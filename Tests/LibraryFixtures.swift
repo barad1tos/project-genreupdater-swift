@@ -5,7 +5,7 @@ import Services
 
 struct LibraryPersistenceFixture {
     let dependencies: AppDependencies
-    let trackStore: SwiftDataTrackStore
+    let trackStore: TrackDataStore
     let snapshotService: SnapshotServiceSpy
 }
 
@@ -14,7 +14,7 @@ func makeFixture(
     testArtists: [String],
     runRecordStore: (any RunRecordStore)? = nil
 ) throws -> LibraryPersistenceFixture {
-    let trackStore = try SwiftDataTrackStore.createInMemory()
+    let trackStore = try TrackDataStore.createInMemory()
     let snapshotService = SnapshotServiceSpy()
     let dependencies = AppDependencies(
         configurationLoader: {
@@ -160,7 +160,7 @@ func mainViewDataSourceURL() throws -> URL {
     currentURL.deleteLastPathComponent()
 
     for _ in 0 ..< 8 {
-        let candidate = currentURL.appendingPathComponent("App/Views/MainView+Data.swift")
+        let candidate = currentURL.appendingPathComponent("App/Views/MainData.swift")
         if FileManager.default.fileExists(atPath: candidate.path) {
             return candidate
         }

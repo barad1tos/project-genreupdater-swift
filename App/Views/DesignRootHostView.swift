@@ -694,7 +694,7 @@ struct DesignRootHostView: View {
     private func refreshActivityProjection() async -> ActivityProjection {
         let inputGeneration = await dependencies.projectionStore.nextActivityProjectionInputGeneration()
         let projectionInput = activityProjectionInput
-        let projection = ActivityProjectionBuilder.makeProjection(from: projectionInput)
+        let projection = ActivityBuilder.makeProjection(from: projectionInput)
         let storedProjection = await dependencies.projectionStore.replaceActivityProjection(
             projection,
             inputGeneration: inputGeneration
@@ -744,7 +744,7 @@ struct DesignRootHostView: View {
         guard let page = await dependencies.loadRunReportPage(
             limit: RunHistoryAdapter.runHistoryLimit
         ) else { return nil }
-        let projection = ReportsProjectionBuilder.makeProjection(from: ReportsProjectionInput(
+        let projection = ReportsBuilder.makeProjection(from: ReportsProjectionInput(
             records: page.records,
             skippedCorruptedCount: page.skippedCorruptedCount,
             now: Date(),

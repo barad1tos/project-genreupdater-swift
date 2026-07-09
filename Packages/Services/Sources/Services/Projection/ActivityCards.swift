@@ -1,4 +1,4 @@
-extension ActivityProjectionBuilder {
+extension ActivityBuilder {
     static func makeRecentActivity(
         input: ActivityProjectionInput,
         counts: Counts,

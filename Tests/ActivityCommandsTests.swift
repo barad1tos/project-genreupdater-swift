@@ -327,7 +327,7 @@ struct ActivityCommandsTests {
 
     @Test("run manually uses builder variant during recovery hold")
     func usesBuilderVariant() async {
-        let projection = ActivityProjectionBuilder.makeProjection(from: ActivityProjectionInput(
+        let projection = ActivityBuilder.makeProjection(from: ActivityProjectionInput(
             tracks: [track(id: "1")],
             metrics: nil,
             lastScanDate: Date(timeIntervalSince1970: 1_800_000_000),
@@ -607,7 +607,7 @@ private func makeActiveProjection(
     revision: ProjectionRevision,
     lifecycle: RunLifecycleSnapshot
 ) -> ActivityProjection {
-    ActivityProjectionBuilder.makeProjection(from: ActivityProjectionInput(
+    ActivityBuilder.makeProjection(from: ActivityProjectionInput(
         tracks: [Core.Track(id: "1", name: "Track 1", artist: "Artist", album: "Album")],
         metrics: nil,
         lastScanDate: Date(timeIntervalSince1970: 1_800_000_000),

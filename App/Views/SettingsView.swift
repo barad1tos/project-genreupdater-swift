@@ -1,5 +1,3 @@
-// SettingsView.swift — Settings shell and appearance controls.
-
 import SharedUI
 import SwiftUI
 
@@ -13,7 +11,7 @@ struct SettingsView: View {
             GeneralTab()
                 .tabItem { Label("General", systemImage: "gear") }
 
-            APIAndCacheTab()
+            APICacheTab()
                 .tabItem { Label("API & Cache", systemImage: "key") }
 
             AdvancedTab()
