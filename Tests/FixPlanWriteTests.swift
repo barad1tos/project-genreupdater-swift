@@ -1,4 +1,5 @@
 import Core
+import Foundation
 import Services
 import Testing
 @testable import Genre_Updater
@@ -34,6 +35,72 @@ struct FixPlanWriteTests {
         for index in 1 ... 3 {
             #expect(await mapper.appleScriptID(forMusicKitID: "MK-\(index)") == "AS-\(index)")
         }
+    }
+
+    @Test("reviewed write maps decision verdicts")
+    func mapsDecisionVerdicts() throws {
+        let firstItem = fixPlanItem(id: UUID(), index: 1)
+        let secondItem = fixPlanItem(id: UUID(), index: 2)
+        let plan = fixPlan(items: [firstItem, secondItem])
+        let decision = reviewDecision(
+            for: plan,
+            items: [
+                FixPlanItemDecision(itemID: firstItem.id, verdict: .accepted),
+                FixPlanItemDecision(itemID: secondItem.id, verdict: .rejected),
+            ]
+        )
+
+        let changes = try FixPlanWrite.proposedChanges(from: plan, decision: decision)
+
+        #expect(changes.map(\.id) == [firstItem.id, secondItem.id])
+        #expect(changes.map(\.isAccepted) == [true, false])
+    }
+
+    @Test("reviewed write rejects duplicate decision items")
+    func rejectsDuplicateItems() {
+        let firstItem = fixPlanItem(id: UUID(), index: 1)
+        let secondItem = fixPlanItem(id: UUID(), index: 2)
+        let plan = fixPlan(items: [firstItem, secondItem])
+        let decision = reviewDecision(
+            for: plan,
+            items: [
+                FixPlanItemDecision(itemID: firstItem.id, verdict: .accepted),
+                FixPlanItemDecision(itemID: firstItem.id, verdict: .rejected),
+            ]
+        )
+
+        expectInvalidDecision(plan: plan, decision: decision)
+    }
+
+    @Test("reviewed write rejects unknown decision items")
+    func rejectsUnknownItems() {
+        let firstItem = fixPlanItem(id: UUID(), index: 1)
+        let secondItem = fixPlanItem(id: UUID(), index: 2)
+        let plan = fixPlan(items: [firstItem, secondItem])
+        let decision = reviewDecision(
+            for: plan,
+            items: [
+                FixPlanItemDecision(itemID: firstItem.id, verdict: .accepted),
+                FixPlanItemDecision(itemID: UUID(), verdict: .rejected),
+            ]
+        )
+
+        expectInvalidDecision(plan: plan, decision: decision)
+    }
+
+    @Test("reviewed write rejects missing decision items")
+    func rejectsMissingItems() {
+        let firstItem = fixPlanItem(id: UUID(), index: 1)
+        let secondItem = fixPlanItem(id: UUID(), index: 2)
+        let plan = fixPlan(items: [firstItem, secondItem])
+        let decision = reviewDecision(
+            for: plan,
+            items: [
+                FixPlanItemDecision(itemID: firstItem.id, verdict: .accepted),
+            ]
+        )
+
+        expectInvalidDecision(plan: plan, decision: decision)
     }
 }
 
@@ -106,5 +173,71 @@ private func appleScriptTrack(from track: Track) -> Track {
         artist: track.artist,
         album: track.album,
         appleScriptID: track.appleScriptID
+    )
+}
+
+private func fixPlan(items: [FixPlanItem]) -> FixPlan {
+    let capturedAt = Date(timeIntervalSince1970: 100)
+    return FixPlan(
+        id: FixPlanID(),
+        revision: .initial,
+        sourceRunID: RunID(),
+        createdAt: capturedAt,
+        configuration: FixPlanConfigurationSnapshot.capture(options: UpdateOptions(), capturedAt: capturedAt),
+        scope: ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: items.count,
+            createdAt: capturedAt,
+            reason: "unit-test"
+        ),
+        items: items
+    )
+}
+
+private func reviewDecision(
+    for plan: FixPlan,
+    items: [FixPlanItemDecision]
+) -> FixPlanReviewDecision {
+    FixPlanReviewDecision(
+        planID: plan.id,
+        planRevision: plan.revision,
+        revision: .initial,
+        decidedAt: Date(timeIntervalSince1970: 110),
+        itemDecisions: items
+    )
+}
+
+private func expectInvalidDecision(
+    plan: FixPlan,
+    decision: FixPlanReviewDecision
+) {
+    do {
+        _ = try FixPlanWrite.proposedChanges(from: plan, decision: decision)
+        Issue.record("Expected invalid decision items")
+    } catch let error as FixPlanWrite.Failure {
+        guard case .invalidDecisionItems = error else {
+            Issue.record("Expected invalidDecisionItems, got \(error)")
+            return
+        }
+    } catch {
+        Issue.record("Expected FixPlanWrite.Failure, got \(error)")
+    }
+}
+
+private func fixPlanItem(id: UUID, index: Int) -> FixPlanItem {
+    FixPlanItem(
+        id: id,
+        identity: FixPlanItemIdentity(
+            readID: "MK-\(index)",
+            appleScriptID: "AS-\(index)",
+            artist: "Artist",
+            album: "Album",
+            trackName: "Track \(index)"
+        ),
+        changeType: .genreUpdate,
+        oldValue: "Rock",
+        newValue: "Metal",
+        confidence: 90,
+        source: "review-test"
     )
 }
