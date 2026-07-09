@@ -8,7 +8,7 @@ import MusicKit
 import Services
 import XCTest
 
-// MARK: - AppleMusic Search Client Integration Tests
+// MARK: - AppleMusic Search Tests
 
 final class AppleMusicSearchTests: XCTestCase {
     override func setUp() async throws {
