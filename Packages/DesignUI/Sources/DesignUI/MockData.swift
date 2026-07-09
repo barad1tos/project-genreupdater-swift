@@ -372,7 +372,7 @@ struct MockData {
             triggerLabel: "Manual check",
             startedLabel: "2m ago",
             modeLabel: "Preview",
-            scopeLabel: "Test artists (3) · 198 tracks",
+            scopeLabel: "Test artists (3)",
             durationLabel: "45s",
             changeCountLabel: "12 changes"
         ),

@@ -186,8 +186,8 @@ struct ReportDetailBuilderTests {
         ])
     }
 
-    @Test("test artist scope lists limited artists")
-    func artistScopeListsLimitedArtists() {
+    @Test("test artist scope lists artists and omits track count")
+    func rendersArtistScope() {
         let fiveArtistScope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: ["A", "B", "C", "D", "E"],
             knownTrackCount: nil,
@@ -196,7 +196,7 @@ struct ReportDetailBuilderTests {
         )
         let twoArtistScope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: ["A", "B"],
-            knownTrackCount: nil,
+            knownTrackCount: 44,
             createdAt: startDate,
             reason: ""
         )
@@ -224,7 +224,10 @@ struct ReportDetailBuilderTests {
 
         #expect(fiveArtistDetail.scopeLines.contains("Scope: Test artists (5)"))
         #expect(fiveArtistDetail.scopeLines.contains("Artists: A, B, C +2 more"))
-        #expect(twoArtistDetail.scopeLines.contains("Artists: A, B"))
+        #expect(twoArtistDetail.scopeLines == [
+            "Scope: Test artists (2)",
+            "Artists: A, B",
+        ])
     }
 
     @Test("full library scope without known count is a single line")

@@ -93,9 +93,9 @@ struct ReportsBuilderTests {
         #expect(item.changeCountLabel == "1 change")
     }
 
-    @Test("test artist scope and preview mode reach index labels")
-    func mapsArtistScopeLabels() throws {
-        let record = makeScopedRunRecord(
+    @Test("preview test-artist scope omits full-library track count")
+    func mapsPreviewScope() throws {
+        let record = makeRunRecord(
             scope: ProcessingScopeSnapshot.capture(
                 requestedTestArtists: ["Aphex Twin", "Boards of Canada"],
                 knownTrackCount: 44,
@@ -108,12 +108,30 @@ struct ReportsBuilderTests {
         let item = try #require(makeProjection(records: [record]).runs.first)
 
         #expect(item.modeLabel == "Preview")
-        #expect(item.scopeLabel == "Test artists (2) · 44 tracks")
+        #expect(item.scopeLabel == "Test artists (2)")
+    }
+
+    @Test("full library scope uses plural track count")
+    func mapsFullLibrary() throws {
+        let record = makeRunRecord(
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: 44,
+                createdAt: startDate,
+                reason: "test"
+            ),
+            intent: .observeLibrary
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.modeLabel == "Library check")
+        #expect(item.scopeLabel == "Full library · 44 tracks")
     }
 
     @Test("test artist scope without track count omits count suffix")
-    func mapsArtistScopeWithoutCount() throws {
-        let record = makeScopedRunRecord(
+    func mapsArtistScope() throws {
+        let record = makeRunRecord(
             scope: ProcessingScopeSnapshot.capture(
                 requestedTestArtists: ["Aphex Twin"],
                 knownTrackCount: nil,
@@ -129,8 +147,8 @@ struct ReportsBuilderTests {
     }
 
     @Test("write intent and singular scope count reach index labels")
-    func mapsWriteScopeLabels() throws {
-        let record = makeScopedRunRecord(
+    func mapsWriteScope() throws {
+        let record = makeRunRecord(
             scope: ProcessingScopeSnapshot.capture(
                 requestedTestArtists: [],
                 knownTrackCount: 1,
@@ -423,7 +441,7 @@ struct ReportsBuilderTests {
         )
     }
 
-    private func makeScopedRunRecord(scope: ProcessingScopeSnapshot, intent: RunIntent) -> RunRecord {
+    private func makeRunRecord(scope: ProcessingScopeSnapshot, intent: RunIntent) -> RunRecord {
         RunRecord(
             runID: RunID(),
             requestID: RunRequestID(),

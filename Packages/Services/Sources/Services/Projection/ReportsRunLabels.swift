@@ -97,11 +97,16 @@ enum ReportsRunLabels {
     static func scopeLabel(for scope: ProcessingScopeSnapshot) -> String {
         let scopeText = scopeSourceLabel(for: scope)
 
-        guard let trackCount = scope.knownTrackCount else {
+        switch scope.source {
+        case .fullLibrary:
+            guard let trackCount = scope.knownTrackCount else {
+                return scopeText
+            }
+            let trackText = trackCount == 1 ? "1 track" : "\(trackCount.formatted()) tracks"
+            return "\(scopeText) · \(trackText)"
+        case .testArtists:
             return scopeText
         }
-        let trackText = trackCount == 1 ? "1 track" : "\(trackCount.formatted()) tracks"
-        return "\(scopeText) · \(trackText)"
     }
 
     static func scopeSourceLabel(for scope: ProcessingScopeSnapshot) -> String {

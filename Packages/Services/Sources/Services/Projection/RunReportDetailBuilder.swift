@@ -1,7 +1,7 @@
 import Foundation
 
 public enum RunReportDetailBuilder {
-    private static let scopeArtistDisplayLimit = 3
+    private static let shownArtistLimit = 3
 
     public static func makeDetail(
         from record: RunRecord,
@@ -28,12 +28,11 @@ public enum RunReportDetailBuilder {
         lines.append("Scope: \(ReportsRunLabels.scopeSourceLabel(for: scope))")
         switch scope.source {
         case .fullLibrary:
-            break
+            if let knownTrackCount = scope.knownTrackCount {
+                lines.append("Known tracks: \(knownTrackCount.formatted())")
+            }
         case .testArtists:
             lines.append(makeArtistLine(from: scope.normalizedTestArtists))
-        }
-        if let knownTrackCount = scope.knownTrackCount {
-            lines.append("Known tracks: \(knownTrackCount.formatted())")
         }
         // scope.reason is not rendered: production records carry the raw trigger
         // value there, which would duplicate triggerLabel as an unpolished string.
@@ -41,8 +40,8 @@ public enum RunReportDetailBuilder {
     }
 
     private static func makeArtistLine(from artists: [String]) -> String {
-        let displayedArtists = artists.prefix(scopeArtistDisplayLimit).joined(separator: ", ")
-        let hiddenCount = artists.count - scopeArtistDisplayLimit
+        let displayedArtists = artists.prefix(shownArtistLimit).joined(separator: ", ")
+        let hiddenCount = artists.count - shownArtistLimit
         return hiddenCount > 0
             ? "Artists: \(displayedArtists) +\(hiddenCount) more"
             : "Artists: \(displayedArtists)"
