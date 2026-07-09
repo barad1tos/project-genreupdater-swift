@@ -17,7 +17,7 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
-            applyFixPlan: { try await writer.apply(target: $0) },
+            writeFixPlan: { try await writer.apply(target: $0) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -58,7 +58,7 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
-            applyFixPlan: { try await writer.apply(target: $0) },
+            writeFixPlan: { try await writer.apply(target: $0) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -129,16 +129,15 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { await syncGate.sync() },
             persistRunRecord: { _ in },
-            applyFixPlan: { try await writer.apply(target: $0) },
+            writeFixPlan: { try await writer.apply(target: $0) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
         let firstTarget = writeTarget()
         let secondTarget = writeTarget()
 
         let active = Task {
-            await orchestrator.submit(RunRequest(
+            await orchestrator.submit(RunRequest.observation(
                 trigger: .backgroundSync,
-                intent: .observeLibrary,
                 requestedTestArtists: [],
                 knownTrackCount: nil
             ))
@@ -170,7 +169,7 @@ struct WriteTests {
 }
 
 private actor WriteProbe {
-    private(set) var calls: [FixPlanApplyTarget] = []
+    private(set) var calls: [FixPlanWriteTarget] = []
     private let result: BatchUpdateResult
     private var continuations: [(Int, CheckedContinuation<Void, Never>)] = []
 
@@ -178,7 +177,7 @@ private actor WriteProbe {
         self.result = result
     }
 
-    func apply(target: FixPlanApplyTarget) throws -> BatchUpdateResult {
+    func apply(target: FixPlanWriteTarget) throws -> BatchUpdateResult {
         calls.append(target)
         resumeContinuations()
         return result
@@ -271,8 +270,8 @@ private actor WriteSyncGate {
     }
 }
 
-private func writeTarget() -> FixPlanApplyTarget {
-    FixPlanApplyTarget(
+private func writeTarget() -> FixPlanWriteTarget {
+    FixPlanWriteTarget(
         planID: FixPlanID(),
         planRevision: .initial,
         decisionRevision: .initial

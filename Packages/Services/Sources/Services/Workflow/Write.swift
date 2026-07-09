@@ -476,7 +476,7 @@ extension UpdateCoordinator {
         let trackIDs = Array(Set(preparedWrites.map(\.trackID)))
         let fetchedTracks = try await scriptBridge.fetchTracksByIDs(
             trackIDs,
-            batchSize: max(trackIDs.count, 1),
+            batchSize: runtimeConfiguration.idsBatchSize,
             timeout: nil
         )
         let fetchedTracksByID = Dictionary(uniqueKeysWithValues: fetchedTracks.map { ($0.id, $0) })

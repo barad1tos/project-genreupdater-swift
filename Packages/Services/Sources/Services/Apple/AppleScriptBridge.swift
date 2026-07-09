@@ -119,6 +119,10 @@ public actor AppleScriptBridge: AppleScriptClient {
         self.concurrencyGate = AppleScriptConcurrencyGate(limit: config.concurrency)
     }
 
+    public var trackIDBatchSize: Int {
+        max(1, config.batchProcessing.idsBatchSize)
+    }
+
     public func updateConfiguration(_ config: AppleScriptConfig) {
         self.config = config
         rateLimiter = Self.makeRateLimiter(configuration: config.rateLimit)
@@ -177,8 +181,9 @@ public actor AppleScriptBridge: AppleScriptClient {
     ) async throws -> [Core.Track] {
         var allTracks: [Core.Track] = []
         let effectiveTimeout = timeout ?? config.timeouts.idsBatchFetch
+        let effectiveBatchSize = max(1, batchSize)
 
-        for batch in trackIDs.chunked(into: batchSize) {
+        for batch in trackIDs.chunked(into: effectiveBatchSize) {
             let idsArg = batch.joined(separator: ",")
             guard let output = try await runScript(
                 name: "fetch_tracks_by_ids",
@@ -329,7 +334,7 @@ public actor AppleScriptBridge: AppleScriptClient {
         do {
             refreshedTracks = try await fetchTracksByIDs(
                 trackIDs,
-                batchSize: max(trackIDs.count, 1),
+                batchSize: trackIDBatchSize,
                 timeout: config.timeouts.idsBatchFetch
             )
         } catch {

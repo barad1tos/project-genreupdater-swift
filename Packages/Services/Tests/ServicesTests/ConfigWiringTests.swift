@@ -100,6 +100,7 @@ struct ConfigWiringTests {
         #expect(updateRuntime.skipPrerelease == false)
         #expect(updateRuntime.prereleaseHandling == .markOnly)
         #expect(updateRuntime.prereleaseRecheckDays == 10)
+        #expect(updateRuntime.idsBatchSize == 22)
 
         let syncRuntime = LibrarySyncRuntimeConfiguration(configuration: configuration)
         #expect(syncRuntime.idsBatchSize == 22)

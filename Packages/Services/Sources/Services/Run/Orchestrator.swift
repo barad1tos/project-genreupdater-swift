@@ -7,27 +7,26 @@ public actor RunOrchestrator {
         public let synchronizeLibrary: @Sendable () async throws -> SyncResult
         public let persistRunRecord: @Sendable (RunRecord) async throws -> Void
         public let produceFixPlan: (@Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction)?
-        public let applyFixPlan: (@Sendable (FixPlanApplyTarget) async throws -> BatchUpdateResult)?
+        public let writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)?
         public let now: @Sendable () -> Date
 
         public init(
             synchronizeLibrary: @escaping @Sendable () async throws -> SyncResult,
             persistRunRecord: @escaping @Sendable (RunRecord) async throws -> Void,
             produceFixPlan: (@Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction)? = nil,
-            applyFixPlan: (@Sendable (FixPlanApplyTarget) async throws -> BatchUpdateResult)? = nil,
+            writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
             self.synchronizeLibrary = synchronizeLibrary
             self.persistRunRecord = persistRunRecord
             self.produceFixPlan = produceFixPlan
-            self.applyFixPlan = applyFixPlan
+            self.writeFixPlan = writeFixPlan
             self.now = now
         }
     }
 
     private enum RunWorkError: LocalizedError {
         case missingFixPlanProducer
-        case missingWriteTarget
         case missingWriteRunner
         case partialWriteFailure(failedOperationCount: Int, failedTrackCount: Int, reasons: [String])
 
@@ -35,8 +34,6 @@ public actor RunOrchestrator {
             switch self {
             case .missingFixPlanProducer:
                 "Fix plan producer is unavailable"
-            case .missingWriteTarget:
-                "Fix plan write target is unavailable"
             case .missingWriteRunner:
                 "Fix plan write runner is unavailable"
             case let .partialWriteFailure(failedOperationCount, failedTrackCount, reasons):
@@ -188,7 +185,7 @@ public actor RunOrchestrator {
         request: RunRequest
     ) async throws -> RunWork {
         let syncResult = try await dependencies.synchronizeLibrary()
-        switch lifecycle.intent {
+        switch request.kind {
         case .observeLibrary:
             return RunWork(
                 reportingSource: lifecycle,
@@ -206,15 +203,12 @@ public actor RunOrchestrator {
                 result: syncResult,
                 hasActionableWork: production.producedPlan
             )
-        case .writeFixes:
-            guard let applyTarget = request.applyTarget else {
-                throw RunWorkError.missingWriteTarget
-            }
-            guard let applyFixPlan = dependencies.applyFixPlan else {
+        case let .writeFixes(writeTarget):
+            guard let writeFixPlan = dependencies.writeFixPlan else {
                 throw RunWorkError.missingWriteRunner
             }
             let writing = beginWriting(from: lifecycle)
-            let writeResult = try await applyFixPlan(applyTarget)
+            let writeResult = try await writeFixPlan(writeTarget)
             if writeResult.hasPartialFailures {
                 throw RunWorkError.partialWriteFailure(
                     failedOperationCount: writeResult.failedOperationCount,
@@ -369,7 +363,7 @@ public actor RunOrchestrator {
             trigger: request.trigger,
             intent: request.intent,
             scope: scope,
-            applyTarget: request.applyTarget,
+            writeTarget: request.writeTarget,
             startedAt: startedAt,
             phase: .active(.created)
         )

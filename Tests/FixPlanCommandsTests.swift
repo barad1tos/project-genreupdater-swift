@@ -230,7 +230,7 @@ struct FixPlanCommandsTests {
         #expect(result.status == .accepted)
         #expect(result.message == "Applied 2 changes.")
         #expect(harness.writeCallCount() == 1)
-        #expect(harness.lastWriteTarget() == harness.target.applyTarget)
+        #expect(harness.lastWriteTarget() == harness.target.writeTarget)
         #expect(await harness.store.recordCallCount() == 0)
     }
 
@@ -265,7 +265,7 @@ struct FixPlanCommandsTests {
     @Test("apply command is blocked while recovery holds writes")
     func applyBlockedByRecoveryHold() async {
         let harness = FixPlanCommandHarness(startingVerdict: .accepted)
-        harness.recoveryHold = true
+        harness.isRecoveryHeld = true
         let commands = harness.makeCommands()
 
         let result = await commands.handle(.applyFixPlan(target: harness.target))
@@ -332,8 +332,8 @@ private final class FixPlanCommandHarness {
     private var shouldRefreshProjection = true
     private var writeResult: RunSubmissionResult?
     private var writeError: (any Error)?
-    private var writeTargets: [FixPlanApplyTarget] = []
-    var recoveryHold = false
+    private var writeTargets: [FixPlanWriteTarget] = []
+    var isRecoveryHeld = false
 
     init(startingVerdict: FixPlanItemVerdict) {
         plan = makeCommandPlan()
@@ -365,7 +365,7 @@ private final class FixPlanCommandHarness {
                 try await submitWrite(target: target)
             },
             hasRecoveryHold: { [self] in
-                recoveryHold
+                isRecoveryHeld
             },
             refreshFixPlanProjection: { [self] in
                 await refreshFixPlanProjection()
@@ -410,11 +410,11 @@ private final class FixPlanCommandHarness {
         writeTargets.count
     }
 
-    func lastWriteTarget() -> FixPlanApplyTarget? {
+    func lastWriteTarget() -> FixPlanWriteTarget? {
         writeTargets.last
     }
 
-    private func submitWrite(target: FixPlanApplyTarget) async throws -> RunSubmissionResult {
+    private func submitWrite(target: FixPlanWriteTarget) async throws -> RunSubmissionResult {
         writeTargets.append(target)
         if let writeError {
             self.writeError = nil

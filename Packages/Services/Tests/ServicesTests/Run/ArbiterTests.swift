@@ -7,7 +7,7 @@ struct ArbiterTests {
     @Test("manual trigger queues after active background sync")
     func manualQueuesAfterBackground() {
         let active = Self.lifecycle(trigger: .backgroundSync, intent: .observeLibrary)
-        let request = RunRequest(
+        let request = Self.request(
             trigger: .manualCheck,
             intent: .observeLibrary,
             requestedTestArtists: [],
@@ -26,7 +26,7 @@ struct ArbiterTests {
     @Test("background trigger is already covered by active manual run")
     func backgroundCoveredByManual() {
         let active = Self.lifecycle(trigger: .manualCheck, intent: .observeLibrary)
-        let request = RunRequest(
+        let request = Self.request(
             trigger: .backgroundSync,
             intent: .observeLibrary,
             requestedTestArtists: [],
@@ -44,13 +44,13 @@ struct ArbiterTests {
     @Test("stronger trigger replaces existing pending request")
     func recoveryReplacesPending() {
         let active = Self.lifecycle(trigger: .backgroundSync, intent: .observeLibrary)
-        let manualRequest = RunRequest(
+        let manualRequest = Self.request(
             trigger: .manualCheck,
             intent: .observeLibrary,
             requestedTestArtists: [],
             knownTrackCount: nil
         )
-        let recoveryRequest = RunRequest(
+        let recoveryRequest = Self.request(
             trigger: .recovery,
             intent: .observeLibrary,
             requestedTestArtists: [],
@@ -70,7 +70,7 @@ struct ArbiterTests {
     @Test("preview intent queues after active observation")
     func previewQueuesAfterObserve() {
         let active = Self.lifecycle(trigger: .manualCheck, intent: .observeLibrary)
-        let request = RunRequest(
+        let request = Self.request(
             trigger: .manualCheck,
             intent: .previewFixes,
             requestedTestArtists: [],
@@ -94,7 +94,7 @@ struct ArbiterTests {
             requestedTestArtists: ["Artist A"],
             knownTrackCount: 75
         )
-        let request = RunRequest(
+        let request = Self.request(
             trigger: .manualCheck,
             intent: .observeLibrary,
             requestedTestArtists: ["Artist B"],
@@ -118,7 +118,7 @@ struct ArbiterTests {
             requestedTestArtists: [],
             knownTrackCount: 75
         )
-        let request = RunRequest(
+        let request = Self.request(
             trigger: .manualCheck,
             intent: .observeLibrary,
             requestedTestArtists: ["Artist B"],
@@ -141,13 +141,13 @@ struct ArbiterTests {
             requestedTestArtists: ["Artist A"],
             knownTrackCount: 75
         )
-        let pendingRequest = RunRequest(
+        let pendingRequest = Self.request(
             trigger: .manualCheck,
             intent: .observeLibrary,
             requestedTestArtists: [],
             knownTrackCount: 75
         )
-        let request = RunRequest(
+        let request = Self.request(
             trigger: .manualCheck,
             intent: .observeLibrary,
             requestedTestArtists: ["Artist B"],
@@ -170,7 +170,7 @@ struct ArbiterTests {
         let active = Self.lifecycle(
             trigger: .manualCheck,
             intent: .writeFixes,
-            applyTarget: target
+            writeTarget: target
         )
         let request = RunRequest.manualWrite(
             target: target,
@@ -191,7 +191,7 @@ struct ArbiterTests {
         let active = Self.lifecycle(
             trigger: .manualCheck,
             intent: .writeFixes,
-            applyTarget: Self.writeTarget("00000000-0000-0000-0000-000000000101")
+            writeTarget: Self.writeTarget("00000000-0000-0000-0000-000000000101")
         )
         let request = RunRequest.manualWrite(
             target: Self.writeTarget("00000000-0000-0000-0000-000000000102"),
@@ -208,12 +208,41 @@ struct ArbiterTests {
         #expect(pending.map(\.request) == [request])
     }
 
+    private static func request(
+        trigger: RunTrigger,
+        intent: RunIntent,
+        requestedTestArtists: [String],
+        knownTrackCount: Int?
+    ) -> RunRequest {
+        switch intent {
+        case .observeLibrary:
+            RunRequest.observation(
+                trigger: trigger,
+                requestedTestArtists: requestedTestArtists,
+                knownTrackCount: knownTrackCount
+            )
+        case .previewFixes:
+            RunRequest.preview(
+                trigger: trigger,
+                requestedTestArtists: requestedTestArtists,
+                knownTrackCount: knownTrackCount
+            )
+        case .writeFixes:
+            RunRequest.write(
+                trigger: trigger,
+                target: writeTarget("00000000-0000-0000-0000-000000000999"),
+                requestedTestArtists: requestedTestArtists,
+                knownTrackCount: knownTrackCount
+            )
+        }
+    }
+
     private static func lifecycle(
         trigger: RunTrigger,
         intent: RunIntent,
         requestedTestArtists: [String] = [],
         knownTrackCount: Int? = nil,
-        applyTarget: FixPlanApplyTarget? = nil
+        writeTarget: FixPlanWriteTarget? = nil
     ) -> RunLifecycleSnapshot {
         let startedAt = Date(timeIntervalSince1970: 100)
         return RunLifecycleSnapshot(
@@ -227,17 +256,17 @@ struct ArbiterTests {
                 createdAt: startedAt,
                 reason: trigger.rawValue
             ),
-            applyTarget: applyTarget,
+            writeTarget: writeTarget,
             startedAt: startedAt,
             phase: .active(.syncingLibrary)
         )
     }
 
-    private static func writeTarget(_ rawPlanID: String) -> FixPlanApplyTarget {
+    private static func writeTarget(_ rawPlanID: String) -> FixPlanWriteTarget {
         guard let planID = UUID(uuidString: rawPlanID) else {
             preconditionFailure("Invalid write target UUID: \(rawPlanID)")
         }
-        return FixPlanApplyTarget(
+        return FixPlanWriteTarget(
             planID: FixPlanID(rawValue: planID),
             planRevision: .initial,
             decisionRevision: .initial

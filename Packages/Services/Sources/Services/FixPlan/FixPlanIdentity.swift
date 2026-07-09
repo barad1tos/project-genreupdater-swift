@@ -50,7 +50,7 @@ public struct ReviewDecisionRevision: Hashable, Comparable, Sendable, Codable {
     }
 }
 
-public struct FixPlanApplyTarget: Equatable, Sendable {
+public struct FixPlanWriteTarget: Equatable, Sendable {
     public let planID: FixPlanID
     public let planRevision: FixPlanRevision
     public let decisionRevision: ReviewDecisionRevision

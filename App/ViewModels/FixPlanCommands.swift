@@ -34,7 +34,7 @@ struct FixPlanCommands {
     }
 
     let fixPlanStore: (any FixPlanStore)?
-    let submitFixPlanWrite: (FixPlanApplyTarget) async throws -> RunSubmissionResult
+    let submitFixPlanWrite: (FixPlanWriteTarget) async throws -> RunSubmissionResult
     let hasRecoveryHold: () async -> Bool
     let refreshFixPlanProjection: () async -> FixPlanProjection
     let refreshActivityProjection: () async -> ActivityProjection
@@ -218,7 +218,7 @@ struct FixPlanCommands {
         }
 
         do {
-            let result = try await submitFixPlanWrite(target.applyTarget)
+            let result = try await submitFixPlanWrite(target.writeTarget)
             return await writeResult(result, fallbackAcceptedCount: projection.acceptedCount)
         } catch {
             return await writeFailureResult(error, projection: projection)

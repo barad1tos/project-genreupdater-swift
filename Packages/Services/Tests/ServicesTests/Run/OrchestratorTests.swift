@@ -151,9 +151,8 @@ struct OrchestratorTests {
         ))
 
         let first = Task {
-            await orchestrator.submit(RunRequest(
+            await orchestrator.submit(RunRequest.observation(
                 trigger: .backgroundSync,
-                intent: .observeLibrary,
                 requestedTestArtists: [],
                 knownTrackCount: nil
             ))
@@ -192,9 +191,8 @@ struct OrchestratorTests {
         ))
 
         let first = Task {
-            await orchestrator.submit(RunRequest(
+            await orchestrator.submit(RunRequest.observation(
                 trigger: .backgroundSync,
-                intent: .observeLibrary,
                 requestedTestArtists: [],
                 knownTrackCount: nil
             ))
@@ -236,9 +234,8 @@ struct OrchestratorTests {
         let iterator = await LifecycleIterator(stream: orchestrator.lifecycleUpdates())
 
         let first = Task {
-            await orchestrator.submit(RunRequest(
+            await orchestrator.submit(RunRequest.observation(
                 trigger: .backgroundSync,
-                intent: .observeLibrary,
                 requestedTestArtists: [],
                 knownTrackCount: nil
             ))

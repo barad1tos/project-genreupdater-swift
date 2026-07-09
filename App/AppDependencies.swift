@@ -497,7 +497,7 @@ final class AppDependencies {
                 historyLimit: { [weak self] in await self?.runHistoryLimit() }
             ),
             produceFixPlan: makePreviewProducer(),
-            applyFixPlan: makeWriteRunner()
+            writeFixPlan: makeWriteRunner()
         ))
     }
 

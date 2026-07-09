@@ -22,18 +22,16 @@ struct PreviewTests {
         ))
 
         let first = Task {
-            await orchestrator.submit(RunRequest(
+            await orchestrator.submit(RunRequest.observation(
                 trigger: .backgroundSync,
-                intent: .observeLibrary,
                 requestedTestArtists: ["Artist A"],
                 knownTrackCount: 12
             ))
         }
         await syncCalls.waitUntilCount(1)
 
-        let previewRequest = RunRequest(
+        let previewRequest = RunRequest.preview(
             trigger: .manualCheck,
-            intent: .previewFixes,
             requestedTestArtists: [" Artist B "],
             knownTrackCount: 44
         )
@@ -270,6 +268,8 @@ private actor PreviewProducerProbe {
     }
 }
 
+// Safety: tests pass this clock as a synchronous RunOrchestrator now provider;
+// calls are serialized by the actor-isolated run execution under test.
 private final class PreviewClock: @unchecked Sendable {
     private var timestamp: TimeInterval = 100
 

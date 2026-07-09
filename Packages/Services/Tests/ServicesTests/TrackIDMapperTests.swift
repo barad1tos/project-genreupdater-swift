@@ -59,7 +59,7 @@ struct TrackIDMapperTests {
     }
 
     @Test("Seeded mapping preserves current AppleScript metadata")
-    func seededMappingPreservesCurrentMetadata() async throws {
+    func seededMappingKeepsMetadata() async throws {
         let mapper = TrackIDMapper()
         let musicKitTrack = makeTrack(
             id: "MK1",

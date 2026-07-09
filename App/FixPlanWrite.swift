@@ -8,6 +8,7 @@ enum FixPlanWrite {
         case missingDecision(FixPlanID)
         case staleDecision
         case noAcceptedItems
+        case invalidDecisionItems(FixPlanID)
         case missingWriteTracks(Int)
 
         var errorDescription: String? {
@@ -20,6 +21,8 @@ enum FixPlanWrite {
                 "Review decision changed before write run started"
             case .noAcceptedItems:
                 "Fix plan has no accepted items to write"
+            case let .invalidDecisionItems(planID):
+                "Review decision items do not match fix plan \(planID.description)"
             case let .missingWriteTracks(count):
                 "Could not refresh \(count) reviewed write tracks from Music.app"
             }
@@ -29,8 +32,8 @@ enum FixPlanWrite {
     static func proposedChanges(
         from plan: FixPlan,
         decision: FixPlanReviewDecision
-    ) -> [ProposedChange] {
-        let verdicts = Dictionary(uniqueKeysWithValues: decision.itemDecisions.map { ($0.itemID, $0.verdict) })
+    ) throws -> [ProposedChange] {
+        let verdicts = try itemVerdicts(from: decision, matching: plan)
         return plan.items.map { item in
             ProposedChange(
                 id: item.id,
@@ -45,10 +48,31 @@ enum FixPlanWrite {
         }
     }
 
+    private static func itemVerdicts(
+        from decision: FixPlanReviewDecision,
+        matching plan: FixPlan
+    ) throws -> [UUID: FixPlanItemVerdict] {
+        let planItemIDs = Set(plan.items.map(\.id))
+        var verdicts: [UUID: FixPlanItemVerdict] = [:]
+        for itemDecision in decision.itemDecisions {
+            guard planItemIDs.contains(itemDecision.itemID),
+                  verdicts[itemDecision.itemID] == nil
+            else {
+                throw Failure.invalidDecisionItems(plan.id)
+            }
+            verdicts[itemDecision.itemID] = itemDecision.verdict
+        }
+        guard verdicts.count == planItemIDs.count else {
+            throw Failure.invalidDecisionItems(plan.id)
+        }
+        return verdicts
+    }
+
     static func prepareWriteIDs(
         for changes: [ProposedChange],
         mapper: TrackIDMapper,
-        bridge: AppleScriptBridge
+        scriptClient: any AppleScriptClient,
+        writeIDBatchSize: Int
     ) async throws {
         var targetsByReadID: [String: (track: Track, appleScriptID: String)] = [:]
         for change in changes {
@@ -58,9 +82,10 @@ enum FixPlanWrite {
         guard !targetsByReadID.isEmpty else { return }
 
         let appleScriptIDs = Array(Set(targetsByReadID.values.map(\.appleScriptID)))
-        let currentTracks = try await bridge.fetchTracksByIDs(
+        let currentTracks = try await scriptClient.fetchTracksByIDs(
             appleScriptIDs,
-            batchSize: max(appleScriptIDs.count, 1)
+            batchSize: writeIDBatchSize,
+            timeout: nil
         )
         var currentTracksByID: [String: Track] = [:]
         for track in currentTracks {
@@ -96,7 +121,7 @@ enum FixPlanWrite {
 }
 
 extension AppDependencies {
-    func makeWriteRunner() -> (@Sendable (FixPlanApplyTarget) async throws -> BatchUpdateResult)? {
+    func makeWriteRunner() -> (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)? {
         guard let updateCoordinator,
               let fixPlanStore,
               let mapper = trackIDMapper,
@@ -121,16 +146,18 @@ extension AppDependencies {
                 throw FixPlanWrite.Failure.staleDecision
             }
 
-            let changes = FixPlanWrite.proposedChanges(from: plan, decision: decision)
+            let changes = try FixPlanWrite.proposedChanges(from: plan, decision: decision)
             let acceptedChanges = changes.filter(\.isAccepted)
             guard !acceptedChanges.isEmpty else {
                 throw FixPlanWrite.Failure.noAcceptedItems
             }
 
+            let writeIDBatchSize = await bridge.trackIDBatchSize
             try await FixPlanWrite.prepareWriteIDs(
                 for: acceptedChanges,
                 mapper: mapper,
-                bridge: bridge
+                scriptClient: bridge,
+                writeIDBatchSize: writeIDBatchSize
             )
             return try await updateCoordinator.applyAcceptedChanges(changes) { _ in }
         }
