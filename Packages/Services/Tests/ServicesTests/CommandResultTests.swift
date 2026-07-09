@@ -73,8 +73,8 @@ struct CommandResultTests {
 
         #expect(command.kind == .applyFixPlan)
         #expect(command.fixPlanTarget == target)
-        #expect(command.fixPlanTarget?.applyTarget.planRevision == FixPlanRevision(3))
-        #expect(command.fixPlanTarget?.applyTarget.decisionRevision == ReviewDecisionRevision(5))
+        #expect(command.fixPlanTarget?.writeTarget.planRevision == FixPlanRevision(3))
+        #expect(command.fixPlanTarget?.writeTarget.decisionRevision == ReviewDecisionRevision(5))
         #expect(command.targetItemID == nil)
     }
 

@@ -89,7 +89,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     public let trigger: RunTrigger
     public let intent: RunIntent
     public let scope: ProcessingScopeSnapshot
-    public let applyTarget: FixPlanApplyTarget?
+    public let writeTarget: FixPlanWriteTarget?
     public let startedAt: Date
     public let phase: RunPhase
 
@@ -146,7 +146,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         trigger: RunTrigger,
         intent: RunIntent,
         scope: ProcessingScopeSnapshot,
-        applyTarget: FixPlanApplyTarget? = nil,
+        writeTarget: FixPlanWriteTarget? = nil,
         startedAt: Date,
         phase: RunPhase
     ) {
@@ -155,7 +155,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         self.trigger = trigger
         self.intent = intent
         self.scope = scope
-        self.applyTarget = applyTarget
+        self.writeTarget = writeTarget
         self.startedAt = startedAt
         self.phase = phase
     }
@@ -251,7 +251,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
             trigger: trigger,
             intent: intent,
             scope: scope,
-            applyTarget: applyTarget,
+            writeTarget: writeTarget,
             startedAt: startedAt,
             phase: phase
         )

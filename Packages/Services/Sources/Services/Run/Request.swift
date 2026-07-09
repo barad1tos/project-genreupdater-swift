@@ -13,37 +13,108 @@ public enum RunIntent: String, Codable, Equatable, Sendable {
     case writeFixes
 }
 
+public enum RunRequestKind: Equatable, Sendable {
+    case observeLibrary
+    case previewFixes
+    case writeFixes(FixPlanWriteTarget)
+
+    public var intent: RunIntent {
+        switch self {
+        case .observeLibrary: .observeLibrary
+        case .previewFixes: .previewFixes
+        case .writeFixes: .writeFixes
+        }
+    }
+
+    public var writeTarget: FixPlanWriteTarget? {
+        switch self {
+        case .observeLibrary, .previewFixes: nil
+        case let .writeFixes(target): target
+        }
+    }
+}
+
 public struct RunRequest: Equatable, Sendable {
     public let id: RunRequestID
     public let trigger: RunTrigger
-    public let intent: RunIntent
+    public let kind: RunRequestKind
     public let requestedTestArtists: [String]
     public let knownTrackCount: Int?
-    public let applyTarget: FixPlanApplyTarget?
 
-    public init(
+    public var intent: RunIntent {
+        kind.intent
+    }
+
+    public var writeTarget: FixPlanWriteTarget? {
+        kind.writeTarget
+    }
+
+    private init(
         id: RunRequestID = RunRequestID(),
         trigger: RunTrigger,
-        intent: RunIntent,
+        kind: RunRequestKind,
         requestedTestArtists: [String],
-        knownTrackCount: Int?,
-        applyTarget: FixPlanApplyTarget? = nil
+        knownTrackCount: Int?
     ) {
         self.id = id
         self.trigger = trigger
-        self.intent = intent
+        self.kind = kind
         self.requestedTestArtists = requestedTestArtists
         self.knownTrackCount = knownTrackCount
-        self.applyTarget = applyTarget
+    }
+
+    public static func observation(
+        id: RunRequestID = RunRequestID(),
+        trigger: RunTrigger,
+        requestedTestArtists: [String],
+        knownTrackCount: Int?
+    ) -> Self {
+        Self(
+            id: id,
+            trigger: trigger,
+            kind: .observeLibrary,
+            requestedTestArtists: requestedTestArtists,
+            knownTrackCount: knownTrackCount
+        )
+    }
+
+    public static func preview(
+        id: RunRequestID = RunRequestID(),
+        trigger: RunTrigger,
+        requestedTestArtists: [String],
+        knownTrackCount: Int?
+    ) -> Self {
+        Self(
+            id: id,
+            trigger: trigger,
+            kind: .previewFixes,
+            requestedTestArtists: requestedTestArtists,
+            knownTrackCount: knownTrackCount
+        )
+    }
+
+    public static func write(
+        id: RunRequestID = RunRequestID(),
+        trigger: RunTrigger,
+        target: FixPlanWriteTarget,
+        requestedTestArtists: [String],
+        knownTrackCount: Int?
+    ) -> Self {
+        Self(
+            id: id,
+            trigger: trigger,
+            kind: .writeFixes(target),
+            requestedTestArtists: requestedTestArtists,
+            knownTrackCount: knownTrackCount
+        )
     }
 
     public static func manualObservation(
         requestedTestArtists: [String],
         knownTrackCount: Int?
     ) -> Self {
-        Self(
+        observation(
             trigger: .manualCheck,
-            intent: .observeLibrary,
             requestedTestArtists: requestedTestArtists,
             knownTrackCount: knownTrackCount
         )
@@ -53,25 +124,23 @@ public struct RunRequest: Equatable, Sendable {
         requestedTestArtists: [String],
         knownTrackCount: Int?
     ) -> Self {
-        Self(
+        preview(
             trigger: .manualCheck,
-            intent: .previewFixes,
             requestedTestArtists: requestedTestArtists,
             knownTrackCount: knownTrackCount
         )
     }
 
     public static func manualWrite(
-        target: FixPlanApplyTarget,
+        target: FixPlanWriteTarget,
         requestedTestArtists: [String],
         knownTrackCount: Int?
     ) -> Self {
-        Self(
+        write(
             trigger: .manualCheck,
-            intent: .writeFixes,
+            target: target,
             requestedTestArtists: requestedTestArtists,
-            knownTrackCount: knownTrackCount,
-            applyTarget: target
+            knownTrackCount: knownTrackCount
         )
     }
 }

@@ -28,8 +28,8 @@ public struct FixPlanCommandTarget: Equatable, Sendable {
         self.projectionRevision = projectionRevision
     }
 
-    public var applyTarget: FixPlanApplyTarget {
-        FixPlanApplyTarget(
+    public var writeTarget: FixPlanWriteTarget {
+        FixPlanWriteTarget(
             planID: planID,
             planRevision: planRevision,
             decisionRevision: decisionRevision

@@ -212,34 +212,34 @@ struct LibraryServicesTests {
     @Test("Run report page includes open records outside the capped history")
     func includesOpenRuns() async throws {
         let recent = sampleRunRecord()
-        let open = sampleRunRecord(
+        let openRecord = sampleRunRecord(
             runID: RunID(),
             state: .reporting,
             finishedAt: nil
         )
         let stub = RunRecordStoreStub(reportPages: [
             RunReportPage(records: [recent], skippedCorruptedCount: 1),
-            RunReportPage(records: [open], skippedCorruptedCount: 0),
+            RunReportPage(records: [openRecord], skippedCorruptedCount: 0),
         ])
         let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
 
         let page = await fixture.dependencies.loadRunReportPage(limit: 1)
         let queries = await stub.reportQueries()
 
-        #expect(page?.records.map(\.runID) == [recent.runID, open.runID])
+        #expect(page?.records.map(\.runID) == [recent.runID, openRecord.runID])
         #expect(page?.skippedCorruptedCount == 1)
         #expect(queries.map(\.limit) == [1, nil])
         #expect(queries.last?.states == expectedOpenRunStates)
     }
 
     @Test("Recovery hold ignores normal active runs")
-    func normalActiveRunDoesNotHoldRecovery() async throws {
-        let open = sampleRunRecord(
+    func normalRunDoesNotHold() async throws {
+        let activeRecord = sampleRunRecord(
             runID: RunID(),
             state: .syncingLibrary,
             finishedAt: nil
         )
-        let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [open], skippedCorruptedCount: 0))
+        let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [activeRecord], skippedCorruptedCount: 0))
         let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
 
         let isHeld = await fixture.dependencies.hasRecoveryHold()
@@ -251,12 +251,12 @@ struct LibraryServicesTests {
 
     @Test("Recovery hold is active for open recovery records")
     func recoveryRecordHoldsWrites() async throws {
-        let open = sampleRunRecord(
+        let recoverableRecord = sampleRunRecord(
             runID: RunID(),
             state: .recoverable,
             finishedAt: nil
         )
-        let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [open], skippedCorruptedCount: 0))
+        let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [recoverableRecord], skippedCorruptedCount: 0))
         let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
 
         let isHeld = await fixture.dependencies.hasRecoveryHold()

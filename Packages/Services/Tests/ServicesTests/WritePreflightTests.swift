@@ -112,7 +112,7 @@ struct WritePreflightTests {
     }
 
     @Test("Generated year update still writes already-processed metadata")
-    func generatedYearStillWritesProcessed() async throws {
+    func generatedYearWritesProcessed() async throws {
         let musicKitTrack = Track(
             id: "MK1",
             name: "Come Together",
@@ -158,7 +158,97 @@ struct WritePreflightTests {
         #expect(written.map(\.value) == ["1970"])
     }
 
-    private func makeCoordinator(idMapper: any TrackIDMapping) async -> PreflightFixture {
+    @Test("Reviewed batch write uses configured ID fetch batch size")
+    func chunksIDFetches() async throws {
+        let changes = batchChanges()
+        let mapper = batchMapper(for: changes)
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            areBatchUpdatesEnabled: true,
+            maxBatchUpdateSize: 5,
+            idsBatchSize: 2
+        )
+        let fixture = await makeCoordinator(idMapper: mapper, runtimeConfiguration: runtimeConfiguration)
+        await fixture.bridge.setFetchedTracks(scriptTracks(for: changes))
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            changes,
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        let fetchCalls = await fixture.bridge.fetchTracksByIDsCalls()
+        #expect(fetchCalls.map(\.batchSize).allSatisfy { $0 == 2 })
+        #expect(result.entries.count == 3)
+        #expect(result.failedTrackIDs.isEmpty)
+    }
+
+    private func batchChanges() -> [ProposedChange] {
+        (1 ... 3).map { index in
+            ProposedChange(
+                track: Track(
+                    id: "MK\(index)",
+                    name: "Track \(index)",
+                    artist: "Beatles",
+                    album: "Abbey Road",
+                    year: 1969,
+                    trackStatus: nil
+                ),
+                changeType: .yearUpdate,
+                oldValue: "1969",
+                newValue: "1970",
+                confidence: 95,
+                source: "MusicBrainz",
+                isAccepted: true
+            )
+        }
+    }
+
+    private func batchMapper(for changes: [ProposedChange]) -> BatchIDMapper {
+        BatchIDMapper(changes.map { change in
+            let musicKitID = change.track.id
+            let appleScriptID = scriptID(for: change.track)
+            return (
+                musicKitID: musicKitID,
+                appleScriptID: appleScriptID,
+                enrichedTrack: mutationTrack(from: change.track, appleScriptID: appleScriptID)
+            )
+        })
+    }
+
+    private func scriptTracks(for changes: [ProposedChange]) -> [Track] {
+        changes.map { change in
+            let appleScriptID = scriptID(for: change.track)
+            return Track(
+                id: appleScriptID,
+                name: change.track.name,
+                artist: change.track.artist,
+                album: change.track.album,
+                year: 1969,
+                trackStatus: nil,
+                appleScriptID: appleScriptID
+            )
+        }
+    }
+
+    private func mutationTrack(from track: Track, appleScriptID: String) -> Track {
+        Track(
+            id: track.id,
+            name: track.name,
+            artist: track.artist,
+            album: track.album,
+            year: 1969,
+            trackStatus: nil,
+            appleScriptID: appleScriptID
+        )
+    }
+
+    private func scriptID(for track: Track) -> String {
+        track.id.replacingOccurrences(of: "MK", with: "AS")
+    }
+
+    private func makeCoordinator(
+        idMapper: any TrackIDMapping,
+        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
+    ) async -> PreflightFixture {
         let bridge = MockAppleScriptClient()
         let apiService = MockAPIService()
         let orchestrator = makeAPIOrchestrator(
@@ -179,7 +269,8 @@ struct WritePreflightTests {
                 idMapper: idMapper
             ),
             genreDeterminator: GenreDeterminator(),
-            yearDeterminator: YearDeterminator()
+            yearDeterminator: YearDeterminator(),
+            runtimeConfiguration: runtimeConfiguration
         )
 
         return PreflightFixture(coordinator: coordinator, bridge: bridge)
@@ -220,5 +311,33 @@ private actor ProcessedIDMapper: TrackIDMapping {
 
     func hasMappingFor(musicKitID: String) async -> Bool {
         musicKitID == self.musicKitID
+    }
+}
+
+private actor BatchIDMapper: TrackIDMapping {
+    private let valuesByMusicKitID: [String: (appleScriptID: String, enrichedTrack: Track)]
+
+    init(_ values: [(musicKitID: String, appleScriptID: String, enrichedTrack: Track)]) {
+        valuesByMusicKitID = Dictionary(
+            uniqueKeysWithValues: values.map {
+                ($0.musicKitID, (appleScriptID: $0.appleScriptID, enrichedTrack: $0.enrichedTrack))
+            }
+        )
+    }
+
+    func appleScriptID(forMusicKitID musicKitID: String) async -> String? {
+        valuesByMusicKitID[musicKitID]?.appleScriptID
+    }
+
+    func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track? {
+        valuesByMusicKitID[musicKitTrack.id]?.enrichedTrack
+    }
+
+    func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
+        await Task.yield()
+    }
+
+    func hasMappingFor(musicKitID: String) async -> Bool {
+        valuesByMusicKitID[musicKitID] != nil
     }
 }

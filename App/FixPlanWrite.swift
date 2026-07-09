@@ -30,7 +30,10 @@ enum FixPlanWrite {
         from plan: FixPlan,
         decision: FixPlanReviewDecision
     ) -> [ProposedChange] {
-        let verdicts = Dictionary(uniqueKeysWithValues: decision.itemDecisions.map { ($0.itemID, $0.verdict) })
+        var verdicts: [UUID: FixPlanItemVerdict] = [:]
+        for itemDecision in decision.itemDecisions {
+            verdicts[itemDecision.itemID] = itemDecision.verdict
+        }
         return plan.items.map { item in
             ProposedChange(
                 id: item.id,
@@ -48,7 +51,8 @@ enum FixPlanWrite {
     static func prepareWriteIDs(
         for changes: [ProposedChange],
         mapper: TrackIDMapper,
-        bridge: AppleScriptBridge
+        scriptClient: any AppleScriptClient,
+        writeIDBatchSize: Int
     ) async throws {
         var targetsByReadID: [String: (track: Track, appleScriptID: String)] = [:]
         for change in changes {
@@ -58,9 +62,10 @@ enum FixPlanWrite {
         guard !targetsByReadID.isEmpty else { return }
 
         let appleScriptIDs = Array(Set(targetsByReadID.values.map(\.appleScriptID)))
-        let currentTracks = try await bridge.fetchTracksByIDs(
+        let currentTracks = try await scriptClient.fetchTracksByIDs(
             appleScriptIDs,
-            batchSize: max(appleScriptIDs.count, 1)
+            batchSize: writeIDBatchSize,
+            timeout: nil
         )
         var currentTracksByID: [String: Track] = [:]
         for track in currentTracks {
@@ -96,7 +101,7 @@ enum FixPlanWrite {
 }
 
 extension AppDependencies {
-    func makeWriteRunner() -> (@Sendable (FixPlanApplyTarget) async throws -> BatchUpdateResult)? {
+    func makeWriteRunner() -> (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)? {
         guard let updateCoordinator,
               let fixPlanStore,
               let mapper = trackIDMapper,
@@ -127,10 +132,12 @@ extension AppDependencies {
                 throw FixPlanWrite.Failure.noAcceptedItems
             }
 
+            let writeIDBatchSize = await bridge.trackIDBatchSize
             try await FixPlanWrite.prepareWriteIDs(
                 for: acceptedChanges,
                 mapper: mapper,
-                bridge: bridge
+                scriptClient: bridge,
+                writeIDBatchSize: writeIDBatchSize
             )
             return try await updateCoordinator.applyAcceptedChanges(changes) { _ in }
         }

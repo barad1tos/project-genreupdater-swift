@@ -140,6 +140,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     public let shouldOverrideExistingGenres: Bool
     public let areBatchUpdatesEnabled: Bool
     public let maxBatchUpdateSize: Int
+    public let idsBatchSize: Int
 
     public struct Policies: Sendable, Equatable {
         public let isYearLookupEnabled: Bool
@@ -181,6 +182,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         testArtists: [String] = AppConfiguration().development.testArtists,
         areBatchUpdatesEnabled: Bool = AppConfiguration().experimental.batchUpdatesEnabled,
         maxBatchUpdateSize: Int = AppConfiguration().experimental.maxBatchSize,
+        idsBatchSize: Int = BatchProcessingConfig().idsBatchSize,
         policies: Policies = Policies()
     ) {
         self.genreMappings = genreMappings
@@ -197,6 +199,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         self.shouldOverrideExistingGenres = policies.shouldOverrideExistingGenres
         self.areBatchUpdatesEnabled = areBatchUpdatesEnabled
         self.maxBatchUpdateSize = max(1, maxBatchUpdateSize)
+        self.idsBatchSize = max(1, idsBatchSize)
     }
 
     public init(configuration: AppConfiguration) {
@@ -212,6 +215,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             testArtists: configuration.development.testArtists,
             areBatchUpdatesEnabled: configuration.experimental.batchUpdatesEnabled,
             maxBatchUpdateSize: configuration.experimental.maxBatchSize,
+            idsBatchSize: configuration.applescript.batchProcessing.idsBatchSize,
             policies: Policies(
                 isYearLookupEnabled: configuration.yearRetrieval.enabled,
                 minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,

@@ -147,7 +147,7 @@ extension AppDependencies {
         }
     }
 
-    func submitFixPlanWrite(target: FixPlanApplyTarget) async throws -> RunSubmissionResult {
+    func submitFixPlanWrite(target: FixPlanWriteTarget) async throws -> RunSubmissionResult {
         try await submitRun { knownTrackCount in
             .manualWrite(
                 target: target,

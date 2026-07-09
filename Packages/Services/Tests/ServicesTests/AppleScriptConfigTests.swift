@@ -5,7 +5,7 @@ import Testing
 @testable import Services
 
 @Suite("AppleScriptBridge - retry and rate configuration")
-struct AppleScriptBridgeConfigurationTests {
+struct AppleScriptConfigTests {
     @Test("Concurrency limit clamps to at least one")
     func concurrencyLimitClampsToAtLeastOne() {
         #expect(AppleScriptBridge.normalizedConcurrencyLimit(2) == 2)
@@ -72,6 +72,39 @@ struct AppleScriptBridgeConfigurationTests {
         configuration.windowSizeSeconds = 1
 
         #expect(AppleScriptBridge.makeRateLimiter(configuration: configuration) != nil)
+    }
+
+    @Test("Track ID batch size follows runtime configuration")
+    func usesConfiguredIDBatchSize() async {
+        let bridge = makeRetryBridge()
+        var configuration = AppleScriptConfig()
+        configuration.batchProcessing.idsBatchSize = 17
+
+        await bridge.updateConfiguration(configuration)
+
+        #expect(await bridge.trackIDBatchSize == 17)
+
+        configuration.batchProcessing.idsBatchSize = 0
+        await bridge.updateConfiguration(configuration)
+
+        #expect(await bridge.trackIDBatchSize == 1)
+    }
+
+    @Test("Track ID fetch clamps invalid batch size before script execution")
+    func clampsInvalidIDBatchSize() async {
+        let bridge = makeRetryBridge()
+
+        do {
+            _ = try await bridge.fetchTracksByIDs(["AS-1"], batchSize: 0)
+            Issue.record("Expected missing fetch script")
+        } catch let error as AppleScriptBridgeError {
+            guard case .scriptNotFound = error else {
+                Issue.record("Expected scriptNotFound, got \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected AppleScriptBridgeError, got \(error)")
+        }
     }
 
     @Test("AppleScript argv event launches script with direct arguments")

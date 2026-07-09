@@ -43,18 +43,18 @@ enum TriggerArbiter {
 private struct RequestKey {
     let rank: RequestRank
     let scope: ScopeKey
-    let applyTarget: FixPlanApplyTarget?
+    let writeTarget: FixPlanWriteTarget?
 
     init(lifecycle: RunLifecycleSnapshot) {
         rank = TriggerArbiter.rank(trigger: lifecycle.trigger, intent: lifecycle.intent)
         scope = ScopeKey(snapshot: lifecycle.scope)
-        applyTarget = lifecycle.applyTarget
+        writeTarget = lifecycle.writeTarget
     }
 
     init(request: RunRequest) {
         rank = TriggerArbiter.rank(trigger: request.trigger, intent: request.intent)
         scope = ScopeKey(request: request)
-        applyTarget = request.applyTarget
+        writeTarget = request.writeTarget
     }
 
     func covers(_ other: Self) -> Bool {
@@ -64,7 +64,7 @@ private struct RequestKey {
         else {
             return true
         }
-        return applyTarget == other.applyTarget
+        return writeTarget == other.writeTarget
     }
 }
 
