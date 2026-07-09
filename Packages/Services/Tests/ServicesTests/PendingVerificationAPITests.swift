@@ -388,7 +388,9 @@ actor RecordingPendingVerificationService: PendingVerificationService {
         self.entries = entries
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // Test double has no persistent store to initialize.
+    }
 
     func markForVerification(
         artist: String,
@@ -431,7 +433,9 @@ actor RecordingPendingVerificationService: PendingVerificationService {
         false
     }
 
-    func updateVerificationTimestamp() async throws {}
+    func updateVerificationTimestamp() async throws {
+        // These tests assert mark/remove calls, not auto-verification scheduling.
+    }
 
     func markCount() -> Int {
         marks.count

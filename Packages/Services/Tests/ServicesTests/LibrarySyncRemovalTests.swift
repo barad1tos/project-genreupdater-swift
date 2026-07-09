@@ -66,7 +66,9 @@ private actor QueuedFetchAllTrackIDsScriptClient: AppleScriptClient {
         self.tracksByID = tracksByID
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // Test double has no script runtime to initialize.
+    }
 
     func runScript(name: String, arguments: [String], timeout _: Duration?) async throws -> String? {
         guard name == "fetch_tracks" else { return nil }
@@ -102,7 +104,9 @@ private actor QueuedFetchAllTrackIDsScriptClient: AppleScriptClient {
         .changed
     }
 
-    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {}
+    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
+        // Removal tests never exercise write batching.
+    }
 
     func fetchAllTrackIDsCallCount() -> Int {
         fetchAllTrackIDsCalls
