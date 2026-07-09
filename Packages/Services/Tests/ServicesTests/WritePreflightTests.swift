@@ -4,9 +4,9 @@ import Testing
 @testable import Services
 
 @Suite("UpdateCoordinator — reviewed write preflight")
-struct ReviewedWritePreflightTests {
+struct WritePreflightTests {
     @Test("Reviewed year update skips already-processed write metadata")
-    func reviewedYearUpdateSkipsAlreadyProcessedWriteMetadata() async throws {
+    func reviewedYearSkipsProcessed() async throws {
         let musicKitTrack = Track(
             id: "MK1",
             name: "Come Together",
@@ -28,7 +28,7 @@ struct ReviewedWritePreflightTests {
             yearSetByMGU: 1969,
             appleScriptID: "AS1"
         )
-        let mapper = ProcessedReviewedTrackIDMapper(
+        let mapper = ProcessedIDMapper(
             musicKitID: musicKitTrack.id,
             appleScriptID: "AS1",
             enrichedTrack: processedTrack
@@ -60,8 +60,59 @@ struct ReviewedWritePreflightTests {
         #expect(result.failedTrackIDs.isEmpty)
     }
 
+    @Test("Reviewed genre update fails when current metadata changed externally")
+    func reviewedGenreRejectsStale() async throws {
+        let musicKitTrack = Track(
+            id: "MK1",
+            name: "Come Together",
+            artist: "Beatles",
+            album: "Abbey Road",
+            genre: "Rock",
+            year: 1969,
+            trackStatus: nil
+        )
+        let currentTrack = Track(
+            id: musicKitTrack.id,
+            name: musicKitTrack.name,
+            artist: musicKitTrack.artist,
+            album: musicKitTrack.album,
+            genre: "Jazz",
+            year: 1969,
+            trackStatus: nil,
+            appleScriptID: "AS1"
+        )
+        let mapper = ProcessedIDMapper(
+            musicKitID: musicKitTrack.id,
+            appleScriptID: "AS1",
+            enrichedTrack: currentTrack
+        )
+        let fixture = await makeCoordinator(idMapper: mapper)
+        let change = ProposedChange(
+            track: musicKitTrack,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Art Pop",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+
+        do {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [change],
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+            Issue.record("Expected stale reviewed change failure")
+        } catch let error as UpdateCoordinatorError {
+            #expect(error.errorDescription?.contains("reviewed value no longer matches Music.app") == true)
+        }
+
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.isEmpty)
+    }
+
     @Test("Generated year update still writes already-processed metadata")
-    func generatedYearUpdateStillWritesAlreadyProcessedMetadata() async throws {
+    func generatedYearStillWritesProcessed() async throws {
         let musicKitTrack = Track(
             id: "MK1",
             name: "Come Together",
@@ -83,7 +134,7 @@ struct ReviewedWritePreflightTests {
             yearSetByMGU: 1969,
             appleScriptID: "AS1"
         )
-        let mapper = ProcessedReviewedTrackIDMapper(
+        let mapper = ProcessedIDMapper(
             musicKitID: musicKitTrack.id,
             appleScriptID: "AS1",
             enrichedTrack: processedTrack
@@ -107,7 +158,7 @@ struct ReviewedWritePreflightTests {
         #expect(written.map(\.value) == ["1970"])
     }
 
-    private func makeCoordinator(idMapper: any TrackIDMapping) async -> ReviewedWritePreflightFixture {
+    private func makeCoordinator(idMapper: any TrackIDMapping) async -> PreflightFixture {
         let bridge = MockAppleScriptClient()
         let apiService = MockAPIService()
         let orchestrator = makeAPIOrchestrator(
@@ -116,7 +167,7 @@ struct ReviewedWritePreflightTests {
             appleMusic: apiService
         )
         let undoDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("UpdateCoordinatorReviewedWritePreflightTests-\(UUID().uuidString)")
+            .appendingPathComponent("WritePreflightTests-\(UUID().uuidString)")
         let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
         let coordinator = UpdateCoordinator(
             dependencies: UpdateCoordinatorDependencies(
@@ -131,7 +182,7 @@ struct ReviewedWritePreflightTests {
             yearDeterminator: YearDeterminator()
         )
 
-        return ReviewedWritePreflightFixture(coordinator: coordinator, bridge: bridge)
+        return PreflightFixture(coordinator: coordinator, bridge: bridge)
     }
 }
 
@@ -139,12 +190,12 @@ private func ignoreAcceptedChangeProgress(_ update: ProgressUpdate) {
     _ = update
 }
 
-private struct ReviewedWritePreflightFixture {
+private struct PreflightFixture {
     let coordinator: UpdateCoordinator
     let bridge: MockAppleScriptClient
 }
 
-private actor ProcessedReviewedTrackIDMapper: TrackIDMapping {
+private actor ProcessedIDMapper: TrackIDMapping {
     private let musicKitID: String
     private let appleScriptIDValue: String
     private let enrichedTrack: Track

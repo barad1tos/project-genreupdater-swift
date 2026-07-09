@@ -29,6 +29,7 @@ public actor RunOrchestrator {
         case missingFixPlanProducer
         case missingWriteTarget
         case missingWriteRunner
+        case partialWriteFailure(failedOperationCount: Int, failedTrackCount: Int, reasons: [String])
 
         var errorDescription: String? {
             switch self {
@@ -38,11 +39,28 @@ public actor RunOrchestrator {
                 "Fix plan write target is unavailable"
             case .missingWriteRunner:
                 "Fix plan write runner is unavailable"
+            case let .partialWriteFailure(failedOperationCount, failedTrackCount, reasons):
+                Self.partialFailureDescription(
+                    failedOperationCount: failedOperationCount,
+                    failedTrackCount: failedTrackCount,
+                    reasons: reasons
+                )
             }
+        }
+
+        private static func partialFailureDescription(
+            failedOperationCount: Int,
+            failedTrackCount: Int,
+            reasons: [String]
+        ) -> String {
+            let summary = "Write run partially failed: \(failedOperationCount) operations failed across " +
+                "\(failedTrackCount) tracks"
+            let details = reasons.filter { !$0.isEmpty }.joined(separator: "; ")
+            return details.isEmpty ? summary : "\(summary). Errors: \(details)"
         }
     }
 
-    private struct RunWork: Sendable {
+    private struct RunWork {
         let reportingSource: RunLifecycleSnapshot
         let result: SyncResult
         let hasActionableWork: Bool
@@ -53,7 +71,7 @@ public actor RunOrchestrator {
     private var activeRun: RunLifecycleSnapshot?
     private var latestRun: RunLifecycleSnapshot?
     private var activeTransitions: [RunLifecycleTransition] = []
-    private var pendingTrigger: PendingTrigger?
+    private var pendingTriggers: [PendingTrigger] = []
     private var continuations: [UUID: AsyncStream<RunLifecycleSnapshot>.Continuation]
 
     public init(dependencies: Dependencies) {
@@ -91,12 +109,12 @@ public actor RunOrchestrator {
 
     public func submit(_ request: RunRequest) async -> RunSubmissionResult {
         if let activeRun {
-            switch TriggerArbiter.decide(active: activeRun, pending: pendingTrigger, incoming: request) {
+            switch TriggerArbiter.decide(active: activeRun, pending: pendingTriggers, incoming: request) {
             case let .alreadyCovered(pending):
-                pendingTrigger = pending
+                pendingTriggers = pending
                 return .alreadyCovered(activeRun: activeRun)
             case let .queue(pending):
-                pendingTrigger = pending
+                pendingTriggers = pending
                 return .queued(activeRun: activeRun)
             }
         }
@@ -197,6 +215,13 @@ public actor RunOrchestrator {
             }
             let writing = beginWriting(from: lifecycle)
             let writeResult = try await applyFixPlan(applyTarget)
+            if writeResult.hasPartialFailures {
+                throw RunWorkError.partialWriteFailure(
+                    failedOperationCount: writeResult.failedOperationCount,
+                    failedTrackCount: writeResult.failedTrackCount,
+                    reasons: writeResult.errorDescriptions
+                )
+            }
             let verifying = beginVerifying(from: writing)
             return RunWork(
                 reportingSource: verifying,
@@ -254,8 +279,8 @@ public actor RunOrchestrator {
     }
 
     private func startPendingRun() {
-        guard let pending = pendingTrigger else { return }
-        pendingTrigger = nil
+        guard !pendingTriggers.isEmpty else { return }
+        let pending = pendingTriggers.removeFirst()
         _ = startRun(for: pending.request, startedAt: dependencies.now())
     }
 
@@ -344,6 +369,7 @@ public actor RunOrchestrator {
             trigger: request.trigger,
             intent: request.intent,
             scope: scope,
+            applyTarget: request.applyTarget,
             startedAt: startedAt,
             phase: .active(.created)
         )

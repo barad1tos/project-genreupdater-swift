@@ -247,6 +247,21 @@ struct FixPlanCommandsTests {
         #expect(await harness.store.recordCallCount() == 0)
     }
 
+    @Test("apply command rejects stale projections with accepted items")
+    func applyRejectsStale() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        harness.markProjectionStale()
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyFixPlan(target: harness.target))
+
+        #expect(result.status == .rejectedStale)
+        #expect(result.message == "Fix plan changed. Refreshing current plan.")
+        #expect(result.refreshedFixPlanProjection?.status == .stale)
+        #expect(harness.writeCallCount() == 0)
+        #expect(await harness.store.recordCallCount() == 0)
+    }
+
     @Test("apply command is blocked while recovery holds writes")
     func applyBlockedByRecoveryHold() async {
         let harness = FixPlanCommandHarness(startingVerdict: .accepted)
@@ -314,6 +329,7 @@ private final class FixPlanCommandHarness {
     let store: MemoryFixPlanStore
     private var fixPlanProjection: FixPlanProjection
     private var activityProjection = ActivityProjection.empty(revision: ProjectionRevision(10))
+    private var shouldRefreshProjection = true
     private var writeResult: RunSubmissionResult?
     private var writeError: (any Error)?
     private var writeTargets: [FixPlanApplyTarget] = []
@@ -365,6 +381,27 @@ private final class FixPlanCommandHarness {
         writeResult = result
     }
 
+    func markProjectionStale() {
+        fixPlanProjection = FixPlanProjection(
+            revision: fixPlanProjection.revision,
+            status: .stale,
+            lineage: fixPlanProjection.lineage,
+            summary: FixPlanProjection.Summary(
+                itemCount: fixPlanProjection.itemCount,
+                acceptedCount: fixPlanProjection.acceptedCount,
+                rejectedCount: fixPlanProjection.rejectedCount,
+                genreCount: fixPlanProjection.genreCount,
+                yearCount: fixPlanProjection.yearCount,
+                averageConfidence: fixPlanProjection.averageConfidence,
+                canApply: false
+            ),
+            stalenessReasons: [.scopeChanged],
+            items: fixPlanProjection.items,
+            operationalIssues: fixPlanProjection.operationalIssues
+        )
+        shouldRefreshProjection = false
+    }
+
     func failNextWrite(_ error: any Error) {
         writeError = error
     }
@@ -387,6 +424,9 @@ private final class FixPlanCommandHarness {
     }
 
     private func refreshFixPlanProjection() async -> FixPlanProjection {
+        guard shouldRefreshProjection else {
+            return fixPlanProjection
+        }
         guard let decision = try? await store.currentDecision(for: plan.id) else {
             return fixPlanProjection
         }

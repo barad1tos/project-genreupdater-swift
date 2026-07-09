@@ -203,7 +203,7 @@ public struct FixPlanView: View {
                     Button {
                         onApply?()
                     } label: {
-                        Label("Apply \(snapshot.acceptedCount)", systemImage: "square.and.arrow.down")
+                        Label(applyLabel, systemImage: "checkmark.seal")
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!canApplyChanges)
@@ -456,6 +456,11 @@ public struct FixPlanView: View {
 
     private var canReject: Bool {
         canReview && onReject != nil && snapshot.rejectedCount < snapshot.itemCount
+    }
+
+    private var applyLabel: String {
+        let suffix = snapshot.acceptedCount == 1 ? "change" : "changes"
+        return "Apply \(snapshot.acceptedCount) \(suffix)"
     }
 
     private var canApplyChanges: Bool {

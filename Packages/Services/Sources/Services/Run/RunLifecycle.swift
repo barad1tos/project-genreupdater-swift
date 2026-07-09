@@ -89,6 +89,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     public let trigger: RunTrigger
     public let intent: RunIntent
     public let scope: ProcessingScopeSnapshot
+    public let applyTarget: FixPlanApplyTarget?
     public let startedAt: Date
     public let phase: RunPhase
 
@@ -145,6 +146,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         trigger: RunTrigger,
         intent: RunIntent,
         scope: ProcessingScopeSnapshot,
+        applyTarget: FixPlanApplyTarget? = nil,
         startedAt: Date,
         phase: RunPhase
     ) {
@@ -153,6 +155,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         self.trigger = trigger
         self.intent = intent
         self.scope = scope
+        self.applyTarget = applyTarget
         self.startedAt = startedAt
         self.phase = phase
     }
@@ -188,10 +191,11 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     public func beginningReporting() -> Self {
         if phase != .active(.syncingLibrary),
            phase != .active(.planningFixes),
+           phase != .active(.writing),
            phase != .active(.verifying) {
             reportIllegalTransition(
                 "beginningReporting()",
-                expected: ".active(.syncingLibrary), .active(.planningFixes), or .active(.verifying)"
+                expected: ".active(.syncingLibrary), .active(.planningFixes), .active(.writing), or .active(.verifying)"
             )
         }
         return withPhase(.active(.reporting))
@@ -247,6 +251,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
             trigger: trigger,
             intent: intent,
             scope: scope,
+            applyTarget: applyTarget,
             startedAt: startedAt,
             phase: phase
         )

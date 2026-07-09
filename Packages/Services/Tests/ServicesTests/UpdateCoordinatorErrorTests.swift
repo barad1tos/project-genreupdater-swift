@@ -88,6 +88,15 @@ struct UpdateCoordinatorErrorTests {
         let description = error.errorDescription ?? ""
         #expect(description.contains("MK1"))
     }
+
+    @Test("reviewedChangeStale describes the protected write")
+    func reviewedChangeStale() {
+        let error = UpdateCoordinatorError.reviewedChangeStale(trackID: "MK1", property: "genre")
+        let description = error.errorDescription ?? ""
+        #expect(description.contains("MK1"))
+        #expect(description.contains("genre"))
+        #expect(description.contains("reviewed value no longer matches Music.app"))
+    }
 }
 
 // MARK: - BatchUpdateResult Tests
@@ -209,10 +218,10 @@ struct UpdateOptionsTests {
     }
 }
 
-// MARK: - UpdateCoordinator write failure Tests
+// MARK: - Write failure tests
 
 @Suite("UpdateCoordinator — write failure handling")
-struct UpdateCoordinatorWriteFailureTests {
+struct WriteFailureTests {
     private func makeCoordinator(
         scriptBridge: MockAppleScriptClient
     ) async -> UpdateCoordinator {

@@ -10,6 +10,7 @@ public enum UpdateCoordinatorError: Error, LocalizedError {
     case noChangesProduced
     case allTracksFailed(count: Int, errorDescriptions: [String])
     case missingAppleScriptID(trackID: String)
+    case reviewedChangeStale(trackID: String, property: String)
     case writeFailed(trackID: String, property: String, reason: String)
 
     public var errorDescription: String? {
@@ -24,6 +25,8 @@ public enum UpdateCoordinatorError: Error, LocalizedError {
             Self.allTracksFailedDescription(count: count, errorDescriptions: errorDescriptions)
         case let .missingAppleScriptID(trackID):
             "Cannot write track \(trackID): no AppleScript ID mapping is available"
+        case let .reviewedChangeStale(trackID, property):
+            "Cannot write \(property) for track \(trackID): reviewed value no longer matches Music.app"
         case let .writeFailed(trackID, property, reason):
             "Failed to write \(property) for track \(trackID): \(reason)"
         }
@@ -721,6 +724,14 @@ public actor UpdateCoordinator {
                 errorDescriptions: &errorDescriptions
             )
             logSkippedMissingAppleScriptID(trackID: trackID, isReviewedChange: isReviewedChange)
+        case let .reviewedChangeStale(trackID, _):
+            Self.recordFailedTrack(
+                id: trackID,
+                error: error,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            )
+            log.info("Skipped stale reviewed change for track \(trackID, privacy: .private)")
         default:
             return false
         }

@@ -56,7 +56,10 @@ struct FixPlanCommands {
         }
 
         let projection = await refreshFixPlanProjection()
-        guard isCurrentTarget(target, in: projection) else {
+        guard targetMatchesProjection(target, in: projection) else {
+            return await staleResult(message: "Review changed. Refreshing current plan.", projection: projection)
+        }
+        guard projection.status == .ready || command.kind == .applyFixPlan else {
             return await staleResult(message: "Review changed. Refreshing current plan.", projection: projection)
         }
 
@@ -124,12 +127,11 @@ struct FixPlanCommands {
         }
     }
 
-    private func isCurrentTarget(
+    private func targetMatchesProjection(
         _ target: FixPlanCommandTarget,
         in projection: FixPlanProjection
     ) -> Bool {
-        projection.status == .ready &&
-            projection.planID == target.planID &&
+        projection.planID == target.planID &&
             projection.planRevision == target.planRevision &&
             projection.decisionRevision == target.decisionRevision &&
             projection.revision == target.projectionRevision
@@ -205,8 +207,11 @@ struct FixPlanCommands {
         decision: FixPlanReviewDecision,
         projection: FixPlanProjection
     ) async -> UserCommandResult {
-        guard decision.itemDecisions.contains(where: { $0.verdict == .accepted }), projection.canApply else {
+        guard decision.itemDecisions.contains(where: { $0.verdict == .accepted }) else {
             return await noAcceptedResult(projection: projection)
+        }
+        guard projection.canApply else {
+            return await staleResult(message: "Fix plan changed. Refreshing current plan.", projection: projection)
         }
         if await hasRecoveryHold() {
             return await recoveryHoldResult(target: target, projection: projection)
