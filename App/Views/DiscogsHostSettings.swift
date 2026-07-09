@@ -1,5 +1,3 @@
-// DiscogsHostSettings.swift -- Discogs endpoint controls.
-
 import Core
 import SharedUI
 import SwiftUI

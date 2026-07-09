@@ -1,5 +1,3 @@
-// PendingVerificationAPI.swift -- Pending verification sync rules.
-
 import Core
 
 enum PendingVerificationSync {

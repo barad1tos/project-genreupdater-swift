@@ -9,6 +9,17 @@ import Testing
 @testable import Core
 @testable import Services
 
+private enum ITunesPath {
+    static let search = path("search")
+    static let lookup = path("lookup")
+
+    private static let separator = "/"
+
+    private static func path(_ endpoint: String) -> String {
+        separator + endpoint
+    }
+}
+
 // MARK: - CatalogSearchClientTests
 
 @Suite("CatalogSearchClient — Apple Music catalog search via MusicKit", .serialized)
@@ -16,6 +27,16 @@ struct CatalogSearchClientTests {
     @Test("Client conforms to ExternalAPIService")
     func conformsToProtocol() {
         requireExternalAPIService(CatalogSearchClient())
+    }
+
+    @Test("iTunes configuration uses expected wire paths")
+    func configurationUsesExpectedPaths() {
+        let configuration = ITunesSearchConfiguration()
+
+        #expect(ITunesSearchConfiguration.endpointPath("search") == ITunesPath.search)
+        #expect(ITunesSearchConfiguration.endpointPath("lookup") == ITunesPath.lookup)
+        #expect(configuration.searchPath == ITunesPath.search)
+        #expect(configuration.lookupPath == ITunesPath.lookup)
     }
 
     @Test("getArtistActivityPeriod returns nil pair — MusicKit does not expose this")
@@ -31,18 +52,18 @@ struct CatalogSearchClientTests {
     @Test("getArtistStartYear returns earliest matching iTunes album release year")
     func artistStartYearUsesEarliestMatchingITunesAlbum() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [AppleMusicSearchMockURLProtocol.self]
+        configuration.protocolClasses = [ITunesMockURLProtocol.self]
         let session = URLSession(configuration: configuration)
         defer {
-            AppleMusicSearchMockURLProtocol.requestHandler = nil
+            ITunesMockURLProtocol.requestHandler = nil
             session.invalidateAndCancel()
         }
 
-        AppleMusicSearchMockURLProtocol.requestHandler = { request in
+        ITunesMockURLProtocol.requestHandler = { request in
             let url = try #require(request.url)
             let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
             #expect(components.host == "itunes.apple.com")
-            #expect(components.path == "/search")
+            #expect(components.path == ITunesPath.search)
 
             let queryItems = try #require(components.queryItems)
             #expect(queryItems.first { $0.name == "term" }?.value == "Test Artist")
@@ -90,17 +111,17 @@ struct CatalogSearchClientTests {
     @Test("getReleaseCandidates returns matching iTunes album candidates")
     func releaseCandidatesUseITunesSearchResults() async throws { // swiftlint:disable:this function_body_length
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [AppleMusicSearchMockURLProtocol.self]
+        configuration.protocolClasses = [ITunesMockURLProtocol.self]
         let session = URLSession(configuration: configuration)
         defer {
-            AppleMusicSearchMockURLProtocol.requestHandler = nil
+            ITunesMockURLProtocol.requestHandler = nil
             session.invalidateAndCancel()
         }
 
-        AppleMusicSearchMockURLProtocol.requestHandler = { request in
+        ITunesMockURLProtocol.requestHandler = { request in
             let url = try #require(request.url)
             let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
-            #expect(components.path == "/search")
+            #expect(components.path == ITunesPath.search)
             #expect(components.queryItems?.first { $0.name == "term" }?.value == "Test Artist Test Album")
             #expect(components.queryItems?.first { $0.name == "country" }?.value == "UA")
             #expect(components.queryItems?.first { $0.name == "entity" }?.value == "album")
@@ -165,14 +186,14 @@ struct CatalogSearchClientTests {
     @Test("getReleaseCandidates throws for unsuccessful iTunes HTTP status")
     func releaseCandidatesThrowForUnsuccessfulITunesStatus() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [AppleMusicSearchMockURLProtocol.self]
+        configuration.protocolClasses = [ITunesMockURLProtocol.self]
         let session = URLSession(configuration: configuration)
         defer {
-            AppleMusicSearchMockURLProtocol.requestHandler = nil
+            ITunesMockURLProtocol.requestHandler = nil
             session.invalidateAndCancel()
         }
 
-        AppleMusicSearchMockURLProtocol.requestHandler = { request in
+        ITunesMockURLProtocol.requestHandler = { request in
             let url = try #require(request.url)
             let response = try #require(HTTPURLResponse(
                 url: url,
@@ -200,15 +221,15 @@ struct CatalogSearchClientTests {
     @Test("getReleaseCandidates uses iTunes lookup fallback when search is empty")
     func releaseCandidatesUseLookupFallback() async throws { // swiftlint:disable:this function_body_length
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [AppleMusicSearchMockURLProtocol.self]
+        configuration.protocolClasses = [ITunesMockURLProtocol.self]
         let session = URLSession(configuration: configuration)
         var requestNumber = 0
         defer {
-            AppleMusicSearchMockURLProtocol.requestHandler = nil
+            ITunesMockURLProtocol.requestHandler = nil
             session.invalidateAndCancel()
         }
 
-        AppleMusicSearchMockURLProtocol.requestHandler = { request in
+        ITunesMockURLProtocol.requestHandler = { request in
             requestNumber += 1
             let url = try #require(request.url)
             let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
@@ -217,11 +238,11 @@ struct CatalogSearchClientTests {
 
             let json: String
             if requestNumber == 1 {
-                #expect(path == "/search")
+                #expect(path == ITunesPath.search)
                 #expect(queryItems.first { $0.name == "entity" }?.value == "album")
                 json = #"{"resultCount": 0, "results": []}"#
             } else if requestNumber == 2 {
-                #expect(path == "/search")
+                #expect(path == ITunesPath.search)
                 #expect(queryItems.first { $0.name == "entity" }?.value == "musicArtist")
                 json = """
                 {
@@ -232,7 +253,7 @@ struct CatalogSearchClientTests {
                 }
                 """
             } else {
-                #expect(path == "/lookup")
+                #expect(path == ITunesPath.lookup)
                 #expect(queryItems.first { $0.name == "id" }?.value == "12345")
                 json = """
                 {
@@ -276,7 +297,7 @@ struct CatalogSearchClientTests {
     }
 }
 
-private final class AppleMusicSearchMockURLProtocol: URLProtocol {
+private final class ITunesMockURLProtocol: URLProtocol {
     // Safety: tests install this handler before creating the ephemeral URLSession and clear it after use.
     nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
@@ -304,5 +325,7 @@ private final class AppleMusicSearchMockURLProtocol: URLProtocol {
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        // These mock responses are delivered synchronously, so there is no pending work to cancel.
+    }
 }

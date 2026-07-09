@@ -759,5 +759,7 @@ private final class APIReleaseCandidateMockURLProtocol: URLProtocol {
         client?.urlProtocolDidFinishLoading(self)
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        // These mock responses are delivered synchronously, so there is no pending work to cancel.
+    }
 }

@@ -1,5 +1,3 @@
-// VerificationSettingsSection.swift — database and pending verification controls.
-
 import Core
 import Services
 import SwiftUI

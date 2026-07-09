@@ -1,5 +1,3 @@
-// MainData.swift -- library loading, workflow defaults, and metrics snapshots.
-
 import Core
 import Services
 import SharedUI
