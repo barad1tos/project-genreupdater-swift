@@ -474,40 +474,41 @@ extension AppleScriptBridge {
             timeout: timeout
         )
         defer { permit.release() }
-        let remaining = clock.now.duration(to: deadline)
-        guard remaining > .zero else {
-            throw AppleScriptBridgeError.dispatchDeadline(scriptName: name, duration: timeout)
-        }
-        return try await Self.executeTaskWithTimeout(
-            task: wrappedTask,
-            event: wrappedEvent,
+        return try await Self.executeBeforeDeadline(
+            deadline: deadline,
             scriptName: name,
-            timeout: remaining,
-            reportedTimeout: timeout
-        )
+            timeout: timeout
+        ) {
+            let descriptor = try await wrappedTask.value.execute(withAppleEvent: wrappedEvent.value)
+            return descriptor.stringValue
+        }
     }
 
-    private static func executeTaskWithTimeout(
-        task: UnsafeSendable<NSUserAppleScriptTask>,
-        event: UnsafeSendable<NSAppleEventDescriptor?>,
+    static func executeBeforeDeadline<Value: Sendable>(
+        deadline: ContinuousClock.Instant,
         scriptName: String,
         timeout: Duration,
-        reportedTimeout: Duration
-    ) async throws -> String? {
-        try await withThrowingTaskGroup(of: String?.self) { group in
+        operation: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        let remaining = ContinuousClock().now.duration(to: deadline)
+        guard remaining > .zero else {
+            throw AppleScriptBridgeError.dispatchDeadline(scriptName: scriptName, duration: timeout)
+        }
+        // Timeout delivery remains cooperative when the operation ignores cancellation.
+        return try await withThrowingTaskGroup(of: Value.self) { group in
+            group.addTask(operation: operation)
             group.addTask {
-                let descriptor = try await task.value.execute(withAppleEvent: event.value)
-                return descriptor.stringValue
+                try await Task.sleep(for: remaining)
+                throw AppleScriptBridgeError.timeout(scriptName: scriptName, duration: timeout)
             }
-
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw AppleScriptBridgeError.timeout(scriptName: scriptName, duration: reportedTimeout)
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else {
+                throw AppleScriptBridgeError.executionFailed(
+                    scriptName: scriptName,
+                    detail: "Execution ended without a result"
+                )
             }
-
-            let result = try await group.next()
-            group.cancelAll()
-            return result.flatMap(\.self)
+            return result
         }
     }
 
