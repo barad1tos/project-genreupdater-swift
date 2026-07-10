@@ -13,7 +13,7 @@ enum RateLimitError: Error {
 /// - MusicBrainz: `maxTokens: 1, refillInterval: .seconds(1)` (1 req/sec)
 /// - Discogs: `maxTokens: 60, refillInterval: .seconds(60)` (60 req/min)
 public actor TokenBucketRateLimiter: RateLimiter {
-    private enum WaitResult: Sendable {
+    private enum WaitResult {
         case granted(Duration)
         case cancelled
         case deadlineExceeded
@@ -33,7 +33,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
     }
 
     #if DEBUG
-    struct TestHooks: Sendable {
+    struct TestHooks {
         let beforeEnqueue: (@Sendable () async -> Void)?
         let afterCancel: (@Sendable () async -> Void)?
         let afterGrant: (@Sendable () async -> Void)?

@@ -119,6 +119,37 @@ struct RateDeadlineTests {
         #expect(try await next.value > .zero)
     }
 
+    @Test("Expiry after grant returns the token")
+    func expiryAfterGrant() async throws {
+        let gate = GrantGate()
+        let limiter = TokenBucketRateLimiter(
+            maxTokens: 1,
+            refillInterval: .seconds(30),
+            hooks: .init(afterGrant: { await gate.enter() })
+        )
+        _ = await limiter.acquire()
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+
+        let expired = Task { try await limiter.acquire(until: deadline) }
+        #expect(await limiter.waitForQueue(1))
+        let next = Task {
+            try await limiter.acquire(until: clock.now.advanced(by: .seconds(10)))
+        }
+        #expect(await limiter.waitForQueue(2))
+
+        await limiter.release()
+        #expect(await gate.waitForEntry())
+        #expect(clock.now < deadline)
+        try await Task.sleep(for: .milliseconds(1100))
+        await gate.open()
+
+        await #expect(throws: RateLimitError.self) {
+            _ = try await expired.value
+        }
+        #expect(try await next.value > .zero)
+    }
+
     @Test("Cancellation before enqueue is retained")
     func cancellationBeforeEnqueue() async throws {
         let enqueueGate = GrantGate()
