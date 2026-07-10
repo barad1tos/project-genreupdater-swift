@@ -24,6 +24,7 @@ private let log = AppLogger.make(category: "applescript")
 public enum AppleScriptBridgeError: Error, LocalizedError {
     case scriptNotFound(name: String, searchPath: URL)
     case executionFailed(scriptName: String, detail: String)
+    case dispatchDeadline(scriptName: String, duration: Duration)
     case timeout(scriptName: String, duration: Duration)
     case parseError(scriptName: String, detail: String)
     case scriptsNotInstalled
@@ -35,6 +36,8 @@ public enum AppleScriptBridgeError: Error, LocalizedError {
             "Script '\(name).scpt' not found at \(path.path)"
         case let .executionFailed(name, detail):
             "AppleScript '\(name)' failed: \(detail)"
+        case let .dispatchDeadline(name, duration):
+            "AppleScript '\(name)' was not dispatched before its \(duration) deadline"
         case let .timeout(name, duration):
             "AppleScript '\(name)' timed out after \(duration)"
         case let .parseError(name, detail):
@@ -55,48 +58,6 @@ private struct UnsafeSendable<T>: @unchecked Sendable {
     let value: T
 }
 
-private actor AppleScriptConcurrencyGate {
-    private var availablePermits: Int
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    init(limit: Int) {
-        availablePermits = AppleScriptBridge.normalizedConcurrencyLimit(limit)
-    }
-
-    func withPermit<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
-        await acquire()
-        do {
-            try Task.checkCancellation()
-        } catch {
-            release()
-            throw error
-        }
-        defer { release() }
-        return try await operation()
-    }
-
-    private func acquire() async {
-        guard availablePermits <= 0 else {
-            availablePermits -= 1
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    private func release() {
-        guard !waiters.isEmpty else {
-            availablePermits += 1
-            return
-        }
-
-        let nextWaiter = waiters.removeFirst()
-        nextWaiter.resume()
-    }
-}
-
 // MARK: - AppleScript Bridge Actor
 
 /// Actor that manages all AppleScript interactions with Music.app.
@@ -110,23 +71,35 @@ public actor AppleScriptBridge: AppleScriptClient {
     private let installer: ScriptInstaller
     private var config: AppleScriptConfig
     private var rateLimiter: TokenBucketRateLimiter?
-    private var concurrencyGate: AppleScriptConcurrencyGate
+    private let concurrencyGate: ScriptGate
 
     public init(installer: ScriptInstaller, config: AppleScriptConfig = .init()) {
         self.installer = installer
         self.config = config
         self.rateLimiter = Self.makeRateLimiter(configuration: config.rateLimit)
-        self.concurrencyGate = AppleScriptConcurrencyGate(limit: config.concurrency)
+        self.concurrencyGate = ScriptGate(limit: config.concurrency)
     }
 
     public var trackIDBatchSize: Int {
         max(1, config.batchProcessing.idsBatchSize)
     }
 
-    public func updateConfiguration(_ config: AppleScriptConfig) {
+    public func updateConfiguration(_ config: AppleScriptConfig) async {
+        await concurrencyGate.updateLimit(config.concurrency)
         self.config = config
         rateLimiter = Self.makeRateLimiter(configuration: config.rateLimit)
-        concurrencyGate = AppleScriptConcurrencyGate(limit: config.concurrency)
+    }
+
+    func acquirePermit(
+        scriptName: String,
+        deadline: ContinuousClock.Instant,
+        timeout: Duration
+    ) async throws -> ScriptPermit {
+        try await concurrencyGate.acquire(
+            scriptName: scriptName,
+            deadline: deadline,
+            timeout: timeout
+        )
     }
 
     public func initialize() async throws {
@@ -493,22 +466,33 @@ extension AppleScriptBridge {
 
         let wrappedTask = UnsafeSendable(value: task)
         let wrappedEvent = UnsafeSendable(value: event)
-        let gate = concurrencyGate
-        return try await gate.withPermit {
-            try await Self.executeTaskWithTimeout(
-                task: wrappedTask,
-                event: wrappedEvent,
-                scriptName: name,
-                timeout: timeout
-            )
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        let permit = try await acquirePermit(
+            scriptName: name,
+            deadline: deadline,
+            timeout: timeout
+        )
+        defer { permit.release() }
+        let remaining = clock.now.duration(to: deadline)
+        guard remaining > .zero else {
+            throw AppleScriptBridgeError.dispatchDeadline(scriptName: name, duration: timeout)
         }
+        return try await Self.executeTaskWithTimeout(
+            task: wrappedTask,
+            event: wrappedEvent,
+            scriptName: name,
+            timeout: remaining,
+            reportedTimeout: timeout
+        )
     }
 
     private static func executeTaskWithTimeout(
         task: UnsafeSendable<NSUserAppleScriptTask>,
         event: UnsafeSendable<NSAppleEventDescriptor?>,
         scriptName: String,
-        timeout: Duration
+        timeout: Duration,
+        reportedTimeout: Duration
     ) async throws -> String? {
         try await withThrowingTaskGroup(of: String?.self) { group in
             group.addTask {
@@ -518,17 +502,13 @@ extension AppleScriptBridge {
 
             group.addTask {
                 try await Task.sleep(for: timeout)
-                throw AppleScriptBridgeError.timeout(scriptName: scriptName, duration: timeout)
+                throw AppleScriptBridgeError.timeout(scriptName: scriptName, duration: reportedTimeout)
             }
 
             let result = try await group.next()
             group.cancelAll()
             return result.flatMap(\.self)
         }
-    }
-
-    static func normalizedConcurrencyLimit(_ limit: Int) -> Int {
-        max(1, limit)
     }
 
     func retryAppleScriptOperation<T: Sendable>(
@@ -580,9 +560,14 @@ extension AppleScriptBridge {
         }
 
         switch bridgeError {
-        case .executionFailed, .musicAppNotRunning, .timeout:
+        case .dispatchDeadline,
+             .executionFailed,
+             .musicAppNotRunning,
+             .timeout:
             return true
-        case .parseError, .scriptNotFound, .scriptsNotInstalled:
+        case .parseError,
+             .scriptNotFound,
+             .scriptsNotInstalled:
             return false
         }
     }

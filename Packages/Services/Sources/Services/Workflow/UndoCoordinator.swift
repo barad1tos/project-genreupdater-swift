@@ -488,7 +488,11 @@ public actor UndoCoordinator {
 
     private static func publicAppleScriptFailureDescription(for error: AppleScriptBridgeError) -> String {
         switch error {
-        case .scriptNotFound, .scriptsNotInstalled, .musicAppNotRunning, .timeout:
+        case .dispatchDeadline,
+             .scriptNotFound,
+             .scriptsNotInstalled,
+             .musicAppNotRunning,
+             .timeout:
             error.errorDescription ?? "AppleScript write failed"
         case .executionFailed:
             "AppleScript write failed"

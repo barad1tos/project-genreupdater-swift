@@ -6,19 +6,17 @@ import Testing
 
 @Suite("AppleScriptBridge - retry and rate configuration")
 struct AppleScriptConfigTests {
-    @Test("Concurrency limit clamps to at least one")
-    func concurrencyLimitClampsToAtLeastOne() {
-        #expect(AppleScriptBridge.normalizedConcurrencyLimit(2) == 2)
-        #expect(AppleScriptBridge.normalizedConcurrencyLimit(0) == 1)
-        #expect(AppleScriptBridge.normalizedConcurrencyLimit(-4) == 1)
-    }
-
     @Test("Retry classifier retries transient AppleScript failures")
     func retryClassifierRetriesTransientAppleScriptFailures() {
+        let dispatch = AppleScriptBridgeError.dispatchDeadline(
+            scriptName: "fetch_tracks",
+            duration: .seconds(1)
+        )
         let timeout = AppleScriptBridgeError.timeout(scriptName: "fetch_tracks", duration: .seconds(1))
         let execution = AppleScriptBridgeError.executionFailed(scriptName: "fetch_tracks", detail: "Music busy")
         let musicNotRunning = AppleScriptBridgeError.musicAppNotRunning
 
+        #expect(AppleScriptBridge.isRetryableAppleScriptError(dispatch))
         #expect(AppleScriptBridge.isRetryableAppleScriptError(timeout))
         #expect(AppleScriptBridge.isRetryableAppleScriptError(execution))
         #expect(AppleScriptBridge.isRetryableAppleScriptError(musicNotRunning))
