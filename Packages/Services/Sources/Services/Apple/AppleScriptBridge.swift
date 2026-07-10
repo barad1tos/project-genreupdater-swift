@@ -24,6 +24,7 @@ private let log = AppLogger.make(category: "applescript")
 public enum AppleScriptBridgeError: Error, LocalizedError {
     case scriptNotFound(name: String, searchPath: URL)
     case executionFailed(scriptName: String, detail: String)
+    case dispatchDeadline(scriptName: String, duration: Duration)
     case timeout(scriptName: String, duration: Duration)
     case parseError(scriptName: String, detail: String)
     case scriptsNotInstalled
@@ -35,6 +36,8 @@ public enum AppleScriptBridgeError: Error, LocalizedError {
             "Script '\(name).scpt' not found at \(path.path)"
         case let .executionFailed(name, detail):
             "AppleScript '\(name)' failed: \(detail)"
+        case let .dispatchDeadline(name, duration):
+            "AppleScript '\(name)' was not dispatched before its \(duration) deadline"
         case let .timeout(name, duration):
             "AppleScript '\(name)' timed out after \(duration)"
         case let .parseError(name, detail):
@@ -55,48 +58,6 @@ private struct UnsafeSendable<T>: @unchecked Sendable {
     let value: T
 }
 
-private actor AppleScriptConcurrencyGate {
-    private var availablePermits: Int
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    init(limit: Int) {
-        availablePermits = AppleScriptBridge.normalizedConcurrencyLimit(limit)
-    }
-
-    func withPermit<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
-        await acquire()
-        do {
-            try Task.checkCancellation()
-        } catch {
-            release()
-            throw error
-        }
-        defer { release() }
-        return try await operation()
-    }
-
-    private func acquire() async {
-        guard availablePermits <= 0 else {
-            availablePermits -= 1
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    private func release() {
-        guard !waiters.isEmpty else {
-            availablePermits += 1
-            return
-        }
-
-        let nextWaiter = waiters.removeFirst()
-        nextWaiter.resume()
-    }
-}
-
 // MARK: - AppleScript Bridge Actor
 
 /// Actor that manages all AppleScript interactions with Music.app.
@@ -110,23 +71,35 @@ public actor AppleScriptBridge: AppleScriptClient {
     private let installer: ScriptInstaller
     private var config: AppleScriptConfig
     private var rateLimiter: TokenBucketRateLimiter?
-    private var concurrencyGate: AppleScriptConcurrencyGate
+    private let concurrencyGate: ScriptGate
 
     public init(installer: ScriptInstaller, config: AppleScriptConfig = .init()) {
         self.installer = installer
         self.config = config
         self.rateLimiter = Self.makeRateLimiter(configuration: config.rateLimit)
-        self.concurrencyGate = AppleScriptConcurrencyGate(limit: config.concurrency)
+        self.concurrencyGate = ScriptGate(limit: config.concurrency)
     }
 
     public var trackIDBatchSize: Int {
         max(1, config.batchProcessing.idsBatchSize)
     }
 
-    public func updateConfiguration(_ config: AppleScriptConfig) {
+    public func updateConfiguration(_ config: AppleScriptConfig) async {
+        await concurrencyGate.updateLimit(config.concurrency)
         self.config = config
         rateLimiter = Self.makeRateLimiter(configuration: config.rateLimit)
-        concurrencyGate = AppleScriptConcurrencyGate(limit: config.concurrency)
+    }
+
+    func acquirePermit(
+        scriptName: String,
+        deadline: ContinuousClock.Instant,
+        timeout: Duration
+    ) async throws -> ScriptPermit {
+        try await concurrencyGate.acquire(
+            scriptName: scriptName,
+            deadline: deadline,
+            timeout: timeout
+        )
     }
 
     public func initialize() async throws {
@@ -238,6 +211,19 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     /// Batch update multiple tracks' properties.
     public func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
+        try await batchUpdateTracks(updates) { [self] batchArgument in
+            try await runScript(
+                name: Self.batchUpdateScriptName,
+                arguments: [batchArgument],
+                timeout: config.timeouts.batchUpdate
+            )
+        }
+    }
+
+    func batchUpdateTracks(
+        _ updates: [(trackID: String, property: String, value: String)],
+        execute: (String) async throws -> String?
+    ) async throws {
         let batchUpdateSignpost = AppSignpost.appleScriptWrite.beginInterval("batchUpdateTracks")
         defer { AppSignpost.appleScriptWrite.endInterval("batchUpdateTracks", batchUpdateSignpost) }
 
@@ -251,13 +237,12 @@ public actor AppleScriptBridge: AppleScriptClient {
 
         let output: String?
         do {
-            output = try await runScript(
-                name: Self.batchUpdateScriptName,
-                arguments: [batchArg],
-                timeout: config.timeouts.batchUpdate
-            )
+            output = try await execute(batchArg)
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as AppleScriptBridgeError where Self.isDispatchDeadline(error) {
+            // Music.app was never reached, so the caller may safely fall back to single writes.
+            throw error
         } catch {
             throw AppleScriptBatchVerificationError(
                 updateCount: updates.count,
@@ -493,42 +478,50 @@ extension AppleScriptBridge {
 
         let wrappedTask = UnsafeSendable(value: task)
         let wrappedEvent = UnsafeSendable(value: event)
-        let gate = concurrencyGate
-        return try await gate.withPermit {
-            try await Self.executeTaskWithTimeout(
-                task: wrappedTask,
-                event: wrappedEvent,
-                scriptName: name,
-                timeout: timeout
-            )
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        let permit = try await acquirePermit(
+            scriptName: name,
+            deadline: deadline,
+            timeout: timeout
+        )
+        defer { permit.release() }
+        return try await Self.executeBeforeDeadline(
+            deadline: deadline,
+            scriptName: name,
+            timeout: timeout
+        ) {
+            let descriptor = try await wrappedTask.value.execute(withAppleEvent: wrappedEvent.value)
+            return descriptor.stringValue
         }
     }
 
-    private static func executeTaskWithTimeout(
-        task: UnsafeSendable<NSUserAppleScriptTask>,
-        event: UnsafeSendable<NSAppleEventDescriptor?>,
+    static func executeBeforeDeadline<Value: Sendable>(
+        deadline: ContinuousClock.Instant,
         scriptName: String,
-        timeout: Duration
-    ) async throws -> String? {
-        try await withThrowingTaskGroup(of: String?.self) { group in
+        timeout: Duration,
+        operation: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        let remaining = ContinuousClock().now.duration(to: deadline)
+        guard remaining > .zero else {
+            throw AppleScriptBridgeError.dispatchDeadline(scriptName: scriptName, duration: timeout)
+        }
+        // Timeout delivery remains cooperative when the operation ignores cancellation.
+        return try await withThrowingTaskGroup(of: Value.self) { group in
+            group.addTask(operation: operation)
             group.addTask {
-                let descriptor = try await task.value.execute(withAppleEvent: event.value)
-                return descriptor.stringValue
-            }
-
-            group.addTask {
-                try await Task.sleep(for: timeout)
+                try await Task.sleep(for: remaining)
                 throw AppleScriptBridgeError.timeout(scriptName: scriptName, duration: timeout)
             }
-
-            let result = try await group.next()
-            group.cancelAll()
-            return result.flatMap(\.self)
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else {
+                throw AppleScriptBridgeError.executionFailed(
+                    scriptName: scriptName,
+                    detail: "Execution ended without a result"
+                )
+            }
+            return result
         }
-    }
-
-    static func normalizedConcurrencyLimit(_ limit: Int) -> Int {
-        max(1, limit)
     }
 
     func retryAppleScriptOperation<T: Sendable>(
@@ -536,13 +529,23 @@ extension AppleScriptBridge {
         retry: AppleScriptRetry,
         operation: () async throws -> T
     ) async throws -> T {
+        // A surfaced deadline proves no attempt reached Music.app; ambiguous attempts must win.
         let clock = ContinuousClock()
         let startedAt = clock.now
         let maxRetries = max(0, retry.maxRetries)
         var delaySeconds = max(0, retry.baseDelaySeconds)
+        var lastAttemptError: (any Error)?
+        var lastAmbiguousError: (any Error)?
 
         for attempt in 0 ... maxRetries {
             if Self.hasExceededTotalTimeout(startedAt: startedAt, retry: retry, clock: clock) {
+                if let error = lastAmbiguousError ?? lastAttemptError {
+                    let elapsed = startedAt.duration(to: clock.now)
+                    log.warning(
+                        "AppleScript retry budget exhausted for \(scriptName, privacy: .public) after \(elapsed, privacy: .public); configured \(retry.operationTimeoutSeconds, privacy: .public) seconds"
+                    )
+                    throw error
+                }
                 throw AppleScriptBridgeError.timeout(
                     scriptName: scriptName,
                     duration: Self.duration(seconds: retry.operationTimeoutSeconds)
@@ -552,8 +555,17 @@ extension AppleScriptBridge {
             do {
                 return try await operation()
             } catch {
+                lastAttemptError = error
+                if !Self.isDispatchDeadline(error) {
+                    lastAmbiguousError = error
+                }
                 guard attempt < maxRetries, Self.isRetryableAppleScriptError(error) else {
-                    throw error
+                    if lastAmbiguousError != nil, Self.isDispatchDeadline(error) {
+                        log.debug(
+                            "AppleScript \(scriptName, privacy: .public) ended pre-dispatch after an earlier ambiguous failure"
+                        )
+                    }
+                    throw lastAmbiguousError ?? error
                 }
 
                 let delay = Self.retryDelaySeconds(
@@ -574,15 +586,28 @@ extension AppleScriptBridge {
         )
     }
 
+    private static func isDispatchDeadline(_ error: any Error) -> Bool {
+        guard let bridgeError = error as? AppleScriptBridgeError else { return false }
+        if case .dispatchDeadline = bridgeError {
+            return true
+        }
+        return false
+    }
+
     static func isRetryableAppleScriptError(_ error: any Error) -> Bool {
         guard let bridgeError = error as? AppleScriptBridgeError else {
             return isTransientError(error)
         }
 
         switch bridgeError {
-        case .executionFailed, .musicAppNotRunning, .timeout:
+        case .dispatchDeadline,
+             .executionFailed,
+             .musicAppNotRunning,
+             .timeout:
             return true
-        case .parseError, .scriptNotFound, .scriptsNotInstalled:
+        case .parseError,
+             .scriptNotFound,
+             .scriptsNotInstalled:
             return false
         }
     }
