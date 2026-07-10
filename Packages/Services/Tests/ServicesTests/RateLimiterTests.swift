@@ -53,39 +53,35 @@ struct RateLimiterTests {
             maxTokens: 1,
             refillInterval: .seconds(5)
         )
+        let probe = RateOrderProbe()
         _ = await limiter.acquire()
 
-        await withTaskGroup(of: Int.self) { group in
-            group.addTask {
+        for value in 1 ... 3 {
+            Task {
                 _ = await limiter.acquire()
-                return 1
+                await probe.record(value)
             }
-            #expect(await limiter.waitForQueue(1))
-            group.addTask {
-                _ = await limiter.acquire()
-                return 2
-            }
-            #expect(await limiter.waitForQueue(2))
-            group.addTask {
-                _ = await limiter.acquire()
-                return 3
-            }
-            #expect(await limiter.waitForQueue(3))
-
-            await limiter.release()
-            #expect(await group.next() == 1)
-            await limiter.release()
-            #expect(await group.next() == 2)
-            await limiter.release()
-            #expect(await group.next() == 3)
+            #expect(await limiter.waitForQueue(value))
         }
+
+        await limiter.release()
+        #expect(await limiter.waitForQueue(2))
+        #expect(await probe.waitForValues(1) == [1])
+
+        await limiter.release()
+        #expect(await limiter.waitForQueue(1))
+        #expect(await probe.waitForValues(2) == [1, 2])
+
+        await limiter.release()
+        #expect(await limiter.waitForQueue(0))
+        #expect(await probe.waitForValues(3) == [1, 2, 3])
     }
 
     @Test("Queued waiters advance across automatic refills")
     func refillsQueuedWaiters() async {
         let limiter = TokenBucketRateLimiter(
             maxTokens: 1,
-            refillInterval: .milliseconds(100)
+            refillInterval: .seconds(2)
         )
         let probe = RateOrderProbe()
         _ = await limiter.acquire()
@@ -98,7 +94,7 @@ struct RateLimiterTests {
             #expect(await limiter.waitForQueue(value))
         }
 
-        #expect(await probe.waitForValues(3) == [1, 2, 3])
+        #expect(await probe.waitForValues(3, timeout: .seconds(10)) == [1, 2, 3])
     }
 
     @Test("Cancelled protocol acquire still returns a real token")

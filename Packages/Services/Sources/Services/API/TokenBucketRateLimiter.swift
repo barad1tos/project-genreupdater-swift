@@ -16,7 +16,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
 
     private struct QueueObserver {
         let id: UUID
-        let count: Int
+        let targetCount: Int
         let continuation: CheckedContinuation<Bool, Never>
         let timeoutTask: Task<Void, Never>
     }
@@ -78,6 +78,8 @@ public actor TokenBucketRateLimiter: RateLimiter {
     /// but the request was not actually sent.
     public func release() {
         refillTokens()
+        // Drain refilled capacity first so the cap cannot discard the returned reservation.
+        grantTokens()
         if currentTokens < maxTokens {
             currentTokens += 1
         }
@@ -97,35 +99,44 @@ public actor TokenBucketRateLimiter: RateLimiter {
         )
     }
 
-    // MARK: - Private
+    // MARK: - Test Support
 
     func waitForQueue(_ count: Int, timeout: Duration = .seconds(1)) async -> Bool {
-        if waiters.count >= count {
+        if waiters.count == count {
             return true
         }
 
         let id = UUID()
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                let timeoutTask = Task { [weak self] in
-                    do {
-                        try await Task.sleep(for: timeout)
-                    } catch {
-                        return
-                    }
-                    await self?.expireObserver(id)
-                }
-                queueObservers.append(QueueObserver(
-                    id: id,
-                    count: count,
-                    continuation: continuation,
-                    timeoutTask: timeoutTask
-                ))
-            }
+            await registerQueueObserver(id, count: count, timeout: timeout)
         } onCancel: {
             Task { await self.cancelObserver(id) }
         }
     }
+
+    private func registerQueueObserver(_ id: UUID, count: Int, timeout: Duration) async -> Bool {
+        await withCheckedContinuation { continuation in
+            queueObservers.append(QueueObserver(
+                id: id,
+                targetCount: count,
+                continuation: continuation,
+                timeoutTask: makeObserverTimeout(id, timeout: timeout)
+            ))
+        }
+    }
+
+    private func makeObserverTimeout(_ id: UUID, timeout: Duration) -> Task<Void, Never> {
+        Task { [weak self] in
+            do {
+                try await Task.sleep(for: timeout)
+            } catch {
+                return
+            }
+            await self?.expireObserver(id)
+        }
+    }
+
+    // MARK: - Private
 
     private func reserveToken() async -> Duration {
         refillTokens()
@@ -212,7 +223,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
     private func notifyQueueObservers() {
         var pending: [QueueObserver] = []
         for observer in queueObservers {
-            if waiters.count >= observer.count {
+            if waiters.count == observer.targetCount {
                 observer.timeoutTask.cancel()
                 observer.continuation.resume(returning: true)
             } else {
