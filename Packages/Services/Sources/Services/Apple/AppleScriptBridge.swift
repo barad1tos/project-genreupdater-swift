@@ -211,6 +211,19 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     /// Batch update multiple tracks' properties.
     public func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
+        try await batchUpdateTracks(updates) { [self] batchArgument in
+            try await runScript(
+                name: Self.batchUpdateScriptName,
+                arguments: [batchArgument],
+                timeout: config.timeouts.batchUpdate
+            )
+        }
+    }
+
+    func batchUpdateTracks(
+        _ updates: [(trackID: String, property: String, value: String)],
+        execute: (String) async throws -> String?
+    ) async throws {
         let batchUpdateSignpost = AppSignpost.appleScriptWrite.beginInterval("batchUpdateTracks")
         defer { AppSignpost.appleScriptWrite.endInterval("batchUpdateTracks", batchUpdateSignpost) }
 
@@ -224,13 +237,12 @@ public actor AppleScriptBridge: AppleScriptClient {
 
         let output: String?
         do {
-            output = try await runScript(
-                name: Self.batchUpdateScriptName,
-                arguments: [batchArg],
-                timeout: config.timeouts.batchUpdate
-            )
+            output = try await execute(batchArg)
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as AppleScriptBridgeError where Self.isDispatchDeadline(error) {
+            // Music.app was never reached, so the caller may safely fall back to single writes.
+            throw error
         } catch {
             throw AppleScriptBatchVerificationError(
                 updateCount: updates.count,
@@ -517,13 +529,23 @@ extension AppleScriptBridge {
         retry: AppleScriptRetry,
         operation: () async throws -> T
     ) async throws -> T {
+        // A surfaced deadline proves no attempt reached Music.app; ambiguous attempts must win.
         let clock = ContinuousClock()
         let startedAt = clock.now
         let maxRetries = max(0, retry.maxRetries)
         var delaySeconds = max(0, retry.baseDelaySeconds)
+        var lastAttemptError: (any Error)?
+        var lastAmbiguousError: (any Error)?
 
         for attempt in 0 ... maxRetries {
             if Self.hasExceededTotalTimeout(startedAt: startedAt, retry: retry, clock: clock) {
+                if let error = lastAmbiguousError ?? lastAttemptError {
+                    let elapsed = startedAt.duration(to: clock.now)
+                    log.warning(
+                        "AppleScript retry budget exhausted for \(scriptName, privacy: .public) after \(elapsed, privacy: .public); configured \(retry.operationTimeoutSeconds, privacy: .public) seconds"
+                    )
+                    throw error
+                }
                 throw AppleScriptBridgeError.timeout(
                     scriptName: scriptName,
                     duration: Self.duration(seconds: retry.operationTimeoutSeconds)
@@ -533,8 +555,17 @@ extension AppleScriptBridge {
             do {
                 return try await operation()
             } catch {
+                lastAttemptError = error
+                if !Self.isDispatchDeadline(error) {
+                    lastAmbiguousError = error
+                }
                 guard attempt < maxRetries, Self.isRetryableAppleScriptError(error) else {
-                    throw error
+                    if lastAmbiguousError != nil, Self.isDispatchDeadline(error) {
+                        log.debug(
+                            "AppleScript \(scriptName, privacy: .public) ended pre-dispatch after an earlier ambiguous failure"
+                        )
+                    }
+                    throw lastAmbiguousError ?? error
                 }
 
                 let delay = Self.retryDelaySeconds(
@@ -553,6 +584,14 @@ extension AppleScriptBridge {
             scriptName: scriptName,
             detail: "Retry loop exited without a result"
         )
+    }
+
+    private static func isDispatchDeadline(_ error: any Error) -> Bool {
+        guard let bridgeError = error as? AppleScriptBridgeError else { return false }
+        if case .dispatchDeadline = bridgeError {
+            return true
+        }
+        return false
     }
 
     static func isRetryableAppleScriptError(_ error: any Error) -> Bool {
