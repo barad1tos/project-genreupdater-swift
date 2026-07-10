@@ -1,6 +1,10 @@
 import Core
 import OSLog
 
+enum RateLimitError: Error {
+    case deadlineExceeded
+}
+
 /// Token-bucket rate limiter for throttling API requests.
 ///
 /// Each instance is configured with a maximum token count and a refill interval.
@@ -9,33 +13,61 @@ import OSLog
 /// - MusicBrainz: `maxTokens: 1, refillInterval: .seconds(1)` (1 req/sec)
 /// - Discogs: `maxTokens: 60, refillInterval: .seconds(60)` (60 req/min)
 public actor TokenBucketRateLimiter: RateLimiter {
-    private struct Waiter {
-        let queuedAt: ContinuousClock.Instant
-        let continuation: CheckedContinuation<Duration, Never>
+    private enum WaitResult {
+        case granted(Duration)
+        case cancelled
+        case deadlineExceeded
     }
 
-    private struct QueueObserver {
-        let id: UUID
-        let targetCount: Int
-        let continuation: CheckedContinuation<Bool, Never>
-        let timeoutTask: Task<Void, Never>
+    private enum WaiterState: Equatable {
+        case registered
+        case queued
+        case cancelledBeforeEnqueue
     }
+
+    private struct Waiter {
+        let id: UUID
+        let queuedAt: ContinuousClock.Instant
+        let deadline: ContinuousClock.Instant?
+        let continuation: CheckedContinuation<WaitResult, Never>
+    }
+
+    #if DEBUG
+    struct TestHooks {
+        let beforeEnqueue: (@Sendable () async -> Void)?
+        let afterCancel: (@Sendable () async -> Void)?
+        let afterGrant: (@Sendable () async -> Void)?
+
+        init(
+            beforeEnqueue: (@Sendable () async -> Void)? = nil,
+            afterCancel: (@Sendable () async -> Void)? = nil,
+            afterGrant: (@Sendable () async -> Void)? = nil
+        ) {
+            self.beforeEnqueue = beforeEnqueue
+            self.afterCancel = afterCancel
+            self.afterGrant = afterGrant
+        }
+    }
+    #endif
 
     // MARK: - Properties
 
     private let maxTokens: Int
     private let refillInterval: Duration
     private let clock: ContinuousClock
+    #if DEBUG
+    private let hooks: TestHooks?
+    #endif
 
     private var currentTokens: Int
     private var lastRefillInstant: ContinuousClock.Instant
     private var totalRequests: Int = 0
     private var totalWaitTime: Duration = .zero
     private var waiters: [Waiter] = []
+    private var waiterStates: [UUID: WaiterState] = [:]
+    private var deadlineWaiterCount = 0
     private var wakeTask: Task<Void, Never>?
     private var wakeID: UUID?
-    private var queueObservers: [QueueObserver] = []
-
     private let log = Logger(subsystem: "com.genreupdater", category: "RateLimiter")
 
     // MARK: - Initialization
@@ -51,13 +83,34 @@ public actor TokenBucketRateLimiter: RateLimiter {
         refillInterval: Duration,
         clock: ContinuousClock = ContinuousClock()
     ) {
-        let tokenLimit = max(1, maxTokens)
-        self.maxTokens = tokenLimit
-        self.refillInterval = refillInterval > .zero ? refillInterval : .nanoseconds(1)
+        let settings = Self.normalizedSettings(maxTokens, refillInterval)
+        self.maxTokens = settings.maxTokens
+        self.refillInterval = settings.refillInterval
         self.clock = clock
-        self.currentTokens = tokenLimit
+        #if DEBUG
+        self.hooks = nil
+        #endif
+        self.currentTokens = settings.maxTokens
         self.lastRefillInstant = clock.now
     }
+
+    #if DEBUG
+    /// Injects deterministic hooks around waiter lifecycle transitions.
+    init(
+        maxTokens: Int,
+        refillInterval: Duration,
+        clock: ContinuousClock = ContinuousClock(),
+        hooks: TestHooks
+    ) {
+        let settings = Self.normalizedSettings(maxTokens, refillInterval)
+        self.maxTokens = settings.maxTokens
+        self.refillInterval = settings.refillInterval
+        self.clock = clock
+        self.hooks = hooks
+        self.currentTokens = settings.maxTokens
+        self.lastRefillInstant = clock.now
+    }
+    #endif
 
     // MARK: - RateLimiter Conformance
 
@@ -69,7 +122,45 @@ public actor TokenBucketRateLimiter: RateLimiter {
     /// - Returns: The duration spent waiting, or `.zero` if a token was immediately available.
     public func acquire() async -> Duration {
         totalRequests += 1
-        return await reserveToken()
+        switch await reserveToken(deadline: nil, observesCancellation: false) {
+        case let .granted(waitDuration):
+            return waitDuration
+        case .cancelled, .deadlineExceeded:
+            assertionFailure("Non-cancellable acquisition reached an impossible terminal state")
+            log.fault("Rate limiter reached an impossible acquisition state")
+            return .zero
+        }
+    }
+
+    /// Acquires a token before `deadline`.
+    ///
+    /// If this method throws, no token remains held. A token granted during a
+    /// deadline or cancellation race is returned automatically.
+    func acquire(until deadline: ContinuousClock.Instant) async throws -> Duration {
+        try Task.checkCancellation()
+        totalRequests += 1
+
+        switch await reserveToken(deadline: deadline, observesCancellation: true) {
+        case let .granted(waitDuration):
+            #if DEBUG
+            await hooks?.afterGrant?()
+            #endif
+            do {
+                try Task.checkCancellation()
+                guard clock.now < deadline else {
+                    throw RateLimitError.deadlineExceeded
+                }
+            } catch {
+                release()
+                throw error
+            }
+            return waitDuration
+        case .cancelled:
+            throw CancellationError()
+        case .deadlineExceeded:
+            try Task.checkCancellation()
+            throw RateLimitError.deadlineExceeded
+        }
     }
 
     /// Returns a token to the bucket, capped at `maxTokens`.
@@ -87,7 +178,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
         scheduleWake()
     }
 
-    /// Returns current rate limiter statistics.
+    /// Returns statistics; request and wait totals include attempts that later fail a post-grant re-check.
     public func getStats() -> RateLimiterStats {
         refillTokens()
         grantTokens()
@@ -101,94 +192,173 @@ public actor TokenBucketRateLimiter: RateLimiter {
 
     // MARK: - Test Support
 
+    /// Polls until a stable waiter count equals `count` or the timeout elapses.
+    /// Transient queue states between polling intervals may not be observed.
     func waitForQueue(_ count: Int, timeout: Duration = .seconds(1)) async -> Bool {
-        if waiters.count == count {
-            return true
-        }
-
-        let id = UUID()
-        return await withTaskCancellationHandler {
-            await registerQueueObserver(id, count: count, timeout: timeout)
-        } onCancel: {
-            Task { await self.cancelObserver(id) }
-        }
-    }
-
-    private func registerQueueObserver(_ id: UUID, count: Int, timeout: Duration) async -> Bool {
-        await withCheckedContinuation { continuation in
-            queueObservers.append(QueueObserver(
-                id: id,
-                targetCount: count,
-                continuation: continuation,
-                timeoutTask: makeObserverTimeout(id, timeout: timeout)
-            ))
-        }
-    }
-
-    private func makeObserverTimeout(_ id: UUID, timeout: Duration) -> Task<Void, Never> {
-        Task { [weak self] in
+        let deadline = clock.now.advanced(by: timeout)
+        while waiters.count != count, clock.now < deadline {
             do {
-                try await Task.sleep(for: timeout)
+                try await clock.sleep(for: .milliseconds(1))
             } catch {
-                return
+                return false
             }
-            await self?.expireObserver(id)
         }
+        return waiters.count == count
     }
 
     // MARK: - Private
 
-    private func reserveToken() async -> Duration {
+    private static func normalizedSettings(
+        _ maxTokens: Int,
+        _ refillInterval: Duration
+    ) -> (maxTokens: Int, refillInterval: Duration) {
+        (
+            maxTokens: max(1, maxTokens),
+            refillInterval: refillInterval > .zero ? refillInterval : .nanoseconds(1)
+        )
+    }
+
+    private func reserveToken(
+        deadline: ContinuousClock.Instant?,
+        observesCancellation: Bool
+    ) async -> WaitResult {
         refillTokens()
         grantTokens()
 
-        guard !waiters.isEmpty || currentTokens <= 0 else {
-            currentTokens -= 1
-            return .zero
+        if let deadline, clock.now >= deadline {
+            return .deadlineExceeded
         }
 
-        return await enqueueWaiter()
+        guard !waiters.isEmpty || currentTokens <= 0 else {
+            currentTokens -= 1
+            return .granted(.zero)
+        }
+
+        let id = UUID()
+        waiterStates[id] = .registered
+        guard observesCancellation else {
+            return await enqueueWaiter(id: id, deadline: deadline)
+        }
+
+        return await withTaskCancellationHandler {
+            #if DEBUG
+            await hooks?.beforeEnqueue?()
+            #endif
+            return await enqueueWaiter(id: id, deadline: deadline)
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
+        }
     }
 
-    private func enqueueWaiter() async -> Duration {
-        await withCheckedContinuation { continuation in
+    private func enqueueWaiter(
+        id: UUID,
+        deadline: ContinuousClock.Instant?
+    ) async -> WaitResult {
+        switch waiterStates[id] {
+        case .registered:
+            waiterStates[id] = .queued
+        case .cancelledBeforeEnqueue:
+            waiterStates.removeValue(forKey: id)
+            return .cancelled
+        case .queued:
+            assertionFailure("Cannot enqueue a queued rate-limit waiter")
+            log.fault("Rate limiter attempted to enqueue a queued waiter")
+            return .cancelled
+        case nil:
+            assertionFailure("Cannot enqueue an unregistered rate-limit waiter")
+            log.fault("Rate limiter attempted to enqueue an unregistered waiter")
+            return .cancelled
+        }
+
+        return await withCheckedContinuation { continuation in
             waiters.append(Waiter(
+                id: id,
                 queuedAt: clock.now,
+                deadline: deadline,
                 continuation: continuation
             ))
+            if deadline != nil {
+                deadlineWaiterCount += 1
+            }
             log.debug("Rate limited: queued request")
-            notifyQueueObservers()
             scheduleWake()
         }
     }
 
     private func grantTokens() {
         let now = clock.now
+        expireWaiters(at: now)
 
         while currentTokens > 0, !waiters.isEmpty {
             let waiter = waiters.removeFirst()
+            finishWaiter(waiter)
             currentTokens -= 1
             let waitDuration = waiter.queuedAt.duration(to: now)
             totalWaitTime += waitDuration
             log.debug("Rate limited: waited \(waitDuration, privacy: .public)")
-            waiter.continuation.resume(returning: waitDuration)
+            waiter.continuation.resume(returning: .granted(waitDuration))
         }
-        notifyQueueObservers()
     }
 
-    private func expireObserver(_ id: UUID) {
-        finishObserver(id, result: false)
+    private func expireWaiters(at now: ContinuousClock.Instant) {
+        guard deadlineWaiterCount > 0 else { return }
+        guard waiters.contains(where: { waiter in
+            waiter.deadline.map { $0 <= now } ?? false
+        }) else { return }
+
+        let initialCount = waiters.count
+        var active: [Waiter] = []
+
+        for waiter in waiters {
+            if let deadline = waiter.deadline, deadline <= now {
+                finishWaiter(waiter)
+                waiter.continuation.resume(returning: .deadlineExceeded)
+            } else {
+                active.append(waiter)
+            }
+        }
+        waiters = active
+        let expiredCount = initialCount - active.count
+        if expiredCount > 0 {
+            log.debug("Rate limited: expired \(expiredCount, privacy: .public) queued requests")
+        }
     }
 
-    private func cancelObserver(_ id: UUID) {
-        finishObserver(id, result: false)
+    private func cancelWaiter(_ id: UUID) async {
+        switch waiterStates[id] {
+        case .registered:
+            waiterStates[id] = .cancelledBeforeEnqueue
+        case .queued:
+            guard let index = waiters.firstIndex(where: { $0.id == id }) else {
+                waiterStates.removeValue(forKey: id)
+                assertionFailure("Queued rate-limit waiter is missing")
+                log.fault("Rate limiter lost a queued waiter")
+                return
+            }
+            let waiter = waiters.remove(at: index)
+            finishWaiter(waiter)
+            log.debug("Rate limited: cancelled queued request")
+            waiter.continuation.resume(returning: .cancelled)
+            scheduleWake()
+        case .cancelledBeforeEnqueue, nil:
+            break
+        }
+
+        #if DEBUG
+        await hooks?.afterCancel?()
+        #endif
     }
 
-    private func finishObserver(_ id: UUID, result: Bool) {
-        guard let index = queueObservers.firstIndex(where: { $0.id == id }) else { return }
-        let observer = queueObservers.remove(at: index)
-        observer.timeoutTask.cancel()
-        observer.continuation.resume(returning: result)
+    private func finishWaiter(_ waiter: Waiter) {
+        guard waiterStates.removeValue(forKey: waiter.id) == .queued else {
+            assertionFailure("Rate-limit waiter completed outside the queued state")
+            log.fault("Rate limiter completed a waiter in an invalid state")
+            return
+        }
+        if waiter.deadline != nil {
+            deadlineWaiterCount -= 1
+            assert(deadlineWaiterCount >= 0)
+        }
     }
 
     private func scheduleWake() {
@@ -198,7 +368,9 @@ public actor TokenBucketRateLimiter: RateLimiter {
 
         guard !waiters.isEmpty else { return }
 
-        let wakeAt = lastRefillInstant.advanced(by: refillInterval)
+        let refillAt = lastRefillInstant.advanced(by: refillInterval)
+        let deadline = waiters.compactMap(\.deadline).min()
+        let wakeAt = deadline.map { min($0, refillAt) } ?? refillAt
         let id = UUID()
         wakeID = id
         wakeTask = Task { [clock, weak self] in
@@ -218,19 +390,6 @@ public actor TokenBucketRateLimiter: RateLimiter {
         refillTokens()
         grantTokens()
         scheduleWake()
-    }
-
-    private func notifyQueueObservers() {
-        var pending: [QueueObserver] = []
-        for observer in queueObservers {
-            if waiters.count == observer.targetCount {
-                observer.timeoutTask.cancel()
-                observer.continuation.resume(returning: true)
-            } else {
-                pending.append(observer)
-            }
-        }
-        queueObservers = pending
     }
 
     /// Refills tokens based on elapsed time since the last refill.
