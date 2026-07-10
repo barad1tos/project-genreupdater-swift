@@ -3,10 +3,20 @@ import Testing
 
 @Suite("TokenBucketRateLimiter — token-bucket rate limiting")
 struct RateLimiterTests {
+    @Test("Nonpositive limits normalize to usable minimums")
+    func normalizesInvalidLimits() async {
+        let limiter = TokenBucketRateLimiter(maxTokens: 0, refillInterval: .zero)
+
+        let stats = await limiter.getStats()
+
+        #expect(stats.currentTokens == 1)
+        #expect(await limiter.acquire() == .zero)
+    }
+
     // MARK: - Acquire
 
     @Test("Acquire returns zero wait when tokens are available")
-    func acquireReturnsZeroWaitWhenAvailable() async {
+    func acquiresImmediately() async {
         let limiter = TokenBucketRateLimiter(maxTokens: 5, refillInterval: .seconds(60))
 
         let waitTime = await limiter.acquire()
@@ -18,7 +28,7 @@ struct RateLimiterTests {
     }
 
     @Test("Acquire waits when no tokens are available")
-    func acquireWaitsWhenNoTokens() async {
+    func waitsWhenEmpty() async {
         let limiter = TokenBucketRateLimiter(
             maxTokens: 1,
             refillInterval: .milliseconds(100)
@@ -35,6 +45,76 @@ struct RateLimiterTests {
         let stats = await limiter.getStats()
         #expect(stats.totalRequests == 2)
         #expect(stats.totalWaitTime > .zero)
+    }
+
+    @Test("Concurrent waiters receive explicitly released tokens in FIFO order")
+    func grantsInOrder() async {
+        let limiter = TokenBucketRateLimiter(
+            maxTokens: 1,
+            refillInterval: .seconds(5)
+        )
+        let probe = RateOrderProbe()
+        _ = await limiter.acquire()
+
+        for value in 1 ... 3 {
+            Task {
+                _ = await limiter.acquire()
+                await probe.record(value)
+            }
+            #expect(await limiter.waitForQueue(value))
+        }
+
+        await limiter.release()
+        #expect(await limiter.waitForQueue(2))
+        #expect(await probe.waitForValues(1) == [1])
+
+        await limiter.release()
+        #expect(await limiter.waitForQueue(1))
+        #expect(await probe.waitForValues(2) == [1, 2])
+
+        await limiter.release()
+        #expect(await limiter.waitForQueue(0))
+        #expect(await probe.waitForValues(3) == [1, 2, 3])
+    }
+
+    @Test("Queued waiters advance across automatic refills")
+    func refillsQueuedWaiters() async {
+        let limiter = TokenBucketRateLimiter(
+            maxTokens: 1,
+            refillInterval: .seconds(2)
+        )
+        let probe = RateOrderProbe()
+        _ = await limiter.acquire()
+
+        for value in 1 ... 3 {
+            Task {
+                _ = await limiter.acquire()
+                await probe.record(value)
+            }
+            #expect(await limiter.waitForQueue(value))
+        }
+
+        #expect(await probe.waitForValues(3, timeout: .seconds(10)) == [1, 2, 3])
+    }
+
+    @Test("Cancelled protocol acquire still returns a real token")
+    func cancellationKeepsReservation() async {
+        let limiter = TokenBucketRateLimiter(
+            maxTokens: 1,
+            refillInterval: .seconds(5)
+        )
+        _ = await limiter.acquire()
+
+        let cancelled = Task { await limiter.acquire() }
+        #expect(await limiter.waitForQueue(1))
+        cancelled.cancel()
+
+        await limiter.release()
+        #expect(await cancelled.value > .zero)
+
+        let stats = await limiter.getStats()
+        #expect(stats.currentTokens == 0)
+        #expect(stats.totalRequests == 2)
     }
 
     // MARK: - Release
@@ -58,7 +138,7 @@ struct RateLimiterTests {
     }
 
     @Test("Release cannot exceed maxTokens")
-    func releaseCannotExceedMax() async {
+    func releaseIsCapped() async {
         let limiter = TokenBucketRateLimiter(maxTokens: 3, refillInterval: .seconds(60))
 
         // Bucket starts full at 3 tokens — release should not add more
@@ -72,7 +152,7 @@ struct RateLimiterTests {
     // MARK: - Stats
 
     @Test("Stats track total requests and wait time")
-    func statsTrackRequestsAndWaitTime() async {
+    func tracksRequestStats() async {
         let limiter = TokenBucketRateLimiter(
             maxTokens: 1,
             refillInterval: .milliseconds(50)
@@ -94,7 +174,7 @@ struct RateLimiterTests {
     // MARK: - Refill
 
     @Test("Tokens refill after interval passes")
-    func tokensRefillAfterInterval() async throws {
+    func refillsAfterInterval() async throws {
         let limiter = TokenBucketRateLimiter(
             maxTokens: 2,
             refillInterval: .milliseconds(100)
@@ -117,5 +197,21 @@ struct RateLimiterTests {
         // The refill should have provided a token, so wait should be zero
         // (or negligibly small if timing is tight).
         #expect(waitTime < .milliseconds(50))
+    }
+}
+
+private actor RateOrderProbe {
+    private var values: [Int] = []
+
+    func record(_ value: Int) {
+        values.append(value)
+    }
+
+    func waitForValues(_ count: Int, timeout: Duration = .seconds(1)) async -> [Int] {
+        let deadline = ContinuousClock().now.advanced(by: timeout)
+        while values.count < count, ContinuousClock().now < deadline {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return values
     }
 }
