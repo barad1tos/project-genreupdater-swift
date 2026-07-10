@@ -18,7 +18,7 @@ struct ScriptTaskTests {
             )
             return try await ScriptTask.run(
                 policy: policy,
-                onCompletion: {
+                onOwnershipReleased: {
                     Task { await completions.record() }
                 },
                 start: { _ in
@@ -48,7 +48,7 @@ struct ScriptTaskTests {
         await #expect(throws: TaskDispatchError.self) {
             _ = try await ScriptTask.run(
                 policy: policy,
-                onCompletion: {
+                onOwnershipReleased: {
                     Task { await completions.record() }
                 },
                 start: { (_: @Sendable (Result<String, any Error>) -> Void) in
@@ -73,7 +73,7 @@ struct ScriptTaskTests {
             )
             _ = try await ScriptTask.run(
                 policy: policy,
-                onCompletion: {
+                onOwnershipReleased: {
                     Task { await completion.block() }
                 },
                 start: { finish in
@@ -110,7 +110,7 @@ struct ScriptTaskTests {
             )
             _ = try await ScriptTask.run(
                 policy: policy,
-                onCompletion: {
+                onOwnershipReleased: {
                     Task { await completion.block() }
                 },
                 start: { finish in
@@ -143,7 +143,6 @@ struct ScriptTaskTests {
             let policy = ScriptTaskPolicy.mutation(
                 deadline: ContinuousClock().now.advanced(by: .milliseconds(50)),
                 dispatchError: { TaskTimeoutError() },
-                timeoutError: { TaskTimeoutError() },
                 outcome: ScriptTaskOutcome(
                     deadline: ContinuousClock().now.advanced(by: .seconds(1)),
                     error: { TaskOutcomeError() }
@@ -152,7 +151,7 @@ struct ScriptTaskTests {
             )
             let value = try await ScriptTask.run(
                 policy: policy,
-                onCompletion: {},
+                onOwnershipReleased: {},
                 start: { finish in
                     Task {
                         await callback.block()
@@ -180,7 +179,6 @@ struct ScriptTaskTests {
             let policy = ScriptTaskPolicy.mutation(
                 deadline: ContinuousClock().now.advanced(by: .seconds(1)),
                 dispatchError: { TaskTimeoutError() },
-                timeoutError: { TaskTimeoutError() },
                 outcome: ScriptTaskOutcome(
                     deadline: ContinuousClock().now.advanced(by: .seconds(2)),
                     error: { TaskOutcomeError() }
@@ -189,7 +187,7 @@ struct ScriptTaskTests {
             )
             let value = try await ScriptTask.run(
                 policy: policy,
-                onCompletion: {},
+                onOwnershipReleased: {},
                 start: { finish in
                     Task {
                         await callback.block()
@@ -220,7 +218,6 @@ struct ScriptTaskTests {
             let policy = ScriptTaskPolicy.mutation(
                 deadline: clock.now.advanced(by: .milliseconds(50)),
                 dispatchError: { TaskTimeoutError() },
-                timeoutError: { TaskTimeoutError() },
                 outcome: ScriptTaskOutcome(
                     deadline: clock.now.advanced(by: .milliseconds(150)),
                     error: { TaskOutcomeError() }
@@ -229,7 +226,7 @@ struct ScriptTaskTests {
             )
             _ = try await ScriptTask.run(
                 policy: policy,
-                onCompletion: {
+                onOwnershipReleased: {
                     Task { await completion.block() }
                 },
                 start: { finish in
@@ -253,6 +250,50 @@ struct ScriptTaskTests {
         await completion.release()
     }
 
+    @Test("Mutation callback after outcome deadline returns outcome error")
+    func rejectsLateMutationCallback() async {
+        let callback = TaskLatch()
+        let watchdog = TaskGate()
+        let releases = OwnershipCounter()
+        defer { watchdog.release() }
+
+        let task = Task {
+            let clock = ContinuousClock()
+            let policy = ScriptTaskPolicy.mutation(
+                deadline: clock.now.advanced(by: .milliseconds(50)),
+                dispatchError: { TaskTimeoutError() },
+                outcome: ScriptTaskOutcome(
+                    deadline: clock.now.advanced(by: .milliseconds(150)),
+                    error: { TaskOutcomeError() }
+                ),
+                onDeadline: { _ in
+                    // Freeze before the outcome check so the late callback must resolve through complete().
+                    watchdog.block()
+                }
+            )
+            return try await ScriptTask.run(
+                policy: policy,
+                onOwnershipReleased: { releases.record() },
+                start: { finish in
+                    Task {
+                        await callback.block()
+                        finish(.success("late"))
+                    }
+                }
+            )
+        }
+        #expect(await callback.waitForEntry())
+        #expect(await watchdog.waitForEntry())
+
+        try? await Task.sleep(for: .milliseconds(150))
+        await callback.release()
+
+        await #expect(throws: TaskOutcomeError.self) {
+            _ = try await task.value
+        }
+        #expect(releases.count == 1)
+    }
+
     @Test("Synchronous callback is delivered")
     func deliversSynchronousCallback() async throws {
         let completions = TaskProbe()
@@ -265,7 +306,7 @@ struct ScriptTaskTests {
 
         let value = try await ScriptTask.run(
             policy: policy,
-            onCompletion: {
+            onOwnershipReleased: {
                 Task { await completions.record() }
             },
             start: { finish in
@@ -323,5 +364,61 @@ private actor TaskLatch {
         let waiters = releaseWaiters
         releaseWaiters.removeAll()
         waiters.forEach { $0.resume() }
+    }
+}
+
+// Safety: the lock protects the counter and every access to it.
+private final class OwnershipCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    var count: Int {
+        lock.withLock { value }
+    }
+
+    func record() {
+        lock.withLock { value += 1 }
+    }
+}
+
+// Safety: the condition protects both flags and every access to them.
+private final class TaskGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var isEntered = false
+    private var isReleased = false
+
+    func block() {
+        condition.lock()
+        isEntered = true
+        condition.broadcast()
+        while !isReleased {
+            condition.wait()
+        }
+        condition.unlock()
+    }
+
+    func waitForEntry(timeout: Duration = .seconds(1)) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if hasEntered {
+                return true
+            }
+            try? await clock.sleep(for: .milliseconds(1))
+        }
+        return false
+    }
+
+    private var hasEntered: Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        return isEntered
+    }
+
+    func release() {
+        condition.lock()
+        isReleased = true
+        condition.broadcast()
+        condition.unlock()
     }
 }

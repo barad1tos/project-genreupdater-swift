@@ -12,14 +12,13 @@ struct ScriptTaskOutcome {
 
 struct ScriptTaskPolicy {
     private enum Mode {
-        case read
+        case read(@Sendable () -> any Error)
         case mutation(ScriptTaskOutcome)
     }
 
     private let mode: Mode
     let deadline: ContinuousClock.Instant
     let dispatchError: @Sendable () -> any Error
-    let timeoutError: @Sendable () -> any Error
     let onDeadline: @Sendable (Duration) -> Void
 
     var intent: ScriptIntent {
@@ -36,6 +35,19 @@ struct ScriptTaskPolicy {
         return outcome
     }
 
+    var resolutionDeadline: ContinuousClock.Instant {
+        outcome?.deadline ?? deadline
+    }
+
+    var resolutionError: @Sendable () -> any Error {
+        switch mode {
+        case let .read(error):
+            error
+        case let .mutation(outcome):
+            outcome.error
+        }
+    }
+
     static func read(
         deadline: ContinuousClock.Instant,
         dispatchError: @escaping @Sendable () -> any Error,
@@ -43,10 +55,9 @@ struct ScriptTaskPolicy {
         onDeadline: @escaping @Sendable (Duration) -> Void
     ) -> Self {
         Self(
-            mode: .read,
+            mode: .read(timeoutError),
             deadline: deadline,
             dispatchError: dispatchError,
-            timeoutError: timeoutError,
             onDeadline: onDeadline
         )
     }
@@ -54,7 +65,6 @@ struct ScriptTaskPolicy {
     static func mutation(
         deadline: ContinuousClock.Instant,
         dispatchError: @escaping @Sendable () -> any Error,
-        timeoutError: @escaping @Sendable () -> any Error,
         outcome: ScriptTaskOutcome,
         onDeadline: @escaping @Sendable (Duration) -> Void
     ) -> Self {
@@ -62,7 +72,6 @@ struct ScriptTaskPolicy {
             mode: .mutation(outcome),
             deadline: deadline,
             dispatchError: dispatchError,
-            timeoutError: timeoutError,
             onDeadline: onDeadline
         )
     }
@@ -73,35 +82,31 @@ enum ScriptTask {
 
     static func run<Value: Sendable>(
         policy: ScriptTaskPolicy,
-        onCompletion: @escaping @Sendable () -> Void,
+        onOwnershipReleased: @escaping @Sendable () -> Void,
         start: @escaping @Sendable (@escaping @Sendable (Result<Value, any Error>) -> Void) -> Void
     ) async throws -> Value {
         // Reads may resolve early, but physical ownership ends only when the callback arrives.
-        // Mutations ignore cancellation after dispatch and require a bounded outcome deadline.
-        let relay = ScriptRelay<Value>(onCompletion: onCompletion)
+        // Mutations ignore cancellation after dispatch. Results after the outcome deadline become
+        // unknown-outcome errors, so callers must reverify before retrying a write.
+        let relay = ScriptRelay<Value>(onOwnershipReleased: onOwnershipReleased)
         let dispatchResult: Result<Value, any Error> = .failure(policy.dispatchError())
-        let timeoutResult: Result<Value, any Error> = .failure(policy.timeoutError())
-        let outcomeResult: Result<Value, any Error>? = policy.outcome.map {
-            .failure($0.error())
-        }
+        let deadlineResult: Result<Value, any Error> = .failure(policy.resolutionError())
 
         return try await withTaskCancellationHandler {
-            guard relay.commitDispatch(deadline: policy.deadline, timeoutResult: dispatchResult) else {
+            guard relay.commitDispatch(deadline: policy.deadline, dispatchFailureResult: dispatchResult) else {
                 return try await relay.wait()
             }
             start { result in
                 relay.complete(
                     result,
-                    intent: policy.intent,
-                    deadline: policy.deadline,
-                    timeoutResult: timeoutResult
+                    deadline: policy.resolutionDeadline,
+                    deadlineResult: deadlineResult
                 )
             }
             startWatchdog(
                 policy: policy,
                 relay: relay,
-                result: timeoutResult,
-                outcomeResult: outcomeResult
+                deadlineResult: deadlineResult
             )
             return try await relay.wait()
         } onCancel: {
@@ -112,17 +117,16 @@ enum ScriptTask {
     private static func startWatchdog<Value: Sendable>(
         policy: ScriptTaskPolicy,
         relay: ScriptRelay<Value>,
-        result: Result<Value, any Error>,
-        outcomeResult: Result<Value, any Error>?
+        deadlineResult: Result<Value, any Error>
     ) {
         let watchdog = Task { [weak relay] in
             let clock = ContinuousClock()
             var nextLog = policy.deadline
-            var isOutcomePending = policy.outcome != nil && outcomeResult != nil
+            var isOutcomePending = policy.intent == .mutation
 
             while true {
                 let wakeAt = isOutcomePending
-                    ? min(nextLog, policy.outcome?.deadline ?? nextLog)
+                    ? min(nextLog, policy.resolutionDeadline)
                     : nextLog
                 do {
                     try await clock.sleep(until: wakeAt)
@@ -137,15 +141,12 @@ enum ScriptTask {
                     guard relay.notifyDeadline(overdue, action: policy.onDeadline) else { return }
                     nextLog = now.advanced(by: overdueLogInterval)
                     if policy.intent == .read {
-                        relay.resolve(result)
+                        relay.resolve(deadlineResult)
                     }
                 }
 
-                if isOutcomePending,
-                   let outcome = policy.outcome,
-                   now >= outcome.deadline,
-                   let outcomeResult {
-                    relay.resolve(outcomeResult)
+                if isOutcomePending, now >= policy.resolutionDeadline {
+                    relay.resolve(deadlineResult)
                     isOutcomePending = false
                 }
             }
@@ -165,12 +166,12 @@ private final class ScriptRelay<Value: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Value, any Error>?
     private var pendingResult: Result<Value, any Error>?
-    private var onCompletion: (@Sendable () -> Void)?
+    private var onOwnershipReleased: (@Sendable () -> Void)?
     private var watchdog: Task<Void, Never>?
     private var state = State.ready
 
-    init(onCompletion: @escaping @Sendable () -> Void) {
-        self.onCompletion = onCompletion
+    init(onOwnershipReleased: @escaping @Sendable () -> Void) {
+        self.onOwnershipReleased = onOwnershipReleased
     }
 
     deinit {
@@ -193,7 +194,7 @@ private final class ScriptRelay<Value: Sendable>: @unchecked Sendable {
 
     func commitDispatch(
         deadline: ContinuousClock.Instant,
-        timeoutResult: Result<Value, any Error>
+        dispatchFailureResult: Result<Value, any Error>
     ) -> Bool {
         lock.lock()
         guard case .ready = state else {
@@ -201,11 +202,11 @@ private final class ScriptRelay<Value: Sendable>: @unchecked Sendable {
             return false
         }
         guard ContinuousClock().now < deadline else {
-            let completion = onCompletion
-            onCompletion = nil
-            let resolution = resolveLocked(timeoutResult)
+            let ownershipRelease = onOwnershipReleased
+            onOwnershipReleased = nil
+            let resolution = resolveLocked(dispatchFailureResult)
             lock.unlock()
-            completion?()
+            ownershipRelease?()
             resolution.continuation?.resume(with: resolution.result)
             return false
         }
@@ -216,7 +217,7 @@ private final class ScriptRelay<Value: Sendable>: @unchecked Sendable {
 
     func cancel(intent: ScriptIntent) {
         lock.lock()
-        let completion: (@Sendable () -> Void)?
+        let ownershipRelease: (@Sendable () -> Void)?
         switch state {
         case .dispatched where intent == .mutation:
             lock.unlock()
@@ -225,14 +226,14 @@ private final class ScriptRelay<Value: Sendable>: @unchecked Sendable {
             lock.unlock()
             return
         case .ready:
-            completion = onCompletion
-            onCompletion = nil
+            ownershipRelease = onOwnershipReleased
+            onOwnershipReleased = nil
         case .dispatched:
-            completion = nil
+            ownershipRelease = nil
         }
         let resolution = resolveLocked(.failure(CancellationError()))
         lock.unlock()
-        completion?()
+        ownershipRelease?()
         resolution.continuation?.resume(with: resolution.result)
     }
 
@@ -250,7 +251,7 @@ private final class ScriptRelay<Value: Sendable>: @unchecked Sendable {
 
     func installWatchdog(_ watchdog: Task<Void, Never>) {
         lock.lock()
-        let shouldCancel = onCompletion == nil
+        let shouldCancel = onOwnershipReleased == nil
         if !shouldCancel {
             self.watchdog = watchdog
         }
@@ -262,7 +263,7 @@ private final class ScriptRelay<Value: Sendable>: @unchecked Sendable {
 
     var isCallbackPending: Bool {
         lock.withLock {
-            guard onCompletion != nil else { return false }
+            guard onOwnershipReleased != nil else { return false }
             switch state {
             case .ready:
                 return false
@@ -277,7 +278,7 @@ private final class ScriptRelay<Value: Sendable>: @unchecked Sendable {
         action: @Sendable (Duration) -> Void
     ) -> Bool {
         lock.lock()
-        let shouldNotify = if onCompletion == nil {
+        let shouldNotify = if onOwnershipReleased == nil {
             false
         } else {
             switch state {
@@ -296,17 +297,16 @@ private final class ScriptRelay<Value: Sendable>: @unchecked Sendable {
 
     func complete(
         _ result: Result<Value, any Error>,
-        intent: ScriptIntent,
         deadline: ContinuousClock.Instant,
-        timeoutResult: Result<Value, any Error>
+        deadlineResult: Result<Value, any Error>
     ) {
         lock.lock()
-        let completion = onCompletion
-        onCompletion = nil
+        let ownershipRelease = onOwnershipReleased
+        onOwnershipReleased = nil
         let watchdog = watchdog
         self.watchdog = nil
-        let isLate = intent == .read && ContinuousClock().now >= deadline
-        let callbackResult = isLate ? timeoutResult : result
+        let isLate = ContinuousClock().now >= deadline
+        let callbackResult = isLate ? deadlineResult : result
         let resolution: (
             continuation: CheckedContinuation<Value, any Error>?,
             result: Result<Value, any Error>
@@ -318,7 +318,7 @@ private final class ScriptRelay<Value: Sendable>: @unchecked Sendable {
         lock.unlock()
 
         watchdog?.cancel()
-        completion?()
+        ownershipRelease?()
         if let resolution {
             resolution.continuation?.resume(with: resolution.result)
         }
