@@ -27,6 +27,7 @@ public enum AppleScriptBridgeError: Error, LocalizedError {
     case dispatchDeadline(scriptName: String, duration: Duration)
     case timeout(scriptName: String, duration: Duration)
     case parseError(scriptName: String, detail: String)
+    case libraryChanged(detail: String)
     case scriptsNotInstalled
     case musicAppNotRunning
 
@@ -42,6 +43,8 @@ public enum AppleScriptBridgeError: Error, LocalizedError {
             "AppleScript '\(name)' timed out after \(duration)"
         case let .parseError(name, detail):
             "Failed to parse output from '\(name)': \(detail)"
+        case let .libraryChanged(detail):
+            "Music library changed while it was being read: \(detail)"
         case .scriptsNotInstalled:
             "AppleScript files are not installed. Please run the setup wizard."
         case .musicAppNotRunning:
@@ -74,6 +77,10 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     public var trackIDBatchSize: Int {
         max(1, config.batchProcessing.idsBatchSize)
+    }
+
+    var scanBatchSize: Int {
+        min(1000, max(1, config.batchProcessing.batchSize))
     }
 
     public func updateConfiguration(_ config: AppleScriptConfig) async {
@@ -194,11 +201,15 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     public func fetchAllTrackIDs(timeout: Duration? = nil) async throws -> [String] {
         let effectiveTimeout = timeout ?? config.timeouts.fullLibraryFetch
-        guard let output = try await runScript(name: "fetch_track_ids", timeout: effectiveTimeout) else {
-            return []
+        let scan = TrackIDScan(batchSize: scanBatchSize, timeout: effectiveTimeout) { [self] offset, limit, remaining in
+            try await runScript(
+                name: "fetch_track_ids",
+                arguments: [String(offset), String(limit)],
+                timeout: remaining
+            )
         }
 
-        let ids = try Self.parseTrackIDOutput(output)
+        let ids = try await scan.run()
         log.info("Fetched \(ids.count, privacy: .public) track IDs from library")
         return ids
     }
@@ -397,24 +408,6 @@ public actor AppleScriptBridge: AppleScriptClient {
         event.setDescriptor(argList, forKeyword: keyDirectObject)
 
         return event
-    }
-
-    /// Parse comma-separated IDs returned by fetch_track_ids.applescript.
-    static func parseTrackIDOutput(_ output: String) throws -> [String] {
-        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedOutput.isEmpty else { return [] }
-        if trimmedOutput.localizedCaseInsensitiveContains("ERROR:") {
-            throw AppleScriptBridgeError.executionFailed(
-                scriptName: "fetch_track_ids",
-                detail: String(trimmedOutput.prefix(200))
-            )
-        }
-        guard trimmedOutput != "NO_TRACKS_FOUND" else { return [] }
-
-        return output
-            .split(separator: ",", omittingEmptySubsequences: false)
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
     }
 
     static func validateBatchUpdateOutput(_ output: String?, updateCount: Int) throws {
