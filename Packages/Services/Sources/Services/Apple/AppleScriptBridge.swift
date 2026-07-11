@@ -63,7 +63,7 @@ private struct UnsafeSendable<T>: @unchecked Sendable {
 /// Actor that manages all AppleScript interactions with Music.app.
 ///
 /// Uses NSUserAppleScriptTask for sandbox-compatible script execution.
-/// The actor applies configured retry, rate, and concurrency limits before
+/// The actor applies configured read retries, rate, and concurrency limits before
 /// reaching Music.app.
 public actor AppleScriptBridge: AppleScriptClient {
     private static let batchUpdateScriptName = "batch_update_tracks"
@@ -135,12 +135,18 @@ public actor AppleScriptBridge: AppleScriptClient {
                 "Executing script: \(name, privacy: .public) with \(validatedArguments.count, privacy: .public) arguments"
             )
 
-        return try await retryAppleScriptOperation(scriptName: name, retry: retryConfiguration) {
+        let deadline = ContinuousClock().now.advanced(by: effectiveTimeout)
+        return try await executeByIntent(
+            scriptName: name,
+            retry: retryConfiguration,
+            deadline: deadline,
+            timeout: effectiveTimeout
+        ) { attemptTimeout in
             try await self.executeScriptAttempt(
                 name: name,
                 scriptURL: scriptURL,
                 arguments: validatedArguments,
-                timeout: effectiveTimeout
+                timeout: attemptTimeout
             )
         }
     }
@@ -524,106 +530,6 @@ extension AppleScriptBridge {
         }
     }
 
-    func retryAppleScriptOperation<T: Sendable>(
-        scriptName: String,
-        retry: AppleScriptRetry,
-        operation: () async throws -> T
-    ) async throws -> T {
-        // A surfaced deadline proves no attempt reached Music.app; ambiguous attempts must win.
-        let clock = ContinuousClock()
-        let startedAt = clock.now
-        let maxRetries = max(0, retry.maxRetries)
-        var delaySeconds = max(0, retry.baseDelaySeconds)
-        var lastAttemptError: (any Error)?
-        var lastAmbiguousError: (any Error)?
-
-        for attempt in 0 ... maxRetries {
-            if Self.hasExceededTotalTimeout(startedAt: startedAt, retry: retry, clock: clock) {
-                if let error = lastAmbiguousError ?? lastAttemptError {
-                    let elapsed = startedAt.duration(to: clock.now)
-                    log.warning(
-                        "AppleScript retry budget exhausted for \(scriptName, privacy: .public) after \(elapsed, privacy: .public); configured \(retry.operationTimeoutSeconds, privacy: .public) seconds"
-                    )
-                    throw error
-                }
-                throw AppleScriptBridgeError.timeout(
-                    scriptName: scriptName,
-                    duration: Self.duration(seconds: retry.operationTimeoutSeconds)
-                )
-            }
-
-            do {
-                return try await operation()
-            } catch {
-                lastAttemptError = error
-                if !Self.isDispatchDeadline(error) {
-                    lastAmbiguousError = error
-                }
-                guard attempt < maxRetries, Self.isRetryableAppleScriptError(error) else {
-                    if lastAmbiguousError != nil, Self.isDispatchDeadline(error) {
-                        log.debug(
-                            "AppleScript \(scriptName, privacy: .public) ended pre-dispatch after an earlier ambiguous failure"
-                        )
-                    }
-                    throw lastAmbiguousError ?? error
-                }
-
-                let delay = Self.retryDelaySeconds(
-                    afterFailureAt: attempt,
-                    baseDelaySeconds: delaySeconds,
-                    jitterRange: retry.jitterRange
-                )
-                if delay > 0 {
-                    try await Task.sleep(for: Self.duration(seconds: delay))
-                }
-                delaySeconds = min(max(0, retry.maxDelaySeconds), max(0, delaySeconds * 2))
-            }
-        }
-
-        throw AppleScriptBridgeError.executionFailed(
-            scriptName: scriptName,
-            detail: "Retry loop exited without a result"
-        )
-    }
-
-    private static func isDispatchDeadline(_ error: any Error) -> Bool {
-        guard let bridgeError = error as? AppleScriptBridgeError else { return false }
-        if case .dispatchDeadline = bridgeError {
-            return true
-        }
-        return false
-    }
-
-    static func isRetryableAppleScriptError(_ error: any Error) -> Bool {
-        guard let bridgeError = error as? AppleScriptBridgeError else {
-            return isTransientError(error)
-        }
-
-        switch bridgeError {
-        case .dispatchDeadline,
-             .executionFailed,
-             .musicAppNotRunning,
-             .timeout:
-            return true
-        case .parseError,
-             .scriptNotFound,
-             .scriptsNotInstalled:
-            return false
-        }
-    }
-
-    static func retryDelaySeconds(
-        afterFailureAt attempt: Int,
-        baseDelaySeconds: Double,
-        jitterRange: Double
-    ) -> Double {
-        let baseDelay = max(0, baseDelaySeconds)
-        let clampedJitter = min(max(0, jitterRange), 1)
-        let jitterSeed = Double((attempt * 31 + 17) % 100) / 100
-        let jitterOffset = (jitterSeed - 0.5) * 2 * baseDelay * clampedJitter
-        return max(0, baseDelay + jitterOffset)
-    }
-
     static func makeRateLimiter(configuration: AppleScriptRateLimit) -> TokenBucketRateLimiter? {
         guard configuration.enabled else { return nil }
 
@@ -633,19 +539,6 @@ extension AppleScriptBridge {
             maxTokens: requestCount,
             refillInterval: .milliseconds(refillMilliseconds)
         )
-    }
-
-    private static func hasExceededTotalTimeout(
-        startedAt: ContinuousClock.Instant,
-        retry: AppleScriptRetry,
-        clock: ContinuousClock
-    ) -> Bool {
-        guard retry.operationTimeoutSeconds > 0 else { return false }
-        return startedAt.duration(to: clock.now) > duration(seconds: retry.operationTimeoutSeconds)
-    }
-
-    private static func duration(seconds: Double) -> Duration {
-        .milliseconds(max(0, Int(seconds * 1000)))
     }
 }
 
