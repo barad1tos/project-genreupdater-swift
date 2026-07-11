@@ -163,6 +163,13 @@ public actor TokenBucketRateLimiter: RateLimiter {
         }
     }
 
+    /// Reserves a token before `deadline`.
+    /// Commit immediately after dispatch; cancel or abandon the lease if no request is sent.
+    func reserve(until deadline: ContinuousClock.Instant) async throws -> RateLimitLease {
+        _ = try await acquire(until: deadline)
+        return RateLimitLease(limiter: self)
+    }
+
     /// Returns a token to the bucket, capped at `maxTokens`.
     ///
     /// Use this for error cleanup when a request slot was acquired
