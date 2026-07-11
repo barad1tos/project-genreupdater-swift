@@ -10,7 +10,7 @@ enum ReportsWriteError: LocalizedError {
     }
 }
 
-struct ReportsWrite: Sendable {
+struct ReportsWrite {
     let batchProcessor: BatchProcessor
     let undoCoordinator: UndoCoordinator
 

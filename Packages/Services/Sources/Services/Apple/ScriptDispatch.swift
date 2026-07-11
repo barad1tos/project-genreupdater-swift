@@ -10,7 +10,7 @@ private struct UnsafeSendable<T>: @unchecked Sendable {
     let value: T
 }
 
-struct ScriptCall: Sendable {
+struct ScriptCall {
     let name: String
     let intent: ScriptIntent
     let deadline: ContinuousClock.Instant

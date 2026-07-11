@@ -3,12 +3,12 @@ import Foundation
 import Services
 
 enum FixPlanWrite {
-    struct ScriptAccess: Sendable {
+    struct ScriptAccess {
         let client: any AppleScriptClient
         let batchSize: @Sendable () async -> Int
     }
 
-    struct RunnerDependencies: Sendable {
+    struct RunnerDependencies {
         let updateCoordinator: UpdateCoordinator
         let fixPlanStore: any FixPlanStore
         let mapper: TrackIDMapper
