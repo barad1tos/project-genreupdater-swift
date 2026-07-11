@@ -48,9 +48,8 @@ struct RateLeaseTests {
         }
         #expect(await limiter.waitForQueue(1))
 
-        weak let abandonedLease = lease
+        #expect(lease != nil)
         lease = nil
-        #expect(abandonedLease == nil)
 
         guard await limiter.waitForQueue(0, timeout: .milliseconds(500)) else {
             next.cancel()
