@@ -99,7 +99,7 @@ struct RetryDeadlineTests {
         #expect(await probe.attempts == 1)
     }
 
-    @Test("A pre-dispatch retry failure preserves an earlier dispatched error")
+    @Test("Budget exhaustion preserves an earlier dispatched error")
     func preservesDispatchedFailure() async {
         let bridge = makeDeadlineBridge()
         let probe = FailureProbe(errors: [
@@ -107,7 +107,10 @@ struct RetryDeadlineTests {
             .dispatchDeadline(scriptName: "fetch_tracks", duration: .seconds(1))
         ])
         var retry = deadlineRetryPolicy()
-        retry.maxRetries = 1
+        retry.maxRetries = 2
+        retry.baseDelaySeconds = 0.2
+        retry.maxDelaySeconds = 0.4
+        retry.operationTimeoutSeconds = 0.5
 
         do {
             _ = try await bridge.retryRead(
@@ -153,8 +156,8 @@ struct RetryDeadlineTests {
         #expect(result == "ok")
         let timeouts = await probe.timeouts
         #expect(timeouts.count == 2)
-        #expect(timeouts[0] > .seconds(1))
-        #expect(timeouts[1] > .seconds(1))
+        #expect(timeouts[0] > .seconds(5))
+        #expect(timeouts[1] > .seconds(5))
         #expect(timeouts[1] <= timeouts[0])
     }
 }

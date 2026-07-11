@@ -129,25 +129,14 @@ public actor AppleScriptBridge: AppleScriptClient {
         let validatedArguments = try InputSanitizer.validateAppleEventArguments(arguments)
         let effectiveTimeout = timeout ?? config.timeouts.defaultTimeout
         let retryConfiguration = config.retry
-        let intent = Self.intent(forScript: name)
 
         log
             .info(
                 "Executing script: \(name, privacy: .public) with \(validatedArguments.count, privacy: .public) arguments"
             )
 
-        // Writes surface their first outcome so recovery can verify Music.app state before any replay.
-        guard intent == .read else {
-            return try await executeScriptAttempt(
-                name: name,
-                scriptURL: scriptURL,
-                arguments: validatedArguments,
-                timeout: effectiveTimeout
-            )
-        }
-
         let deadline = ContinuousClock().now.advanced(by: effectiveTimeout)
-        return try await retryRead(
+        return try await executeByIntent(
             scriptName: name,
             retry: retryConfiguration,
             deadline: deadline,

@@ -38,10 +38,23 @@ struct ScriptRetryTests {
             scriptName: "fetch_tracks",
             duration: .seconds(1)
         )
+        let timeout = AppleScriptBridgeError.timeout(scriptName: "fetch_tracks", duration: .seconds(1))
+        let execution = AppleScriptBridgeError.executionFailed(scriptName: "fetch_tracks", detail: "Music busy")
+        let notRunning = AppleScriptBridgeError.musicAppNotRunning
         let parseError = AppleScriptBridgeError.parseError(scriptName: "fetch_tracks", detail: "bad output")
+        let missing = AppleScriptBridgeError.scriptNotFound(
+            name: "fetch_tracks",
+            searchPath: FileManager.default.temporaryDirectory
+        )
+        let notInstalled = AppleScriptBridgeError.scriptsNotInstalled
 
         #expect(AppleScriptBridge.isRetryable(deadline))
+        #expect(AppleScriptBridge.isRetryable(timeout))
+        #expect(AppleScriptBridge.isRetryable(execution))
+        #expect(AppleScriptBridge.isRetryable(notRunning))
         #expect(!AppleScriptBridge.isRetryable(parseError))
+        #expect(!AppleScriptBridge.isRetryable(missing))
+        #expect(!AppleScriptBridge.isRetryable(notInstalled))
     }
 
     @Test("Retry delay applies deterministic bounded jitter")
@@ -59,7 +72,7 @@ struct ScriptRetryTests {
         let bridge = makeBridge()
         let probe = RetryProbe(failures: 2)
 
-        let result = try await bridge.retryRead(
+        let result = try await bridge.executeByIntent(
             scriptName: "fetch_tracks",
             retry: retryPolicy(),
             deadline: ContinuousClock().now.advanced(by: .seconds(1)),
@@ -70,6 +83,47 @@ struct ScriptRetryTests {
 
         #expect(result == "ok")
         #expect(await probe.attempts == 3)
+    }
+
+    @Test("Timeout reads retry when caller budget remains")
+    func retriesTimeoutReads() async throws {
+        let bridge = makeBridge()
+        let probe = RetryProbe(
+            failures: 1,
+            error: .timeout(scriptName: "fetch_tracks", duration: .milliseconds(10))
+        )
+
+        let result = try await bridge.executeByIntent(
+            scriptName: "fetch_tracks",
+            retry: retryPolicy(),
+            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
+            timeout: .seconds(1)
+        ) { _ in
+            try await probe.run()
+        }
+
+        #expect(result == "ok")
+        #expect(await probe.attempts == 2)
+    }
+
+    @Test("Mutations and unknown scripts execute once")
+    func executesMutationsOnce() async {
+        for scriptName in ["update_property", "batch_update_tracks", "unknown_script"] {
+            let bridge = makeBridge()
+            let probe = RetryProbe(failures: 2)
+
+            await #expect(throws: AppleScriptBridgeError.self) {
+                _ = try await bridge.executeByIntent(
+                    scriptName: scriptName,
+                    retry: retryPolicy(),
+                    deadline: ContinuousClock().now.advanced(by: .seconds(1)),
+                    timeout: .seconds(1)
+                ) { _ in
+                    try await probe.run()
+                }
+            }
+            #expect(await probe.attempts == 1)
+        }
     }
 
     @Test("Permanent read failures are not retried")

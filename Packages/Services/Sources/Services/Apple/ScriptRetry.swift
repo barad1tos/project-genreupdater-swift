@@ -17,6 +17,26 @@ extension AppleScriptBridge {
         scriptIntents[name] ?? .mutation
     }
 
+    func executeByIntent<T: Sendable>(
+        scriptName: String,
+        retry: AppleScriptRetry,
+        deadline: ContinuousClock.Instant,
+        timeout: Duration,
+        operation: (Duration) async throws -> T
+    ) async throws -> T {
+        // Writes surface their first outcome so recovery can verify Music.app state before any replay.
+        guard Self.intent(forScript: scriptName) == .read else {
+            return try await operation(timeout)
+        }
+        return try await retryRead(
+            scriptName: scriptName,
+            retry: retry,
+            deadline: deadline,
+            timeout: timeout,
+            operation: operation
+        )
+    }
+
     /// Retries fast transient read failures. A timeout that consumes the caller deadline is surfaced unchanged.
     func retryRead<T: Sendable>(
         scriptName: String,
@@ -79,7 +99,7 @@ extension AppleScriptBridge {
                     deadline: deadline,
                     retryDeadline: retryDeadline
                 ) else {
-                    throw error
+                    throw lastDispatchedError ?? error
                 }
                 delaySeconds = min(max(0, retry.maxDelaySeconds), max(0, delaySeconds * 2))
             }
