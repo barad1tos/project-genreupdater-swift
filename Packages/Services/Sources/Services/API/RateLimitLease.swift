@@ -17,18 +17,18 @@ final class RateLimitLease: @unchecked Sendable {
         self.limiter = limiter
     }
 
-    /// Consumes the token permanently. Call immediately after dispatch, before awaiting the response.
-    func commit() {
-        lock.withLock {
-            switch state {
-            case .reserved:
-                state = .committed
-            case .committed:
-                break
-            case .released:
-                assertionFailure("Cannot commit a released rate-limit lease")
-            }
+    /// Dispatches one fast enqueue action and atomically consumes the token.
+    /// The action must not re-enter this lease while its non-recursive lock is held.
+    @discardableResult
+    func dispatch(_ action: () -> Void) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard state == .reserved else {
+            return false
         }
+        action()
+        state = .committed
+        return true
     }
 
     func cancel() async {

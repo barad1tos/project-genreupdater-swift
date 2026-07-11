@@ -545,6 +545,8 @@ extension UpdateCoordinator {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as AppleScriptOutcomeError {
+            throw error
         } catch {
             throw UpdateCoordinatorError.writeFailed(
                 trackID: change.track.id,

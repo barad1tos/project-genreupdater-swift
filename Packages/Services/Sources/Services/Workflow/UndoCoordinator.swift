@@ -326,6 +326,8 @@ public actor UndoCoordinator {
             throw error
         } catch let error as AppleScriptBridgeError {
             throw error
+        } catch let error as AppleScriptOutcomeError {
+            throw error
         } catch {
             throw UndoCoordinatorError.revertFailed(
                 trackID: change.track.id,
@@ -471,6 +473,9 @@ public actor UndoCoordinator {
         }
         if let appleScriptError = error as? AppleScriptBridgeError {
             return publicAppleScriptFailureDescription(for: appleScriptError)
+        }
+        if let outcomeError = error as? AppleScriptOutcomeError {
+            return outcomeError.localizedDescription
         }
         return "AppleScript write failed"
     }

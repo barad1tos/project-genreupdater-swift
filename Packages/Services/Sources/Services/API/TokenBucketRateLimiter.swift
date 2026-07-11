@@ -164,7 +164,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
     }
 
     /// Reserves a token before `deadline`.
-    /// Commit immediately after dispatch; cancel or abandon the lease if no request is sent.
+    /// Consume it atomically with `RateLimitLease.dispatch`; cancel or abandon it if no request is sent.
     func reserve(until deadline: ContinuousClock.Instant) async throws -> RateLimitLease {
         _ = try await acquire(until: deadline)
         return RateLimitLease(limiter: self)
