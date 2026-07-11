@@ -199,7 +199,9 @@ private actor OutcomeScriptClient: AppleScriptClient {
         self.failure = failure
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // This in-memory client requires no setup.
+    }
 
     func runScript(name _: String, arguments _: [String], timeout _: Duration?) async throws -> String? {
         nil

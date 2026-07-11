@@ -104,7 +104,9 @@ private actor ScriptSpy: AppleScriptClient {
         tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // This in-memory client requires no setup.
+    }
 
     func runScript(name _: String, arguments _: [String], timeout _: Duration?) async throws -> String? {
         nil
@@ -131,7 +133,9 @@ private actor ScriptSpy: AppleScriptClient {
         return .noChange
     }
 
-    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {}
+    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
+        // Factory tests only exercise single-track writes.
+    }
 
     func returnUnknownOutcome() {
         shouldReturnUnknown = true
@@ -147,7 +151,9 @@ private actor FactoryPlanStore: FixPlanStore {
         storedDecision = decision
     }
 
-    func savePlan(_: FixPlan, initialDecision _: FixPlanReviewDecision) async throws {}
+    func savePlan(_: FixPlan, initialDecision _: FixPlanReviewDecision) async throws {
+        // The fixture is immutable after construction.
+    }
     func plan(id: FixPlanID, revision: FixPlanRevision) async throws -> FixPlan? {
         storedPlan.id == id && storedPlan.revision == revision ? storedPlan : nil
     }
@@ -163,18 +169,24 @@ private actor FactoryPlanStore: FixPlanStore {
 }
 
 private actor FactoryTrackStore: TrackStateStore {
-    func initialize() async throws {}
+    func initialize() async throws {
+        // This in-memory store requires no setup.
+    }
     func loadAllTracks() async throws -> [Track] {
         []
     }
-    func saveTracks(_: [Track]) async throws {}
+    func saveTracks(_: [Track]) async throws {
+        // Factory tests do not persist track state.
+    }
     func deleteTrackIDs(_: [String]) async throws -> Int {
         0
     }
     func getTrack(byID _: String) async throws -> Track? {
         nil
     }
-    func updateTrackProcessingState(id _: String, genreUpdated _: Bool?, yearUpdated _: Bool?) async throws {}
+    func updateTrackProcessingState(id _: String, genreUpdated _: Bool?, yearUpdated _: Bool?) async throws {
+        // Factory tests do not persist processing state.
+    }
     func getUnprocessedTracks() async throws -> [Track] {
         []
     }
@@ -184,25 +196,45 @@ private actor FactoryTrackStore: TrackStateStore {
 }
 
 private actor FactoryCache: CacheService {
-    func initialize() async throws {}
+    func initialize() async throws {
+        // This in-memory cache requires no setup.
+    }
     func get<T: Codable & Sendable>(key _: String) async -> T? {
         nil
     }
-    func set(key _: String, value _: some Codable & Sendable, ttl _: TimeInterval?) async {}
-    func invalidate(key _: String) async {}
-    func clear() async {}
+    func set(key _: String, value _: some Codable & Sendable, ttl _: TimeInterval?) async {
+        // Factory tests do not persist generic cache values.
+    }
+    func invalidate(key _: String) async {
+        // Factory tests do not persist generic cache values.
+    }
+    func clear() async {
+        // Factory tests do not persist generic cache values.
+    }
     func getAlbumYear(artist _: String, album _: String) async -> AlbumCacheEntry? {
         nil
     }
-    func storeAlbumYear(artist _: String, album _: String, year _: Int, confidence _: Int) async {}
-    func invalidateAlbum(artist _: String, album _: String) async {}
-    func invalidateAllAlbumYears() async {}
+    func storeAlbumYear(artist _: String, album _: String, year _: Int, confidence _: Int) async {
+        // Factory tests do not persist album-year cache values.
+    }
+    func invalidateAlbum(artist _: String, album _: String) async {
+        // Factory tests do not persist album-year cache values.
+    }
+    func invalidateAllAlbumYears() async {
+        // Factory tests do not persist album-year cache values.
+    }
     func getCachedAPIResult(artist _: String, album _: String, source _: String) async -> CachedAPIResult? {
         nil
     }
-    func setCachedAPIResult(_: CachedAPIResult) async {}
-    func invalidateCachedAPIResults(artist _: String, album _: String) async {}
-    func syncToDisk() async throws {}
+    func setCachedAPIResult(_: CachedAPIResult) async {
+        // Factory tests do not persist API cache values.
+    }
+    func invalidateCachedAPIResults(artist _: String, album _: String) async {
+        // Factory tests do not persist API cache values.
+    }
+    func syncToDisk() async throws {
+        // This in-memory cache has no disk state.
+    }
 }
 
 private func makeItem() -> FixPlanItem {

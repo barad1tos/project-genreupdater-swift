@@ -112,7 +112,9 @@ private actor WriteIDScriptSpy: AppleScriptClient {
         tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // This in-memory client requires no setup.
+    }
 
     func runScript(
         name _: String,
@@ -147,7 +149,9 @@ private actor WriteIDScriptSpy: AppleScriptClient {
         .noChange
     }
 
-    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {}
+    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
+        // This spy only exercises single-track writes.
+    }
 }
 
 private func musicKitTrack(index: Int) -> Track {

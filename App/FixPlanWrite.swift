@@ -152,7 +152,10 @@ enum FixPlanWrite {
                     scriptClient: dependencies.script.client,
                     writeIDBatchSize: dependencies.script.batchSize()
                 )
-                return try await dependencies.updateCoordinator.applyAcceptedChanges(changes) { _ in }
+                return try await dependencies.updateCoordinator.applyAcceptedChanges(
+                    changes,
+                    progressHandler: ignoreProgress
+                )
             }
         }
     }
@@ -171,6 +174,10 @@ enum FixPlanWrite {
 
     private static func year(from value: String?) -> Int? {
         value.flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
+    private static func ignoreProgress(_: ProgressUpdate) {
+        // Fix-plan writes do not expose intermediate progress.
     }
 }
 

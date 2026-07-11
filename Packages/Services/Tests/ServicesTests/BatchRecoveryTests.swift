@@ -39,7 +39,7 @@ struct BatchRecoveryTests {
                     }
                     return [ChangeLogEntry(changeType: .genreUpdate, trackID: track.id, artist: track.artist)]
                 },
-                progressHandler: { _ in }
+                progressHandler: ignoreRecoveryProgress
             )
         }
 
@@ -62,7 +62,7 @@ struct BatchRecoveryTests {
                     blockedTrackIDs.append(track.id)
                     return []
                 },
-                progressHandler: { _ in }
+                progressHandler: ignoreRecoveryProgress
             )
             Issue.record("Expected the persisted recovery hold to block processing")
         } catch let error as BatchProcessorError {
@@ -90,7 +90,7 @@ struct BatchRecoveryTests {
                 restartedTrackIDs.append(track.id)
                 return []
             },
-            progressHandler: { _ in }
+            progressHandler: ignoreRecoveryProgress
         )
         #expect(restartedTrackIDs.values == ["T0", "T1", "T2"])
     }
@@ -110,7 +110,7 @@ struct BatchRecoveryTests {
                 operation: { _ in
                     throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
                 },
-                progressHandler: { _ in }
+                progressHandler: ignoreRecoveryProgress
             )
         }
 
@@ -124,7 +124,7 @@ struct BatchRecoveryTests {
                 restartedTrackIDs.append(track.id)
                 return []
             },
-            progressHandler: { _ in }
+            progressHandler: ignoreRecoveryProgress
         )
         #expect(restartedTrackIDs.values == ["T0", "T1"])
     }
@@ -153,7 +153,7 @@ struct BatchRecoveryTests {
                     try Data("not-a-directory".utf8).write(to: checkpointDirectory)
                     throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
                 },
-                progressHandler: { _ in }
+                progressHandler: ignoreRecoveryProgress
             )
         }
 
@@ -170,7 +170,7 @@ struct BatchRecoveryTests {
                     writeCalls.append(track.id)
                     return []
                 },
-                progressHandler: { _ in }
+                progressHandler: ignoreRecoveryProgress
             )
         }
         #expect(writeCalls.values.isEmpty)
@@ -184,4 +184,8 @@ private func makeRecoveryTracks(count: Int) -> [Track] {
     (0 ..< count).map { index in
         Track(id: "T\(index)", name: "Track T\(index)", artist: "Artist", album: "Album")
     }
+}
+
+private func ignoreRecoveryProgress(_: ProgressUpdate) {
+    // Recovery tests assert state transitions, not progress reporting.
 }

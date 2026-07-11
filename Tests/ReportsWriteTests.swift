@@ -100,7 +100,9 @@ private actor ReportsScriptClient: AppleScriptClient {
     private var shouldReturnUnknown = true
     private(set) var writeCount = 0
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // This in-memory client requires no setup.
+    }
 
     func runScript(name _: String, arguments _: [String], timeout _: Duration?) async throws -> String? {
         nil
@@ -123,7 +125,9 @@ private actor ReportsScriptClient: AppleScriptClient {
         return .changed
     }
 
-    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {}
+    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
+        // Reports tests only exercise single-track writes.
+    }
 
     func allowWrites() {
         shouldReturnUnknown = false

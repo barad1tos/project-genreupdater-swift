@@ -95,7 +95,7 @@ struct WriteAdmissionTests {
                     await batchHold.wait()
                     return []
                 },
-                progressHandler: { _ in }
+                progressHandler: ignoreAdmissionProgress
             )
         }
         await batchHold.waitUntilEntered()
@@ -127,7 +127,7 @@ struct WriteAdmissionTests {
                     calls.append("batch-during-external")
                     return []
                 },
-                progressHandler: { _ in }
+                progressHandler: ignoreAdmissionProgress
             )
         }
         #expect(calls.values == ["batch", "external"])
@@ -248,4 +248,8 @@ struct WriteAdmissionTests {
 
 private func admissionTrack(_ id: String) -> Track {
     Track(id: id, name: "Track \(id)", artist: "Artist", album: "Album")
+}
+
+private func ignoreAdmissionProgress(_: ProgressUpdate) {
+    // Admission tests assert write ownership, not progress reporting.
 }
