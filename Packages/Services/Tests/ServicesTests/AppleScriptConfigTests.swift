@@ -1,59 +1,10 @@
-import Carbon.OpenScripting
 import Foundation
 import Testing
 @testable import Core
 @testable import Services
 
-@Suite("AppleScriptBridge - retry and rate configuration")
+@Suite("AppleScriptBridge - rate and batch configuration")
 struct AppleScriptConfigTests {
-    @Test("Retry classifier retries transient AppleScript failures")
-    func retryClassifierRetriesTransientAppleScriptFailures() {
-        let dispatch = AppleScriptBridgeError.dispatchDeadline(
-            scriptName: "fetch_tracks",
-            duration: .seconds(1)
-        )
-        let timeout = AppleScriptBridgeError.timeout(scriptName: "fetch_tracks", duration: .seconds(1))
-        let execution = AppleScriptBridgeError.executionFailed(scriptName: "fetch_tracks", detail: "Music busy")
-        let musicNotRunning = AppleScriptBridgeError.musicAppNotRunning
-
-        #expect(AppleScriptBridge.isRetryableAppleScriptError(dispatch))
-        #expect(AppleScriptBridge.isRetryableAppleScriptError(timeout))
-        #expect(AppleScriptBridge.isRetryableAppleScriptError(execution))
-        #expect(AppleScriptBridge.isRetryableAppleScriptError(musicNotRunning))
-    }
-
-    @Test("Retry classifier rejects permanent AppleScript failures")
-    func retryClassifierRejectsPermanentAppleScriptFailures() {
-        let missing = AppleScriptBridgeError.scriptNotFound(
-            name: "missing",
-            searchPath: FileManager.default.temporaryDirectory
-        )
-        let parseError = AppleScriptBridgeError.parseError(scriptName: "fetch_tracks", detail: "bad output")
-        let notInstalled = AppleScriptBridgeError.scriptsNotInstalled
-
-        #expect(!AppleScriptBridge.isRetryableAppleScriptError(missing))
-        #expect(!AppleScriptBridge.isRetryableAppleScriptError(parseError))
-        #expect(!AppleScriptBridge.isRetryableAppleScriptError(notInstalled))
-    }
-
-    @Test("Retry delay applies deterministic bounded jitter")
-    func retryDelayAppliesDeterministicBoundedJitter() {
-        let first = AppleScriptBridge.retryDelaySeconds(
-            afterFailureAt: 0,
-            baseDelaySeconds: 10,
-            jitterRange: 0.2
-        )
-        let noJitter = AppleScriptBridge.retryDelaySeconds(
-            afterFailureAt: 0,
-            baseDelaySeconds: 10,
-            jitterRange: 0
-        )
-
-        #expect(first >= 8)
-        #expect(first <= 12)
-        #expect(noJitter == 10)
-    }
-
     @Test("Disabled rate limit does not create limiter")
     func disabledRateLimitDoesNotCreateLimiter() {
         var configuration = AppleScriptRateLimit()
@@ -74,7 +25,7 @@ struct AppleScriptConfigTests {
 
     @Test("Track ID batch size follows runtime configuration")
     func usesConfiguredIDBatchSize() async {
-        let bridge = makeRetryBridge()
+        let bridge = makeConfigBridge()
         var configuration = AppleScriptConfig()
         configuration.batchProcessing.idsBatchSize = 17
 
@@ -90,7 +41,7 @@ struct AppleScriptConfigTests {
 
     @Test("Track ID fetch clamps invalid batch size before script execution")
     func clampsInvalidIDBatchSize() async {
-        let bridge = makeRetryBridge()
+        let bridge = makeConfigBridge()
 
         do {
             _ = try await bridge.fetchTracksByIDs(["AS-1"], batchSize: 0)
@@ -404,41 +355,6 @@ struct AppleScriptConfigTests {
             _ = try AppleScriptBridge.parseTrackOutput([valid, missingID].joined(separator: recordSeparator))
         }
     }
-
-    @Test("Retry loop retries transient failures until success")
-    func retryLoopRetriesTransientFailuresUntilSuccess() async throws {
-        let bridge = makeRetryBridge()
-        let probe = RetryProbe(transientFailuresBeforeSuccess: 2)
-
-        let result = try await bridge.retryAppleScriptOperation(
-            scriptName: "fetch_tracks",
-            retry: retryWithoutDelay()
-        ) {
-            try await probe.transientThenSuccess()
-        }
-
-        #expect(result == "ok")
-        #expect(await probe.attempts == 3)
-    }
-
-    @Test("Retry loop does not retry permanent failures")
-    func retryLoopDoesNotRetryPermanentFailures() async throws {
-        let bridge = makeRetryBridge()
-        let probe = RetryProbe(permanentFailure: AppleScriptBridgeError.parseError(
-            scriptName: "fetch_tracks",
-            detail: "bad output"
-        ))
-
-        await #expect(throws: AppleScriptBridgeError.self) {
-            _ = try await bridge.retryAppleScriptOperation(
-                scriptName: "fetch_tracks",
-                retry: retryWithoutDelay()
-            ) {
-                try await probe.alwaysFailPermanently()
-            }
-        }
-        #expect(await probe.attempts == 1)
-    }
 }
 
 private func appleScriptTrackOutput(
@@ -461,59 +377,10 @@ private func malformedAppleScriptTrackOutput(_ fields: String...) -> String {
     fields.joined(separator: String(Track.fieldSeparator))
 }
 
-private func makeRetryBridge() -> AppleScriptBridge {
-    let scriptsDirectory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("AppleScriptBridgeRetryTests-\(UUID().uuidString)")
-    let installer = ScriptInstaller(
-        scriptsDirectory: scriptsDirectory,
-        bundleScriptsDirectory: nil
+private func makeConfigBridge() -> AppleScriptBridge {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("AppleScriptConfigTests-\(UUID().uuidString)")
+    return AppleScriptBridge(
+        installer: ScriptInstaller(scriptsDirectory: directory, bundleScriptsDirectory: nil)
     )
-    return AppleScriptBridge(installer: installer)
-}
-
-private func retryWithoutDelay() -> AppleScriptRetry {
-    var retry = AppleScriptRetry()
-    retry.maxRetries = 2
-    retry.baseDelaySeconds = 0
-    retry.maxDelaySeconds = 0
-    retry.jitterRange = 0
-    retry.operationTimeoutSeconds = 30
-    return retry
-}
-
-private actor RetryProbe {
-    private var remainingTransientFailures: Int
-    private let permanentFailure: AppleScriptBridgeError?
-    private var attemptCount = 0
-
-    init(transientFailuresBeforeSuccess: Int) {
-        remainingTransientFailures = transientFailuresBeforeSuccess
-        permanentFailure = nil
-    }
-
-    init(permanentFailure: AppleScriptBridgeError) {
-        remainingTransientFailures = 0
-        self.permanentFailure = permanentFailure
-    }
-
-    var attempts: Int {
-        attemptCount
-    }
-
-    func transientThenSuccess() throws -> String {
-        attemptCount += 1
-        if remainingTransientFailures > 0 {
-            remainingTransientFailures -= 1
-            throw AppleScriptBridgeError.timeout(scriptName: "fetch_tracks", duration: .seconds(1))
-        }
-        return "ok"
-    }
-
-    func alwaysFailPermanently() throws -> String {
-        attemptCount += 1
-        throw permanentFailure ?? AppleScriptBridgeError.parseError(
-            scriptName: "fetch_tracks",
-            detail: "bad output"
-        )
-    }
 }

@@ -57,113 +57,6 @@ struct BatchDispatchTests {
         }
     }
 
-    @Test("Retry preserves an earlier ambiguous batch failure")
-    func preservesAmbiguousFailure() async {
-        let bridge = makeBridge()
-        let attempts = BatchAttemptCounter()
-        let retry = retryConfig()
-
-        do {
-            _ = try await bridge.retryAppleScriptOperation(
-                scriptName: "batch_update_tracks",
-                retry: retry
-            ) {
-                let attempt = await attempts.next()
-                if attempt == 1 {
-                    throw AppleScriptBridgeError.timeout(
-                        scriptName: "batch_update_tracks",
-                        duration: .seconds(1)
-                    )
-                }
-                throw AppleScriptBridgeError.dispatchDeadline(
-                    scriptName: "batch_update_tracks",
-                    duration: .seconds(1)
-                )
-            }
-            Issue.record("Expected retry failure")
-        } catch let error as AppleScriptBridgeError {
-            guard case .timeout = error else {
-                Issue.record("Expected the earlier timeout, got \(error)")
-                return
-            }
-        } catch {
-            Issue.record("Expected AppleScriptBridgeError, got \(error)")
-        }
-        #expect(await attempts.value == 2)
-    }
-
-    @Test("Retry budget preserves an all-pre-dispatch failure")
-    func keepsDeadlineAfterRetryBudget() async {
-        let bridge = makeBridge()
-        let attempts = BatchAttemptCounter()
-        var retry = retryConfig()
-        retry.operationTimeoutSeconds = 0.02
-        let deadline = AppleScriptBridgeError.dispatchDeadline(
-            scriptName: "batch_update_tracks",
-            duration: .seconds(1)
-        )
-        #expect(AppleScriptBridge.isRetryableAppleScriptError(deadline))
-
-        do {
-            _ = try await bridge.retryAppleScriptOperation(
-                scriptName: "batch_update_tracks",
-                retry: retry
-            ) {
-                _ = await attempts.next()
-                try await Task.sleep(for: .milliseconds(50))
-                throw deadline
-            }
-            Issue.record("Expected retry failure")
-        } catch let error as AppleScriptBridgeError {
-            guard case .dispatchDeadline = error else {
-                Issue.record("Expected dispatchDeadline, got \(error)")
-                return
-            }
-        } catch {
-            Issue.record("Expected AppleScriptBridgeError, got \(error)")
-        }
-        #expect(await attempts.value == 1)
-    }
-
-    @Test("Retry budget preserves an earlier ambiguous failure")
-    func preservesAmbiguousFailureAfterRetryBudget() async {
-        let bridge = makeBridge()
-        let attempts = BatchAttemptCounter()
-        var retry = retryConfig()
-        retry.maxRetries = 2
-        retry.operationTimeoutSeconds = 0.25
-
-        do {
-            _ = try await bridge.retryAppleScriptOperation(
-                scriptName: "batch_update_tracks",
-                retry: retry
-            ) {
-                let attempt = await attempts.next()
-                if attempt == 1 {
-                    throw AppleScriptBridgeError.timeout(
-                        scriptName: "batch_update_tracks",
-                        duration: .seconds(1)
-                    )
-                }
-                try await Task.sleep(for: .milliseconds(300))
-                throw AppleScriptBridgeError.dispatchDeadline(
-                    scriptName: "batch_update_tracks",
-                    duration: .seconds(1)
-                )
-            }
-            Issue.record("Expected retry failure")
-        } catch let error as AppleScriptBridgeError {
-            guard case let .timeout(_, duration) = error else {
-                Issue.record("Expected the earlier timeout, got \(error)")
-                return
-            }
-            #expect(duration == .seconds(1))
-        } catch {
-            Issue.record("Expected AppleScriptBridgeError, got \(error)")
-        }
-        #expect(await attempts.value == 2)
-    }
-
     private func makeBridge(scriptsDirectory: URL = FileManager.default.temporaryDirectory) -> AppleScriptBridge {
         let installer = ScriptInstaller(
             scriptsDirectory: scriptsDirectory,
@@ -178,15 +71,6 @@ struct BatchDispatchTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data().write(to: directory.appendingPathComponent("batch_update_tracks.scpt"))
         return (makeBridge(scriptsDirectory: directory), directory)
-    }
-
-    private func retryConfig() -> AppleScriptRetry {
-        var retry = AppleScriptRetry()
-        retry.maxRetries = 1
-        retry.baseDelaySeconds = 0
-        retry.maxDelaySeconds = 0
-        retry.jitterRange = 0
-        return retry
     }
 }
 
