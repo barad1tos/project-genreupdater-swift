@@ -5,6 +5,7 @@ import OSLog
 private let dispatchLog = AppLogger.make(category: "applescript.dispatch")
 
 // Safety: each wrapped value is confined to one bounded script execution.
+// swiftformat:disable:next redundantSendable
 private struct UnsafeSendable<T>: @unchecked Sendable {
     let value: T
 }
@@ -19,10 +20,67 @@ struct ScriptCall: Sendable {
 /// A dispatched mutation whose physical result stayed unknown past its safety ceiling.
 public struct AppleScriptOutcomeError: Error, LocalizedError, Sendable {
     public let scriptName: String
-    public let duration: Duration
+    public let duration: Duration?
+    public let reason: String
+    let completion: ScriptCompletion?
+
+    public init(scriptName: String, duration: Duration) {
+        self.scriptName = scriptName
+        self.duration = duration
+        self.reason = "did not return within \(duration)"
+        self.completion = nil
+    }
+
+    public init(scriptName: String, reason: String) {
+        self.scriptName = scriptName
+        self.duration = nil
+        self.reason = reason
+        self.completion = nil
+    }
+
+    init(scriptName: String, duration: Duration, completion: ScriptCompletion) {
+        self.scriptName = scriptName
+        self.duration = duration
+        self.reason = "did not return within \(duration)"
+        self.completion = completion
+    }
 
     public var errorDescription: String? {
-        "AppleScript '\(scriptName)' did not return within \(duration); its outcome is unknown"
+        "AppleScript '\(scriptName)' \(reason); its outcome is unknown"
+    }
+}
+
+// Safety: the lock guards completion state and every waiter transition.
+final class ScriptCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isComplete = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    var hasWaiters: Bool {
+        lock.withLock { !waiters.isEmpty }
+    }
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = lock.withLock {
+                guard !isComplete else { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func finish() {
+        let pending = lock.withLock {
+            guard !isComplete else { return [CheckedContinuation<Void, Never>]() }
+            isComplete = true
+            defer { waiters = [] }
+            return waiters
+        }
+        pending.forEach { $0.resume() }
     }
 }
 
@@ -35,6 +93,7 @@ enum ScriptDispatch {
         gate: ScriptGate,
         start: @escaping @Sendable (@escaping @Sendable (Result<Value, any Error>) -> Void) -> Void
     ) async throws -> Value {
+        let completion = call.intent == .mutation ? ScriptCompletion() : nil
         let lease = try await reserveToken(for: call, limiter: limiter)
         let permit: ScriptPermit
         do {
@@ -50,8 +109,11 @@ enum ScriptDispatch {
 
         do {
             return try await ScriptTask.run(
-                policy: policy(for: call),
-                onOwnershipReleased: { permit.release() },
+                policy: policy(for: call, completion: completion),
+                onOwnershipReleased: {
+                    permit.release()
+                    completion?.finish()
+                },
                 start: { finish in
                     if let lease {
                         guard lease.dispatch({ start(finish) }) else {
@@ -84,7 +146,7 @@ enum ScriptDispatch {
         }
     }
 
-    private static func policy(for call: ScriptCall) -> ScriptTaskPolicy {
+    private static func policy(for call: ScriptCall, completion: ScriptCompletion?) -> ScriptTaskPolicy {
         let dispatchError: @Sendable () -> any Error = {
             AppleScriptBridgeError.dispatchDeadline(
                 scriptName: call.name,
@@ -112,6 +174,9 @@ enum ScriptDispatch {
                 onDeadline: onDeadline
             )
         case .mutation:
+            guard let completion else {
+                preconditionFailure("Mutation dispatch requires a completion owner")
+            }
             // A write gets a bounded grace window for its physical callback after caller timeout.
             let outcomeDuration = call.timeout * mutationOutcomeFactor
             return .mutation(
@@ -122,7 +187,8 @@ enum ScriptDispatch {
                     error: {
                         AppleScriptOutcomeError(
                             scriptName: call.name,
-                            duration: outcomeDuration
+                            duration: outcomeDuration,
+                            completion: completion
                         )
                     }
                 ),

@@ -140,11 +140,13 @@ extension WorkflowViewModel {
                 refreshGeneration: refreshGeneration
             ) else { return }
             preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
-            let runOutcome = try await performPendingVerification(
-                dueEntries: dueEntries,
-                trackContext: trackContext,
-                pendingVerificationService: pendingVerificationService
-            )
+            let runOutcome = try await batchProcessor.performRecoverableWrite { @MainActor [self] in
+                try await performPendingVerification(
+                    dueEntries: dueEntries,
+                    trackContext: trackContext,
+                    pendingVerificationService: pendingVerificationService
+                )
+            }
             let finalRefreshGeneration = invalidatePendingVerificationRefreshes()
             await refreshPendingVerificationReportSummary(
                 refreshGeneration: finalRefreshGeneration,
@@ -154,6 +156,8 @@ extension WorkflowViewModel {
             finishPendingVerification(runOutcome)
         } catch let cancellation as PendingVerificationCancellation {
             finishCancelledPendingVerification(outcome: cancellation.outcome)
+        } catch let error as AppleScriptOutcomeError {
+            await handleUnknownOutcome(error)
         } catch let failure as PendingVerificationFailure {
             finishFailedPendingVerification(outcome: failure.outcome, error: failure.underlyingError)
         } catch is CancellationError {
@@ -195,11 +199,13 @@ extension WorkflowViewModel {
 
             let trackContext = await pendingVerificationTrackContext(from: pendingScopeTracks)
             preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
-            let outcome = try await performPendingVerification(
-                dueEntries: dueEntries,
-                trackContext: trackContext,
-                pendingVerificationService: pendingVerificationService
-            )
+            let outcome = try await batchProcessor.performRecoverableWrite { @MainActor [self] in
+                try await performPendingVerification(
+                    dueEntries: dueEntries,
+                    trackContext: trackContext,
+                    pendingVerificationService: pendingVerificationService
+                )
+            }
             let finalSnapshot = await pendingVerificationSnapshot()
             await refreshPendingVerificationReportSummary(snapshot: finalSnapshot, outcome: outcome)
             failedCount = outcome.failedTrackIDs.count
@@ -207,6 +213,9 @@ extension WorkflowViewModel {
         } catch let cancellation as PendingVerificationCancellation {
             finishCancelledPendingVerification(outcome: cancellation.outcome)
             return cancellation.outcome
+        } catch let error as AppleScriptOutcomeError {
+            await handleUnknownOutcome(error)
+            return PendingEntryOutcome()
         } catch let failure as PendingVerificationFailure {
             finishFailedPendingVerification(outcome: failure.outcome, error: failure.underlyingError)
             return failure.outcome
@@ -406,6 +415,8 @@ extension WorkflowViewModel {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as AppleScriptOutcomeError {
+            throw error
         } catch {
             markPendingAlbumTracks(albumTracks, as: .failed(error.localizedDescription))
             return PendingEntryOutcome(

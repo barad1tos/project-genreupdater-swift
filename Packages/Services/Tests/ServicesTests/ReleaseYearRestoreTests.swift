@@ -61,7 +61,7 @@ private func makeReleaseYearTrack(
 @Suite("UpdateCoordinator - release year restore")
 struct ReleaseYearRestoreTests {
     @Test("Restores tracks whose year differs from release year beyond threshold")
-    func restoresTracksBeyondThreshold() async {
+    func restoresPastThreshold() async throws {
         let fixture = await makeReleaseYearRestoreFixture()
         let tracks = [
             makeReleaseYearTrack(id: "T1", year: 2025, releaseYear: 1997),
@@ -70,7 +70,7 @@ struct ReleaseYearRestoreTests {
             makeReleaseYearTrack(id: "T4", year: 2025, releaseYear: nil),
         ]
 
-        let result = await fixture.coordinator.restoreReleaseYears(
+        let result = try await fixture.coordinator.restoreReleaseYears(
             in: tracks,
             threshold: 5,
             progressHandler: ignoreReleaseYearProgress
@@ -85,13 +85,13 @@ struct ReleaseYearRestoreTests {
     }
 
     @Test("Does not restore when difference equals threshold")
-    func skipsExactThreshold() async {
+    func skipsExactThreshold() async throws {
         let fixture = await makeReleaseYearRestoreFixture()
         let tracks = [
             makeReleaseYearTrack(id: "T1", year: 2020, releaseYear: 2015),
         ]
 
-        let result = await fixture.coordinator.restoreReleaseYears(
+        let result = try await fixture.coordinator.restoreReleaseYears(
             in: tracks,
             threshold: 5,
             progressHandler: ignoreReleaseYearProgress
@@ -103,13 +103,13 @@ struct ReleaseYearRestoreTests {
     }
 
     @Test("Restores missing year when release year exists")
-    func restoresMissingYear() async {
+    func restoresMissingYear() async throws {
         let fixture = await makeReleaseYearRestoreFixture()
         let tracks = [
             makeReleaseYearTrack(id: "T1", year: nil, releaseYear: 1997),
         ]
 
-        let result = await fixture.coordinator.restoreReleaseYears(
+        let result = try await fixture.coordinator.restoreReleaseYears(
             in: tracks,
             threshold: 5,
             progressHandler: ignoreReleaseYearProgress
@@ -121,7 +121,7 @@ struct ReleaseYearRestoreTests {
     }
 
     @Test("Skips prerelease tracks before release-year restore consensus")
-    func skipsPrereleaseTracksBeforeReleaseYearRestoreConsensus() async {
+    func skipsPrereleaseTracks() async throws {
         let fixture = await makeReleaseYearRestoreFixture()
         let tracks = [
             makeReleaseYearTrack(
@@ -133,7 +133,7 @@ struct ReleaseYearRestoreTests {
             makeReleaseYearTrack(id: "T2", year: 2025, releaseYear: 1997),
         ]
 
-        let result = await fixture.coordinator.restoreReleaseYears(
+        let result = try await fixture.coordinator.restoreReleaseYears(
             in: tracks,
             threshold: 5,
             progressHandler: ignoreReleaseYearProgress
@@ -148,14 +148,14 @@ struct ReleaseYearRestoreTests {
     }
 
     @Test("Skips release-year restore when album consensus is tied")
-    func skipsReleaseYearRestoreWhenAlbumConsensusIsTied() async {
+    func skipsTiedConsensus() async throws {
         let fixture = await makeReleaseYearRestoreFixture()
         let tracks = [
             makeReleaseYearTrack(id: "T1", year: 2025, releaseYear: 1997),
             makeReleaseYearTrack(id: "T2", year: 2025, releaseYear: 2001),
         ]
 
-        let result = await fixture.coordinator.restoreReleaseYears(
+        let result = try await fixture.coordinator.restoreReleaseYears(
             in: tracks,
             threshold: 5,
             progressHandler: ignoreReleaseYearProgress
@@ -224,7 +224,7 @@ struct ReleaseYearRestoreTests {
     }
 
     @Test("Skips out-of-scope restore without recording success")
-    func skipsOutOfScopeRestoreWithoutRecordingSuccess() async {
+    func skipsOutOfScopeRestore() async throws {
         let fixture = await makeReleaseYearRestoreFixture(
             runtimeConfiguration: UpdateRuntimeConfiguration(testArtists: ["In Flames"])
         )
@@ -233,7 +233,7 @@ struct ReleaseYearRestoreTests {
             makeReleaseYearTrack(id: "T2", artist: "Crematory", year: 2025, releaseYear: 1997),
         ]
 
-        let result = await fixture.coordinator.restoreReleaseYears(
+        let result = try await fixture.coordinator.restoreReleaseYears(
             in: tracks,
             threshold: 5,
             progressHandler: ignoreReleaseYearProgress
@@ -246,11 +246,11 @@ struct ReleaseYearRestoreTests {
     }
 
     @Test("Treats cancellation as cancellation instead of a failed track")
-    func treatsCancellationAsCancellationInsteadOfFailedTrack() async {
+    func reportsCancellation() async throws {
         let fixture = await makeReleaseYearRestoreFixture()
         await fixture.bridge.setCustomWriteError(CancellationError())
 
-        let result = await fixture.coordinator.restoreReleaseYears(
+        let result = try await fixture.coordinator.restoreReleaseYears(
             in: [makeReleaseYearTrack(id: "T1", year: 2025, releaseYear: 1997)],
             threshold: 5,
             progressHandler: ignoreReleaseYearProgress
@@ -264,11 +264,11 @@ struct ReleaseYearRestoreTests {
     }
 
     @Test("Records no-op release-year restore outcomes")
-    func recordsNoOpReleaseYearRestoreOutcomes() async {
+    func recordsNoOpRestores() async throws {
         let fixture = await makeReleaseYearRestoreFixture()
         await fixture.bridge.setSingleWriteResult(.noChange)
 
-        let result = await fixture.coordinator.restoreReleaseYears(
+        let result = try await fixture.coordinator.restoreReleaseYears(
             in: [makeReleaseYearTrack(id: "T1", year: 2025, releaseYear: 1997)],
             threshold: 5,
             progressHandler: ignoreReleaseYearProgress

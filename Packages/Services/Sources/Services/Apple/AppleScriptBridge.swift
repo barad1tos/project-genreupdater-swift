@@ -258,6 +258,8 @@ public actor AppleScriptBridge: AppleScriptClient {
         } catch let error as AppleScriptBridgeError where Self.isDispatchDeadline(error) {
             // Music.app was never reached, so the caller may safely fall back to single writes.
             throw error
+        } catch let error as AppleScriptOutcomeError {
+            throw error
         } catch {
             // Dispatched unknown outcomes use post-run verification instead of single-write replay.
             throw AppleScriptBatchVerificationError(

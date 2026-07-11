@@ -18,11 +18,25 @@ extension WorkflowViewModel {
         processingTask = Task {
             guard await !stopForRecoveryHold() else { return }
             guard await prepareMutationMetadataIfNeeded(tracks: scopedTracks) else { return }
-            let restoreResult = await updateCoordinator.restoreReleaseYears(
-                in: scopedTracks,
-                threshold: releaseYearRestoreThreshold,
-                progressHandler: progressHandler
-            )
+            let restoreResult: BatchUpdateResult
+            do {
+                let threshold = releaseYearRestoreThreshold
+                let coordinator = updateCoordinator
+                restoreResult = try await batchProcessor.performRecoverableWrite {
+                    try await coordinator.restoreReleaseYears(
+                        in: scopedTracks,
+                        threshold: threshold,
+                        progressHandler: progressHandler
+                    )
+                }
+            } catch let error as AppleScriptOutcomeError {
+                await handleUnknownOutcome(error)
+                return
+            } catch {
+                phase = .error(error.localizedDescription)
+                progress = nil
+                return
+            }
 
             guard !Task.isCancelled else {
                 if isCurrentReleaseYearRestoreRun(runGeneration) {

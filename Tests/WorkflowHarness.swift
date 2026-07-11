@@ -20,8 +20,11 @@ func makeWorkflowFixture(
     tier: Tier = .pro,
     failingWriteTrackIDs: Set<String> = [],
     cancellingWriteTrackIDs: Set<String> = [],
+    outcomeWriteTrackIDs: Set<String> = [],
     noChangeWriteTrackIDs: Set<String> = [],
     writeHold: LiveBatchHold? = nil,
+    checkpointDirectory: URL = temporaryDirectory(),
+    recoverySuiteName: String? = nil,
     resolveIncrementalTracks: @escaping (
         [Track],
         IncrementalTrackScopeOptions
@@ -38,6 +41,7 @@ func makeWorkflowFixture(
     let scriptClient = DashboardStateScriptClient(
         failingTrackIDs: failingWriteTrackIDs,
         cancellingTrackIDs: cancellingWriteTrackIDs,
+        outcomeTrackIDs: outcomeWriteTrackIDs,
         noChangeTrackIDs: noChangeWriteTrackIDs,
         writeHold: writeHold
     )
@@ -69,7 +73,10 @@ func makeWorkflowFixture(
     )
     let featureGate = FeatureGate(fixedTier: tier)
     let batchProcessor = BatchProcessor(
-        checkpointManager: CheckpointManager(directory: temporaryDirectory()),
+        checkpointManager: CheckpointManager(
+            directory: checkpointDirectory,
+            recoverySuiteName: recoverySuiteName
+        ),
         featureGate: featureGate
     )
 
@@ -301,6 +308,7 @@ struct DashboardStateAPIService: ExternalAPIService {
 actor DashboardStateScriptClient: AppleScriptClient {
     private let failingTrackIDs: Set<String>
     private let cancellingTrackIDs: Set<String>
+    private let outcomeTrackIDs: Set<String>
     private let noChangeTrackIDs: Set<String>
     private let writeHold: LiveBatchHold?
     private var writes: [(trackID: String, property: String, value: String)] = []
@@ -308,11 +316,13 @@ actor DashboardStateScriptClient: AppleScriptClient {
     init(
         failingTrackIDs: Set<String> = [],
         cancellingTrackIDs: Set<String> = [],
+        outcomeTrackIDs: Set<String> = [],
         noChangeTrackIDs: Set<String> = [],
         writeHold: LiveBatchHold? = nil
     ) {
         self.failingTrackIDs = failingTrackIDs
         self.cancellingTrackIDs = cancellingTrackIDs
+        self.outcomeTrackIDs = outcomeTrackIDs
         self.noChangeTrackIDs = noChangeTrackIDs
         self.writeHold = writeHold
     }
@@ -348,6 +358,9 @@ actor DashboardStateScriptClient: AppleScriptClient {
         }
         if cancellingTrackIDs.contains(trackID) {
             throw CancellationError()
+        }
+        if outcomeTrackIDs.contains(trackID) {
+            throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
         }
         if failingTrackIDs.contains(trackID) {
             throw DashboardStateScriptWriteError(trackID: trackID)

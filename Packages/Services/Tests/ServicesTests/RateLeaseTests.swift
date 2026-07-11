@@ -72,7 +72,9 @@ struct RateLeaseTests {
         var lease: RateLimitLease? = try await limiter.reserve(
             until: clock.now.advanced(by: .seconds(2))
         )
-        lease?.dispatch {}
+        lease?.dispatch {
+            // This test consumes the reservation without an unrelated request side effect.
+        }
 
         let next = Task {
             try await limiter.acquire(until: clock.now.advanced(by: .milliseconds(250)))
@@ -90,7 +92,7 @@ struct RateLeaseTests {
     }
 
     @Test("Cancellation after dispatch keeps the consumed token")
-    func cancellationKeepsConsumedToken() async throws {
+    func retainsConsumedToken() async throws {
         let limiter = TokenBucketRateLimiter(maxTokens: 1, refillInterval: .seconds(30))
         let lease = try await limiter.reserve(
             until: ContinuousClock().now.advanced(by: .seconds(1))

@@ -85,7 +85,7 @@ extension UpdateCoordinator {
                 reason: retryEntry.reason,
                 metadata: [
                     "source": "pending_verification",
-                    "lookup_artist": lookupIdentity.artist,
+                    "lookup_artist": lookupIdentity.artist
                 ],
                 recheckDays: nil
             )
@@ -142,6 +142,8 @@ extension UpdateCoordinator {
             return try await applyChange(change)
         } catch let error as CancellationError {
             throw error
+        } catch let error as AppleScriptOutcomeError {
+            throw error
         } catch let error as UpdateCoordinatorError {
             if !recordKnownWorkflowFailure(
                 error,
@@ -150,7 +152,7 @@ extension UpdateCoordinator {
                 failedTrackIDs: &failedTrackIDs,
                 errorDescriptions: &errorDescriptions
             ) {
-                recordUnexpectedWorkflowFailure(
+                recordUnexpectedFailure(
                     trackID: change.track.id,
                     error: error,
                     failedTrackIDs: &failedTrackIDs,
@@ -159,7 +161,7 @@ extension UpdateCoordinator {
             }
             return nil
         } catch {
-            recordUnexpectedWorkflowFailure(
+            recordUnexpectedFailure(
                 trackID: change.track.id,
                 error: error,
                 failedTrackIDs: &failedTrackIDs,

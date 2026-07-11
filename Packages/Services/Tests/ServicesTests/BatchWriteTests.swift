@@ -5,30 +5,21 @@ import Testing
 
 @Suite("UpdateCoordinator - batch write verification")
 struct BatchWriteTests {
-    @Test("Unavailable batch verification does not fall back to single reviewed writes")
-    func unavailableBatchVerificationDoesNotFallBackToSingleReviewedWrites() async throws {
+    @Test("Unavailable batch verification reports an unknown outcome")
+    func unknownBatchVerification() async throws {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
         await fixture.bridge.setFetchedTracksClearedAfterBatchUpdate(true)
         await fixture.bridge.setSingleWriteResult(.noChange)
         let track = makeTrack(id: "MK1", genre: "Rock", year: 1999)
         await fixture.cache.storeAlbumYear(artist: track.artist, album: track.album, year: 1999, confidence: 80)
         await fixture.bridge.setFetchedTracks([track])
-        let proposals = acceptedGenreAndYearProposals(for: track)
+        let proposals = acceptedProposals(for: track)
 
-        do {
+        await #expect(throws: AppleScriptOutcomeError.self) {
             _ = try await fixture.coordinator.applyAcceptedChanges(
                 proposals,
                 progressHandler: ignoreProgress
             )
-            Issue.record("Expected all writes to fail when batch verification is unavailable")
-        } catch let error as UpdateCoordinatorError {
-            guard case let .allTracksFailed(count, errorDescriptions) = error else {
-                Issue.record("Expected allTracksFailed, got \(error)")
-                return
-            }
-            #expect(count == 1)
-            #expect(errorDescriptions.count == 2)
-            #expect(errorDescriptions.allSatisfy { $0.contains("could not be verified") })
         }
 
         let batches = await fixture.bridge.batchUpdates
@@ -36,10 +27,45 @@ struct BatchWriteTests {
         #expect(batches.count == 1)
         #expect(written.isEmpty)
         #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
+        #expect(await fixture.snapshot.wasCleared())
     }
 
-    @Test("Generated mapped partial batch failures keep domain track IDs")
-    func generatedMappedPartialBatchFailuresKeepDomainTrackIDs() async throws {
+    @Test("Direct batch timeout invalidates attempted write caches")
+    func directBatchTimeoutClearsCaches() async throws {
+        let fixture = await makeCoordinator(batchUpdatesEnabled: true)
+        await fixture.bridge.setCustomBatchError(
+            AppleScriptOutcomeError(scriptName: "batch_update_tracks", duration: .seconds(3))
+        )
+        let track = makeTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.cache.storeAlbumYear(artist: track.artist, album: track.album, year: 1999, confidence: 80)
+        await fixture.cache.setCachedAPIResult(CachedAPIResult(
+            artist: track.artist,
+            album: track.album,
+            year: 1999,
+            source: "discogs",
+            timestamp: .now,
+            ttl: nil
+        ))
+        await fixture.bridge.setFetchedTracks([track])
+
+        await #expect(throws: AppleScriptOutcomeError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                acceptedProposals(for: track),
+                progressHandler: ignoreProgress
+            )
+        }
+
+        #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
+        #expect(await fixture.cache.getCachedAPIResult(
+            artist: track.artist,
+            album: track.album,
+            source: "discogs"
+        ) == nil)
+        #expect(await fixture.snapshot.wasCleared())
+    }
+
+    @Test("Generated mapped partial batches report an unknown outcome")
+    func mappedPartialBatchIsUnknown() async throws {
         let mapper = TrackIDMapper()
         let musicKitTrack = makeTrack(
             id: "MK1",
@@ -61,27 +87,23 @@ struct BatchWriteTests {
         await fixture.bridge.setBatchMutationLimit(1)
         await fixture.bridge.setFetchedTracks([appleScriptTrack])
 
-        let result = try await fixture.coordinator.updateTracks(
-            [musicKitTrack],
-            options: UpdateOptions(
-                updateGenre: false,
-                updateYear: true,
-                cleanTrackNames: true
-            ),
-            progressHandler: ignoreProgress
-        )
+        await #expect(throws: AppleScriptOutcomeError.self) {
+            _ = try await fixture.coordinator.updateTracks(
+                [musicKitTrack],
+                options: UpdateOptions(
+                    updateGenre: false,
+                    updateYear: true,
+                    cleanTrackNames: true
+                ),
+                progressHandler: ignoreProgress
+            )
+        }
 
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
         #expect(batches.first?.map(\.trackID) == ["AS1", "AS1"])
         #expect(written.isEmpty)
-        #expect(result.entries.map(\.trackID) == ["MK1"])
-        #expect(result.entries.map(\.changeType) == [.trackCleaning])
-        #expect(result.failedTrackIDs == ["MK1"])
-        #expect(result.errorDescriptions.first?.contains("MK1") == true)
-        #expect(result.errorDescriptions.first?.contains("AS1") == false)
-        #expect(result.hasPartialFailures)
     }
 
     @Test("Reviewed batch write fails stale current metadata before script write")
@@ -90,7 +112,7 @@ struct BatchWriteTests {
         let reviewedTrack = makeTrack(id: "MK1", genre: "Rock", year: 1999)
         let currentTrack = makeTrack(id: "MK1", genre: "Jazz", year: 1999)
         await fixture.bridge.setFetchedTracks([currentTrack])
-        let proposals = acceptedGenreAndYearProposals(for: reviewedTrack)
+        let proposals = acceptedProposals(for: reviewedTrack)
 
         do {
             _ = try await fixture.coordinator.applyAcceptedChanges(
@@ -135,7 +157,7 @@ struct BatchWriteTests {
         await fixture.bridge.setBatchThrowMode(true)
         let track = makeTrack(id: "MK1", genre: existingGenre, year: 1999)
         await fixture.bridge.setFetchedTracks([track])
-        let proposals = acceptedGenreAndYearProposals(for: track)
+        let proposals = acceptedProposals(for: track)
 
         let result = try await fixture.coordinator.applyAcceptedChanges(
             proposals,
@@ -151,29 +173,29 @@ struct BatchWriteTests {
         #expect(!result.hasPartialFailures)
     }
 
-    @Test("Post-run batch verification failure does not fall back to single writes")
-    func postRunBatchVerificationFailureDoesNotFallBackToSingleWrites() async throws {
+    @Test("Partial batch verification reports an unknown outcome")
+    func partialVerificationIsUnknown() async throws {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
         await fixture.bridge.setBatchMutationLimit(1)
         await fixture.bridge.setSingleWriteResult(.noChange)
         let track = makeTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.cache.storeAlbumYear(artist: track.artist, album: track.album, year: 1999, confidence: 80)
         await fixture.bridge.setFetchedTracks([track])
-        let proposals = acceptedGenreAndYearProposals(for: track)
+        let proposals = acceptedProposals(for: track)
 
-        let result = try await fixture.coordinator.applyAcceptedChanges(
-            proposals,
-            progressHandler: ignoreProgress
-        )
+        await #expect(throws: AppleScriptOutcomeError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                proposals,
+                progressHandler: ignoreProgress
+            )
+        }
 
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
         #expect(written.isEmpty)
-        #expect(result.entries.map(\.changeType) == [.genreUpdate])
-        #expect(result.failedTrackIDs == ["MK1"])
-        #expect(result.errorDescriptions.count == 1)
-        #expect(result.errorDescriptions.first?.contains("could not be verified") == true)
-        #expect(result.hasPartialFailures)
+        #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
+        #expect(await fixture.snapshot.wasCleared())
     }
 
     private func makeCoordinator(
@@ -182,6 +204,7 @@ struct BatchWriteTests {
     ) async -> BatchWriteFixture {
         let bridge = MockAppleScriptClient()
         let cache = MockCacheService()
+        let snapshot = MockLibrarySnapshotService()
         let undoDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("BatchWriteTests-\(UUID().uuidString)")
         let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
@@ -201,7 +224,8 @@ struct BatchWriteTests {
                 trackStore: MockTrackStore(),
                 cache: cache,
                 undoCoordinator: undo,
-                idMapper: idMapper
+                idMapper: idMapper,
+                librarySnapshotService: snapshot
             ),
             genreDeterminator: GenreDeterminator(),
             runtimeConfiguration: UpdateRuntimeConfiguration(
@@ -209,10 +233,10 @@ struct BatchWriteTests {
                 maxBatchUpdateSize: 5
             )
         )
-        return BatchWriteFixture(coordinator: coordinator, bridge: bridge, cache: cache)
+        return BatchWriteFixture(coordinator: coordinator, bridge: bridge, cache: cache, snapshot: snapshot)
     }
 
-    private func acceptedGenreAndYearProposals(for track: Track) -> [ProposedChange] {
+    private func acceptedProposals(for track: Track) -> [ProposedChange] {
         [
             ProposedChange(
                 track: track,
@@ -261,4 +285,5 @@ private struct BatchWriteFixture {
     let coordinator: UpdateCoordinator
     let bridge: MockAppleScriptClient
     let cache: MockCacheService
+    let snapshot: MockLibrarySnapshotService
 }

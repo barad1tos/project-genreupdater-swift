@@ -113,34 +113,6 @@ extension UpdateCoordinator {
         return (entries, noOpEntries)
     }
 
-    func recordWorkflowWriteFailure(
-        _ error: any Error,
-        isReviewedChange: Bool,
-        trackID: String,
-        failedTrackIDs: inout [String],
-        errorDescriptions: inout [String]
-    ) throws {
-        if error is CancellationError {
-            throw CancellationError()
-        }
-        if let coordinatorError = error as? UpdateCoordinatorError,
-           recordKnownWorkflowFailure(
-               coordinatorError,
-               fallbackTrackID: trackID,
-               isReviewedChange: isReviewedChange,
-               failedTrackIDs: &failedTrackIDs,
-               errorDescriptions: &errorDescriptions
-           ) {
-            return
-        }
-        recordUnexpectedWorkflowFailure(
-            trackID: trackID,
-            error: error,
-            failedTrackIDs: &failedTrackIDs,
-            errorDescriptions: &errorDescriptions
-        )
-    }
-
     func applyGeneratedAcceptedChanges(
         for track: Track,
         options: UpdateOptions,
@@ -225,6 +197,8 @@ extension UpdateCoordinator {
             batchOutcome = verifiedBatchOutcome
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as AppleScriptOutcomeError {
+            throw error
         } catch let error as UpdateCoordinatorError {
             throw error
         } catch {
@@ -291,7 +265,7 @@ extension UpdateCoordinator {
         errorDescriptions: inout [String]
     ) async {
         await invalidateCaches(for: preparedWrite.change)
-        recordUnexpectedWorkflowFailure(
+        recordUnexpectedFailure(
             trackID: preparedWrite.change.track.id,
             error: UpdateCoordinatorError.writeFailed(
                 trackID: preparedWrite.change.track.id,
@@ -367,6 +341,9 @@ extension UpdateCoordinator {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as AppleScriptOutcomeError {
+            await invalidateBatchCaches(preparedWrites, indexes: preflight.writeIndexes)
+            throw error
         } catch let error as AppleScriptBatchVerificationError {
             return try await batchOutcomeAfterPostRunVerificationFailure(
                 preparedWrites,
@@ -431,28 +408,19 @@ extension UpdateCoordinator {
                 preparedWrites,
                 attemptedIndexes: attemptedIndexes
             ) else {
-                log.warning(
-                    "Batch AppleScript write could not be verified after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .private)"
-                )
-                return BatchWriteOutcome(
-                    currentTracksByID: currentTracksByID,
-                    appliedIndexes: [],
-                    noOpIndexes: noOpIndexes
+                await invalidateBatchCaches(preparedWrites, indexes: attemptedIndexes)
+                throw AppleScriptOutcomeError(
+                    scriptName: "batch_update_tracks",
+                    reason: "could not verify metadata after dispatch: \(error.localizedDescription)"
                 )
             }
-            guard !appliedIndexes.isEmpty else {
-                log.warning(
-                    "Batch AppleScript write reported no verified updates after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .private)"
-                )
-                return BatchWriteOutcome(
-                    currentTracksByID: currentTracksByID,
-                    appliedIndexes: [],
-                    noOpIndexes: noOpIndexes
+            guard appliedIndexes == attemptedIndexes else {
+                await invalidateBatchCaches(preparedWrites, indexes: attemptedIndexes)
+                throw AppleScriptOutcomeError(
+                    scriptName: "batch_update_tracks",
+                    reason: "verification covered only \(appliedIndexes.count) of \(attemptedIndexes.count) writes after dispatch: \(error.localizedDescription)"
                 )
             }
-            log.warning(
-                "Batch AppleScript write reported failure after partial verification; unverified writes are failures: \(error.localizedDescription, privacy: .private)"
-            )
             return BatchWriteOutcome(
                 currentTracksByID: currentTracksByID,
                 appliedIndexes: appliedIndexes,
@@ -460,15 +428,23 @@ extension UpdateCoordinator {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let outcome as AppleScriptOutcomeError {
+            throw outcome
         } catch {
-            log.warning(
-                "Batch AppleScript write verification failed after script ran; unverified writes are failures: \(error.localizedDescription, privacy: .private)"
+            await invalidateBatchCaches(preparedWrites, indexes: attemptedIndexes)
+            throw AppleScriptOutcomeError(
+                scriptName: "batch_update_tracks",
+                reason: "verification failed after dispatch: \(error.localizedDescription)"
             )
-            return BatchWriteOutcome(
-                currentTracksByID: currentTracksByID,
-                appliedIndexes: [],
-                noOpIndexes: noOpIndexes
-            )
+        }
+    }
+
+    private func invalidateBatchCaches(
+        _ preparedWrites: [PreparedAppleScriptWrite],
+        indexes: Set<Int>
+    ) async {
+        for index in indexes.sorted() {
+            await invalidateCaches(for: preparedWrites[index].change)
         }
     }
 
@@ -546,6 +522,7 @@ extension UpdateCoordinator {
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as AppleScriptOutcomeError {
+            await invalidateCaches(for: change)
             throw error
         } catch {
             throw UpdateCoordinatorError.writeFailed(
@@ -773,7 +750,7 @@ extension UpdateCoordinator {
         [
             track.albumIdentity.artist,
             track.effectiveArtist,
-            track.artist,
+            track.artist
         ].flatMap { artist in
             AlbumIdentity.lookupCandidates(artist: artist, album: album)
         }

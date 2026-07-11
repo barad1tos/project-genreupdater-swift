@@ -21,3 +21,11 @@ enum PreviewRunError: LocalizedError {
         }
     }
 }
+
+enum WriteAdmissionError: LocalizedError {
+    case recoveryRequired
+
+    var errorDescription: String? {
+        "Verify the previous Music.app outcome before another write."
+    }
+}
