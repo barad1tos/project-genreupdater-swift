@@ -95,6 +95,7 @@ final class AppDependencies {
     private(set) var musicReader: MusicLibraryReader?
     private(set) var libraryReadProvider: (any LibraryReadProvider)?
     private(set) var applescriptBridge: AppleScriptBridge?
+    @ObservationIgnored private(set) var writeScript: FixPlanWrite.ScriptAccess?
     private(set) var subscriptionService: SubscriptionService?
     private(set) var featureGate: FeatureGate?
     private(set) var networkReachabilityMonitor: NetworkReachabilityMonitor?
@@ -185,6 +186,10 @@ final class AppDependencies {
             let bridge = AppleScriptBridge(installer: installer, config: config.applescript)
             try await bridge.initialize()
             applescriptBridge = bridge
+            writeScript = FixPlanWrite.ScriptAccess(
+                client: bridge,
+                batchSize: { await bridge.trackIDBatchSize }
+            )
 
             let reader = MusicLibraryReader(
                 testArtists: config.development.testArtists
@@ -752,6 +757,16 @@ extension AppDependencies {
 
 #if DEBUG
 extension AppDependencies {
+    func installTestWrites(_ services: TestWriteServices) {
+        batchProcessor = services.batchProcessor
+        undoCoordinator = services.undoCoordinator
+        updateCoordinator = services.updateCoordinator
+        trackIDMapper = services.mapper
+        fixPlanStore = services.fixPlanStore
+        runRecordStore = services.runRecordStore
+        writeScript = services.script
+    }
+
     func configureLibraryPersistenceForTesting(
         trackStore: TrackDataStore? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,

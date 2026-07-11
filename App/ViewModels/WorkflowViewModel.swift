@@ -114,6 +114,7 @@ final class WorkflowViewModel {
     var pendingSkippedAlbumCount: Int = 0
     var pendingVerificationReportSummary: UpdateRunPendingVerificationSummary?
     var recoveryReportSummary: UpdateRunRecoverySummary?
+    var recoveryHoldID: UUID?
     var pendingVerificationRefreshGeneration = 0
     var releaseYearRestoreRunGeneration = 0
     var proposedChanges: [ProposedChange] = []
@@ -144,6 +145,7 @@ final class WorkflowViewModel {
     }
 
     var canStart: Bool {
+        guard recoveryHoldID == nil else { return false }
         if case .configure = phase {
             return true
         }
@@ -399,10 +401,14 @@ final class WorkflowViewModel {
                 let acceptedTracks = Self.uniqueTracks(accepted.map(\.track))
                 guard await prepareMutationMetadataIfNeeded(tracks: acceptedTracks) else { return }
 
-                let batchResult = try await updateCoordinator.applyAcceptedChanges(
-                    accepted,
-                    progressHandler: makeApplyProgressHandler()
-                )
+                let progressHandler = makeApplyProgressHandler()
+                let coordinator = updateCoordinator
+                let batchResult = try await batchProcessor.performRecoverableWrite {
+                    try await coordinator.applyAcceptedChanges(
+                        accepted,
+                        progressHandler: progressHandler
+                    )
+                }
 
                 result = batchResult
                 recordAppliedTrackUsage(from: batchResult)
@@ -411,6 +417,8 @@ final class WorkflowViewModel {
             } catch is CancellationError {
                 phase = .configure
                 progress = nil
+            } catch let error as AppleScriptOutcomeError {
+                await handleUnknownOutcome(error)
             } catch {
                 phase = .error(error.localizedDescription)
                 progress = nil
@@ -549,11 +557,22 @@ final class WorkflowViewModel {
     }
 
     func stopForRecoveryHold() async -> Bool {
-        guard await hasRecoveryHold() else { return false }
+        if recoveryHoldID == nil {
+            recoveryHoldID = await batchProcessor.recoveryHoldID()
+        }
+        if recoveryHoldID == nil {
+            guard await hasRecoveryHold() else { return false }
+        }
 
         phase = .error("Previous run needs recovery before writes continue.")
         progress = nil
         return true
+    }
+
+    func handleUnknownOutcome(_ outcome: AppleScriptOutcomeError) async {
+        recoveryHoldID = await batchProcessor.beginRecoveryHold()
+        phase = .error(outcome.localizedDescription)
+        progress = nil
     }
 
     private func stopProcessingIfCancelled() -> Bool {

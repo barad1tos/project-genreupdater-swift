@@ -12,6 +12,7 @@ public struct BatchCheckpoint: Sendable, Codable, Equatable {
     public let lastProcessedIndex: Int
     public let timestamp: Date
     public let changes: [ChangeLogEntry]
+    public let requiresRecovery: Bool
 
     public init(
         batchID: UUID,
@@ -19,7 +20,8 @@ public struct BatchCheckpoint: Sendable, Codable, Equatable {
         totalCount: Int,
         lastProcessedIndex: Int,
         timestamp: Date = Date(),
-        changes: [ChangeLogEntry] = []
+        changes: [ChangeLogEntry] = [],
+        requiresRecovery: Bool = false
     ) {
         self.batchID = batchID
         self.processedTrackIDs = processedTrackIDs
@@ -27,6 +29,28 @@ public struct BatchCheckpoint: Sendable, Codable, Equatable {
         self.lastProcessedIndex = lastProcessedIndex
         self.timestamp = timestamp
         self.changes = changes
+        self.requiresRecovery = requiresRecovery
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case batchID
+        case processedTrackIDs
+        case totalCount
+        case lastProcessedIndex
+        case timestamp
+        case changes
+        case requiresRecovery
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        batchID = try values.decode(UUID.self, forKey: .batchID)
+        processedTrackIDs = try values.decode([String].self, forKey: .processedTrackIDs)
+        totalCount = try values.decode(Int.self, forKey: .totalCount)
+        lastProcessedIndex = try values.decode(Int.self, forKey: .lastProcessedIndex)
+        timestamp = try values.decode(Date.self, forKey: .timestamp)
+        changes = try values.decode([ChangeLogEntry].self, forKey: .changes)
+        requiresRecovery = try values.decodeIfPresent(Bool.self, forKey: .requiresRecovery) ?? false
     }
 }
 
@@ -39,6 +63,8 @@ public struct BatchCheckpoint: Sendable, Codable, Equatable {
 public actor CheckpointManager {
     private let directory: URL
     private let fileManager: FileManager
+    private let recoveryDefaults: UserDefaults
+    private let recoveryMarkerKey: String
     private let log = Logger(subsystem: "com.genreupdater", category: "CheckpointManager")
 
     private let encoder: JSONEncoder = {
@@ -54,15 +80,21 @@ public actor CheckpointManager {
         return decoder
     }()
 
-    public init(directory: URL? = nil) {
+    public init(directory: URL? = nil, recoverySuiteName: String? = nil) {
         let base = directory ?? Self.defaultDirectory()
-        self.directory = base.appendingPathComponent("checkpoints", isDirectory: true)
+        let checkpointDirectory = base.appendingPathComponent("checkpoints", isDirectory: true)
+        self.directory = checkpointDirectory
         self.fileManager = .default
+        self.recoveryDefaults = recoverySuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+        self.recoveryMarkerKey = "com.genreupdater.recovery.\(checkpointDirectory.path)"
     }
 
     // MARK: Save
 
     public func save(_ checkpoint: BatchCheckpoint) async throws {
+        if checkpoint.requiresRecovery {
+            recoveryDefaults.set(checkpoint.batchID.uuidString, forKey: recoveryMarkerKey)
+        }
         try ensureDirectoryExists()
         let url = fileURL(for: checkpoint.batchID)
         let data = try encoder.encode(checkpoint)
@@ -115,6 +147,18 @@ public actor CheckpointManager {
         return latest
     }
 
+    public func loadRecovery() async throws -> BatchCheckpoint? {
+        if let markedID = recoveryMarkerID() {
+            return try await load(batchID: markedID) ?? Self.recoveryPlaceholder(batchID: markedID)
+        }
+
+        let checkpoint = try loadAll().filter(\.requiresRecovery).max { $0.timestamp < $1.timestamp }
+        if let checkpoint {
+            recoveryDefaults.set(checkpoint.batchID.uuidString, forKey: recoveryMarkerKey)
+        }
+        return checkpoint
+    }
+
     // MARK: Delete
 
     public func delete(batchID: UUID) async throws {
@@ -122,6 +166,13 @@ public actor CheckpointManager {
         guard fileManager.fileExists(atPath: url.path) else { return }
         try fileManager.removeItem(at: url)
         log.info("Deleted checkpoint \(batchID, privacy: .public)")
+    }
+
+    public func clearRecovery(batchID: UUID) async throws {
+        try await delete(batchID: batchID)
+        if recoveryMarkerID() == batchID {
+            recoveryDefaults.removeObject(forKey: recoveryMarkerKey)
+        }
     }
 
     /// Remove checkpoints older than the given interval (default 7 days).
@@ -139,7 +190,7 @@ public actor CheckpointManager {
             do {
                 let data = try Data(contentsOf: file)
                 let checkpoint = try decoder.decode(BatchCheckpoint.self, from: data)
-                if checkpoint.timestamp < cutoff {
+                if !checkpoint.requiresRecovery, checkpoint.timestamp < cutoff {
                     try fileManager.removeItem(at: file)
                     removedCount += 1
                 }
@@ -160,6 +211,34 @@ public actor CheckpointManager {
         directory.appendingPathComponent("\(batchID.uuidString).json")
     }
 
+    private func loadAll() throws -> [BatchCheckpoint] {
+        try ensureDirectoryExists()
+        let files = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ).filter { $0.pathExtension == "json" }
+        return files.compactMap { file in
+            do {
+                let data = try Data(contentsOf: file)
+                return try decoder.decode(BatchCheckpoint.self, from: data)
+            } catch {
+                log.warning("Skipping corrupt checkpoint at \(file.lastPathComponent, privacy: .public)")
+                return nil
+            }
+        }
+    }
+
+    private func recoveryMarkerID() -> UUID? {
+        guard let marker = recoveryDefaults.string(forKey: recoveryMarkerKey) else { return nil }
+        if let recoveryID = UUID(uuidString: marker) {
+            return recoveryID
+        }
+        let recoveryID = UUID()
+        recoveryDefaults.set(recoveryID.uuidString, forKey: recoveryMarkerKey)
+        return recoveryID
+    }
+
     private func ensureDirectoryExists() throws {
         if !fileManager.fileExists(atPath: directory.path) {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -175,5 +254,15 @@ public actor CheckpointManager {
             return URL(fileURLWithPath: NSTemporaryDirectory())
         }
         return appSupport.appendingPathComponent("GenreUpdater", isDirectory: true)
+    }
+
+    private static func recoveryPlaceholder(batchID: UUID) -> BatchCheckpoint {
+        BatchCheckpoint(
+            batchID: batchID,
+            processedTrackIDs: [],
+            totalCount: 0,
+            lastProcessedIndex: -1,
+            requiresRecovery: true
+        )
     }
 }

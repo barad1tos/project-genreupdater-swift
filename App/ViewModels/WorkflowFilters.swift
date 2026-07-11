@@ -30,7 +30,7 @@ extension WorkflowViewModel {
         case let .cancelled(processedCount, _):
             self.processedCount = processedCount
             phase = .configure
-        case .featureNotAvailable, .alreadyRunning, .notRunning:
+        case .featureNotAvailable, .alreadyRunning, .notRunning, .recoveryRequired:
             phase = .error(error.localizedDescription)
         }
         progress = nil

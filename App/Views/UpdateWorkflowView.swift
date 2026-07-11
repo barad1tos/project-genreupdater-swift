@@ -161,8 +161,12 @@ struct UpdateWorkflowView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Spacing.xxxl)
 
-            Button("Try Again") {
-                viewModel.reset()
+            Button(viewModel.recoveryHoldID == nil ? "Try Again" : "I Verified Music.app") {
+                if viewModel.recoveryHoldID == nil {
+                    viewModel.reset()
+                } else {
+                    Task { await viewModel.clearRecoveryHold() }
+                }
             }
             .buttonStyle(.borderedProminent)
             .tint(Ayu.accent)

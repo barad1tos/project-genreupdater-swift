@@ -72,7 +72,9 @@ struct RateLeaseTests {
         var lease: RateLimitLease? = try await limiter.reserve(
             until: clock.now.advanced(by: .seconds(2))
         )
-        lease?.commit()
+        lease?.dispatch {
+            // This test consumes the reservation without an unrelated request side effect.
+        }
 
         let next = Task {
             try await limiter.acquire(until: clock.now.advanced(by: .milliseconds(250)))
@@ -87,5 +89,42 @@ struct RateLeaseTests {
         }
         await limiter.release()
         #expect(try await limiter.acquire(until: clock.now.advanced(by: .seconds(1))) == .zero)
+    }
+
+    @Test("Cancellation after dispatch keeps the consumed token")
+    func retainsConsumedToken() async throws {
+        let limiter = TokenBucketRateLimiter(maxTokens: 1, refillInterval: .seconds(30))
+        let lease = try await limiter.reserve(
+            until: ContinuousClock().now.advanced(by: .seconds(1))
+        )
+        let cancellation = DispatchCancellation()
+
+        let didDispatch = lease.dispatch {
+            cancellation.start { await lease.cancel() }
+        }
+        #expect(didDispatch)
+        await cancellation.wait()
+
+        let stats = await limiter.getStats()
+        #expect(stats.currentTokens == 0)
+    }
+}
+
+private actor DispatchCancellation {
+    private var task: Task<Void, Never>?
+
+    nonisolated func start(_ operation: @escaping @Sendable () async -> Void) {
+        Task { await self.store(Task(operation: operation)) }
+    }
+
+    func wait() async {
+        while task == nil {
+            await Task.yield()
+        }
+        await task?.value
+    }
+
+    private func store(_ task: Task<Void, Never>) {
+        self.task = task
     }
 }

@@ -7,7 +7,7 @@ extension UpdateCoordinator {
         in tracks: [Track],
         threshold: Int,
         progressHandler: @Sendable (ProgressUpdate) -> Void
-    ) async -> BatchUpdateResult {
+    ) async throws -> BatchUpdateResult {
         let candidates = Self.tracksNeedingReleaseYearRestore(tracks, threshold: threshold)
         let consensusByAlbum = Self.releaseYearConsensusByAlbum(for: candidates)
         var entries: [ChangeLogEntry] = []
@@ -50,6 +50,8 @@ extension UpdateCoordinator {
             } catch is CancellationError {
                 wasCancelled = true
                 break
+            } catch let error as AppleScriptOutcomeError {
+                throw error
             } catch {
                 failedTrackIDs.append(track.id)
                 errorDescriptions.append(error.localizedDescription)
@@ -57,11 +59,7 @@ extension UpdateCoordinator {
         }
 
         if !wasCancelled {
-            progressHandler(ProgressUpdate(
-                phase: .complete,
-                current: candidates.count,
-                total: candidates.count
-            ))
+            Self.reportRestoreComplete(total: candidates.count, progressHandler: progressHandler)
         }
 
         return BatchUpdateResult(
@@ -70,6 +68,13 @@ extension UpdateCoordinator {
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions
         )
+    }
+
+    private static func reportRestoreComplete(
+        total: Int,
+        progressHandler: @Sendable (ProgressUpdate) -> Void
+    ) {
+        progressHandler(ProgressUpdate(phase: .complete, current: total, total: total))
     }
 
     public static func tracksNeedingReleaseYearRestore(

@@ -197,6 +197,10 @@ public actor UndoCoordinator {
             do {
                 try await revertChange(entry)
                 succeeded += 1
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as AppleScriptOutcomeError {
+                throw error
             } catch {
                 let failureDescription = Self.publicFailureDescription(for: error)
                 errorDescriptions.append(failureDescription)
@@ -326,6 +330,9 @@ public actor UndoCoordinator {
             throw error
         } catch let error as AppleScriptBridgeError {
             throw error
+        } catch let error as AppleScriptOutcomeError {
+            await invalidateCaches(for: mutationChange)
+            throw error
         } catch {
             throw UndoCoordinatorError.revertFailed(
                 trackID: change.track.id,
@@ -445,6 +452,10 @@ public actor UndoCoordinator {
                 entry.newYear = target.year
                 await recordChange(entry)
                 updatedCount += 1
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as AppleScriptOutcomeError {
+                throw error
             } catch {
                 failedCount += 1
                 let failureDescription = Self.publicFailureDescription(for: error)
@@ -471,6 +482,9 @@ public actor UndoCoordinator {
         }
         if let appleScriptError = error as? AppleScriptBridgeError {
             return publicAppleScriptFailureDescription(for: appleScriptError)
+        }
+        if let outcomeError = error as? AppleScriptOutcomeError {
+            return outcomeError.localizedDescription
         }
         return "AppleScript write failed"
     }

@@ -15,7 +15,7 @@ struct BatchDispatchTests {
 
         do {
             try await bridge.batchUpdateTracks([
-                (trackID: "101", property: "genre", value: "Metal"),
+                (trackID: "101", property: "genre", value: "Metal")
             ]) { _ in
                 _ = await attempts.next()
                 throw AppleScriptBridgeError.dispatchDeadline(
@@ -42,7 +42,7 @@ struct BatchDispatchTests {
 
         do {
             try await fixture.bridge.batchUpdateTracks([
-                (trackID: "101", property: "genre", value: "Metal"),
+                (trackID: "101", property: "genre", value: "Metal")
             ]) { _ in
                 throw AppleScriptBridgeError.timeout(
                     scriptName: "batch_update_tracks",
@@ -54,6 +54,20 @@ struct BatchDispatchTests {
             #expect(error.updateCount == 1)
         } catch {
             Issue.record("Expected AppleScriptBatchVerificationError, got \(error)")
+        }
+    }
+
+    @Test("Unknown batch outcome reaches the caller")
+    func preservesUnknownOutcome() async throws {
+        let fixture = try makeBatchBridge()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        await #expect(throws: AppleScriptOutcomeError.self) {
+            try await fixture.bridge.batchUpdateTracks([
+                (trackID: "101", property: "genre", value: "Metal")
+            ]) { _ in
+                throw AppleScriptOutcomeError(scriptName: "batch_update_tracks", duration: .seconds(3))
+            }
         }
     }
 

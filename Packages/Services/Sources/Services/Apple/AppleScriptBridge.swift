@@ -50,14 +50,6 @@ public enum AppleScriptBridgeError: Error, LocalizedError {
     }
 }
 
-// MARK: - Sendable Wrapper
-
-// Safety: NSUserAppleScriptTask and NSAppleEventDescriptor are not Sendable
-// but each wrapped value is confined to one bounded AppleScript execution.
-private struct UnsafeSendable<T>: @unchecked Sendable {
-    let value: T
-}
-
 // MARK: - AppleScript Bridge Actor
 
 /// Actor that manages all AppleScript interactions with Music.app.
@@ -102,6 +94,18 @@ public actor AppleScriptBridge: AppleScriptClient {
         )
     }
 
+    func dispatchScript<Value: Sendable>(
+        _ call: ScriptCall,
+        start: @escaping @Sendable (@escaping @Sendable (Result<Value, any Error>) -> Void) -> Void
+    ) async throws -> Value {
+        try await ScriptDispatch.run(
+            call,
+            limiter: rateLimiter,
+            gate: concurrencyGate,
+            start: start
+        )
+    }
+
     public func initialize() async throws {
         let installed = await installer.areScriptsCurrent()
         guard installed else {
@@ -136,17 +140,22 @@ public actor AppleScriptBridge: AppleScriptClient {
             )
 
         let deadline = ContinuousClock().now.advanced(by: effectiveTimeout)
+        let call = ScriptCall(
+            name: name,
+            intent: Self.intent(forScript: name),
+            deadline: deadline,
+            timeout: effectiveTimeout
+        )
         return try await executeByIntent(
             scriptName: name,
             retry: retryConfiguration,
             deadline: deadline,
             timeout: effectiveTimeout
-        ) { attemptTimeout in
+        ) { _ in
             try await self.executeScriptAttempt(
-                name: name,
+                call,
                 scriptURL: scriptURL,
-                arguments: validatedArguments,
-                timeout: attemptTimeout
+                arguments: validatedArguments
             )
         }
     }
@@ -249,7 +258,10 @@ public actor AppleScriptBridge: AppleScriptClient {
         } catch let error as AppleScriptBridgeError where Self.isDispatchDeadline(error) {
             // Music.app was never reached, so the caller may safely fall back to single writes.
             throw error
+        } catch let error as AppleScriptOutcomeError {
+            throw error
         } catch {
+            // Dispatched unknown outcomes use post-run verification instead of single-write replay.
             throw AppleScriptBatchVerificationError(
                 updateCount: updates.count,
                 failedCount: nil,
@@ -367,11 +379,6 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     // MARK: - Private Helpers
 
-    /// Build an NSAppleEventDescriptor with string arguments.
-    private func buildAppleEvent(arguments: [String]) throws -> NSAppleEventDescriptor? {
-        Self.makeRunAppleEvent(arguments: arguments)
-    }
-
     static func makeRunAppleEvent(arguments: [String]) -> NSAppleEventDescriptor? {
         guard !arguments.isEmpty else { return nil }
 
@@ -466,70 +473,6 @@ public actor AppleScriptBridge: AppleScriptClient {
 }
 
 extension AppleScriptBridge {
-    func executeScriptAttempt(
-        name: String,
-        scriptURL: URL,
-        arguments: [String],
-        timeout: Duration
-    ) async throws -> String? {
-        if let rateLimiter {
-            let waitTime = await rateLimiter.acquire()
-            if waitTime > .zero {
-                log.debug("AppleScript rate limited, waited \(waitTime, privacy: .public)")
-            }
-        }
-
-        let task = try NSUserAppleScriptTask(url: scriptURL)
-        let event = try buildAppleEvent(arguments: arguments)
-
-        let wrappedTask = UnsafeSendable(value: task)
-        let wrappedEvent = UnsafeSendable(value: event)
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        let permit = try await acquirePermit(
-            scriptName: name,
-            deadline: deadline,
-            timeout: timeout
-        )
-        defer { permit.release() }
-        return try await Self.executeBeforeDeadline(
-            deadline: deadline,
-            scriptName: name,
-            timeout: timeout
-        ) {
-            let descriptor = try await wrappedTask.value.execute(withAppleEvent: wrappedEvent.value)
-            return descriptor.stringValue
-        }
-    }
-
-    static func executeBeforeDeadline<Value: Sendable>(
-        deadline: ContinuousClock.Instant,
-        scriptName: String,
-        timeout: Duration,
-        operation: @escaping @Sendable () async throws -> Value
-    ) async throws -> Value {
-        let remaining = ContinuousClock().now.duration(to: deadline)
-        guard remaining > .zero else {
-            throw AppleScriptBridgeError.dispatchDeadline(scriptName: scriptName, duration: timeout)
-        }
-        // Timeout delivery remains cooperative when the operation ignores cancellation.
-        return try await withThrowingTaskGroup(of: Value.self) { group in
-            group.addTask(operation: operation)
-            group.addTask {
-                try await Task.sleep(for: remaining)
-                throw AppleScriptBridgeError.timeout(scriptName: scriptName, duration: timeout)
-            }
-            defer { group.cancelAll() }
-            guard let result = try await group.next() else {
-                throw AppleScriptBridgeError.executionFailed(
-                    scriptName: scriptName,
-                    detail: "Execution ended without a result"
-                )
-            }
-            return result
-        }
-    }
-
     static func makeRateLimiter(configuration: AppleScriptRateLimit) -> TokenBucketRateLimiter? {
         guard configuration.enabled else { return nil }
 

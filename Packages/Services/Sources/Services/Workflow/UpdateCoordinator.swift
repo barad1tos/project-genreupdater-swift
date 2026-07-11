@@ -754,7 +754,7 @@ public actor UpdateCoordinator {
         }
     }
 
-    func recordUnexpectedWorkflowFailure(
+    func recordUnexpectedFailure(
         trackID: String,
         error: any Error,
         failedTrackIDs: inout [String],

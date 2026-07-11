@@ -53,6 +53,7 @@ actor MockAppleScriptClient: AppleScriptClient {
     var batchMutationLimit: Int?
     var singleWriteResult: AppleScriptWriteResult = .changed
     var customWriteError: Error?
+    var customBatchError: Error?
     private var failingWriteTrackIDs: Set<String> = []
     private var fetchedTracksByIDsCalls: [(trackIDs: [String], batchSize: Int, timeout: Duration?)] = []
     private var fetchedAllTrackIDsTimeouts: [Duration?] = []
@@ -107,6 +108,9 @@ actor MockAppleScriptClient: AppleScriptClient {
         if shouldCancelBatch {
             throw CancellationError()
         }
+        if let customBatchError {
+            throw customBatchError
+        }
         if shouldThrowBatch {
             throw MockScriptError.intentional
         }
@@ -151,6 +155,10 @@ actor MockAppleScriptClient: AppleScriptClient {
 
     func setCustomWriteError(_ error: Error?) {
         customWriteError = error
+    }
+
+    func setCustomBatchError(_ error: Error?) {
+        customBatchError = error
     }
 
     func setFailingWriteTrackIDs(_ trackIDs: Set<String>) {

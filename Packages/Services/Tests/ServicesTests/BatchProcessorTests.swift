@@ -78,7 +78,7 @@ struct BatchProcessorTests {
     }
 
     @Test("Batch configuration clamps to experimental max batch size")
-    func batchConfigurationClampsToExperimentalMaxBatchSize() {
+    func clampsExperimentalBatchSize() {
         var appConfiguration = AppConfiguration()
         appConfiguration.processing.batchSize = 25
         appConfiguration.processing.delayBetweenBatches = 0.25
@@ -119,7 +119,7 @@ struct BatchProcessorTests {
     }
 
     @Test("Batch configuration treats configured test artists as restricted scope")
-    func batchConfigurationTreatsConfiguredTestArtistsAsRestrictedScope() {
+    func restrictsTestArtists() {
         var appConfiguration = AppConfiguration()
         appConfiguration.processing.batchSize = 25
         appConfiguration.processing.delayBetweenBatches = 20
@@ -133,7 +133,7 @@ struct BatchProcessorTests {
     }
 
     @Test("Runtime batch processing configuration applies delay between batches")
-    func runtimeBatchProcessingConfigurationAppliesDelayBetweenBatches() async throws {
+    func appliesRuntimeBatchDelay() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("BP-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -182,7 +182,9 @@ struct BatchProcessorTests {
             try await processor.process(
                 tracks: makeTracks(count: 3),
                 operation: { _ in [] },
-                progressHandler: { _ in }
+                progressHandler: { _ in
+                    // Progress delivery is unrelated to unknown-outcome propagation.
+                }
             )
         }
     }
@@ -301,7 +303,9 @@ struct BatchProcessorTests {
             tracks: makeTracks(count: 3),
             operation: { _ in
                 let count = await counter.increment()
-                if count == 2 { throw MockOperationError.failed }
+                if count == 2 {
+                    throw MockOperationError.failed
+                }
                 return [ChangeLogEntry(
                     changeType: .genreUpdate,
                     trackID: "T",
@@ -335,7 +339,9 @@ struct BatchProcessorTests {
                 tracks: makeTracks(count: 3),
                 operation: { track in
                     processedTrackIDs.append(track.id)
-                    if track.id == "T1" { throw CancellationError() }
+                    if track.id == "T1" {
+                        throw CancellationError()
+                    }
                     return [ChangeLogEntry(
                         changeType: .genreUpdate,
                         trackID: track.id,

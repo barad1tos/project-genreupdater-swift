@@ -19,7 +19,8 @@ struct CheckpointManagerTests {
         processedIDs: [String] = ["T1", "T2"],
         totalCount: Int = 10,
         lastIndex: Int = 1,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        requiresRecovery: Bool = false
     ) -> BatchCheckpoint {
         BatchCheckpoint(
             batchID: batchID,
@@ -27,7 +28,8 @@ struct CheckpointManagerTests {
             totalCount: totalCount,
             lastProcessedIndex: lastIndex,
             timestamp: timestamp,
-            changes: []
+            changes: [],
+            requiresRecovery: requiresRecovery
         )
     }
 
@@ -52,6 +54,57 @@ struct CheckpointManagerTests {
         #expect(loaded?.processedTrackIDs == ["T1", "T2", "T3"])
         #expect(loaded?.totalCount == 100)
         #expect(loaded?.lastProcessedIndex == 2)
+        #expect(loaded?.requiresRecovery == false)
+    }
+
+    @Test("Legacy checkpoint defaults to no recovery hold")
+    func decodesLegacyCheckpoint() throws {
+        let batchID = UUID()
+        let data = Data("""
+        {"batchID":"\(batchID
+            .uuidString)","processedTrackIDs":[],"totalCount":1,"lastProcessedIndex":-1,"timestamp":"2026-07-11T00:00:00Z","changes":[]}
+        """.utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let checkpoint = try decoder.decode(BatchCheckpoint.self, from: data)
+
+        #expect(!checkpoint.requiresRecovery)
+    }
+
+    @Test("Load recovery returns the newest recovery checkpoint")
+    func loadsRecoveryCheckpoint() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let manager = CheckpointManager(directory: dir)
+        let normal = makeCheckpoint(timestamp: Date(), requiresRecovery: false)
+        let recovery = makeCheckpoint(timestamp: Date().addingTimeInterval(-1), requiresRecovery: true)
+        try await manager.save(normal)
+        try await manager.save(recovery)
+
+        #expect(try await manager.loadRecovery()?.batchID == recovery.batchID)
+        try await manager.clearRecovery(batchID: recovery.batchID)
+    }
+
+    @Test("Recovery marker survives a corrupt checkpoint file")
+    func loadsCorruptRecoveryMarker() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let suiteName = "CheckpointManagerTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let manager = CheckpointManager(directory: dir, recoverySuiteName: suiteName)
+        let recovery = makeCheckpoint(requiresRecovery: true)
+        try await manager.save(recovery)
+        let file = dir.appendingPathComponent("checkpoints/\(recovery.batchID.uuidString).json")
+        try Data("invalid".utf8).write(to: file)
+
+        let restarted = CheckpointManager(directory: dir, recoverySuiteName: suiteName)
+        let loaded = try await restarted.loadRecovery()
+
+        #expect(loaded?.batchID == recovery.batchID)
+        #expect(loaded?.requiresRecovery == true)
+        try await restarted.clearRecovery(batchID: recovery.batchID)
     }
 
     @Test("Load returns nil for nonexistent batch")
@@ -131,6 +184,23 @@ struct CheckpointManagerTests {
         #expect(recentLoaded != nil)
     }
 
+    @Test("Cleanup preserves recovery checkpoints")
+    func cleanupPreservesRecovery() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let manager = CheckpointManager(directory: dir)
+        let recovery = makeCheckpoint(
+            timestamp: Date().addingTimeInterval(-8 * 24 * 3600),
+            requiresRecovery: true
+        )
+        try await manager.save(recovery)
+
+        try await manager.cleanupOld(olderThan: 7 * 24 * 3600)
+
+        #expect(try await manager.load(batchID: recovery.batchID) != nil)
+        try await manager.clearRecovery(batchID: recovery.batchID)
+    }
+
     @Test("Corrupt JSON returns nil instead of throwing")
     func corruptionHandling() async throws {
         let dir = try makeTempDirectory()
@@ -146,6 +216,7 @@ struct CheckpointManagerTests {
 
         let loaded = try await manager.load(batchID: batchID)
         #expect(loaded == nil)
+        #expect(try await manager.loadRecovery() == nil)
     }
 
     @Test("Load latest with empty directory returns nil")

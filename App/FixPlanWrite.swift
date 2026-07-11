@@ -3,6 +3,20 @@ import Foundation
 import Services
 
 enum FixPlanWrite {
+    struct ScriptAccess {
+        let client: any AppleScriptClient
+        let batchSize: @Sendable () async -> Int
+    }
+
+    struct RunnerDependencies {
+        let updateCoordinator: UpdateCoordinator
+        let fixPlanStore: any FixPlanStore
+        let mapper: TrackIDMapper
+        let script: ScriptAccess
+        let batchProcessor: BatchProcessor
+        let hasRunRecovery: @Sendable () async -> Bool
+    }
+
     enum Failure: LocalizedError {
         case missingPlan(FixPlanID)
         case missingDecision(FixPlanID)
@@ -103,6 +117,49 @@ enum FixPlanWrite {
         await mapper.seedKnownMappings(entries)
     }
 
+    static func makeRunner(
+        _ dependencies: RunnerDependencies
+    ) -> @Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult {
+        { target in
+            if await dependencies.hasRunRecovery() {
+                throw WriteAdmissionError.recoveryRequired
+            }
+            return try await dependencies.batchProcessor.performRecoverableWrite {
+                guard let plan = try await dependencies.fixPlanStore.plan(
+                    id: target.planID,
+                    revision: target.planRevision
+                ) else {
+                    throw Failure.missingPlan(target.planID)
+                }
+                guard let decision = try await dependencies.fixPlanStore.currentDecision(for: target.planID) else {
+                    throw Failure.missingDecision(target.planID)
+                }
+                guard decision.planRevision == target.planRevision,
+                      decision.revision == target.decisionRevision
+                else {
+                    throw Failure.staleDecision
+                }
+
+                let changes = try proposedChanges(from: plan, decision: decision)
+                let acceptedChanges = changes.filter(\.isAccepted)
+                guard !acceptedChanges.isEmpty else {
+                    throw Failure.noAcceptedItems
+                }
+
+                try await prepareWriteIDs(
+                    for: acceptedChanges,
+                    mapper: dependencies.mapper,
+                    scriptClient: dependencies.script.client,
+                    writeIDBatchSize: dependencies.script.batchSize()
+                )
+                return try await dependencies.updateCoordinator.applyAcceptedChanges(
+                    changes,
+                    progressHandler: ignoreProgress
+                )
+            }
+        }
+    }
+
     private static func track(from item: FixPlanItem) -> Track {
         Track(
             id: item.identity.readID,
@@ -118,6 +175,10 @@ enum FixPlanWrite {
     private static func year(from value: String?) -> Int? {
         value.flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
     }
+
+    private static func ignoreProgress(_: ProgressUpdate) {
+        // Fix-plan writes do not expose intermediate progress.
+    }
 }
 
 extension AppDependencies {
@@ -125,41 +186,26 @@ extension AppDependencies {
         guard let updateCoordinator,
               let fixPlanStore,
               let mapper = trackIDMapper,
-              let bridge = applescriptBridge
+              let writeScript,
+              let batchProcessor
         else {
             AppLogger.make(category: "dependencies")
                 .warning("Fix plan writer unavailable: missing write prerequisites")
             assertionFailure("Fix plan writer unavailable: missing write prerequisites")
             return nil
         }
-
-        return { [updateCoordinator, fixPlanStore, mapper, bridge] target in
-            guard let plan = try await fixPlanStore.plan(id: target.planID, revision: target.planRevision) else {
-                throw FixPlanWrite.Failure.missingPlan(target.planID)
-            }
-            guard let decision = try await fixPlanStore.currentDecision(for: target.planID) else {
-                throw FixPlanWrite.Failure.missingDecision(target.planID)
-            }
-            guard decision.planRevision == target.planRevision,
-                  decision.revision == target.decisionRevision
-            else {
-                throw FixPlanWrite.Failure.staleDecision
-            }
-
-            let changes = try FixPlanWrite.proposedChanges(from: plan, decision: decision)
-            let acceptedChanges = changes.filter(\.isAccepted)
-            guard !acceptedChanges.isEmpty else {
-                throw FixPlanWrite.Failure.noAcceptedItems
-            }
-
-            let writeIDBatchSize = await bridge.trackIDBatchSize
-            try await FixPlanWrite.prepareWriteIDs(
-                for: acceptedChanges,
-                mapper: mapper,
-                scriptClient: bridge,
-                writeIDBatchSize: writeIDBatchSize
-            )
-            return try await updateCoordinator.applyAcceptedChanges(changes) { _ in }
+        let hasRunRecovery: @Sendable () async -> Bool = { [weak self] in
+            guard let self else { return true }
+            return await self.hasRecoveryHold()
         }
+
+        return FixPlanWrite.makeRunner(FixPlanWrite.RunnerDependencies(
+            updateCoordinator: updateCoordinator,
+            fixPlanStore: fixPlanStore,
+            mapper: mapper,
+            script: writeScript,
+            batchProcessor: batchProcessor,
+            hasRunRecovery: hasRunRecovery
+        ))
     }
 }

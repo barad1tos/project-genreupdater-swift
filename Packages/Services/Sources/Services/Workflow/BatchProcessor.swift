@@ -9,6 +9,7 @@ public enum BatchProcessorError: Error, LocalizedError {
     case alreadyRunning
     case notRunning
     case cancelled(processedCount: Int, totalCount: Int)
+    case recoveryRequired(batchID: UUID)
 
     public var errorDescription: String? {
         switch self {
@@ -20,6 +21,8 @@ public enum BatchProcessorError: Error, LocalizedError {
             "Batch processor is not running"
         case let .cancelled(processed, total):
             "Batch cancelled after processing \(processed)/\(total) tracks"
+        case .recoveryRequired:
+            "Previous batch needs recovery before writes continue"
         }
     }
 }
@@ -102,6 +105,7 @@ public actor BatchProcessor {
         case running
         case paused
         case cancelled
+        case failed
         case completed
     }
 
@@ -110,6 +114,10 @@ public actor BatchProcessor {
     private let checkpointInterval: Int
     private var processingConfiguration: BatchProcessingConfiguration
     private var currentState: State = .idle
+    private var failedBatchID: UUID?
+    private var recoveryCompletion: ScriptCompletion?
+    private var isClearingRecovery = false
+    private var isWriteReserved = false
     private var pauseRequested = false
     private var cancelRequested = false
     private let log = Logger(
@@ -138,6 +146,43 @@ public actor BatchProcessor {
         currentState
     }
 
+    public func recoveryHoldID() async -> UUID? {
+        if let failedBatchID {
+            return failedBatchID
+        }
+        do {
+            guard let checkpoint = try await checkpointManager.loadRecovery() else { return nil }
+            return activateRecovery(batchID: checkpoint.batchID)
+        } catch {
+            let recoveryID = activateRecovery(batchID: UUID())
+            await persistRecoveryPlaceholder(batchID: recoveryID)
+            return recoveryID
+        }
+    }
+
+    public func beginRecoveryHold() async -> UUID {
+        if let recoveryID = await recoveryHoldID() {
+            return recoveryID
+        }
+        let recoveryID = activateRecovery(batchID: UUID())
+        await persistRecoveryPlaceholder(batchID: recoveryID)
+        return recoveryID
+    }
+
+    public func performRecoverableWrite<Value: Sendable>(
+        operation: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        try await reserveWrite(requiresBatchFeature: false)
+        defer { isWriteReserved = false }
+        do {
+            return try await operation()
+        } catch let outcome as AppleScriptOutcomeError {
+            let recoveryID = activateRecovery(batchID: UUID(), completion: outcome.completion)
+            await persistRecoveryPlaceholder(batchID: recoveryID)
+            throw outcome
+        }
+    }
+
     // MARK: Process
 
     /// Process tracks sequentially, calling `operation` for each track.
@@ -147,7 +192,8 @@ public actor BatchProcessor {
         operation: @Sendable (Track) async throws -> [ChangeLogEntry],
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> [ChangeLogEntry] {
-        try await validateCanStart()
+        try await reserveWrite(requiresBatchFeature: true)
+        defer { isWriteReserved = false }
         var resume = try await loadResumeState(
             tracks: tracks,
             resumeBatchID: resumeBatchID
@@ -156,20 +202,15 @@ public actor BatchProcessor {
         let signpostState = AppSignpost.batchProcessing.beginInterval("batchProcess")
         defer { AppSignpost.batchProcessing.endInterval("batchProcess", signpostState) }
 
-        currentState = .running
-        pauseRequested = false
-        cancelRequested = false
-        let processingStart = ContinuousClock.now
-
-        log
-            .info(
-                "Starting batch \(resume.batchID, privacy: .public): \(tracks.count, privacy: .public) tracks from index \(resume.startIndex, privacy: .public)"
-            )
+        let processingStart = beginBatch(resume, totalCount: tracks.count)
         for index in resume.startIndex ..< tracks.count {
+            if let failedBatchID {
+                throw BatchProcessorError.recoveryRequired(batchID: failedBatchID)
+            }
             let snapshot = makeSnapshot(
                 resume: resume,
                 totalCount: tracks.count,
-                lastIndex: max(0, index - 1)
+                lastIndex: index - 1
             )
             try await handleCancellation(snapshot: snapshot)
             try await waitWhilePaused()
@@ -226,6 +267,19 @@ public actor BatchProcessor {
         } catch is CancellationError {
             try await handleCancellation(snapshot: cancellationSnapshot, force: true)
             throw CancellationError()
+        } catch let error as AppleScriptOutcomeError {
+            currentState = .failed
+            failedBatchID = cancellationSnapshot.batchID
+            recoveryCompletion = error.completion
+            do {
+                try await saveCheckpoint(cancellationSnapshot, requiresRecovery: true)
+            } catch {
+                log
+                    .error(
+                        "Failed to checkpoint an unknown write outcome: \(error.localizedDescription, privacy: .public)"
+                    )
+            }
+            throw error
         } catch {
             log
                 .warning(
@@ -233,6 +287,20 @@ public actor BatchProcessor {
                 )
             return ([], false)
         }
+    }
+
+    private func logBatchStart(_ resume: ResumeState, totalCount: Int) {
+        log.info(
+            "Starting batch \(resume.batchID, privacy: .public): \(totalCount, privacy: .public) tracks from index \(resume.startIndex, privacy: .public)"
+        )
+    }
+
+    private func beginBatch(_ resume: ResumeState, totalCount: Int) -> ContinuousClock.Instant {
+        currentState = .running
+        pauseRequested = false
+        cancelRequested = false
+        logBatchStart(resume, totalCount: totalCount)
+        return ContinuousClock.now
     }
 
     // MARK: Controls
@@ -259,20 +327,57 @@ public actor BatchProcessor {
         log.info("Cancel requested")
     }
 
+    /// Clear a failed batch after the caller has verified Music.app state.
+    public func clearRecovery(batchID: UUID) async throws {
+        guard !isClearingRecovery,
+              currentState == .failed,
+              failedBatchID == batchID
+        else {
+            throw BatchProcessorError.notRunning
+        }
+        isClearingRecovery = true
+        defer { isClearingRecovery = false }
+        let completion = recoveryCompletion
+        await completion?.wait()
+        guard currentState == .failed, failedBatchID == batchID else {
+            throw BatchProcessorError.notRunning
+        }
+        try await checkpointManager.clearRecovery(batchID: batchID)
+        failedBatchID = nil
+        recoveryCompletion = nil
+        currentState = .idle
+    }
+
     // MARK: Internal Steps
 
-    private func validateCanStart() async throws {
-        guard await featureGate.canAccess(.batchProcessing) else {
-            throw await BatchProcessorError.featureNotAvailable(
-                feature: .batchProcessing,
-                currentTier: featureGate.currentTier
-            )
-        }
-        let canStart = currentState == .idle
-            || currentState == .completed
-            || currentState == .cancelled
-        guard canStart else {
+    private func reserveWrite(requiresBatchFeature: Bool) async throws {
+        guard !isWriteReserved else {
             throw BatchProcessorError.alreadyRunning
+        }
+        isWriteReserved = true
+        do {
+            if requiresBatchFeature {
+                guard await featureGate.canAccess(.batchProcessing) else {
+                    throw await BatchProcessorError.featureNotAvailable(
+                        feature: .batchProcessing,
+                        currentTier: featureGate.currentTier
+                    )
+                }
+            }
+            if let failedBatchID = await recoveryHoldID() {
+                throw BatchProcessorError.recoveryRequired(batchID: failedBatchID)
+            }
+            if requiresBatchFeature {
+                let canStart = currentState == .idle
+                    || currentState == .completed
+                    || currentState == .cancelled
+                guard canStart else {
+                    throw BatchProcessorError.alreadyRunning
+                }
+            }
+        } catch {
+            isWriteReserved = false
+            throw error
         }
     }
 
@@ -309,19 +414,44 @@ public actor BatchProcessor {
     ) async throws {
         guard force || cancelRequested else { return }
         currentState = .cancelled
-        let checkpoint = BatchCheckpoint(
-            batchID: snapshot.batchID,
-            processedTrackIDs: snapshot.processedIDs,
-            totalCount: snapshot.totalCount,
-            lastProcessedIndex: snapshot.lastIndex,
-            changes: snapshot.changes
-        )
-        try await checkpointManager.save(checkpoint)
+        try await saveCheckpoint(snapshot)
         log.info("Batch cancelled at index \(snapshot.lastIndex, privacy: .public)")
         throw BatchProcessorError.cancelled(
             processedCount: snapshot.processedIDs.count,
             totalCount: snapshot.totalCount
         )
+    }
+
+    private func saveCheckpoint(_ snapshot: CheckpointSnapshot, requiresRecovery: Bool = false) async throws {
+        try await checkpointManager.save(BatchCheckpoint(
+            batchID: snapshot.batchID,
+            processedTrackIDs: snapshot.processedIDs,
+            totalCount: snapshot.totalCount,
+            lastProcessedIndex: snapshot.lastIndex,
+            changes: snapshot.changes,
+            requiresRecovery: requiresRecovery
+        ))
+    }
+
+    private func activateRecovery(batchID: UUID, completion: ScriptCompletion? = nil) -> UUID {
+        currentState = .failed
+        failedBatchID = batchID
+        recoveryCompletion = completion
+        return batchID
+    }
+
+    private func persistRecoveryPlaceholder(batchID: UUID) async {
+        do {
+            try await checkpointManager.save(BatchCheckpoint(
+                batchID: batchID,
+                processedTrackIDs: [],
+                totalCount: 0,
+                lastProcessedIndex: -1,
+                requiresRecovery: true
+            ))
+        } catch {
+            log.error("Failed to persist recovery details: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func waitWhilePaused() async throws {
@@ -377,14 +507,7 @@ public actor BatchProcessor {
         guard processed > 0,
               processed.isMultiple(of: checkpointInterval)
         else { return }
-        let checkpoint = BatchCheckpoint(
-            batchID: snapshot.batchID,
-            processedTrackIDs: snapshot.processedIDs,
-            totalCount: snapshot.totalCount,
-            lastProcessedIndex: snapshot.lastIndex,
-            changes: snapshot.changes
-        )
-        try await checkpointManager.save(checkpoint)
+        try await saveCheckpoint(snapshot)
     }
 
     private func makeSnapshot(
@@ -407,6 +530,7 @@ public actor BatchProcessor {
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> [ChangeLogEntry] {
         currentState = .completed
+        failedBatchID = nil
         try? await checkpointManager.delete(batchID: resume.batchID)
         progressHandler(ProgressUpdate(
             phase: .complete,

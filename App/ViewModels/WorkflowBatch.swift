@@ -66,14 +66,24 @@ extension WorkflowViewModel {
                 finishCancelledBatch(preflightOutcome: preflightOutcome)
                 phase = .configure
                 progress = nil
+            } catch let error as AppleScriptOutcomeError {
+                await holdUnknownBatch(error, preflightOutcome: preflightOutcome)
             } catch let batchError as BatchProcessorError {
                 handleBatchProcessingError(batchError, preflightOutcome: preflightOutcome)
             } catch {
-                preserveInterruptedPreflightOutcome(preflightOutcome)
+                retainPreflightOutcome(preflightOutcome)
                 phase = .error(error.localizedDescription)
                 progress = nil
             }
         }
+    }
+
+    private func holdUnknownBatch(
+        _ error: AppleScriptOutcomeError,
+        preflightOutcome: PendingEntryOutcome
+    ) async {
+        retainPreflightOutcome(preflightOutcome)
+        await handleUnknownOutcome(error)
     }
 
     private func finishBatchProcessing(
@@ -100,8 +110,21 @@ extension WorkflowViewModel {
             await updateIncrementalRunTimestamp?()
         }
         currentTrackID = nil
+        recoveryHoldID = nil
         phase = .done
         progress = nil
+    }
+
+    func clearRecoveryHold() async {
+        guard let recoveryHoldID else { return }
+        do {
+            try await batchProcessor.clearRecovery(batchID: recoveryHoldID)
+            self.recoveryHoldID = nil
+            reset()
+        } catch {
+            phase = .error(error.localizedDescription)
+            progress = nil
+        }
     }
 
     private func invalidateAlbumYearCacheIfNeeded() async {
@@ -227,8 +250,12 @@ extension WorkflowViewModel {
             )
             phase = .configure
             progress = nil
+        case let .recoveryRequired(batchID):
+            recoveryHoldID = batchID
+            retainPreflightOutcome(preflightOutcome)
+            handleBatchError(error)
         case .featureNotAvailable, .alreadyRunning, .notRunning:
-            preserveInterruptedPreflightOutcome(preflightOutcome)
+            retainPreflightOutcome(preflightOutcome)
             handleBatchError(error)
         }
     }
@@ -248,7 +275,7 @@ extension WorkflowViewModel {
             result = nil
             currentTrackID = nil
         } else {
-            preserveInterruptedPreflightOutcome(preflightOutcome)
+            retainPreflightOutcome(preflightOutcome)
         }
 
         if let liveProcessedCount {
@@ -259,7 +286,7 @@ extension WorkflowViewModel {
         }
     }
 
-    private func preserveInterruptedPreflightOutcome(_ outcome: PendingEntryOutcome) {
+    private func retainPreflightOutcome(_ outcome: PendingEntryOutcome) {
         guard !outcome.isEmpty else {
             currentTrackID = nil
             return

@@ -96,10 +96,10 @@ struct ReportsView: View {
     @MainActor
     private func undoEntry(_ entry: ChangeLogEntry) async {
         do {
-            guard let undoCoordinator = dependencies.undoCoordinator else {
-                throw BackupCSVImportError.servicesUnavailable
-            }
-            try await undoCoordinator.revertChange(entry)
+            let write = try dependencies.makeReportsWrite()
+            try await write.undo(entry, hasRunRecovery: dependencies.hasRecoveryHold())
+        } catch let outcome as AppleScriptOutcomeError {
+            reportUnknownOutcome(outcome, title: "Undo Needs Verification")
         } catch {
             reportAlert = ReportsAlert(
                 title: "Undo Failed",
@@ -111,10 +111,10 @@ struct ReportsView: View {
     @MainActor
     private func undoSession(_ entries: [ChangeLogEntry]) async {
         do {
-            guard let undoCoordinator = dependencies.undoCoordinator else {
-                throw BackupCSVImportError.servicesUnavailable
-            }
-            try await undoCoordinator.revertBatch(entries)
+            let write = try dependencies.makeReportsWrite()
+            try await write.undoSession(entries, hasRunRecovery: dependencies.hasRecoveryHold())
+        } catch let outcome as AppleScriptOutcomeError {
+            reportUnknownOutcome(outcome, title: "Undo Needs Verification")
         } catch {
             reportAlert = ReportsAlert(
                 title: "Undo Failed",
@@ -148,8 +148,7 @@ struct ReportsView: View {
         defer { isImportingBackupCSV = false }
 
         do {
-            guard let musicReader = dependencies.musicReader,
-                  let undoCoordinator = dependencies.undoCoordinator else {
+            guard let musicReader = dependencies.musicReader else {
                 throw BackupCSVImportError.servicesUnavailable
             }
 
@@ -166,23 +165,35 @@ struct ReportsView: View {
             guard mappedTrackCount > 0 || tracks.isEmpty else {
                 throw BackupCSVImportError.noWritableTrackMapping
             }
-            let result = try await undoCoordinator.revertYearsFromBackupCSV(
-                csv,
+            let write = try dependencies.makeReportsWrite()
+            let result = try await write.restoreYears(
+                csv: csv,
                 artist: artist,
                 album: album,
-                currentTracks: tracks
+                tracks: tracks,
+                hasRunRecovery: dependencies.hasRecoveryHold()
             )
 
             reportAlert = ReportsAlert(
                 title: backupImportAlertTitle(for: result),
                 message: backupImportMessage(for: result)
             )
+        } catch let outcome as AppleScriptOutcomeError {
+            reportUnknownOutcome(outcome, title: "Import Needs Verification")
         } catch {
             reportAlert = ReportsAlert(
                 title: "Import Failed",
                 message: error.localizedDescription
             )
         }
+    }
+
+    @MainActor
+    private func reportUnknownOutcome(_ outcome: AppleScriptOutcomeError, title: String) {
+        reportAlert = ReportsAlert(
+            title: title,
+            message: "\(outcome.localizedDescription). Verify Music.app before another write."
+        )
     }
 
     private func chooseBackupCSVURL() -> URL? {
