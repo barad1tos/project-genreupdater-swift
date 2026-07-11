@@ -23,24 +23,20 @@ struct AppleScriptConfigTests {
         #expect(AppleScriptBridge.makeRateLimiter(configuration: configuration) != nil)
     }
 
-    @Test("Track ID batch sizes follow runtime configuration")
-    func usesConfiguredBatches() async {
+    @Test("Track ID lookup batch size follows runtime configuration")
+    func usesConfiguredIDBatchSize() async {
         let bridge = makeConfigBridge()
         var configuration = AppleScriptConfig()
         configuration.batchProcessing.idsBatchSize = 17
-        configuration.batchProcessing.batchSize = 1700
 
         await bridge.updateConfiguration(configuration)
 
         #expect(await bridge.trackIDBatchSize == 17)
-        #expect(await bridge.scanBatchSize == 1000)
 
         configuration.batchProcessing.idsBatchSize = 0
-        configuration.batchProcessing.batchSize = 0
         await bridge.updateConfiguration(configuration)
 
         #expect(await bridge.trackIDBatchSize == 1)
-        #expect(await bridge.scanBatchSize == 1)
     }
 
     @Test("Track ID fetch clamps invalid batch size before script execution")

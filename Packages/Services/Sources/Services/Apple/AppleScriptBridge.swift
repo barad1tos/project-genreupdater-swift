@@ -28,6 +28,7 @@ public enum AppleScriptBridgeError: Error, LocalizedError {
     case timeout(scriptName: String, duration: Duration)
     case parseError(scriptName: String, detail: String)
     case libraryChanged(detail: String)
+    case invalidLibraryPath
     case scriptsNotInstalled
     case musicAppNotRunning
 
@@ -45,6 +46,8 @@ public enum AppleScriptBridgeError: Error, LocalizedError {
             "Failed to parse output from '\(name)': \(detail)"
         case let .libraryChanged(detail):
             "Music library changed while it was being read: \(detail)"
+        case .invalidLibraryPath:
+            "The configured Music library does not contain Library.musicdb. Check the configured library path."
         case .scriptsNotInstalled:
             "AppleScript files are not installed. Please run the setup wizard."
         case .musicAppNotRunning:
@@ -65,12 +68,18 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     private let installer: ScriptInstaller
     private var config: AppleScriptConfig
+    private var libraryPath: String?
     private var rateLimiter: TokenBucketRateLimiter?
     private let concurrencyGate: ScriptGate
 
-    public init(installer: ScriptInstaller, config: AppleScriptConfig = .init()) {
+    public init(
+        installer: ScriptInstaller,
+        config: AppleScriptConfig = .init(),
+        libraryPath: String? = nil
+    ) {
         self.installer = installer
         self.config = config
+        self.libraryPath = libraryPath?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.rateLimiter = Self.makeRateLimiter(configuration: config.rateLimit)
         self.concurrencyGate = ScriptGate(limit: config.concurrency)
     }
@@ -79,14 +88,14 @@ public actor AppleScriptBridge: AppleScriptClient {
         max(1, config.batchProcessing.idsBatchSize)
     }
 
-    var scanBatchSize: Int {
-        min(1000, max(1, config.batchProcessing.batchSize))
-    }
-
     public func updateConfiguration(_ config: AppleScriptConfig) async {
         await concurrencyGate.updateLimit(config.concurrency)
         self.config = config
         rateLimiter = Self.makeRateLimiter(configuration: config.rateLimit)
+    }
+
+    public func updateLibraryPath(_ path: String) {
+        libraryPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func acquirePermit(
@@ -201,17 +210,30 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     public func fetchAllTrackIDs(timeout: Duration? = nil) async throws -> [String] {
         let effectiveTimeout = timeout ?? config.timeouts.fullLibraryFetch
-        let scan = TrackIDScan(batchSize: scanBatchSize, timeout: effectiveTimeout) { [self] offset, limit, remaining in
+        let ids = try await scanTrackIDs(timeout: effectiveTimeout) { [self] offset, limit, remaining in
             try await runScript(
                 name: "fetch_track_ids",
-                arguments: [String(offset), String(limit)],
+                arguments: trackIDArguments(offset: offset, limit: limit),
                 timeout: remaining
             )
         }
-
-        let ids = try await scan.run()
         log.info("Fetched \(ids.count, privacy: .public) track IDs from library")
         return ids
+    }
+
+    func scanTrackIDs(timeout: Duration, fetch: @escaping TrackIDScan.Fetch) async throws -> [String] {
+        try await TrackIDScan(
+            batchSize: config.batchProcessing.batchSize,
+            timeout: timeout,
+            fetch: fetch
+        ).run()
+    }
+
+    func trackIDArguments(offset: Int, limit: Int) throws -> [String] {
+        guard let libraryPath, !libraryPath.isEmpty else {
+            throw AppleScriptBridgeError.invalidLibraryPath
+        }
+        return [String(offset), String(limit), libraryPath]
     }
 
     // MARK: - Music.app Write Operations

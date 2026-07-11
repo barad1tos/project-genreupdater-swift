@@ -1,6 +1,12 @@
+import Core
 import Foundation
+import OSLog
+
+private let log = AppLogger.make(category: "TrackIDScan")
 
 struct TrackIDScan {
+    private static let maxRestarts = 3
+
     typealias Fetch = @Sendable (Int, Int, Duration) async throws -> String?
 
     private let batchSize: Int
@@ -16,9 +22,36 @@ struct TrackIDScan {
     func run() async throws -> [String] {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
+        var restartCount = 0
+
+        while true {
+            do {
+                return try await scan(clock: clock, deadline: deadline)
+            } catch TrackIDScanChange.generation {
+                restartCount += 1
+                guard restartCount <= Self.maxRestarts, clock.now < deadline else {
+                    throw changingLibraryError(restartCount: restartCount)
+                }
+                log.info(
+                    "Restarting track ID scan after library generation change \(restartCount, privacy: .public)"
+                )
+            } catch let error as AppleScriptBridgeError {
+                if case .timeout = error, restartCount > 0 {
+                    throw changingLibraryError(restartCount: restartCount)
+                }
+                throw error
+            }
+        }
+    }
+
+    private func scan(
+        clock: ContinuousClock,
+        deadline: ContinuousClock.Instant
+    ) async throws -> [String] {
         var trackIDs: [String] = []
         var seenIDs: Set<String> = []
         var expectedCount: Int?
+        var expectedGeneration: String?
         var offset = 1
 
         while true {
@@ -29,7 +62,11 @@ struct TrackIDScan {
             }
             guard clock.now <= deadline else { throw timeoutError() }
 
-            let batch = try parseBatch(output, offset: offset)
+            let batch = try parseBatch(
+                output,
+                offset: offset,
+                expectedGeneration: expectedGeneration
+            )
             if let expectedCount, batch.totalCount != expectedCount {
                 throw AppleScriptBridgeError.libraryChanged(detail: "Track count changed during ID scan")
             }
@@ -38,14 +75,25 @@ struct TrackIDScan {
             }
 
             expectedCount = batch.totalCount
+            expectedGeneration = batch.generation
             trackIDs.append(contentsOf: batch.trackIDs)
-            guard let nextOffset = batch.nextOffset else { return trackIDs }
+            guard let nextOffset = batch.nextOffset else { break }
             offset = nextOffset
         }
+
+        return trackIDs
     }
 
-    private func parseBatch(_ output: String, offset: Int) throws -> TrackIDBatch {
+    private func parseBatch(
+        _ output: String,
+        offset: Int,
+        expectedGeneration: String?
+    ) throws -> TrackIDBatch {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("ERROR:LIBRARY_DB_NOT_FOUND:") {
+            log.error("Music library path validation failed: \(trimmed, privacy: .private)")
+            throw AppleScriptBridgeError.invalidLibraryPath
+        }
         if trimmed.localizedCaseInsensitiveContains("ERROR:") {
             throw AppleScriptBridgeError.executionFailed(
                 scriptName: "fetch_track_ids",
@@ -53,16 +101,21 @@ struct TrackIDScan {
             )
         }
 
-        let fields = trimmed.split(separator: ":", maxSplits: 3, omittingEmptySubsequences: false)
-        guard fields.count == 4,
+        let fields = trimmed.split(separator: ":", maxSplits: 4, omittingEmptySubsequences: false)
+        guard fields.count == 5,
               fields[0] == "BATCH",
               let endIndex = Int(fields[1]),
-              let totalCount = Int(fields[2])
+              let totalCount = Int(fields[2]),
+              !fields[3].isEmpty
         else {
             throw parseError("Malformed batch response at offset \(offset)")
         }
+        let generation = String(fields[3])
+        if let expectedGeneration, generation != expectedGeneration {
+            throw TrackIDScanChange.generation
+        }
 
-        let isEmptyLibrary = totalCount == 0 && endIndex == 0 && fields[3].isEmpty
+        let isEmptyLibrary = totalCount == 0 && endIndex == 0 && fields[4].isEmpty
         let isValidRange = offset > 0
             && totalCount >= offset
             && endIndex >= offset
@@ -71,9 +124,9 @@ struct TrackIDScan {
             throw AppleScriptBridgeError.libraryChanged(detail: "Track range changed during ID scan")
         }
 
-        let trackIDs = fields[3].isEmpty
+        let trackIDs = fields[4].isEmpty
             ? []
-            : fields[3]
+            : fields[4]
             .split(separator: ",", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let expectedIDCount = isEmptyLibrary ? 0 : endIndex - offset + 1
@@ -84,7 +137,8 @@ struct TrackIDScan {
         return TrackIDBatch(
             trackIDs: trackIDs,
             nextOffset: endIndex < totalCount ? endIndex + 1 : nil,
-            totalCount: totalCount
+            totalCount: totalCount,
+            generation: generation
         )
     }
 
@@ -95,10 +149,19 @@ struct TrackIDScan {
     private func parseError(_ detail: String) -> AppleScriptBridgeError {
         .parseError(scriptName: "fetch_track_ids", detail: detail)
     }
+
+    private func changingLibraryError(restartCount: Int) -> AppleScriptBridgeError {
+        .libraryChanged(detail: "Library generation changed after \(restartCount) scan restarts")
+    }
+}
+
+private enum TrackIDScanChange: Error {
+    case generation
 }
 
 private struct TrackIDBatch {
     let trackIDs: [String]
     let nextOffset: Int?
     let totalCount: Int
+    let generation: String
 }

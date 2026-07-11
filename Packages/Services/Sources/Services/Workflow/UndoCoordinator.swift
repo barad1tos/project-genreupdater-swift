@@ -503,6 +503,7 @@ public actor UndoCoordinator {
     private static func publicAppleScriptFailureDescription(for error: AppleScriptBridgeError) -> String {
         switch error {
         case .dispatchDeadline,
+             .invalidLibraryPath,
              .libraryChanged,
              .scriptNotFound,
              .scriptsNotInstalled,
