@@ -76,7 +76,7 @@ struct ScriptDispatchTests {
         }
 
         let blockedCall = ScriptCall(
-            name: "fetch_tracks_by_ids",
+            name: "lookup_tracks",
             intent: .read,
             deadline: ContinuousClock().now.advanced(by: .milliseconds(100)),
             timeout: .milliseconds(100)
@@ -89,7 +89,7 @@ struct ScriptDispatchTests {
 
         callback.resolve(.success("late"))
         let finalCall = ScriptCall(
-            name: "fetch_tracks_by_ids",
+            name: "lookup_tracks",
             intent: .read,
             deadline: ContinuousClock().now.advanced(by: .seconds(1)),
             timeout: .seconds(1)

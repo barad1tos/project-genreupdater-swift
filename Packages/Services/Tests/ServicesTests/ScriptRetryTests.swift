@@ -9,7 +9,7 @@ struct ScriptRetryTests {
     func classifiesIntent() {
         #expect(AppleScriptBridge.intent(forScript: "fetch_track_ids") == .read)
         #expect(AppleScriptBridge.intent(forScript: "fetch_tracks") == .read)
-        #expect(AppleScriptBridge.intent(forScript: "fetch_tracks_by_ids") == .read)
+        #expect(AppleScriptBridge.intent(forScript: "lookup_tracks") == .read)
         #expect(AppleScriptBridge.intent(forScript: "update_property") == .mutation)
         #expect(AppleScriptBridge.intent(forScript: "batch_update_tracks") == .mutation)
         #expect(AppleScriptBridge.intent(forScript: "unknown_script") == .mutation)

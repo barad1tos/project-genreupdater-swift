@@ -1,5 +1,5 @@
 (*
-    Fetch detailed track metadata for a list of track IDs.
+    Look up detailed track metadata for a list of track IDs.
     Outputs the same field structure as fetch_tracks.applescript using
     ASCII 30 (field) and ASCII 29 (line) separators.
 

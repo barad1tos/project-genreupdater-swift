@@ -121,6 +121,12 @@ struct ConfigWiringTests {
         #expect(batchProcessing.adaptiveDelay == false)
     }
 
+    @Test("Runtime ID batches stay within the script boundary")
+    func runtimeIDBatchBoundary() {
+        #expect(UpdateRuntimeConfiguration(idsBatchSize: 5000).idsBatchSize == 1000)
+        #expect(LibrarySyncRuntimeConfiguration(idsBatchSize: 5000).idsBatchSize == 1000)
+    }
+
     @Test("API orchestrator config maps year-retrieval and runtime settings")
     func apiOrchestratorConfigMapsYearRetrievalAndRuntimeSettings() {
         var configuration = AppConfiguration()

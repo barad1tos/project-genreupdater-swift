@@ -199,7 +199,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         self.shouldOverrideExistingGenres = policies.shouldOverrideExistingGenres
         self.areBatchUpdatesEnabled = areBatchUpdatesEnabled
         self.maxBatchUpdateSize = max(1, maxBatchUpdateSize)
-        self.idsBatchSize = max(1, idsBatchSize)
+        self.idsBatchSize = BatchProcessingConfig.clampIDBatch(idsBatchSize)
     }
 
     public init(configuration: AppConfiguration) {

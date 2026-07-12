@@ -255,15 +255,30 @@ private struct AppleScriptBatchFetchSettings: View {
 
     var body: some View {
         Stepper(
-            value: configBinding(dependencies, \.applescript.batchProcessing.idsBatchSize),
-            in: 1 ... 5000,
+            value: batchSizeBinding,
+            in: BatchProcessingConfig.idsBatchRange,
             step: 50
         ) {
             LabeledContent(
                 "ID fetch batch size",
-                value: "\(dependencies.config.applescript.batchProcessing.idsBatchSize)"
+                value: "\(batchSize)"
             )
         }
+    }
+
+    private var batchSize: Int {
+        BatchProcessingConfig.clampIDBatch(dependencies.config.applescript.batchProcessing.idsBatchSize)
+    }
+
+    private var batchSizeBinding: Binding<Int> {
+        Binding(
+            get: { batchSize },
+            set: { newValue in
+                mutateConfiguration(dependencies) {
+                    $0.applescript.batchProcessing.idsBatchSize = newValue
+                }
+            }
+        )
     }
 }
 
