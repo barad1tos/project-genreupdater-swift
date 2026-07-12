@@ -93,6 +93,82 @@ struct FixPlanProjectionTests {
         #expect(projection.stalenessReasons == [.configurationChanged])
         #expect(projection.items.count == 1)
     }
+
+    @Test("accepted item without write identity disables apply")
+    func missingWriteIDDisablesApply() {
+        let plan = makePlan(items: [
+            makeItem(type: .genreUpdate, writeID: nil),
+        ])
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: decidedAt)
+
+        let projection = FixPlanProjector.makeProjection(
+            plan: plan,
+            decision: decision,
+            staleness: FixPlanStaleness.evaluate(
+                plan: plan,
+                currentScope: plan.scope,
+                currentConfiguration: plan.configuration
+            )
+        )
+
+        #expect(!projection.canApply)
+        #expect(projection.operationalIssues.map(\.category) == [.safetyBlocked])
+    }
+
+    @Test("rejected item without write identity does not block accepted items")
+    func rejectedMissingIDAllowsApply() {
+        let missingID = itemID(1)
+        let plan = makePlan(items: [
+            makeItem(id: missingID, type: .genreUpdate, writeID: nil),
+            makeItem(id: itemID(2), type: .yearUpdate),
+        ])
+        let initialDecision = FixPlanReviewer.initialDecision(for: plan, at: decidedAt)
+        let decision = FixPlanReviewer.togglingItem(
+            missingID,
+            in: initialDecision,
+            at: Date(timeIntervalSince1970: 102)
+        )
+        guard let decision else {
+            Issue.record("Expected toggling an existing fix-plan item to produce a decision")
+            return
+        }
+
+        let projection = FixPlanProjector.makeProjection(
+            plan: plan,
+            decision: decision,
+            staleness: FixPlanStaleness.evaluate(
+                plan: plan,
+                currentScope: plan.scope,
+                currentConfiguration: plan.configuration
+            )
+        )
+
+        #expect(projection.canApply)
+        #expect(projection.operationalIssues.isEmpty)
+    }
+
+    @Test("mixed accepted plan blocks empty write identity")
+    func mixedMissingIDBlocksApply() {
+        let plan = makePlan(items: [
+            makeItem(id: itemID(1), type: .genreUpdate),
+            makeItem(id: itemID(2), type: .yearUpdate, writeID: "  "),
+        ])
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: decidedAt)
+
+        let projection = FixPlanProjector.makeProjection(
+            plan: plan,
+            decision: decision,
+            staleness: FixPlanStaleness.evaluate(
+                plan: plan,
+                currentScope: plan.scope,
+                currentConfiguration: plan.configuration
+            )
+        )
+
+        #expect(!projection.canApply)
+        #expect(projection.operationalIssues.count == 1)
+        #expect(projection.operationalIssues.first?.technicalDetail == "Accepted items without AppleScript ID: 1")
+    }
 }
 
 private let decidedAt = Date(timeIntervalSince1970: 101)
@@ -136,13 +212,14 @@ private func makeConfiguration(minConfidence: Int = 80) -> FixPlanConfigurationS
 private func makeItem(
     id: UUID = itemID(1),
     type: ChangeType,
-    confidence: Int = 90
+    confidence: Int = 90,
+    writeID: String? = "script-id"
 ) -> FixPlanItem {
     FixPlanItem(
         id: id,
         identity: FixPlanItemIdentity(
             readID: "read-\(id.uuidString)",
-            appleScriptID: "script-\(id.uuidString)",
+            appleScriptID: writeID,
             artist: "Aphex Twin",
             album: "Syro",
             trackName: "minipops 67"

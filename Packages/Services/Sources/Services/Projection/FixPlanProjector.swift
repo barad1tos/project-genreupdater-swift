@@ -29,7 +29,21 @@ public enum FixPlanProjector {
             )
         }
         let acceptedCount = items.count(where: { $0.verdict == .accepted })
+        let missingIdentityCount = plan.items.count { item in
+            guard verdicts[item.id] == .accepted else { return false }
+            return item.identity.appleScriptID?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty != false
+        }
         let status: FixPlanProjectionStatus = staleness.isStale ? .stale : .ready
+        let issues = missingIdentityCount == 0 ? [] : [
+            OperationalIssue(
+                id: "fix-plan-write-identity",
+                category: .safetyBlocked,
+                summary: "Write identity required",
+                technicalDetail: "Accepted items without AppleScript ID: \(missingIdentityCount)"
+            ),
+        ]
 
         return FixPlanProjection(
             revision: .initial,
@@ -47,11 +61,11 @@ public enum FixPlanProjector {
                 genreCount: items.count(where: { $0.changeType == .genreUpdate }),
                 yearCount: items.count(where: { $0.changeType == .yearUpdate }),
                 averageConfidence: averageConfidence(for: items),
-                canApply: status == .ready && acceptedCount > 0
+                canApply: status == .ready && acceptedCount > 0 && missingIdentityCount == 0
             ),
             stalenessReasons: staleness.reasons,
             items: items,
-            operationalIssues: []
+            operationalIssues: issues
         )
     }
 
