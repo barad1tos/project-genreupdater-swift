@@ -4,6 +4,7 @@ import Foundation
 public struct FixPlanProducer: Sendable {
     public struct Dependencies: Sendable {
         public let loadTracks: @Sendable () async throws -> [Track]
+        public let refreshWriteIdentity: @Sendable ([Track], ProcessingScopeSnapshot) async throws -> Void
         public let albumContextTracksByTrackID: @Sendable ([Track]) async -> [String: [Track]]
         public let determineTrackChanges: @Sendable (Track, [Track], [Track], UpdateOptions) async throws
             -> [ProposedChange]
@@ -12,6 +13,7 @@ public struct FixPlanProducer: Sendable {
 
         public init(
             loadTracks: @escaping @Sendable () async throws -> [Track],
+            refreshWriteIdentity: @escaping @Sendable ([Track], ProcessingScopeSnapshot) async throws -> Void,
             albumContextTracksByTrackID: @escaping @Sendable ([Track]) async -> [String: [Track]],
             determineTrackChanges: @escaping @Sendable (
                 Track,
@@ -23,6 +25,7 @@ public struct FixPlanProducer: Sendable {
             now: @escaping @Sendable () -> Date
         ) {
             self.loadTracks = loadTracks
+            self.refreshWriteIdentity = refreshWriteIdentity
             self.albumContextTracksByTrackID = albumContextTracksByTrackID
             self.determineTrackChanges = determineTrackChanges
             self.savePlan = savePlan
@@ -43,6 +46,8 @@ public struct FixPlanProducer: Sendable {
     ) async throws -> FixPlanProduction {
         let tracks = try await dependencies.loadTracks()
         let scopedTracks = Self.scopedTracks(tracks, scope: scope)
+        guard !scopedTracks.isEmpty else { return .empty }
+        try await dependencies.refreshWriteIdentity(scopedTracks, scope)
         let albumTracksByTrackID = await dependencies.albumContextTracksByTrackID(scopedTracks)
         let artistGroups = Self.groupTracksByArtist(scopedTracks)
 

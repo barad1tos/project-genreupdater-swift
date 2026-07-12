@@ -508,51 +508,6 @@ final class AppDependencies {
         ))
     }
 
-    private func makePreviewProducer()
-        -> (@Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction)? {
-        let missingInputs = missingPreviewInputs()
-        guard missingInputs.isEmpty,
-              let updateCoordinator,
-              let trackStore,
-              let fixPlanStore
-        else {
-            let missingList = missingInputs.joined(separator: ", ")
-            log.warning("Preview producer unavailable: missing \(missingList, privacy: .public)")
-            assertionFailure("Preview producer unavailable: missing \(missingList)")
-            return nil
-        }
-
-        return makePreviewProducer(dependencies: FixPlanProducer.Dependencies(
-            loadTracks: { try await trackStore.loadAllTracks() },
-            albumContextTracksByTrackID: {
-                await updateCoordinator.albumContextTracksByTrackID(for: $0, requiresMutationMetadata: false)
-            },
-            determineTrackChanges: {
-                try await updateCoordinator.updateTrack(
-                    $0,
-                    albumTracks: $1,
-                    artistTracks: $2,
-                    options: $3,
-                    dryRun: true
-                )
-            },
-            savePlan: { try await fixPlanStore.savePlan($0, initialDecision: $1) },
-            now: { Date() }
-        ))
-    }
-
-    func makePreviewProducer(dependencies producerDependencies: FixPlanProducer.Dependencies)
-        -> @Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction {
-        let producer = FixPlanProducer(dependencies: producerDependencies)
-        return { [weak self, producer] runID, scope in
-            guard let self else {
-                throw PreviewRunError.appDependenciesReleased
-            }
-            let options = await self.previewRunOptions()
-            return try await producer.producePlan(sourceRunID: runID, scope: scope, options: options)
-        }
-    }
-
     func refreshFixPlanProjection() async -> FixPlanProjection {
         let inputGeneration = await projectionStore.nextFixPlanInputGeneration()
         let projection: FixPlanProjection
@@ -599,25 +554,6 @@ final class AppDependencies {
                 currentScope: currentScope,
                 currentConfiguration: currentConfiguration
             )
-        )
-    }
-
-    private func missingPreviewInputs() -> [String] {
-        [
-            updateCoordinator == nil ? "updateCoordinator" : nil,
-            trackStore == nil ? "trackStore" : nil,
-            fixPlanStore == nil ? "fixPlanStore" : nil
-        ].compactMap(\.self)
-    }
-
-    private func previewRunOptions() -> UpdateOptions {
-        let selection = UpdateBehavior
-            .resolved(from: UserDefaults.standard.string(forKey: AppStorageKey.defaultUpdateBehavior))
-            .enabledTargets
-        return PreviewRunOptions.make(
-            configuration: config,
-            updateGenre: selection.updateGenre,
-            updateYear: selection.updateYear
         )
     }
 

@@ -9,24 +9,58 @@ struct FixPlanProducerTests {
     private let producedAt = Date(timeIntervalSince1970: 1_700_000_000)
 
     @Test("scoping skips out-of-scope artists before determination")
-    func scopeFiltersBeforeDetermination() async throws {
+    func filtersBeforePlanning() async throws {
         let inScope = track("IN", artist: "Aphex Twin")
         let outOfScope = track("OUT", artist: "Boards of Canada")
         let spy = FixPlanProducerSpy(
             tracks: [inScope, outOfScope],
             outcomes: ["IN": .changes([proposal(for: inScope)])]
         )
+        let currentScope = scope(requestedTestArtists: ["aphex twin"], knownTrackCount: 2)
 
         let production = try await makeProducer(spy).producePlan(
             sourceRunID: sourceRunID,
-            scope: scope(requestedTestArtists: ["aphex twin"], knownTrackCount: 2),
+            scope: currentScope,
             options: UpdateOptions(minConfidence: 60)
         )
 
         #expect(production.producedPlan)
         #expect(production.proposalCount == 1)
+        #expect(await spy.refreshInputs() == [["IN"]])
+        #expect(await spy.refreshScopes() == [currentScope])
         #expect(await spy.albumContextInputs() == [["IN"]])
         #expect(await spy.determinationCalls().map(\.trackID) == ["IN"])
+        #expect(await spy.eventLog() == ["refresh", "context", "determine:IN"])
+    }
+
+    @Test("empty scope skips enrichment and determination")
+    func emptyScopeSkipsWork() async throws {
+        let spy = FixPlanProducerSpy(tracks: [track("OUT", artist: "Other")])
+
+        let production = try await makeProducer(spy).producePlan(
+            sourceRunID: sourceRunID,
+            scope: scope(requestedTestArtists: ["In Scope"], knownTrackCount: 1),
+            options: UpdateOptions()
+        )
+
+        #expect(production == .empty)
+        #expect(await spy.eventLog().isEmpty)
+        #expect(await spy.savedPlans().isEmpty)
+    }
+
+    @Test("write identity refresh failure stops plan production")
+    func propagatesRefreshFailure() async {
+        let spy = FixPlanProducerSpy(tracks: [track("TRACK")], refreshFails: true)
+
+        await #expect(throws: ProducerTestError.intentional) {
+            _ = try await makeProducer(spy).producePlan(
+                sourceRunID: sourceRunID,
+                scope: scope(requestedTestArtists: [], knownTrackCount: 1),
+                options: UpdateOptions()
+            )
+        }
+        #expect(await spy.eventLog() == ["refresh"])
+        #expect(await spy.savedPlans().isEmpty)
     }
 
     @Test("album context and artist groups are passed into determination")
@@ -38,14 +72,17 @@ struct FixPlanProducerTests {
             tracks: [first, second, third],
             albumContextIDs: ["T1": ["T1", "T3"], "T2": ["T2"], "T3": ["T1", "T3"]]
         )
+        let currentScope = scope(requestedTestArtists: [], knownTrackCount: 3)
 
         _ = try await makeProducer(spy).producePlan(
             sourceRunID: sourceRunID,
-            scope: scope(requestedTestArtists: [], knownTrackCount: 3),
+            scope: currentScope,
             options: UpdateOptions(updateGenre: false, updateYear: true, minConfidence: 70)
         )
 
         let calls = await spy.determinationCalls()
+        #expect(await spy.refreshInputs() == [["T1", "T2", "T3"]])
+        #expect(await spy.refreshScopes() == [currentScope])
         #expect(calls.map(\.trackID) == ["T1", "T2", "T3"])
         #expect(calls[0].albumTrackIDs == ["T1", "T3"])
         #expect(calls[0].artistTrackIDs == ["T1", "T2"])
@@ -198,6 +235,7 @@ struct FixPlanProducerTests {
     private func makeProducer(_ spy: FixPlanProducerSpy) -> FixPlanProducer {
         FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
             loadTracks: { await spy.loadTracks() },
+            refreshWriteIdentity: { try await spy.refreshWriteIdentity(for: $0, scope: $1) },
             albumContextTracksByTrackID: { await spy.albumContextTracksByTrackID(for: $0) },
             determineTrackChanges: {
                 try await spy.determineTrackChanges(
@@ -226,25 +264,41 @@ private actor FixPlanProducerSpy {
     private let tracks: [Track]
     private let albumContextIDs: [String: [String]]
     private let outcomes: [String: DeterminationOutcome]
+    private let refreshFails: Bool
+    private var refreshInputIDs: [[String]] = []
+    private var capturedScopes: [ProcessingScopeSnapshot] = []
     private var albumContextInputIDs: [[String]] = []
     private var calls: [DeterminationCall] = []
     private var saved: [(plan: FixPlan, decision: FixPlanReviewDecision)] = []
+    private var events: [String] = []
 
     init(
         tracks: [Track],
         albumContextIDs: [String: [String]] = [:],
-        outcomes: [String: DeterminationOutcome] = [:]
+        outcomes: [String: DeterminationOutcome] = [:],
+        refreshFails: Bool = false
     ) {
         self.tracks = tracks
         self.albumContextIDs = albumContextIDs
         self.outcomes = outcomes
+        self.refreshFails = refreshFails
     }
 
     func loadTracks() -> [Track] {
         tracks
     }
 
+    func refreshWriteIdentity(for tracks: [Track], scope: ProcessingScopeSnapshot) throws {
+        refreshInputIDs.append(tracks.map(\.id))
+        capturedScopes.append(scope)
+        events.append("refresh")
+        if refreshFails {
+            throw ProducerTestError.intentional
+        }
+    }
+
     func albumContextTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
+        events.append("context")
         albumContextInputIDs.append(tracks.map(\.id))
         let tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
         return Dictionary(uniqueKeysWithValues: tracks.map { track in
@@ -260,6 +314,7 @@ private actor FixPlanProducerSpy {
         artistTracks: [Track],
         options: UpdateOptions
     ) throws -> [ProposedChange] {
+        events.append("determine:\(track.id)")
         calls.append(DeterminationCall(
             trackID: track.id,
             albumTrackIDs: albumTracks.map(\.id),
@@ -289,6 +344,18 @@ private actor FixPlanProducerSpy {
 
     func albumContextInputs() -> [[String]] {
         albumContextInputIDs
+    }
+
+    func refreshInputs() -> [[String]] {
+        refreshInputIDs
+    }
+
+    func refreshScopes() -> [ProcessingScopeSnapshot] {
+        capturedScopes
+    }
+
+    func eventLog() -> [String] {
+        events
     }
 
     func determinationCalls() -> [DeterminationCall] {
