@@ -64,6 +64,10 @@ public actor TrackIDMapper: TrackIDMapping {
         }
 
         if mergeExisting {
+            for track in musicKitTracks {
+                mapping.removeValue(forKey: track.id)
+                appleScriptMetadataByMusicKitID.removeValue(forKey: track.id)
+            }
             mapping.merge(updatedMapping) { _, new in new }
             appleScriptMetadataByMusicKitID.merge(updatedMetadata) { _, new in new }
         } else {

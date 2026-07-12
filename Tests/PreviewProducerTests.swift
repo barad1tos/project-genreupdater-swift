@@ -75,7 +75,7 @@ struct PreviewProducerTests {
     func refreshesTestArtistScope() async throws {
         let mapper = TrackIDMapper()
         let script = PreviewScriptClient(tracks: [appleScriptTrack(id: "AS-TRACK")])
-        let refresh = PlanIdentityRefresh(mapper: mapper, client: script)
+        let refresher = WriteIdentityRefresher(mapper: mapper, client: script)
         let scope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: ["probe artist"],
             knownTrackCount: 1,
@@ -83,7 +83,11 @@ struct PreviewProducerTests {
             reason: "test"
         )
 
-        try await refresh.run(tracks: [musicKitTrack(id: "MK-TRACK")], scope: scope, config: AppleScriptConfig())
+        try await refresher.refresh(
+            tracks: [musicKitTrack(id: "MK-TRACK")],
+            scope: scope,
+            config: AppleScriptConfig()
+        )
 
         #expect(await script.artistScopes() == ["probe artist"])
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-TRACK") == "AS-TRACK")
@@ -97,7 +101,7 @@ struct PreviewProducerTests {
             appleScriptTracks: [appleScriptTrack(id: "AS-OLD", name: "Old")]
         )
         let script = PreviewScriptClient(tracks: [appleScriptTrack(id: "AS-NEW", name: "New")])
-        let refresh = PlanIdentityRefresh(mapper: mapper, client: script)
+        let refresher = WriteIdentityRefresher(mapper: mapper, client: script)
         let scope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: [],
             knownTrackCount: 1,
@@ -105,7 +109,7 @@ struct PreviewProducerTests {
             reason: "test"
         )
 
-        try await refresh.run(
+        try await refresher.refresh(
             tracks: [musicKitTrack(id: "MK-NEW", name: "New")],
             scope: scope,
             config: AppleScriptConfig()
@@ -126,7 +130,9 @@ private actor PreviewScriptClient: AppleScriptClient {
         self.tracks = tracks
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // This in-memory test client has no external resources to initialize.
+    }
 
     func runScript(name _: String, arguments _: [String], timeout _: Duration?) async throws -> String? {
         nil
@@ -151,7 +157,7 @@ private actor PreviewScriptClient: AppleScriptClient {
         throw PreviewScriptError.unexpectedWrite
     }
 
-    func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
+    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
         throw PreviewScriptError.unexpectedWrite
     }
 

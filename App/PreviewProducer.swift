@@ -5,11 +5,11 @@ import Services
 
 private let previewProducerLog = Logger(subsystem: "com.genreupdater", category: "preview-producer")
 
-struct PlanIdentityRefresh: Sendable {
+struct WriteIdentityRefresher: Sendable {
     let mapper: TrackIDMapper
     let client: any AppleScriptClient
 
-    func run(
+    func refresh(
         tracks: [Track],
         scope: ProcessingScopeSnapshot,
         config: AppleScriptConfig
@@ -45,15 +45,15 @@ extension AppDependencies {
             assertionFailure("Preview producer unavailable: missing \(missingList)")
             return nil
         }
-        let identityRefresh = PlanIdentityRefresh(mapper: mapper, client: scriptClient)
+        let identityRefresher = WriteIdentityRefresher(mapper: mapper, client: scriptClient)
 
         return makePreviewProducer(dependencies: FixPlanProducer.Dependencies(
             loadTracks: { try await trackStore.loadAllTracks() },
-            refreshWriteIdentity: { [weak self, identityRefresh] tracks, scope in
+            refreshWriteIdentity: { [weak self, identityRefresher] tracks, scope in
                 guard let self else {
                     throw PreviewRunError.appDependenciesReleased
                 }
-                try await identityRefresh.run(
+                try await identityRefresher.refresh(
                     tracks: tracks,
                     scope: scope,
                     config: self.config.applescript
