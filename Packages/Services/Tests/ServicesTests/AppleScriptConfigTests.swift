@@ -23,7 +23,7 @@ struct AppleScriptConfigTests {
         #expect(AppleScriptBridge.makeRateLimiter(configuration: configuration) != nil)
     }
 
-    @Test("Track ID batch size follows runtime configuration")
+    @Test("Track ID lookup batch size follows runtime configuration")
     func usesConfiguredIDBatchSize() async {
         let bridge = makeConfigBridge()
         var configuration = AppleScriptConfig()
@@ -65,16 +65,6 @@ struct AppleScriptConfigTests {
         #expect(event.eventID == AEEventID(kAEOpenApplication))
         #expect(arguments.numberOfItems == 1)
         #expect(arguments.atIndex(1)?.stringValue == "In Flames")
-    }
-
-    @Test("Track ID parser preserves empty library sentinel and rejects AppleScript errors")
-    func trackIDParserPreservesEmptyLibraryAndRejectsErrors() throws {
-        #expect(try AppleScriptBridge.parseTrackIDOutput(" 10, 20,, 30, ") == ["10", "20", "30"])
-        #expect(try AppleScriptBridge.parseTrackIDOutput("NO_TRACKS_FOUND").isEmpty)
-        #expect(try AppleScriptBridge.parseTrackIDOutput("").isEmpty)
-        #expect(throws: AppleScriptBridgeError.self) {
-            _ = try AppleScriptBridge.parseTrackIDOutput("ERROR:Music failed")
-        }
     }
 
     @Test("Single update output accepts script success and no-change responses")

@@ -55,19 +55,6 @@ struct AppleScriptClientTests {
         }
     }
 
-    @Test("Default fetchAllTrackIDs runs lightweight ID script")
-    func defaultFetchAllTrackIDsRunsLightweightIDScript() async throws {
-        let client = ScriptOutputClient(output: " 10, 20,, 30, ")
-
-        let trackIDs = try await client.fetchAllTrackIDs(timeout: .seconds(5))
-
-        let call = try #require(await client.calls.first)
-        #expect(call.name == "fetch_track_ids")
-        #expect(call.arguments.isEmpty)
-        #expect(call.timeout == .seconds(5))
-        #expect(trackIDs == ["10", "20", "30"])
-    }
-
     @Test("Default fetchTracksByIDs batches IDs and parses AppleScript output")
     func defaultFetchTracksByIDsBatchesIDsAndParsesAppleScriptOutput() async throws {
         let firstBatchOutput = appleScriptTrackOutput(id: "101", name: "American Sleep")
@@ -114,7 +101,6 @@ struct AppleScriptClientTests {
             _ = try await client.fetchTracks(artist: "Test")
             Issue.record("Expected AppleScriptClientParseError")
         } catch let error as AppleScriptClientParseError {
-            #expect(error is AppleScriptClientParseError)
             #expect(!error.detail.contains(secretName))
         } catch {
             Issue.record("Expected AppleScriptClientParseError, got \(error)")
@@ -231,6 +217,10 @@ private actor ScriptOutputClient: AppleScriptClient {
         return outputs.removeFirst()
     }
 
+    func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
+        throw ScriptOutputClientError.unsupportedRead
+    }
+
     func updateTrackProperty(
         trackID _: String,
         property _: String,
@@ -245,6 +235,7 @@ private actor ScriptOutputClient: AppleScriptClient {
 }
 
 private enum ScriptOutputClientError: Error {
+    case unsupportedRead
     case unsupportedWrite
 }
 

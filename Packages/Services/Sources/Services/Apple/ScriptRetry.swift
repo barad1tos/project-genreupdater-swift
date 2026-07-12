@@ -150,7 +150,7 @@ extension AppleScriptBridge {
         switch bridgeError {
         case .dispatchDeadline, .executionFailed, .musicAppNotRunning, .timeout:
             return true
-        case .parseError, .scriptNotFound, .scriptsNotInstalled:
+        case .invalidLibraryPath, .libraryChanged, .parseError, .scriptNotFound, .scriptsNotInstalled:
             return false
         }
     }

@@ -41,6 +41,7 @@ struct ScriptRetryTests {
         let timeout = AppleScriptBridgeError.timeout(scriptName: "fetch_tracks", duration: .seconds(1))
         let execution = AppleScriptBridgeError.executionFailed(scriptName: "fetch_tracks", detail: "Music busy")
         let notRunning = AppleScriptBridgeError.musicAppNotRunning
+        let invalidPath = AppleScriptBridgeError.invalidLibraryPath
         let parseError = AppleScriptBridgeError.parseError(scriptName: "fetch_tracks", detail: "bad output")
         let missing = AppleScriptBridgeError.scriptNotFound(
             name: "fetch_tracks",
@@ -52,6 +53,7 @@ struct ScriptRetryTests {
         #expect(AppleScriptBridge.isRetryable(timeout))
         #expect(AppleScriptBridge.isRetryable(execution))
         #expect(AppleScriptBridge.isRetryable(notRunning))
+        #expect(!AppleScriptBridge.isRetryable(invalidPath))
         #expect(!AppleScriptBridge.isRetryable(parseError))
         #expect(!AppleScriptBridge.isRetryable(missing))
         #expect(!AppleScriptBridge.isRetryable(notInstalled))

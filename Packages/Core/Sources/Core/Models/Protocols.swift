@@ -413,23 +413,6 @@ extension AppleScriptClient {
         return tracks
     }
 
-    public func fetchAllTrackIDs(timeout: Duration? = nil) async throws -> [String] {
-        let output = try await runScript(
-            name: "fetch_track_ids",
-            arguments: [],
-            timeout: timeout
-        )
-        guard let output else { return [] }
-
-        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedOutput.isEmpty, trimmedOutput != "NO_TRACKS_FOUND" else { return [] }
-
-        return output
-            .split(separator: ",", omittingEmptySubsequences: false)
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-    }
-
     public func fetchTracks(artist: String? = nil, timeout: Duration? = nil) async throws -> [Track] {
         let arguments = artist.map { [$0] } ?? []
         let output = try await runScript(

@@ -183,7 +183,11 @@ final class AppDependencies {
             }
 
             // Step 3: Initialize services
-            let bridge = AppleScriptBridge(installer: installer, config: config.applescript)
+            let bridge = AppleScriptBridge(
+                installer: installer,
+                config: config.applescript,
+                libraryPath: config.paths.musicLibraryPath
+            )
             try await bridge.initialize()
             applescriptBridge = bridge
             writeScript = FixPlanWrite.ScriptAccess(
@@ -676,9 +680,11 @@ extension AppDependencies {
         let appleScriptConfiguration = config.applescript
         let librarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: config)
         let batchProcessingConfiguration = BatchProcessingConfiguration(configuration: config)
+        let libraryPath = config.paths.musicLibraryPath
         Task {
             try? await pendingVerificationStore?.initialize()
             await applescriptBridge?.updateConfiguration(appleScriptConfiguration)
+            await applescriptBridge?.updateLibraryPath(libraryPath)
             await musicReader?.updateTestArtists(config.development.testArtists)
             await librarySyncService?.updateRuntimeConfiguration(
                 librarySyncRuntimeConfiguration,
@@ -713,7 +719,7 @@ extension AppDependencies {
         CachedLibrarySnapshotService(
             cache: cache,
             configuration: configuration.caching.librarySnapshot,
-            libraryModificationDateProvider: makeLibraryModificationDateProvider(
+            libraryModificationDateProvider: makeLibraryDateProvider(
                 path: configuration.paths.musicLibraryPath
             )
         )
@@ -726,7 +732,7 @@ extension AppDependencies {
         )
     }
 
-    private static func makeLibraryModificationDateProvider(path: String) -> @Sendable () -> Date? {
+    private static func makeLibraryDateProvider(path: String) -> @Sendable () -> Date? {
         let resolvedPath = resolveConfigurationPath(path)
         return {
             guard !resolvedPath.isEmpty else { return nil }
