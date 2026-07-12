@@ -262,6 +262,53 @@ struct FixPlanCommandsTests {
         #expect(await harness.store.recordCallCount() == 0)
     }
 
+    @Test("apply command requires attention when write identity is missing")
+    func missingWriteIDNeedsAttention() async {
+        let harness = FixPlanCommandHarness(
+            startingVerdict: .accepted,
+            plan: makeCommandPlan(firstHasWriteID: false)
+        )
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyFixPlan(target: harness.target))
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.issue?.id == "fix-plan-write-identity")
+        #expect(harness.writeCallCount() == 0)
+    }
+
+    @Test("stale plan takes priority over missing write identity")
+    func stalePlanRefreshesFirst() async {
+        let harness = FixPlanCommandHarness(
+            startingVerdict: .accepted,
+            plan: makeCommandPlan(firstHasWriteID: false)
+        )
+        harness.markProjectionStale()
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyFixPlan(target: harness.target))
+
+        #expect(result.status == .rejectedStale)
+        #expect(result.issue == nil)
+        #expect(harness.writeCallCount() == 0)
+    }
+
+    @Test("recovery hold takes priority over missing write identity")
+    func recoveryPrecedesSafety() async {
+        let harness = FixPlanCommandHarness(
+            startingVerdict: .accepted,
+            plan: makeCommandPlan(firstHasWriteID: false)
+        )
+        harness.isRecoveryHeld = true
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyFixPlan(target: harness.target))
+
+        #expect(result.status == .blockedByRecovery)
+        #expect(result.issue?.id == "fix-plan-write-held")
+        #expect(harness.writeCallCount() == 0)
+    }
+
     @Test("apply command is blocked while recovery holds writes")
     func applyBlockedByRecoveryHold() async {
         let harness = FixPlanCommandHarness(startingVerdict: .accepted)
@@ -335,8 +382,11 @@ private final class FixPlanCommandHarness {
     private var writeTargets: [FixPlanWriteTarget] = []
     var isRecoveryHeld = false
 
-    init(startingVerdict: FixPlanItemVerdict) {
-        plan = makeCommandPlan()
+    init(
+        startingVerdict: FixPlanItemVerdict,
+        plan: FixPlan = makeCommandPlan()
+    ) {
+        self.plan = plan
         let initial = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
         let decision = startingVerdict == .accepted
             ? initial
@@ -587,7 +637,7 @@ private struct StoreWriteError: LocalizedError {
     }
 }
 
-private func makeCommandPlan() -> FixPlan {
+private func makeCommandPlan(firstHasWriteID: Bool = true) -> FixPlan {
     FixPlan(
         id: FixPlanID(rawValue: commandUUID("00000000-0000-0000-0000-000000000101")),
         revision: .initial,
@@ -613,19 +663,27 @@ private func makeCommandPlan() -> FixPlan {
             reason: "fixPlanCommandTest"
         ),
         items: [
-            makeCommandItem(id: "00000000-0000-0000-0000-000000000201", type: .genreUpdate),
+            makeCommandItem(
+                id: "00000000-0000-0000-0000-000000000201",
+                type: .genreUpdate,
+                hasWriteID: firstHasWriteID
+            ),
             makeCommandItem(id: "00000000-0000-0000-0000-000000000202", type: .yearUpdate)
         ]
     )
 }
 
-private func makeCommandItem(id: String, type: ChangeType) -> FixPlanItem {
+private func makeCommandItem(
+    id: String,
+    type: ChangeType,
+    hasWriteID: Bool = true
+) -> FixPlanItem {
     let itemID = commandUUID(id)
     return FixPlanItem(
         id: itemID,
         identity: FixPlanItemIdentity(
             readID: "read-\(id)",
-            appleScriptID: "script-\(id)",
+            appleScriptID: hasWriteID ? "script-\(id)" : nil,
             artist: "Björk",
             album: "Homogenic",
             trackName: type == .genreUpdate ? "Jóga" : "Bachelorette"

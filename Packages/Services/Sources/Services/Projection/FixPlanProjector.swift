@@ -25,11 +25,21 @@ public enum FixPlanProjector {
                     confidence: item.confidence,
                     source: item.source
                 ),
-                verdict: verdicts[item.id] ?? .rejected
+                verdict: verdicts[item.id] ?? .rejected,
+                hasWriteID: hasWriteID(item.identity.appleScriptID)
             )
         }
         let acceptedCount = items.count(where: { $0.verdict == .accepted })
+        let missingIdentityCount = items.count { $0.verdict == .accepted && !$0.hasWriteID }
         let status: FixPlanProjectionStatus = staleness.isStale ? .stale : .ready
+        let issues = missingIdentityCount == 0 ? [] : [
+            OperationalIssue(
+                id: "fix-plan-write-identity",
+                category: .safetyBlocked,
+                summary: "Write identity required",
+                technicalDetail: "Accepted items without AppleScript ID: \(missingIdentityCount)"
+            )
+        ]
 
         return FixPlanProjection(
             revision: .initial,
@@ -47,11 +57,11 @@ public enum FixPlanProjector {
                 genreCount: items.count(where: { $0.changeType == .genreUpdate }),
                 yearCount: items.count(where: { $0.changeType == .yearUpdate }),
                 averageConfidence: averageConfidence(for: items),
-                canApply: status == .ready && acceptedCount > 0
+                canApply: status == .ready && acceptedCount > 0 && missingIdentityCount == 0
             ),
             stalenessReasons: staleness.reasons,
             items: items,
-            operationalIssues: []
+            operationalIssues: issues
         )
     }
 
@@ -59,5 +69,9 @@ public enum FixPlanProjector {
         guard !items.isEmpty else { return nil }
         let total = items.reduce(0) { $0 + $1.confidence }
         return Int((Double(total) / Double(items.count)).rounded())
+    }
+
+    private static func hasWriteID(_ id: String?) -> Bool {
+        id?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 }

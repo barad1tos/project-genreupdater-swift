@@ -210,11 +210,20 @@ struct FixPlanCommands {
         guard decision.itemDecisions.contains(where: { $0.verdict == .accepted }) else {
             return await noAcceptedResult(projection: projection)
         }
-        guard projection.canApply else {
+        guard projection.status == .ready else {
             return await staleResult(message: "Fix plan changed. Refreshing current plan.", projection: projection)
         }
         if await hasRecoveryHold() {
             return await recoveryHoldResult(target: target, projection: projection)
+        }
+        if let issue = projection.operationalIssues.first(where: { $0.category == .safetyBlocked }) {
+            let activity = await refreshActivityProjection()
+            return .requiresAttention(
+                message: "Fix plan needs attention.",
+                issue: issue,
+                refreshedActivityProjection: activity,
+                refreshedFixPlanProjection: projection
+            )
         }
 
         do {
