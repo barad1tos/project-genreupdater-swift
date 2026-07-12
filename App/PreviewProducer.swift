@@ -14,12 +14,15 @@ struct WriteIdentityRefresher {
         scope: ProcessingScopeSnapshot,
         config: AppleScriptConfig
     ) async throws {
+        let trackFetchTimeout = scope.normalizedTestArtists.isEmpty
+            ? config.timeouts.idsBatchFetch
+            : config.timeouts.singleArtistFetch
         let mappedCount = try await mapper.refreshMapping(
             musicKitTracks: tracks,
             appleScriptClient: client,
             batchSize: config.batchProcessing.idsBatchSize,
             allTrackIDsTimeout: config.timeouts.fullLibraryFetch,
-            tracksByIDsTimeout: config.timeouts.idsBatchFetch,
+            tracksByIDsTimeout: trackFetchTimeout,
             testArtists: scope.normalizedTestArtists,
             mergeExisting: true
         )

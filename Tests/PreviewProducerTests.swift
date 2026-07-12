@@ -76,6 +76,10 @@ struct PreviewProducerTests {
         let mapper = TrackIDMapper()
         let script = PreviewScriptClient(tracks: [appleScriptTrack(id: "AS-TRACK")])
         let refresher = WriteIdentityRefresher(mapper: mapper, client: script)
+        var config = AppleScriptConfig()
+        config.timeouts.fullLibraryFetch = .seconds(91)
+        config.timeouts.singleArtistFetch = .seconds(37)
+        config.timeouts.idsBatchFetch = .seconds(7)
         let scope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: ["probe artist"],
             knownTrackCount: 1,
@@ -86,10 +90,11 @@ struct PreviewProducerTests {
         try await refresher.refresh(
             tracks: [musicKitTrack(id: "MK-TRACK")],
             scope: scope,
-            config: AppleScriptConfig()
+            config: config
         )
 
         #expect(await script.artistScopes() == ["probe artist"])
+        #expect(await script.artistTimeouts() == [.seconds(37)])
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-TRACK") == "AS-TRACK")
     }
 
@@ -102,6 +107,9 @@ struct PreviewProducerTests {
         )
         let script = PreviewScriptClient(tracks: [appleScriptTrack(id: "AS-NEW", name: "New")])
         let refresher = WriteIdentityRefresher(mapper: mapper, client: script)
+        var config = AppleScriptConfig()
+        config.timeouts.fullLibraryFetch = .seconds(91)
+        config.timeouts.idsBatchFetch = .seconds(7)
         let scope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: [],
             knownTrackCount: 1,
@@ -112,10 +120,11 @@ struct PreviewProducerTests {
         try await refresher.refresh(
             tracks: [musicKitTrack(id: "MK-NEW", name: "New")],
             scope: scope,
-            config: AppleScriptConfig()
+            config: config
         )
 
         #expect(await script.allTrackIDFetchCount() == 1)
+        #expect(await script.trackTimeouts() == [.seconds(7)])
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-OLD") == "AS-OLD")
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-NEW") == "AS-NEW")
     }
@@ -124,6 +133,8 @@ struct PreviewProducerTests {
 private actor PreviewScriptClient: AppleScriptClient {
     private let tracks: [Track]
     private var fetchedArtistScopes: [String?] = []
+    private var fetchedArtistTimeouts: [Duration?] = []
+    private var fetchedTrackTimeouts: [Duration?] = []
     private var allTrackIDFetches = 0
 
     init(tracks: [Track]) {
@@ -138,8 +149,9 @@ private actor PreviewScriptClient: AppleScriptClient {
         nil
     }
 
-    func fetchTracksByIDs(_ trackIDs: [String], batchSize _: Int, timeout _: Duration?) async throws -> [Track] {
-        tracks.filter { trackIDs.contains($0.id) }
+    func fetchTracksByIDs(_ trackIDs: [String], batchSize _: Int, timeout: Duration?) async throws -> [Track] {
+        fetchedTrackTimeouts.append(timeout)
+        return tracks.filter { trackIDs.contains($0.id) }
     }
 
     func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
@@ -147,8 +159,9 @@ private actor PreviewScriptClient: AppleScriptClient {
         return tracks.map(\.id)
     }
 
-    func fetchTracks(artist: String?, timeout _: Duration?) async throws -> [Track] {
+    func fetchTracks(artist: String?, timeout: Duration?) async throws -> [Track] {
         fetchedArtistScopes.append(artist)
+        fetchedArtistTimeouts.append(timeout)
         return tracks
     }
 
@@ -163,6 +176,14 @@ private actor PreviewScriptClient: AppleScriptClient {
 
     func artistScopes() -> [String?] {
         fetchedArtistScopes
+    }
+
+    func artistTimeouts() -> [Duration?] {
+        fetchedArtistTimeouts
+    }
+
+    func trackTimeouts() -> [Duration?] {
+        fetchedTrackTimeouts
     }
 
     func allTrackIDFetchCount() -> Int {
