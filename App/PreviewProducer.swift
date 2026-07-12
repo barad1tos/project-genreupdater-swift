@@ -5,7 +5,7 @@ import Services
 
 private let previewProducerLog = Logger(subsystem: "com.genreupdater", category: "preview-producer")
 
-struct WriteIdentityRefresher: Sendable {
+struct WriteIdentityRefresher {
     let mapper: TrackIDMapper
     let client: any AppleScriptClient
 
