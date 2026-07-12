@@ -9,6 +9,29 @@ import Testing
 struct FixPlanAdapterTests {
     @Test("maps projection to design snapshot")
     func mapsProjection() throws {
+        let (projection, itemID) = try makeProjection()
+
+        let snapshot = FixPlanAdapter.makeSnapshot(from: projection)
+
+        #expect(snapshot.status == .ready)
+        #expect(snapshot.planID == projection.planID?.description)
+        #expect(snapshot.planRevision == 3)
+        #expect(snapshot.decisionRevision == 4)
+        #expect(snapshot.projectionRevision == 2)
+        #expect(snapshot.itemCount == 1)
+        #expect(snapshot.acceptedCount == 1)
+        #expect(snapshot.yearCount == 1)
+        #expect(snapshot.averageConfidence == 91)
+        #expect(snapshot.canApply)
+        #expect(snapshot.issues == ["Notice: Stored fallback was used"])
+        #expect(snapshot.items.first?.id == itemID.uuidString)
+        #expect(snapshot.items.first?.type == DesignUI.ChangeType.year)
+        #expect(snapshot.items.first?.confidence == 0.91)
+        #expect(snapshot.items.first?.verdict == .accepted)
+        #expect(snapshot.items.first?.hasWriteID == false)
+    }
+
+    private func makeProjection() throws -> (FixPlanProjection, UUID) {
         let itemID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
         let projection = FixPlanProjection(
             revision: ProjectionRevision(2),
@@ -57,24 +80,6 @@ struct FixPlanAdapterTests {
                 )
             ]
         )
-
-        let snapshot = FixPlanAdapter.makeSnapshot(from: projection)
-
-        #expect(snapshot.status == .ready)
-        #expect(snapshot.planID == projection.planID?.description)
-        #expect(snapshot.planRevision == 3)
-        #expect(snapshot.decisionRevision == 4)
-        #expect(snapshot.projectionRevision == 2)
-        #expect(snapshot.itemCount == 1)
-        #expect(snapshot.acceptedCount == 1)
-        #expect(snapshot.yearCount == 1)
-        #expect(snapshot.averageConfidence == 91)
-        #expect(snapshot.canApply)
-        #expect(snapshot.issues == ["Notice: Stored fallback was used"])
-        #expect(snapshot.items.first?.id == itemID.uuidString)
-        #expect(snapshot.items.first?.type == DesignUI.ChangeType.year)
-        #expect(snapshot.items.first?.confidence == 0.91)
-        #expect(snapshot.items.first?.verdict == .accepted)
-        #expect(snapshot.items.first?.hasWriteID == false)
+        return (projection, itemID)
     }
 }

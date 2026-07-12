@@ -38,7 +38,7 @@ public enum FixPlanProjector {
                 category: .safetyBlocked,
                 summary: "Write identity required",
                 technicalDetail: "Accepted items without AppleScript ID: \(missingIdentityCount)"
-            ),
+            )
         ]
 
         return FixPlanProjection(

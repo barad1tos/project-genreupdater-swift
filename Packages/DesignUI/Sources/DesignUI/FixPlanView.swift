@@ -323,14 +323,17 @@ public struct FixPlanView: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(Ayu.fg2)
                     .lineLimit(1)
+                if item.verdict == .accepted, !item.hasWriteID {
+                    Label("No write ID", systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(Tone.warning.color)
+                        .lineLimit(1)
+                }
             }
 
             Spacer(minLength: 12)
 
             TagPill(text: item.source, tone: .neutral)
-            if !item.hasWriteID {
-                TagPill(text: "No write ID", tone: .warning, dot: true)
-            }
             TagPill(text: item.verdict.label, tone: item.verdict.tone, dot: true)
             DiffRow(old: item.old, new: item.new)
                 .font(.system(size: 11.5))
