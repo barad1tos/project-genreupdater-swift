@@ -85,7 +85,7 @@ public actor AppleScriptBridge: AppleScriptClient {
     }
 
     public var trackIDBatchSize: Int {
-        max(1, config.batchProcessing.idsBatchSize)
+        BatchProcessingConfig.clampIDBatch(config.batchProcessing.idsBatchSize)
     }
 
     public func updateConfiguration(_ config: AppleScriptConfig) async {
@@ -183,29 +183,31 @@ public actor AppleScriptBridge: AppleScriptClient {
         batchSize: Int = 1000,
         timeout: Duration? = nil
     ) async throws -> [Core.Track] {
-        var allTracks: [Core.Track] = []
-        let effectiveTimeout = timeout ?? config.timeouts.idsBatchFetch
-        let effectiveBatchSize = max(1, batchSize)
-
-        for batch in trackIDs.chunked(into: effectiveBatchSize) {
-            let idsArg = batch.joined(separator: ",")
-            guard let output = try await runScript(
-                name: "fetch_tracks_by_ids",
-                arguments: [idsArg],
-                timeout: effectiveTimeout
-            ) else {
-                continue
-            }
-
-            let tracks = try Self.parseTrackOutput(output)
-            allTracks.append(contentsOf: tracks)
+        let effectiveBatchSize = BatchProcessingConfig.clampIDBatch(batchSize)
+        if effectiveBatchSize != batchSize {
+            log.info(
+                "Clamped ID lookup batch size from \(batchSize, privacy: .public) to \(effectiveBatchSize, privacy: .public)"
+            )
         }
+        let effectiveTimeout = timeout ?? config.timeouts.idsBatchFetch
+        let tracks = try await TrackLookup(
+            batchSize: effectiveBatchSize,
+            timeout: effectiveTimeout
+        ) { [self] ids, remaining in
+            try await runScript(
+                name: TrackLookup.scriptName,
+                arguments: [ids.joined(separator: ",")],
+                timeout: remaining
+            )
+        } parse: { output in
+            try Self.parseTrackOutput(output)
+        }.run(ids: trackIDs)
 
         log
             .info(
-                "Fetched \(allTracks.count, privacy: .public) tracks by IDs (\(trackIDs.count, privacy: .public) requested)"
+                "Fetched \(tracks.count, privacy: .public) tracks by IDs (\(trackIDs.count, privacy: .public) requested)"
             )
-        return allTracks
+        return tracks
     }
 
     public func fetchAllTrackIDs(timeout: Duration? = nil) async throws -> [String] {
@@ -480,7 +482,7 @@ public actor AppleScriptBridge: AppleScriptClient {
     /// Parse AppleScript output into Track objects.
     static func parseTrackOutput(_ output: String) throws -> [Core.Track] {
         do {
-            return try parseTrackRecords(output, scriptName: "fetch_tracks_by_ids")
+            return try parseTrackRecords(output, scriptName: TrackLookup.scriptName)
         } catch let error as AppleScriptClientParseError {
             throw AppleScriptBridgeError.parseError(scriptName: error.scriptName, detail: error.detail)
         }
@@ -497,16 +499,5 @@ extension AppleScriptBridge {
             maxTokens: requestCount,
             refillInterval: .milliseconds(refillMilliseconds)
         )
-    }
-}
-
-// MARK: - Array Chunking
-
-extension Array {
-    /// Split array into chunks of the given size.
-    func chunked(into size: Int) -> [[Element]] {
-        stride(from: 0, to: count, by: size).map {
-            Array(self[$0 ..< Swift.min($0 + size, count)])
-        }
     }
 }

@@ -55,40 +55,6 @@ struct AppleScriptClientTests {
         }
     }
 
-    @Test("Default fetchTracksByIDs batches IDs and parses AppleScript output")
-    func defaultFetchTracksByIDsBatchesIDsAndParsesAppleScriptOutput() async throws {
-        let firstBatchOutput = appleScriptTrackOutput(id: "101", name: "American Sleep")
-        let secondBatchOutput = appleScriptTrackOutput(
-            id: "103",
-            name: "Зимно",
-            artist: "Паліндром",
-            album: "Найліпші питання собі",
-            year: "2024",
-            releaseYear: "2024",
-            status: "purchased"
-        )
-        let client = ScriptOutputClient(outputs: [
-            firstBatchOutput,
-            "NO_TRACKS_FOUND",
-            secondBatchOutput,
-        ])
-
-        let tracks = try await client.fetchTracksByIDs(
-            ["101", "102", "103"],
-            batchSize: 1,
-            timeout: .seconds(7)
-        )
-
-        let calls = await client.calls
-        #expect(calls.map(\.name) == ["fetch_tracks_by_ids", "fetch_tracks_by_ids", "fetch_tracks_by_ids"])
-        #expect(calls.map(\.arguments) == [["101"], ["102"], ["103"]])
-        #expect(calls.map(\.timeout) == [.seconds(7), .seconds(7), .seconds(7)])
-        #expect(tracks.map(\.id) == ["101", "103"])
-        #expect(tracks.first?.year == 1999)
-        #expect(tracks.first?.releaseYear == 2001)
-        #expect(tracks.last?.artist == "Паліндром")
-    }
-
     @Test("Parse error detail does not contain user metadata")
     func parseErrorDetailDoesNotContainUserMetadata() async {
         let secretName = "SECRET_TRACK_NAME"
@@ -125,51 +91,6 @@ struct AppleScriptClientTests {
             Issue.record("Expected AppleScriptClientParseError, got \(error)")
         }
     }
-
-    @Test("Default fetchTracksByIDs rejects malformed non-empty records")
-    func defaultFetchTracksByIDsRejectsMalformedNonEmptyRecords() async {
-        let output = [
-            appleScriptTrackOutput(id: "101", name: "American Sleep"),
-            appleScriptTrackOutput(id: "", name: "Missing ID"),
-        ].joined(separator: String(Track.recordSeparator))
-        let client = ScriptOutputClient(output: output)
-
-        await #expect(throws: AppleScriptClientParseError.self) {
-            _ = try await client.fetchTracksByIDs(["101", "102"], batchSize: 2)
-        }
-    }
-
-    @Test("Default fetchTracksByIDs handles empty, exact, and overflow batches")
-    func defaultFetchTracksByIDsHandlesEmptyExactAndOverflowBatches() async throws {
-        let emptyClient = ScriptOutputClient(output: nil)
-
-        let emptyTracks = try await emptyClient.fetchTracksByIDs(
-            [],
-            batchSize: 2,
-            timeout: .seconds(7)
-        )
-
-        #expect(emptyTracks.isEmpty)
-        #expect(await emptyClient.calls.isEmpty)
-
-        let client = ScriptOutputClient(outputs: [
-            appleScriptTrackOutput(id: "101", name: "American Sleep"),
-            appleScriptTrackOutput(id: "103", name: "Careful With That Mic..."),
-            appleScriptTrackOutput(id: "105", name: "Drink to the Dead"),
-        ])
-
-        let tracks = try await client.fetchTracksByIDs(
-            ["101", "102", "103", "104", "105"],
-            batchSize: 2,
-            timeout: .seconds(7)
-        )
-
-        let calls = await client.calls
-        #expect(calls.map(\.name) == ["fetch_tracks_by_ids", "fetch_tracks_by_ids", "fetch_tracks_by_ids"])
-        #expect(calls.map(\.arguments) == [["101,102"], ["103,104"], ["105"]])
-        #expect(calls.map(\.timeout) == [.seconds(7), .seconds(7), .seconds(7)])
-        #expect(tracks.map(\.id) == ["101", "103", "105"])
-    }
 }
 
 private func appleScriptTrackOutput(
@@ -195,10 +116,6 @@ private actor ScriptOutputClient: AppleScriptClient {
         outputs = [output]
     }
 
-    init(outputs: [String?]) {
-        self.outputs = outputs
-    }
-
     func initialize() async throws {
         // No setup needed: these tests exercise the protocol-default fetch helper.
     }
@@ -218,6 +135,14 @@ private actor ScriptOutputClient: AppleScriptClient {
     }
 
     func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
+        throw ScriptOutputClientError.unsupportedRead
+    }
+
+    func fetchTracksByIDs(
+        _: [String],
+        batchSize _: Int,
+        timeout _: Duration?
+    ) async throws -> [Track] {
         throw ScriptOutputClientError.unsupportedRead
     }
 

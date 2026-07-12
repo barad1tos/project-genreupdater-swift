@@ -100,7 +100,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         lastDatabaseVerifyLog: String = LoggingConfig().lastDatabaseVerifyLog,
         testArtists: [String] = []
     ) {
-        self.idsBatchSize = max(1, idsBatchSize)
+        self.idsBatchSize = BatchProcessingConfig.clampIDBatch(idsBatchSize)
         self.fullLibraryFetchTimeout = fullLibraryFetchTimeout
         self.idsBatchFetchTimeout = idsBatchFetchTimeout
         self.databaseVerificationBatchSize = max(1, databaseVerificationBatchSize)

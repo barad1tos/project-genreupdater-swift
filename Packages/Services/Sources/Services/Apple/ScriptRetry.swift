@@ -9,7 +9,7 @@ extension AppleScriptBridge {
         "batch_update_tracks": .mutation,
         "fetch_track_ids": .read,
         "fetch_tracks": .read,
-        "fetch_tracks_by_ids": .read,
+        "lookup_tracks": .read,
         "update_property": .mutation
     ]
 

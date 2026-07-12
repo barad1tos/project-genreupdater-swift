@@ -53,13 +53,13 @@ targets:
           done
         inputFiles:
           - $(SRCROOT)/Resources/Scripts/fetch_tracks.applescript
-          - $(SRCROOT)/Resources/Scripts/fetch_tracks_by_ids.applescript
+          - $(SRCROOT)/Resources/Scripts/lookup_tracks.applescript
           - $(SRCROOT)/Resources/Scripts/fetch_track_ids.applescript
           - $(SRCROOT)/Resources/Scripts/update_property.applescript
           - $(SRCROOT)/Resources/Scripts/batch_update_tracks.applescript
         outputFiles:
           - $(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Scripts/fetch_tracks.scpt
-          - $(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Scripts/fetch_tracks_by_ids.scpt
+          - $(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Scripts/lookup_tracks.scpt
           - $(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Scripts/fetch_track_ids.scpt
           - $(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Scripts/update_property.scpt
           - $(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Scripts/batch_update_tracks.scpt

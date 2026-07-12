@@ -54,11 +54,12 @@ public enum ScriptInstallerError: Error, LocalizedError {
 public actor ScriptInstaller {
     // 0o644: NSUserAppleScriptTask reads .scpt files; no exec bit, and not group/world-writable.
     private static let installedScriptPermissions = 0o644
+    private static let retiredScripts = ["fetch_tracks_by_ids"]
 
     /// Names of required AppleScript files (without extension).
     public static let requiredScripts = [
         "fetch_tracks",
-        "fetch_tracks_by_ids",
+        "lookup_tracks",
         "update_property",
         "batch_update_tracks",
         "fetch_track_ids"
@@ -130,6 +131,7 @@ public actor ScriptInstaller {
 
         var installed: [String] = []
         var errors: [String] = []
+        removeRetiredScripts()
 
         for scriptName in Self.requiredScripts {
             let sourceURL = bundleScriptsURL.appendingPathComponent("\(scriptName).scpt")
@@ -151,7 +153,7 @@ public actor ScriptInstaller {
 
                 if FileManager.default.fileExists(atPath: destinationURL.path) {
                     guard !installedScriptMatches(sourceURL: sourceURL, destinationURL: destinationURL) else {
-                        try setInstalledScriptPermissions(destinationURL)
+                        try setScriptPermissions(destinationURL)
                         installed.append(scriptName)
                         continue
                     }
@@ -159,8 +161,8 @@ public actor ScriptInstaller {
                 }
 
                 try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-                try setInstalledScriptPermissions(destinationURL)
-                removeLegacyScriptIfPossible(named: scriptName, currentURL: destinationURL)
+                try setScriptPermissions(destinationURL)
+                removeLegacyScript(named: scriptName, currentURL: destinationURL)
                 installed.append(scriptName)
                 log.info("Installed script: \(scriptName, privacy: .public)")
             } catch {
@@ -192,7 +194,7 @@ public actor ScriptInstaller {
         )
     }
 
-    private func setInstalledScriptPermissions(_ scriptURL: URL) throws {
+    private func setScriptPermissions(_ scriptURL: URL) throws {
         try FileManager.default.setAttributes(
             [.posixPermissions: Self.installedScriptPermissions],
             ofItemAtPath: scriptURL.path
@@ -235,7 +237,7 @@ public actor ScriptInstaller {
         return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
-    private func removeLegacyScriptIfPossible(named scriptName: String, currentURL: URL) {
+    private func removeLegacyScript(named scriptName: String, currentURL: URL) {
         let legacyURL = legacyScriptURL(for: scriptName)
         guard legacyURL != currentURL,
               FileManager.default.fileExists(atPath: legacyURL.path)
@@ -244,5 +246,37 @@ public actor ScriptInstaller {
         }
 
         try? FileManager.default.removeItem(at: legacyURL)
+    }
+
+    private func removeRetiredScripts() {
+        let scriptURLs: [URL]
+        do {
+            scriptURLs = try FileManager.default.contentsOfDirectory(
+                at: scriptsDirectory,
+                includingPropertiesForKeys: nil
+            )
+        } catch {
+            log.warning("Could not inspect retired scripts: \(error.localizedDescription, privacy: .private)")
+            return
+        }
+
+        for scriptURL in scriptURLs where scriptURL.pathExtension == "scpt" {
+            let name = scriptURL.deletingPathExtension().lastPathComponent
+            let isRetired = Self.retiredScripts.contains { retiredName in
+                name == retiredName || name.hasPrefix("\(retiredName)-")
+            }
+            guard isRetired else { continue }
+            do {
+                try FileManager.default.removeItem(at: scriptURL)
+                log.info("Removed retired script: \(scriptURL.lastPathComponent, privacy: .public)")
+            } catch {
+                log.warning(
+                    """
+                    Could not remove retired script \(scriptURL.lastPathComponent, privacy: .public): \
+                    \(error.localizedDescription, privacy: .private)
+                    """
+                )
+            }
+        }
     }
 }

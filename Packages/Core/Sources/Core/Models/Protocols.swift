@@ -361,6 +361,11 @@ public protocol AppleScriptClient: Actor {
     ) async throws -> String?
 
     /// Fetch tracks by their persistent IDs.
+    ///
+    /// `batchSize` is clamped by the conformer to its supported range. `timeout`
+    /// is the allowance for each batch; conformers must enforce one bounded
+    /// deadline across the complete lookup, reject late final results, and ignore
+    /// unresolved batches.
     func fetchTracksByIDs(
         _ trackIDs: [String],
         batchSize: Int,
@@ -388,29 +393,6 @@ public protocol AppleScriptClient: Actor {
 extension AppleScriptClient {
     public func runScript(name: String, arguments: [String] = [], timeout: Duration? = nil) async throws -> String? {
         try await runScript(name: name, arguments: arguments, timeout: timeout)
-    }
-
-    public func fetchTracksByIDs(
-        _ trackIDs: [String],
-        batchSize: Int = 1000,
-        timeout: Duration? = nil
-    ) async throws -> [Track] {
-        guard !trackIDs.isEmpty else { return [] }
-
-        let effectiveBatchSize = max(1, batchSize)
-        var tracks: [Track] = []
-        for startIndex in stride(from: 0, to: trackIDs.count, by: effectiveBatchSize) {
-            let endIndex = Swift.min(startIndex + effectiveBatchSize, trackIDs.count)
-            let batchIDs = trackIDs[startIndex ..< endIndex]
-            let output = try await runScript(
-                name: "fetch_tracks_by_ids",
-                arguments: [batchIDs.joined(separator: ",")],
-                timeout: timeout
-            )
-            guard let output, output != "NO_TRACKS_FOUND" else { continue }
-            try tracks.append(contentsOf: Self.parseTrackRecords(output, scriptName: "fetch_tracks_by_ids"))
-        }
-        return tracks
     }
 
     public func fetchTracks(artist: String? = nil, timeout: Duration? = nil) async throws -> [Track] {

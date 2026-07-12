@@ -123,6 +123,20 @@ struct ScriptInstallerTests {
         let installedContents = try await fixture.installedContents(for: "fetch_tracks", using: installer)
         #expect(installedContents == fixture.bundledContents(for: "fetch_tracks"))
     }
+
+    @Test("Installation removes retired lookup scripts")
+    func installationRemovesRetiredScripts() async throws {
+        let fixture = try ScriptInstallerFixture()
+        try fixture.writeBundledScripts()
+        try fixture.writeInstalledScript(named: "fetch_tracks_by_ids.scpt")
+        try fixture.writeInstalledScript(named: "fetch_tracks_by_ids-deadbeef.scpt")
+        let installer = fixture.makeInstaller()
+
+        _ = try await installer.installScripts()
+
+        #expect(!fixture.installedScriptExists(named: "fetch_tracks_by_ids.scpt"))
+        #expect(!fixture.installedScriptExists(named: "fetch_tracks_by_ids-deadbeef.scpt"))
+    }
 }
 
 private struct ScriptInstallerFixture {
@@ -184,6 +198,20 @@ private struct ScriptInstallerFixture {
             to: legacyInstalledURL(for: scriptName),
             atomically: true,
             encoding: .utf8
+        )
+    }
+
+    func writeInstalledScript(named fileName: String) throws {
+        try "retired".write(
+            to: installedScriptsDirectory.appendingPathComponent(fileName),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    func installedScriptExists(named fileName: String) -> Bool {
+        FileManager.default.fileExists(
+            atPath: installedScriptsDirectory.appendingPathComponent(fileName).path
         )
     }
 
