@@ -28,18 +28,18 @@ struct TrackIDScan {
             do {
                 return try await scan(clock: clock, deadline: deadline)
             } catch TrackIDScanChange.generation {
-                restartCount += 1
-                guard restartCount <= Self.maxRestarts, clock.now < deadline else {
+                guard clock.now < deadline else {
+                    throw AppleScriptBridgeError.libraryChanged(
+                        detail: "Library generation changed at the scan deadline after \(restartCount) restarts"
+                    )
+                }
+                guard restartCount < Self.maxRestarts else {
                     throw changingLibraryError(restartCount: restartCount)
                 }
+                restartCount += 1
                 log.info(
                     "Restarting track ID scan after library generation change \(restartCount, privacy: .public)"
                 )
-            } catch let error as AppleScriptBridgeError {
-                if case .timeout = error, restartCount > 0 {
-                    throw changingLibraryError(restartCount: restartCount)
-                }
-                throw error
             }
         }
     }
@@ -90,6 +90,9 @@ struct TrackIDScan {
         expectedGeneration: String?
     ) throws -> TrackIDBatch {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == "RETRY:GENERATION" {
+            throw TrackIDScanChange.generation
+        }
         if trimmed.hasPrefix("ERROR:LIBRARY_DB_NOT_FOUND:") {
             log.error("Music library path validation failed: \(trimmed, privacy: .private)")
             throw AppleScriptBridgeError.invalidLibraryPath
@@ -151,7 +154,7 @@ struct TrackIDScan {
     }
 
     private func changingLibraryError(restartCount: Int) -> AppleScriptBridgeError {
-        .libraryChanged(detail: "Library generation changed after \(restartCount) scan restarts")
+        .libraryChanged(detail: "Library generation kept changing after \(restartCount) scan restarts")
     }
 }
 

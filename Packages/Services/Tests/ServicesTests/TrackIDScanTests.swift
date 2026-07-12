@@ -131,6 +131,49 @@ struct TrackIDScanTests {
         #expect(await responses.offsets == [1, 3, 1, 3])
     }
 
+    @Test("Restarts when the final batch changes during its read")
+    func restartsChangedFinalBatch() async throws {
+        let responses = ScanResponses([
+            "BATCH:2:4:G1:A,B",
+            "RETRY:GENERATION",
+            "BATCH:2:4:G2:A,B",
+            "BATCH:4:4:G2:C,D",
+        ])
+        let scan = TrackIDScan(batchSize: 2, timeout: .seconds(1)) { offset, _, _ in
+            await responses.next(offset: offset)
+        }
+
+        #expect(try await scan.run() == ["A", "B", "C", "D"])
+        #expect(await responses.offsets == [1, 3, 1, 3])
+    }
+
+    @Test("Preserves a timeout after a generation restart")
+    func preservesTimeoutAfterRestart() async {
+        let calls = OffsetLog()
+        let scan = TrackIDScan(batchSize: 2, timeout: .seconds(1)) { offset, _, _ in
+            switch await calls.record(offset) {
+            case 1:
+                return "BATCH:2:4:G1:A,B"
+            case 2:
+                return "BATCH:4:4:G2:C,D"
+            default:
+                throw AppleScriptBridgeError.timeout(scriptName: "fetch_track_ids", duration: .seconds(1))
+            }
+        }
+
+        do {
+            _ = try await scan.run()
+            Issue.record("Expected the restarted scan to time out")
+        } catch let error as AppleScriptBridgeError {
+            guard case .timeout = error else {
+                Issue.record("Expected timeout, got \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected AppleScriptBridgeError, got \(error)")
+        }
+    }
+
     @Test("Limits repeated mutation restarts")
     func limitsMutationRestarts() async {
         let offsets = OffsetLog()

@@ -4,7 +4,7 @@ import Testing
 @Suite("Track ID scan errors")
 struct TrackIDErrorTests {
     @Test("Rejects invalid wire responses", arguments: InvalidResponse.cases)
-    func rejectsInvalidResponse(_ response: InvalidResponse) async {
+    private func rejectsInvalidResponse(_ response: InvalidResponse) async {
         let scan = TrackIDScan(batchSize: 2, timeout: .seconds(1)) { _, _, _ in
             response.output
         }
@@ -20,7 +20,7 @@ struct TrackIDErrorTests {
     }
 }
 
-struct InvalidResponse: Sendable, CustomTestStringConvertible {
+private struct InvalidResponse: Sendable, CustomTestStringConvertible {
     let output: String?
     let error: ExpectedError
 
@@ -42,7 +42,7 @@ struct InvalidResponse: Sendable, CustomTestStringConvertible {
     ]
 }
 
-enum ExpectedError: Sendable {
+private enum ExpectedError: Sendable {
     case execution
     case libraryChanged
     case path
