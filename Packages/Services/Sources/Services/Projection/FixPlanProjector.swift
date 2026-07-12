@@ -25,16 +25,12 @@ public enum FixPlanProjector {
                     confidence: item.confidence,
                     source: item.source
                 ),
-                verdict: verdicts[item.id] ?? .rejected
+                verdict: verdicts[item.id] ?? .rejected,
+                hasWriteID: hasWriteID(item.identity.appleScriptID)
             )
         }
         let acceptedCount = items.count(where: { $0.verdict == .accepted })
-        let missingIdentityCount = plan.items.count { item in
-            guard verdicts[item.id] == .accepted else { return false }
-            return item.identity.appleScriptID?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .isEmpty != false
-        }
+        let missingIdentityCount = items.count { $0.verdict == .accepted && !$0.hasWriteID }
         let status: FixPlanProjectionStatus = staleness.isStale ? .stale : .ready
         let issues = missingIdentityCount == 0 ? [] : [
             OperationalIssue(
@@ -73,5 +69,9 @@ public enum FixPlanProjector {
         guard !items.isEmpty else { return nil }
         let total = items.reduce(0) { $0 + $1.confidence }
         return Int((Double(total) / Double(items.count)).rounded())
+    }
+
+    private static func hasWriteID(_ id: String?) -> Bool {
+        id?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 }

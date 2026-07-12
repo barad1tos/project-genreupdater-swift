@@ -47,17 +47,20 @@ public struct FixPlanProjectionItem: Identifiable, Equatable, Sendable {
     public let identity: Identity
     public let change: Change
     public let verdict: FixPlanItemVerdict
+    public let hasWriteID: Bool
 
     public init(
         id: UUID,
         identity: Identity,
         change: Change,
-        verdict: FixPlanItemVerdict
+        verdict: FixPlanItemVerdict,
+        hasWriteID: Bool
     ) {
         self.id = id
         self.identity = identity
         self.change = change
         self.verdict = verdict
+        self.hasWriteID = hasWriteID
     }
 
     public var trackName: String {

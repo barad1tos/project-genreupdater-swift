@@ -168,6 +168,7 @@ struct FixPlanProjectionTests {
         #expect(!projection.canApply)
         #expect(projection.operationalIssues.count == 1)
         #expect(projection.operationalIssues.first?.technicalDetail == "Accepted items without AppleScript ID: 1")
+        #expect(projection.items.map(\.hasWriteID) == [true, false])
     }
 }
 

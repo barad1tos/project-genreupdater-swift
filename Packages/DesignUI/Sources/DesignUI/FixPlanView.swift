@@ -23,6 +23,7 @@ public struct FixPlanItem: Identifiable, Equatable, Sendable {
     public let confidence: Double
     public let source: String
     public let verdict: FixPlanVerdict
+    public let hasWriteID: Bool
 
     public init(
         id: String,
@@ -34,7 +35,8 @@ public struct FixPlanItem: Identifiable, Equatable, Sendable {
         new: String,
         confidence: Double,
         source: String,
-        verdict: FixPlanVerdict
+        verdict: FixPlanVerdict,
+        hasWriteID: Bool
     ) {
         self.id = id
         self.track = track
@@ -46,6 +48,7 @@ public struct FixPlanItem: Identifiable, Equatable, Sendable {
         self.confidence = confidence
         self.source = source
         self.verdict = verdict
+        self.hasWriteID = hasWriteID
     }
 }
 
@@ -325,6 +328,9 @@ public struct FixPlanView: View {
             Spacer(minLength: 12)
 
             TagPill(text: item.source, tone: .neutral)
+            if !item.hasWriteID {
+                TagPill(text: "No write ID", tone: .warning, dot: true)
+            }
             TagPill(text: item.verdict.label, tone: item.verdict.tone, dot: true)
             DiffRow(old: item.old, new: item.new)
                 .font(.system(size: 11.5))
@@ -536,7 +542,8 @@ extension FixPlanVerdict {
                 new: "2000",
                 confidence: 0.91,
                 source: "MusicBrainz",
-                verdict: .accepted
+                verdict: .accepted,
+                hasWriteID: true
             )
         ]
     ))

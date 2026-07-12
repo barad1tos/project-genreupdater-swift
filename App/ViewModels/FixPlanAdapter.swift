@@ -47,7 +47,8 @@ enum FixPlanAdapter {
             new: item.newValue ?? "none",
             confidence: clampedConfidence(item.confidence),
             source: item.source,
-            verdict: makeVerdict(item.verdict)
+            verdict: makeVerdict(item.verdict),
+            hasWriteID: item.hasWriteID
         )
     }
 

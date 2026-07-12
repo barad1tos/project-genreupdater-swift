@@ -44,7 +44,8 @@ struct FixPlanAdapterTests {
                         confidence: 91,
                         source: "MusicBrainz"
                     ),
-                    verdict: .accepted
+                    verdict: .accepted,
+                    hasWriteID: false
                 )
             ],
             operationalIssues: [
@@ -74,5 +75,6 @@ struct FixPlanAdapterTests {
         #expect(snapshot.items.first?.type == DesignUI.ChangeType.year)
         #expect(snapshot.items.first?.confidence == 0.91)
         #expect(snapshot.items.first?.verdict == .accepted)
+        #expect(snapshot.items.first?.hasWriteID == false)
     }
 }
