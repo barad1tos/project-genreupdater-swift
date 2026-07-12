@@ -628,7 +628,7 @@ struct AppConfigurationTests {
         #expect(decoded.caching.librarySnapshot.compressLevel == 3)
     }
 
-    // MARK: - AppleScriptTimeouts Custom Codable
+    // MARK: - Batch Processing
 
     @Test("ID lookup batch range matches the processing boundary")
     func idsBatchRange() {
@@ -637,6 +637,8 @@ struct AppConfigurationTests {
         #expect(BatchProcessingConfig.clampIDBatch(200) == 200)
         #expect(BatchProcessingConfig.clampIDBatch(5000) == 1000)
     }
+
+    // MARK: - AppleScriptTimeouts Custom Codable
 
     @Test("AppleScriptTimeouts encodes Duration as seconds with 'Seconds' suffix keys")
     func timeoutsEncodeAsSeconds() throws {

@@ -229,7 +229,7 @@ private struct MusicAppScriptingSection: View {
     var body: some View {
         Section("Music App Scripting") {
             AppleScriptConcurrencySettings(dependencies: dependencies)
-            AppleScriptBatchFetchSettings(dependencies: dependencies)
+            IDLookupSettings(dependencies: dependencies)
             AppleScriptRateLimitSettings(dependencies: dependencies)
             AppleScriptRetrySettings(dependencies: dependencies)
             AppleScriptTimeoutSettings(dependencies: dependencies)
@@ -250,7 +250,7 @@ private struct AppleScriptConcurrencySettings: View {
     }
 }
 
-private struct AppleScriptBatchFetchSettings: View {
+private struct IDLookupSettings: View {
     let dependencies: AppDependencies
 
     var body: some View {
@@ -260,7 +260,7 @@ private struct AppleScriptBatchFetchSettings: View {
             step: 50
         ) {
             LabeledContent(
-                "ID fetch batch size",
+                "ID lookup batch size",
                 value: "\(batchSize)"
             )
         }
@@ -393,7 +393,7 @@ private struct AppleScriptTimeoutSettings: View {
 
         Stepper(value: timeoutSecondsBinding(\.idsBatchFetch), in: 30 ... 1800, step: 30) {
             LabeledContent(
-                "ID batch fetch timeout",
+                "ID lookup batch timeout",
                 value: timeoutDisplay(dependencies.config.applescript.timeouts.idsBatchFetch)
             )
         }
