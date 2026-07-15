@@ -309,6 +309,7 @@ private struct FingerprintInput: Encodable {
 
     struct Processing: Encodable {
         let cacheTTLDays: Int
+        let pendingVerificationIntervalDays: Int
         let skipPrerelease: Bool
         let futureYearThreshold: Int
         let prereleaseRecheckDays: Int
@@ -319,6 +320,7 @@ private struct FingerprintInput: Encodable {
 
         init(_ processing: ProcessingConfig) {
             cacheTTLDays = processing.cacheTTLDays
+            pendingVerificationIntervalDays = processing.pendingVerificationIntervalDays
             skipPrerelease = processing.skipPrerelease
             futureYearThreshold = processing.futureYearThreshold
             prereleaseRecheckDays = processing.prereleaseRecheckDays

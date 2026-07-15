@@ -228,6 +228,29 @@ struct PreviewRunOptionsTests {
         ])
     }
 
+    @Test("processing fingerprint projection reviews every processing setting")
+    func pinsProcessingShape() throws {
+        let data = try JSONEncoder().encode(ProcessingConfig())
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect(Set(object.keys) == [
+            "adaptiveDelay",
+            "batchSize",
+            "cacheTTLDays",
+            "delayBetweenBatches",
+            "futureYearThreshold",
+            "incrementalIntervalMinutes",
+            "minConfidenceToCache",
+            "pendingVerificationIntervalDays",
+            "prereleaseHandling",
+            "prereleaseRecheckDays",
+            "releaseYearRestoreThreshold",
+            "skipPrerelease",
+            "suspiciousAlbumMinLen",
+            "suspiciousManyYears",
+        ])
+    }
+
     @Test("maintenance settings do not invalidate preview output")
     func ignoresMaintenance() {
         let first = AppConfiguration()
@@ -237,7 +260,6 @@ struct PreviewRunOptionsTests {
         second.caching.cleanupIntervalSeconds += 60
         second.caching.librarySnapshot.compress.toggle()
         second.caching.librarySnapshot.compressLevel += 1
-        second.processing.pendingVerificationIntervalDays += 1
         second.pendingVerification.autoVerifyDays += 1
 
         #expect(fingerprint(first) == fingerprint(second))
@@ -267,6 +289,10 @@ struct PreviewRunOptionsTests {
 
         second = first
         second.processing.skipPrerelease.toggle()
+        #expect(fingerprint(first) != fingerprint(second))
+
+        second = first
+        second.processing.pendingVerificationIntervalDays += 1
         #expect(fingerprint(first) != fingerprint(second))
 
         second = first
