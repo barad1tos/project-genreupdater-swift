@@ -1,0 +1,157 @@
+import Core
+import Foundation
+import OSLog
+import Services
+
+private let runRuntimeLog = Logger(subsystem: "com.genreupdater", category: "run-runtime")
+
+struct RunRuntimeFactory: Sendable {
+    let bridge: AppleScriptBridge
+    let store: TrackDataStore
+    let gate: FeatureGate
+    let cache: GRDBCacheService
+    let undo: UndoCoordinator
+    let mapper: TrackIDMapper
+    let pendingVerification: (any PendingVerificationService)?
+    let readProvider: (any LibraryReadProvider)?
+    let reachability: NetworkReachabilityMonitor?
+
+    @MainActor
+    func makeSync(
+        configuration: FixPlanConfig,
+        scope: ProcessingScopeSnapshot
+    ) -> LibrarySyncService {
+        let appConfiguration = scopedConfiguration(configuration.appConfiguration, scope: scope)
+        return LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            featureGate: gate,
+            cache: cache,
+            pendingVerificationService: pendingVerification,
+            librarySnapshotService: AppDependencies.makeSnapshotService(
+                cache: cache,
+                configuration: appConfiguration
+            ),
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: appConfiguration),
+            readProvider: readProvider
+        )
+    }
+
+    @MainActor
+    func makePreview(
+        configuration: FixPlanConfig,
+        scope: ProcessingScopeSnapshot
+    ) -> FixPlanProducer.Runtime {
+        let appConfiguration = scopedConfiguration(configuration.appConfiguration, scope: scope)
+        let snapshotService = AppDependencies.makeSnapshotService(
+            cache: cache,
+            configuration: appConfiguration
+        )
+        let apiOrchestrator = AppDependencies.makeAPIOrchestrator(
+            configuration: appConfiguration,
+            cache: cache,
+            pendingVerificationService: pendingVerification,
+            reachability: reachability
+        )
+        let coordinator = UpdateCoordinator(
+            dependencies: UpdateCoordinatorDependencies(
+                apiOrchestrator: apiOrchestrator,
+                scriptBridge: bridge,
+                trackStore: store,
+                cache: cache,
+                undoCoordinator: undo,
+                idMapper: mapper,
+                librarySnapshotService: snapshotService,
+                pendingVerificationService: pendingVerification
+            ),
+            genreDeterminator: GenreDeterminator(),
+            yearDeterminator: AppDependencies.makeYearDeterminator(configuration: appConfiguration),
+            runtimeConfiguration: UpdateRuntimeConfiguration(configuration: appConfiguration)
+        )
+        let identity = WriteIdentityRefresher(mapper: mapper, client: bridge)
+
+        return FixPlanProducer.Runtime(
+            refreshIdentity: { tracks, currentScope in
+                try await identity.refresh(
+                    tracks: tracks,
+                    scope: currentScope,
+                    config: appConfiguration.applescript
+                )
+            },
+            albumContext: {
+                await coordinator.albumContextTracksByTrackID(for: $0, requiresMutationMetadata: false)
+            },
+            determineChanges: {
+                try await coordinator.updateTrack(
+                    $0,
+                    albumTracks: $1,
+                    artistTracks: $2,
+                    options: $3,
+                    dryRun: true
+                )
+            }
+        )
+    }
+
+    private func scopedConfiguration(
+        _ configuration: AppConfiguration,
+        scope: ProcessingScopeSnapshot
+    ) -> AppConfiguration {
+        var scoped = configuration
+        scoped.development.testArtists = scope.normalizedTestArtists
+        return scoped
+    }
+}
+
+struct WriteIdentityRefresher: Sendable {
+    let mapper: TrackIDMapper
+    let client: any AppleScriptClient
+
+    func refresh(
+        tracks: [Track],
+        scope: ProcessingScopeSnapshot,
+        config: AppleScriptConfig
+    ) async throws {
+        let trackFetchTimeout = scope.normalizedTestArtists.isEmpty
+            ? config.timeouts.idsBatchFetch
+            : config.timeouts.singleArtistFetch
+        let mappedCount = try await mapper.refreshMapping(
+            musicKitTracks: tracks,
+            appleScriptClient: client,
+            batchSize: config.batchProcessing.idsBatchSize,
+            allTrackIDsTimeout: config.timeouts.fullLibraryFetch,
+            tracksByIDsTimeout: trackFetchTimeout,
+            testArtists: scope.normalizedTestArtists,
+            mergeExisting: true
+        )
+        runRuntimeLog.info(
+            "Track ID mapping refreshed: \(mappedCount, privacy: .public)/\(tracks.count, privacy: .public)"
+        )
+    }
+}
+
+extension AppDependencies {
+    func makeRunRuntime() -> RunRuntimeFactory? {
+        guard let bridge = applescriptBridge,
+              let store = trackStore,
+              let gate = featureGate,
+              let cache = cacheService,
+              let undo = undoCoordinator,
+              let mapper = trackIDMapper
+        else {
+            return nil
+        }
+
+        return RunRuntimeFactory(
+            bridge: bridge,
+            store: store,
+            gate: gate,
+            cache: cache,
+            undo: undo,
+            mapper: mapper,
+            pendingVerification: pendingVerificationService,
+            readProvider: libraryReadProvider,
+            reachability: networkReachabilityMonitor
+        )
+    }
+}

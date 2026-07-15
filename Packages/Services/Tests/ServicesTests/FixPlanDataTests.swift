@@ -17,6 +17,7 @@ struct FixPlanDataTests {
 
         #expect(loaded == plan)
         #expect(loaded?.configuration == plan.configuration)
+        #expect(loaded?.configuration.appConfiguration.cleaning.genreMappings["Electronic"] == "Electronica")
         #expect(loaded?.scope == plan.scope)
         #expect(loaded?.items == plan.items)
         #expect(try await store.latestPlan() == plan)
@@ -393,17 +394,19 @@ struct FixPlanDataTests {
         )
     }
 
-    private func makeConfiguration() -> FixPlanConfigurationSnapshot {
-        FixPlanConfigurationSnapshot(
+    private func makeConfiguration() -> FixPlanConfig {
+        var appConfiguration = AppConfiguration()
+        appConfiguration.cleaning.genreMappings = ["Electronic": "Electronica"]
+        return FixPlanConfig(
             capturedAt: Date(timeIntervalSince1970: 90),
+            appConfiguration: appConfiguration,
             updateGenre: true,
             updateYear: false,
             repairExistingGenreMismatches: true,
             forceYearLookup: false,
             cleanTrackNames: true,
             cleanAlbumNames: false,
-            minConfidence: 80,
-            fingerprint: "test-fingerprint"
+            minConfidence: 80
         )
     }
 

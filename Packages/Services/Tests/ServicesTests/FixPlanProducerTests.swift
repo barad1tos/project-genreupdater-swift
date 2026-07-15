@@ -21,7 +21,7 @@ struct FixPlanProducerTests {
         let production = try await makeProducer(spy).producePlan(
             sourceRunID: sourceRunID,
             scope: currentScope,
-            options: UpdateOptions(minConfidence: 60)
+            configuration: configuration(UpdateOptions(minConfidence: 60))
         )
 
         #expect(production.producedPlan)
@@ -40,7 +40,7 @@ struct FixPlanProducerTests {
         let production = try await makeProducer(spy).producePlan(
             sourceRunID: sourceRunID,
             scope: scope(requestedTestArtists: ["In Scope"], knownTrackCount: 1),
-            options: UpdateOptions()
+            configuration: configuration()
         )
 
         #expect(production == .empty)
@@ -56,7 +56,7 @@ struct FixPlanProducerTests {
             _ = try await makeProducer(spy).producePlan(
                 sourceRunID: sourceRunID,
                 scope: scope(requestedTestArtists: [], knownTrackCount: 1),
-                options: UpdateOptions()
+                configuration: configuration()
             )
         }
         #expect(await spy.eventLog() == ["refresh"])
@@ -77,7 +77,7 @@ struct FixPlanProducerTests {
         _ = try await makeProducer(spy).producePlan(
             sourceRunID: sourceRunID,
             scope: currentScope,
-            options: UpdateOptions(updateGenre: false, updateYear: true, minConfidence: 70)
+            configuration: configuration(UpdateOptions(updateGenre: false, updateYear: true, minConfidence: 70))
         )
 
         let calls = await spy.determinationCalls()
@@ -109,7 +109,7 @@ struct FixPlanProducerTests {
         let production = try await makeProducer(spy).producePlan(
             sourceRunID: sourceRunID,
             scope: scope(requestedTestArtists: [], knownTrackCount: 3),
-            options: UpdateOptions(minConfidence: 60)
+            configuration: configuration(UpdateOptions(minConfidence: 60))
         )
 
         let saved = try #require(await spy.savedPlans().first)
@@ -130,7 +130,7 @@ struct FixPlanProducerTests {
             _ = try await makeProducer(spy).producePlan(
                 sourceRunID: sourceRunID,
                 scope: scope(requestedTestArtists: [], knownTrackCount: 1),
-                options: UpdateOptions()
+                configuration: configuration()
             )
         }
         #expect(await spy.savedPlans().isEmpty)
@@ -151,7 +151,7 @@ struct FixPlanProducerTests {
         let production = try await makeProducer(spy).producePlan(
             sourceRunID: sourceRunID,
             scope: scope(requestedTestArtists: [], knownTrackCount: 2),
-            options: UpdateOptions(minConfidence: 60)
+            configuration: configuration(UpdateOptions(minConfidence: 60))
         )
 
         let saved = try #require(await spy.savedPlans().first)
@@ -165,7 +165,8 @@ struct FixPlanProducerTests {
         let second = track("B")
         let currentScope = scope(requestedTestArtists: [], knownTrackCount: 2)
         let options = UpdateOptions(updateGenre: true, updateYear: false, minConfidence: 60)
-        let configuration = FixPlanConfigurationSnapshot.capture(
+        let configuration = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
             options: options,
             capturedAt: producedAt
         )
@@ -209,7 +210,7 @@ struct FixPlanProducerTests {
         let production = try await makeProducer(spy).producePlan(
             sourceRunID: sourceRunID,
             scope: scope(requestedTestArtists: [], knownTrackCount: 1),
-            options: UpdateOptions()
+            configuration: configuration()
         )
 
         #expect(production == .empty)
@@ -228,7 +229,7 @@ struct FixPlanProducerTests {
             _ = try await makeProducer(spy).producePlan(
                 sourceRunID: sourceRunID,
                 scope: scope(requestedTestArtists: [], knownTrackCount: 1),
-                options: UpdateOptions()
+                configuration: configuration()
             )
         }
     }
@@ -236,14 +237,18 @@ struct FixPlanProducerTests {
     private func makeProducer(_ spy: FixPlanProducerSpy) -> FixPlanProducer {
         FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
             loadTracks: { await spy.loadTracks() },
-            refreshWriteIdentity: { try await spy.refreshWriteIdentity(for: $0, scope: $1) },
-            albumContextTracksByTrackID: { await spy.albumContextTracksByTrackID(for: $0) },
-            determineTrackChanges: {
-                try await spy.determineTrackChanges(
-                    track: $0,
-                    albumTracks: $1,
-                    artistTracks: $2,
-                    options: $3
+            makeRuntime: { _, _ in
+                FixPlanProducer.Runtime(
+                    refreshIdentity: { try await spy.refreshWriteIdentity(for: $0, scope: $1) },
+                    albumContext: { await spy.albumContextTracksByTrackID(for: $0) },
+                    determineChanges: {
+                        try await spy.determineTrackChanges(
+                            track: $0,
+                            albumTracks: $1,
+                            artistTracks: $2,
+                            options: $3
+                        )
+                    }
                 )
             },
             savePlan: { await spy.savePlan($0, decision: $1) },
@@ -259,21 +264,12 @@ struct FixPlanProducerTests {
             reason: "unit-test"
         )
     }
-}
 
-extension FixPlanProducer {
-    fileprivate func producePlan(
-        sourceRunID: RunID,
-        scope: ProcessingScopeSnapshot,
-        options: UpdateOptions
-    ) async throws -> FixPlanProduction {
-        try await producePlan(
-            sourceRunID: sourceRunID,
-            scope: scope,
-            configuration: FixPlanConfigurationSnapshot.capture(
-                options: options,
-                capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
-            )
+    private func configuration(_ options: UpdateOptions = UpdateOptions()) -> FixPlanConfig {
+        FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: options,
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
     }
 }

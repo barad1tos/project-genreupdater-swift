@@ -124,6 +124,7 @@ final class AppDependencies {
     private(set) var incrementalRunTracker: IncrementalRunTracker?
     @ObservationIgnored private(set) var previousIncrementalScopeTracks: [Track] = []
     private(set) var discogsCredentialIssue: DiscogsCredentialIssue?
+    @ObservationIgnored var trackCountSource: (@Sendable () async -> Int?)?
 
     // MARK: - Init
 
@@ -329,7 +330,7 @@ final class AppDependencies {
         )
         try await cache.initialize()
         cacheService = cache
-        librarySnapshotService = Self.makeLibrarySnapshotService(cache: cache, configuration: config)
+        librarySnapshotService = Self.makeSnapshotService(cache: cache, configuration: config)
         analyticsService = CachedAnalyticsService(
             cache: cache,
             configuration: config.analytics
@@ -353,7 +354,7 @@ final class AppDependencies {
         GRDBCacheService.resolvedAPIResultTTL(configuration: configuration)
     }
 
-    private static func makeYearDeterminator(configuration: AppConfiguration) -> YearDeterminator {
+    static func makeYearDeterminator(configuration: AppConfiguration) -> YearDeterminator {
         let yearRetrieval = configuration.yearRetrieval
         return YearDeterminator(
             scorer: YearScorer(
@@ -493,17 +494,34 @@ final class AppDependencies {
         syncService: LibrarySyncService,
         runRecordStore: any RunRecordStore
     ) -> RunOrchestrator {
-        RunOrchestrator(dependencies: RunOrchestrator.Dependencies(
+        let runtime = makeRunRuntime()
+        let synchronizePreview: (@Sendable (
+            ProcessingScopeSnapshot,
+            FixPlanConfig
+        ) async throws -> SyncResult)? = if let runtime {
+            { scope, configuration in
+                let syncService = await runtime.makeSync(
+                    configuration: configuration,
+                    scope: scope
+                )
+                return try await syncService.synchronizeNow()
+            }
+        } else {
+            nil
+        }
+
+        return RunOrchestrator(dependencies: RunOrchestrator.Dependencies(
             synchronizeLibrary: { [syncService] in
                 try await syncService.synchronizeNow()
             },
+            synchronizePreview: synchronizePreview,
             persistRunRecord: RunRecordSink.make(
                 store: runRecordStore,
                 // nil after container teardown: the sink skips pruning rather
                 // than deleting against a guessed default limit.
                 historyLimit: { [weak self] in await self?.runHistoryLimit() }
             ),
-            produceFixPlan: makePreviewProducer(),
+            produceFixPlan: makePreviewProducer(runtime: runtime),
             writeFixPlan: makeWriteRunner()
         ))
     }
@@ -542,7 +560,8 @@ final class AppDependencies {
             createdAt: now,
             reason: "fixPlanProjectionRefresh"
         )
-        let currentConfiguration = FixPlanConfigurationSnapshot.capture(
+        let currentConfiguration = FixPlanConfig.capture(
+            configuration: config,
             options: previewRunOptions(),
             capturedAt: now
         )
@@ -601,7 +620,7 @@ extension AppDependencies {
         }
         let snapshotService: (any LibrarySnapshotService)?
         if let cacheService {
-            let newSnapshotService = Self.makeLibrarySnapshotService(cache: cacheService, configuration: config)
+            let newSnapshotService = Self.makeSnapshotService(cache: cacheService, configuration: config)
             librarySnapshotService = newSnapshotService
             snapshotService = newSnapshotService
             analyticsService = CachedAnalyticsService(
@@ -648,7 +667,7 @@ extension AppDependencies {
         )
     }
 
-    private static func makeLibrarySnapshotService(
+    static func makeSnapshotService(
         cache: any CacheService,
         configuration: AppConfiguration
     ) -> CachedLibrarySnapshotService {
@@ -723,6 +742,10 @@ extension AppDependencies {
 
     func installTestOrchestrator(_ orchestrator: RunOrchestrator) {
         runOrchestrator = orchestrator
+    }
+
+    func installTrackCountSource(_ source: @escaping @Sendable () async -> Int?) {
+        trackCountSource = source
     }
 }
 #endif

@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import Services
 import Testing
@@ -16,8 +17,9 @@ private func makeStalenessTestScope(
     )
 }
 
-private func makeStalenessTestConfiguration(minConfidence: Int = 60) -> FixPlanConfigurationSnapshot {
-    FixPlanConfigurationSnapshot.capture(
+private func makeStalenessTestConfiguration(minConfidence: Int = 60) -> FixPlanConfig {
+    FixPlanConfig.capture(
+        configuration: AppConfiguration(),
         options: UpdateOptions(minConfidence: minConfidence),
         capturedAt: Date(timeIntervalSince1970: 100)
     )
@@ -25,7 +27,7 @@ private func makeStalenessTestConfiguration(minConfidence: Int = 60) -> FixPlanC
 
 private func makeStalenessTestPlan(
     scope: ProcessingScopeSnapshot,
-    configuration: FixPlanConfigurationSnapshot
+    configuration: FixPlanConfig
 ) -> FixPlan {
     FixPlan(
         id: FixPlanID(),

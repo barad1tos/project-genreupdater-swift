@@ -5,27 +5,36 @@ import OSLog
 public actor RunOrchestrator {
     public struct Dependencies: Sendable {
         public let synchronizeLibrary: @Sendable () async throws -> SyncResult
+        public let synchronizePreview: (@Sendable (
+            ProcessingScopeSnapshot,
+            FixPlanConfig
+        ) async throws -> SyncResult)?
         public let persistRunRecord: @Sendable (RunRecord) async throws -> Void
         public let produceFixPlan: (@Sendable (
             RunID,
             ProcessingScopeSnapshot,
-            FixPlanConfigurationSnapshot
+            FixPlanConfig
         ) async throws -> FixPlanProduction)?
         public let writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)?
         public let now: @Sendable () -> Date
 
         public init(
             synchronizeLibrary: @escaping @Sendable () async throws -> SyncResult,
+            synchronizePreview: (@Sendable (
+                ProcessingScopeSnapshot,
+                FixPlanConfig
+            ) async throws -> SyncResult)? = nil,
             persistRunRecord: @escaping @Sendable (RunRecord) async throws -> Void,
             produceFixPlan: (@Sendable (
                 RunID,
                 ProcessingScopeSnapshot,
-                FixPlanConfigurationSnapshot
+                FixPlanConfig
             ) async throws -> FixPlanProduction)? = nil,
             writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
             self.synchronizeLibrary = synchronizeLibrary
+            self.synchronizePreview = synchronizePreview
             self.persistRunRecord = persistRunRecord
             self.produceFixPlan = produceFixPlan
             self.writeFixPlan = writeFixPlan
@@ -192,7 +201,12 @@ public actor RunOrchestrator {
         from lifecycle: RunLifecycleSnapshot,
         request: RunRequest
     ) async throws -> RunWork {
-        let syncResult = try await dependencies.synchronizeLibrary()
+        let syncResult: SyncResult = if case let .previewFixes(configuration) = request.kind,
+                                        let synchronizePreview = dependencies.synchronizePreview {
+            try await synchronizePreview(lifecycle.scope, configuration)
+        } else {
+            try await dependencies.synchronizeLibrary()
+        }
         switch request.kind {
         case .observeLibrary:
             return RunWork(

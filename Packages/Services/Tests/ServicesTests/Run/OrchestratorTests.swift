@@ -715,8 +715,9 @@ private func ignoreRunRecord(_ record: RunRecord) async throws {
     _ = record
 }
 
-private func makePreviewConfiguration() -> FixPlanConfigurationSnapshot {
-    FixPlanConfigurationSnapshot.capture(
+private func makePreviewConfiguration() -> FixPlanConfig {
+    FixPlanConfig.capture(
+        configuration: AppConfiguration(),
         options: UpdateOptions(),
         capturedAt: Date(timeIntervalSince1970: 50)
     )

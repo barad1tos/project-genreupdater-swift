@@ -29,7 +29,16 @@ enum TriggerArbiter {
             let isCovered = candidateKeys.contains { key in
                 key.rank == strongestRank && key.covers(incomingKey)
             }
-            return isCovered ? .alreadyCovered(pending) : .queue(pending + [PendingTrigger(request: incoming)])
+            if isCovered {
+                return .alreadyCovered(pending)
+            }
+            if incomingKey.rank.intentPriority == IntentPriority.previewFixes {
+                let nonPreview = pending.filter {
+                    RequestKey(request: $0.request).rank.intentPriority != IntentPriority.previewFixes
+                }
+                return .queue(nonPreview + [PendingTrigger(request: incoming)])
+            }
+            return .queue(pending + [PendingTrigger(request: incoming)])
         }
 
         return .queue([PendingTrigger(request: incoming)])

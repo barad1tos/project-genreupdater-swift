@@ -202,7 +202,7 @@ public actor FixPlanDataStore: FixPlanStore {
             sourceRunID: RunID(rawValue: persisted.sourceRunID),
             createdAt: persisted.createdAt,
             configuration: decodeBlob(
-                FixPlanConfigurationSnapshot.self,
+                FixPlanConfig.self,
                 from: persisted.configSnapshotData,
                 field: "configuration",
                 planID: persisted.planID

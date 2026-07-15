@@ -159,7 +159,8 @@ extension AppDependencies {
 
     func submitPreviewRun() async throws -> RunSubmissionResult {
         let requestedTestArtists = config.development.testArtists
-        let configuration = FixPlanConfigurationSnapshot.capture(
+        let configuration = FixPlanConfig.capture(
+            configuration: config,
             options: previewRunOptions(),
             capturedAt: Date()
         )
@@ -302,6 +303,9 @@ extension AppDependencies {
     }
 
     private func currentKnownTrackCount() async -> Int? {
+        if let trackCountSource {
+            return await trackCountSource()
+        }
         guard let trackStore else { return nil }
 
         do {

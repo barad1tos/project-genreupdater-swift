@@ -15,7 +15,7 @@ public enum RunIntent: String, Codable, Equatable, Sendable {
 
 public enum RunRequestKind: Equatable, Sendable {
     case observeLibrary
-    case previewFixes(FixPlanConfigurationSnapshot)
+    case previewFixes(FixPlanConfig)
     case writeFixes(FixPlanWriteTarget)
 
     public var intent: RunIntent {
@@ -33,7 +33,7 @@ public enum RunRequestKind: Equatable, Sendable {
         }
     }
 
-    public var previewConfiguration: FixPlanConfigurationSnapshot? {
+    public var previewConfiguration: FixPlanConfig? {
         if case let .previewFixes(configuration) = self {
             configuration
         } else {
@@ -57,7 +57,7 @@ public struct RunRequest: Equatable, Sendable {
         kind.writeTarget
     }
 
-    public var previewConfiguration: FixPlanConfigurationSnapshot? {
+    public var previewConfiguration: FixPlanConfig? {
         kind.previewConfiguration
     }
 
@@ -93,7 +93,7 @@ public struct RunRequest: Equatable, Sendable {
     public static func preview(
         id: RunRequestID = RunRequestID(),
         trigger: RunTrigger,
-        configuration: FixPlanConfigurationSnapshot,
+        configuration: FixPlanConfig,
         requestedTestArtists: [String],
         knownTrackCount: Int?
     ) -> Self {
@@ -134,7 +134,7 @@ public struct RunRequest: Equatable, Sendable {
     }
 
     public static func manualPreview(
-        configuration: FixPlanConfigurationSnapshot,
+        configuration: FixPlanConfig,
         requestedTestArtists: [String],
         knownTrackCount: Int?
     ) -> Self {

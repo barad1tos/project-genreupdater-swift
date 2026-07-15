@@ -2,32 +2,42 @@ import Core
 import Foundation
 
 public struct FixPlanProducer: Sendable {
+    public struct Runtime: Sendable {
+        public let refreshIdentity: @Sendable ([Track], ProcessingScopeSnapshot) async throws -> Void
+        public let albumContext: @Sendable ([Track]) async -> [String: [Track]]
+        public let determineChanges: @Sendable (Track, [Track], [Track], UpdateOptions) async throws
+            -> [ProposedChange]
+
+        public init(
+            refreshIdentity: @escaping @Sendable ([Track], ProcessingScopeSnapshot) async throws -> Void,
+            albumContext: @escaping @Sendable ([Track]) async -> [String: [Track]],
+            determineChanges: @escaping @Sendable (
+                Track,
+                [Track],
+                [Track],
+                UpdateOptions
+            ) async throws -> [ProposedChange]
+        ) {
+            self.refreshIdentity = refreshIdentity
+            self.albumContext = albumContext
+            self.determineChanges = determineChanges
+        }
+    }
+
     public struct Dependencies: Sendable {
         public let loadTracks: @Sendable () async throws -> [Track]
-        public let refreshWriteIdentity: @Sendable ([Track], ProcessingScopeSnapshot) async throws -> Void
-        public let albumContextTracksByTrackID: @Sendable ([Track]) async -> [String: [Track]]
-        public let determineTrackChanges: @Sendable (Track, [Track], [Track], UpdateOptions) async throws
-            -> [ProposedChange]
+        public let makeRuntime: @Sendable (FixPlanConfig, ProcessingScopeSnapshot) async throws -> Runtime
         public let savePlan: @Sendable (FixPlan, FixPlanReviewDecision) async throws -> Void
         public let now: @Sendable () -> Date
 
         public init(
             loadTracks: @escaping @Sendable () async throws -> [Track],
-            refreshWriteIdentity: @escaping @Sendable ([Track], ProcessingScopeSnapshot) async throws -> Void,
-            albumContextTracksByTrackID: @escaping @Sendable ([Track]) async -> [String: [Track]],
-            determineTrackChanges: @escaping @Sendable (
-                Track,
-                [Track],
-                [Track],
-                UpdateOptions
-            ) async throws -> [ProposedChange],
+            makeRuntime: @escaping @Sendable (FixPlanConfig, ProcessingScopeSnapshot) async throws -> Runtime,
             savePlan: @escaping @Sendable (FixPlan, FixPlanReviewDecision) async throws -> Void,
             now: @escaping @Sendable () -> Date
         ) {
             self.loadTracks = loadTracks
-            self.refreshWriteIdentity = refreshWriteIdentity
-            self.albumContextTracksByTrackID = albumContextTracksByTrackID
-            self.determineTrackChanges = determineTrackChanges
+            self.makeRuntime = makeRuntime
             self.savePlan = savePlan
             self.now = now
         }
@@ -42,21 +52,22 @@ public struct FixPlanProducer: Sendable {
     public func producePlan(
         sourceRunID: RunID,
         scope: ProcessingScopeSnapshot,
-        configuration: FixPlanConfigurationSnapshot
+        configuration: FixPlanConfig
     ) async throws -> FixPlanProduction {
         let options = configuration.determinationOptions
         let tracks = try await dependencies.loadTracks()
         let scopedTracks = Self.scopedTracks(tracks, scope: scope)
         guard !scopedTracks.isEmpty else { return .empty }
-        try await dependencies.refreshWriteIdentity(scopedTracks, scope)
-        let albumTracksByTrackID = await dependencies.albumContextTracksByTrackID(scopedTracks)
+        let runtime = try await dependencies.makeRuntime(configuration, scope)
+        try await runtime.refreshIdentity(scopedTracks, scope)
+        let albumTracksByTrackID = await runtime.albumContext(scopedTracks)
         let artistGroups = Self.groupTracksByArtist(scopedTracks)
 
         var proposals: [ProposedChange] = []
         for track in scopedTracks {
             try Task.checkCancellation()
             do {
-                let changes = try await dependencies.determineTrackChanges(
+                let changes = try await runtime.determineChanges(
                     track,
                     albumTracksByTrackID[track.id] ?? [],
                     artistGroups[Self.artistKey(for: track)] ?? [],

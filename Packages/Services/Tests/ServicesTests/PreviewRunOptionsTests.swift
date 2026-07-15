@@ -34,7 +34,8 @@ struct PreviewRunOptionsTests {
 
     @Test("configuration snapshot never restores write authority")
     func snapshotDisablesWriteAuthority() {
-        let snapshot = FixPlanConfigurationSnapshot.capture(
+        let snapshot = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
             options: UpdateOptions(updateGenre: false, minConfidence: 73, autoAccept: true),
             capturedAt: Date(timeIntervalSince1970: 100)
         )
@@ -42,6 +43,25 @@ struct PreviewRunOptionsTests {
         #expect(snapshot.determinationOptions.updateGenre == false)
         #expect(snapshot.determinationOptions.minConfidence == 73)
         #expect(snapshot.determinationOptions.autoAccept == false)
+    }
+
+    @Test("legacy snapshots preserve their stored fingerprint")
+    func decodesLegacySnapshot() throws {
+        let snapshot = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(updateGenre: false, minConfidence: 73),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+        let encoded = try JSONEncoder().encode(snapshot)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "appConfiguration")
+        object["fingerprint"] = "legacy-fingerprint"
+
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(FixPlanConfig.self, from: legacyData)
+
+        #expect(decoded.fingerprint == "legacy-fingerprint")
+        #expect(decoded.minConfidence == 73)
     }
 
     @Test(
@@ -74,13 +94,61 @@ struct PreviewRunOptionsTests {
         let second = PreviewRunOptions.make(configuration: configuration, updateGenre: true, updateYear: false)
         let capturedAt = Date(timeIntervalSince1970: 100)
 
-        let firstFingerprint = FixPlanConfigurationSnapshot.capture(options: first, capturedAt: capturedAt).fingerprint
-        let secondFingerprint = FixPlanConfigurationSnapshot.capture(options: second, capturedAt: capturedAt)
-            .fingerprint
+        let firstFingerprint = FixPlanConfig.capture(
+            configuration: configuration,
+            options: first,
+            capturedAt: capturedAt
+        ).fingerprint
+        let secondFingerprint = FixPlanConfig.capture(
+            configuration: configuration,
+            options: second,
+            capturedAt: capturedAt
+        )
+        .fingerprint
 
         #expect(firstFingerprint == secondFingerprint)
-        #expect(firstFingerprint == """
-        genre=true:year=false:repair=false:forceYear=false:cleanTracks=false:cleanAlbums=false:minConfidence=85
-        """)
+        #expect(firstFingerprint.count == 64)
+    }
+
+    @Test("determination settings change configuration fingerprints")
+    func fingerprintsDeterminationSettings() {
+        var first = AppConfiguration()
+        var second = first
+        first.cleaning.genreMappings = ["Electronic": "Electronica"]
+        second.cleaning.genreMappings = ["Electronic": "IDM"]
+        let options = UpdateOptions()
+        let capturedAt = Date(timeIntervalSince1970: 100)
+
+        let firstFingerprint = FixPlanConfig.capture(
+            configuration: first,
+            options: options,
+            capturedAt: capturedAt
+        ).fingerprint
+        let secondFingerprint = FixPlanConfig.capture(
+            configuration: second,
+            options: options,
+            capturedAt: capturedAt
+        ).fingerprint
+
+        #expect(firstFingerprint != secondFingerprint)
+    }
+
+    @Test("populated configuration preserves its fingerprint through Codable")
+    func populatedConfigurationRoundTrips() throws {
+        var configuration = AppConfiguration()
+        configuration.cleaning.genreMappings = ["Electronic": "Electronica"]
+        configuration.processing.batchSize = 17
+        let snapshot = FixPlanConfig.capture(
+            configuration: configuration,
+            options: UpdateOptions(minConfidence: 73),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(FixPlanConfig.self, from: data)
+
+        #expect(decoded.fingerprint == snapshot.fingerprint)
+        #expect(decoded.appConfiguration.cleaning.genreMappings == ["Electronic": "Electronica"])
+        #expect(decoded.appConfiguration.processing.batchSize == 17)
     }
 }

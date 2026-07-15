@@ -239,7 +239,7 @@ struct PreviewTests {
 private struct PreviewProducerCall: Equatable {
     let runID: RunID
     let scope: ProcessingScopeSnapshot
-    let configuration: FixPlanConfigurationSnapshot
+    let configuration: FixPlanConfig
 }
 
 private actor PreviewProducerProbe {
@@ -254,7 +254,7 @@ private actor PreviewProducerProbe {
     func produce(
         runID: RunID,
         scope: ProcessingScopeSnapshot,
-        configuration: FixPlanConfigurationSnapshot
+        configuration: FixPlanConfig
     ) throws -> FixPlanProduction {
         calls.append(PreviewProducerCall(runID: runID, scope: scope, configuration: configuration))
         resumeContinuations()
@@ -370,8 +370,9 @@ private func ignorePreviewRecord(_ record: RunRecord) async throws {
     _ = record
 }
 
-private func previewConfiguration(_ options: UpdateOptions = UpdateOptions()) -> FixPlanConfigurationSnapshot {
-    FixPlanConfigurationSnapshot.capture(
+private func previewConfiguration(_ options: UpdateOptions = UpdateOptions()) -> FixPlanConfig {
+    FixPlanConfig.capture(
+        configuration: AppConfiguration(),
         options: options,
         capturedAt: Date(timeIntervalSince1970: 50)
     )

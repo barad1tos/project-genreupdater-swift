@@ -21,21 +21,26 @@ struct PreviewProducerTests {
         let producer = dependencies.makePreviewProducer(
             dependencies: FixPlanProducer.Dependencies(
                 loadTracks: { await probe.loadTracks() },
-                refreshWriteIdentity: { await probe.refreshWriteIdentity(for: $0, scope: $1) },
-                albumContextTracksByTrackID: { await probe.albumContextTracksByTrackID(for: $0) },
-                determineTrackChanges: {
-                    try await probe.determineTrackChanges(
-                        track: $0,
-                        albumTracks: $1,
-                        artistTracks: $2,
-                        options: $3
+                makeRuntime: { _, _ in
+                    FixPlanProducer.Runtime(
+                        refreshIdentity: { await probe.refreshWriteIdentity(for: $0, scope: $1) },
+                        albumContext: { await probe.albumContextTracksByTrackID(for: $0) },
+                        determineChanges: {
+                            try await probe.determineTrackChanges(
+                                track: $0,
+                                albumTracks: $1,
+                                artistTracks: $2,
+                                options: $3
+                            )
+                        }
                     )
                 },
                 savePlan: { await probe.savePlan($0, initialDecision: $1) },
                 now: { probe.producedAt }
             )
         )
-        let planConfiguration = FixPlanConfigurationSnapshot.capture(
+        let planConfiguration = FixPlanConfig.capture(
+            configuration: configuration,
             options: PreviewRunOptions.make(
                 configuration: configuration,
                 updateGenre: false,

@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import Testing
 @testable import Services
@@ -91,7 +92,7 @@ struct ArbiterTests {
         let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
         let request = RunRequest.preview(
             trigger: .manualCheck,
-            configuration: previewConfiguration(UpdateOptions(minConfidence: 75)),
+            configuration: previewConfig(UpdateOptions(minConfidence: 75)),
             requestedTestArtists: [],
             knownTrackCount: nil
         )
@@ -105,12 +106,70 @@ struct ArbiterTests {
         #expect(pending.map(\.request) == [request])
     }
 
+    @Test("newest preview replaces the pending preview")
+    func newestPreviewReplacesPending() {
+        let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
+        let older = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 70)),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+        let newest = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 80)),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let decision = TriggerArbiter.decide(
+            active: active,
+            pending: [PendingTrigger(request: older)],
+            incoming: newest
+        )
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected the latest preview to replace pending work, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [newest])
+    }
+
+    @Test("newest preview replaces a pending preview from another scope")
+    func newestPreviewReplacesDifferentScope() {
+        let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
+        let older = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 70)),
+            requestedTestArtists: ["Artist A"],
+            knownTrackCount: 75
+        )
+        let newest = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 80)),
+            requestedTestArtists: ["Artist B"],
+            knownTrackCount: 75
+        )
+
+        let decision = TriggerArbiter.decide(
+            active: active,
+            pending: [PendingTrigger(request: older)],
+            incoming: newest
+        )
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected the latest preview scope to replace pending work, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [newest])
+    }
+
     @Test("preview with the same fingerprint is covered")
     func sameFingerprintCovered() {
         let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
         let request = RunRequest.preview(
             trigger: .manualCheck,
-            configuration: previewConfiguration(),
+            configuration: previewConfig(),
             requestedTestArtists: [],
             knownTrackCount: nil
         )
@@ -249,6 +308,37 @@ struct ArbiterTests {
         #expect(pending.map(\.request) == [request])
     }
 
+    @Test("distinct write targets remain pending")
+    func writeTargetsRemainPending() {
+        let active = Self.lifecycle(
+            trigger: .manualCheck,
+            intent: .writeFixes,
+            writeTarget: Self.writeTarget("00000000-0000-0000-0000-000000000101")
+        )
+        let older = RunRequest.manualWrite(
+            target: Self.writeTarget("00000000-0000-0000-0000-000000000102"),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+        let newest = RunRequest.manualWrite(
+            target: Self.writeTarget("00000000-0000-0000-0000-000000000103"),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let decision = TriggerArbiter.decide(
+            active: active,
+            pending: [PendingTrigger(request: older)],
+            incoming: newest
+        )
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected both write targets to remain queued, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [older, newest])
+    }
+
     private static func request(
         trigger: RunTrigger,
         intent: RunIntent,
@@ -265,7 +355,7 @@ struct ArbiterTests {
         case .previewFixes:
             RunRequest.preview(
                 trigger: trigger,
-                configuration: previewConfiguration(),
+                configuration: previewConfig(),
                 requestedTestArtists: requestedTestArtists,
                 knownTrackCount: knownTrackCount
             )
@@ -298,7 +388,7 @@ struct ArbiterTests {
                 createdAt: startedAt,
                 reason: trigger.rawValue
             ),
-            previewConfiguration: intent == .previewFixes ? previewConfiguration() : nil,
+            previewConfiguration: intent == .previewFixes ? previewConfig() : nil,
             writeTarget: writeTarget,
             startedAt: startedAt,
             phase: .active(.syncingLibrary)
@@ -317,10 +407,11 @@ struct ArbiterTests {
     }
 }
 
-private func previewConfiguration(
+private func previewConfig(
     _ options: UpdateOptions = UpdateOptions()
-) -> FixPlanConfigurationSnapshot {
-    FixPlanConfigurationSnapshot.capture(
+) -> FixPlanConfig {
+    FixPlanConfig.capture(
+        configuration: AppConfiguration(),
         options: options,
         capturedAt: Date(timeIntervalSince1970: 50)
     )

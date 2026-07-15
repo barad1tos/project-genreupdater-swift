@@ -181,7 +181,8 @@ struct DependencyConfigTests {
                 // This test reads a stored fix plan without mutating app configuration.
             }
         )
-        let plan = try #require(makeStoredFixPlan(configuration: FixPlanConfigurationSnapshot.capture(
+        let plan = try #require(makeStoredFixPlan(configuration: FixPlanConfig.capture(
+            configuration: configuration,
             options: dependencies.previewRunOptions(),
             capturedAt: Date(timeIntervalSince1970: 1_800_000_100)
         )))
@@ -264,7 +265,7 @@ private actor StoredFixPlanStore: FixPlanStore {
     }
 }
 
-private func makeStoredFixPlan(configuration: FixPlanConfigurationSnapshot) -> FixPlan? {
+private func makeStoredFixPlan(configuration: FixPlanConfig) -> FixPlan? {
     let track = Track(
         id: "stored-track",
         name: "Stored Track",

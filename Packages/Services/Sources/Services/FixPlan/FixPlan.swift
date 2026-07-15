@@ -71,7 +71,7 @@ public struct FixPlan: Equatable, Sendable {
     /// Required — ADR 0017: every fix plan traces back to the run that produced it.
     public let sourceRunID: RunID
     public let createdAt: Date
-    public let configuration: FixPlanConfigurationSnapshot
+    public let configuration: FixPlanConfig
     public let scope: ProcessingScopeSnapshot
     public let items: [FixPlanItem]
 
@@ -80,7 +80,7 @@ public struct FixPlan: Equatable, Sendable {
         revision: FixPlanRevision,
         sourceRunID: RunID,
         createdAt: Date,
-        configuration: FixPlanConfigurationSnapshot,
+        configuration: FixPlanConfig,
         scope: ProcessingScopeSnapshot,
         items: [FixPlanItem]
     ) {

@@ -28,26 +28,30 @@ struct FixPlanIdentityTests {
         let capture = PlanCapture()
         let producer = FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
             loadTracks: { [musicKitTrack] },
-            refreshWriteIdentity: { tracks, _ in
-                _ = try await mapper.refreshMapping(
-                    musicKitTracks: tracks,
-                    appleScriptClient: bridge,
-                    batchSize: 50,
-                    allTrackIDsTimeout: .seconds(5),
-                    tracksByIDsTimeout: .seconds(5),
-                    mergeExisting: true
-                )
-            },
-            albumContextTracksByTrackID: {
-                await coordinator.albumContextTracksByTrackID(for: $0, requiresMutationMetadata: false)
-            },
-            determineTrackChanges: {
-                try await coordinator.updateTrack(
-                    $0,
-                    albumTracks: $1,
-                    artistTracks: $2,
-                    options: $3,
-                    dryRun: true
+            makeRuntime: { _, _ in
+                FixPlanProducer.Runtime(
+                    refreshIdentity: { tracks, _ in
+                        _ = try await mapper.refreshMapping(
+                            musicKitTracks: tracks,
+                            appleScriptClient: bridge,
+                            batchSize: 50,
+                            allTrackIDsTimeout: .seconds(5),
+                            tracksByIDsTimeout: .seconds(5),
+                            mergeExisting: true
+                        )
+                    },
+                    albumContext: {
+                        await coordinator.albumContextTracksByTrackID(for: $0, requiresMutationMetadata: false)
+                    },
+                    determineChanges: {
+                        try await coordinator.updateTrack(
+                            $0,
+                            albumTracks: $1,
+                            artistTracks: $2,
+                            options: $3,
+                            dryRun: true
+                        )
+                    }
                 )
             },
             savePlan: { plan, _ in await capture.save(plan) },
@@ -60,7 +64,8 @@ struct FixPlanIdentityTests {
             reason: "test"
         )
 
-        let configuration = FixPlanConfigurationSnapshot.capture(
+        let configuration = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
             options: UpdateOptions(updateGenre: false, updateYear: true),
             capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
