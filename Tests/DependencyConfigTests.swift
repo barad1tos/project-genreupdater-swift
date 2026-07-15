@@ -181,10 +181,8 @@ struct DependencyConfigTests {
                 // This test reads a stored fix plan without mutating app configuration.
             }
         )
-        let plan = try #require(makeStoredFixPlan(configuration: FixPlanConfig.capture(
-            configuration: configuration,
-            options: dependencies.previewRunOptions(),
-            capturedAt: Date(timeIntervalSince1970: 1_800_000_100)
+        let plan = try #require(makeStoredFixPlan(configuration: dependencies.capturePreviewConfig(
+            at: Date(timeIntervalSince1970: 1_800_000_100)
         )))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
         dependencies.configureLibraryPersistenceForTesting(

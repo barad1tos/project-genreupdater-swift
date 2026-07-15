@@ -280,12 +280,22 @@ public struct KeychainHelper: Sendable {
     /// - Parameters:
     ///   - service: The Keychain service identifier.
     ///   - account: The Keychain account identifier.
+    /// - Returns: `true` when at least one matching item was deleted.
     /// - Throws: `KeychainError.authenticationFailed` for local-authentication failures, or
     ///   `KeychainError.deleteFailed` for other unexpected Security framework errors.
+    @discardableResult
     public func delete(
         service: String,
         account: String
-    ) throws {
+    ) throws -> Bool {
+        try delete(service: service, account: account) {}
+    }
+
+    func delete(
+        service: String,
+        account: String,
+        onDelete: () -> Void
+    ) throws -> Bool {
         let protectedQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecUseDataProtectionKeychain as String: true,
@@ -295,6 +305,12 @@ public struct KeychainHelper: Sendable {
 
         let status = deleteItem(protectedQuery)
         let fallbackStatus = deleteItem(legacyQuery(service: service, account: account))
+        if status == errSecSuccess {
+            onDelete()
+        }
+        if fallbackStatus == errSecSuccess {
+            onDelete()
+        }
         let validStatuses = [errSecSuccess, errSecItemNotFound, errSecNotAvailable, errSecMissingEntitlement]
 
         if !validStatuses.contains(status) {
@@ -303,6 +319,7 @@ public struct KeychainHelper: Sendable {
         if !validStatuses.contains(fallbackStatus) {
             throw Self.error(for: .delete, status: fallbackStatus)
         }
+        return status == errSecSuccess || fallbackStatus == errSecSuccess
     }
 }
 

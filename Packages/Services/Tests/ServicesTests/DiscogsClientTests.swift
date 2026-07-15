@@ -2,6 +2,7 @@
 // Phase 4: API + Cache
 
 import Foundation
+import Security
 import Testing
 @testable import Core
 @testable import Services
@@ -10,6 +11,112 @@ import Testing
 
 @Suite("DiscogsClient — Discogs API JSON parsing and URL building")
 struct DiscogsClientTests {
+    @Test("Saving a credential advances its revision")
+    func saveAdvancesRevision() throws {
+        let (defaults, suite) = try credentialDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let initial = DiscogsClient.credentialRevision(defaults: defaults)
+        let keychain = InMemoryKeychainOperations()
+
+        _ = try DiscogsClient.saveToken(
+            "saved-token",
+            keychain: KeychainHelper(operationHooks: keychain.hooks),
+            defaults: defaults
+        )
+
+        #expect(DiscogsClient.credentialRevision(defaults: defaults) != initial)
+    }
+
+    @Test("Rejected credential save preserves its revision")
+    func failedSaveIsStable() throws {
+        let (defaults, suite) = try credentialDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let initial = DiscogsClient.credentialRevision(defaults: defaults)
+        let status = errSecUserCanceled
+        let hooks = KeychainOperationHooks(
+            addItem: { _ in status },
+            copyMatching: { _, _ in errSecItemNotFound },
+            deleteItem: { _ in errSecItemNotFound }
+        )
+
+        #expect(throws: KeychainError.authenticationFailed(status)) {
+            try DiscogsClient.saveToken(
+                "saved-token",
+                keychain: KeychainHelper(operationHooks: hooks),
+                defaults: defaults
+            )
+        }
+        #expect(DiscogsClient.credentialRevision(defaults: defaults) == initial)
+    }
+
+    @Test("Deleting a saved credential advances its revision")
+    func deleteAdvancesRevision() throws {
+        let (defaults, suite) = try credentialDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let keychain = InMemoryKeychainOperations()
+        keychain.seed(
+            token: "saved-token",
+            service: DiscogsClient.keychainService,
+            account: DiscogsClient.keychainAccount,
+            isAccessControlled: true
+        )
+        let initial = DiscogsClient.credentialRevision(defaults: defaults)
+
+        try DiscogsClient.deleteSavedToken(
+            keychain: KeychainHelper(operationHooks: keychain.hooks),
+            defaults: defaults
+        )
+        let advanced = DiscogsClient.credentialRevision(defaults: defaults)
+
+        #expect(advanced != initial)
+        #expect(DiscogsClient.credentialRevision(defaults: defaults) == advanced)
+    }
+
+    @Test("Rejected credential deletion preserves its revision")
+    func failedDeleteIsStable() throws {
+        let (defaults, suite) = try credentialDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let initial = DiscogsClient.credentialRevision(defaults: defaults)
+        let status = errSecUserCanceled
+        let hooks = KeychainOperationHooks(
+            addItem: { _ in errSecSuccess },
+            copyMatching: { _, _ in errSecItemNotFound },
+            deleteItem: { _ in status }
+        )
+
+        #expect(throws: KeychainError.authenticationFailed(status)) {
+            try DiscogsClient.deleteSavedToken(
+                keychain: KeychainHelper(operationHooks: hooks),
+                defaults: defaults
+            )
+        }
+        #expect(DiscogsClient.credentialRevision(defaults: defaults) == initial)
+    }
+
+    @Test("Partial credential deletion advances its revision", arguments: [
+        [errSecSuccess, errSecUserCanceled],
+        [errSecUserCanceled, errSecSuccess],
+    ])
+    func partialDeleteInvalidates(statuses: [OSStatus]) throws {
+        let (defaults, suite) = try credentialDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let initial = DiscogsClient.credentialRevision(defaults: defaults)
+        var remainingStatuses = statuses
+        let hooks = KeychainOperationHooks(
+            addItem: { _ in errSecSuccess },
+            copyMatching: { _, _ in errSecItemNotFound },
+            deleteItem: { _ in remainingStatuses.removeFirst() }
+        )
+
+        #expect(throws: KeychainError.authenticationFailed(errSecUserCanceled)) {
+            try DiscogsClient.deleteSavedToken(
+                keychain: KeychainHelper(operationHooks: hooks),
+                defaults: defaults
+            )
+        }
+        #expect(DiscogsClient.credentialRevision(defaults: defaults) != initial)
+    }
+
     // MARK: - JSON Parsing
 
     @Test("Parse search response with master release")
@@ -173,5 +280,10 @@ struct DiscogsClientTests {
         let userAgent = request.value(forHTTPHeaderField: "User-Agent")
         #expect(userAgent != nil)
         #expect(userAgent?.contains("GenreUpdater") == true)
+    }
+
+    private func credentialDefaults() throws -> (defaults: UserDefaults, suite: String) {
+        let suite = "DiscogsClientTests.credentialRevision.\(UUID().uuidString)"
+        return try (#require(UserDefaults(suiteName: suite)), suite)
     }
 }

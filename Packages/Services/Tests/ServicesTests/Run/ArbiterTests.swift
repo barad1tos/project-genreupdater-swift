@@ -106,6 +106,30 @@ struct ArbiterTests {
         #expect(pending.map(\.request) == [request])
     }
 
+    @Test("preview queues after the saved Discogs credential rotates")
+    func rotatedCredentialQueues() {
+        let activeConfiguration = previewConfig(discogsCredentialRevision: "revision-a")
+        let active = Self.lifecycle(
+            trigger: .manualCheck,
+            intent: .previewFixes,
+            previewConfiguration: activeConfiguration
+        )
+        let request = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(discogsCredentialRevision: "revision-b"),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let decision = TriggerArbiter.decide(active: active, pending: [], incoming: request)
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected rotated credential preview to queue, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [request])
+    }
+
     @Test("newest preview replaces the pending preview")
     func newestPreviewReplacesPending() {
         let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
@@ -412,7 +436,8 @@ struct ArbiterTests {
         intent: RunIntent,
         requestedTestArtists: [String] = [],
         knownTrackCount: Int? = nil,
-        writeTarget: FixPlanWriteTarget? = nil
+        writeTarget: FixPlanWriteTarget? = nil,
+        previewConfiguration: FixPlanConfig? = nil
     ) -> RunLifecycleSnapshot {
         let startedAt = Date(timeIntervalSince1970: 100)
         return RunLifecycleSnapshot(
@@ -426,7 +451,7 @@ struct ArbiterTests {
                 createdAt: startedAt,
                 reason: trigger.rawValue
             ),
-            previewConfiguration: intent == .previewFixes ? previewConfig() : nil,
+            previewConfiguration: intent == .previewFixes ? previewConfiguration ?? previewConfig() : nil,
             writeTarget: writeTarget,
             startedAt: startedAt,
             phase: .active(.syncingLibrary)
@@ -446,11 +471,13 @@ struct ArbiterTests {
 }
 
 private func previewConfig(
-    _ options: UpdateOptions = UpdateOptions()
+    _ options: UpdateOptions = UpdateOptions(),
+    discogsCredentialRevision: String = ""
 ) -> FixPlanConfig {
     FixPlanConfig.capture(
         configuration: AppConfiguration(),
         options: options,
-        capturedAt: Date(timeIntervalSince1970: 50)
+        capturedAt: Date(timeIntervalSince1970: 50),
+        discogsCredentialRevision: discogsCredentialRevision
     )
 }

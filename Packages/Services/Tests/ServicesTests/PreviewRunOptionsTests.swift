@@ -76,6 +76,7 @@ struct PreviewRunOptionsTests {
         let encoded = try JSONEncoder().encode(snapshot)
         var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         object.removeValue(forKey: "discogsReferenceDigest")
+        object.removeValue(forKey: "discogsCredentialRevision")
         let legacyConfiguration = try JSONEncoder().encode(configuration)
         object["appConfiguration"] = try JSONSerialization.jsonObject(with: legacyConfiguration)
 
@@ -227,6 +228,76 @@ struct PreviewRunOptionsTests {
         ])
     }
 
+    @Test("maintenance settings do not invalidate preview output")
+    func ignoresMaintenance() {
+        let first = AppConfiguration()
+        var second = first
+        second.caching.albumCacheSyncInterval += 60
+        second.caching.cleanupErrorRetryDelay += 60
+        second.caching.cleanupIntervalSeconds += 60
+        second.caching.librarySnapshot.compress.toggle()
+        second.caching.librarySnapshot.compressLevel += 1
+        second.processing.pendingVerificationIntervalDays += 1
+        second.pendingVerification.autoVerifyDays += 1
+
+        #expect(fingerprint(first) == fingerprint(second))
+    }
+
+    @Test("write settings do not invalidate preview output")
+    func ignoresWriteSettings() {
+        let first = AppConfiguration()
+        var second = first
+        second.processing.batchSize += 1
+        second.processing.delayBetweenBatches += 1
+        second.processing.adaptiveDelay.toggle()
+        second.processing.releaseYearRestoreThreshold += 1
+        second.applescript.timeouts.batchUpdate += .seconds(1)
+        second.experimental.batchUpdatesEnabled.toggle()
+        second.experimental.maxBatchSize += 1
+
+        #expect(fingerprint(first) == fingerprint(second))
+    }
+
+    @Test("preview cache and processing settings remain fingerprinted")
+    func tracksPreviewInputs() {
+        let first = AppConfiguration()
+        var second = first
+        second.caching.negativeResultTTL += 60
+        #expect(fingerprint(first) != fingerprint(second))
+
+        second = first
+        second.processing.skipPrerelease.toggle()
+        #expect(fingerprint(first) != fingerprint(second))
+
+        second = first
+        second.genreUpdate.overrideExisting.toggle()
+        #expect(fingerprint(first) != fingerprint(second))
+    }
+
+    @Test("AppleScript preview inputs remain fingerprinted")
+    func tracksAppleScriptInputs() {
+        let first = AppConfiguration()
+        var second = first
+        second.applescript.concurrency += 1
+        #expect(fingerprint(first) != fingerprint(second))
+
+        second = first
+        second.applescript.timeouts.fullLibraryFetch += .seconds(1)
+        #expect(fingerprint(first) != fingerprint(second))
+
+        second = first
+        second.applescript.rateLimit.requestsPerWindow += 1
+        #expect(fingerprint(first) != fingerprint(second))
+
+        second = first
+        second.applescript.retry.maxRetries += 1
+        #expect(fingerprint(first) != fingerprint(second))
+
+        second = first
+        second.applescript.batchProcessing.idsBatchSize += 1
+        #expect(fingerprint(first) != fingerprint(second))
+    }
+
     @Test("encoded snapshots redact authentication values")
     func redactsAuthValues() throws {
         var configuration = AppConfiguration()
@@ -235,7 +306,8 @@ struct PreviewRunOptionsTests {
         let snapshot = FixPlanConfig.capture(
             configuration: configuration,
             options: UpdateOptions(),
-            capturedAt: Date(timeIntervalSince1970: 100)
+            capturedAt: Date(timeIntervalSince1970: 100),
+            discogsCredentialRevision: "revision-a"
         )
 
         let data = try JSONEncoder().encode(snapshot)
@@ -252,7 +324,8 @@ struct PreviewRunOptionsTests {
         let contactChanged = FixPlanConfig.capture(
             configuration: configuration,
             options: UpdateOptions(),
-            capturedAt: Date(timeIntervalSince1970: 100)
+            capturedAt: Date(timeIntervalSince1970: 100),
+            discogsCredentialRevision: "revision-a"
         )
         #expect(contactChanged.fingerprint == snapshot.fingerprint)
 
@@ -260,9 +333,19 @@ struct PreviewRunOptionsTests {
         let changed = FixPlanConfig.capture(
             configuration: configuration,
             options: UpdateOptions(),
-            capturedAt: Date(timeIntervalSince1970: 100)
+            capturedAt: Date(timeIntervalSince1970: 100),
+            discogsCredentialRevision: "revision-a"
         )
         #expect(changed.fingerprint != snapshot.fingerprint)
+
+        configuration.yearRetrieval.apiAuth.discogsTokenReference = "literal-secret"
+        let rotated = FixPlanConfig.capture(
+            configuration: configuration,
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100),
+            discogsCredentialRevision: "revision-b"
+        )
+        #expect(rotated.fingerprint != snapshot.fingerprint)
     }
 
     @Test("populated configuration preserves its fingerprint through Codable")
@@ -282,5 +365,13 @@ struct PreviewRunOptionsTests {
         #expect(decoded.fingerprint == snapshot.fingerprint)
         #expect(decoded.appConfiguration.cleaning.genreMappings == ["Electronic": "Electronica"])
         #expect(decoded.appConfiguration.processing.batchSize == 17)
+    }
+
+    private func fingerprint(_ configuration: AppConfiguration) -> String {
+        FixPlanConfig.capture(
+            configuration: configuration,
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        ).fingerprint
     }
 }

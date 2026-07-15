@@ -17,6 +17,7 @@ public struct FixPlanConfig: Codable, Sendable {
     public let minConfidence: Int
 
     private let discogsReferenceDigest: String
+    private let discogsCredentialRevision: String
     private let fingerprintValue: String
 
     public var fingerprint: String {
@@ -27,7 +28,8 @@ public struct FixPlanConfig: Codable, Sendable {
         id: UUID = UUID(),
         capturedAt: Date,
         appConfiguration: AppConfiguration,
-        options: UpdateOptions
+        options: UpdateOptions,
+        discogsCredentialRevision: String = ""
     ) {
         self.id = id
         self.capturedAt = capturedAt
@@ -41,22 +43,26 @@ public struct FixPlanConfig: Codable, Sendable {
         minConfidence = options.minConfidence
         let discogsReferenceDigest = digestDiscogsReference(appConfiguration)
         self.discogsReferenceDigest = discogsReferenceDigest
+        self.discogsCredentialRevision = discogsCredentialRevision
         fingerprintValue = Self.makeFingerprint(
             configuration: appConfiguration,
             options: options,
-            discogsReferenceDigest: discogsReferenceDigest
+            discogsReferenceDigest: discogsReferenceDigest,
+            discogsCredentialRevision: discogsCredentialRevision
         )
     }
 
     public static func capture(
         configuration: AppConfiguration,
         options: UpdateOptions,
-        capturedAt: Date
+        capturedAt: Date,
+        discogsCredentialRevision: String = ""
     ) -> Self {
         Self(
             capturedAt: capturedAt,
             appConfiguration: configuration,
-            options: options
+            options: options,
+            discogsCredentialRevision: discogsCredentialRevision
         )
     }
 
@@ -77,12 +83,14 @@ public struct FixPlanConfig: Codable, Sendable {
     private static func makeFingerprint(
         configuration: AppConfiguration,
         options: UpdateOptions,
-        discogsReferenceDigest: String
+        discogsReferenceDigest: String,
+        discogsCredentialRevision: String
     ) -> String {
         let input = FingerprintInput(
             configuration: configuration,
             options: options,
-            discogsReferenceDigest: discogsReferenceDigest
+            discogsReferenceDigest: discogsReferenceDigest,
+            discogsCredentialRevision: discogsCredentialRevision
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -95,7 +103,8 @@ public struct FixPlanConfig: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, capturedAt, appConfiguration
         case updateGenre, updateYear, repairExistingGenreMismatches, forceYearLookup
-        case cleanTrackNames, cleanAlbumNames, minConfidence, discogsReferenceDigest, fingerprint
+        case cleanTrackNames, cleanAlbumNames, minConfidence
+        case discogsReferenceDigest, discogsCredentialRevision, fingerprint
     }
 
     public init(from decoder: any Decoder) throws {
@@ -114,6 +123,8 @@ public struct FixPlanConfig: Codable, Sendable {
             appConfiguration = configuration
             discogsReferenceDigest = try container.decodeIfPresent(String.self, forKey: .discogsReferenceDigest)
                 ?? digestDiscogsReference(configuration)
+            discogsCredentialRevision = try container
+                .decodeIfPresent(String.self, forKey: .discogsCredentialRevision) ?? ""
             fingerprintValue = Self.makeFingerprint(
                 configuration: configuration,
                 options: UpdateOptions(
@@ -126,11 +137,13 @@ public struct FixPlanConfig: Codable, Sendable {
                     minConfidence: minConfidence,
                     autoAccept: false
                 ),
-                discogsReferenceDigest: discogsReferenceDigest
+                discogsReferenceDigest: discogsReferenceDigest,
+                discogsCredentialRevision: discogsCredentialRevision
             )
         } else {
             appConfiguration = AppConfiguration()
             discogsReferenceDigest = digestDiscogsReference(appConfiguration)
+            discogsCredentialRevision = ""
             fingerprintValue = try container.decode(String.self, forKey: .fingerprint)
         }
     }
@@ -148,6 +161,7 @@ public struct FixPlanConfig: Codable, Sendable {
         try container.encode(cleanAlbumNames, forKey: .cleanAlbumNames)
         try container.encode(minConfidence, forKey: .minConfidence)
         try container.encode(discogsReferenceDigest, forKey: .discogsReferenceDigest)
+        try container.encode(discogsCredentialRevision, forKey: .discogsCredentialRevision)
         // Older readers consume this field; current readers recompute it when appConfiguration is present.
         try container.encode(fingerprint, forKey: .fingerprint)
     }
@@ -162,46 +176,44 @@ extension FixPlanConfig: Equatable {
 }
 
 /// Configuration that can affect preview output or whether its dependencies complete successfully.
-/// Keep this projection aligned with `AppConfiguration`. It deliberately excludes UI/diagnostic-only
-/// sections: pythonSettings, analytics, databaseVerification, reporting, logging, development, and
-/// non-library paths.
+/// Keep this projection aligned with preview reads and determination. It excludes UI/diagnostic settings,
+/// cache maintenance, write batching, automation schedules, and non-library paths.
 private struct FingerprintInput: Encodable {
     let options: Options
     let discogsReferenceDigest: String
+    let discogsCredentialRevision: String
     let runtime: Runtime
-    let appleScript: AppleScriptConfig
+    let appleScript: AppleScript
     let yearRetrieval: YearRetrievalConfig
-    let caching: CachingConfig
-    let processing: ProcessingConfig
+    let caching: Caching
+    let processing: Processing
     let cleaning: CleaningConfig
     let exceptions: ExceptionsConfig
     let artistRenamer: ArtistRenamerConfig
-    let genreUpdate: GenreUpdateConfig
+    let genre: Genre
     let albumTypeDetection: AlbumTypeDetectionConfig
-    let experimental: ExperimentalConfig
-    let pendingVerification: PendingVerificationConfig
     let musicLibraryPath: String
 
     init(
         configuration: AppConfiguration,
         options: UpdateOptions,
-        discogsReferenceDigest: String
+        discogsReferenceDigest: String,
+        discogsCredentialRevision: String
     ) {
         let configuration = redactedConfiguration(configuration)
         self.options = Options(options)
         self.discogsReferenceDigest = discogsReferenceDigest
+        self.discogsCredentialRevision = discogsCredentialRevision
         runtime = Runtime(configuration.runtime)
-        appleScript = configuration.applescript
+        appleScript = AppleScript(configuration.applescript)
         yearRetrieval = configuration.yearRetrieval
-        caching = configuration.caching
-        processing = configuration.processing
+        caching = Caching(configuration.caching)
+        processing = Processing(configuration.processing)
         cleaning = configuration.cleaning
         exceptions = configuration.exceptions
         artistRenamer = configuration.artistRenamer
-        genreUpdate = configuration.genreUpdate
+        genre = Genre(configuration.genreUpdate)
         albumTypeDetection = configuration.albumTypeDetection
-        experimental = configuration.experimental
-        pendingVerification = configuration.pendingVerification
         musicLibraryPath = configuration.paths.musicLibraryPath
     }
 
@@ -236,6 +248,92 @@ private struct FingerprintInput: Encodable {
             maxGenericEntries = runtime.maxGenericEntries
             maxRetries = runtime.maxRetries
             retryDelaySeconds = runtime.retryDelaySeconds
+        }
+    }
+
+    struct AppleScript: Encodable {
+        let concurrency: Int
+        let timeouts: Timeouts
+        let rateLimit: AppleScriptRateLimit
+        let retry: AppleScriptRetry
+        let batchProcessing: BatchProcessingConfig
+
+        init(_ configuration: AppleScriptConfig) {
+            concurrency = configuration.concurrency
+            timeouts = Timeouts(configuration.timeouts)
+            rateLimit = configuration.rateLimit
+            retry = configuration.retry
+            batchProcessing = configuration.batchProcessing
+        }
+
+        struct Timeouts: Encodable {
+            let defaultSeconds: Int
+            let fullLibraryFetchSeconds: Int
+            let singleArtistFetchSeconds: Int
+            let idsBatchFetchSeconds: Int
+
+            init(_ timeouts: AppleScriptTimeouts) {
+                defaultSeconds = Int(timeouts.defaultTimeout.timeInterval)
+                fullLibraryFetchSeconds = Int(timeouts.fullLibraryFetch.timeInterval)
+                singleArtistFetchSeconds = Int(timeouts.singleArtistFetch.timeInterval)
+                idsBatchFetchSeconds = Int(timeouts.idsBatchFetch.timeInterval)
+            }
+        }
+    }
+
+    struct Caching: Encodable {
+        let defaultTTLSeconds: Int
+        let negativeResultTTL: Double
+        let snapshot: Snapshot
+
+        init(_ caching: CachingConfig) {
+            defaultTTLSeconds = caching.defaultTTLSeconds
+            negativeResultTTL = caching.negativeResultTTL
+            snapshot = Snapshot(caching.librarySnapshot)
+        }
+
+        struct Snapshot: Encodable {
+            let enabled: Bool
+            let deltaEnabled: Bool
+            let cacheFile: String
+            let maxAgeHours: Int
+
+            init(_ snapshot: LibrarySnapshotConfig) {
+                enabled = snapshot.enabled
+                deltaEnabled = snapshot.deltaEnabled
+                cacheFile = snapshot.cacheFile
+                maxAgeHours = snapshot.maxAgeHours
+            }
+        }
+    }
+
+    struct Processing: Encodable {
+        let cacheTTLDays: Int
+        let skipPrerelease: Bool
+        let futureYearThreshold: Int
+        let prereleaseRecheckDays: Int
+        let prereleaseHandling: PrereleaseHandling
+        let minConfidenceToCache: Int
+        let suspiciousAlbumMinLen: Int
+        let suspiciousManyYears: Int
+
+        init(_ processing: ProcessingConfig) {
+            cacheTTLDays = processing.cacheTTLDays
+            skipPrerelease = processing.skipPrerelease
+            futureYearThreshold = processing.futureYearThreshold
+            prereleaseRecheckDays = processing.prereleaseRecheckDays
+            prereleaseHandling = processing.prereleaseHandling
+            minConfidenceToCache = processing.minConfidenceToCache
+            suspiciousAlbumMinLen = processing.suspiciousAlbumMinLen
+            suspiciousManyYears = processing.suspiciousManyYears
+        }
+    }
+
+    struct Genre: Encodable {
+        let overrideExisting: Bool
+
+        init(_ genre: GenreUpdateConfig) {
+            overrideExisting = genre.overrideExisting
         }
     }
 }

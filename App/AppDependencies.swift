@@ -567,11 +567,7 @@ final class AppDependencies {
             createdAt: now,
             reason: "fixPlanProjectionRefresh"
         )
-        let currentConfiguration = FixPlanConfig.capture(
-            configuration: config,
-            options: previewRunOptions(),
-            capturedAt: now
-        )
+        let currentConfiguration = capturePreviewConfig(at: now)
         return FixPlanProjector.makeProjection(
             plan: plan,
             decision: decision,

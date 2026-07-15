@@ -6,6 +6,15 @@ import Services
 private let previewProducerLog = Logger(subsystem: "com.genreupdater", category: "preview-producer")
 
 extension AppDependencies {
+    func capturePreviewConfig(at date: Date) -> FixPlanConfig {
+        FixPlanConfig.capture(
+            configuration: config,
+            options: previewRunOptions(),
+            capturedAt: date,
+            discogsCredentialRevision: DiscogsClient.credentialRevision
+        )
+    }
+
     func makePreviewProducer(runtime: RunRuntimeFactory?)
         -> (@Sendable (
             RunID,
