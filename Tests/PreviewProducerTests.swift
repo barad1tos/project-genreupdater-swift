@@ -16,7 +16,7 @@ struct PreviewProducerTests {
     @Test("run services use each submitted configuration")
     func usesSubmittedConfiguration() async throws {
         let probe = RunConfigProbe()
-        let factory = RunServiceFactory(
+        let services = RunServiceFactory(
             makeScripts: { configuration in
                 await probe.recordScriptConfig(configuration)
                 return PreviewScriptClient(tracks: [])
@@ -26,19 +26,134 @@ struct PreviewProducerTests {
                 return WorkflowPendingVerificationService(entries: [])
             }
         )
-        var first = AppConfiguration()
-        first.paths.musicLibraryPath = "/library/first"
-        first.processing.pendingVerificationIntervalDays = 7
-        var second = AppConfiguration()
-        second.paths.musicLibraryPath = "/library/second"
-        second.processing.pendingVerificationIntervalDays = 21
+        let runtime = try await makeRuntime(services: services)
+        let firstPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("run-config-first")
+            .path
+        let secondPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("run-config-second")
+            .path
+        let firstConfiguration = planConfiguration(path: firstPath, verificationDays: 7)
+        let secondConfiguration = planConfiguration(path: secondPath, verificationDays: 21)
 
-        _ = try await factory.make(configuration: first)
-        _ = try await factory.make(configuration: second)
+        _ = try await runtime.makeSync(
+            configuration: firstConfiguration,
+            scope: scope(artist: "First Artist")
+        )
+        _ = try await runtime.makePreview(
+            configuration: firstConfiguration,
+            scope: scope(artist: "First Artist")
+        )
+        _ = try await runtime.makeSync(
+            configuration: secondConfiguration,
+            scope: scope(artist: "Second Artist")
+        )
+        _ = try await runtime.makePreview(
+            configuration: secondConfiguration,
+            scope: scope(artist: "Second Artist")
+        )
 
         let snapshot = await probe.snapshot()
-        #expect(snapshot.libraryPaths == ["/library/first", "/library/second"])
+        #expect(snapshot.libraryPaths == [firstPath, secondPath])
         #expect(snapshot.verificationDays == [7, 21])
+        #expect(snapshot.testArtists == [["First Artist"], ["Second Artist"]])
+    }
+
+    @Test("run services rebuild when a configuration changes under the same ID")
+    func rebuildsChangedConfig() async throws {
+        let probe = RunConfigProbe()
+        let services = RunServiceFactory(
+            makeScripts: { configuration in
+                await probe.recordScriptConfig(configuration)
+                return PreviewScriptClient(tracks: [])
+            },
+            makePendingVerification: { _ in nil },
+            makeReadProvider: { configuration in
+                ScopedReadProvider(artists: configuration.development.testArtists)
+            }
+        )
+        var first = AppConfiguration()
+        let firstPath = FileManager.default.temporaryDirectory.appendingPathComponent("first").path
+        let secondPath = FileManager.default.temporaryDirectory.appendingPathComponent("second").path
+        first.paths.musicLibraryPath = firstPath
+        first.development.testArtists = ["First Artist"]
+        var second = first
+        second.paths.musicLibraryPath = secondPath
+        second.development.testArtists = ["Second Artist"]
+        let id = UUID()
+
+        let firstServices = try await services.prepare(id: id, configuration: first)
+        let secondServices = try await services.consume(id: id, configuration: second)
+
+        let snapshot = await probe.snapshot()
+        #expect(snapshot.libraryPaths == [firstPath, secondPath])
+        #expect(try await readArtists(firstServices) == ["First Artist"])
+        #expect(try await readArtists(secondServices) == ["Second Artist"])
+    }
+
+    @Test("discarded run services are rebuilt")
+    func rebuildsDiscardedRun() async throws {
+        let probe = RunConfigProbe()
+        let services = RunServiceFactory(
+            makeScripts: { configuration in
+                await probe.recordScriptConfig(configuration)
+                return PreviewScriptClient(tracks: [])
+            },
+            makePendingVerification: { _ in nil }
+        )
+        var configuration = AppConfiguration()
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("discarded-run").path
+        configuration.paths.musicLibraryPath = path
+        let id = UUID()
+
+        _ = try await services.prepare(id: id, configuration: configuration)
+        await services.discard(id: id)
+        _ = try await services.consume(id: id, configuration: configuration)
+
+        let snapshot = await probe.snapshot()
+        #expect(snapshot.libraryPaths == [path, path])
+    }
+
+    private func readArtists(_ services: RunServices) async throws -> [String] {
+        let provider = try #require(services.readProvider as? ScopedReadProvider)
+        return provider.artists
+    }
+
+    private func makeRuntime(services: RunServiceFactory) async throws -> RunRuntimeFactory {
+        let container = try ModelContainerFactory.createInMemory()
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let script = PreviewScriptClient(tracks: [])
+        return RunRuntimeFactory(
+            services: services,
+            store: TrackDataStore(modelContainer: container),
+            gate: FeatureGate(fixedTier: .pro),
+            cache: cache,
+            undo: UndoCoordinator(scriptBridge: script),
+            mapper: TrackIDMapper(),
+            reachability: nil,
+            reportDiscogsIssue: { _, _ in }
+        )
+    }
+
+    private func planConfiguration(path: String, verificationDays: Int) -> FixPlanConfig {
+        var configuration = AppConfiguration()
+        configuration.paths.musicLibraryPath = path
+        configuration.processing.pendingVerificationIntervalDays = verificationDays
+        return FixPlanConfig.capture(
+            configuration: configuration,
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: TimeInterval(verificationDays))
+        )
+    }
+
+    private func scope(artist: String) -> ProcessingScopeSnapshot {
+        ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [artist],
+            knownTrackCount: 1,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "test"
+        )
     }
 
     @Test("uses supplied options and saves a plan")
@@ -180,18 +295,32 @@ struct PreviewProducerTests {
 
 private actor RunConfigProbe {
     private var libraryPaths: [String] = []
+    private var testArtists: [[String]] = []
     private var verificationDays: [Int] = []
 
     func recordScriptConfig(_ configuration: AppConfiguration) {
         libraryPaths.append(configuration.paths.musicLibraryPath)
+        testArtists.append(configuration.development.testArtists)
     }
 
     func recordPendingConfig(_ configuration: AppConfiguration) {
         verificationDays.append(configuration.processing.pendingVerificationIntervalDays)
     }
 
-    func snapshot() -> (libraryPaths: [String], verificationDays: [Int]) {
-        (libraryPaths, verificationDays)
+    func snapshot() -> (libraryPaths: [String], testArtists: [[String]], verificationDays: [Int]) {
+        (libraryPaths, testArtists, verificationDays)
+    }
+}
+
+private actor ScopedReadProvider: LibraryReadProvider {
+    let artists: [String]
+
+    init(artists: [String]) {
+        self.artists = artists
+    }
+
+    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+        LibraryReadSnapshot(tracks: [], scannedAt: Date(timeIntervalSince1970: 100))
     }
 }
 

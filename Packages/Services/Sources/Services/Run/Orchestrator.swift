@@ -15,6 +15,7 @@ public actor RunOrchestrator {
             ProcessingScopeSnapshot,
             FixPlanConfig
         ) async throws -> FixPlanProduction)?
+        public let releasePreview: @Sendable (FixPlanConfig) async -> Void
         public let writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)?
         public let now: @Sendable () -> Date
 
@@ -30,6 +31,7 @@ public actor RunOrchestrator {
                 ProcessingScopeSnapshot,
                 FixPlanConfig
             ) async throws -> FixPlanProduction)? = nil,
+            releasePreview: @escaping @Sendable (FixPlanConfig) async -> Void = { _ in },
             writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
@@ -37,6 +39,7 @@ public actor RunOrchestrator {
             self.synchronizePreview = synchronizePreview
             self.persistRunRecord = persistRunRecord
             self.produceFixPlan = produceFixPlan
+            self.releasePreview = releasePreview
             self.writeFixPlan = writeFixPlan
             self.now = now
         }
@@ -164,6 +167,7 @@ public actor RunOrchestrator {
 
         do {
             let work = try await performRunWork(from: lifecycle, request: request)
+            await releasePreview(request)
             let reporting = beginReporting(from: work.reportingSource)
             let completed = reporting.finishing(
                 result: work.result,
@@ -184,9 +188,11 @@ public actor RunOrchestrator {
             }
             return .completed(completed)
         } catch is CancellationError {
+            await releasePreview(request)
             log.error("Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) cancelled")
             return await finishCancelledRun(from: activeRun ?? lifecycle, message: "Run cancelled")
         } catch {
+            await releasePreview(request)
             // Error descriptions stay private: sync/write errors can embed track or artist names.
             log.error("""
             Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) failed with \
@@ -195,6 +201,11 @@ public actor RunOrchestrator {
             """)
             return await finishFailedRun(from: activeRun ?? lifecycle, failureMessage: error.localizedDescription)
         }
+    }
+
+    private func releasePreview(_ request: RunRequest) async {
+        guard let configuration = request.previewConfiguration else { return }
+        await dependencies.releasePreview(configuration)
     }
 
     private func performRunWork(

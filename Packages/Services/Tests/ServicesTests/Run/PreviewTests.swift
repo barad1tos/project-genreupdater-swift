@@ -208,14 +208,17 @@ struct PreviewTests {
     @Test("preview run without a producer fails fast after sync")
     func previewWithoutProducerFails() async throws {
         let probe = PreviewRecordProbe()
+        let release = PreviewReleaseProbe()
+        let configuration = previewConfiguration()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
+            releasePreview: { await release.record($0) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
         let result = await orchestrator.submit(.manualPreview(
-            configuration: previewConfiguration(),
+            configuration: configuration,
             requestedTestArtists: [],
             knownTrackCount: nil
         ))
@@ -233,6 +236,7 @@ struct PreviewTests {
             .reporting,
             .failed,
         ])
+        #expect(await release.configurations == [configuration])
     }
 }
 
@@ -300,6 +304,14 @@ private actor PreviewRecordProbe {
 
     func append(_ record: RunRecord) throws {
         records.append(record)
+    }
+}
+
+private actor PreviewReleaseProbe {
+    private(set) var configurations: [FixPlanConfig] = []
+
+    func record(_ configuration: FixPlanConfig) {
+        configurations.append(configuration)
     }
 }
 

@@ -36,6 +36,7 @@ enum DiscogsCredentialIssue: Equatable {
 }
 
 struct APIClientFactoryOverrides {
+    typealias DiscogsIssueHandler = @MainActor (DiscogsCredentialIssue?) -> Void
     typealias KeychainDiscogsClientFactory = (
         _ contactEmail: String,
         _ rateLimiter: TokenBucketRateLimiter?,
@@ -51,7 +52,7 @@ struct APIClientFactoryOverrides {
     var keychainDiscogsClientFactory: KeychainDiscogsClientFactory
     var configuredDiscogsClientFactory: ConfiguredDiscogsClientFactory
     var keychainErrorHandler: (any Error) -> Void
-    var discogsCredentialIssueHandler: (DiscogsCredentialIssue?) -> Void
+    var discogsCredentialIssueHandler: DiscogsIssueHandler
 
     init(
         keychainDiscogsClientFactory: @escaping KeychainDiscogsClientFactory = Self.makeKeychainDiscogsClient,
@@ -61,7 +62,7 @@ struct APIClientFactoryOverrides {
                 "Failed to load Discogs token from Keychain: \(error.localizedDescription, privacy: .public)"
             )
         },
-        discogsCredentialIssueHandler: @escaping (DiscogsCredentialIssue?) -> Void = { _ in
+        discogsCredentialIssueHandler: @escaping DiscogsIssueHandler = { _ in
             // Default factory use has no UI state to update; callers that own state inject a handler.
         }
     ) {

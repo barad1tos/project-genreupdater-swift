@@ -126,6 +126,10 @@ final class AppDependencies {
     private(set) var discogsCredentialIssue: DiscogsCredentialIssue?
     @ObservationIgnored var trackCountSource: (@Sendable () async -> Int?)?
 
+    func setDiscogsIssue(_ issue: DiscogsCredentialIssue?) {
+        discogsCredentialIssue = issue
+    }
+
     // MARK: - Init
 
     init(
@@ -522,6 +526,9 @@ final class AppDependencies {
                 historyLimit: { [weak self] in await self?.runHistoryLimit() }
             ),
             produceFixPlan: makePreviewProducer(runtime: runtime),
+            releasePreview: { configuration in
+                await runtime?.discard(configuration)
+            },
             writeFixPlan: makeWriteRunner()
         ))
     }

@@ -5,15 +5,15 @@ import Services
 
 private let runRuntimeLog = Logger(subsystem: "com.genreupdater", category: "run-runtime")
 
-struct RunRuntimeFactory: Sendable {
+struct RunRuntimeFactory {
     let services: RunServiceFactory
     let store: TrackDataStore
     let gate: FeatureGate
     let cache: GRDBCacheService
     let undo: UndoCoordinator
     let mapper: TrackIDMapper
-    let readProvider: (any LibraryReadProvider)?
     let reachability: NetworkReachabilityMonitor?
+    let reportDiscogsIssue: @MainActor @Sendable (String, DiscogsCredentialIssue?) -> Void
 
     @MainActor
     func makeSync(
@@ -21,7 +21,7 @@ struct RunRuntimeFactory: Sendable {
         scope: ProcessingScopeSnapshot
     ) async throws -> LibrarySyncService {
         let appConfiguration = scopedConfiguration(configuration.appConfiguration, scope: scope)
-        let runServices = try await services.make(configuration: appConfiguration)
+        let runServices = try await services.prepare(id: configuration.id, configuration: appConfiguration)
         return LibrarySyncService(
             scriptBridge: runServices.scripts,
             trackStore: store,
@@ -33,7 +33,7 @@ struct RunRuntimeFactory: Sendable {
                 configuration: appConfiguration
             ),
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: appConfiguration),
-            readProvider: readProvider
+            readProvider: runServices.readProvider
         )
     }
 
@@ -43,16 +43,20 @@ struct RunRuntimeFactory: Sendable {
         scope: ProcessingScopeSnapshot
     ) async throws -> FixPlanProducer.Runtime {
         let appConfiguration = scopedConfiguration(configuration.appConfiguration, scope: scope)
-        let runServices = try await services.make(configuration: appConfiguration)
+        let runServices = try await services.consume(id: configuration.id, configuration: appConfiguration)
         let snapshotService = AppDependencies.makeSnapshotService(
             cache: cache,
             configuration: appConfiguration
         )
+        // The current preview owns the app-wide credential banner because it constructs the active API clients.
         let apiOrchestrator = AppDependencies.makeAPIOrchestrator(
             configuration: appConfiguration,
             cache: cache,
             pendingVerificationService: runServices.pendingVerification,
-            reachability: reachability
+            reachability: reachability,
+            factoryOverrides: APIClientFactoryOverrides(discogsCredentialIssueHandler: { issue in
+                reportDiscogsIssue(appConfiguration.yearRetrieval.apiAuth.discogsTokenReference, issue)
+            })
         )
         let coordinator = UpdateCoordinator(
             dependencies: UpdateCoordinatorDependencies(
@@ -94,6 +98,10 @@ struct RunRuntimeFactory: Sendable {
         )
     }
 
+    func discard(_ configuration: FixPlanConfig) async {
+        await services.discard(id: configuration.id)
+    }
+
     private func scopedConfiguration(
         _ configuration: AppConfiguration,
         scope: ProcessingScopeSnapshot
@@ -104,24 +112,7 @@ struct RunRuntimeFactory: Sendable {
     }
 }
 
-struct RunServices: Sendable {
-    let scripts: any AppleScriptClient
-    let pendingVerification: (any PendingVerificationService)?
-}
-
-struct RunServiceFactory: Sendable {
-    let makeScripts: @Sendable (AppConfiguration) async throws -> any AppleScriptClient
-    let makePendingVerification: @Sendable (AppConfiguration) async throws
-        -> (any PendingVerificationService)?
-
-    func make(configuration: AppConfiguration) async throws -> RunServices {
-        let scripts = try await makeScripts(configuration)
-        let pendingVerification = try await makePendingVerification(configuration)
-        return RunServices(scripts: scripts, pendingVerification: pendingVerification)
-    }
-}
-
-struct WriteIdentityRefresher: Sendable {
+struct WriteIdentityRefresher {
     let mapper: TrackIDMapper
     let client: any AppleScriptClient
 
@@ -179,6 +170,9 @@ extension AppDependencies {
                     )
                     try await pendingVerification.initialize()
                     return pendingVerification
+                },
+                makeReadProvider: { _ in
+                    MusicKitReadProvider(reader: MusicLibraryReader())
                 }
             ),
             store: store,
@@ -186,8 +180,12 @@ extension AppDependencies {
             cache: cache,
             undo: undo,
             mapper: mapper,
-            readProvider: libraryReadProvider,
-            reachability: networkReachabilityMonitor
+            reachability: networkReachabilityMonitor,
+            reportDiscogsIssue: { [weak self] reference, issue in
+                guard let self,
+                      self.config.yearRetrieval.apiAuth.discogsTokenReference == reference else { return }
+                self.setDiscogsIssue(issue)
+            }
         )
     }
 }
