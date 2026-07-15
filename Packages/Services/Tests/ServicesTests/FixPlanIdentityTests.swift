@@ -26,8 +26,44 @@ struct FixPlanIdentityTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let coordinator = makeCoordinator(mapper: mapper, bridge: bridge, directory: directory)
         let capture = PlanCapture()
-        let producer = FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
-            loadTracks: { [musicKitTrack] },
+        let producer = makeProducer(
+            track: musicKitTrack,
+            mapper: mapper,
+            bridge: bridge,
+            coordinator: coordinator,
+            capture: capture
+        )
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "test"
+        )
+        let configuration = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        _ = try await producer.producePlan(
+            sourceRunID: RunID(),
+            scope: scope,
+            configuration: configuration
+        )
+
+        let plan = try #require(await capture.plan())
+        #expect(plan.items.first?.identity.appleScriptID == "AS-1")
+    }
+
+    private func makeProducer(
+        track: Track,
+        mapper: TrackIDMapper,
+        bridge: MockAppleScriptClient,
+        coordinator: UpdateCoordinator,
+        capture: PlanCapture
+    ) -> FixPlanProducer {
+        FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
+            loadTracks: { [track] },
             makeRuntime: { _, _ in
                 FixPlanProducer.Runtime(
                     refreshIdentity: { tracks, _ in
@@ -57,26 +93,6 @@ struct FixPlanIdentityTests {
             savePlan: { plan, _ in await capture.save(plan) },
             now: { Date(timeIntervalSince1970: 1_700_000_000) }
         ))
-        let scope = ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: 1,
-            createdAt: Date(timeIntervalSince1970: 100),
-            reason: "test"
-        )
-
-        let configuration = FixPlanConfig.capture(
-            configuration: AppConfiguration(),
-            options: UpdateOptions(updateGenre: false, updateYear: true),
-            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
-        )
-        _ = try await producer.producePlan(
-            sourceRunID: RunID(),
-            scope: scope,
-            configuration: configuration
-        )
-
-        let plan = try #require(await capture.plan())
-        #expect(plan.items.first?.identity.appleScriptID == "AS-1")
     }
 
     private func makeCoordinator(

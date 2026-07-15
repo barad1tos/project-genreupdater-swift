@@ -400,13 +400,13 @@ struct FixPlanDataTests {
         return FixPlanConfig(
             capturedAt: Date(timeIntervalSince1970: 90),
             appConfiguration: appConfiguration,
-            updateGenre: true,
-            updateYear: false,
-            repairExistingGenreMismatches: true,
-            forceYearLookup: false,
-            cleanTrackNames: true,
-            cleanAlbumNames: false,
-            minConfidence: 80
+            options: UpdateOptions(
+                updateGenre: true,
+                updateYear: false,
+                repairExistingGenreMismatches: true,
+                cleanTrackNames: true,
+                minConfidence: 80
+            )
         )
     }
 

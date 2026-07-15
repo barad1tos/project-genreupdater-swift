@@ -25,36 +25,21 @@ public struct FixPlanConfig: Codable, Sendable {
         id: UUID = UUID(),
         capturedAt: Date,
         appConfiguration: AppConfiguration,
-        updateGenre: Bool,
-        updateYear: Bool,
-        repairExistingGenreMismatches: Bool,
-        forceYearLookup: Bool,
-        cleanTrackNames: Bool,
-        cleanAlbumNames: Bool,
-        minConfidence: Int
+        options: UpdateOptions
     ) {
         self.id = id
         self.capturedAt = capturedAt
         self.appConfiguration = appConfiguration
-        self.updateGenre = updateGenre
-        self.updateYear = updateYear
-        self.repairExistingGenreMismatches = repairExistingGenreMismatches
-        self.forceYearLookup = forceYearLookup
-        self.cleanTrackNames = cleanTrackNames
-        self.cleanAlbumNames = cleanAlbumNames
-        self.minConfidence = minConfidence
+        updateGenre = options.updateGenre
+        updateYear = options.updateYear
+        repairExistingGenreMismatches = options.repairExistingGenreMismatches
+        forceYearLookup = options.forceYearLookup
+        cleanTrackNames = options.cleanTrackNames
+        cleanAlbumNames = options.cleanAlbumNames
+        minConfidence = options.minConfidence
         fingerprintValue = Self.makeFingerprint(
             configuration: appConfiguration,
-            options: UpdateOptions(
-                updateGenre: updateGenre,
-                updateYear: updateYear,
-                repairExistingGenreMismatches: repairExistingGenreMismatches,
-                forceYearLookup: forceYearLookup,
-                cleanTrackNames: cleanTrackNames,
-                cleanAlbumNames: cleanAlbumNames,
-                minConfidence: minConfidence,
-                autoAccept: false
-            )
+            options: options
         )
     }
 
@@ -66,13 +51,7 @@ public struct FixPlanConfig: Codable, Sendable {
         Self(
             capturedAt: capturedAt,
             appConfiguration: configuration,
-            updateGenre: options.updateGenre,
-            updateYear: options.updateYear,
-            repairExistingGenreMismatches: options.repairExistingGenreMismatches,
-            forceYearLookup: options.forceYearLookup,
-            cleanTrackNames: options.cleanTrackNames,
-            cleanAlbumNames: options.cleanAlbumNames,
-            minConfidence: options.minConfidence
+            options: options
         )
     }
 

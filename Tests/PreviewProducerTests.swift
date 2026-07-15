@@ -7,6 +7,40 @@ import Testing
 @Suite("Preview producer")
 @MainActor
 struct PreviewProducerTests {
+    private typealias Producer = @Sendable (
+        RunID,
+        ProcessingScopeSnapshot,
+        FixPlanConfig
+    ) async throws -> FixPlanProduction
+
+    @Test("run services use each submitted configuration")
+    func usesSubmittedConfiguration() async throws {
+        let probe = RunConfigProbe()
+        let factory = RunServiceFactory(
+            makeScripts: { configuration in
+                await probe.recordScriptConfig(configuration)
+                return PreviewScriptClient(tracks: [])
+            },
+            makePendingVerification: { configuration in
+                await probe.recordPendingConfig(configuration)
+                return WorkflowPendingVerificationService(entries: [])
+            }
+        )
+        var first = AppConfiguration()
+        first.paths.musicLibraryPath = "/library/first"
+        first.processing.pendingVerificationIntervalDays = 7
+        var second = AppConfiguration()
+        second.paths.musicLibraryPath = "/library/second"
+        second.processing.pendingVerificationIntervalDays = 21
+
+        _ = try await factory.make(configuration: first)
+        _ = try await factory.make(configuration: second)
+
+        let snapshot = await probe.snapshot()
+        #expect(snapshot.libraryPaths == ["/library/first", "/library/second"])
+        #expect(snapshot.verificationDays == [7, 21])
+    }
+
     @Test("uses supplied options and saves a plan")
     func savesPlan() async throws {
         var configuration = AppConfiguration()
@@ -18,27 +52,7 @@ struct PreviewProducerTests {
             }
         )
         let probe = PreviewProducerProbe()
-        let producer = dependencies.makePreviewProducer(
-            dependencies: FixPlanProducer.Dependencies(
-                loadTracks: { await probe.loadTracks() },
-                makeRuntime: { _, _ in
-                    FixPlanProducer.Runtime(
-                        refreshIdentity: { await probe.refreshWriteIdentity(for: $0, scope: $1) },
-                        albumContext: { await probe.albumContextTracksByTrackID(for: $0) },
-                        determineChanges: {
-                            try await probe.determineTrackChanges(
-                                track: $0,
-                                albumTracks: $1,
-                                artistTracks: $2,
-                                options: $3
-                            )
-                        }
-                    )
-                },
-                savePlan: { await probe.savePlan($0, initialDecision: $1) },
-                now: { probe.producedAt }
-            )
-        )
+        let producer = makeProducer(dependencies: dependencies, probe: probe)
         let planConfiguration = FixPlanConfig.capture(
             configuration: configuration,
             options: PreviewRunOptions.make(
@@ -78,6 +92,31 @@ struct PreviewProducerTests {
         #expect(snapshot.savedPlan?.configuration.minConfidence == 73)
         #expect(snapshot.savedDecision?.planID == snapshot.savedPlan?.id)
         #expect(snapshot.savedDecision?.planRevision == snapshot.savedPlan?.revision)
+    }
+
+    private func makeProducer(
+        dependencies: AppDependencies,
+        probe: PreviewProducerProbe
+    ) -> Producer {
+        dependencies.makePreviewProducer(dependencies: FixPlanProducer.Dependencies(
+            loadTracks: { await probe.loadTracks() },
+            makeRuntime: { _, _ in
+                FixPlanProducer.Runtime(
+                    refreshIdentity: { await probe.refreshWriteIdentity(for: $0, scope: $1) },
+                    albumContext: { await probe.albumContextTracksByTrackID(for: $0) },
+                    determineChanges: {
+                        try await probe.determineTrackChanges(
+                            track: $0,
+                            albumTracks: $1,
+                            artistTracks: $2,
+                            options: $3
+                        )
+                    }
+                )
+            },
+            savePlan: { await probe.savePlan($0, initialDecision: $1) },
+            now: { probe.producedAt }
+        ))
     }
 
     @Test("write identity refresh forwards test artist scope")
@@ -136,6 +175,23 @@ struct PreviewProducerTests {
         #expect(await script.trackTimeouts() == [.seconds(7)])
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-OLD") == "AS-OLD")
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-NEW") == "AS-NEW")
+    }
+}
+
+private actor RunConfigProbe {
+    private var libraryPaths: [String] = []
+    private var verificationDays: [Int] = []
+
+    func recordScriptConfig(_ configuration: AppConfiguration) {
+        libraryPaths.append(configuration.paths.musicLibraryPath)
+    }
+
+    func recordPendingConfig(_ configuration: AppConfiguration) {
+        verificationDays.append(configuration.processing.pendingVerificationIntervalDays)
+    }
+
+    func snapshot() -> (libraryPaths: [String], verificationDays: [Int]) {
+        (libraryPaths, verificationDays)
     }
 }
 

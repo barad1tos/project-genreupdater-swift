@@ -27,7 +27,7 @@ extension AppDependencies {
         return makePreviewProducer(dependencies: FixPlanProducer.Dependencies(
             loadTracks: { try await trackStore.loadAllTracks() },
             makeRuntime: { configuration, scope in
-                await runtime.makePreview(configuration: configuration, scope: scope)
+                try await runtime.makePreview(configuration: configuration, scope: scope)
             },
             savePlan: { try await fixPlanStore.savePlan($0, initialDecision: $1) },
             now: { Date() }
@@ -65,7 +65,8 @@ extension AppDependencies {
 
     private func missingPreviewInputs() -> [String] {
         [
-            applescriptBridge == nil ? "applescriptBridge" : nil,
+            scriptInstaller == nil ? "scriptInstaller" : nil,
+            modelContainer == nil ? "modelContainer" : nil,
             featureGate == nil ? "featureGate" : nil,
             cacheService == nil ? "cacheService" : nil,
             undoCoordinator == nil ? "undoCoordinator" : nil,

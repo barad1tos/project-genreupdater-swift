@@ -6,13 +6,12 @@ import Services
 private let runRuntimeLog = Logger(subsystem: "com.genreupdater", category: "run-runtime")
 
 struct RunRuntimeFactory: Sendable {
-    let bridge: AppleScriptBridge
+    let services: RunServiceFactory
     let store: TrackDataStore
     let gate: FeatureGate
     let cache: GRDBCacheService
     let undo: UndoCoordinator
     let mapper: TrackIDMapper
-    let pendingVerification: (any PendingVerificationService)?
     let readProvider: (any LibraryReadProvider)?
     let reachability: NetworkReachabilityMonitor?
 
@@ -20,14 +19,15 @@ struct RunRuntimeFactory: Sendable {
     func makeSync(
         configuration: FixPlanConfig,
         scope: ProcessingScopeSnapshot
-    ) -> LibrarySyncService {
+    ) async throws -> LibrarySyncService {
         let appConfiguration = scopedConfiguration(configuration.appConfiguration, scope: scope)
+        let runServices = try await services.make(configuration: appConfiguration)
         return LibrarySyncService(
-            scriptBridge: bridge,
+            scriptBridge: runServices.scripts,
             trackStore: store,
             featureGate: gate,
             cache: cache,
-            pendingVerificationService: pendingVerification,
+            pendingVerificationService: runServices.pendingVerification,
             librarySnapshotService: AppDependencies.makeSnapshotService(
                 cache: cache,
                 configuration: appConfiguration
@@ -41,8 +41,9 @@ struct RunRuntimeFactory: Sendable {
     func makePreview(
         configuration: FixPlanConfig,
         scope: ProcessingScopeSnapshot
-    ) -> FixPlanProducer.Runtime {
+    ) async throws -> FixPlanProducer.Runtime {
         let appConfiguration = scopedConfiguration(configuration.appConfiguration, scope: scope)
+        let runServices = try await services.make(configuration: appConfiguration)
         let snapshotService = AppDependencies.makeSnapshotService(
             cache: cache,
             configuration: appConfiguration
@@ -50,25 +51,25 @@ struct RunRuntimeFactory: Sendable {
         let apiOrchestrator = AppDependencies.makeAPIOrchestrator(
             configuration: appConfiguration,
             cache: cache,
-            pendingVerificationService: pendingVerification,
+            pendingVerificationService: runServices.pendingVerification,
             reachability: reachability
         )
         let coordinator = UpdateCoordinator(
             dependencies: UpdateCoordinatorDependencies(
                 apiOrchestrator: apiOrchestrator,
-                scriptBridge: bridge,
+                scriptBridge: runServices.scripts,
                 trackStore: store,
                 cache: cache,
                 undoCoordinator: undo,
                 idMapper: mapper,
                 librarySnapshotService: snapshotService,
-                pendingVerificationService: pendingVerification
+                pendingVerificationService: runServices.pendingVerification
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: AppDependencies.makeYearDeterminator(configuration: appConfiguration),
             runtimeConfiguration: UpdateRuntimeConfiguration(configuration: appConfiguration)
         )
-        let identity = WriteIdentityRefresher(mapper: mapper, client: bridge)
+        let identity = WriteIdentityRefresher(mapper: mapper, client: runServices.scripts)
 
         return FixPlanProducer.Runtime(
             refreshIdentity: { tracks, currentScope in
@@ -103,6 +104,23 @@ struct RunRuntimeFactory: Sendable {
     }
 }
 
+struct RunServices: Sendable {
+    let scripts: any AppleScriptClient
+    let pendingVerification: (any PendingVerificationService)?
+}
+
+struct RunServiceFactory: Sendable {
+    let makeScripts: @Sendable (AppConfiguration) async throws -> any AppleScriptClient
+    let makePendingVerification: @Sendable (AppConfiguration) async throws
+        -> (any PendingVerificationService)?
+
+    func make(configuration: AppConfiguration) async throws -> RunServices {
+        let scripts = try await makeScripts(configuration)
+        let pendingVerification = try await makePendingVerification(configuration)
+        return RunServices(scripts: scripts, pendingVerification: pendingVerification)
+    }
+}
+
 struct WriteIdentityRefresher: Sendable {
     let mapper: TrackIDMapper
     let client: any AppleScriptClient
@@ -132,7 +150,8 @@ struct WriteIdentityRefresher: Sendable {
 
 extension AppDependencies {
     func makeRunRuntime() -> RunRuntimeFactory? {
-        guard let bridge = applescriptBridge,
+        guard let installer = scriptInstaller,
+              let container = modelContainer,
               let store = trackStore,
               let gate = featureGate,
               let cache = cacheService,
@@ -143,13 +162,30 @@ extension AppDependencies {
         }
 
         return RunRuntimeFactory(
-            bridge: bridge,
+            services: RunServiceFactory(
+                makeScripts: { configuration in
+                    let bridge = AppleScriptBridge(
+                        installer: installer,
+                        config: configuration.applescript,
+                        libraryPath: configuration.paths.musicLibraryPath
+                    )
+                    try await bridge.initialize()
+                    return bridge
+                },
+                makePendingVerification: { configuration in
+                    let pendingVerification = PendingVerificationStore(
+                        modelContainer: container,
+                        configuration: configuration
+                    )
+                    try await pendingVerification.initialize()
+                    return pendingVerification
+                }
+            ),
             store: store,
             gate: gate,
             cache: cache,
             undo: undo,
             mapper: mapper,
-            pendingVerification: pendingVerificationService,
             readProvider: libraryReadProvider,
             reachability: networkReachabilityMonitor
         )

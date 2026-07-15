@@ -500,7 +500,7 @@ final class AppDependencies {
             FixPlanConfig
         ) async throws -> SyncResult)? = if let runtime {
             { scope, configuration in
-                let syncService = await runtime.makeSync(
+                let syncService = try await runtime.makeSync(
                     configuration: configuration,
                     scope: scope
                 )

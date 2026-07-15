@@ -308,7 +308,7 @@ struct APIOrchestratorTests {
     }
 
     @Test("Successful source result is written to cache")
-    func successfulSourceResultIsWrittenToCache() async {
+    func cachesSuccessfulResult() async {
         let cache = MockCacheService()
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(
@@ -317,7 +317,9 @@ struct APIOrchestratorTests {
             discogs: MockAPIService(),
             appleMusic: MockAPIService(),
             cache: cache
-        )
+        ) {
+            $0.candidateResultTTL = 86400
+        }
 
         _ = await orchestrator.getAlbumYear(
             artist: "Metallica",
@@ -332,6 +334,7 @@ struct APIOrchestratorTests {
             source: "musicbrainz"
         )
         #expect(cached?.year == 1986)
+        #expect(cached?.ttl == 86400)
         #expect(cached?.metadata["confidence"] == "77")
     }
 

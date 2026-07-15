@@ -13,7 +13,9 @@ struct PreviewSubmissionTests {
         let probe = SubmissionProbe()
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { _ in }
+            configurationSaver: { _ in
+                // This test keeps configuration in memory.
+            }
         )
         dependencies.config.yearRetrieval.logic.minConfidenceForNewYear = 42
         dependencies.config.cleaning.genreMappings = ["Electronic": "Electronica"]
@@ -28,7 +30,9 @@ struct PreviewSubmissionTests {
                 await probe.recordSync(scope: scope, configuration: configuration)
                 return SyncResult()
             },
-            persistRunRecord: { _ in },
+            persistRunRecord: { _ in
+                // Persistence is outside the submission contract under test.
+            },
             produceFixPlan: { _, scope, configuration in
                 await probe.record(scope: scope, configuration: configuration)
                 return .empty

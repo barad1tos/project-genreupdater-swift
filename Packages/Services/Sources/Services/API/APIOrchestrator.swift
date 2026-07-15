@@ -393,7 +393,8 @@ public actor APIOrchestrator {
     ) async -> [SourceFetchResult] {
         let cacheContext = SourceCacheContext(
             cache: cache,
-            negativeResultTTL: negativeResultTTL
+            negativeResultTTL: negativeResultTTL,
+            candidateResultTTL: candidateResultTTL
         )
 
         return await withTaskGroup(
@@ -523,7 +524,7 @@ public actor APIOrchestrator {
                 year: year,
                 source: source.rawValue,
                 timestamp: .now,
-                ttl: nil,
+                ttl: cacheContext.candidateResultTTL,
                 metadata: [
                     "confidence": String(result.confidence),
                     "rawScore": String(result.rawScore),
@@ -696,6 +697,7 @@ private struct SourceQuery {
 private struct SourceCacheContext {
     let cache: (any CacheService)?
     let negativeResultTTL: TimeInterval
+    let candidateResultTTL: TimeInterval?
 }
 
 private struct SourceFetchResult {
