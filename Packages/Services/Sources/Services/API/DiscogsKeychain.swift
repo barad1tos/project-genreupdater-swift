@@ -108,7 +108,7 @@ extension DiscogsClient {
         }
     }
 
-    private static func deleteStoredTokens(keychain: KeychainHelper, onDelete: () -> Void) throws {
+    private static func deleteStoredTokens(keychain: KeychainHelper, onDelete: @escaping () -> Void) throws {
         _ = try keychain.delete(
             service: keychainService,
             account: keychainAccount,

@@ -15,7 +15,7 @@ public actor RunOrchestrator {
             ProcessingScopeSnapshot,
             FixPlanConfig
         ) async throws -> FixPlanProduction)?
-        public let releasePreview: @Sendable (FixPlanConfig) async -> Void
+        public let releasePreview: (@Sendable (FixPlanConfig) async -> Void)?
         public let writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)?
         public let now: @Sendable () -> Date
 
@@ -31,7 +31,7 @@ public actor RunOrchestrator {
                 ProcessingScopeSnapshot,
                 FixPlanConfig
             ) async throws -> FixPlanProduction)? = nil,
-            releasePreview: @escaping @Sendable (FixPlanConfig) async -> Void = { _ in },
+            releasePreview: (@Sendable (FixPlanConfig) async -> Void)? = nil,
             writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
@@ -204,8 +204,9 @@ public actor RunOrchestrator {
     }
 
     private func releasePreview(_ request: RunRequest) async {
-        guard let configuration = request.previewConfiguration else { return }
-        await dependencies.releasePreview(configuration)
+        guard let configuration = request.previewConfiguration,
+              let releasePreview = dependencies.releasePreview else { return }
+        await releasePreview(configuration)
     }
 
     private func performRunWork(

@@ -132,7 +132,9 @@ struct PreviewProducerTests {
             undo: UndoCoordinator(scriptBridge: script),
             mapper: TrackIDMapper(),
             reachability: nil,
-            reportDiscogsIssue: { _, _ in }
+            reportDiscogsIssue: { _, _ in
+                // This fixture verifies run-service configuration and owns no credential UI state.
+            }
         )
     }
 

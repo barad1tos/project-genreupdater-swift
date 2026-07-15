@@ -288,13 +288,13 @@ public struct KeychainHelper: Sendable {
         service: String,
         account: String
     ) throws -> Bool {
-        try delete(service: service, account: account) {}
+        try delete(service: service, account: account, onDelete: nil)
     }
 
     func delete(
         service: String,
         account: String,
-        onDelete: () -> Void
+        onDelete: (() -> Void)?
     ) throws -> Bool {
         let protectedQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -306,10 +306,10 @@ public struct KeychainHelper: Sendable {
         let status = deleteItem(protectedQuery)
         let fallbackStatus = deleteItem(legacyQuery(service: service, account: account))
         if status == errSecSuccess {
-            onDelete()
+            onDelete?()
         }
         if fallbackStatus == errSecSuccess {
-            onDelete()
+            onDelete?()
         }
         let validStatuses = [errSecSuccess, errSecItemNotFound, errSecNotAvailable, errSecMissingEntitlement]
 
