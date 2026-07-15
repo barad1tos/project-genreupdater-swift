@@ -6,6 +6,7 @@ import Foundation
 public struct FixPlanConfig: Codable, Sendable {
     public let id: UUID
     public let capturedAt: Date
+    /// Captured runtime settings. Decoded snapshots redact auth references and must not construct API clients.
     public let appConfiguration: AppConfiguration
     public let updateGenre: Bool
     public let updateYear: Bool
@@ -15,6 +16,7 @@ public struct FixPlanConfig: Codable, Sendable {
     public let cleanAlbumNames: Bool
     public let minConfidence: Int
 
+    private let discogsReferenceDigest: String
     private let fingerprintValue: String
 
     public var fingerprint: String {
@@ -37,9 +39,12 @@ public struct FixPlanConfig: Codable, Sendable {
         cleanTrackNames = options.cleanTrackNames
         cleanAlbumNames = options.cleanAlbumNames
         minConfidence = options.minConfidence
+        let discogsReferenceDigest = digestDiscogsReference(appConfiguration)
+        self.discogsReferenceDigest = discogsReferenceDigest
         fingerprintValue = Self.makeFingerprint(
             configuration: appConfiguration,
-            options: options
+            options: options,
+            discogsReferenceDigest: discogsReferenceDigest
         )
     }
 
@@ -71,9 +76,14 @@ public struct FixPlanConfig: Codable, Sendable {
 
     private static func makeFingerprint(
         configuration: AppConfiguration,
-        options: UpdateOptions
+        options: UpdateOptions,
+        discogsReferenceDigest: String
     ) -> String {
-        let input = FingerprintInput(configuration: configuration, options: options)
+        let input = FingerprintInput(
+            configuration: configuration,
+            options: options,
+            discogsReferenceDigest: discogsReferenceDigest
+        )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(input) else {
@@ -85,7 +95,7 @@ public struct FixPlanConfig: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, capturedAt, appConfiguration
         case updateGenre, updateYear, repairExistingGenreMismatches, forceYearLookup
-        case cleanTrackNames, cleanAlbumNames, minConfidence, fingerprint
+        case cleanTrackNames, cleanAlbumNames, minConfidence, discogsReferenceDigest, fingerprint
     }
 
     public init(from decoder: any Decoder) throws {
@@ -102,6 +112,8 @@ public struct FixPlanConfig: Codable, Sendable {
 
         if let configuration = try container.decodeIfPresent(AppConfiguration.self, forKey: .appConfiguration) {
             appConfiguration = configuration
+            discogsReferenceDigest = try container.decodeIfPresent(String.self, forKey: .discogsReferenceDigest)
+                ?? digestDiscogsReference(configuration)
             fingerprintValue = Self.makeFingerprint(
                 configuration: configuration,
                 options: UpdateOptions(
@@ -113,10 +125,12 @@ public struct FixPlanConfig: Codable, Sendable {
                     cleanAlbumNames: cleanAlbumNames,
                     minConfidence: minConfidence,
                     autoAccept: false
-                )
+                ),
+                discogsReferenceDigest: discogsReferenceDigest
             )
         } else {
             appConfiguration = AppConfiguration()
+            discogsReferenceDigest = digestDiscogsReference(appConfiguration)
             fingerprintValue = try container.decode(String.self, forKey: .fingerprint)
         }
     }
@@ -125,7 +139,7 @@ public struct FixPlanConfig: Codable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(capturedAt, forKey: .capturedAt)
-        try container.encode(appConfiguration, forKey: .appConfiguration)
+        try container.encode(redactedConfiguration(appConfiguration), forKey: .appConfiguration)
         try container.encode(updateGenre, forKey: .updateGenre)
         try container.encode(updateYear, forKey: .updateYear)
         try container.encode(repairExistingGenreMismatches, forKey: .repairExistingGenreMismatches)
@@ -133,6 +147,7 @@ public struct FixPlanConfig: Codable, Sendable {
         try container.encode(cleanTrackNames, forKey: .cleanTrackNames)
         try container.encode(cleanAlbumNames, forKey: .cleanAlbumNames)
         try container.encode(minConfidence, forKey: .minConfidence)
+        try container.encode(discogsReferenceDigest, forKey: .discogsReferenceDigest)
         // Older readers consume this field; current readers recompute it when appConfiguration is present.
         try container.encode(fingerprint, forKey: .fingerprint)
     }
@@ -152,7 +167,8 @@ extension FixPlanConfig: Equatable {
 /// non-library paths.
 private struct FingerprintInput: Encodable {
     let options: Options
-    let runtime: RuntimeConfig
+    let discogsReferenceDigest: String
+    let runtime: Runtime
     let appleScript: AppleScriptConfig
     let yearRetrieval: YearRetrievalConfig
     let caching: CachingConfig
@@ -166,9 +182,15 @@ private struct FingerprintInput: Encodable {
     let pendingVerification: PendingVerificationConfig
     let musicLibraryPath: String
 
-    init(configuration: AppConfiguration, options: UpdateOptions) {
+    init(
+        configuration: AppConfiguration,
+        options: UpdateOptions,
+        discogsReferenceDigest: String
+    ) {
+        let configuration = redactedConfiguration(configuration)
         self.options = Options(options)
-        runtime = configuration.runtime
+        self.discogsReferenceDigest = discogsReferenceDigest
+        runtime = Runtime(configuration.runtime)
         appleScript = configuration.applescript
         yearRetrieval = configuration.yearRetrieval
         caching = configuration.caching
@@ -202,4 +224,31 @@ private struct FingerprintInput: Encodable {
             minConfidence = options.minConfidence
         }
     }
+
+    struct Runtime: Encodable {
+        let cacheTTLSeconds: Int
+        let maxGenericEntries: Int
+        let maxRetries: Int
+        let retryDelaySeconds: Double
+
+        init(_ runtime: RuntimeConfig) {
+            cacheTTLSeconds = runtime.cacheTTLSeconds
+            maxGenericEntries = runtime.maxGenericEntries
+            maxRetries = runtime.maxRetries
+            retryDelaySeconds = runtime.retryDelaySeconds
+        }
+    }
+}
+
+private func digestDiscogsReference(_ configuration: AppConfiguration) -> String {
+    let reference = configuration.yearRetrieval.apiAuth.discogsTokenReference
+    return SHA256.hash(data: Data(reference.utf8)).map { String(format: "%02x", $0) }.joined()
+}
+
+private func redactedConfiguration(_ configuration: AppConfiguration) -> AppConfiguration {
+    var redacted = configuration
+    redacted.yearRetrieval.apiAuth.discogsTokenReference = ""
+    // Contact email identifies API requests but cannot change preview output, so it stays outside the fingerprint.
+    redacted.yearRetrieval.apiAuth.contactEmailReference = ""
+    return redacted
 }

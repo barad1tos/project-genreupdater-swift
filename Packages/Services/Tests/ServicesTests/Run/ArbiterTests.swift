@@ -136,7 +136,7 @@ struct ArbiterTests {
     }
 
     @Test("newest preview replaces a pending preview from another scope")
-    func newestPreviewReplacesDifferentScope() {
+    func latestPreviewWins() {
         let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
         let older = RunRequest.preview(
             trigger: .manualCheck,
@@ -162,6 +162,44 @@ struct ArbiterTests {
             return
         }
         #expect(pending.map(\.request) == [newest])
+    }
+
+    @Test("active preview clears a stale pending preview when resubmitted")
+    func dropsStalePreviews() {
+        let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
+        let firstStale = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 70)),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+        let secondStale = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 80)),
+            requestedTestArtists: ["Other Artist"],
+            knownTrackCount: nil
+        )
+        guard let activeConfiguration = active.previewConfiguration else {
+            Issue.record("Expected active preview configuration")
+            return
+        }
+        let incoming = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: activeConfiguration,
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let decision = TriggerArbiter.decide(
+            active: active,
+            pending: [PendingTrigger(request: firstStale), PendingTrigger(request: secondStale)],
+            incoming: incoming
+        )
+
+        guard case .alreadyCovered([]) = decision else {
+            Issue.record("Expected the active preview to clear stale pending work, got \(decision)")
+            return
+        }
     }
 
     @Test("preview with the same fingerprint is covered")

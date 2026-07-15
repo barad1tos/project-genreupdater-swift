@@ -26,10 +26,23 @@ enum TriggerArbiter {
         }
 
         if incomingKey.rank == strongestRank {
-            let isCovered = candidateKeys.contains { key in
+            let isCoveredByActive = activeKey.rank == strongestRank && activeKey.covers(incomingKey)
+            if isCoveredByActive {
+                guard incomingKey.rank.intentPriority == IntentPriority.previewFixes else {
+                    return .alreadyCovered(pending)
+                }
+                // Incoming is the newest preview intent. If active already covers it, every older pending preview is
+                // stale.
+                let nonPreview = pending.filter {
+                    RequestKey(request: $0.request).rank.intentPriority != IntentPriority.previewFixes
+                }
+                return .alreadyCovered(nonPreview)
+            }
+
+            let isCoveredByPending = pendingKeys.contains { key in
                 key.rank == strongestRank && key.covers(incomingKey)
             }
-            if isCovered {
+            if isCoveredByPending {
                 return .alreadyCovered(pending)
             }
             if incomingKey.rank.intentPriority == IntentPriority.previewFixes {

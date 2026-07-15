@@ -144,7 +144,7 @@ struct FixPlanTests {
     }
 
     @Test("configuration snapshot uses a stable SHA-256 fingerprint")
-    func configurationSnapshotUsesStableFingerprint() {
+    func fingerprintIsStable() {
         let options = UpdateOptions(
             updateGenre: true,
             updateYear: false,

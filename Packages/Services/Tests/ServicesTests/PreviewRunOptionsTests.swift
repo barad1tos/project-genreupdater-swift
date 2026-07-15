@@ -33,7 +33,7 @@ struct PreviewRunOptionsTests {
     }
 
     @Test("configuration snapshot never restores write authority")
-    func snapshotDisablesWriteAuthority() {
+    func staysReadOnly() {
         let snapshot = FixPlanConfig.capture(
             configuration: AppConfiguration(),
             options: UpdateOptions(updateGenre: false, minConfidence: 73, autoAccept: true),
@@ -61,6 +61,28 @@ struct PreviewRunOptionsTests {
         let decoded = try JSONDecoder().decode(FixPlanConfig.self, from: legacyData)
 
         #expect(decoded.fingerprint == "legacy-fingerprint")
+        #expect(decoded.minConfidence == 73)
+    }
+
+    @Test("snapshots without a Discogs reference digest use the configuration fallback")
+    func decodesLegacyDigest() throws {
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.apiAuth.discogsTokenReference = "legacy-token"
+        let snapshot = FixPlanConfig.capture(
+            configuration: configuration,
+            options: UpdateOptions(updateGenre: false, minConfidence: 73),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+        let encoded = try JSONEncoder().encode(snapshot)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "discogsReferenceDigest")
+        let legacyConfiguration = try JSONEncoder().encode(configuration)
+        object["appConfiguration"] = try JSONSerialization.jsonObject(with: legacyConfiguration)
+
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(FixPlanConfig.self, from: legacyData)
+
+        #expect(decoded.fingerprint == snapshot.fingerprint)
         #expect(decoded.minConfidence == 73)
     }
 
@@ -111,7 +133,7 @@ struct PreviewRunOptionsTests {
     }
 
     @Test("determination settings change configuration fingerprints")
-    func fingerprintsDeterminationSettings() {
+    func settingsShapeFingerprint() {
         var first = AppConfiguration()
         var second = first
         first.cleaning.genreMappings = ["Electronic": "Electronica"]
@@ -133,8 +155,118 @@ struct PreviewRunOptionsTests {
         #expect(firstFingerprint != secondFingerprint)
     }
 
+    @Test("scheduling settings do not change fingerprints, cache and retries do")
+    func distinguishesRuntimeInputs() {
+        let first = AppConfiguration()
+        var second = first
+        second.runtime.dryRun.toggle()
+        second.runtime.incrementalIntervalMinutes += 10
+        let options = UpdateOptions()
+        let capturedAt = Date(timeIntervalSince1970: 100)
+
+        let firstFingerprint = FixPlanConfig.capture(
+            configuration: first,
+            options: options,
+            capturedAt: capturedAt
+        ).fingerprint
+        let schedulingFingerprint = FixPlanConfig.capture(
+            configuration: second,
+            options: options,
+            capturedAt: capturedAt
+        ).fingerprint
+        #expect(schedulingFingerprint == firstFingerprint)
+
+        second.runtime.cacheTTLSeconds += 60
+        let cacheFingerprint = FixPlanConfig.capture(
+            configuration: second,
+            options: options,
+            capturedAt: capturedAt
+        ).fingerprint
+        #expect(cacheFingerprint != firstFingerprint)
+
+        second = first
+        second.runtime.maxGenericEntries += 1000
+        let capacityFingerprint = FixPlanConfig.capture(
+            configuration: second,
+            options: options,
+            capturedAt: capturedAt
+        ).fingerprint
+        #expect(capacityFingerprint != firstFingerprint)
+
+        second = first
+        second.runtime.maxRetries += 1
+        let retryFingerprint = FixPlanConfig.capture(
+            configuration: second,
+            options: options,
+            capturedAt: capturedAt
+        ).fingerprint
+        #expect(retryFingerprint != firstFingerprint)
+
+        second = first
+        second.runtime.retryDelaySeconds += 1
+        let delayFingerprint = FixPlanConfig.capture(
+            configuration: second,
+            options: options,
+            capturedAt: capturedAt
+        ).fingerprint
+        #expect(delayFingerprint != firstFingerprint)
+    }
+
+    @Test("runtime fingerprint projection reviews every runtime setting")
+    func pinsRuntimeShape() throws {
+        let data = try JSONEncoder().encode(RuntimeConfig())
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect(Set(object.keys) == [
+            "cacheTTLSeconds",
+            "dryRun",
+            "incrementalIntervalMinutes",
+            "maxGenericEntries",
+            "maxRetries",
+            "retryDelaySeconds",
+        ])
+    }
+
+    @Test("encoded snapshots redact authentication values")
+    func redactsAuthValues() throws {
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.apiAuth.discogsTokenReference = "literal-secret"
+        configuration.yearRetrieval.apiAuth.contactEmailReference = "private-contact"
+        let snapshot = FixPlanConfig.capture(
+            configuration: configuration,
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let data = try JSONEncoder().encode(snapshot)
+        let encoded = try #require(String(data: data, encoding: .utf8))
+        let decoded = try JSONDecoder().decode(FixPlanConfig.self, from: data)
+
+        #expect(!encoded.contains("literal-secret"))
+        #expect(!encoded.contains("private-contact"))
+        #expect(decoded.appConfiguration.yearRetrieval.apiAuth.discogsTokenReference.isEmpty)
+        #expect(decoded.appConfiguration.yearRetrieval.apiAuth.contactEmailReference.isEmpty)
+        #expect(decoded.fingerprint == snapshot.fingerprint)
+
+        configuration.yearRetrieval.apiAuth.contactEmailReference = "different-contact"
+        let contactChanged = FixPlanConfig.capture(
+            configuration: configuration,
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+        #expect(contactChanged.fingerprint == snapshot.fingerprint)
+
+        configuration.yearRetrieval.apiAuth.discogsTokenReference = "different-secret"
+        let changed = FixPlanConfig.capture(
+            configuration: configuration,
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+        #expect(changed.fingerprint != snapshot.fingerprint)
+    }
+
     @Test("populated configuration preserves its fingerprint through Codable")
-    func populatedConfigurationRoundTrips() throws {
+    func configurationRoundTrips() throws {
         var configuration = AppConfiguration()
         configuration.cleaning.genreMappings = ["Electronic": "Electronica"]
         configuration.processing.batchSize = 17
