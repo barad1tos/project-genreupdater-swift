@@ -6,14 +6,22 @@ public actor RunOrchestrator {
     public struct Dependencies: Sendable {
         public let synchronizeLibrary: @Sendable () async throws -> SyncResult
         public let persistRunRecord: @Sendable (RunRecord) async throws -> Void
-        public let produceFixPlan: (@Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction)?
+        public let produceFixPlan: (@Sendable (
+            RunID,
+            ProcessingScopeSnapshot,
+            FixPlanConfigurationSnapshot
+        ) async throws -> FixPlanProduction)?
         public let writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)?
         public let now: @Sendable () -> Date
 
         public init(
             synchronizeLibrary: @escaping @Sendable () async throws -> SyncResult,
             persistRunRecord: @escaping @Sendable (RunRecord) async throws -> Void,
-            produceFixPlan: (@Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction)? = nil,
+            produceFixPlan: (@Sendable (
+                RunID,
+                ProcessingScopeSnapshot,
+                FixPlanConfigurationSnapshot
+            ) async throws -> FixPlanProduction)? = nil,
             writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
@@ -192,12 +200,12 @@ public actor RunOrchestrator {
                 result: syncResult,
                 hasActionableWork: syncResult.hasChanges
             )
-        case .previewFixes:
+        case let .previewFixes(configuration):
             guard let produceFixPlan = dependencies.produceFixPlan else {
                 throw RunWorkError.missingFixPlanProducer
             }
             let planning = beginFixPlanning(from: lifecycle)
-            let production = try await produceFixPlan(planning.runID, planning.scope)
+            let production = try await produceFixPlan(planning.runID, planning.scope, configuration)
             return RunWork(
                 reportingSource: planning,
                 result: syncResult,
@@ -363,6 +371,7 @@ public actor RunOrchestrator {
             trigger: request.trigger,
             intent: request.intent,
             scope: scope,
+            previewConfiguration: request.previewConfiguration,
             writeTarget: request.writeTarget,
             startedAt: startedAt,
             phase: .active(.created)

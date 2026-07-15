@@ -60,10 +60,14 @@ struct FixPlanIdentityTests {
             reason: "test"
         )
 
+        let configuration = FixPlanConfigurationSnapshot.capture(
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
         _ = try await producer.producePlan(
             sourceRunID: RunID(),
             scope: scope,
-            options: UpdateOptions(updateGenre: false, updateYear: true)
+            configuration: configuration
         )
 
         let plan = try #require(await capture.plan())

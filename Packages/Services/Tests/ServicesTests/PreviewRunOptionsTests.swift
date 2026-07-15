@@ -32,6 +32,18 @@ struct PreviewRunOptionsTests {
         #expect(options.autoAccept == false)
     }
 
+    @Test("configuration snapshot never restores write authority")
+    func snapshotDisablesWriteAuthority() {
+        let snapshot = FixPlanConfigurationSnapshot.capture(
+            options: UpdateOptions(updateGenre: false, minConfidence: 73, autoAccept: true),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        #expect(snapshot.determinationOptions.updateGenre == false)
+        #expect(snapshot.determinationOptions.minConfidence == 73)
+        #expect(snapshot.determinationOptions.autoAccept == false)
+    }
+
     @Test(
         "min confidence matches MainView clamp semantics",
         arguments: [

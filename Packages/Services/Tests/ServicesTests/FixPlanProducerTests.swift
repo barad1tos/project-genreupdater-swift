@@ -165,6 +165,10 @@ struct FixPlanProducerTests {
         let second = track("B")
         let currentScope = scope(requestedTestArtists: [], knownTrackCount: 2)
         let options = UpdateOptions(updateGenre: true, updateYear: false, minConfidence: 60)
+        let configuration = FixPlanConfigurationSnapshot.capture(
+            options: options,
+            capturedAt: producedAt
+        )
         let firstProposal = proposal(for: first, confidence: 95)
         let secondProposal = proposal(for: second, confidence: 96)
         let spy = FixPlanProducerSpy(
@@ -178,17 +182,14 @@ struct FixPlanProducerTests {
         let production = try await makeProducer(spy).producePlan(
             sourceRunID: sourceRunID,
             scope: currentScope,
-            options: options
+            configuration: configuration
         )
 
         let saved = try #require(await spy.savedPlans().first)
         #expect(production.planID == saved.plan.id)
         #expect(saved.plan.sourceRunID == sourceRunID)
         #expect(saved.plan.scope == currentScope)
-        #expect(saved.plan.configuration.capturedAt == producedAt)
-        #expect(saved.plan.configuration.fingerprint == FixPlanConfigurationSnapshot
-            .capture(options: options, capturedAt: producedAt)
-            .fingerprint)
+        #expect(saved.plan.configuration == configuration)
         #expect(saved.plan.items.map(\.id) == [firstProposal.id, secondProposal.id])
         #expect(saved.decision.planID == saved.plan.id)
         #expect(saved.decision.planRevision == .initial)
@@ -256,6 +257,23 @@ struct FixPlanProducerTests {
             knownTrackCount: knownTrackCount,
             createdAt: Date(timeIntervalSince1970: 100),
             reason: "unit-test"
+        )
+    }
+}
+
+extension FixPlanProducer {
+    fileprivate func producePlan(
+        sourceRunID: RunID,
+        scope: ProcessingScopeSnapshot,
+        options: UpdateOptions
+    ) async throws -> FixPlanProduction {
+        try await producePlan(
+            sourceRunID: sourceRunID,
+            scope: scope,
+            configuration: FixPlanConfigurationSnapshot.capture(
+                options: options,
+                capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            )
         )
     }
 }

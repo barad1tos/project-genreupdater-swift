@@ -1,7 +1,7 @@
 import Foundation
 
 /// Immutable snapshot of the determination-shaping `UpdateOptions` knobs at the
-/// moment a fix plan was proposed (ADR 0017).
+/// moment the preview run was submitted (ADR 0017).
 ///
 /// Deliberately excludes `autoAccept`: that knob governs write authority, not
 /// change determination (ADR 0001).
@@ -59,6 +59,20 @@ public struct FixPlanConfigurationSnapshot: Codable, Equatable, Sendable {
             cleanTracks=\(options.cleanTrackNames):cleanAlbums=\(options.cleanAlbumNames):\
             minConfidence=\(options.minConfidence)
             """
+        )
+    }
+
+    /// Recreates determination inputs; write authority remains disabled.
+    public var determinationOptions: UpdateOptions {
+        UpdateOptions(
+            updateGenre: updateGenre,
+            updateYear: updateYear,
+            repairExistingGenreMismatches: repairExistingGenreMismatches,
+            forceYearLookup: forceYearLookup,
+            cleanTrackNames: cleanTrackNames,
+            cleanAlbumNames: cleanAlbumNames,
+            minConfidence: minConfidence,
+            autoAccept: false
         )
     }
 }

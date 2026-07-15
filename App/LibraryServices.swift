@@ -158,9 +158,15 @@ extension AppDependencies {
     }
 
     func submitPreviewRun() async throws -> RunSubmissionResult {
-        try await submitRun { knownTrackCount in
+        let requestedTestArtists = config.development.testArtists
+        let configuration = FixPlanConfigurationSnapshot.capture(
+            options: previewRunOptions(),
+            capturedAt: Date()
+        )
+        return try await submitRun { knownTrackCount in
             .manualPreview(
-                requestedTestArtists: config.development.testArtists,
+                configuration: configuration,
+                requestedTestArtists: requestedTestArtists,
                 knownTrackCount: knownTrackCount
             )
         }

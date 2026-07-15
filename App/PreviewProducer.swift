@@ -34,7 +34,11 @@ struct WriteIdentityRefresher {
 
 extension AppDependencies {
     func makePreviewProducer()
-        -> (@Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction)? {
+        -> (@Sendable (
+            RunID,
+            ProcessingScopeSnapshot,
+            FixPlanConfigurationSnapshot
+        ) async throws -> FixPlanProduction)? {
         let missingInputs = missingPreviewInputs()
         guard missingInputs.isEmpty,
               let updateCoordinator,
@@ -80,21 +84,20 @@ extension AppDependencies {
     }
 
     func makePreviewProducer(
-        dependencies producerDependencies: FixPlanProducer.Dependencies,
-        options fixedOptions: UpdateOptions? = nil
+        dependencies producerDependencies: FixPlanProducer.Dependencies
     )
-        -> @Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction {
+        -> @Sendable (
+            RunID,
+            ProcessingScopeSnapshot,
+            FixPlanConfigurationSnapshot
+        ) async throws -> FixPlanProduction {
         let producer = FixPlanProducer(dependencies: producerDependencies)
-        return { [weak self, producer] runID, scope in
-            guard let self else {
-                throw PreviewRunError.appDependenciesReleased
-            }
-            let options: UpdateOptions = if let fixedOptions {
-                fixedOptions
-            } else {
-                await self.previewRunOptions()
-            }
-            return try await producer.producePlan(sourceRunID: runID, scope: scope, options: options)
+        return { [producer] runID, scope, configuration in
+            try await producer.producePlan(
+                sourceRunID: runID,
+                scope: scope,
+                configuration: configuration
+            )
         }
     }
 

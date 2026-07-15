@@ -42,8 +42,9 @@ public struct FixPlanProducer: Sendable {
     public func producePlan(
         sourceRunID: RunID,
         scope: ProcessingScopeSnapshot,
-        options: UpdateOptions
+        configuration: FixPlanConfigurationSnapshot
     ) async throws -> FixPlanProduction {
+        let options = configuration.determinationOptions
         let tracks = try await dependencies.loadTracks()
         let scopedTracks = Self.scopedTracks(tracks, scope: scope)
         guard !scopedTracks.isEmpty else { return .empty }
@@ -72,7 +73,6 @@ public struct FixPlanProducer: Sendable {
             minConfidence: options.minConfidence
         )
         let producedAt = dependencies.now()
-        let configuration = FixPlanConfigurationSnapshot.capture(options: options, capturedAt: producedAt)
         guard let plan = FixPlanCapture.makePlan(
             from: filteredProposals,
             sourceRunID: sourceRunID,

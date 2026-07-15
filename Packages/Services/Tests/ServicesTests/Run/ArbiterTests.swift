@@ -86,6 +86,47 @@ struct ArbiterTests {
         #expect(pending.map(\.request) == [request])
     }
 
+    @Test("preview queues when configuration differs")
+    func differentConfigurationQueues() {
+        let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
+        let request = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfiguration(UpdateOptions(minConfidence: 75)),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let decision = TriggerArbiter.decide(active: active, pending: [], incoming: request)
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected queued preview configuration, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [request])
+    }
+
+    @Test("preview with the same fingerprint is covered")
+    func sameFingerprintCovered() {
+        let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
+        let request = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfiguration(),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let activeConfiguration = active.previewConfiguration
+        #expect(activeConfiguration?.id != request.previewConfiguration?.id)
+        #expect(activeConfiguration?.fingerprint == request.previewConfiguration?.fingerprint)
+
+        let decision = TriggerArbiter.decide(active: active, pending: [], incoming: request)
+
+        guard case .alreadyCovered([]) = decision else {
+            Issue.record("Expected matching preview fingerprint to be covered, got \(decision)")
+            return
+        }
+    }
+
     @Test("equal trigger queues when test artist scope differs")
     func differentScopeQueues() {
         let active = Self.lifecycle(
@@ -224,6 +265,7 @@ struct ArbiterTests {
         case .previewFixes:
             RunRequest.preview(
                 trigger: trigger,
+                configuration: previewConfiguration(),
                 requestedTestArtists: requestedTestArtists,
                 knownTrackCount: knownTrackCount
             )
@@ -256,6 +298,7 @@ struct ArbiterTests {
                 createdAt: startedAt,
                 reason: trigger.rawValue
             ),
+            previewConfiguration: intent == .previewFixes ? previewConfiguration() : nil,
             writeTarget: writeTarget,
             startedAt: startedAt,
             phase: .active(.syncingLibrary)
@@ -272,4 +315,13 @@ struct ArbiterTests {
             decisionRevision: .initial
         )
     }
+}
+
+private func previewConfiguration(
+    _ options: UpdateOptions = UpdateOptions()
+) -> FixPlanConfigurationSnapshot {
+    FixPlanConfigurationSnapshot.capture(
+        options: options,
+        capturedAt: Date(timeIntervalSince1970: 50)
+    )
 }

@@ -33,12 +33,15 @@ struct PreviewProducerTests {
                 },
                 savePlan: { await probe.savePlan($0, initialDecision: $1) },
                 now: { probe.producedAt }
-            ),
+            )
+        )
+        let planConfiguration = FixPlanConfigurationSnapshot.capture(
             options: PreviewRunOptions.make(
                 configuration: configuration,
                 updateGenre: false,
                 updateYear: true
-            )
+            ),
+            capturedAt: Date(timeIntervalSince1970: 50)
         )
         let runID = RunID()
         let scope = ProcessingScopeSnapshot.capture(
@@ -48,7 +51,7 @@ struct PreviewProducerTests {
             reason: "previewProducerTest"
         )
 
-        let production = try await producer(runID, scope)
+        let production = try await producer(runID, scope, planConfiguration)
         let snapshot = await probe.snapshot()
 
         #expect(production.proposalCount == 1)
@@ -64,6 +67,7 @@ struct PreviewProducerTests {
         #expect(snapshot.options?.updateYear == true)
         #expect(snapshot.options?.minConfidence == 73)
         #expect(snapshot.savedPlan?.sourceRunID == runID)
+        #expect(snapshot.savedPlan?.configuration.id == planConfiguration.id)
         #expect(snapshot.savedPlan?.configuration.updateGenre == false)
         #expect(snapshot.savedPlan?.configuration.updateYear == true)
         #expect(snapshot.savedPlan?.configuration.minConfidence == 73)

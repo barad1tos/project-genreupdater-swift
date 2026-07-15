@@ -720,5 +720,9 @@ extension AppDependencies {
         self.runRecordStore = runRecordStore
         self.fixPlanStore = fixPlanStore
     }
+
+    func installTestOrchestrator(_ orchestrator: RunOrchestrator) {
+        runOrchestrator = orchestrator
+    }
 }
 #endif
