@@ -926,8 +926,8 @@ extension DesignRootHostView {
     private var fixPlanCommands: FixPlanCommands {
         FixPlanCommands(
             fixPlanStore: dependencies.fixPlanStore,
-            submitFixPlanWrite: { target in
-                try await dependencies.submitFixPlanWrite(target: target)
+            submitFixPlanWrite: { input in
+                try await dependencies.submitFixPlanWrite(input: input)
             },
             hasRecoveryHold: {
                 await dependencies.hasRecoveryHold()

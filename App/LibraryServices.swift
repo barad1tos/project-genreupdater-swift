@@ -147,14 +147,11 @@ extension AppDependencies {
         }
     }
 
-    func submitFixPlanWrite(target: FixPlanWriteTarget) async throws -> RunSubmissionResult {
-        try await submitRun { knownTrackCount in
-            .manualWrite(
-                target: target,
-                requestedTestArtists: config.development.testArtists,
-                knownTrackCount: knownTrackCount
-            )
+    func submitFixPlanWrite(input: FixPlanWriteInput) async throws -> RunSubmissionResult {
+        guard let runOrchestrator else {
+            throw AppDependencyServiceError.runOrchestratorUnavailable
         }
+        return await runOrchestrator.submit(.manualWrite(input: input))
     }
 
     func submitPreviewRun(

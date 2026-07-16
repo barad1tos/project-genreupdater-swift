@@ -3,17 +3,16 @@ import Foundation
 import Services
 
 enum FixPlanWrite {
-    struct ScriptAccess {
-        let client: any AppleScriptClient
-        let batchSize: @Sendable () async -> Int
+    struct Runtime {
+        let coordinator: UpdateCoordinator
+        let scripts: any AppleScriptClient
     }
 
     struct RunnerDependencies {
-        let updateCoordinator: UpdateCoordinator
         let fixPlanStore: any FixPlanStore
         let mapper: TrackIDMapper
-        let script: ScriptAccess
         let batchProcessor: BatchProcessor
+        let makeRuntime: @Sendable (FixPlanConfig, ProcessingScopeSnapshot) async throws -> Runtime
         let hasRunRecovery: @Sendable () async -> Bool
     }
 
@@ -21,6 +20,7 @@ enum FixPlanWrite {
         case missingPlan(FixPlanID)
         case missingDecision(FixPlanID)
         case staleDecision
+        case staleInput
         case noAcceptedItems
         case invalidDecisionItems(FixPlanID)
         case missingWriteTracks(Int)
@@ -33,6 +33,8 @@ enum FixPlanWrite {
                 "Review decision is missing for fix plan \(planID.description)"
             case .staleDecision:
                 "Review decision changed before write run started"
+            case .staleInput:
+                "Fix plan input changed before write run started"
             case .noAcceptedItems:
                 "Fix plan has no accepted items to write"
             case let .invalidDecisionItems(planID):
@@ -86,7 +88,8 @@ enum FixPlanWrite {
         for changes: [ProposedChange],
         mapper: TrackIDMapper,
         scriptClient: any AppleScriptClient,
-        writeIDBatchSize: Int
+        batchSize: Int,
+        timeout: Duration
     ) async throws {
         var targetsByReadID: [String: (track: Track, appleScriptID: String)] = [:]
         for change in changes {
@@ -98,8 +101,8 @@ enum FixPlanWrite {
         let appleScriptIDs = Array(Set(targetsByReadID.values.map(\.appleScriptID)))
         let currentTracks = try await scriptClient.fetchTracksByIDs(
             appleScriptIDs,
-            batchSize: writeIDBatchSize,
-            timeout: nil
+            batchSize: batchSize,
+            timeout: timeout
         )
         var currentTracksByID: [String: Track] = [:]
         for track in currentTracks {
@@ -119,23 +122,26 @@ enum FixPlanWrite {
 
     static func makeRunner(
         _ dependencies: RunnerDependencies
-    ) -> @Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult {
-        { target in
+    ) -> @Sendable (FixPlanWriteInput) async throws -> BatchUpdateResult {
+        { input in
             if await dependencies.hasRunRecovery() {
                 throw WriteAdmissionError.recoveryRequired
             }
             return try await dependencies.batchProcessor.performRecoverableWrite {
                 guard let plan = try await dependencies.fixPlanStore.plan(
-                    id: target.planID,
-                    revision: target.planRevision
+                    id: input.target.planID,
+                    revision: input.target.planRevision
                 ) else {
-                    throw Failure.missingPlan(target.planID)
+                    throw Failure.missingPlan(input.target.planID)
                 }
-                guard let decision = try await dependencies.fixPlanStore.currentDecision(for: target.planID) else {
-                    throw Failure.missingDecision(target.planID)
+                try validateInput(input, against: plan)
+                guard let decision = try await dependencies.fixPlanStore.currentDecision(
+                    for: input.target.planID
+                ) else {
+                    throw Failure.missingDecision(input.target.planID)
                 }
-                guard decision.planRevision == target.planRevision,
-                      decision.revision == target.decisionRevision
+                guard decision.planRevision == input.target.planRevision,
+                      decision.revision == input.target.decisionRevision
                 else {
                     throw Failure.staleDecision
                 }
@@ -146,17 +152,27 @@ enum FixPlanWrite {
                     throw Failure.noAcceptedItems
                 }
 
+                let runtime = try await dependencies.makeRuntime(plan.configuration, input.scope)
+                let scriptConfiguration = plan.configuration.appConfiguration.applescript
                 try await prepareWriteIDs(
                     for: acceptedChanges,
                     mapper: dependencies.mapper,
-                    scriptClient: dependencies.script.client,
-                    writeIDBatchSize: dependencies.script.batchSize()
+                    scriptClient: runtime.scripts,
+                    batchSize: scriptConfiguration.batchProcessing.idsBatchSize,
+                    timeout: scriptConfiguration.timeouts.idsBatchFetch
                 )
-                return try await dependencies.updateCoordinator.applyAcceptedChanges(
+                return try await runtime.coordinator.applyAcceptedChanges(
                     changes,
                     progressHandler: ignoreProgress
                 )
             }
+        }
+    }
+
+    private static func validateInput(_ input: FixPlanWriteInput, against plan: FixPlan) throws {
+        // The input crosses an async queue; it must still match the immutable plan revision.
+        guard plan.scope == input.scope else {
+            throw Failure.staleInput
         }
     }
 
@@ -182,11 +198,12 @@ enum FixPlanWrite {
 }
 
 extension AppDependencies {
-    func makeWriteRunner() -> (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)? {
-        guard let updateCoordinator,
+    func makeWriteRunner(
+        runtime: RunRuntimeFactory?
+    ) -> (@Sendable (FixPlanWriteInput) async throws -> BatchUpdateResult)? {
+        guard let runtime,
               let fixPlanStore,
               let mapper = trackIDMapper,
-              let writeScript,
               let batchProcessor
         else {
             AppLogger.make(category: "dependencies")
@@ -200,11 +217,12 @@ extension AppDependencies {
         }
 
         return FixPlanWrite.makeRunner(FixPlanWrite.RunnerDependencies(
-            updateCoordinator: updateCoordinator,
             fixPlanStore: fixPlanStore,
             mapper: mapper,
-            script: writeScript,
             batchProcessor: batchProcessor,
+            makeRuntime: { configuration, scope in
+                try await runtime.makeWrite(configuration: configuration, scope: scope)
+            },
             hasRunRecovery: hasRunRecovery
         ))
     }

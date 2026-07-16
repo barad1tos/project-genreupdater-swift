@@ -200,7 +200,7 @@ struct APIClientsTests {
             factoryOverrides: factoryOverrides
         )
 
-        let orchestrator = AppDependencies.makePreviewAPIOrchestrator(
+        let orchestrator = AppDependencies.makeCapturedAPI(
             configuration: configuration,
             cache: nil,
             pendingVerificationService: nil,
@@ -237,7 +237,7 @@ struct APIClientsTests {
             })
         )
 
-        let orchestrator = AppDependencies.makePreviewAPIOrchestrator(
+        let orchestrator = AppDependencies.makeCapturedAPI(
             configuration: configuration,
             cache: nil,
             pendingVerificationService: nil,

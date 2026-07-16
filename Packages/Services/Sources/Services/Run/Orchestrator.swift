@@ -16,7 +16,7 @@ public actor RunOrchestrator {
             FixPlanConfig
         ) async throws -> FixPlanProduction)?
         public let releasePreview: (@Sendable (FixPlanConfig) async -> Void)?
-        public let writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)?
+        public let writeFixPlan: (@Sendable (FixPlanWriteInput) async throws -> BatchUpdateResult)?
         public let now: @Sendable () -> Date
 
         public init(
@@ -32,7 +32,7 @@ public actor RunOrchestrator {
                 FixPlanConfig
             ) async throws -> FixPlanProduction)? = nil,
             releasePreview: (@Sendable (FixPlanConfig) async -> Void)? = nil,
-            writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)? = nil,
+            writeFixPlan: (@Sendable (FixPlanWriteInput) async throws -> BatchUpdateResult)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
             self.synchronizeLibrary = synchronizeLibrary
@@ -150,13 +150,13 @@ public actor RunOrchestrator {
         let created = makeCreatedLifecycle(for: request, startedAt: startedAt)
         activeTransitions = []
         advance(created, at: startedAt)
-        let syncing = created.beginningSync()
-        advance(syncing)
+        let running = beginRun(created, request: request)
+        advance(running)
 
         // The run executes in an orchestrator-owned task: awaiting the value of
         // an unstructured Task's value never forwards the submitter's
         // cancellation into the run.
-        return Task { await executeRun(from: syncing, request: request) }
+        return Task { await executeRun(from: running, request: request) }
     }
 
     private func executeRun(
@@ -238,20 +238,20 @@ public actor RunOrchestrator {
         from lifecycle: RunLifecycleSnapshot,
         request: RunRequest
     ) async throws -> RunWork {
-        let syncResult: SyncResult = if case let .previewFixes(configuration) = request.kind,
-                                        let synchronizePreview = dependencies.synchronizePreview {
-            try await synchronizePreview(lifecycle.scope, configuration)
-        } else {
-            try await dependencies.synchronizeLibrary()
-        }
         switch request.kind {
         case .observeLibrary:
+            let syncResult = try await dependencies.synchronizeLibrary()
             return RunWork(
                 reportingSource: lifecycle,
                 result: syncResult,
                 hasActionableWork: syncResult.hasChanges
             )
         case let .previewFixes(configuration):
+            let syncResult: SyncResult = if let synchronizePreview = dependencies.synchronizePreview {
+                try await synchronizePreview(lifecycle.scope, configuration)
+            } else {
+                try await dependencies.synchronizeLibrary()
+            }
             guard let produceFixPlan = dependencies.produceFixPlan else {
                 throw RunWorkError.missingFixPlanProducer
             }
@@ -262,12 +262,11 @@ public actor RunOrchestrator {
                 result: syncResult,
                 hasActionableWork: production.producedPlan
             )
-        case let .writeFixes(writeTarget):
+        case let .writeFixes(writeInput):
             guard let writeFixPlan = dependencies.writeFixPlan else {
                 throw RunWorkError.missingWriteRunner
             }
-            let writing = beginWriting(from: lifecycle)
-            let writeResult = try await writeFixPlan(writeTarget)
+            let writeResult = try await writeFixPlan(writeInput)
             if writeResult.hasPartialFailures {
                 throw RunWorkError.partialWriteFailure(
                     failedOperationCount: writeResult.failedOperationCount,
@@ -275,7 +274,7 @@ public actor RunOrchestrator {
                     reasons: writeResult.errorDescriptions
                 )
             }
-            let verifying = beginVerifying(from: writing)
+            let verifying = beginVerifying(from: lifecycle)
             return RunWork(
                 reportingSource: verifying,
                 result: Self.makeWriteSyncResult(from: writeResult),
@@ -337,16 +336,22 @@ public actor RunOrchestrator {
         _ = startRun(for: pending.request, startedAt: dependencies.now())
     }
 
+    private func beginRun(
+        _ lifecycle: RunLifecycleSnapshot,
+        request: RunRequest
+    ) -> RunLifecycleSnapshot {
+        switch request.kind {
+        case .observeLibrary, .previewFixes:
+            lifecycle.beginningSync()
+        case .writeFixes:
+            lifecycle.beginningWriting()
+        }
+    }
+
     private func beginFixPlanning(from lifecycle: RunLifecycleSnapshot) -> RunLifecycleSnapshot {
         let planning = lifecycle.beginningFixPlanning()
         advance(planning)
         return planning
-    }
-
-    private func beginWriting(from lifecycle: RunLifecycleSnapshot) -> RunLifecycleSnapshot {
-        let writing = lifecycle.beginningWriting()
-        advance(writing)
-        return writing
     }
 
     private func beginVerifying(from lifecycle: RunLifecycleSnapshot) -> RunLifecycleSnapshot {
@@ -409,7 +414,7 @@ public actor RunOrchestrator {
         for request: RunRequest,
         startedAt: Date
     ) -> RunLifecycleSnapshot {
-        let scope = ProcessingScopeSnapshot.capture(
+        let scope = request.writeInput?.scope ?? ProcessingScopeSnapshot.capture(
             requestedTestArtists: request.requestedTestArtists,
             knownTrackCount: request.knownTrackCount,
             createdAt: startedAt,

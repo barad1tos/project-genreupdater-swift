@@ -334,11 +334,7 @@ struct ArbiterTests {
             intent: .writeFixes,
             writeTarget: target
         )
-        let request = RunRequest.manualWrite(
-            target: target,
-            requestedTestArtists: [],
-            knownTrackCount: nil
-        )
+        let request = RunRequest.manualWrite(input: Self.writeInput(target))
 
         let decision = TriggerArbiter.decide(active: active, pending: [], incoming: request)
 
@@ -355,11 +351,9 @@ struct ArbiterTests {
             intent: .writeFixes,
             writeTarget: Self.writeTarget("00000000-0000-0000-0000-000000000101")
         )
-        let request = RunRequest.manualWrite(
-            target: Self.writeTarget("00000000-0000-0000-0000-000000000102"),
-            requestedTestArtists: [],
-            knownTrackCount: nil
-        )
+        let request = RunRequest.manualWrite(input: Self.writeInput(
+            Self.writeTarget("00000000-0000-0000-0000-000000000102")
+        ))
 
         let decision = TriggerArbiter.decide(active: active, pending: [], incoming: request)
 
@@ -377,16 +371,12 @@ struct ArbiterTests {
             intent: .writeFixes,
             writeTarget: Self.writeTarget("00000000-0000-0000-0000-000000000101")
         )
-        let older = RunRequest.manualWrite(
-            target: Self.writeTarget("00000000-0000-0000-0000-000000000102"),
-            requestedTestArtists: [],
-            knownTrackCount: nil
-        )
-        let newest = RunRequest.manualWrite(
-            target: Self.writeTarget("00000000-0000-0000-0000-000000000103"),
-            requestedTestArtists: [],
-            knownTrackCount: nil
-        )
+        let older = RunRequest.manualWrite(input: Self.writeInput(
+            Self.writeTarget("00000000-0000-0000-0000-000000000102")
+        ))
+        let newest = RunRequest.manualWrite(input: Self.writeInput(
+            Self.writeTarget("00000000-0000-0000-0000-000000000103")
+        ))
 
         let decision = TriggerArbiter.decide(
             active: active,
@@ -424,9 +414,11 @@ struct ArbiterTests {
         case .writeFixes:
             RunRequest.write(
                 trigger: trigger,
-                target: writeTarget("00000000-0000-0000-0000-000000000999"),
-                requestedTestArtists: requestedTestArtists,
-                knownTrackCount: knownTrackCount
+                input: writeInput(
+                    writeTarget("00000000-0000-0000-0000-000000000999"),
+                    artists: requestedTestArtists,
+                    knownTrackCount: knownTrackCount
+                )
             )
         }
     }
@@ -466,6 +458,23 @@ struct ArbiterTests {
             planID: FixPlanID(rawValue: planID),
             planRevision: .initial,
             decisionRevision: .initial
+        )
+    }
+
+    private static func writeInput(
+        _ target: FixPlanWriteTarget,
+        artists: [String] = [],
+        knownTrackCount: Int? = nil
+    ) -> FixPlanWriteInput {
+        let capturedAt = Date(timeIntervalSince1970: 50)
+        return FixPlanWriteInput(
+            target: target,
+            scope: .capture(
+                requestedTestArtists: artists,
+                knownTrackCount: knownTrackCount,
+                createdAt: capturedAt,
+                reason: "arbiter-test"
+            )
         )
     }
 }

@@ -87,7 +87,7 @@ struct LifecycleTests {
         }
     }
 
-    @Test("write run transitions from sync to writing, verifying, and reporting")
+    @Test("write run transitions from created to writing, verifying, and reporting")
     func writeRunUsesWriteStages() {
         let snapshot = RunLifecycleSnapshot(
             runID: RunID(),
@@ -101,7 +101,7 @@ struct LifecycleTests {
                 reason: "write"
             ),
             startedAt: Date(timeIntervalSinceReferenceDate: 20),
-            phase: .active(.syncingLibrary)
+            phase: .active(.created)
         )
 
         let writing = snapshot.beginningWriting()

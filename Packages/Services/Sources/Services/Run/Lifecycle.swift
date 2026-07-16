@@ -178,8 +178,8 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     }
 
     public func beginningWriting() -> Self {
-        if phase != .active(.syncingLibrary) {
-            reportIllegalTransition("beginningWriting()", expected: ".active(.syncingLibrary)")
+        if phase != .active(.created) {
+            reportIllegalTransition("beginningWriting()", expected: ".active(.created)")
         }
         return withPhase(.active(.writing))
     }

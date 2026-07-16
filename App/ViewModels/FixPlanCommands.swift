@@ -34,7 +34,7 @@ struct FixPlanCommands {
     }
 
     let fixPlanStore: (any FixPlanStore)?
-    let submitFixPlanWrite: (FixPlanWriteTarget) async throws -> RunSubmissionResult
+    let submitFixPlanWrite: (FixPlanWriteInput) async throws -> RunSubmissionResult
     let hasRecoveryHold: () async -> Bool
     let refreshFixPlanProjection: () async -> FixPlanProjection
     let refreshActivityProjection: () async -> ActivityProjection
@@ -95,7 +95,12 @@ struct FixPlanCommands {
         store: any FixPlanStore
     ) async throws -> UserCommandResult {
         if command.kind == .applyFixPlan {
-            return await applyPlan(target: target, decision: decision, projection: projection)
+            return await applyPlan(
+                target: target,
+                decision: decision,
+                projection: projection,
+                store: store
+            )
         }
         switch await resolveDecisionUpdate(for: command, current: decision, projection: projection) {
         case let .update(nextDecision):
@@ -205,7 +210,8 @@ struct FixPlanCommands {
     private func applyPlan(
         target: FixPlanCommandTarget,
         decision: FixPlanReviewDecision,
-        projection: FixPlanProjection
+        projection: FixPlanProjection,
+        store: any FixPlanStore
     ) async -> UserCommandResult {
         guard decision.itemDecisions.contains(where: { $0.verdict == .accepted }) else {
             return await noAcceptedResult(projection: projection)
@@ -227,7 +233,14 @@ struct FixPlanCommands {
         }
 
         do {
-            let result = try await submitFixPlanWrite(target.writeTarget)
+            guard let plan = try await store.plan(id: target.planID, revision: target.planRevision) else {
+                return await conflictResult()
+            }
+            let input = FixPlanWriteInput(
+                target: target.writeTarget,
+                scope: plan.scope
+            )
+            let result = try await submitFixPlanWrite(input)
             return await writeResult(result, fallbackAcceptedCount: projection.acceptedCount)
         } catch {
             return await writeFailureResult(error, projection: projection)
