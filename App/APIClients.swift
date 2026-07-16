@@ -115,7 +115,7 @@ private struct APIServiceContext {
     let disabledSources: Set<APISource>
 }
 
-enum DiscogsAccess: Sendable {
+enum DiscogsAccess {
     case enabled(DiscogsClient)
     case disabled
 
