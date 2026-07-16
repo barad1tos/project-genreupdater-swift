@@ -38,7 +38,6 @@ struct RecoveryPreflightTests {
             .analyzingDelta,
             .planningFixes,
             .awaitingReview,
-            .reporting,
         ] {
             let service = RecoveryPreflightService(store: RunRecordStoreProbe(record: makeRecord(
                 runID: runID,
@@ -50,6 +49,29 @@ struct RecoveryPreflightTests {
 
             #expect(outcome == .inspectable(runID: runID, state: state))
         }
+    }
+
+    @Test("reporting classification follows run intent")
+    func reportingFollowsIntent() async {
+        let runID = RunID()
+        let writeService = RecoveryPreflightService(store: RunRecordStoreProbe(record: makeRecord(
+            runID: runID,
+            state: .reporting,
+            finishedAt: nil,
+            intent: .writeFixes
+        )))
+        let readService = RecoveryPreflightService(store: RunRecordStoreProbe(record: makeRecord(
+            runID: runID,
+            state: .reporting,
+            finishedAt: nil,
+            intent: .observeLibrary
+        )))
+
+        #expect(await writeService.run(for: runID) == .needsAttention(
+            runID: runID,
+            reason: .writeAdjacentState(.reporting)
+        ))
+        #expect(await readService.run(for: runID) == .inspectable(runID: runID, state: .reporting))
     }
 
     @Test("open write-adjacent records need attention")
@@ -123,6 +145,18 @@ private actor RunRecordStoreProbe: RunRecordStore {
         0
     }
 
+    func recoveryRecords() async throws -> RunReportPage {
+        RunReportPage(records: record.map { [$0] } ?? [], skippedCorruptedCount: 0)
+    }
+
+    func closeCorruptedRun(_: RunID, at _: Date) async throws -> Bool {
+        false
+    }
+
+    func claimRecovery(for _: RunID, id _: UUID, at _: Date) async throws -> UUID? {
+        nil
+    }
+
     func reports(matching _: RunReportQuery) async throws -> RunReportPage {
         RunReportPage(records: record.map { [$0] } ?? [], skippedCorruptedCount: 0)
     }
@@ -131,7 +165,8 @@ private actor RunRecordStoreProbe: RunRecordStore {
 private func makeRecord(
     runID: RunID,
     state: RunLifecycleState,
-    finishedAt: Date?
+    finishedAt: Date?,
+    intent: RunIntent = .observeLibrary
 ) -> RunRecord {
     let startedAt = Date(timeIntervalSince1970: 100)
     var transitions = [
@@ -145,7 +180,7 @@ private func makeRecord(
         runID: runID,
         requestID: RunRequestID(),
         trigger: .manualCheck,
-        intent: .observeLibrary,
+        intent: intent,
         scope: ProcessingScopeSnapshot.capture(
             requestedTestArtists: [],
             knownTrackCount: 1,

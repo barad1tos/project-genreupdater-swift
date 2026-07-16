@@ -31,18 +31,21 @@ public enum RecoveryPreflight {
         }
 
         switch record.state {
-        // planningFixes/reporting are read-side checkpoints; write-adjacent work is explicit writing/verifying.
         case .created,
              .queued,
              .syncingLibrary,
              .analyzingDelta,
              .planningFixes,
-             .awaitingReview,
-             .reporting:
+             .awaitingReview:
             return .inspectable(runID: record.runID, state: record.state)
         case .writing,
              .verifying:
             return .needsAttention(runID: record.runID, reason: .writeAdjacentState(record.state))
+        case .reporting:
+            if record.intent == .writeFixes {
+                return .needsAttention(runID: record.runID, reason: .writeAdjacentState(record.state))
+            }
+            return .inspectable(runID: record.runID, state: record.state)
         case .blocked,
              .recoverable,
              .recovering:

@@ -18,8 +18,6 @@ private let expectedOpenRunStates: Set<RunLifecycleState> = [
     .recoverable,
     .recovering
 ]
-private let expectedRecoveryHoldStates: Set<RunLifecycleState> = [.blocked, .recoverable, .recovering]
-
 @Suite("AppDependencies library services")
 @MainActor
 struct LibraryServicesTests {
@@ -195,10 +193,27 @@ struct LibraryServicesTests {
     @Test("Run report page passes store results and limit through")
     func runReportPagePassesStoreResultsAndLimitThrough() async throws {
         let record = sampleRunRecord()
+        let recentCorruptedID = RunID()
+        let openCorruptedID = RunID()
         let stub = RunRecordStoreStub(reportPages: [
-            RunReportPage(records: [record], skippedCorruptedCount: 2),
-            RunReportPage(records: [], skippedCorruptedCount: 0),
-        ])
+            RunReportPage(
+                records: [record],
+                skippedCorruptedCount: 2,
+                corruptedRunIDs: [recentCorruptedID, openCorruptedID],
+                recoveryRunIDs: [openCorruptedID]
+            ),
+            RunReportPage(
+                records: [],
+                skippedCorruptedCount: 2,
+                corruptedRunIDs: [recentCorruptedID, openCorruptedID],
+                recoveryRunIDs: [openCorruptedID]
+            ),
+        ], recoveryPage: RunReportPage(
+            records: [],
+            skippedCorruptedCount: 1,
+            corruptedRunIDs: [openCorruptedID],
+            recoveryRunIDs: [openCorruptedID]
+        ))
         let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
 
         let page = await fixture.dependencies.loadRunReportPage(limit: 25)
@@ -206,7 +221,34 @@ struct LibraryServicesTests {
 
         #expect(page?.records.map(\.runID) == [record.runID])
         #expect(page?.skippedCorruptedCount == 2)
+        #expect(page?.corruptedRunIDs == [recentCorruptedID, openCorruptedID])
+        #expect(page?.recoveryRunIDs == [openCorruptedID])
         #expect(queries.first?.limit == 25)
+    }
+
+    @Test("Run report page includes old corrupted recovery rows")
+    func includesOldCorruptedRecovery() async throws {
+        let recent = sampleRunRecord()
+        let recoveryRunID = RunID()
+        let stub = RunRecordStoreStub(
+            reportPages: [
+                RunReportPage(records: [recent], skippedCorruptedCount: 0),
+                RunReportPage(records: [], skippedCorruptedCount: 0),
+            ],
+            recoveryPage: RunReportPage(
+                records: [],
+                skippedCorruptedCount: 1,
+                corruptedRunIDs: [recoveryRunID],
+                recoveryRunIDs: [recoveryRunID]
+            )
+        )
+        let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
+
+        let page = await fixture.dependencies.loadRunReportPage(limit: 1)
+
+        #expect(page?.records.map(\.runID) == [recent.runID])
+        #expect(page?.recoveryRunIDs == [recoveryRunID])
+        #expect(page?.skippedCorruptedCount == 1)
     }
 
     @Test("Run report page includes open records outside the capped history")
@@ -242,28 +284,28 @@ struct LibraryServicesTests {
         let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [activeRecord], skippedCorruptedCount: 0))
         let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
 
-        let isHeld = await fixture.dependencies.hasRecoveryHold()
-        let query = await stub.lastReportQuery()
+        let isHeld = await fixture.dependencies.ensureRecoveryHold()
 
         #expect(!isHeld)
-        #expect(query?.states == expectedRecoveryHoldStates)
     }
 
     @Test("Recovery hold is active for open recovery records")
     func recoveryRecordHoldsWrites() async throws {
         let recoverableRecord = sampleRunRecord(
             runID: RunID(),
+            intent: .writeFixes,
             state: .recoverable,
             finishedAt: nil
         )
-        let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [recoverableRecord], skippedCorruptedCount: 0))
+        let stub = RunRecordStoreStub(
+            storedRecord: recoverableRecord,
+            reportPage: RunReportPage(records: [recoverableRecord], skippedCorruptedCount: 0)
+        )
         let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
 
-        let isHeld = await fixture.dependencies.hasRecoveryHold()
-        let query = await stub.lastReportQuery()
+        let isHeld = await fixture.dependencies.ensureRecoveryHold()
 
         #expect(isHeld)
-        #expect(query?.states == expectedRecoveryHoldStates)
     }
 
     @Test("Recovery hold fails closed when run records cannot be read")
@@ -273,17 +315,22 @@ struct LibraryServicesTests {
             runRecordStore: RunRecordStoreStub(reportsError: CocoaError(.fileReadCorruptFile))
         )
 
-        let isHeld = await fixture.dependencies.hasRecoveryHold()
+        let isHeld = await fixture.dependencies.ensureRecoveryHold()
 
         #expect(isHeld)
     }
 
     @Test("Recovery hold fails closed for skipped corrupted run rows")
     func recoveryHoldFailsClosedOnSkippedCorruptedRows() async throws {
-        let stub = RunRecordStoreStub(reportPage: RunReportPage(records: [], skippedCorruptedCount: 1))
+        let runID = RunID()
+        let stub = RunRecordStoreStub(reportPage: RunReportPage(
+            records: [],
+            skippedCorruptedCount: 1,
+            recoveryRunIDs: [runID]
+        ))
         let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
 
-        let isHeld = await fixture.dependencies.hasRecoveryHold()
+        let isHeld = await fixture.dependencies.ensureRecoveryHold()
 
         #expect(isHeld)
     }

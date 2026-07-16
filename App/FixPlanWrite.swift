@@ -213,7 +213,7 @@ extension AppDependencies {
         }
         let hasRunRecovery: @Sendable () async -> Bool = { [weak self] in
             guard let self else { return true }
-            return await self.hasRecoveryHold()
+            return await self.ensureRecoveryHold()
         }
 
         return FixPlanWrite.makeRunner(FixPlanWrite.RunnerDependencies(

@@ -35,9 +35,20 @@ public struct RunReportPage: Equatable, Sendable {
     /// Corrupted rows skipped within the fetched window only — not a
     /// store-wide total. Skipped rows still consume `limit` slots.
     public let skippedCorruptedCount: Int
+    /// Identifiers for every corrupted row counted in this fetched window.
+    public let corruptedRunIDs: [RunID]
+    /// Corrupted unfinished rows that may represent interrupted writes.
+    public let recoveryRunIDs: [RunID]
 
-    public init(records: [RunRecord], skippedCorruptedCount: Int) {
+    public init(
+        records: [RunRecord],
+        skippedCorruptedCount: Int,
+        corruptedRunIDs: [RunID] = [],
+        recoveryRunIDs: [RunID] = []
+    ) {
         self.records = records
         self.skippedCorruptedCount = skippedCorruptedCount
+        self.corruptedRunIDs = corruptedRunIDs
+        self.recoveryRunIDs = recoveryRunIDs
     }
 }

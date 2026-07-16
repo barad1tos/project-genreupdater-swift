@@ -6,13 +6,23 @@ import Testing
 @Suite("RunRecordDataStore")
 struct RunRecordDataTests {
     @Test("upsert inserts and loadAll round-trips all fields")
-    func upsertInsertsAndLoadAllRoundTripsAllFields() async throws {
+    func roundTripsAllFields() async throws {
         let store = try makeStore()
+        let writeTarget = FixPlanWriteTarget(
+            planID: FixPlanID(),
+            planRevision: FixPlanRevision(2),
+            decisionRevision: ReviewDecisionRevision(3)
+        )
+        let recoveryID = UUID()
         let record = makeRecord(
+            intent: .writeFixes,
+            writeTarget: writeTarget,
+            recoveryID: recoveryID,
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: Date(timeIntervalSince1970: 104),
             state: .completed,
-            syncSummary: ActivitySyncSummary(new: 2, modified: 1, identityChanged: 0, refreshed: 1, removed: 3)
+            syncSummary: ActivitySyncSummary(new: 2, modified: 1, identityChanged: 0, refreshed: 1, removed: 3),
+            writeSummary: RunWriteSummary(applied: 1, verifiedNoOp: 2, failed: 3)
         )
 
         try await store.upsert(record)
@@ -448,6 +458,9 @@ struct RunRecordDataTests {
         runID: UUID,
         transitionsData: Data,
         scopeData: Data? = nil,
+        intent: RunIntent = .observeLibrary,
+        rawIntent: String? = nil,
+        state: RunLifecycleState = .completed,
         startedAt: Date = Date(timeIntervalSince1970: 100),
         into container: ModelContainer
     ) throws {
@@ -462,8 +475,8 @@ struct RunRecordDataTests {
             runID: runID,
             requestID: UUID(),
             triggerRaw: RunTrigger.manualCheck.rawValue,
-            intentRaw: RunIntent.observeLibrary.rawValue,
-            stateRaw: RunLifecycleState.completed.rawValue,
+            intentRaw: rawIntent ?? intent.rawValue,
+            stateRaw: state.rawValue,
             scopeData: scopeData,
             transitionsData: transitionsData,
             syncNewCount: nil,
@@ -487,10 +500,14 @@ struct RunRecordDataTests {
         runID: RunID = RunID(),
         requestID: RunRequestID = RunRequestID(),
         trigger: RunTrigger = .manualCheck,
+        intent: RunIntent = .observeLibrary,
+        writeTarget: FixPlanWriteTarget? = nil,
+        recoveryID: UUID? = nil,
         startedAt: Date,
         finishedAt: Date?,
         state: RunLifecycleState,
-        syncSummary: ActivitySyncSummary?
+        syncSummary: ActivitySyncSummary?,
+        writeSummary: RunWriteSummary? = nil
     ) -> RunRecord {
         var transitions = [
             RunLifecycleTransition(state: .created, timestamp: startedAt),
@@ -507,15 +524,18 @@ struct RunRecordDataTests {
             runID: runID,
             requestID: requestID,
             trigger: trigger,
-            intent: .observeLibrary,
+            intent: intent,
             scope: ProcessingScopeSnapshot.capture(
                 requestedTestArtists: ["Aphex Twin"],
                 knownTrackCount: 75,
                 createdAt: startedAt,
                 reason: "manualCheck"
             ),
+            writeTarget: writeTarget,
+            recoveryID: recoveryID,
             transitions: transitions,
             syncSummary: syncSummary,
+            writeSummary: writeSummary,
             failureMessage: state == .failed ? "Music.app unavailable" : nil,
             startedAt: startedAt,
             finishedAt: finishedAt

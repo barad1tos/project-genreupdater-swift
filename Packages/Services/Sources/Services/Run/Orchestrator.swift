@@ -17,6 +17,7 @@ public actor RunOrchestrator {
         ) async throws -> FixPlanProduction)?
         public let releasePreview: (@Sendable (FixPlanConfig) async -> Void)?
         public let writeFixPlan: (@Sendable (FixPlanWriteInput) async throws -> BatchUpdateResult)?
+        public let beginRecoveryHold: (@Sendable () async -> UUID)?
         public let now: @Sendable () -> Date
 
         public init(
@@ -33,6 +34,7 @@ public actor RunOrchestrator {
             ) async throws -> FixPlanProduction)? = nil,
             releasePreview: (@Sendable (FixPlanConfig) async -> Void)? = nil,
             writeFixPlan: (@Sendable (FixPlanWriteInput) async throws -> BatchUpdateResult)? = nil,
+            beginRecoveryHold: (@Sendable () async -> UUID)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
             self.synchronizeLibrary = synchronizeLibrary
@@ -41,6 +43,7 @@ public actor RunOrchestrator {
             self.produceFixPlan = produceFixPlan
             self.releasePreview = releasePreview
             self.writeFixPlan = writeFixPlan
+            self.beginRecoveryHold = beginRecoveryHold
             self.now = now
         }
     }
@@ -81,12 +84,20 @@ public actor RunOrchestrator {
         let reportingSource: RunLifecycleSnapshot
         let result: SyncResult
         let hasActionableWork: Bool
+        let writeSummary: RunWriteSummary?
+        let failureMessage: String?
+    }
+
+    private struct RecoveryRun {
+        let snapshot: RunLifecycleSnapshot
+        let reason: String
     }
 
     private let dependencies: Dependencies
     private let log = Logger(subsystem: "com.genreupdater", category: "RunOrchestrator")
     private var activeRun: RunLifecycleSnapshot?
     private var latestRun: RunLifecycleSnapshot?
+    private var recoveryRun: RecoveryRun?
     private var activeTransitions: [RunLifecycleTransition] = []
     private var pendingTriggers: [PendingTrigger] = []
     private var continuations: [UUID: AsyncStream<RunLifecycleSnapshot>.Continuation]
@@ -97,7 +108,51 @@ public actor RunOrchestrator {
     }
 
     public func currentLifecycle() -> RunLifecycleSnapshot? {
-        activeRun ?? latestRun
+        activeRun ?? recoveryRun?.snapshot ?? latestRun
+    }
+
+    public func activeLifecycle() -> RunLifecycleSnapshot? {
+        activeRun
+    }
+
+    public func restoreRecovery(_ record: RunRecord) async {
+        guard record.intent == .writeFixes,
+              record.finishedAt == nil,
+              record.state.needsWriteRecovery
+        else { return }
+        let snapshot = RunLifecycleSnapshot(
+            runID: record.runID,
+            requestID: record.requestID,
+            trigger: record.trigger,
+            intent: record.intent,
+            scope: record.scope,
+            writeTarget: record.writeTarget,
+            startedAt: record.startedAt,
+            phase: record.state == .blocked ? .suspended(.blocked) : .suspended(.recoverable)
+        )
+        let reason = record.failureMessage ?? "Interrupted write requires Music.app verification."
+        recoveryRun = RecoveryRun(snapshot: snapshot, reason: reason)
+        discardPendingWrites()
+        if activeRun == nil {
+            latestRun = snapshot
+        }
+        broadcast(snapshot)
+    }
+
+    /// Resolves only recoverable holds; blocked records require a separate repair path.
+    public func resolveRecovery(runID: RunID, at finishedAt: Date) {
+        guard let recoveryRun, recoveryRun.snapshot.runID == runID else { return }
+        guard case .suspended(.recoverable) = recoveryRun.snapshot.phase else { return }
+        let recovering = recoveryRun.snapshot.beginningRecovery()
+        let resolved = recovering.cancelling(
+            message: "Recovery closed after Music.app verification.",
+            at: finishedAt
+        )
+        self.recoveryRun = nil
+        if activeRun == nil {
+            latestRun = resolved
+        }
+        broadcast(resolved)
     }
 
     public func lifecycleUpdates() -> AsyncStream<RunLifecycleSnapshot> {
@@ -120,11 +175,14 @@ public actor RunOrchestrator {
         return stream
     }
 
-    func lifecycleSubscriptionCountForTesting() -> Int {
+    func lifecycleSubscriberCount() -> Int {
         continuations.count
     }
 
     public func submit(_ request: RunRequest) async -> RunSubmissionResult {
+        if request.intent == .writeFixes, let recoveryRun {
+            return .recoverable(recoveryRun.snapshot, reason: recoveryRun.reason)
+        }
         if let activeRun {
             switch TriggerArbiter.decide(active: activeRun, pending: pendingTriggers, incoming: request) {
             case let .alreadyCovered(pending):
@@ -163,35 +221,36 @@ public actor RunOrchestrator {
         from lifecycle: RunLifecycleSnapshot,
         request: RunRequest
     ) async -> RunSubmissionResult {
-        // Open record: a crash mid-run leaves it with finishedAt == nil as interrupted-run evidence.
-        await persistRecord(for: lifecycle, syncResult: nil, failureMessage: nil, finishedAt: nil)
+        if let failure = await recordPreflight(lifecycle, request: request) {
+            return failure
+        }
 
         do {
             let work = try await performRunWork(from: lifecycle, request: request)
             await releasePreview(request)
-            let reporting = beginReporting(from: work.reportingSource)
-            let completed = reporting.finishing(
-                result: work.result,
-                hasActionableWork: work.hasActionableWork,
-                at: dependencies.now()
-            )
-            appendTransition(completed.state, at: completed.finishedAt)
-            await persistRecord(
-                for: completed,
-                syncResult: completed.syncResult,
-                failureMessage: nil,
-                finishedAt: completed.finishedAt
-            )
-            publishCompleted(completed)
-            startPendingRun()
-            if case .finished(.completedNoOp, _) = completed.phase {
-                return .completedNoOp(completed)
+            if let failureMessage = work.failureMessage {
+                return await finishFailedRun(
+                    from: work.reportingSource,
+                    failureMessage: failureMessage,
+                    syncResult: work.result,
+                    writeSummary: work.writeSummary
+                )
             }
-            return .completed(completed)
+            return await finishSuccessfulRun(work, intent: request.intent)
         } catch is CancellationError {
             await releasePreview(request)
             log.error("Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) cancelled")
             return await finishCancelledRun(from: activeRun ?? lifecycle, message: "Run cancelled")
+        } catch let error as AppleScriptOutcomeError where request.intent == .writeFixes {
+            await releasePreview(request)
+            log.error("""
+            Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) requires recovery after \
+            \(error.localizedDescription, privacy: .private)
+            """)
+            return await finishRecoverableRun(
+                from: activeRun ?? lifecycle,
+                failureMessage: error.localizedDescription
+            )
         } catch {
             await releasePreview(request)
             // Error descriptions stay private: sync/write errors can embed track or artist names.
@@ -202,6 +261,58 @@ public actor RunOrchestrator {
             """)
             return await finishFailedRun(from: activeRun ?? lifecycle, failureMessage: error.localizedDescription)
         }
+    }
+
+    private func finishSuccessfulRun(_ work: RunWork, intent: RunIntent) async -> RunSubmissionResult {
+        let reporting = beginReporting(from: work.reportingSource)
+        let completed = reporting.finishing(
+            result: work.result,
+            hasActionableWork: work.hasActionableWork,
+            at: dependencies.now()
+        )
+        appendTransition(completed.state, at: completed.finishedAt)
+        let isStored = await persistRecord(
+            for: completed,
+            syncResult: completed.syncResult,
+            writeSummary: work.writeSummary,
+            failureMessage: nil,
+            finishedAt: completed.finishedAt
+        )
+        if intent == .writeFixes, !isStored {
+            activeTransitions.removeLast()
+            return await finishUnstoredWrite(
+                from: reporting,
+                syncResult: completed.syncResult,
+                writeSummary: work.writeSummary,
+                failureMessage: nil
+            )
+        }
+        publishInactive(completed)
+        startPendingRun()
+        if case .finished(.completedNoOp, _) = completed.phase {
+            return .completedNoOp(completed)
+        }
+        return .completed(completed)
+    }
+
+    private func recordPreflight(
+        _ lifecycle: RunLifecycleSnapshot,
+        request: RunRequest
+    ) async -> RunSubmissionResult? {
+        // A crash mid-run leaves this open record as interrupted-run evidence.
+        let isStored = await persistRecord(
+            for: lifecycle,
+            syncResult: nil,
+            writeSummary: nil,
+            failureMessage: nil,
+            finishedAt: nil
+        )
+        guard request.intent == .writeFixes, !isStored else { return nil }
+        await releasePreview(request)
+        return await finishFailedRun(
+            from: lifecycle,
+            failureMessage: "Write run could not start because run history is unavailable"
+        )
     }
 
     private func releasePreview(_ request: RunRequest) async {
@@ -244,7 +355,9 @@ public actor RunOrchestrator {
             return RunWork(
                 reportingSource: lifecycle,
                 result: syncResult,
-                hasActionableWork: syncResult.hasChanges
+                hasActionableWork: syncResult.hasChanges,
+                writeSummary: nil,
+                failureMessage: nil
             )
         case let .previewFixes(configuration):
             let syncResult: SyncResult = if let synchronizePreview = dependencies.synchronizePreview {
@@ -260,25 +373,35 @@ public actor RunOrchestrator {
             return RunWork(
                 reportingSource: planning,
                 result: syncResult,
-                hasActionableWork: production.producedPlan
+                hasActionableWork: production.producedPlan,
+                writeSummary: nil,
+                failureMessage: nil
             )
         case let .writeFixes(writeInput):
             guard let writeFixPlan = dependencies.writeFixPlan else {
                 throw RunWorkError.missingWriteRunner
             }
             let writeResult = try await writeFixPlan(writeInput)
-            if writeResult.hasPartialFailures {
-                throw RunWorkError.partialWriteFailure(
+            let failureMessage: String? = if writeResult.hasPartialFailures {
+                RunWorkError.partialWriteFailure(
                     failedOperationCount: writeResult.failedOperationCount,
                     failedTrackCount: writeResult.failedTrackCount,
                     reasons: writeResult.errorDescriptions
-                )
+                ).localizedDescription
+            } else {
+                nil
             }
             let verifying = beginVerifying(from: lifecycle)
             return RunWork(
                 reportingSource: verifying,
                 result: Self.makeWriteSyncResult(from: writeResult),
-                hasActionableWork: writeResult.appliedOperationCount > 0
+                hasActionableWork: writeResult.appliedOperationCount > 0,
+                writeSummary: RunWriteSummary(
+                    applied: writeResult.appliedOperationCount,
+                    verifiedNoOp: writeResult.noOpEntries.count,
+                    failed: writeResult.failedOperationCount
+                ),
+                failureMessage: failureMessage
             )
         }
     }
@@ -296,20 +419,81 @@ public actor RunOrchestrator {
 
     private func finishFailedRun(
         from lifecycle: RunLifecycleSnapshot,
-        failureMessage: String
+        failureMessage: String,
+        syncResult: SyncResult? = nil,
+        writeSummary: RunWriteSummary? = nil
     ) async -> RunSubmissionResult {
         let reporting = beginReporting(from: lifecycle)
         let failed = reporting.failing(message: failureMessage, at: dependencies.now())
         appendTransition(failed.state, at: failed.finishedAt)
-        await persistRecord(
+        let isStored = await persistRecord(
             for: failed,
-            syncResult: nil,
+            syncResult: syncResult,
+            writeSummary: writeSummary,
             failureMessage: failed.failureMessage,
             finishedAt: failed.finishedAt
         )
-        publishCompleted(failed)
+        if lifecycle.intent == .writeFixes, writeSummary != nil, !isStored {
+            activeTransitions.removeLast()
+            return await finishUnstoredWrite(
+                from: reporting,
+                syncResult: syncResult,
+                writeSummary: writeSummary,
+                failureMessage: failureMessage
+            )
+        }
+        publishInactive(failed)
         startPendingRun()
         return .failed(failed)
+    }
+
+    private func finishRecoverableRun(
+        from lifecycle: RunLifecycleSnapshot,
+        failureMessage: String
+    ) async -> RunSubmissionResult {
+        let recoverable = lifecycle.requiringRecovery()
+        appendTransition(recoverable.state)
+        let recoveryID = await dependencies.beginRecoveryHold?()
+        await persistRecord(
+            for: recoverable,
+            syncResult: nil,
+            writeSummary: nil,
+            recoveryID: recoveryID,
+            failureMessage: failureMessage,
+            finishedAt: nil
+        )
+        recoveryRun = RecoveryRun(snapshot: recoverable, reason: failureMessage)
+        discardPendingWrites()
+        publishInactive(recoverable)
+        startPendingRun()
+        return .recoverable(recoverable, reason: failureMessage)
+    }
+
+    private func finishUnstoredWrite(
+        from reporting: RunLifecycleSnapshot,
+        syncResult: SyncResult?,
+        writeSummary: RunWriteSummary?,
+        failureMessage: String?
+    ) async -> RunSubmissionResult {
+        let finalizationMessage =
+            "Write finished, but run history could not be finalized. Verify Music.app before continuing."
+        let message = failureMessage.map { "\($0) \(finalizationMessage)" } ?? finalizationMessage
+        let recoverable = reporting.requiringRecovery()
+        appendTransition(recoverable.state)
+        let recoveryID = await dependencies.beginRecoveryHold?()
+        await persistRecord(
+            for: recoverable,
+            syncResult: syncResult,
+            writeSummary: writeSummary,
+            recoveryID: recoveryID,
+            failureMessage: message,
+            finishedAt: nil
+        )
+        recoveryRun = RecoveryRun(snapshot: recoverable, reason: message)
+        discardPendingWrites()
+        publishInactive(recoverable)
+        startPendingRun()
+        return .recoverable(recoverable, reason: message)
     }
 
     private func finishCancelledRun(
@@ -322,10 +506,11 @@ public actor RunOrchestrator {
         await persistRecord(
             for: cancelled,
             syncResult: nil,
+            writeSummary: nil,
             failureMessage: cancelled.failureMessage,
             finishedAt: cancelled.finishedAt
         )
-        publishCompleted(cancelled)
+        publishInactive(cancelled)
         startPendingRun()
         return .cancelled(cancelled)
     }
@@ -334,6 +519,11 @@ public actor RunOrchestrator {
         guard !pendingTriggers.isEmpty else { return }
         let pending = pendingTriggers.removeFirst()
         _ = startRun(for: pending.request, startedAt: dependencies.now())
+    }
+
+    private func discardPendingWrites() {
+        // Queue acknowledgements are not completion handles; recovery cancels pending writes fail-closed.
+        pendingTriggers.removeAll { $0.request.intent == .writeFixes }
     }
 
     private func beginRun(
@@ -381,20 +571,26 @@ public actor RunOrchestrator {
         ))
     }
 
+    @discardableResult
     private func persistRecord(
         for lifecycle: RunLifecycleSnapshot,
         syncResult: SyncResult?,
+        writeSummary: RunWriteSummary?,
+        recoveryID: UUID? = nil,
         failureMessage: String?,
         finishedAt: Date?
-    ) async {
+    ) async -> Bool {
         let record = RunRecord(
             runID: lifecycle.runID,
             requestID: lifecycle.requestID,
             trigger: lifecycle.trigger,
             intent: lifecycle.intent,
             scope: lifecycle.scope,
+            writeTarget: lifecycle.writeTarget,
+            recoveryID: recoveryID,
             transitions: activeTransitions,
             syncSummary: syncResult.map(ActivitySyncSummary.init(result:)),
+            writeSummary: writeSummary,
             failureMessage: failureMessage,
             startedAt: lifecycle.startedAt,
             finishedAt: finishedAt
@@ -402,11 +598,13 @@ public actor RunOrchestrator {
 
         do {
             try await dependencies.persistRunRecord(record)
+            return true
         } catch {
             log.error("""
             Failed to persist run record \(lifecycle.runID.rawValue.uuidString, privacy: .public): \
             \(error.localizedDescription, privacy: .private)
             """)
+            return false
         }
     }
 
@@ -440,10 +638,13 @@ public actor RunOrchestrator {
         broadcast(lifecycle)
     }
 
-    private func publishCompleted(_ lifecycle: RunLifecycleSnapshot) {
+    private func publishInactive(_ lifecycle: RunLifecycleSnapshot) {
         activeRun = nil
         latestRun = lifecycle
         broadcast(lifecycle)
+        guard let recoveryRun, recoveryRun.snapshot.runID != lifecycle.runID else { return }
+        latestRun = recoveryRun.snapshot
+        broadcast(recoveryRun.snapshot)
     }
 
     private func broadcast(_ lifecycle: RunLifecycleSnapshot) {

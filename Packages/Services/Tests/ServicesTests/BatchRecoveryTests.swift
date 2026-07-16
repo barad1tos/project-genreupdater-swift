@@ -54,27 +54,7 @@ struct BatchRecoveryTests {
             checkpointManager: CheckpointManager(directory: dir),
             featureGate: gate
         )
-        let blockedTrackIDs = RecoveryList<String>()
-        do {
-            _ = try await restartedProcessor.process(
-                tracks: makeRecoveryTracks(count: 3),
-                operation: { track in
-                    blockedTrackIDs.append(track.id)
-                    return []
-                },
-                progressHandler: ignoreRecoveryProgress
-            )
-            Issue.record("Expected the persisted recovery hold to block processing")
-        } catch let error as BatchProcessorError {
-            guard case let .recoveryRequired(recoveryID) = error else {
-                Issue.record("Expected recoveryRequired, got \(error)")
-                return
-            }
-            #expect(recoveryID == checkpointID)
-        } catch {
-            Issue.record("Expected recoveryRequired, got \(error)")
-        }
-        #expect(blockedTrackIDs.values.isEmpty)
+        await expectRecoveryBlock(restartedProcessor, id: checkpointID)
 
         await #expect(throws: BatchProcessorError.self) {
             try await restartedProcessor.clearRecovery(batchID: UUID())
@@ -178,12 +158,59 @@ struct BatchRecoveryTests {
 
         try await restarted.clearRecovery(batchID: recoveryID)
     }
+
+    @Test("Concurrent recovery claims preserve one hold")
+    func concurrentClaimsShareHold() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-claim-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let gate = await FeatureGate(fixedTier: .pro)
+        let processor = BatchProcessor(
+            checkpointManager: CheckpointManager(directory: root),
+            featureGate: gate
+        )
+        let firstID = UUID()
+        let secondID = UUID()
+
+        async let first = processor.beginRecoveryHold(id: firstID)
+        async let second = processor.beginRecoveryHold(id: secondID)
+        let (resolvedFirst, resolvedSecond) = await (first, second)
+
+        #expect(resolvedFirst == resolvedSecond)
+        #expect([firstID, secondID].contains(resolvedFirst))
+        #expect(await processor.recoveryHoldID() == resolvedFirst)
+        try await processor.clearRecovery(batchID: resolvedFirst)
+    }
 }
 
 private func makeRecoveryTracks(count: Int) -> [Track] {
     (0 ..< count).map { index in
         Track(id: "T\(index)", name: "Track T\(index)", artist: "Artist", album: "Album")
     }
+}
+
+private func expectRecoveryBlock(_ processor: BatchProcessor, id: UUID) async {
+    let trackIDs = RecoveryList<String>()
+    do {
+        _ = try await processor.process(
+            tracks: makeRecoveryTracks(count: 3),
+            operation: { track in
+                trackIDs.append(track.id)
+                return []
+            },
+            progressHandler: ignoreRecoveryProgress
+        )
+        Issue.record("Expected the persisted recovery hold to block processing")
+    } catch let error as BatchProcessorError {
+        guard case let .recoveryRequired(recoveryID) = error else {
+            Issue.record("Expected recoveryRequired, got \(error)")
+            return
+        }
+        #expect(recoveryID == id)
+    } catch {
+        Issue.record("Expected recoveryRequired, got \(error)")
+    }
+    #expect(trackIDs.values.isEmpty)
 }
 
 private func ignoreRecoveryProgress(_: ProgressUpdate) {

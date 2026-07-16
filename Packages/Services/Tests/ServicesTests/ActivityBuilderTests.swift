@@ -126,7 +126,7 @@ struct ActivityBuilderTests {
                     acceptedCount: 3,
                     canApply: true
                 ),
-                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1")
+                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRecoveryRunID: "run-1")
             )
         )
 
@@ -156,7 +156,7 @@ struct ActivityBuilderTests {
         let projection = ActivityBuilder.makeProjection(
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
-                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1"),
+                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRecoveryRunID: "run-1"),
                 environment: InputEnvironment(runLifecycle: lifecycle(
                     phase: .active(.syncingLibrary),
                     trigger: .backgroundSync
@@ -177,7 +177,7 @@ struct ActivityBuilderTests {
             from: makeInput(
                 tracks: [editableTrack(id: "1")],
                 libraryState: .permissionDenied("Music access denied"),
-                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1")
+                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRecoveryRunID: "run-1")
             )
         )
 
@@ -206,7 +206,7 @@ struct ActivityBuilderTests {
                     acceptedCount: 0,
                     canApply: true
                 ),
-                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1")
+                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRecoveryRunID: "run-1")
             )
         )
 
@@ -227,7 +227,7 @@ struct ActivityBuilderTests {
                     acceptedCount: 0,
                     canApply: true
                 ),
-                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1"),
+                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRecoveryRunID: "run-1"),
                 environment: InputEnvironment(processingMode: .autoFix)
             )
         )
@@ -248,7 +248,7 @@ struct ActivityBuilderTests {
                     isProcessing: false,
                     phaseLabel: "Idle"
                 ),
-                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: "run-1")
+                recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRecoveryRunID: "run-1")
             )
         )
 

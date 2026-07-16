@@ -118,11 +118,15 @@ struct ActivityInputBuilderTests {
                         failureSummary: "Run failed"
                     ),
                 ],
-                skippedCorruptedCount: 0
+                skippedCorruptedCount: 0,
+                recoveryRunIDs: ["run-blocked", "run-recovery"]
             )
         ))
 
-        #expect(input.recovery == ActivityRecoverySummary(unresolvedRunCount: 2, latestRunID: "run-blocked"))
+        #expect(input.recovery == ActivityRecoverySummary(
+            unresolvedRunCount: 2,
+            latestRecoveryRunID: "run-blocked"
+        ))
     }
 
     private func track(id: String) -> Core.Track {

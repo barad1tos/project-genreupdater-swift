@@ -116,6 +116,8 @@ extension APICacheTab {
             return librarySyncMessage(for: syncResult)
         case let .failed(snapshot):
             return "Sync failed: \(snapshot.failureMessage ?? "Unknown error")"
+        case .recoverable:
+            return "Recovery required"
         case .cancelled:
             return "Sync cancelled"
         }

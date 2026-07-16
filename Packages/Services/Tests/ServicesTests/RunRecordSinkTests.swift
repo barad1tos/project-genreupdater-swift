@@ -143,6 +143,18 @@ private actor PruneCountingStore: RunRecordStore {
         return 0
     }
 
+    func recoveryRecords() async throws -> RunReportPage {
+        RunReportPage(records: upserted, skippedCorruptedCount: 0)
+    }
+
+    func closeCorruptedRun(_: RunID, at _: Date) async throws -> Bool {
+        false
+    }
+
+    func claimRecovery(for _: RunID, id _: UUID, at _: Date) async throws -> UUID? {
+        nil
+    }
+
     func reports(matching _: RunReportQuery) async throws -> RunReportPage {
         RunReportPage(records: upserted, skippedCorruptedCount: 0)
     }
@@ -173,6 +185,18 @@ private actor PruneThrowingStore: RunRecordStore {
 
     func prune(keepingLatest _: Int) async throws -> Int {
         throw PruneProbeError()
+    }
+
+    func recoveryRecords() async throws -> RunReportPage {
+        RunReportPage(records: upserted, skippedCorruptedCount: 0)
+    }
+
+    func closeCorruptedRun(_: RunID, at _: Date) async throws -> Bool {
+        false
+    }
+
+    func claimRecovery(for _: RunID, id _: UUID, at _: Date) async throws -> UUID? {
+        nil
     }
 
     func reports(matching _: RunReportQuery) async throws -> RunReportPage {

@@ -36,7 +36,8 @@ struct MutationMetadataTests {
     @Test("preview continues while recovery hold is active")
     func previewContinuesWhileRecoveryHoldIsActive() async throws {
         let fixture = makeWorkflowFixture(
-            hasRecoveryHold: { true }
+            ensureRecoveryHold: { true },
+            clearRecovery: { _ in }
         )
         let viewModel = fixture.viewModel
         let tracks = [
@@ -85,7 +86,7 @@ struct MutationMetadataTests {
     func applyAcceptedStopsWhenRecoveryHoldIsActive() async {
         let recorder = MutationPreparationRecorder()
         let fixture = makeWorkflowFixture(
-            hasRecoveryHold: { true },
+            ensureRecoveryHold: { true },
             prepareMutationMetadata: { tracks in
                 await recorder.record(tracks)
             }
@@ -115,7 +116,7 @@ struct MutationMetadataTests {
         let recoveryHold = MutationPreparationHold()
         let recorder = MutationPreparationRecorder()
         let fixture = makeWorkflowFixture(
-            hasRecoveryHold: {
+            ensureRecoveryHold: {
                 await recoveryHold.hold()
                 return false
             },
@@ -293,7 +294,7 @@ struct MutationMetadataTests {
     func fullLibraryWriteStopsWhenRecoveryHoldIsActive() async {
         let recorder = MutationPreparationRecorder()
         let fixture = makeWorkflowFixture(
-            hasRecoveryHold: { true },
+            ensureRecoveryHold: { true },
             prepareMutationMetadata: { tracks in
                 await recorder.record(tracks)
             }

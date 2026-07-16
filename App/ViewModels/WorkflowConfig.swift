@@ -1,4 +1,5 @@
 import Core
+import Foundation
 import Services
 
 extension WorkflowViewModel {
@@ -10,7 +11,8 @@ extension WorkflowViewModel {
         let featureGate: FeatureGate?
         let recordProcessedTracks: (Int) -> Void
         let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
-        let hasRecoveryHold: () async -> Bool
+        let ensureRecoveryHold: () async -> Bool
+        let clearRecovery: (UUID) async throws -> Void
         let prepareMutationMetadata: (([Track]) async throws -> Void)?
         let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
         let invalidateAlbumYearCache: (() async -> Void)?
@@ -27,7 +29,8 @@ extension WorkflowViewModel {
                 // Default for tests/previews; production injects subscription metering.
             },
             runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
-            hasRecoveryHold: @escaping () async -> Bool = { false },
+            ensureRecoveryHold: @escaping () async -> Bool = { false },
+            clearRecovery: @escaping (UUID) async throws -> Void,
             prepareMutationMetadata: (([Track]) async throws -> Void)? = nil,
             resolveIncrementalTracks: @escaping (
                 [Track],
@@ -44,7 +47,8 @@ extension WorkflowViewModel {
             self.featureGate = featureGate
             self.recordProcessedTracks = recordProcessedTracks
             self.runMaintenancePreflight = runMaintenancePreflight
-            self.hasRecoveryHold = hasRecoveryHold
+            self.ensureRecoveryHold = ensureRecoveryHold
+            self.clearRecovery = clearRecovery
             self.prepareMutationMetadata = prepareMutationMetadata
             self.resolveIncrementalTracks = resolveIncrementalTracks
             self.invalidateAlbumYearCache = invalidateAlbumYearCache

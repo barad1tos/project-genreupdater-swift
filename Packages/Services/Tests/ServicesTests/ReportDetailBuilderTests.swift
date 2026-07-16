@@ -144,8 +144,8 @@ struct ReportDetailBuilderTests {
         #expect(detail.durationLabel == nil)
     }
 
-    @Test("open persisted detail maps to recovery needed")
-    func openRunRecovery() {
+    @Test("open persisted read detail maps to failed")
+    func openReadFails() {
         let record = makeRunRecord(
             startedAt: startDate,
             finishedAt: nil,
@@ -155,10 +155,10 @@ struct ReportDetailBuilderTests {
 
         let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
 
-        #expect(detail.state == .recoveryNeeded)
-        #expect(detail.stateLabel == "Recovery needed")
+        #expect(detail.state == .failed)
+        #expect(detail.stateLabel == "Failed")
         #expect(detail.durationLabel == nil)
-        #expect(detail.failureMessage == "Previous run needs recovery")
+        #expect(detail.failureMessage == "Run failed")
         #expect(detail.transitions.map(\.stageLabel) == ["Created", "Syncing library", "Reporting"])
     }
 

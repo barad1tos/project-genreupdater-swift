@@ -250,6 +250,24 @@ struct ActivityCommandsTests {
         #expect(harness.preflightRunIDs == [ActivityFixtures.recoveryRunID])
     }
 
+    @Test("resume restored recovery navigates to verification")
+    func restoredRecoveryNavigates() async {
+        let harness = ActivityFixtures.Harness(
+            projection: ActivityFixtures.makeRecoveryProjection(revision: ProjectionRevision(2)),
+            preflightOutcome: .needsAttention(
+                runID: ActivityFixtures.recoveryRunID,
+                reason: .unresolvedState(.recoverable)
+            )
+        )
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.resumeRecovery())
+
+        #expect(result.status == .navigated)
+        #expect(result.navigationTarget == .recovery(runID: ActivityFixtures.recoveryRunIDString))
+        #expect(harness.preflightRunIDs == [ActivityFixtures.recoveryRunID])
+    }
+
     @Test("resume recovery surfaces blocked preflight")
     func blockedNeedsAttention() async {
         let harness = ActivityFixtures.Harness(
@@ -334,7 +352,10 @@ struct ActivityCommandsTests {
             libraryState: .ready,
             processingMode: .preview,
             workflow: .empty,
-            recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRunID: ActivityFixtures.recoveryRunIDString),
+            recovery: ActivityRecoverySummary(
+                unresolvedRunCount: 1,
+                latestRecoveryRunID: ActivityFixtures.recoveryRunIDString
+            ),
             pendingVerification: nil,
             isLibrarySyncAvailable: true,
             isAutoSyncRunning: false,
@@ -469,6 +490,23 @@ struct ActivityCommandsTests {
         #expect(result.issue?.summary == "Manual check failed")
         #expect(result.issue?.technicalDetail == "Music.app is unavailable")
         #expect(harness.submitRunCallCount == 1)
+        #expect(harness.reloadCallCount == 0)
+    }
+
+    @Test("recoverable run preserves its reason")
+    func recoverableRunKeepsReason() async {
+        let reason = "Music.app write outcome is unknown"
+        let harness = ActivityFixtures.Harness(runResult: .recoverable(
+            ActivityFixtures.lifecycle(phase: .suspended(.recoverable)),
+            reason: reason
+        ))
+
+        let result = await harness.makeCommands().handle(.runManually())
+
+        #expect(result.status == .blockedByRecovery)
+        #expect(result.issue?.id == "run-recovery-required")
+        #expect(result.issue?.category == .recoveryRequired)
+        #expect(result.issue?.technicalDetail == reason)
         #expect(harness.reloadCallCount == 0)
     }
 

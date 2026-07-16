@@ -41,29 +41,35 @@ func makeFixture(
 actor RunRecordStoreStub: RunRecordStore {
     private let reportsError: (any Error)?
     private let recordError: (any Error)?
-    private let storedRecord: RunRecord?
+    private let claimError: (any Error)?
+    private var storedRecord: RunRecord?
     private let reportPages: [RunReportPage]
+    private let recoveryPage: RunReportPage?
     private var receivedReportQueries: [RunReportQuery] = []
 
     init(
         reportsError: (any Error)? = nil,
         recordError: (any Error)? = nil,
+        claimError: (any Error)? = nil,
         storedRecord: RunRecord? = nil,
         reportPage: RunReportPage? = nil,
-        reportPages: [RunReportPage]? = nil
+        reportPages: [RunReportPage]? = nil,
+        recoveryPage: RunReportPage? = nil
     ) {
         self.reportsError = reportsError
         self.recordError = recordError
+        self.claimError = claimError
         self.storedRecord = storedRecord
         self.reportPages = reportPages ?? reportPage.map { [$0] } ?? []
+        self.recoveryPage = recoveryPage
     }
 
-    func upsert(_: RunRecord) async throws {
-        // Not exercised by the run report accessor test paths.
+    func upsert(_ record: RunRecord) async throws {
+        storedRecord = record
     }
 
     func loadAll() async throws -> [RunRecord] {
-        []
+        storedRecord.map { [$0] } ?? []
     }
 
     func record(for runID: RunID) async throws -> RunRecord? {
@@ -78,6 +84,40 @@ actor RunRecordStoreStub: RunRecordStore {
         0
     }
 
+    func recoveryRecords() async throws -> RunReportPage {
+        if let reportsError {
+            throw reportsError
+        }
+        if let recoveryPage {
+            return recoveryPage
+        }
+        guard reportPages.count == 1, let page = reportPages.first else {
+            return RunReportPage(records: [], skippedCorruptedCount: 0)
+        }
+        return page
+    }
+
+    func claimRecovery(for runID: RunID, id: UUID, at timestamp: Date) async throws -> UUID? {
+        if let claimError {
+            throw claimError
+        }
+        guard let record = storedRecord,
+              record.runID == runID,
+              record.finishedAt == nil,
+              record.intent == .writeFixes,
+              record.state.needsWriteRecovery
+        else { return nil }
+        if let recoveryID = record.recoveryID {
+            return recoveryID
+        }
+        storedRecord = record.openingRecovery(id: id, at: timestamp)
+        return id
+    }
+
+    func closeCorruptedRun(_: RunID, at _: Date) async throws -> Bool {
+        false
+    }
+
     func reports(matching query: RunReportQuery) async throws -> RunReportPage {
         receivedReportQueries.append(query)
         if let reportsError {
@@ -89,7 +129,9 @@ actor RunRecordStoreStub: RunRecordStore {
         let page = reportPages[min(receivedReportQueries.count - 1, reportPages.count - 1)]
         return RunReportPage(
             records: page.records.filter { record in matches(record, query: query) },
-            skippedCorruptedCount: page.skippedCorruptedCount
+            skippedCorruptedCount: page.skippedCorruptedCount,
+            corruptedRunIDs: page.corruptedRunIDs,
+            recoveryRunIDs: page.recoveryRunIDs
         )
     }
 
@@ -120,7 +162,10 @@ actor RunRecordStoreStub: RunRecordStore {
 
 func sampleRunRecord(
     runID: RunID = RunID(),
+    intent: RunIntent = .observeLibrary,
     state: RunLifecycleState = .completed,
+    recoveryID: UUID? = nil,
+    failureMessage: String? = nil,
     finishedAt: Date? = Date(timeIntervalSince1970: 1_800_000_045)
 ) -> RunRecord {
     let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
@@ -128,16 +173,17 @@ func sampleRunRecord(
         runID: runID,
         requestID: RunRequestID(),
         trigger: .manualCheck,
-        intent: .observeLibrary,
+        intent: intent,
         scope: ProcessingScopeSnapshot.capture(
             requestedTestArtists: [],
             knownTrackCount: nil,
             createdAt: startedAt,
             reason: "manualCheck"
         ),
+        recoveryID: recoveryID,
         transitions: [RunLifecycleTransition(state: state, timestamp: startedAt)],
         syncSummary: nil,
-        failureMessage: nil,
+        failureMessage: failureMessage,
         startedAt: startedAt,
         finishedAt: finishedAt
     )

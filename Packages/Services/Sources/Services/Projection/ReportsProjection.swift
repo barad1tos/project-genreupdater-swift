@@ -52,18 +52,30 @@ public struct ReportsProjection: Equatable, Sendable {
     public let revision: ProjectionRevision
     public let runs: [ReportsRunItem]
     public let skippedCorruptedCount: Int
+    public let recoveryRunIDs: [String]
 
-    public init(revision: ProjectionRevision, runs: [ReportsRunItem], skippedCorruptedCount: Int) {
+    public init(
+        revision: ProjectionRevision,
+        runs: [ReportsRunItem],
+        skippedCorruptedCount: Int,
+        recoveryRunIDs: [String] = []
+    ) {
         self.revision = revision
         self.runs = runs
         self.skippedCorruptedCount = skippedCorruptedCount
+        self.recoveryRunIDs = recoveryRunIDs
     }
 
     public func withRevision(_ revision: ProjectionRevision) -> Self {
-        Self(revision: revision, runs: runs, skippedCorruptedCount: skippedCorruptedCount)
+        Self(
+            revision: revision,
+            runs: runs,
+            skippedCorruptedCount: skippedCorruptedCount,
+            recoveryRunIDs: recoveryRunIDs
+        )
     }
 
     public static func empty(revision: ProjectionRevision = .initial) -> Self {
-        Self(revision: revision, runs: [], skippedCorruptedCount: 0)
+        Self(revision: revision, runs: [], skippedCorruptedCount: 0, recoveryRunIDs: [])
     }
 }

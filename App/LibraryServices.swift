@@ -7,8 +7,6 @@ import Services
 private let libraryServicesLog = AppLogger.make(category: "dependencies")
 
 private let openRunReportStates = Set(RunLifecycleState.allCases.filter(isOpenReportState))
-private let recoveryHoldStates: Set<RunLifecycleState> = [.blocked, .recoverable, .recovering]
-
 private func isOpenReportState(_ state: RunLifecycleState) -> Bool {
     switch state {
     case .created,
@@ -34,12 +32,21 @@ private func isOpenReportState(_ state: RunLifecycleState) -> Bool {
 
 enum AppDependencyServiceError: LocalizedError, Equatable {
     case librarySyncUnavailable
+    case recoveryBlocked
+    case recoveryUnavailable
+    case runRecordStoreUnavailable
     case runOrchestratorUnavailable
 
     var errorDescription: String? {
         switch self {
         case .librarySyncUnavailable:
             "Library sync service is unavailable"
+        case .recoveryBlocked:
+            "Recovery needs attention before this run can be closed"
+        case .recoveryUnavailable:
+            "Recovery service is unavailable"
+        case .runRecordStoreUnavailable:
+            "Run record store is unavailable"
         case .runOrchestratorUnavailable:
             "Run orchestrator is unavailable"
         }
@@ -219,7 +226,8 @@ extension AppDependencies {
         do {
             let recentPage = try await runRecordStore.reports(matching: RunReportQuery(limit: limit))
             let openPage = try await runRecordStore.reports(matching: RunReportQuery(states: openRunReportStates))
-            return mergeRunReportPages(recentPage, openPage)
+            let recoveryPage = try await runRecordStore.recoveryRecords()
+            return mergeRunReportPages(mergeRunReportPages(recentPage, openPage), recoveryPage)
         } catch {
             libraryServicesLog.error(
                 """
@@ -232,39 +240,31 @@ extension AppDependencies {
         }
     }
 
-    func hasRecoveryHold() async -> Bool {
-        guard let runRecordStore else { return false }
-
-        do {
-            let page = try await runRecordStore.reports(matching: RunReportQuery(states: recoveryHoldStates))
-            guard page.skippedCorruptedCount == 0 else { return true }
-            return page.records.contains { $0.finishedAt == nil }
-        } catch {
-            libraryServicesLog.error(
-                "Failed to read recovery hold state: \(error.localizedDescription, privacy: .private)"
-            )
-            return true
-        }
-    }
-
-    func runRecoveryPreflight(runID: RunID) async -> RecoveryPreflightOutcome {
-        guard let runRecordStore else {
-            return .blocked(runID: runID, reason: .storeUnavailable)
-        }
-
-        return await RecoveryPreflightService(store: runRecordStore).run(for: runID)
-    }
-
     private func mergeRunReportPages(_ recentPage: RunReportPage, _ openPage: RunReportPage) -> RunReportPage {
         var seen = Set<UUID>()
         let openRecords = openPage.records.filter { $0.finishedAt == nil }
         let records = (recentPage.records + openRecords).filter { record in
             seen.insert(record.runID.rawValue).inserted
         }
+        var seenCorrupted = Set<RunID>()
+        let corruptedRunIDs = (recentPage.corruptedRunIDs + openPage.corruptedRunIDs).filter {
+            seenCorrupted.insert($0).inserted
+        }
+        var seenRecovery = Set<RunID>()
+        let recoveryRunIDs = (recentPage.recoveryRunIDs + openPage.recoveryRunIDs).filter {
+            seenRecovery.insert($0).inserted
+        }
+        let duplicatedCorruptedCount = Set(recentPage.corruptedRunIDs)
+            .intersection(openPage.corruptedRunIDs)
+            .count
 
         return RunReportPage(
             records: records,
-            skippedCorruptedCount: recentPage.skippedCorruptedCount + openPage.skippedCorruptedCount
+            skippedCorruptedCount: recentPage.skippedCorruptedCount
+                + openPage.skippedCorruptedCount
+                - duplicatedCorruptedCount,
+            corruptedRunIDs: corruptedRunIDs,
+            recoveryRunIDs: recoveryRunIDs
         )
     }
 

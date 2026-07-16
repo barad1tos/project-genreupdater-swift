@@ -97,7 +97,7 @@ struct ReportsView: View {
     private func undoEntry(_ entry: ChangeLogEntry) async {
         do {
             let write = try dependencies.makeReportsWrite()
-            try await write.undo(entry, hasRunRecovery: dependencies.hasRecoveryHold())
+            try await write.undo(entry, hasRunRecovery: dependencies.ensureRecoveryHold())
         } catch let outcome as AppleScriptOutcomeError {
             reportUnknownOutcome(outcome, title: "Undo Needs Verification")
         } catch {
@@ -112,7 +112,7 @@ struct ReportsView: View {
     private func undoSession(_ entries: [ChangeLogEntry]) async {
         do {
             let write = try dependencies.makeReportsWrite()
-            try await write.undoSession(entries, hasRunRecovery: dependencies.hasRecoveryHold())
+            try await write.undoSession(entries, hasRunRecovery: dependencies.ensureRecoveryHold())
         } catch let outcome as AppleScriptOutcomeError {
             reportUnknownOutcome(outcome, title: "Undo Needs Verification")
         } catch {
@@ -171,7 +171,7 @@ struct ReportsView: View {
                 artist: artist,
                 album: album,
                 tracks: tracks,
-                hasRunRecovery: dependencies.hasRecoveryHold()
+                hasRunRecovery: dependencies.ensureRecoveryHold()
             )
 
             reportAlert = ReportsAlert(

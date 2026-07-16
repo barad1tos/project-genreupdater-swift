@@ -126,6 +126,7 @@ final class AppDependencies {
     private(set) var discogsCredentialIssue: DiscogsCredentialIssue?
     private(set) var isDiscogsAccessAvailable: Bool?
     @ObservationIgnored var trackCountSource: (@Sendable () async -> Int?)?
+    @ObservationIgnored var recoveryClearTasks: [UUID: Task<Void, Error>] = [:]
 
     func setDiscogsIssue(_ issue: DiscogsCredentialIssue?) {
         discogsCredentialIssue = issue
@@ -451,11 +452,8 @@ final class AppDependencies {
             runtimeConfiguration: UpdateRuntimeConfiguration(configuration: config)
         )
 
-        batchProcessor = BatchProcessor(
-            checkpointManager: checkpoint,
-            featureGate: gate,
-            processingConfiguration: BatchProcessingConfiguration(configuration: config)
-        )
+        let processor = makeBatchProcessor(checkpoint: checkpoint, gate: gate)
+        batchProcessor = processor
 
         let syncService = makeLibrarySyncService(
             bridge: bridge,
@@ -464,7 +462,11 @@ final class AppDependencies {
             cache: cache
         )
         librarySyncService = syncService
-        runOrchestrator = makeRunOrchestrator(syncService: syncService, runRecordStore: recordStore)
+        runOrchestrator = makeRunOrchestrator(
+            syncService: syncService,
+            runRecordStore: recordStore,
+            processor: processor
+        )
 
         maintenanceCoordinator = MaintenanceCoordinator(
             databaseVerificationService: syncService,
@@ -492,9 +494,18 @@ final class AppDependencies {
         )
     }
 
+    private func makeBatchProcessor(checkpoint: CheckpointManager, gate: FeatureGate) -> BatchProcessor {
+        BatchProcessor(
+            checkpointManager: checkpoint,
+            featureGate: gate,
+            processingConfiguration: BatchProcessingConfiguration(configuration: config)
+        )
+    }
+
     private func makeRunOrchestrator(
         syncService: LibrarySyncService,
-        runRecordStore: any RunRecordStore
+        runRecordStore: any RunRecordStore,
+        processor: BatchProcessor
     ) -> RunOrchestrator {
         let runtime = makeRunRuntime()
         let synchronizePreview: (@Sendable (
@@ -527,7 +538,10 @@ final class AppDependencies {
             releasePreview: { configuration in
                 await runtime?.discard(configuration)
             },
-            writeFixPlan: makeWriteRunner(runtime: runtime)
+            writeFixPlan: makeWriteRunner(runtime: runtime),
+            beginRecoveryHold: {
+                await processor.beginRecoveryHold()
+            }
         ))
     }
 

@@ -35,7 +35,7 @@ struct FixPlanCommands {
 
     let fixPlanStore: (any FixPlanStore)?
     let submitFixPlanWrite: (FixPlanWriteInput) async throws -> RunSubmissionResult
-    let hasRecoveryHold: () async -> Bool
+    let ensureRecoveryHold: () async -> Bool
     let refreshFixPlanProjection: () async -> FixPlanProjection
     let refreshActivityProjection: () async -> ActivityProjection
     let now: () -> Date
@@ -219,7 +219,7 @@ struct FixPlanCommands {
         guard projection.status == .ready else {
             return await staleResult(message: "Fix plan changed. Refreshing current plan.", projection: projection)
         }
-        if await hasRecoveryHold() {
+        if await ensureRecoveryHold() {
             return await recoveryHoldResult(target: target, projection: projection)
         }
         if let issue = projection.operationalIssues.first(where: { $0.category == .safetyBlocked }) {
@@ -282,6 +282,17 @@ struct FixPlanCommands {
                 message: "Write run cancelled.",
                 refreshedActivityProjection: refreshedActivity,
                 refreshedFixPlanProjection: refreshedFixPlan
+            )
+        case let .recoverable(_, reason):
+            return .blockedByRecovery(
+                message: "Recovery must be resolved before writes continue.",
+                issue: OperationalIssue(
+                    id: "fix-plan-write-recovery",
+                    category: .recoveryRequired,
+                    summary: "Write outcome needs recovery",
+                    technicalDetail: reason
+                ),
+                refreshedActivityProjection: refreshedActivity
             )
         case let .failed(snapshot):
             return .requiresAttention(
