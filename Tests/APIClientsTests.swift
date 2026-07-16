@@ -290,5 +290,7 @@ private final class CapturedAuthURLProtocol: URLProtocol {
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        // Responses are delivered synchronously, so there is no pending work to cancel.
+    }
 }
