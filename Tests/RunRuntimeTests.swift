@@ -25,7 +25,10 @@ struct RunRuntimeTests {
                 await config.record(configuration)
                 return script
             },
-            makePendingVerification: { _ in nil }
+            makePendingVerification: { _ in
+                // This runtime test does not exercise pending verification.
+                nil
+            }
         )
         let runtime = try await makeRuntime(services: services, script: script, track: track)
         let scope = ProcessingScopeSnapshot.capture(
@@ -128,7 +131,9 @@ private actor RuntimeScriptSpy: AppleScriptClient {
         tracks = [track.id: track]
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // The in-memory script test double has no external setup.
+    }
 
     func runScript(name _: String, arguments _: [String], timeout _: Duration?) async throws -> String? {
         nil
