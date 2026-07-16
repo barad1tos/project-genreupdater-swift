@@ -181,9 +181,9 @@ struct DependencyConfigTests {
                 // This test reads a stored fix plan without mutating app configuration.
             }
         )
-        let plan = try #require(makeStoredFixPlan(configuration: FixPlanConfigurationSnapshot.capture(
-            options: dependencies.previewRunOptions(),
-            capturedAt: Date(timeIntervalSince1970: 1_800_000_100)
+        let plan = try #require(makeStoredFixPlan(configuration: dependencies.capturePreviewConfig(
+            at: Date(timeIntervalSince1970: 1_800_000_100),
+            hasDiscogsAccess: true
         )))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
         dependencies.configureLibraryPersistenceForTesting(
@@ -198,7 +198,13 @@ struct DependencyConfigTests {
         #expect(projection.itemCount == 1)
         #expect(projection.acceptedCount == 1)
         #expect(projection.status == .ready)
+        #expect(projection.stalenessReasons.isEmpty)
         #expect(storedProjection == projection)
+
+        dependencies.setDiscogsIssue(.missingToken)
+        let staleProjection = await dependencies.refreshFixPlanProjection()
+        #expect(staleProjection.status == .stale)
+        #expect(staleProjection.stalenessReasons == [.configurationChanged])
     }
 
     @Test("Missing fix plan store keeps projection empty")
@@ -264,7 +270,7 @@ private actor StoredFixPlanStore: FixPlanStore {
     }
 }
 
-private func makeStoredFixPlan(configuration: FixPlanConfigurationSnapshot) -> FixPlan? {
+private func makeStoredFixPlan(configuration: FixPlanConfig) -> FixPlan? {
     let track = Track(
         id: "stored-track",
         name: "Stored Track",

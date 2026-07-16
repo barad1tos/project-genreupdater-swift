@@ -167,4 +167,149 @@ struct APIClientsTests {
         #expect(baseURL.scheme == "https")
         #expect(baseURL.host == "sandbox.discogs.com")
     }
+
+    @Test("Captured Discogs access is not reloaded during execution")
+    func freezesDiscogsAccess() async {
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.apiAuth.discogsTokenReference = ""
+        let headerProbe = AuthHeaderProbe()
+        CapturedAuthURLProtocol.requestHandler = { request in
+            try makeDiscogsResponse(for: request, probe: headerProbe)
+        }
+        defer { CapturedAuthURLProtocol.requestHandler = nil }
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [CapturedAuthURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        var keychainReadCount = 0
+        let factoryOverrides = APIClientFactoryOverrides(
+            keychainDiscogsClientFactory: { contactEmail, limiter, url in
+                keychainReadCount += 1
+                return DiscogsClient(
+                    token: "submitted-token",
+                    contactEmail: contactEmail,
+                    session: session,
+                    rateLimiter: limiter,
+                    baseURL: url
+                )
+            },
+            musicBrainz: DashboardStateAPIService(),
+            appleMusic: DashboardStateAPIService()
+        )
+        let captured = AppDependencies.captureDiscogsAccess(
+            configuration: configuration,
+            factoryOverrides: factoryOverrides
+        )
+
+        let orchestrator = AppDependencies.makePreviewAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            discogsAccess: captured,
+            factoryOverrides: factoryOverrides
+        )
+
+        #expect(captured.isEnabled)
+        #expect(keychainReadCount == 1)
+        #expect(!orchestrator.disabledSources.contains(.discogs))
+        let result = await orchestrator.getAlbumYear(
+            artist: "Submitted Artist",
+            album: "Submitted Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+        #expect(result.year == 2001)
+        #expect(keychainReadCount == 1)
+        #expect(!headerProbe.headers.isEmpty)
+        #expect(headerProbe.headers.allSatisfy { $0 == "Discogs token=submitted-token" })
+    }
+
+    @Test("Captured missing Discogs access stays disabled")
+    func freezesMissingDiscogsAccess() {
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.apiAuth.discogsTokenReference = ""
+        var keychainReadCount = 0
+        let captured = AppDependencies.captureDiscogsAccess(
+            configuration: configuration,
+            factoryOverrides: APIClientFactoryOverrides(keychainDiscogsClientFactory: { contactEmail, limiter, url in
+                keychainReadCount += 1
+                return DiscogsClient(contactEmail: contactEmail, rateLimiter: limiter, baseURL: url)
+            })
+        )
+
+        let orchestrator = AppDependencies.makePreviewAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            discogsAccess: captured
+        )
+
+        #expect(!captured.isEnabled)
+        #expect(keychainReadCount == 1)
+        #expect(orchestrator.disabledSources.contains(.discogs))
+    }
+}
+
+private func makeDiscogsResponse(
+    for request: URLRequest,
+    probe: AuthHeaderProbe
+) throws -> (URLResponse, Data) {
+    probe.append(request.value(forHTTPHeaderField: "Authorization"))
+    let url = try #require(request.url)
+    let response = try #require(HTTPURLResponse(
+        url: url,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+    ))
+    let data = Data(
+        #"{"results":[{"id":1,"title":"Submitted Artist - Submitted Album","year":"2001","type":"master"}]}"#
+            .utf8
+    )
+    return (response, data)
+}
+
+private final class AuthHeaderProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String?] = []
+
+    var headers: [String?] {
+        lock.withLock { values }
+    }
+
+    func append(_ value: String?) {
+        lock.withLock { values.append(value) }
+    }
+}
+
+private final class CapturedAuthURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (URLResponse, Data))?
+
+    override static func canInit(with _: URLRequest) -> Bool {
+        true
+    }
+
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handler = Self.requestHandler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {
+        // Responses are delivered synchronously, so there is no pending work to cancel.
+    }
 }

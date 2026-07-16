@@ -157,13 +157,32 @@ extension AppDependencies {
         }
     }
 
-    func submitPreviewRun() async throws -> RunSubmissionResult {
-        try await submitRun { knownTrackCount in
-            .manualPreview(
-                requestedTestArtists: config.development.testArtists,
-                knownTrackCount: knownTrackCount
-            )
+    func submitPreviewRun(
+        factoryOverrides: APIClientFactoryOverrides = APIClientFactoryOverrides()
+    ) async throws -> RunSubmissionResult {
+        guard let runOrchestrator else {
+            throw AppDependencyServiceError.runOrchestratorUnavailable
         }
+        let requestedTestArtists = config.development.testArtists
+        let reference = config.yearRetrieval.apiAuth.discogsTokenReference
+        var factoryOverrides = factoryOverrides
+        factoryOverrides.discogsCredentialIssueHandler = { [weak self] issue in
+            guard let self,
+                  self.config.yearRetrieval.apiAuth.discogsTokenReference == reference else { return }
+            self.setDiscogsIssue(issue)
+        }
+        let discogsAccess = Self.captureDiscogsAccess(
+            configuration: config,
+            factoryOverrides: factoryOverrides
+        )
+        let configuration = capturePreviewConfig(at: Date(), hasDiscogsAccess: discogsAccess.isEnabled)
+        let knownTrackCount = await currentKnownTrackCount()
+        await discogsAccessStore.save(discogsAccess, configurationID: configuration.id)
+        return await runOrchestrator.submit(.manualPreview(
+            configuration: configuration,
+            requestedTestArtists: requestedTestArtists,
+            knownTrackCount: knownTrackCount
+        ))
     }
 
     private func submitRun(makeRequest: (Int?) -> RunRequest) async throws -> RunSubmissionResult {
@@ -296,6 +315,9 @@ extension AppDependencies {
     }
 
     private func currentKnownTrackCount() async -> Int? {
+        if let trackCountSource {
+            return await trackCountSource()
+        }
         guard let trackStore else { return nil }
 
         do {

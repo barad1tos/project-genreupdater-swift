@@ -10,6 +10,9 @@ struct PreviewTests {
         let gate = PreviewGate()
         let syncCalls = PreviewSyncProbe()
         let producer = PreviewProducerProbe(production: .empty)
+        let configuration = previewConfiguration(
+            UpdateOptions(updateGenre: false, updateYear: true, minConfidence: 73)
+        )
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: {
                 await syncCalls.recordCall()
@@ -17,7 +20,7 @@ struct PreviewTests {
                 return SyncResult()
             },
             persistRunRecord: ignorePreviewRecord,
-            produceFixPlan: { try await producer.produce(runID: $0, scope: $1) },
+            produceFixPlan: { try await producer.produce(runID: $0, scope: $1, configuration: $2) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -32,6 +35,7 @@ struct PreviewTests {
 
         let previewRequest = RunRequest.preview(
             trigger: .manualCheck,
+            configuration: configuration,
             requestedTestArtists: [" Artist B "],
             knownTrackCount: 44
         )
@@ -50,6 +54,7 @@ struct PreviewTests {
         #expect(call.scope.source == .testArtists)
         #expect(call.scope.normalizedTestArtists == ["Artist B"])
         #expect(call.scope.knownTrackCount == 44)
+        #expect(call.configuration == configuration)
     }
 
     @Test("preview run syncs first, plans fixes, and persists preview intent")
@@ -63,11 +68,12 @@ struct PreviewTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
-            produceFixPlan: { try await producer.produce(runID: $0, scope: $1) },
+            produceFixPlan: { try await producer.produce(runID: $0, scope: $1, configuration: $2) },
             now: { clock.now() }
         ))
 
         let result = await orchestrator.submit(.manualPreview(
+            configuration: previewConfiguration(),
             requestedTestArtists: [" Aphex Twin "],
             knownTrackCount: 75
         ))
@@ -80,6 +86,7 @@ struct PreviewTests {
         let call = try #require(await producer.calls.first)
         #expect(call.runID == result.lifecycle.runID)
         #expect(call.scope == result.lifecycle.scope)
+        #expect(call.configuration == result.lifecycle.previewConfiguration)
 
         let final = try #require(await probe.records.last)
         #expect(final.intent == .previewFixes)
@@ -105,11 +112,12 @@ struct PreviewTests {
                 ])
             },
             persistRunRecord: { try await probe.append($0) },
-            produceFixPlan: { try await producer.produce(runID: $0, scope: $1) },
+            produceFixPlan: { try await producer.produce(runID: $0, scope: $1, configuration: $2) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
         let result = await orchestrator.submit(.manualPreview(
+            configuration: previewConfiguration(),
             requestedTestArtists: [],
             knownTrackCount: nil
         ))
@@ -137,11 +145,12 @@ struct PreviewTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
-            produceFixPlan: { _, _ in throw PreviewError(message: "Plan store unavailable") },
+            produceFixPlan: { _, _, _ in throw PreviewError(message: "Plan store unavailable") },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
         let result = await orchestrator.submit(.manualPreview(
+            configuration: previewConfiguration(),
             requestedTestArtists: [],
             knownTrackCount: nil
         ))
@@ -169,11 +178,12 @@ struct PreviewTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
-            produceFixPlan: { _, _ in throw CancellationError() },
+            produceFixPlan: { _, _, _ in throw CancellationError() },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
         let result = await orchestrator.submit(.manualPreview(
+            configuration: previewConfiguration(),
             requestedTestArtists: [],
             knownTrackCount: nil
         ))
@@ -198,13 +208,17 @@ struct PreviewTests {
     @Test("preview run without a producer fails fast after sync")
     func previewWithoutProducerFails() async throws {
         let probe = PreviewRecordProbe()
+        let release = PreviewReleaseProbe()
+        let configuration = previewConfiguration()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
+            releasePreview: { await release.record($0) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
         let result = await orchestrator.submit(.manualPreview(
+            configuration: configuration,
             requestedTestArtists: [],
             knownTrackCount: nil
         ))
@@ -222,12 +236,14 @@ struct PreviewTests {
             .reporting,
             .failed,
         ])
+        #expect(await release.configurations == [configuration])
     }
 }
 
 private struct PreviewProducerCall: Equatable {
     let runID: RunID
     let scope: ProcessingScopeSnapshot
+    let configuration: FixPlanConfig
 }
 
 private actor PreviewProducerProbe {
@@ -239,8 +255,12 @@ private actor PreviewProducerProbe {
         self.production = production
     }
 
-    func produce(runID: RunID, scope: ProcessingScopeSnapshot) throws -> FixPlanProduction {
-        calls.append(PreviewProducerCall(runID: runID, scope: scope))
+    func produce(
+        runID: RunID,
+        scope: ProcessingScopeSnapshot,
+        configuration: FixPlanConfig
+    ) throws -> FixPlanProduction {
+        calls.append(PreviewProducerCall(runID: runID, scope: scope, configuration: configuration))
         resumeContinuations()
         return production
     }
@@ -284,6 +304,14 @@ private actor PreviewRecordProbe {
 
     func append(_ record: RunRecord) throws {
         records.append(record)
+    }
+}
+
+private actor PreviewReleaseProbe {
+    private(set) var configurations: [FixPlanConfig] = []
+
+    func record(_ configuration: FixPlanConfig) {
+        configurations.append(configuration)
     }
 }
 
@@ -352,4 +380,12 @@ private struct PreviewError: LocalizedError {
 
 private func ignorePreviewRecord(_ record: RunRecord) async throws {
     _ = record
+}
+
+private func previewConfiguration(_ options: UpdateOptions = UpdateOptions()) -> FixPlanConfig {
+    FixPlanConfig.capture(
+        configuration: AppConfiguration(),
+        options: options,
+        capturedAt: Date(timeIntervalSince1970: 50)
+    )
 }

@@ -1,6 +1,9 @@
 import Core
+import Foundation
 
 extension DiscogsClient {
+    private static let credentialRevisionKey = "discogsCredentialRevision"
+
     static var legacyKeychainService: String {
         "GenreUpdater-Discogs"
     }
@@ -15,12 +18,21 @@ extension DiscogsClient {
     ///   errors when protected storage cannot be used, or `KeychainError.saveFailed` on Keychain
     ///   add or replacement failure.
     public static func saveToken(_ token: String) throws -> KeychainSaveResult {
-        let keychain = KeychainHelper()
-        return try keychain.save(
+        try saveToken(token, keychain: KeychainHelper(), defaults: .standard)
+    }
+
+    static func saveToken(
+        _ token: String,
+        keychain: KeychainHelper,
+        defaults: UserDefaults
+    ) throws -> KeychainSaveResult {
+        let result = try keychain.save(
             token: token,
             service: keychainService,
             account: keychainAccount
         )
+        advanceCredentialRevision(defaults: defaults)
+        return result
     }
 
     /// Retrieves the saved Discogs token, migrating the previous Settings key if needed.
@@ -35,7 +47,20 @@ extension DiscogsClient {
     ///
     /// - Throws: `KeychainError` if the current or legacy item cannot be deleted safely.
     public static func deleteSavedToken() throws {
-        try deleteSavedToken(keychain: KeychainHelper())
+        try deleteSavedToken(keychain: KeychainHelper(), defaults: .standard)
+    }
+
+    /// Stable, non-secret version of the saved credential for run snapshot identity.
+    public static var credentialRevision: String {
+        credentialRevision(defaults: .standard)
+    }
+
+    static func credentialRevision(defaults: UserDefaults) -> String {
+        defaults.string(forKey: credentialRevisionKey) ?? "initial"
+    }
+
+    static func advanceCredentialRevision(defaults: UserDefaults = .standard) {
+        defaults.set(UUID().uuidString, forKey: credentialRevisionKey)
     }
 
     static func retrieveSavedToken(keychain: KeychainHelper) throws -> String? {
@@ -71,14 +96,28 @@ extension DiscogsClient {
         return legacyToken
     }
 
-    static func deleteSavedToken(keychain: KeychainHelper) throws {
-        try keychain.delete(
+    static func deleteSavedToken(keychain: KeychainHelper, defaults: UserDefaults) throws {
+        var didDelete = false
+        defer {
+            if didDelete {
+                advanceCredentialRevision(defaults: defaults)
+            }
+        }
+        try deleteStoredTokens(keychain: keychain) {
+            didDelete = true
+        }
+    }
+
+    private static func deleteStoredTokens(keychain: KeychainHelper, onDelete: @escaping () -> Void) throws {
+        _ = try keychain.delete(
             service: keychainService,
-            account: keychainAccount
+            account: keychainAccount,
+            onDelete: onDelete
         )
-        try keychain.delete(
+        _ = try keychain.delete(
             service: legacyKeychainService,
-            account: legacyKeychainAccount
+            account: legacyKeychainAccount,
+            onDelete: onDelete
         )
     }
 }

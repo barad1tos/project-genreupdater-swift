@@ -11,17 +11,6 @@ enum DependencySetupError: LocalizedError {
     }
 }
 
-enum PreviewRunError: LocalizedError {
-    case appDependenciesReleased
-
-    var errorDescription: String? {
-        switch self {
-        case .appDependenciesReleased:
-            "App dependencies were released before the preview run"
-        }
-    }
-}
-
 enum WriteAdmissionError: LocalizedError {
     case recoveryRequired
 

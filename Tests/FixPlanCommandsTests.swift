@@ -643,7 +643,8 @@ private func makeCommandPlan(firstHasWriteID: Bool = true) -> FixPlan {
         revision: .initial,
         sourceRunID: RunID(rawValue: commandUUID("00000000-0000-0000-0000-000000000102")),
         createdAt: Date(timeIntervalSince1970: 1_800_000_100),
-        configuration: FixPlanConfigurationSnapshot.capture(
+        configuration: FixPlanConfig.capture(
+            configuration: AppConfiguration(),
             options: UpdateOptions(
                 updateGenre: true,
                 updateYear: true,

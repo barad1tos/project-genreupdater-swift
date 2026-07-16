@@ -56,7 +56,7 @@ struct FixPlanTests {
         cleanTracks=false:cleanAlbums=false:minConfidence=60"}
         """
 
-        let snapshot = try JSONDecoder().decode(FixPlanConfigurationSnapshot.self, from: Data(json.utf8))
+        let snapshot = try JSONDecoder().decode(FixPlanConfig.self, from: Data(json.utf8))
 
         #expect(snapshot.id == UUID(uuidString: "00000000-0000-0000-0000-000000000010"))
         #expect(snapshot.capturedAt == Date(timeIntervalSinceReferenceDate: 773_996_400))
@@ -143,8 +143,8 @@ struct FixPlanTests {
         #expect(secondIdentity["appleScriptID"] == nil)
     }
 
-    @Test("configuration snapshot fingerprint format is pinned")
-    func configurationSnapshotFingerprintFormatIsPinned() {
+    @Test("configuration snapshot uses a stable SHA-256 fingerprint")
+    func fingerprintIsStable() {
         let options = UpdateOptions(
             updateGenre: true,
             updateYear: false,
@@ -156,15 +156,20 @@ struct FixPlanTests {
             autoAccept: true
         )
 
-        let snapshot = FixPlanConfigurationSnapshot.capture(
+        let snapshot = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: options,
+            capturedAt: Date(timeIntervalSinceReferenceDate: 773_996_400)
+        )
+        let repeated = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
             options: options,
             capturedAt: Date(timeIntervalSinceReferenceDate: 773_996_400)
         )
 
-        #expect(
-            snapshot.fingerprint ==
-                "genre=true:year=false:repair=true:forceYear=false:cleanTracks=true:cleanAlbums=false:minConfidence=75"
-        )
+        #expect(snapshot.fingerprint == repeated.fingerprint)
+        #expect(snapshot.fingerprint.count == 64)
+        #expect(snapshot.fingerprint.allSatisfy { "0123456789abcdef".contains($0) })
     }
 
     @Test("fix plan item round trips through Codable")
@@ -193,13 +198,14 @@ struct FixPlanTests {
 
     @Test("configuration snapshot round trips through Codable")
     func configurationSnapshotRoundTripsThroughCodable() throws {
-        let snapshot = FixPlanConfigurationSnapshot.capture(
+        let snapshot = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
             options: UpdateOptions(),
             capturedAt: Date(timeIntervalSinceReferenceDate: 773_996_400)
         )
 
         let encoded = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(FixPlanConfigurationSnapshot.self, from: encoded)
+        let decoded = try JSONDecoder().decode(FixPlanConfig.self, from: encoded)
 
         #expect(decoded == snapshot)
     }
@@ -253,7 +259,8 @@ struct FixPlanTests {
             createdAt: Date(timeIntervalSince1970: 100),
             reason: "unit-test"
         )
-        let configuration = FixPlanConfigurationSnapshot.capture(
+        let configuration = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
             options: UpdateOptions(),
             capturedAt: Date(timeIntervalSince1970: 100)
         )
@@ -313,7 +320,8 @@ struct FixPlanTests {
                     createdAt: Date(timeIntervalSince1970: 100),
                     reason: "unit-test"
                 ),
-                configuration: FixPlanConfigurationSnapshot.capture(
+                configuration: FixPlanConfig.capture(
+                    configuration: AppConfiguration(),
                     options: UpdateOptions(),
                     capturedAt: Date(timeIntervalSince1970: 100)
                 ),
@@ -348,7 +356,8 @@ struct FixPlanTests {
                     createdAt: Date(timeIntervalSince1970: 100),
                     reason: "unit-test"
                 ),
-                configuration: FixPlanConfigurationSnapshot.capture(
+                configuration: FixPlanConfig.capture(
+                    configuration: AppConfiguration(),
                     options: UpdateOptions(),
                     capturedAt: Date(timeIntervalSince1970: 100)
                 ),
@@ -371,7 +380,8 @@ struct FixPlanTests {
                 createdAt: Date(timeIntervalSince1970: 100),
                 reason: "unit-test"
             ),
-            configuration: FixPlanConfigurationSnapshot.capture(
+            configuration: FixPlanConfig.capture(
+                configuration: AppConfiguration(),
                 options: UpdateOptions(),
                 capturedAt: Date(timeIntervalSince1970: 100)
             ),
@@ -409,7 +419,8 @@ struct FixPlanTests {
             createdAt: Date(timeIntervalSince1970: 100),
             reason: "unit-test"
         )
-        let configuration = FixPlanConfigurationSnapshot.capture(
+        let configuration = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
             options: UpdateOptions(),
             capturedAt: Date(timeIntervalSince1970: 100)
         )

@@ -176,7 +176,7 @@ private let decidedAt = Date(timeIntervalSince1970: 101)
 
 private func makePlan(
     items: [FixPlanItem],
-    configuration: FixPlanConfigurationSnapshot = makeConfiguration()
+    configuration: FixPlanConfig = makeConfiguration()
 ) -> FixPlan {
     FixPlan(
         id: FixPlanID(rawValue: itemID(99)),
@@ -194,8 +194,9 @@ private func makePlan(
     )
 }
 
-private func makeConfiguration(minConfidence: Int = 80) -> FixPlanConfigurationSnapshot {
-    FixPlanConfigurationSnapshot.capture(
+private func makeConfiguration(minConfidence: Int = 80) -> FixPlanConfig {
+    FixPlanConfig.capture(
+        configuration: AppConfiguration(),
         options: UpdateOptions(
             updateGenre: true,
             updateYear: true,

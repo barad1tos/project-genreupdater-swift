@@ -26,7 +26,7 @@ public struct FixPlanStaleness: Equatable, Sendable {
     public static func evaluate(
         plan: FixPlan,
         currentScope: ProcessingScopeSnapshot,
-        currentConfiguration: FixPlanConfigurationSnapshot
+        currentConfiguration: FixPlanConfig
     ) -> Self {
         var reasons: [FixPlanStalenessReason] = []
 

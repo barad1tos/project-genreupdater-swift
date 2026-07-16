@@ -26,10 +26,32 @@ enum TriggerArbiter {
         }
 
         if incomingKey.rank == strongestRank {
-            let isCovered = candidateKeys.contains { key in
+            let isCoveredByActive = activeKey.rank == strongestRank && activeKey.covers(incomingKey)
+            if isCoveredByActive {
+                guard incomingKey.rank.intentPriority == IntentPriority.previewFixes else {
+                    return .alreadyCovered(pending)
+                }
+                // Incoming is the newest preview intent. If active already covers it, every older pending preview is
+                // stale.
+                let nonPreview = pending.filter {
+                    RequestKey(request: $0.request).rank.intentPriority != IntentPriority.previewFixes
+                }
+                return .alreadyCovered(nonPreview)
+            }
+
+            let isCoveredByPending = pendingKeys.contains { key in
                 key.rank == strongestRank && key.covers(incomingKey)
             }
-            return isCovered ? .alreadyCovered(pending) : .queue(pending + [PendingTrigger(request: incoming)])
+            if isCoveredByPending {
+                return .alreadyCovered(pending)
+            }
+            if incomingKey.rank.intentPriority == IntentPriority.previewFixes {
+                let nonPreview = pending.filter {
+                    RequestKey(request: $0.request).rank.intentPriority != IntentPriority.previewFixes
+                }
+                return .queue(nonPreview + [PendingTrigger(request: incoming)])
+            }
+            return .queue(pending + [PendingTrigger(request: incoming)])
         }
 
         return .queue([PendingTrigger(request: incoming)])
@@ -43,22 +65,32 @@ enum TriggerArbiter {
 private struct RequestKey {
     let rank: RequestRank
     let scope: ScopeKey
+    let previewFingerprint: String?
     let writeTarget: FixPlanWriteTarget?
 
     init(lifecycle: RunLifecycleSnapshot) {
         rank = TriggerArbiter.rank(trigger: lifecycle.trigger, intent: lifecycle.intent)
         scope = ScopeKey(snapshot: lifecycle.scope)
+        previewFingerprint = lifecycle.previewConfiguration?.fingerprint
         writeTarget = lifecycle.writeTarget
     }
 
     init(request: RunRequest) {
         rank = TriggerArbiter.rank(trigger: request.trigger, intent: request.intent)
         scope = ScopeKey(request: request)
+        previewFingerprint = request.previewConfiguration?.fingerprint
         writeTarget = request.writeTarget
     }
 
     func covers(_ other: Self) -> Bool {
         guard scope.covers(other.scope) else { return false }
+        if rank.intentPriority == IntentPriority.previewFixes {
+            guard other.rank.intentPriority == IntentPriority.previewFixes,
+                  let previewFingerprint,
+                  let otherFingerprint = other.previewFingerprint
+            else { return false }
+            return previewFingerprint == otherFingerprint
+        }
         guard rank.intentPriority == IntentPriority.writeFixes,
               other.rank.intentPriority == IntentPriority.writeFixes
         else {

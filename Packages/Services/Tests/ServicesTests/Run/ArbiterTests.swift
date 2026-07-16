@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import Testing
 @testable import Services
@@ -84,6 +85,167 @@ struct ArbiterTests {
             return
         }
         #expect(pending.map(\.request) == [request])
+    }
+
+    @Test("preview queues when configuration differs")
+    func differentConfigurationQueues() {
+        let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
+        let request = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 75)),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let decision = TriggerArbiter.decide(active: active, pending: [], incoming: request)
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected queued preview configuration, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [request])
+    }
+
+    @Test("preview queues after the saved Discogs credential rotates")
+    func rotatedCredentialQueues() {
+        let activeConfiguration = previewConfig(discogsCredentialRevision: "revision-a")
+        let active = Self.lifecycle(
+            trigger: .manualCheck,
+            intent: .previewFixes,
+            previewConfiguration: activeConfiguration
+        )
+        let request = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(discogsCredentialRevision: "revision-b"),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let decision = TriggerArbiter.decide(active: active, pending: [], incoming: request)
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected rotated credential preview to queue, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [request])
+    }
+
+    @Test("newest preview replaces the pending preview")
+    func newestPreviewReplacesPending() {
+        let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
+        let older = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 70)),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+        let newest = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 80)),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let decision = TriggerArbiter.decide(
+            active: active,
+            pending: [PendingTrigger(request: older)],
+            incoming: newest
+        )
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected the latest preview to replace pending work, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [newest])
+    }
+
+    @Test("newest preview replaces a pending preview from another scope")
+    func latestPreviewWins() {
+        let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
+        let older = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 70)),
+            requestedTestArtists: ["Artist A"],
+            knownTrackCount: 75
+        )
+        let newest = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 80)),
+            requestedTestArtists: ["Artist B"],
+            knownTrackCount: 75
+        )
+
+        let decision = TriggerArbiter.decide(
+            active: active,
+            pending: [PendingTrigger(request: older)],
+            incoming: newest
+        )
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected the latest preview scope to replace pending work, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [newest])
+    }
+
+    @Test("active preview clears a stale pending preview when resubmitted")
+    func dropsStalePreviews() {
+        let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
+        let firstStale = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 70)),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+        let secondStale = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(UpdateOptions(minConfidence: 80)),
+            requestedTestArtists: ["Other Artist"],
+            knownTrackCount: nil
+        )
+        guard let activeConfiguration = active.previewConfiguration else {
+            Issue.record("Expected active preview configuration")
+            return
+        }
+        let incoming = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: activeConfiguration,
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let decision = TriggerArbiter.decide(
+            active: active,
+            pending: [PendingTrigger(request: firstStale), PendingTrigger(request: secondStale)],
+            incoming: incoming
+        )
+
+        guard case .alreadyCovered([]) = decision else {
+            Issue.record("Expected the active preview to clear stale pending work, got \(decision)")
+            return
+        }
+    }
+
+    @Test("preview with the same fingerprint is covered")
+    func sameFingerprintCovered() {
+        let active = Self.lifecycle(trigger: .manualCheck, intent: .previewFixes)
+        let request = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: previewConfig(),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let activeConfiguration = active.previewConfiguration
+        #expect(activeConfiguration?.id != request.previewConfiguration?.id)
+        #expect(activeConfiguration?.fingerprint == request.previewConfiguration?.fingerprint)
+
+        let decision = TriggerArbiter.decide(active: active, pending: [], incoming: request)
+
+        guard case .alreadyCovered([]) = decision else {
+            Issue.record("Expected matching preview fingerprint to be covered, got \(decision)")
+            return
+        }
     }
 
     @Test("equal trigger queues when test artist scope differs")
@@ -208,6 +370,37 @@ struct ArbiterTests {
         #expect(pending.map(\.request) == [request])
     }
 
+    @Test("distinct write targets remain pending")
+    func writeTargetsRemainPending() {
+        let active = Self.lifecycle(
+            trigger: .manualCheck,
+            intent: .writeFixes,
+            writeTarget: Self.writeTarget("00000000-0000-0000-0000-000000000101")
+        )
+        let older = RunRequest.manualWrite(
+            target: Self.writeTarget("00000000-0000-0000-0000-000000000102"),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+        let newest = RunRequest.manualWrite(
+            target: Self.writeTarget("00000000-0000-0000-0000-000000000103"),
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let decision = TriggerArbiter.decide(
+            active: active,
+            pending: [PendingTrigger(request: older)],
+            incoming: newest
+        )
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected both write targets to remain queued, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [older, newest])
+    }
+
     private static func request(
         trigger: RunTrigger,
         intent: RunIntent,
@@ -224,6 +417,7 @@ struct ArbiterTests {
         case .previewFixes:
             RunRequest.preview(
                 trigger: trigger,
+                configuration: previewConfig(),
                 requestedTestArtists: requestedTestArtists,
                 knownTrackCount: knownTrackCount
             )
@@ -242,7 +436,8 @@ struct ArbiterTests {
         intent: RunIntent,
         requestedTestArtists: [String] = [],
         knownTrackCount: Int? = nil,
-        writeTarget: FixPlanWriteTarget? = nil
+        writeTarget: FixPlanWriteTarget? = nil,
+        previewConfiguration: FixPlanConfig? = nil
     ) -> RunLifecycleSnapshot {
         let startedAt = Date(timeIntervalSince1970: 100)
         return RunLifecycleSnapshot(
@@ -256,6 +451,7 @@ struct ArbiterTests {
                 createdAt: startedAt,
                 reason: trigger.rawValue
             ),
+            previewConfiguration: intent == .previewFixes ? previewConfiguration ?? previewConfig() : nil,
             writeTarget: writeTarget,
             startedAt: startedAt,
             phase: .active(.syncingLibrary)
@@ -272,4 +468,16 @@ struct ArbiterTests {
             decisionRevision: .initial
         )
     }
+}
+
+private func previewConfig(
+    _ options: UpdateOptions = UpdateOptions(),
+    discogsCredentialRevision: String = ""
+) -> FixPlanConfig {
+    FixPlanConfig.capture(
+        configuration: AppConfiguration(),
+        options: options,
+        capturedAt: Date(timeIntervalSince1970: 50),
+        discogsCredentialRevision: discogsCredentialRevision
+    )
 }

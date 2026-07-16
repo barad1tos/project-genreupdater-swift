@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("KeychainHelper - legacy migration")
-struct KeychainHelperMigrationTests {
+struct KeychainMigrationTests {
     private let testService = "com.genreupdater.test.\(UUID().uuidString)"
     private let testAccount = "discogs-token-test"
 
@@ -76,7 +76,7 @@ struct KeychainHelperMigrationTests {
         let token = "integration-token-\(UUID().uuidString)"
 
         defer {
-            try? helper.delete(service: service, account: account)
+            _ = try? helper.delete(service: service, account: account)
         }
 
         try helper.save(token: token, service: service, account: account)

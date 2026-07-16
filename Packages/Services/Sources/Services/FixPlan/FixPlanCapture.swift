@@ -9,7 +9,7 @@ public enum FixPlanCapture {
         from proposals: [ProposedChange],
         sourceRunID: RunID,
         scope: ProcessingScopeSnapshot,
-        configuration: FixPlanConfigurationSnapshot,
+        configuration: FixPlanConfig,
         createdAt: Date
     ) -> FixPlan? {
         guard !proposals.isEmpty else { return nil }

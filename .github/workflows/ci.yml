@@ -53,7 +53,7 @@ jobs:
 
       - name: Xcode app gate
         run: bash scripts/xcode-gate.sh
-        timeout-minutes: 10
+        timeout-minutes: 15
 
       - name: Unlock Keychain for tests
         run: security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db

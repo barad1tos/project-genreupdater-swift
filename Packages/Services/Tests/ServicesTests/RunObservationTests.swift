@@ -16,7 +16,9 @@ struct RunObservationTests {
                 ])
             },
             persistRunRecord: { try await records.append($0) },
-            produceFixPlan: { try await plans.produce(runID: $0, scope: $1) },
+            produceFixPlan: { runID, scope, _ in
+                try await plans.produce(runID: runID, scope: scope)
+            },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 

@@ -262,7 +262,11 @@ private func makePlan(_ item: FixPlanItem) -> FixPlan {
         revision: .initial,
         sourceRunID: RunID(),
         createdAt: capturedAt,
-        configuration: FixPlanConfigurationSnapshot.capture(options: UpdateOptions(), capturedAt: capturedAt),
+        configuration: FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: capturedAt
+        ),
         scope: ProcessingScopeSnapshot.capture(
             requestedTestArtists: [],
             knownTrackCount: 1,

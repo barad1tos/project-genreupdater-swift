@@ -15,7 +15,7 @@ public enum RunIntent: String, Codable, Equatable, Sendable {
 
 public enum RunRequestKind: Equatable, Sendable {
     case observeLibrary
-    case previewFixes
+    case previewFixes(FixPlanConfig)
     case writeFixes(FixPlanWriteTarget)
 
     public var intent: RunIntent {
@@ -30,6 +30,14 @@ public enum RunRequestKind: Equatable, Sendable {
         switch self {
         case .observeLibrary, .previewFixes: nil
         case let .writeFixes(target): target
+        }
+    }
+
+    public var previewConfiguration: FixPlanConfig? {
+        if case let .previewFixes(configuration) = self {
+            configuration
+        } else {
+            nil
         }
     }
 }
@@ -47,6 +55,10 @@ public struct RunRequest: Equatable, Sendable {
 
     public var writeTarget: FixPlanWriteTarget? {
         kind.writeTarget
+    }
+
+    public var previewConfiguration: FixPlanConfig? {
+        kind.previewConfiguration
     }
 
     private init(
@@ -81,13 +93,14 @@ public struct RunRequest: Equatable, Sendable {
     public static func preview(
         id: RunRequestID = RunRequestID(),
         trigger: RunTrigger,
+        configuration: FixPlanConfig,
         requestedTestArtists: [String],
         knownTrackCount: Int?
     ) -> Self {
         Self(
             id: id,
             trigger: trigger,
-            kind: .previewFixes,
+            kind: .previewFixes(configuration),
             requestedTestArtists: requestedTestArtists,
             knownTrackCount: knownTrackCount
         )
@@ -121,11 +134,13 @@ public struct RunRequest: Equatable, Sendable {
     }
 
     public static func manualPreview(
+        configuration: FixPlanConfig,
         requestedTestArtists: [String],
         knownTrackCount: Int?
     ) -> Self {
         preview(
             trigger: .manualCheck,
+            configuration: configuration,
             requestedTestArtists: requestedTestArtists,
             knownTrackCount: knownTrackCount
         )

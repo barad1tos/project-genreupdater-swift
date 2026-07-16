@@ -5,21 +5,41 @@ import OSLog
 public actor RunOrchestrator {
     public struct Dependencies: Sendable {
         public let synchronizeLibrary: @Sendable () async throws -> SyncResult
+        public let synchronizePreview: (@Sendable (
+            ProcessingScopeSnapshot,
+            FixPlanConfig
+        ) async throws -> SyncResult)?
         public let persistRunRecord: @Sendable (RunRecord) async throws -> Void
-        public let produceFixPlan: (@Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction)?
+        public let produceFixPlan: (@Sendable (
+            RunID,
+            ProcessingScopeSnapshot,
+            FixPlanConfig
+        ) async throws -> FixPlanProduction)?
+        public let releasePreview: (@Sendable (FixPlanConfig) async -> Void)?
         public let writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)?
         public let now: @Sendable () -> Date
 
         public init(
             synchronizeLibrary: @escaping @Sendable () async throws -> SyncResult,
+            synchronizePreview: (@Sendable (
+                ProcessingScopeSnapshot,
+                FixPlanConfig
+            ) async throws -> SyncResult)? = nil,
             persistRunRecord: @escaping @Sendable (RunRecord) async throws -> Void,
-            produceFixPlan: (@Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction)? = nil,
+            produceFixPlan: (@Sendable (
+                RunID,
+                ProcessingScopeSnapshot,
+                FixPlanConfig
+            ) async throws -> FixPlanProduction)? = nil,
+            releasePreview: (@Sendable (FixPlanConfig) async -> Void)? = nil,
             writeFixPlan: (@Sendable (FixPlanWriteTarget) async throws -> BatchUpdateResult)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
             self.synchronizeLibrary = synchronizeLibrary
+            self.synchronizePreview = synchronizePreview
             self.persistRunRecord = persistRunRecord
             self.produceFixPlan = produceFixPlan
+            self.releasePreview = releasePreview
             self.writeFixPlan = writeFixPlan
             self.now = now
         }
@@ -108,10 +128,11 @@ public actor RunOrchestrator {
         if let activeRun {
             switch TriggerArbiter.decide(active: activeRun, pending: pendingTriggers, incoming: request) {
             case let .alreadyCovered(pending):
-                pendingTriggers = pending
+                await replacePending(with: pending)
+                await releaseCoveredPreview(request, active: activeRun, pending: pending)
                 return .alreadyCovered(activeRun: activeRun)
             case let .queue(pending):
-                pendingTriggers = pending
+                await replacePending(with: pending)
                 return .queued(activeRun: activeRun)
             }
         }
@@ -147,6 +168,7 @@ public actor RunOrchestrator {
 
         do {
             let work = try await performRunWork(from: lifecycle, request: request)
+            await releasePreview(request)
             let reporting = beginReporting(from: work.reportingSource)
             let completed = reporting.finishing(
                 result: work.result,
@@ -167,9 +189,11 @@ public actor RunOrchestrator {
             }
             return .completed(completed)
         } catch is CancellationError {
+            await releasePreview(request)
             log.error("Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) cancelled")
             return await finishCancelledRun(from: activeRun ?? lifecycle, message: "Run cancelled")
         } catch {
+            await releasePreview(request)
             // Error descriptions stay private: sync/write errors can embed track or artist names.
             log.error("""
             Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) failed with \
@@ -180,11 +204,46 @@ public actor RunOrchestrator {
         }
     }
 
+    private func releasePreview(_ request: RunRequest) async {
+        guard let configuration = request.previewConfiguration,
+              let releasePreview = dependencies.releasePreview else { return }
+        await releasePreview(configuration)
+    }
+
+    private func releaseCoveredPreview(
+        _ request: RunRequest,
+        active: RunLifecycleSnapshot,
+        pending: [PendingTrigger]
+    ) async {
+        guard let configurationID = request.previewConfiguration?.id else { return }
+        let isActive = active.previewConfiguration?.id == configurationID
+        let isPending = pending.contains { $0.request.previewConfiguration?.id == configurationID }
+        guard !isActive, !isPending else { return }
+        await releasePreview(request)
+    }
+
+    private func replacePending(with replacement: [PendingTrigger]) async {
+        let retainedConfigurationIDs = Set(replacement.compactMap { $0.request.previewConfiguration?.id })
+        let removed = pendingTriggers.filter { pending in
+            guard let configurationID = pending.request.previewConfiguration?.id else { return false }
+            return !retainedConfigurationIDs.contains(configurationID)
+        }
+        pendingTriggers = replacement
+        for pending in removed {
+            await releasePreview(pending.request)
+        }
+    }
+
     private func performRunWork(
         from lifecycle: RunLifecycleSnapshot,
         request: RunRequest
     ) async throws -> RunWork {
-        let syncResult = try await dependencies.synchronizeLibrary()
+        let syncResult: SyncResult = if case let .previewFixes(configuration) = request.kind,
+                                        let synchronizePreview = dependencies.synchronizePreview {
+            try await synchronizePreview(lifecycle.scope, configuration)
+        } else {
+            try await dependencies.synchronizeLibrary()
+        }
         switch request.kind {
         case .observeLibrary:
             return RunWork(
@@ -192,12 +251,12 @@ public actor RunOrchestrator {
                 result: syncResult,
                 hasActionableWork: syncResult.hasChanges
             )
-        case .previewFixes:
+        case let .previewFixes(configuration):
             guard let produceFixPlan = dependencies.produceFixPlan else {
                 throw RunWorkError.missingFixPlanProducer
             }
             let planning = beginFixPlanning(from: lifecycle)
-            let production = try await produceFixPlan(planning.runID, planning.scope)
+            let production = try await produceFixPlan(planning.runID, planning.scope, configuration)
             return RunWork(
                 reportingSource: planning,
                 result: syncResult,
@@ -363,6 +422,7 @@ public actor RunOrchestrator {
             trigger: request.trigger,
             intent: request.intent,
             scope: scope,
+            previewConfiguration: request.previewConfiguration,
             writeTarget: request.writeTarget,
             startedAt: startedAt,
             phase: .active(.created)

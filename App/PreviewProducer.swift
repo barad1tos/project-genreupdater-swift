@@ -5,74 +5,42 @@ import Services
 
 private let previewProducerLog = Logger(subsystem: "com.genreupdater", category: "preview-producer")
 
-struct WriteIdentityRefresher {
-    let mapper: TrackIDMapper
-    let client: any AppleScriptClient
-
-    func refresh(
-        tracks: [Track],
-        scope: ProcessingScopeSnapshot,
-        config: AppleScriptConfig
-    ) async throws {
-        let trackFetchTimeout = scope.normalizedTestArtists.isEmpty
-            ? config.timeouts.idsBatchFetch
-            : config.timeouts.singleArtistFetch
-        let mappedCount = try await mapper.refreshMapping(
-            musicKitTracks: tracks,
-            appleScriptClient: client,
-            batchSize: config.batchProcessing.idsBatchSize,
-            allTrackIDsTimeout: config.timeouts.fullLibraryFetch,
-            tracksByIDsTimeout: trackFetchTimeout,
-            testArtists: scope.normalizedTestArtists,
-            mergeExisting: true
-        )
-        previewProducerLog.info(
-            "Track ID mapping refreshed: \(mappedCount, privacy: .public)/\(tracks.count, privacy: .public)"
+extension AppDependencies {
+    func capturePreviewConfig(
+        at date: Date,
+        hasDiscogsAccess: Bool
+    ) -> FixPlanConfig {
+        FixPlanConfig.capture(
+            configuration: config,
+            options: previewRunOptions(),
+            capturedAt: date,
+            discogsCredentialRevision: DiscogsClient.credentialRevision,
+            hasDiscogsAccess: hasDiscogsAccess
         )
     }
-}
 
-extension AppDependencies {
-    func makePreviewProducer()
-        -> (@Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction)? {
+    func makePreviewProducer(runtime: RunRuntimeFactory?)
+        -> (@Sendable (
+            RunID,
+            ProcessingScopeSnapshot,
+            FixPlanConfig
+        ) async throws -> FixPlanProduction)? {
         let missingInputs = missingPreviewInputs()
         guard missingInputs.isEmpty,
-              let updateCoordinator,
+              let runtime,
               let trackStore,
-              let fixPlanStore,
-              let mapper = trackIDMapper,
-              let scriptClient = applescriptBridge
+              let fixPlanStore
         else {
             let missingList = missingInputs.joined(separator: ", ")
             previewProducerLog.warning("Preview producer unavailable: missing \(missingList, privacy: .public)")
             assertionFailure("Preview producer unavailable: missing \(missingList)")
             return nil
         }
-        let identityRefresher = WriteIdentityRefresher(mapper: mapper, client: scriptClient)
 
         return makePreviewProducer(dependencies: FixPlanProducer.Dependencies(
             loadTracks: { try await trackStore.loadAllTracks() },
-            refreshWriteIdentity: { [weak self, identityRefresher] tracks, scope in
-                guard let self else {
-                    throw PreviewRunError.appDependenciesReleased
-                }
-                try await identityRefresher.refresh(
-                    tracks: tracks,
-                    scope: scope,
-                    config: self.config.applescript
-                )
-            },
-            albumContextTracksByTrackID: {
-                await updateCoordinator.albumContextTracksByTrackID(for: $0, requiresMutationMetadata: false)
-            },
-            determineTrackChanges: {
-                try await updateCoordinator.updateTrack(
-                    $0,
-                    albumTracks: $1,
-                    artistTracks: $2,
-                    options: $3,
-                    dryRun: true
-                )
+            makeRuntime: { configuration, scope in
+                try await runtime.makePreview(configuration: configuration, scope: scope)
             },
             savePlan: { try await fixPlanStore.savePlan($0, initialDecision: $1) },
             now: { Date() }
@@ -80,21 +48,20 @@ extension AppDependencies {
     }
 
     func makePreviewProducer(
-        dependencies producerDependencies: FixPlanProducer.Dependencies,
-        options fixedOptions: UpdateOptions? = nil
+        dependencies producerDependencies: FixPlanProducer.Dependencies
     )
-        -> @Sendable (RunID, ProcessingScopeSnapshot) async throws -> FixPlanProduction {
+        -> @Sendable (
+            RunID,
+            ProcessingScopeSnapshot,
+            FixPlanConfig
+        ) async throws -> FixPlanProduction {
         let producer = FixPlanProducer(dependencies: producerDependencies)
-        return { [weak self, producer] runID, scope in
-            guard let self else {
-                throw PreviewRunError.appDependenciesReleased
-            }
-            let options: UpdateOptions = if let fixedOptions {
-                fixedOptions
-            } else {
-                await self.previewRunOptions()
-            }
-            return try await producer.producePlan(sourceRunID: runID, scope: scope, options: options)
+        return { [producer] runID, scope, configuration in
+            try await producer.producePlan(
+                sourceRunID: runID,
+                scope: scope,
+                configuration: configuration
+            )
         }
     }
 
@@ -111,8 +78,11 @@ extension AppDependencies {
 
     private func missingPreviewInputs() -> [String] {
         [
-            applescriptBridge == nil ? "applescriptBridge" : nil,
-            updateCoordinator == nil ? "updateCoordinator" : nil,
+            scriptInstaller == nil ? "scriptInstaller" : nil,
+            modelContainer == nil ? "modelContainer" : nil,
+            featureGate == nil ? "featureGate" : nil,
+            cacheService == nil ? "cacheService" : nil,
+            undoCoordinator == nil ? "undoCoordinator" : nil,
             trackStore == nil ? "trackStore" : nil,
             fixPlanStore == nil ? "fixPlanStore" : nil,
             trackIDMapper == nil ? "trackIDMapper" : nil

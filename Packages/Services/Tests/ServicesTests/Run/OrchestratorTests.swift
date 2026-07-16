@@ -366,7 +366,9 @@ struct OrchestratorTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
-            produceFixPlan: { try await producer.produce(runID: $0, scope: $1) },
+            produceFixPlan: { runID, scope, _ in
+                try await producer.produce(runID: runID, scope: scope)
+            },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -379,41 +381,6 @@ struct OrchestratorTests {
         #expect(await producer.callCount == 0)
         let final = try #require(await probe.records.last)
         #expect(final.transitions.map(\.state) == [.created, .syncingLibrary, .reporting, .completedNoOp])
-    }
-
-    @Test("active preview covers duplicate submission")
-    func previewCoversDuplicate() async {
-        let gate = SyncGate()
-        let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
-            persistRunRecord: ignoreRunRecord,
-            produceFixPlan: { _, _ in
-                await gate.waitUntilReleased()
-                return .empty
-            },
-            now: { Date(timeIntervalSince1970: 100) }
-        ))
-
-        let first = Task {
-            await orchestrator.submit(.manualPreview(
-                requestedTestArtists: [],
-                knownTrackCount: nil
-            ))
-        }
-        await gate.waitUntilEntered()
-
-        let second = await orchestrator.submit(.manualPreview(
-            requestedTestArtists: [],
-            knownTrackCount: nil
-        ))
-        await gate.release()
-        _ = await first.value
-
-        guard case let .alreadyCovered(snapshot) = second else {
-            Issue.record("Expected alreadyCovered, got \(second)")
-            return
-        }
-        #expect(snapshot.state == .planningFixes)
     }
 
     @Test("failed run persists a failure record")
