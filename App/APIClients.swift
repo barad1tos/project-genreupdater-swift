@@ -53,6 +53,8 @@ struct APIClientFactoryOverrides {
     var configuredDiscogsClientFactory: ConfiguredDiscogsClientFactory
     var keychainErrorHandler: (any Error) -> Void
     var discogsCredentialIssueHandler: DiscogsIssueHandler
+    var musicBrainz: (any ExternalAPIService)?
+    var appleMusic: (any ExternalAPIService)?
 
     init(
         keychainDiscogsClientFactory: @escaping KeychainDiscogsClientFactory = Self.makeKeychainDiscogsClient,
@@ -64,12 +66,16 @@ struct APIClientFactoryOverrides {
         },
         discogsCredentialIssueHandler: @escaping DiscogsIssueHandler = { _ in
             // Default factory use has no UI state to update; callers that own state inject a handler.
-        }
+        },
+        musicBrainz: (any ExternalAPIService)? = nil,
+        appleMusic: (any ExternalAPIService)? = nil
     ) {
         self.keychainDiscogsClientFactory = keychainDiscogsClientFactory
         self.configuredDiscogsClientFactory = configuredDiscogsClientFactory
         self.keychainErrorHandler = keychainErrorHandler
         self.discogsCredentialIssueHandler = discogsCredentialIssueHandler
+        self.musicBrainz = musicBrainz
+        self.appleMusic = appleMusic
     }
 
     static func makeKeychainDiscogsClient(
@@ -101,6 +107,11 @@ struct APIClientFactoryOverrides {
 
 private struct DiscogsClientContext {
     let client: DiscogsClient
+    let disabledSources: Set<APISource>
+}
+
+private struct APIServiceContext {
+    let services: APIOrchestratorServices
     let disabledSources: Set<APISource>
 }
 
@@ -152,12 +163,17 @@ extension AppDependencies {
             rateLimiter: makeDiscogsRateLimiter(configuration: configuration),
             factoryOverrides: factoryOverrides
         )
+        let serviceContext = makeAPIServiceContext(
+            configuration: configuration,
+            discogsContext: discogsContext,
+            factoryOverrides: factoryOverrides
+        )
         return makeAPIOrchestrator(
             configuration: configuration,
             cache: cache,
             pendingVerificationService: pendingVerificationService,
             reachability: reachability,
-            discogsContext: discogsContext
+            serviceContext: serviceContext
         )
     }
 
@@ -166,7 +182,8 @@ extension AppDependencies {
         cache: (any CacheService)?,
         pendingVerificationService: (any PendingVerificationService)?,
         reachability: NetworkReachabilityMonitor?,
-        discogsAccess: DiscogsAccess
+        discogsAccess: DiscogsAccess,
+        factoryOverrides: APIClientFactoryOverrides = APIClientFactoryOverrides()
     ) -> APIOrchestrator {
         let apiAuth = configuration.yearRetrieval.apiAuth
         let contactEmail = APIAuthReferenceResolver.resolve(
@@ -178,12 +195,17 @@ extension AppDependencies {
             apiAuth: apiAuth,
             contactEmail: contactEmail
         )
+        let serviceContext = makeAPIServiceContext(
+            configuration: configuration,
+            discogsContext: discogsContext,
+            factoryOverrides: factoryOverrides
+        )
         return makeAPIOrchestrator(
             configuration: configuration,
             cache: cache,
             pendingVerificationService: pendingVerificationService,
             reachability: reachability,
-            discogsContext: discogsContext
+            serviceContext: serviceContext
         )
     }
 
@@ -192,33 +214,45 @@ extension AppDependencies {
         cache: (any CacheService)?,
         pendingVerificationService: (any PendingVerificationService)?,
         reachability: NetworkReachabilityMonitor?,
-        discogsContext: DiscogsClientContext
+        serviceContext: APIServiceContext
     ) -> APIOrchestrator {
-        let apiAuth = configuration.yearRetrieval.apiAuth
-        let contactEmail = APIAuthReferenceResolver.resolve(
-            apiAuth.contactEmailReference,
-            fallbackUserDefaultsKey: "contactEmail"
-        )
-        let musicBrainzClient = MusicBrainzClient(
-            appName: apiAuth.musicBrainzAppName,
-            contactEmail: contactEmail,
-            rateLimiter: makeMusicBrainzRateLimiter(configuration: configuration)
-        )
         let orchestratorConfiguration = makeAPIOrchestratorConfiguration(
             configuration: configuration,
             cache: cache,
             pendingVerificationService: pendingVerificationService,
             reachability: reachability,
-            disabledSources: discogsContext.disabledSources
+            disabledSources: serviceContext.disabledSources
         )
 
         return APIOrchestrator(
-            services: APIOrchestratorServices(
-                musicBrainz: musicBrainzClient,
-                discogs: discogsContext.client,
-                appleMusic: makeCatalogClient(configuration: configuration)
-            ),
+            services: serviceContext.services,
             configuration: orchestratorConfiguration
+        )
+    }
+
+    private static func makeAPIServiceContext(
+        configuration: AppConfiguration,
+        discogsContext: DiscogsClientContext,
+        factoryOverrides: APIClientFactoryOverrides
+    ) -> APIServiceContext {
+        let apiAuth = configuration.yearRetrieval.apiAuth
+        let contactEmail = APIAuthReferenceResolver.resolve(
+            apiAuth.contactEmailReference,
+            fallbackUserDefaultsKey: "contactEmail"
+        )
+        let musicBrainz = factoryOverrides.musicBrainz ?? MusicBrainzClient(
+            appName: apiAuth.musicBrainzAppName,
+            contactEmail: contactEmail,
+            rateLimiter: makeMusicBrainzRateLimiter(configuration: configuration)
+        )
+        let appleMusic = factoryOverrides.appleMusic ?? makeCatalogClient(configuration: configuration)
+        return APIServiceContext(
+            services: APIOrchestratorServices(
+                musicBrainz: musicBrainz,
+                discogs: discogsContext.client,
+                appleMusic: appleMusic
+            ),
+            disabledSources: discogsContext.disabledSources
         )
     }
 

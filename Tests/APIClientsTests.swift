@@ -174,24 +174,15 @@ struct APIClientsTests {
         configuration.yearRetrieval.apiAuth.discogsTokenReference = ""
         let headerProbe = AuthHeaderProbe()
         CapturedAuthURLProtocol.requestHandler = { request in
-            headerProbe.append(request.value(forHTTPHeaderField: "Authorization"))
-            let url = try #require(request.url)
-            let response = try #require(HTTPURLResponse(
-                url: url,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            ))
-            return (response, Data(#"{"results":[]}"#.utf8))
+            try makeDiscogsResponse(for: request, probe: headerProbe)
         }
         defer { CapturedAuthURLProtocol.requestHandler = nil }
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [CapturedAuthURLProtocol.self]
         let session = URLSession(configuration: sessionConfiguration)
         var keychainReadCount = 0
-        let captured = AppDependencies.captureDiscogsAccess(
-            configuration: configuration,
-            factoryOverrides: APIClientFactoryOverrides(keychainDiscogsClientFactory: { contactEmail, limiter, url in
+        let factoryOverrides = APIClientFactoryOverrides(
+            keychainDiscogsClientFactory: { contactEmail, limiter, url in
                 keychainReadCount += 1
                 return DiscogsClient(
                     token: "submitted-token",
@@ -200,7 +191,13 @@ struct APIClientsTests {
                     rateLimiter: limiter,
                     baseURL: url
                 )
-            })
+            },
+            musicBrainz: DashboardStateAPIService(),
+            appleMusic: DashboardStateAPIService()
+        )
+        let captured = AppDependencies.captureDiscogsAccess(
+            configuration: configuration,
+            factoryOverrides: factoryOverrides
         )
 
         let orchestrator = AppDependencies.makePreviewAPIOrchestrator(
@@ -208,18 +205,21 @@ struct APIClientsTests {
             cache: nil,
             pendingVerificationService: nil,
             reachability: nil,
-            discogsAccess: captured
+            discogsAccess: captured,
+            factoryOverrides: factoryOverrides
         )
 
         #expect(captured.isEnabled)
         #expect(keychainReadCount == 1)
         #expect(!orchestrator.disabledSources.contains(.discogs))
-        _ = await orchestrator.getAlbumYear(
+        let result = await orchestrator.getAlbumYear(
             artist: "Submitted Artist",
             album: "Submitted Album",
             currentLibraryYear: nil,
             earliestTrackAddedYear: nil
         )
+        #expect(result.year == 2001)
+        #expect(keychainReadCount == 1)
         #expect(!headerProbe.headers.isEmpty)
         #expect(headerProbe.headers.allSatisfy { $0 == "Discogs token=submitted-token" })
     }
@@ -249,6 +249,25 @@ struct APIClientsTests {
         #expect(keychainReadCount == 1)
         #expect(orchestrator.disabledSources.contains(.discogs))
     }
+}
+
+private func makeDiscogsResponse(
+    for request: URLRequest,
+    probe: AuthHeaderProbe
+) throws -> (URLResponse, Data) {
+    probe.append(request.value(forHTTPHeaderField: "Authorization"))
+    let url = try #require(request.url)
+    let response = try #require(HTTPURLResponse(
+        url: url,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+    ))
+    let data = Data(
+        #"{"results":[{"id":1,"title":"Submitted Artist - Submitted Album","year":"2001","type":"master"}]}"#
+            .utf8
+    )
+    return (response, data)
 }
 
 private final class AuthHeaderProbe: @unchecked Sendable {
