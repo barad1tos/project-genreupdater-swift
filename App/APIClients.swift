@@ -177,7 +177,7 @@ extension AppDependencies {
         )
     }
 
-    static func makePreviewAPIOrchestrator(
+    static func makeCapturedAPI(
         configuration: AppConfiguration,
         cache: (any CacheService)?,
         pendingVerificationService: (any PendingVerificationService)?,

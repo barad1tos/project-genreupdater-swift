@@ -52,7 +52,7 @@ struct RunRuntimeFactory {
         guard !configuration.hasDiscogsAccess || capturedAccess != nil else {
             throw RunRuntimeError.missingDiscogsAccess
         }
-        let apiOrchestrator = AppDependencies.makePreviewAPIOrchestrator(
+        let apiOrchestrator = AppDependencies.makeCapturedAPI(
             configuration: appConfiguration,
             cache: cache,
             pendingVerificationService: runServices.pendingVerification,
@@ -97,6 +97,41 @@ struct RunRuntimeFactory {
                 )
             }
         )
+    }
+
+    @MainActor
+    func makeWrite(
+        configuration: FixPlanConfig,
+        scope: ProcessingScopeSnapshot
+    ) async throws -> FixPlanWrite.Runtime {
+        let appConfiguration = scopedConfiguration(configuration.appConfiguration, scope: scope)
+        let runServices = try await services.consume(id: configuration.id, configuration: appConfiguration)
+        let snapshotService = AppDependencies.makeSnapshotService(
+            cache: cache,
+            configuration: appConfiguration
+        )
+        let coordinator = UpdateCoordinator(
+            dependencies: UpdateCoordinatorDependencies(
+                apiOrchestrator: AppDependencies.makeCapturedAPI(
+                    configuration: appConfiguration,
+                    cache: cache,
+                    pendingVerificationService: runServices.pendingVerification,
+                    reachability: reachability,
+                    discogsAccess: .disabled
+                ),
+                scriptBridge: runServices.scripts,
+                trackStore: store,
+                cache: cache,
+                undoCoordinator: undo,
+                idMapper: mapper,
+                librarySnapshotService: snapshotService,
+                pendingVerificationService: runServices.pendingVerification
+            ),
+            genreDeterminator: GenreDeterminator(),
+            yearDeterminator: AppDependencies.makeYearDeterminator(configuration: appConfiguration),
+            runtimeConfiguration: UpdateRuntimeConfiguration(configuration: appConfiguration)
+        )
+        return FixPlanWrite.Runtime(coordinator: coordinator, scripts: runServices.scripts)
     }
 
     func discard(_ configuration: FixPlanConfig) async {

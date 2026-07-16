@@ -5,40 +5,39 @@ import Testing
 
 @Suite("RunOrchestrator write runs")
 struct WriteTests {
-    @Test("write run syncs first, applies fixes, verifies, and persists write intent")
-    func writeRunAppliesTarget() async throws {
+    @Test("write run preserves its submitted input")
+    func writeRunPreservesInput() async throws {
         let probe = WriteRecordProbe()
+        let sync = WriteSyncProbe()
         let target = writeTarget()
+        let input = writeInput(target: target, artists: ["Björk"], knownTrackCount: 12)
         let writer = WriteProbe(result: BatchUpdateResult(
             entries: [writeEntry()],
             failedTrackIDs: [],
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { await sync.run() },
             persistRunRecord: { try await probe.append($0) },
-            writeFixPlan: { try await writer.apply(target: $0) },
+            writeFixPlan: { try await writer.apply(input: $0) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
-        let result = await orchestrator.submit(.manualWrite(
-            target: target,
-            requestedTestArtists: ["Björk"],
-            knownTrackCount: 12
-        ))
+        let result = await orchestrator.submit(.manualWrite(input: input))
 
         guard case .completed = result else {
             Issue.record("Expected completed, got \(result)")
             return
         }
-        #expect(await writer.calls == [target])
+        #expect(await writer.calls == [input])
+        #expect(await sync.callCount == 0)
 
         let final = try #require(await probe.records.last)
         #expect(final.intent == .writeFixes)
+        #expect(final.scope == input.scope)
         #expect(final.syncSummary?.modified == 1)
         #expect(final.transitions.map(\.state) == [
             .created,
-            .syncingLibrary,
             .writing,
             .verifying,
             .reporting,
@@ -50,6 +49,7 @@ struct WriteTests {
     func writeFailsPartialFailure() async throws {
         let probe = WriteRecordProbe()
         let target = writeTarget()
+        let input = writeInput(target: target, artists: ["Björk"], knownTrackCount: 12)
         let writer = WriteProbe(result: BatchUpdateResult(
             entries: [writeEntry()],
             failedTrackIDs: ["track-2"],
@@ -58,21 +58,17 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
-            writeFixPlan: { try await writer.apply(target: $0) },
+            writeFixPlan: { try await writer.apply(input: $0) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
-        let result = await orchestrator.submit(.manualWrite(
-            target: target,
-            requestedTestArtists: ["Björk"],
-            knownTrackCount: 12
-        ))
+        let result = await orchestrator.submit(.manualWrite(input: input))
 
         guard case .failed = result else {
             Issue.record("Expected failed, got \(result)")
             return
         }
-        #expect(await writer.calls == [target])
+        #expect(await writer.calls == [input])
 
         let final = try #require(await probe.records.last)
         #expect(final.intent == .writeFixes)
@@ -81,14 +77,13 @@ struct WriteTests {
         #expect(final.syncSummary == nil)
         #expect(final.transitions.map(\.state) == [
             .created,
-            .syncingLibrary,
             .writing,
             .reporting,
             .failed,
         ])
     }
 
-    @Test("write run without a writer fails fast after sync")
+    @Test("write run without a writer fails before shared sync")
     func writeWithoutRunnerFails() async throws {
         let probe = WriteRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
@@ -97,11 +92,7 @@ struct WriteTests {
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
-        let result = await orchestrator.submit(.manualWrite(
-            target: writeTarget(),
-            requestedTestArtists: [],
-            knownTrackCount: nil
-        ))
+        let result = await orchestrator.submit(.manualWrite(input: writeInput()))
 
         guard case .failed = result else {
             Issue.record("Expected failed, got \(result)")
@@ -112,7 +103,7 @@ struct WriteTests {
         #expect(final.failureMessage == "Fix plan write runner is unavailable")
         #expect(final.transitions.map(\.state) == [
             .created,
-            .syncingLibrary,
+            .writing,
             .reporting,
             .failed,
         ])
@@ -129,11 +120,13 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { await syncGate.sync() },
             persistRunRecord: { _ in },
-            writeFixPlan: { try await writer.apply(target: $0) },
+            writeFixPlan: { try await writer.apply(input: $0) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
         let firstTarget = writeTarget()
         let secondTarget = writeTarget()
+        let firstInput = writeInput(target: firstTarget)
+        let secondInput = writeInput(target: secondTarget)
 
         let active = Task {
             await orchestrator.submit(RunRequest.observation(
@@ -144,16 +137,8 @@ struct WriteTests {
         }
         await syncGate.waitUntilCount(1)
 
-        let firstQueue = await orchestrator.submit(.manualWrite(
-            target: firstTarget,
-            requestedTestArtists: [],
-            knownTrackCount: nil
-        ))
-        let secondQueue = await orchestrator.submit(.manualWrite(
-            target: secondTarget,
-            requestedTestArtists: [],
-            knownTrackCount: nil
-        ))
+        let firstQueue = await orchestrator.submit(.manualWrite(input: firstInput))
+        let secondQueue = await orchestrator.submit(.manualWrite(input: secondInput))
 
         guard case .queued = firstQueue, case .queued = secondQueue else {
             Issue.record("Expected both write targets to queue")
@@ -164,12 +149,12 @@ struct WriteTests {
         _ = await active.value
         await writer.waitUntilCallCount(2)
 
-        #expect(await writer.calls == [firstTarget, secondTarget])
+        #expect(await writer.calls == [firstInput, secondInput])
     }
 }
 
 private actor WriteProbe {
-    private(set) var calls: [FixPlanWriteTarget] = []
+    private(set) var calls: [FixPlanWriteInput] = []
     private let result: BatchUpdateResult
     private var continuations: [(Int, CheckedContinuation<Void, Never>)] = []
 
@@ -177,8 +162,8 @@ private actor WriteProbe {
         self.result = result
     }
 
-    func apply(target: FixPlanWriteTarget) throws -> BatchUpdateResult {
-        calls.append(target)
+    func apply(input: FixPlanWriteInput) throws -> BatchUpdateResult {
+        calls.append(input)
         resumeContinuations()
         return result
     }
@@ -211,6 +196,15 @@ private actor WriteRecordProbe {
 
     func append(_ record: RunRecord) throws {
         records.append(record)
+    }
+}
+
+private actor WriteSyncProbe {
+    private(set) var callCount = 0
+
+    func run() -> SyncResult {
+        callCount += 1
+        return SyncResult()
     }
 }
 
@@ -275,6 +269,23 @@ private func writeTarget() -> FixPlanWriteTarget {
         planID: FixPlanID(),
         planRevision: .initial,
         decisionRevision: .initial
+    )
+}
+
+private func writeInput(
+    target: FixPlanWriteTarget = writeTarget(),
+    artists: [String] = [],
+    knownTrackCount: Int? = nil
+) -> FixPlanWriteInput {
+    let capturedAt = Date(timeIntervalSince1970: 90)
+    return FixPlanWriteInput(
+        target: target,
+        scope: .capture(
+            requestedTestArtists: artists,
+            knownTrackCount: knownTrackCount,
+            createdAt: capturedAt,
+            reason: "write-test"
+        )
     )
 }
 

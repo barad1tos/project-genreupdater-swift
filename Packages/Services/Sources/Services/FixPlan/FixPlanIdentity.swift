@@ -65,3 +65,16 @@ public struct FixPlanWriteTarget: Equatable, Sendable {
         self.decisionRevision = decisionRevision
     }
 }
+
+public struct FixPlanWriteInput: Equatable, Sendable {
+    public let target: FixPlanWriteTarget
+    public let scope: ProcessingScopeSnapshot
+
+    public init(
+        target: FixPlanWriteTarget,
+        scope: ProcessingScopeSnapshot
+    ) {
+        self.target = target
+        self.scope = scope
+    }
+}

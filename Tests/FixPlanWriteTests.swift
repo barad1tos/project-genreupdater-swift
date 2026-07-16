@@ -6,8 +6,8 @@ import Testing
 
 @Suite("FixPlanWrite")
 struct FixPlanWriteTests {
-    @Test("reviewed write ID refresh uses configured batch size")
-    func usesWriteIDBatchSize() async throws {
+    @Test("reviewed write ID refresh uses captured request settings")
+    func usesPlanSettings() async throws {
         let scriptClient = WriteIDScriptSpy()
         let mapper = TrackIDMapper()
         let changes = (1 ... 3).map { index in
@@ -26,11 +26,13 @@ struct FixPlanWriteTests {
             for: changes,
             mapper: mapper,
             scriptClient: scriptClient,
-            writeIDBatchSize: 2
+            batchSize: 2,
+            timeout: .seconds(45)
         )
 
         let calls = await scriptClient.fetchCalls
         #expect(calls.map(\.batchSize) == [2])
+        #expect(calls.map(\.timeout) == [.seconds(45)])
         #expect(Set(calls.flatMap(\.trackIDs)) == ["AS-1", "AS-2", "AS-3"])
         for index in 1 ... 3 {
             #expect(await mapper.appleScriptID(forMusicKitID: "MK-\(index)") == "AS-\(index)")
@@ -106,7 +108,7 @@ struct FixPlanWriteTests {
 
 private actor WriteIDScriptSpy: AppleScriptClient {
     private var tracksByID: [String: Track] = [:]
-    private(set) var fetchCalls: [(trackIDs: [String], batchSize: Int)] = []
+    private(set) var fetchCalls: [(trackIDs: [String], batchSize: Int, timeout: Duration?)] = []
 
     func setTracks(_ tracks: [Track]) {
         tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
@@ -127,9 +129,9 @@ private actor WriteIDScriptSpy: AppleScriptClient {
     func fetchTracksByIDs(
         _ trackIDs: [String],
         batchSize: Int,
-        timeout _: Duration?
+        timeout: Duration?
     ) async throws -> [Track] {
-        fetchCalls.append((trackIDs, batchSize))
+        fetchCalls.append((trackIDs, batchSize, timeout))
         return trackIDs.compactMap { tracksByID[$0] }
     }
 

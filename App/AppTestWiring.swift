@@ -8,7 +8,6 @@ struct TestWriteServices {
     let mapper: TrackIDMapper?
     let fixPlanStore: (any FixPlanStore)?
     let runRecordStore: (any RunRecordStore)?
-    let script: FixPlanWrite.ScriptAccess?
 
     init(
         batchProcessor: BatchProcessor,
@@ -16,8 +15,7 @@ struct TestWriteServices {
         updateCoordinator: UpdateCoordinator? = nil,
         mapper: TrackIDMapper? = nil,
         fixPlanStore: (any FixPlanStore)? = nil,
-        runRecordStore: (any RunRecordStore)? = nil,
-        script: FixPlanWrite.ScriptAccess? = nil
+        runRecordStore: (any RunRecordStore)? = nil
     ) {
         self.batchProcessor = batchProcessor
         self.undoCoordinator = undoCoordinator
@@ -25,7 +23,6 @@ struct TestWriteServices {
         self.mapper = mapper
         self.fixPlanStore = fixPlanStore
         self.runRecordStore = runRecordStore
-        self.script = script
     }
 }
 

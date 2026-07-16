@@ -220,8 +220,8 @@ struct FixPlanCommandsTests {
         #expect(FixPlanCommands.noticeText(for: result) == "Review updated.")
     }
 
-    @Test("apply command submits the exact reviewed fix plan target")
-    func applyCommandSubmitsTarget() async {
+    @Test("apply command submits the reviewed plan snapshot")
+    func submitsPlanSnapshot() async {
         let harness = FixPlanCommandHarness(startingVerdict: .accepted)
         let commands = harness.makeCommands()
 
@@ -230,7 +230,10 @@ struct FixPlanCommandsTests {
         #expect(result.status == .accepted)
         #expect(result.message == "Applied 2 changes.")
         #expect(harness.writeCallCount() == 1)
-        #expect(harness.lastWriteTarget() == harness.target.writeTarget)
+        #expect(harness.lastWriteInput() == FixPlanWriteInput(
+            target: harness.target.writeTarget,
+            scope: harness.plan.scope
+        ))
         #expect(await harness.store.recordCallCount() == 0)
     }
 
@@ -379,7 +382,7 @@ private final class FixPlanCommandHarness {
     private var shouldRefreshProjection = true
     private var writeResult: RunSubmissionResult?
     private var writeError: (any Error)?
-    private var writeTargets: [FixPlanWriteTarget] = []
+    private var writeInputs: [FixPlanWriteInput] = []
     var isRecoveryHeld = false
 
     init(
@@ -411,8 +414,8 @@ private final class FixPlanCommandHarness {
     func makeCommands(fixPlanStore: (any FixPlanStore)?) -> FixPlanCommands {
         FixPlanCommands(
             fixPlanStore: fixPlanStore,
-            submitFixPlanWrite: { [self] target in
-                try await submitWrite(target: target)
+            submitFixPlanWrite: { [self] input in
+                try await submitWrite(input: input)
             },
             hasRecoveryHold: { [self] in
                 isRecoveryHeld
@@ -457,15 +460,15 @@ private final class FixPlanCommandHarness {
     }
 
     func writeCallCount() -> Int {
-        writeTargets.count
+        writeInputs.count
     }
 
-    func lastWriteTarget() -> FixPlanWriteTarget? {
-        writeTargets.last
+    func lastWriteInput() -> FixPlanWriteInput? {
+        writeInputs.last
     }
 
-    private func submitWrite(target: FixPlanWriteTarget) async throws -> RunSubmissionResult {
-        writeTargets.append(target)
+    private func submitWrite(input: FixPlanWriteInput) async throws -> RunSubmissionResult {
+        writeInputs.append(input)
         if let writeError {
             self.writeError = nil
             throw writeError

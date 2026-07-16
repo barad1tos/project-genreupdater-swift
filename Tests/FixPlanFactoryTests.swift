@@ -6,98 +6,99 @@ import Testing
 
 @Suite("Fix plan write factory")
 struct FixPlanFactoryTests {
-    @Test("App dependency factory enforces recovery admission")
+    @Test("Fix plan writer enforces recovery admission")
     @MainActor
     func enforcesRecovery() async throws {
-        let item = makeItem()
-        let plan = makePlan(item)
-        let decision = FixPlanReviewDecision(
-            planID: plan.id,
-            planRevision: plan.revision,
-            revision: .initial,
-            decidedAt: Date(timeIntervalSince1970: 110),
-            itemDecisions: [FixPlanItemDecision(itemID: item.id, verdict: .accepted)]
-        )
-        let store = FactoryPlanStore(plan: plan, decision: decision)
-        let scriptClient = ScriptSpy()
-        await scriptClient.setTracks([Track(
-            id: "AS-1",
-            name: "Track 1",
-            artist: "Artist",
-            album: "Album",
-            genre: "Rock",
-            appleScriptID: "AS-1"
-        )])
-        let mapper = TrackIDMapper()
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("FixPlanFactoryTests-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let processor = BatchProcessor(
-            checkpointManager: CheckpointManager(directory: directory),
-            featureGate: FeatureGate(fixedTier: .pro)
-        )
-        let undo = UndoCoordinator(scriptBridge: scriptClient, directory: directory)
-        let api = DashboardStateAPIService()
-        let coordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
-                apiOrchestrator: APIOrchestrator(services: APIOrchestratorServices(
-                    musicBrainz: api,
-                    discogs: api,
-                    appleMusic: api
-                )),
-                scriptBridge: scriptClient,
-                trackStore: FactoryTrackStore(),
-                cache: FactoryCache(),
-                undoCoordinator: undo,
-                idMapper: mapper
-            ),
-            genreDeterminator: GenreDeterminator(),
-            runtimeConfiguration: UpdateRuntimeConfiguration(areBatchUpdatesEnabled: false)
-        )
-        let heldRecord = sampleRunRecord(state: .recoverable, finishedAt: nil)
-        let runStore = RunRecordStoreStub(reportPages: [
-            RunReportPage(records: [heldRecord], skippedCorruptedCount: 0),
-            RunReportPage(records: [], skippedCorruptedCount: 0),
-            RunReportPage(records: [], skippedCorruptedCount: 0)
-        ])
-        let dependencies = AppDependencies(configurationLoader: { AppConfiguration() })
-        dependencies.installTestWrites(TestWriteServices(
-            batchProcessor: processor,
-            updateCoordinator: coordinator,
-            mapper: mapper,
-            fixPlanStore: store,
-            runRecordStore: runStore,
-            script: FixPlanWrite.ScriptAccess(client: scriptClient, batchSize: { 10 })
-        ))
-        let runner = try #require(dependencies.makeWriteRunner())
-        let target = FixPlanWriteTarget(
-            planID: plan.id,
-            planRevision: plan.revision,
-            decisionRevision: decision.revision
-        )
+        let fixture = await makeWriteFixture(hasInitialRecovery: true)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
 
         await #expect(throws: WriteAdmissionError.self) {
-            _ = try await runner(target)
+            _ = try await fixture.run(fixture.input)
         }
-        #expect(await scriptClient.fetchCalls.isEmpty)
+        #expect(await fixture.script.fetchCalls.isEmpty)
 
-        await scriptClient.returnUnknownOutcome()
+        await fixture.script.returnUnknownOutcome()
         await #expect(throws: AppleScriptOutcomeError.self) {
-            _ = try await runner(target)
+            _ = try await fixture.run(fixture.input)
         }
-        let recoveryID = try #require(await processor.recoveryHoldID())
-        let fetchCount = await scriptClient.fetchCalls.count
+        #expect(await fixture.script.fetchCalls.map(\.batchSize) == [7])
+        #expect(await fixture.script.fetchCalls.map(\.timeout) == [.seconds(45)])
+        let recoveryID = try #require(await fixture.processor.recoveryHoldID())
+        let fetchCount = await fixture.script.fetchCalls.count
         await #expect(throws: BatchProcessorError.self) {
-            _ = try await runner(target)
+            _ = try await fixture.run(fixture.input)
         }
-        #expect(await scriptClient.fetchCalls.count == fetchCount)
-        try await processor.clearRecovery(batchID: recoveryID)
+        #expect(await fixture.script.fetchCalls.count == fetchCount)
+        try await fixture.processor.clearRecovery(batchID: recoveryID)
+    }
+
+    @Test("Fix plan writer rejects altered queued scope")
+    @MainActor
+    func rejectsAlteredScope() async {
+        let fixture = await makeWriteFixture(hasInitialRecovery: false)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let planScope = fixture.input.scope
+        let alteredScope = ProcessingScopeSnapshot(
+            id: planScope.id,
+            createdAt: planScope.createdAt,
+            source: .testArtists,
+            normalizedTestArtists: ["Other Artist"],
+            matchingRule: planScope.matchingRule,
+            knownTrackCount: planScope.knownTrackCount,
+            fingerprint: "altered-scope",
+            reason: planScope.reason
+        )
+        let input = FixPlanWriteInput(target: fixture.input.target, scope: alteredScope)
+
+        do {
+            _ = try await fixture.run(input)
+            Issue.record("Expected stale fix plan input")
+        } catch let error as FixPlanWrite.Failure {
+            guard case .staleInput = error else {
+                Issue.record("Expected staleInput, got \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected FixPlanWrite.Failure, got \(error)")
+        }
+        #expect(await fixture.runtime.callCount == 0)
+        #expect(await fixture.script.fetchCalls.isEmpty)
+    }
+}
+
+private struct WriteFixture {
+    let input: FixPlanWriteInput
+    let script: ScriptSpy
+    let processor: BatchProcessor
+    let runtime: RuntimeProbe
+    let run: @Sendable (FixPlanWriteInput) async throws -> BatchUpdateResult
+    let directory: URL
+}
+
+private actor RecoveryProbe {
+    private var isHeld: Bool
+
+    init(isHeld: Bool) {
+        self.isHeld = isHeld
+    }
+
+    func check() -> Bool {
+        defer { isHeld = false }
+        return isHeld
+    }
+}
+
+private actor RuntimeProbe {
+    private(set) var callCount = 0
+
+    func record() {
+        callCount += 1
     }
 }
 
 private actor ScriptSpy: AppleScriptClient {
     private var tracksByID: [String: Track] = [:]
-    private(set) var fetchCalls: [(trackIDs: [String], batchSize: Int)] = []
+    private(set) var fetchCalls: [(trackIDs: [String], batchSize: Int, timeout: Duration?)] = []
     private var shouldReturnUnknown = false
 
     func setTracks(_ tracks: [Track]) {
@@ -115,9 +116,9 @@ private actor ScriptSpy: AppleScriptClient {
     func fetchTracksByIDs(
         _ trackIDs: [String],
         batchSize: Int,
-        timeout _: Duration?
+        timeout: Duration?
     ) async throws -> [Track] {
-        fetchCalls.append((trackIDs, batchSize))
+        fetchCalls.append((trackIDs, batchSize, timeout))
         return trackIDs.compactMap { tracksByID[$0] }
     }
 
@@ -237,6 +238,92 @@ private actor FactoryCache: CacheService {
     }
 }
 
+@MainActor
+private func makeWriteFixture(hasInitialRecovery: Bool) async -> WriteFixture {
+    let item = makeItem()
+    let plan = makePlan(item)
+    let decision = FixPlanReviewDecision(
+        planID: plan.id,
+        planRevision: plan.revision,
+        revision: .initial,
+        decidedAt: Date(timeIntervalSince1970: 110),
+        itemDecisions: [FixPlanItemDecision(itemID: item.id, verdict: .accepted)]
+    )
+    let store = FactoryPlanStore(plan: plan, decision: decision)
+    let script = ScriptSpy()
+    await script.setTracks([writeTrack()])
+    let mapper = TrackIDMapper()
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("FixPlanFactoryTests-\(UUID().uuidString)")
+    let processor = BatchProcessor(
+        checkpointManager: CheckpointManager(directory: directory),
+        featureGate: FeatureGate(fixedTier: .pro)
+    )
+    let coordinator = makeCoordinator(script: script, mapper: mapper, directory: directory)
+    let recovery = RecoveryProbe(isHeld: hasInitialRecovery)
+    let runtime = RuntimeProbe()
+    let run = FixPlanWrite.makeRunner(FixPlanWrite.RunnerDependencies(
+        fixPlanStore: store,
+        mapper: mapper,
+        batchProcessor: processor,
+        makeRuntime: { configuration, scope in
+            #expect(configuration == plan.configuration)
+            #expect(scope == plan.scope)
+            await runtime.record()
+            return FixPlanWrite.Runtime(coordinator: coordinator, scripts: script)
+        },
+        hasRunRecovery: { await recovery.check() }
+    ))
+    let target = FixPlanWriteTarget(
+        planID: plan.id,
+        planRevision: plan.revision,
+        decisionRevision: decision.revision
+    )
+    return WriteFixture(
+        input: FixPlanWriteInput(target: target, scope: plan.scope),
+        script: script,
+        processor: processor,
+        runtime: runtime,
+        run: run,
+        directory: directory
+    )
+}
+
+private func makeCoordinator(
+    script: ScriptSpy,
+    mapper: TrackIDMapper,
+    directory: URL
+) -> UpdateCoordinator {
+    let api = DashboardStateAPIService()
+    return UpdateCoordinator(
+        dependencies: UpdateCoordinatorDependencies(
+            apiOrchestrator: APIOrchestrator(services: APIOrchestratorServices(
+                musicBrainz: api,
+                discogs: api,
+                appleMusic: api
+            )),
+            scriptBridge: script,
+            trackStore: FactoryTrackStore(),
+            cache: FactoryCache(),
+            undoCoordinator: UndoCoordinator(scriptBridge: script, directory: directory),
+            idMapper: mapper
+        ),
+        genreDeterminator: GenreDeterminator(),
+        runtimeConfiguration: UpdateRuntimeConfiguration(areBatchUpdatesEnabled: false)
+    )
+}
+
+private func writeTrack() -> Track {
+    Track(
+        id: "AS-1",
+        name: "Track 1",
+        artist: "Artist",
+        album: "Album",
+        genre: "Rock",
+        appleScriptID: "AS-1"
+    )
+}
+
 private func makeItem() -> FixPlanItem {
     FixPlanItem(
         id: UUID(),
@@ -257,13 +344,16 @@ private func makeItem() -> FixPlanItem {
 
 private func makePlan(_ item: FixPlanItem) -> FixPlan {
     let capturedAt = Date(timeIntervalSince1970: 100)
+    var configuration = AppConfiguration()
+    configuration.applescript.batchProcessing.idsBatchSize = 7
+    configuration.applescript.timeouts.idsBatchFetch = .seconds(45)
     return FixPlan(
         id: FixPlanID(),
         revision: .initial,
         sourceRunID: RunID(),
         createdAt: capturedAt,
         configuration: FixPlanConfig.capture(
-            configuration: AppConfiguration(),
+            configuration: configuration,
             options: UpdateOptions(),
             capturedAt: capturedAt
         ),

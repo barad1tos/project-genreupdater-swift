@@ -16,7 +16,7 @@ public enum RunIntent: String, Codable, Equatable, Sendable {
 public enum RunRequestKind: Equatable, Sendable {
     case observeLibrary
     case previewFixes(FixPlanConfig)
-    case writeFixes(FixPlanWriteTarget)
+    case writeFixes(FixPlanWriteInput)
 
     public var intent: RunIntent {
         switch self {
@@ -29,7 +29,15 @@ public enum RunRequestKind: Equatable, Sendable {
     public var writeTarget: FixPlanWriteTarget? {
         switch self {
         case .observeLibrary, .previewFixes: nil
-        case let .writeFixes(target): target
+        case let .writeFixes(input): input.target
+        }
+    }
+
+    public var writeInput: FixPlanWriteInput? {
+        if case let .writeFixes(input) = self {
+            input
+        } else {
+            nil
         }
     }
 
@@ -55,6 +63,10 @@ public struct RunRequest: Equatable, Sendable {
 
     public var writeTarget: FixPlanWriteTarget? {
         kind.writeTarget
+    }
+
+    public var writeInput: FixPlanWriteInput? {
+        kind.writeInput
     }
 
     public var previewConfiguration: FixPlanConfig? {
@@ -109,16 +121,14 @@ public struct RunRequest: Equatable, Sendable {
     public static func write(
         id: RunRequestID = RunRequestID(),
         trigger: RunTrigger,
-        target: FixPlanWriteTarget,
-        requestedTestArtists: [String],
-        knownTrackCount: Int?
+        input: FixPlanWriteInput
     ) -> Self {
         Self(
             id: id,
             trigger: trigger,
-            kind: .writeFixes(target),
-            requestedTestArtists: requestedTestArtists,
-            knownTrackCount: knownTrackCount
+            kind: .writeFixes(input),
+            requestedTestArtists: input.scope.normalizedTestArtists,
+            knownTrackCount: input.scope.knownTrackCount
         )
     }
 
@@ -146,16 +156,10 @@ public struct RunRequest: Equatable, Sendable {
         )
     }
 
-    public static func manualWrite(
-        target: FixPlanWriteTarget,
-        requestedTestArtists: [String],
-        knownTrackCount: Int?
-    ) -> Self {
+    public static func manualWrite(input: FixPlanWriteInput) -> Self {
         write(
             trigger: .manualCheck,
-            target: target,
-            requestedTestArtists: requestedTestArtists,
-            knownTrackCount: knownTrackCount
+            input: input
         )
     }
 }
