@@ -750,10 +750,8 @@ struct DesignRootHostView: View {
         guard let page = await dependencies.loadRunReportPage(
             limit: RunHistoryAdapter.runHistoryLimit
         ) else { return nil }
-        let projection = ReportsBuilder.makeProjection(from: ReportsProjectionInput(
-            records: page.records,
-            skippedCorruptedCount: page.skippedCorruptedCount,
-            recoveryRunIDs: page.recoveryRunIDs,
+        let projection = ReportsBuilder.makeProjection(from: RunHistoryAdapter.makeInput(
+            from: page,
             now: Date(),
             activeRunID: activeRunID
         ))

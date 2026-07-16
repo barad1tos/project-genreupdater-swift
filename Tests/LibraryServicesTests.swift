@@ -195,6 +195,9 @@ struct LibraryServicesTests {
         let record = sampleRunRecord()
         let recentCorruptedID = RunID()
         let openCorruptedID = RunID()
+        let closableRunID = RunID()
+        let attentionRunID = RunID()
+        let unsupportedRunID = RunID()
         let stub = RunRecordStoreStub(reportPages: [
             RunReportPage(
                 records: [record],
@@ -212,7 +215,10 @@ struct LibraryServicesTests {
             records: [],
             skippedCorruptedCount: 1,
             corruptedRunIDs: [openCorruptedID],
-            recoveryRunIDs: [openCorruptedID]
+            recoveryRunIDs: [openCorruptedID],
+            closableRunIDs: [closableRunID],
+            attentionRunIDs: [attentionRunID],
+            unsupportedRunIDs: [unsupportedRunID]
         ))
         let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
 
@@ -223,6 +229,10 @@ struct LibraryServicesTests {
         #expect(page?.skippedCorruptedCount == 2)
         #expect(page?.corruptedRunIDs == [recentCorruptedID, openCorruptedID])
         #expect(page?.recoveryRunIDs == [openCorruptedID])
+        #expect(page?.closableRunIDs == [closableRunID])
+        #expect(page?.attentionRunIDs == [attentionRunID])
+        #expect(page?.unsupportedRunIDs == [unsupportedRunID])
+        #expect(page?.unresolvedRunIDs == [openCorruptedID, attentionRunID, unsupportedRunID])
         #expect(queries.first?.limit == 25)
     }
 

@@ -12,6 +12,7 @@ extension AppDependencies {
         do {
             let page = try await runRecordStore.recoveryRecords()
             let activeRunID = await runOrchestrator?.activeLifecycle()?.runID
+            await closeClosableRuns(in: page, excluding: activeRunID)
             let candidates = page.records.filter {
                 $0.finishedAt == nil
                     && $0.runID != activeRunID
@@ -33,6 +34,14 @@ extension AppDependencies {
                 _ = await batchProcessor?.beginRecoveryHold(id: corruptedRunID.rawValue)
                 return true
             }
+            if let unsupportedRunID = page.unsupportedRunIDs.first(where: { $0 != activeRunID }) {
+                _ = await batchProcessor?.beginRecoveryHold(id: unsupportedRunID.rawValue)
+                return true
+            }
+            if let attentionRunID = page.attentionRunIDs.first(where: { $0 != activeRunID }) {
+                _ = await batchProcessor?.beginRecoveryHold(id: attentionRunID.rawValue)
+                return true
+            }
             for record in candidates where await restoreRecoveryHold(for: record, preferredID: nil) {
                 return true
             }
@@ -43,6 +52,23 @@ extension AppDependencies {
                 "Failed to read recovery hold state: \(error.localizedDescription, privacy: .private)"
             )
             return true
+        }
+    }
+
+    private func closeClosableRuns(in page: RunReportPage, excluding activeRunID: RunID?) async {
+        guard let runRecordStore else { return }
+        for runID in page.closableRunIDs where runID != activeRunID {
+            do {
+                guard try await runRecordStore.closeReadOnlyCorruption(runID, at: Date()) else {
+                    recoveryLog.error("Could not close read-only corrupted run \(runID.rawValue, privacy: .public)")
+                    continue
+                }
+            } catch {
+                recoveryLog.error("""
+                Failed to close read-only corrupted run \(runID.rawValue, privacy: .public): \
+                \(error.localizedDescription, privacy: .private)
+                """)
+            }
         }
     }
 
@@ -74,6 +100,12 @@ extension AppDependencies {
             }
             if page.recoveryRunIDs.contains(runID) {
                 return .needsAttention(runID: runID, reason: .unresolvedState(.recoverable))
+            }
+            if page.unsupportedRunIDs.contains(runID) {
+                return .needsAttention(runID: runID, reason: .unsupportedPayload)
+            }
+            if page.attentionRunIDs.contains(runID) {
+                return .needsAttention(runID: runID, reason: .unresolvedState(.blocked))
             }
             return await RecoveryPreflightService(store: runRecordStore).run(for: runID)
         } catch {
@@ -120,7 +152,12 @@ extension AppDependencies {
         let page = try await runRecordStore.recoveryRecords()
         let matchingRecords = page.records.filter { $0.recoveryID == id && $0.runID != activeRunID }
         let corruptedRunID = page.recoveryRunIDs.first { $0.rawValue == id && $0 != activeRunID }
-        let targetCount = matchingRecords.count + (corruptedRunID == nil ? 0 : 1)
+        let attentionRunID = page.attentionRunIDs.first { $0.rawValue == id && $0 != activeRunID }
+        let unsupportedRunID = page.unsupportedRunIDs.first { $0.rawValue == id && $0 != activeRunID }
+        let targetCount = matchingRecords.count
+            + (corruptedRunID == nil ? 0 : 1)
+            + (attentionRunID == nil ? 0 : 1)
+            + (unsupportedRunID == nil ? 0 : 1)
         if targetCount == 0 {
             if let resolvedRunID = try await resolvedRecoveryRun(id: id, store: runRecordStore) {
                 return resolvedRunID
@@ -146,12 +183,38 @@ extension AppDependencies {
             try await runRecordStore.upsert(record.closingRecovery(at: finishedAt))
             return record.runID
         }
-        guard let corruptedRunID,
-              try await runRecordStore.closeCorruptedRun(corruptedRunID, at: finishedAt)
-        else {
-            throw AppDependencyServiceError.recoveryUnavailable
+        return try await closeCorruptedTarget(
+            recoveryRunID: corruptedRunID,
+            attentionRunID: attentionRunID,
+            unsupportedRunID: unsupportedRunID,
+            store: runRecordStore,
+            at: finishedAt
+        )
+    }
+
+    private func closeCorruptedTarget(
+        recoveryRunID: RunID?,
+        attentionRunID: RunID?,
+        unsupportedRunID: RunID?,
+        store: any RunRecordStore,
+        at finishedAt: Date
+    ) async throws -> RunID {
+        if unsupportedRunID != nil {
+            throw AppDependencyServiceError.recoveryUpdateRequired
         }
-        return corruptedRunID
+        if let recoveryRunID {
+            guard try await store.closeCorruptedRun(recoveryRunID, at: finishedAt) else {
+                throw AppDependencyServiceError.recoveryUnavailable
+            }
+            return recoveryRunID
+        }
+        if let attentionRunID {
+            guard try await store.closeReadOnlyCorruption(attentionRunID, at: finishedAt) else {
+                throw AppDependencyServiceError.recoveryBlocked
+            }
+            return attentionRunID
+        }
+        throw AppDependencyServiceError.recoveryUnavailable
     }
 
     private func closeUnboundRecovery(
@@ -162,7 +225,9 @@ extension AppDependencies {
     ) async throws -> RunID? {
         let records = page.records.filter { $0.recoveryID == nil && $0.runID != activeRunID }
         let recoveryRunIDs = page.recoveryRunIDs.filter { $0 != activeRunID }
-        let targetCount = records.count + recoveryRunIDs.count
+        let attentionRunIDs = page.attentionRunIDs.filter { $0 != activeRunID }
+        let unsupportedRunIDs = page.unsupportedRunIDs.filter { $0 != activeRunID }
+        let targetCount = records.count + recoveryRunIDs.count + attentionRunIDs.count + unsupportedRunIDs.count
         guard targetCount <= 1 else {
             throw AppDependencyServiceError.recoveryUnavailable
         }
@@ -176,6 +241,15 @@ extension AppDependencies {
         if let runID = recoveryRunIDs.first {
             guard try await store.closeCorruptedRun(runID, at: finishedAt) else {
                 throw AppDependencyServiceError.recoveryUnavailable
+            }
+            return runID
+        }
+        if !unsupportedRunIDs.isEmpty {
+            throw AppDependencyServiceError.recoveryUpdateRequired
+        }
+        if let runID = attentionRunIDs.first {
+            guard try await store.closeReadOnlyCorruption(runID, at: finishedAt) else {
+                throw AppDependencyServiceError.recoveryBlocked
             }
             return runID
         }

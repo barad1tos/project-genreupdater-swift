@@ -66,4 +66,53 @@ struct RecoveryClearTests {
         #expect(try await setup.store.record(for: record.runID)?.state == .blocked)
         #expect(await setup.processor.recoveryHoldID() == recoveryID)
     }
+
+    @Test("Future recovery payload requires an app update")
+    func futurePayloadNeedsUpdate() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let setup = try makeRecoverySetup(store: RunRecordDataStore(modelContainer: container))
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let runID = UUID()
+        try insertCorruptedRun(
+            id: runID,
+            state: .recoverable,
+            transitionsData: JSONEncoder().encode(FutureRecoveryPayload()),
+            into: container
+        )
+        #expect(await setup.dependencies.ensureRecoveryHold())
+        #expect(await setup.dependencies.runRecoveryPreflight(runID: RunID(rawValue: runID)) == .needsAttention(
+            runID: RunID(rawValue: runID),
+            reason: .unsupportedPayload
+        ))
+
+        await #expect(throws: AppDependencyServiceError.recoveryUpdateRequired) {
+            try await setup.dependencies.clearRecoveryHold(id: runID)
+        }
+
+        #expect(await setup.processor.recoveryHoldID() == runID)
+    }
+
+    @Test("Corrupted blocked write cannot be dismissed")
+    func corruptedBlockedWriteStaysOpen() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let setup = try makeRecoverySetup(store: RunRecordDataStore(modelContainer: container))
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let runID = UUID()
+        try insertCorruptedRun(id: runID, state: .blocked, into: container)
+        #expect(await setup.dependencies.ensureRecoveryHold())
+        #expect(await setup.dependencies.runRecoveryPreflight(runID: RunID(rawValue: runID)) == .needsAttention(
+            runID: RunID(rawValue: runID),
+            reason: .unresolvedState(.blocked)
+        ))
+
+        await #expect(throws: AppDependencyServiceError.recoveryBlocked) {
+            try await setup.dependencies.clearRecoveryHold(id: runID)
+        }
+
+        #expect(await setup.processor.recoveryHoldID() == runID)
+    }
+}
+
+private struct FutureRecoveryPayload: Encodable {
+    let version = Int.max
 }

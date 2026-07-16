@@ -131,7 +131,10 @@ actor RunRecordStoreStub: RunRecordStore {
             records: page.records.filter { record in matches(record, query: query) },
             skippedCorruptedCount: page.skippedCorruptedCount,
             corruptedRunIDs: page.corruptedRunIDs,
-            recoveryRunIDs: page.recoveryRunIDs
+            recoveryRunIDs: page.recoveryRunIDs,
+            closableRunIDs: page.closableRunIDs,
+            attentionRunIDs: page.attentionRunIDs,
+            unsupportedRunIDs: page.unsupportedRunIDs
         )
     }
 

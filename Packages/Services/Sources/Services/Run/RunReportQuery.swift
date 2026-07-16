@@ -33,22 +33,43 @@ public struct RunReportQuery: Equatable, Sendable {
 public struct RunReportPage: Equatable, Sendable {
     public let records: [RunRecord]
     /// Corrupted rows skipped within the fetched window only — not a
-    /// store-wide total. Skipped rows still consume `limit` slots.
+    /// store-wide total. Recovery discovery also counts corrupted read-only
+    /// rows scanned for closure even though healthy read-only rows are omitted.
     public let skippedCorruptedCount: Int
-    /// Identifiers for every corrupted row counted in this fetched window.
+    /// Identifiers for every row included in `skippedCorruptedCount`.
     public let corruptedRunIDs: [RunID]
     /// Corrupted unfinished rows that may represent interrupted writes.
     public let recoveryRunIDs: [RunID]
+    /// Corrupted unfinished read-only rows that can be closed without write recovery.
+    public let closableRunIDs: [RunID]
+    /// Corrupted unfinished read-only rows that require an explicit decision.
+    public let attentionRunIDs: [RunID]
+    /// Corrupted rows written by a newer payload schema and requiring an app update.
+    public let unsupportedRunIDs: [RunID]
+
+    /// Every corrupted run that blocks safe writes or needs an explicit recovery decision.
+    public var unresolvedRunIDs: [RunID] {
+        var seen = Set<RunID>()
+        return (recoveryRunIDs + attentionRunIDs + unsupportedRunIDs).filter {
+            seen.insert($0).inserted
+        }
+    }
 
     public init(
         records: [RunRecord],
         skippedCorruptedCount: Int,
         corruptedRunIDs: [RunID] = [],
-        recoveryRunIDs: [RunID] = []
+        recoveryRunIDs: [RunID] = [],
+        closableRunIDs: [RunID] = [],
+        attentionRunIDs: [RunID] = [],
+        unsupportedRunIDs: [RunID] = []
     ) {
         self.records = records
         self.skippedCorruptedCount = skippedCorruptedCount
         self.corruptedRunIDs = corruptedRunIDs
         self.recoveryRunIDs = recoveryRunIDs
+        self.closableRunIDs = closableRunIDs
+        self.attentionRunIDs = attentionRunIDs
+        self.unsupportedRunIDs = unsupportedRunIDs
     }
 }

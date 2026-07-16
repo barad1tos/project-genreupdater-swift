@@ -2,7 +2,7 @@ import Core
 import CryptoKit
 import Foundation
 
-/// Immutable configuration captured when a preview run is submitted.
+/// Immutable configuration captured when an orchestrated run starts.
 public struct FixPlanConfig: Codable, Sendable {
     public let id: UUID
     public let capturedAt: Date
@@ -102,6 +102,11 @@ public struct FixPlanConfig: Codable, Sendable {
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
+        encoder.nonConformingFloatEncodingStrategy = .convertToString(
+            positiveInfinity: "Infinity",
+            negativeInfinity: "-Infinity",
+            nan: "NaN"
+        )
         guard let data = try? encoder.encode(input) else {
             preconditionFailure("Fix-plan configuration fingerprint encoding failed")
         }

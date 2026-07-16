@@ -135,10 +135,22 @@ struct ActivityCommands {
                 navigationTarget: .recovery(runID: runID.rawValue.uuidString),
                 refreshedActivityProjection: projection
             )
+        case .needsAttention(_, .unsupportedPayload):
+            return .requiresAttention(
+                message: "Update GenreUpdater before reviewing this recovery.",
+                issue: OperationalIssue(
+                    id: "recovery-update-required",
+                    category: .safetyBlocked,
+                    summary: "GenreUpdater update required",
+                    technicalDetail: nil
+                ),
+                refreshedActivityProjection: projection
+            )
         case let .needsAttention(_, reason):
             let detail: String = switch reason {
             case let .writeAdjacentState(state): state.rawValue
             case let .unresolvedState(state): state.rawValue
+            case .unsupportedPayload: "unsupportedPayload"
             }
             return .requiresAttention(
                 message: "Recovery needs review.",
