@@ -3,12 +3,20 @@ import Foundation
 public struct ReportsProjectionInput: Equatable, Sendable {
     public let records: [RunRecord]
     public let skippedCorruptedCount: Int
+    public let recoveryRunIDs: [RunID]
     public let now: Date
     public let activeRunID: RunID?
 
-    public init(records: [RunRecord], skippedCorruptedCount: Int, now: Date, activeRunID: RunID? = nil) {
+    public init(
+        records: [RunRecord],
+        skippedCorruptedCount: Int,
+        recoveryRunIDs: [RunID] = [],
+        now: Date,
+        activeRunID: RunID? = nil
+    ) {
         self.records = records
         self.skippedCorruptedCount = skippedCorruptedCount
+        self.recoveryRunIDs = recoveryRunIDs
         self.now = now
         self.activeRunID = activeRunID
     }
@@ -16,10 +24,25 @@ public struct ReportsProjectionInput: Equatable, Sendable {
 
 public enum ReportsBuilder {
     public static func makeProjection(from input: ReportsProjectionInput) -> ReportsProjection {
-        ReportsProjection(
+        var seenRecoveryIDs = Set<String>()
+        let recoveryRunIDs = (input.records.compactMap { record -> String? in
+            guard record.finishedAt == nil,
+                  record.intent == .writeFixes,
+                  record.state.needsWriteRecovery,
+                  record.runID != input.activeRunID
+            else { return nil }
+            return record.runID.rawValue.uuidString
+        } + input.recoveryRunIDs.compactMap { runID in
+            runID == input.activeRunID ? nil : runID.rawValue.uuidString
+        }).filter {
+            seenRecoveryIDs.insert($0).inserted
+        }
+
+        return ReportsProjection(
             revision: .initial,
             runs: input.records.map { makeRunItem(from: $0, now: input.now, activeRunID: input.activeRunID) },
-            skippedCorruptedCount: input.skippedCorruptedCount
+            skippedCorruptedCount: input.skippedCorruptedCount,
+            recoveryRunIDs: recoveryRunIDs
         )
     }
 

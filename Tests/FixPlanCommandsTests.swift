@@ -340,6 +340,20 @@ struct FixPlanCommandsTests {
         #expect(harness.writeCallCount() == 1)
     }
 
+    @Test("apply surfaces a recoverable write outcome")
+    func applyRequiresRecovery() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        harness.setRecoveryResult(reason: "Music.app write outcome is unknown")
+
+        let result = await harness.makeCommands().handle(.applyFixPlan(target: harness.target))
+
+        #expect(result.status == .blockedByRecovery)
+        #expect(result.issue?.id == "fix-plan-write-recovery")
+        #expect(result.issue?.category == .recoveryRequired)
+        #expect(result.issue?.technicalDetail == "Music.app write outcome is unknown")
+        #expect(harness.writeCallCount() == 1)
+    }
+
     @Test("stale command rejects without recording a newer decision")
     func staleCommandRejectsWithoutRecording() async {
         let harness = FixPlanCommandHarness(startingVerdict: .accepted)
@@ -417,7 +431,7 @@ private final class FixPlanCommandHarness {
             submitFixPlanWrite: { [self] input in
                 try await submitWrite(input: input)
             },
-            hasRecoveryHold: { [self] in
+            ensureRecoveryHold: { [self] in
                 isRecoveryHeld
             },
             refreshFixPlanProjection: { [self] in
@@ -432,6 +446,10 @@ private final class FixPlanCommandHarness {
 
     func setWriteResult(_ result: RunSubmissionResult) {
         writeResult = result
+    }
+
+    func setRecoveryResult(reason: String) {
+        writeResult = .recoverable(Self.recoveryLifecycle(), reason: reason)
     }
 
     func markProjectionStale() {
@@ -527,6 +545,23 @@ private final class FixPlanCommandHarness {
             phase: .finished(.completed(writeSyncResult(changeCount: changeCount)), finishedAt: Date(
                 timeIntervalSince1970: 1_800_000_260
             ))
+        )
+    }
+
+    private static func recoveryLifecycle() -> RunLifecycleSnapshot {
+        RunLifecycleSnapshot(
+            runID: RunID(rawValue: commandUUID("00000000-0000-0000-0000-000000000303")),
+            requestID: RunRequestID(rawValue: commandUUID("00000000-0000-0000-0000-000000000304")),
+            trigger: .manualCheck,
+            intent: .writeFixes,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: ["Björk"],
+                knownTrackCount: 12,
+                createdAt: Date(timeIntervalSince1970: 1_800_000_250),
+                reason: "fixPlanWrite"
+            ),
+            startedAt: Date(timeIntervalSince1970: 1_800_000_250),
+            phase: .suspended(.recoverable)
         )
     }
 

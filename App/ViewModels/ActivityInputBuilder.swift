@@ -90,21 +90,11 @@ enum ActivityInputBuilder {
     }
 
     private static func makeRecoverySummary(from projection: ReportsProjection) -> ActivityRecoverySummary? {
-        let recoveryRuns = projection.runs.filter(isRecoveryRun)
-        guard !recoveryRuns.isEmpty else { return nil }
+        guard !projection.recoveryRunIDs.isEmpty else { return nil }
         return ActivityRecoverySummary(
-            unresolvedRunCount: recoveryRuns.count,
-            latestRunID: recoveryRuns.first?.id
+            unresolvedRunCount: projection.recoveryRunIDs.count,
+            latestRecoveryRunID: projection.recoveryRunIDs.first
         )
-    }
-
-    private static func isRecoveryRun(_ run: ReportsRunItem) -> Bool {
-        switch run.state {
-        case .blocked, .recoveryNeeded:
-            true
-        case .running, .awaitingReview, .completed, .completedNoOp, .failed, .cancelled:
-            false
-        }
     }
 
     private static func makePendingVerification(

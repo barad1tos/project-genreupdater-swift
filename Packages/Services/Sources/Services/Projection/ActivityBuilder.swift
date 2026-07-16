@@ -148,7 +148,7 @@ public enum ActivityBuilder {
                 id: "recovery-needed",
                 category: .recoveryRequired,
                 summary: "Previous run needs recovery",
-                technicalDetail: input.recovery?.latestRunID
+                technicalDetail: input.recovery?.latestRecoveryRunID
             )]
         }
 

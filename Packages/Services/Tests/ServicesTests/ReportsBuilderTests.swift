@@ -204,8 +204,8 @@ struct ReportsBuilderTests {
         #expect(item.changeCountLabel == nil)
     }
 
-    @Test("open persisted run maps to recovery needed")
-    func openRunRecovery() throws {
+    @Test("open persisted read maps to failed")
+    func openReadFails() throws {
         let record = makeRunRecord(
             startedAt: startDate,
             finishedAt: nil,
@@ -215,10 +215,27 @@ struct ReportsBuilderTests {
 
         let item = try #require(makeProjection(records: [record]).runs.first)
 
-        #expect(item.state == .recoveryNeeded)
-        #expect(item.stateLabel == "Recovery needed")
+        #expect(item.state == .failed)
+        #expect(item.stateLabel == "Failed")
         #expect(item.durationLabel == nil)
         #expect(item.changeCountLabel == nil)
+        #expect(item.failureSummary == "Run failed")
+    }
+
+    @Test("open persisted write maps to recovery needed")
+    func openWriteNeedsRecovery() throws {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .reporting,
+            syncSummary: nil,
+            intent: .writeFixes
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.state == .recoveryNeeded)
+        #expect(item.stateLabel == "Recovery needed")
         #expect(item.failureSummary == "Previous run needs recovery")
     }
 
@@ -372,6 +389,62 @@ struct ReportsBuilderTests {
         #expect(projection.skippedCorruptedCount == 2)
     }
 
+    @Test("recovery identifiers preserve claims and corrupted rows")
+    func recoveryIdentifiersPassThrough() {
+        let runID = RunID()
+        let recoveryID = UUID()
+        let corruptedID = RunID()
+        let firstRecord = makeRunRecord(
+            runID: runID,
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            intent: .writeFixes,
+            recoveryID: recoveryID
+        )
+        let duplicateRecord = makeRunRecord(
+            runID: runID,
+            startedAt: startDate.addingTimeInterval(-1),
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            intent: .writeFixes,
+            recoveryID: recoveryID
+        )
+
+        let projection = ReportsBuilder.makeProjection(from: ReportsProjectionInput(
+            records: [firstRecord, duplicateRecord],
+            skippedCorruptedCount: 1,
+            recoveryRunIDs: [runID, corruptedID, corruptedID],
+            now: now
+        ))
+
+        #expect(projection.recoveryRunIDs == [runID.rawValue.uuidString, corruptedID.rawValue.uuidString])
+    }
+
+    @Test("active write run is not a recovery candidate")
+    func activeWriteDoesNotNeedRecovery() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            intent: .writeFixes,
+            recoveryID: UUID()
+        )
+
+        let projection = ReportsBuilder.makeProjection(from: ReportsProjectionInput(
+            records: [record],
+            skippedCorruptedCount: 0,
+            recoveryRunIDs: [record.runID],
+            now: now,
+            activeRunID: record.runID
+        ))
+
+        #expect(projection.recoveryRunIDs.isEmpty)
+    }
+
     @Test("records keep store order")
     func recordsKeepStoreOrder() {
         let first = makeRunRecord(startedAt: startDate, finishedAt: nil, state: .syncingLibrary, syncSummary: nil)
@@ -403,13 +476,15 @@ struct ReportsBuilderTests {
     }
 
     private func makeRunRecord(
+        runID: RunID = RunID(),
         trigger: RunTrigger = .manualCheck,
         startedAt: Date,
         finishedAt: Date?,
         state: RunLifecycleState,
         syncSummary: ActivitySyncSummary?,
         failureMessage: String? = nil,
-        intent: RunIntent = .observeLibrary
+        intent: RunIntent = .observeLibrary,
+        recoveryID: UUID? = nil
     ) -> RunRecord {
         var transitions = [
             RunLifecycleTransition(state: .created, timestamp: startedAt),
@@ -423,7 +498,7 @@ struct ReportsBuilderTests {
         }
 
         return RunRecord(
-            runID: RunID(),
+            runID: runID,
             requestID: RunRequestID(),
             trigger: trigger,
             intent: intent,
@@ -433,6 +508,7 @@ struct ReportsBuilderTests {
                 createdAt: startedAt,
                 reason: "test"
             ),
+            recoveryID: recoveryID,
             transitions: transitions,
             syncSummary: syncSummary,
             failureMessage: failureMessage,

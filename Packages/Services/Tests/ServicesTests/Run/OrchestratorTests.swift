@@ -501,7 +501,7 @@ private func waitForSubscriptionCount(
     expected: Int
 ) async {
     for _ in 0 ..< 20 {
-        if await orchestrator.lifecycleSubscriptionCountForTesting() == expected {
+        if await orchestrator.lifecycleSubscriberCount() == expected {
             return
         }
         await Task.yield()

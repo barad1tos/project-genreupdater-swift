@@ -186,7 +186,8 @@ final class WorkflowViewModel {
     let featureGate: FeatureGate?
     let recordProcessedTracks: (Int) -> Void
     let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
-    let hasRecoveryHold: () async -> Bool
+    let ensureRecoveryHold: () async -> Bool
+    let clearRecovery: (UUID) async throws -> Void
     let prepareMutationMetadata: (([Track]) async throws -> Void)?
     let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
     let invalidateAlbumYearCache: (() async -> Void)?
@@ -210,7 +211,8 @@ final class WorkflowViewModel {
         featureGate = dependencies.featureGate
         recordProcessedTracks = dependencies.recordProcessedTracks
         runMaintenancePreflight = dependencies.runMaintenancePreflight
-        hasRecoveryHold = dependencies.hasRecoveryHold
+        ensureRecoveryHold = dependencies.ensureRecoveryHold
+        clearRecovery = dependencies.clearRecovery
         prepareMutationMetadata = dependencies.prepareMutationMetadata
         resolveIncrementalTracks = dependencies.resolveIncrementalTracks
         invalidateAlbumYearCache = dependencies.invalidateAlbumYearCache
@@ -561,7 +563,8 @@ final class WorkflowViewModel {
             recoveryHoldID = await batchProcessor.recoveryHoldID()
         }
         if recoveryHoldID == nil {
-            guard await hasRecoveryHold() else { return false }
+            guard await ensureRecoveryHold() else { return false }
+            recoveryHoldID = await batchProcessor.recoveryHoldID()
         }
 
         phase = .error("Previous run needs recovery before writes continue.")

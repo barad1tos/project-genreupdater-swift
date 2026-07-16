@@ -101,15 +101,15 @@ public struct ActivityFixPlanSummary: Equatable, Sendable {
 
 public struct ActivityRecoverySummary: Equatable, Sendable {
     public let unresolvedRunCount: Int
-    public let latestRunID: String?
+    public let latestRecoveryRunID: String?
 
     public var isActive: Bool {
         unresolvedRunCount > 0
     }
 
-    public init(unresolvedRunCount: Int, latestRunID: String?) {
+    public init(unresolvedRunCount: Int, latestRecoveryRunID: String?) {
         self.unresolvedRunCount = unresolvedRunCount
-        self.latestRunID = latestRunID
+        self.latestRecoveryRunID = latestRecoveryRunID
     }
 }
 

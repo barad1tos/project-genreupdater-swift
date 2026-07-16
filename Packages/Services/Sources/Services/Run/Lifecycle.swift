@@ -25,6 +25,29 @@ public enum RunLifecycleState: String, CaseIterable, Codable, Equatable, Sendabl
     case cancelled
     case recoverable
     case recovering
+
+    public var needsWriteRecovery: Bool {
+        switch self {
+        case .writing,
+             .verifying,
+             .reporting,
+             .blocked,
+             .recoverable,
+             .recovering:
+            true
+        case .created,
+             .queued,
+             .syncingLibrary,
+             .analyzingDelta,
+             .planningFixes,
+             .awaitingReview,
+             .completed,
+             .completedNoOp,
+             .failed,
+             .cancelled:
+            false
+        }
+    }
 }
 
 public enum RunActiveStage: Equatable, Sendable {
@@ -191,6 +214,25 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         return withPhase(.active(.verifying))
     }
 
+    public func requiringRecovery() -> Self {
+        if phase != .active(.writing),
+           phase != .active(.verifying),
+           phase != .active(.reporting) {
+            reportIllegalTransition(
+                "requiringRecovery()",
+                expected: ".active(.writing), .active(.verifying), or .active(.reporting)"
+            )
+        }
+        return withPhase(.suspended(.recoverable))
+    }
+
+    public func beginningRecovery() -> Self {
+        if phase != .suspended(.recoverable) {
+            reportIllegalTransition("beginningRecovery()", expected: ".suspended(.recoverable)")
+        }
+        return withPhase(.active(.recovering))
+    }
+
     public func beginningReporting() -> Self {
         if phase != .active(.syncingLibrary),
            phase != .active(.planningFixes),
@@ -267,6 +309,7 @@ public enum RunSubmissionResult: Equatable, Sendable {
     case queued(activeRun: RunLifecycleSnapshot)
     case completed(RunLifecycleSnapshot)
     case completedNoOp(RunLifecycleSnapshot)
+    case recoverable(RunLifecycleSnapshot, reason: String)
     case failed(RunLifecycleSnapshot)
     case cancelled(RunLifecycleSnapshot)
 
@@ -278,6 +321,7 @@ public enum RunSubmissionResult: Equatable, Sendable {
              let .queued(snapshot),
              let .completed(snapshot),
              let .completedNoOp(snapshot),
+             let .recoverable(snapshot, _),
              let .failed(snapshot),
              let .cancelled(snapshot):
             snapshot

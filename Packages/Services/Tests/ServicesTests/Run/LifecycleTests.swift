@@ -113,6 +113,26 @@ struct LifecycleTests {
         #expect(reporting.state == .reporting)
     }
 
+    @Test("unknown write outcome suspends the run for recovery")
+    func writeRunRequiresRecovery() {
+        let snapshot = RunLifecycleSnapshot(
+            runID: RunID(),
+            requestID: RunRequestID(),
+            trigger: .manualCheck,
+            intent: .writeFixes,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: nil,
+                createdAt: Date(timeIntervalSinceReferenceDate: 20),
+                reason: "write"
+            ),
+            startedAt: Date(timeIntervalSinceReferenceDate: 20),
+            phase: .active(.writing)
+        )
+
+        #expect(snapshot.requiringRecovery().phase == .suspended(.recoverable))
+    }
+
     @Test("transitions encode as bare state strings and reference-date seconds")
     func transitionsEncodeAsBareStateStringsAndReferenceDateSeconds() throws {
         let transitions = [

@@ -118,8 +118,9 @@ extension WorkflowViewModel {
     func clearRecoveryHold() async {
         guard let recoveryHoldID else { return }
         do {
-            try await batchProcessor.clearRecovery(batchID: recoveryHoldID)
+            try await clearRecovery(recoveryHoldID)
             self.recoveryHoldID = nil
+            guard await !stopForRecoveryHold() else { return }
             reset()
         } catch {
             phase = .error(error.localizedDescription)

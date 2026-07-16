@@ -31,7 +31,7 @@ struct RandomAccessWorkflowFixtureOptions {
     var idMapper: (any TrackIDMapping)?
     var resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track] = { tracks, _ in tracks }
     var runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
-    var hasRecoveryHold: () async -> Bool = { false }
+    var ensureRecoveryHold: () async -> Bool = { false }
     var prepareMutationMetadata: (([Track]) async throws -> Void)? = noOpPrepareMutationMetadata
     var updateIncrementalRunTimestamp: (() async -> Void)?
 }
@@ -186,7 +186,7 @@ func makeRandomAccessWorkflowFixture(
         pendingVerificationService: pendingVerificationService,
         idMapper: resolvedIDMapper,
         runMaintenancePreflight: options.runMaintenancePreflight,
-        hasRecoveryHold: options.hasRecoveryHold,
+        ensureRecoveryHold: options.ensureRecoveryHold,
         prepareMutationMetadata: options.prepareMutationMetadata,
         updateIncrementalRunTimestamp: options.updateIncrementalRunTimestamp
     )

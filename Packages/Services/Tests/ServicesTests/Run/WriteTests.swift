@@ -35,7 +35,9 @@ struct WriteTests {
         let final = try #require(await probe.records.last)
         #expect(final.intent == .writeFixes)
         #expect(final.scope == input.scope)
+        #expect(final.writeTarget == input.target)
         #expect(final.syncSummary?.modified == 1)
+        #expect(final.writeSummary == RunWriteSummary(applied: 1, verifiedNoOp: 0, failed: 0))
         #expect(final.transitions.map(\.state) == [
             .created,
             .writing,
@@ -52,6 +54,7 @@ struct WriteTests {
         let input = writeInput(target: target, artists: ["Björk"], knownTrackCount: 12)
         let writer = WriteProbe(result: BatchUpdateResult(
             entries: [writeEntry()],
+            noOpEntries: [writeEntry()],
             failedTrackIDs: ["track-2"],
             errorDescriptions: ["Failed to write genre for track track-2"]
         ))
@@ -74,10 +77,12 @@ struct WriteTests {
         #expect(final.intent == .writeFixes)
         #expect(final.failureMessage?.contains("Write run partially failed") == true)
         #expect(final.failureMessage?.contains("Failed to write genre for track track-2") == true)
-        #expect(final.syncSummary == nil)
+        #expect(final.syncSummary?.modified == 1)
+        #expect(final.writeSummary == RunWriteSummary(applied: 1, verifiedNoOp: 1, failed: 1))
         #expect(final.transitions.map(\.state) == [
             .created,
             .writing,
+            .verifying,
             .reporting,
             .failed,
         ])
@@ -150,154 +155,6 @@ struct WriteTests {
         await writer.waitUntilCallCount(2)
 
         #expect(await writer.calls == [firstInput, secondInput])
+        #expect(await syncGate.callCount == 1)
     }
-}
-
-private actor WriteProbe {
-    private(set) var calls: [FixPlanWriteInput] = []
-    private let result: BatchUpdateResult
-    private var continuations: [(Int, CheckedContinuation<Void, Never>)] = []
-
-    init(result: BatchUpdateResult) {
-        self.result = result
-    }
-
-    func apply(input: FixPlanWriteInput) throws -> BatchUpdateResult {
-        calls.append(input)
-        resumeContinuations()
-        return result
-    }
-
-    func waitUntilCallCount(_ target: Int) async {
-        if calls.count >= target {
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            continuations.append((target, continuation))
-        }
-    }
-
-    private func resumeContinuations() {
-        var waiting: [(Int, CheckedContinuation<Void, Never>)] = []
-        for (target, continuation) in continuations {
-            if calls.count >= target {
-                continuation.resume()
-            } else {
-                waiting.append((target, continuation))
-            }
-        }
-        continuations = waiting
-    }
-}
-
-private actor WriteRecordProbe {
-    private(set) var records: [RunRecord] = []
-
-    func append(_ record: RunRecord) throws {
-        records.append(record)
-    }
-}
-
-private actor WriteSyncProbe {
-    private(set) var callCount = 0
-
-    func run() -> SyncResult {
-        callCount += 1
-        return SyncResult()
-    }
-}
-
-private actor WriteSyncGate {
-    private var count = 0
-    private var isReleased = false
-    private var countContinuations: [(Int, CheckedContinuation<Void, Never>)] = []
-    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
-
-    func sync() async -> SyncResult {
-        count += 1
-        resumeCountContinuations()
-        if count == 1 {
-            await waitUntilReleased()
-        }
-        return SyncResult()
-    }
-
-    func waitUntilCount(_ target: Int) async {
-        if count >= target {
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            countContinuations.append((target, continuation))
-        }
-    }
-
-    func release() {
-        isReleased = true
-        for continuation in releaseContinuations {
-            continuation.resume()
-        }
-        releaseContinuations = []
-    }
-
-    private func waitUntilReleased() async {
-        if isReleased {
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            releaseContinuations.append(continuation)
-        }
-    }
-
-    private func resumeCountContinuations() {
-        var waiting: [(Int, CheckedContinuation<Void, Never>)] = []
-        for (target, continuation) in countContinuations {
-            if count >= target {
-                continuation.resume()
-            } else {
-                waiting.append((target, continuation))
-            }
-        }
-        countContinuations = waiting
-    }
-}
-
-private func writeTarget() -> FixPlanWriteTarget {
-    FixPlanWriteTarget(
-        planID: FixPlanID(),
-        planRevision: .initial,
-        decisionRevision: .initial
-    )
-}
-
-private func writeInput(
-    target: FixPlanWriteTarget = writeTarget(),
-    artists: [String] = [],
-    knownTrackCount: Int? = nil
-) -> FixPlanWriteInput {
-    let capturedAt = Date(timeIntervalSince1970: 90)
-    return FixPlanWriteInput(
-        target: target,
-        scope: .capture(
-            requestedTestArtists: artists,
-            knownTrackCount: knownTrackCount,
-            createdAt: capturedAt,
-            reason: "write-test"
-        )
-    )
-}
-
-private func writeEntry() -> ChangeLogEntry {
-    var entry = ChangeLogEntry(
-        changeType: .genreUpdate,
-        trackID: "track-1",
-        artist: "Björk",
-        trackName: "Jóga",
-        albumName: "Homogenic"
-    )
-    entry.oldGenre = "Alternative"
-    entry.newGenre = "Art Pop"
-    return entry
 }

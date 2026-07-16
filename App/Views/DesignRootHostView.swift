@@ -255,8 +255,11 @@ struct DesignRootHostView: View {
                 runMaintenancePreflight: {
                     await dependencies.runMaintenancePreflight()
                 },
-                hasRecoveryHold: {
-                    await dependencies.hasRecoveryHold()
+                ensureRecoveryHold: {
+                    await dependencies.ensureRecoveryHold()
+                },
+                clearRecovery: { id in
+                    try await dependencies.clearRecoveryHold(id: id)
                 },
                 prepareMutationMetadata: { tracks in
                     _ = try await dependencies.refreshTrackIDMappingOrThrow(
@@ -529,6 +532,9 @@ struct DesignRootHostView: View {
         guard !hasStartedInitialLoad else { return }
         hasStartedInitialLoad = true
         ensureWorkflowViewModel()
+        if await dependencies.ensureRecoveryHold() {
+            _ = await workflowViewModel?.stopForRecoveryHold()
+        }
         await loadLibrary()
         await refreshActivityProjection()
     }
@@ -747,6 +753,7 @@ struct DesignRootHostView: View {
         let projection = ReportsBuilder.makeProjection(from: ReportsProjectionInput(
             records: page.records,
             skippedCorruptedCount: page.skippedCorruptedCount,
+            recoveryRunIDs: page.recoveryRunIDs,
             now: Date(),
             activeRunID: activeRunID
         ))
@@ -809,28 +816,9 @@ struct DesignRootHostView: View {
         if let refreshedProjection = result.refreshedActivityProjection {
             applyActivityProjection(refreshedProjection)
         }
-        handleActivityNavigationTarget(result.navigationTarget)
+        applyNavigationTarget(result.navigationTarget)
         if showsActivityNotice {
             setActivityCommandNotice(result.message)
-        }
-    }
-
-    private func handleActivityNavigationTarget(_ target: CommandNavigationTarget?) {
-        switch target {
-        case .fixPlan:
-            selectedRoute = .update
-        case let .recovery(runID):
-            selectedRoute = .reports
-            selectRunReport(runID)
-        case .activity:
-            selectedRoute = .activity
-        case let .report(id):
-            selectedRoute = .reports
-            selectRunReport(id)
-        case .settings:
-            selectedRoute = .settings
-        case nil:
-            break
         }
     }
 
@@ -929,8 +917,8 @@ extension DesignRootHostView {
             submitFixPlanWrite: { input in
                 try await dependencies.submitFixPlanWrite(input: input)
             },
-            hasRecoveryHold: {
-                await dependencies.hasRecoveryHold()
+            ensureRecoveryHold: {
+                await dependencies.ensureRecoveryHold()
             },
             refreshFixPlanProjection: {
                 await refreshFixPlanOnly()
@@ -1050,6 +1038,29 @@ extension DesignRootHostView {
         let projection = await dependencies.refreshFixPlanProjection()
         _ = applyFixPlanProjection(projection)
         return projection
+    }
+}
+
+extension DesignRootHostView {
+    private func applyNavigationTarget(_ target: CommandNavigationTarget?) {
+        switch target {
+        case .fixPlan:
+            selectedRoute = .update
+        case .recovery:
+            selectedRoute = .update
+            Task { @MainActor in
+                _ = await workflowViewModel?.stopForRecoveryHold()
+            }
+        case .activity:
+            selectedRoute = .activity
+        case let .report(id):
+            selectedRoute = .reports
+            selectRunReport(id)
+        case .settings:
+            selectedRoute = .settings
+        case nil:
+            break
+        }
     }
 }
 

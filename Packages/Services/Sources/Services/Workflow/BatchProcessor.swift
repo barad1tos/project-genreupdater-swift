@@ -151,20 +151,32 @@ public actor BatchProcessor {
             return failedBatchID
         }
         do {
-            guard let checkpoint = try await checkpointManager.loadRecovery() else { return nil }
+            let checkpoint = try await checkpointManager.loadRecovery()
+            if let failedBatchID {
+                return failedBatchID
+            }
+            guard let checkpoint else { return nil }
             return activateRecovery(batchID: checkpoint.batchID)
         } catch {
+            if let failedBatchID {
+                return failedBatchID
+            }
             let recoveryID = activateRecovery(batchID: UUID())
             await persistRecoveryPlaceholder(batchID: recoveryID)
             return recoveryID
         }
     }
 
-    public func beginRecoveryHold() async -> UUID {
+    /// Opens a write hold, using `requestedID` only when no hold already exists.
+    /// The returned identifier is authoritative and may differ from the requested value.
+    public func beginRecoveryHold(id requestedID: UUID? = nil) async -> UUID {
         if let recoveryID = await recoveryHoldID() {
             return recoveryID
         }
-        let recoveryID = activateRecovery(batchID: UUID())
+        if let failedBatchID {
+            return failedBatchID
+        }
+        let recoveryID = activateRecovery(batchID: requestedID ?? UUID())
         await persistRecoveryPlaceholder(batchID: recoveryID)
         return recoveryID
     }

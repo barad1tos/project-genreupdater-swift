@@ -178,6 +178,12 @@ extension MainView {
                 runMaintenancePreflight: {
                     await dependencies.runMaintenancePreflight()
                 },
+                ensureRecoveryHold: {
+                    await dependencies.ensureRecoveryHold()
+                },
+                clearRecovery: { id in
+                    try await dependencies.clearRecoveryHold(id: id)
+                },
                 prepareMutationMetadata: { tracks in
                     _ = try await dependencies.refreshTrackIDMappingOrThrow(
                         musicKitTracks: tracks,

@@ -120,7 +120,7 @@ struct PendingWorkflowTests {
             dueEntries: [randomAccessMemoriesPendingEntry()]
         )
         let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
-            options.hasRecoveryHold = { true }
+            options.ensureRecoveryHold = { true }
         }
         let viewModel = fixture.viewModel
         viewModel.mode = .pendingVerification

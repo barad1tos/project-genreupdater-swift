@@ -33,7 +33,8 @@ func makeWorkflowFixture(
     idMapper: (any TrackIDMapping)? = nil,
     problematicAlbumReportMinAttempts: @escaping () -> Int = { 3 },
     runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
-    hasRecoveryHold: @escaping () async -> Bool = { false },
+    ensureRecoveryHold: @escaping () async -> Bool = { false },
+    clearRecovery: ((UUID) async throws -> Void)? = nil,
     prepareMutationMetadata: (([Track]) async throws -> Void)? = noOpPrepareMutationMetadata,
     invalidateAlbumYearCache: (() async -> Void)? = nil,
     updateIncrementalRunTimestamp: (() async -> Void)? = nil
@@ -79,6 +80,9 @@ func makeWorkflowFixture(
         ),
         featureGate: featureGate
     )
+    let resolvedClearRecovery = clearRecovery ?? { id in
+        try await batchProcessor.clearRecovery(batchID: id)
+    }
 
     let viewModel = WorkflowViewModel(
         dependencies: WorkflowViewModel.Dependencies(
@@ -88,7 +92,8 @@ func makeWorkflowFixture(
             pendingVerificationService: pendingVerificationService,
             featureGate: featureGate,
             runMaintenancePreflight: runMaintenancePreflight,
-            hasRecoveryHold: hasRecoveryHold,
+            ensureRecoveryHold: ensureRecoveryHold,
+            clearRecovery: resolvedClearRecovery,
             prepareMutationMetadata: prepareMutationMetadata,
             resolveIncrementalTracks: resolveIncrementalTracks,
             invalidateAlbumYearCache: invalidateAlbumYearCache,

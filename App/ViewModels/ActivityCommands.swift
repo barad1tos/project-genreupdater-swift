@@ -128,6 +128,13 @@ struct ActivityCommands {
                 message: "Recovery is no longer required.",
                 refreshedActivityProjection: projection
             )
+        case let .needsAttention(runID, .unresolvedState(state))
+            where state == .recoverable || state == .recovering:
+            return .navigated(
+                message: "Opening recovery.",
+                navigationTarget: .recovery(runID: runID.rawValue.uuidString),
+                refreshedActivityProjection: projection
+            )
         case let .needsAttention(_, reason):
             let detail: String = switch reason {
             case let .writeAdjacentState(state): state.rawValue
@@ -298,6 +305,18 @@ struct ActivityCommands {
             let projection = await refreshActivityProjection()
             return .noOp(
                 message: copy.cancelled,
+                refreshedActivityProjection: projection
+            )
+        case let .recoverable(_, reason):
+            let projection = await refreshActivityProjection()
+            return .blockedByRecovery(
+                message: "Recovery must be resolved before writes continue.",
+                issue: OperationalIssue(
+                    id: "run-recovery-required",
+                    category: .recoveryRequired,
+                    summary: "Run outcome needs recovery",
+                    technicalDetail: reason
+                ),
                 refreshedActivityProjection: projection
             )
         case let .failed(snapshot):
