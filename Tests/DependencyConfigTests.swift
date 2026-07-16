@@ -133,6 +133,31 @@ struct DependencyConfigTests {
         #expect(FileManager.default.fileExists(atPath: expectedTimestampFile.path))
     }
 
+    @Test("Runtime apply wires cleaning edition keywords into year scoring")
+    func appliesScoringKeywords() {
+        var didSaveConfiguration = false
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                didSaveConfiguration = true
+            }
+        )
+        dependencies.config.cleaning.remasterKeywords = ["Anniversary", "Deluxe"]
+        dependencies.config.yearRetrieval.logic.definitiveScoreDiff = 15
+
+        #expect(dependencies.saveConfigurationAndApplyRuntime())
+        #expect(didSaveConfiguration)
+        #expect(dependencies.yearDeterminator?.scorer.editionKeywords == ["Anniversary", "Deluxe"])
+
+        let scoredReleases = [
+            makeScoredRelease(year: 2020, score: 94, album: "Clayman (20th Anniversary Edition)"),
+            makeScoredRelease(year: 2000, score: 82, album: "Clayman"),
+        ]
+        let result = dependencies.yearDeterminator?.scorer.resolveScores(scoredReleases)
+
+        #expect(result?.year == 2000)
+    }
+
     @Test("Advanced JSON editor accepts Python-era configuration keys")
     func advancedJSONEditorAcceptsPythonEraConfigurationKeys() throws {
         let jsonString = """
@@ -299,6 +324,25 @@ private func makeStoredFixPlan(configuration: FixPlanConfig) -> FixPlan? {
         ),
         configuration: configuration,
         createdAt: Date(timeIntervalSince1970: 1_800_000_100)
+    )
+}
+
+private func makeScoredRelease(
+    year: Int,
+    score: Int,
+    album: String
+) -> ScoredRelease {
+    var breakdown = ScoreBreakdown()
+    breakdown.base = score
+    return ScoredRelease(
+        candidate: ReleaseCandidate(
+            artist: "Test",
+            album: album,
+            year: year,
+            source: .musicBrainz
+        ),
+        totalScore: score,
+        breakdown: breakdown
     )
 }
 
