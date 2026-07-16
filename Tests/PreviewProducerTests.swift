@@ -114,12 +114,85 @@ struct PreviewProducerTests {
         #expect(snapshot.libraryPaths == [path, path])
     }
 
+    @Test("preview consumes submitted Discogs access")
+    func consumesDiscogsAccess() async throws {
+        let services = RunServiceFactory(
+            makeScripts: { _ in PreviewScriptClient(tracks: []) },
+            makePendingVerification: { _ in nil }
+        )
+        let accessStore = DiscogsAccessStore()
+        let runtime = try await makeRuntime(services: services, accessStore: accessStore)
+        let configuration = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100),
+            hasDiscogsAccess: true
+        )
+        await accessStore.save(
+            .enabled(DiscogsClient(token: "submitted-token")),
+            configurationID: configuration.id
+        )
+
+        _ = try await runtime.makePreview(configuration: configuration, scope: scope(artist: "Probe Artist"))
+
+        #expect(await accessStore.consume(configurationID: configuration.id) == nil)
+    }
+
+    @Test("preview fails when submitted Discogs access is missing")
+    func rejectsMissingDiscogsAccess() async throws {
+        let services = RunServiceFactory(
+            makeScripts: { _ in PreviewScriptClient(tracks: []) },
+            makePendingVerification: { _ in nil }
+        )
+        let runtime = try await makeRuntime(services: services)
+        let configuration = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100),
+            hasDiscogsAccess: true
+        )
+
+        do {
+            _ = try await runtime.makePreview(configuration: configuration, scope: scope(artist: "Probe Artist"))
+            Issue.record("Expected missing captured Discogs access to fail")
+        } catch {
+            #expect(error.localizedDescription == "Captured Discogs access is unavailable for this preview run")
+        }
+    }
+
+    @Test("discard removes submitted Discogs access")
+    func discardsDiscogsAccess() async throws {
+        let services = RunServiceFactory(
+            makeScripts: { _ in PreviewScriptClient(tracks: []) },
+            makePendingVerification: { _ in nil }
+        )
+        let accessStore = DiscogsAccessStore()
+        let runtime = try await makeRuntime(services: services, accessStore: accessStore)
+        let configuration = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100),
+            hasDiscogsAccess: true
+        )
+        await accessStore.save(
+            .enabled(DiscogsClient(token: "submitted-token")),
+            configurationID: configuration.id
+        )
+
+        await runtime.discard(configuration)
+
+        #expect(await accessStore.consume(configurationID: configuration.id) == nil)
+    }
+
     private func readArtists(_ services: RunServices) async throws -> [String] {
         let provider = try #require(services.readProvider as? ScopedReadProvider)
         return provider.artists
     }
 
-    private func makeRuntime(services: RunServiceFactory) async throws -> RunRuntimeFactory {
+    private func makeRuntime(
+        services: RunServiceFactory,
+        accessStore: DiscogsAccessStore = DiscogsAccessStore()
+    ) async throws -> RunRuntimeFactory {
         let container = try ModelContainerFactory.createInMemory()
         let cache = try GRDBCacheService.createInMemory()
         try await cache.initialize()
@@ -132,9 +205,7 @@ struct PreviewProducerTests {
             undo: UndoCoordinator(scriptBridge: script),
             mapper: TrackIDMapper(),
             reachability: nil,
-            reportDiscogsIssue: { _, _ in
-                // This fixture verifies run-service configuration and owns no credential UI state.
-            }
+            discogsAccessStore: accessStore
         )
     }
 

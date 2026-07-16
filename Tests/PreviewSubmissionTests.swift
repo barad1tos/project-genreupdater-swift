@@ -18,6 +18,7 @@ struct PreviewSubmissionTests {
             }
         )
         dependencies.config.yearRetrieval.logic.minConfidenceForNewYear = 42
+        dependencies.config.yearRetrieval.apiAuth.discogsTokenReference = "submitted-token"
         dependencies.config.cleaning.genreMappings = ["Electronic": "Electronica"]
         dependencies.config.development.testArtists = ["Original Artist"]
         dependencies.installTrackCountSource {
@@ -39,20 +40,60 @@ struct PreviewSubmissionTests {
             }
         )))
 
-        let submission = Task { try await dependencies.submitPreviewRun() }
+        let tokenProbe = SubmittedTokenProbe()
+        let factoryOverrides = makeFactory(tokenProbe: tokenProbe)
+        let submission = Task {
+            try await dependencies.submitPreviewRun(factoryOverrides: factoryOverrides)
+        }
         await gate.waitUntilHeld()
         dependencies.config.yearRetrieval.logic.minConfidenceForNewYear = 91
+        dependencies.config.yearRetrieval.apiAuth.discogsTokenReference = "rotated-token"
         dependencies.config.cleaning.genreMappings = ["Electronic": "IDM"]
         dependencies.config.development.testArtists = ["Changed Artist"]
         await gate.release()
 
         _ = try await submission.value
         #expect(await probe.configuration?.minConfidence == 42)
+        #expect(await probe.configuration?.hasDiscogsAccess == true)
         #expect(await probe.configuration?.appConfiguration.cleaning.genreMappings["Electronic"] == "Electronica")
         #expect(await probe.scope?.normalizedTestArtists == ["Original Artist"])
         #expect(await probe.syncConfiguration?.minConfidence == 42)
+        #expect(await probe.syncConfiguration?.hasDiscogsAccess == true)
         #expect(await probe.syncConfiguration?.appConfiguration.cleaning.genreMappings["Electronic"] == "Electronica")
         #expect(await probe.syncScope?.normalizedTestArtists == ["Original Artist"])
+        #expect(tokenProbe.token == "submitted-token")
+        let submittedConfiguration = try #require(await probe.configuration)
+        let submittedAccess = await dependencies.discogsAccessStore.consume(
+            configurationID: submittedConfiguration.id
+        )
+        #expect(submittedAccess?.isEnabled == true)
+    }
+}
+
+private func makeFactory(tokenProbe: SubmittedTokenProbe) -> APIClientFactoryOverrides {
+    APIClientFactoryOverrides(
+        configuredDiscogsClientFactory: { token, contactEmail, rateLimiter, baseURL in
+            tokenProbe.record(token)
+            return DiscogsClient(
+                token: token,
+                contactEmail: contactEmail,
+                rateLimiter: rateLimiter,
+                baseURL: baseURL
+            )
+        }
+    )
+}
+
+private final class SubmittedTokenProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: String?
+
+    var token: String? {
+        lock.withLock { value }
+    }
+
+    func record(_ token: String) {
+        lock.withLock { value = token }
     }
 }
 

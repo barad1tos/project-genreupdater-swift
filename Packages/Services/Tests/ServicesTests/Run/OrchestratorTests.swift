@@ -383,44 +383,6 @@ struct OrchestratorTests {
         #expect(final.transitions.map(\.state) == [.created, .syncingLibrary, .reporting, .completedNoOp])
     }
 
-    @Test("active preview covers duplicate submission")
-    func previewCoversDuplicate() async {
-        let gate = SyncGate()
-        let configuration = makePreviewConfiguration()
-        let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
-            persistRunRecord: ignoreRunRecord,
-            produceFixPlan: { _, _, _ in
-                await gate.waitUntilReleased()
-                return .empty
-            },
-            now: { Date(timeIntervalSince1970: 100) }
-        ))
-
-        let first = Task {
-            await orchestrator.submit(.manualPreview(
-                configuration: configuration,
-                requestedTestArtists: [],
-                knownTrackCount: nil
-            ))
-        }
-        await gate.waitUntilEntered()
-
-        let second = await orchestrator.submit(.manualPreview(
-            configuration: configuration,
-            requestedTestArtists: [],
-            knownTrackCount: nil
-        ))
-        await gate.release()
-        _ = await first.value
-
-        guard case let .alreadyCovered(snapshot) = second else {
-            Issue.record("Expected alreadyCovered, got \(second)")
-            return
-        }
-        #expect(snapshot.state == .planningFixes)
-    }
-
     @Test("failed run persists a failure record")
     func failedRunPersistsFailureRecord() async throws {
         let probe = RunRecordProbe()
@@ -713,14 +675,6 @@ private struct ProbeError: LocalizedError {
 
 private func ignoreRunRecord(_ record: RunRecord) async throws {
     _ = record
-}
-
-private func makePreviewConfiguration() -> FixPlanConfig {
-    FixPlanConfig.capture(
-        configuration: AppConfiguration(),
-        options: UpdateOptions(),
-        capturedAt: Date(timeIntervalSince1970: 50)
-    )
 }
 
 private actor RunRecordProbe {

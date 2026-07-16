@@ -13,7 +13,7 @@ struct RunRuntimeFactory {
     let undo: UndoCoordinator
     let mapper: TrackIDMapper
     let reachability: NetworkReachabilityMonitor?
-    let reportDiscogsIssue: @MainActor @Sendable (String, DiscogsCredentialIssue?) -> Void
+    let discogsAccessStore: DiscogsAccessStore
 
     @MainActor
     func makeSync(
@@ -48,15 +48,16 @@ struct RunRuntimeFactory {
             cache: cache,
             configuration: appConfiguration
         )
-        // The current preview owns the app-wide credential banner because it constructs the active API clients.
-        let apiOrchestrator = AppDependencies.makeAPIOrchestrator(
+        let capturedAccess = await discogsAccessStore.consume(configurationID: configuration.id)
+        guard !configuration.hasDiscogsAccess || capturedAccess != nil else {
+            throw RunRuntimeError.missingDiscogsAccess
+        }
+        let apiOrchestrator = AppDependencies.makePreviewAPIOrchestrator(
             configuration: appConfiguration,
             cache: cache,
             pendingVerificationService: runServices.pendingVerification,
             reachability: reachability,
-            factoryOverrides: APIClientFactoryOverrides(discogsCredentialIssueHandler: { issue in
-                reportDiscogsIssue(appConfiguration.yearRetrieval.apiAuth.discogsTokenReference, issue)
-            })
+            discogsAccess: capturedAccess ?? .disabled
         )
         let coordinator = UpdateCoordinator(
             dependencies: UpdateCoordinatorDependencies(
@@ -100,6 +101,7 @@ struct RunRuntimeFactory {
 
     func discard(_ configuration: FixPlanConfig) async {
         await services.discard(id: configuration.id)
+        await discogsAccessStore.discard(configurationID: configuration.id)
     }
 
     private func scopedConfiguration(
@@ -181,11 +183,15 @@ extension AppDependencies {
             undo: undo,
             mapper: mapper,
             reachability: networkReachabilityMonitor,
-            reportDiscogsIssue: { [weak self] reference, issue in
-                guard let self,
-                      self.config.yearRetrieval.apiAuth.discogsTokenReference == reference else { return }
-                self.setDiscogsIssue(issue)
-            }
+            discogsAccessStore: discogsAccessStore
         )
+    }
+}
+
+private enum RunRuntimeError: LocalizedError {
+    case missingDiscogsAccess
+
+    var errorDescription: String? {
+        "Captured Discogs access is unavailable for this preview run"
     }
 }

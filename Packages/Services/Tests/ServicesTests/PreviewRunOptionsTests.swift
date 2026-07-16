@@ -45,6 +45,24 @@ struct PreviewRunOptionsTests {
         #expect(snapshot.determinationOptions.autoAccept == false)
     }
 
+    @Test("Discogs availability changes preview fingerprints")
+    func fingerprintsDiscogsAccess() {
+        let disabled = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100),
+            hasDiscogsAccess: false
+        )
+        let enabled = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100),
+            hasDiscogsAccess: true
+        )
+
+        #expect(disabled.fingerprint != enabled.fingerprint)
+    }
+
     @Test("legacy snapshots preserve their stored fingerprint")
     func decodesLegacySnapshot() throws {
         let snapshot = FixPlanConfig.capture(
@@ -55,6 +73,7 @@ struct PreviewRunOptionsTests {
         let encoded = try JSONEncoder().encode(snapshot)
         var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         object.removeValue(forKey: "appConfiguration")
+        object.removeValue(forKey: "hasDiscogsAccess")
         object["fingerprint"] = "legacy-fingerprint"
 
         let legacyData = try JSONSerialization.data(withJSONObject: object)
@@ -62,6 +81,7 @@ struct PreviewRunOptionsTests {
 
         #expect(decoded.fingerprint == "legacy-fingerprint")
         #expect(decoded.minConfidence == 73)
+        #expect(!decoded.hasDiscogsAccess)
     }
 
     @Test("snapshots without a Discogs reference digest use the configuration fallback")

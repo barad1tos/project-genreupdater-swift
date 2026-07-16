@@ -128,10 +128,11 @@ public actor RunOrchestrator {
         if let activeRun {
             switch TriggerArbiter.decide(active: activeRun, pending: pendingTriggers, incoming: request) {
             case let .alreadyCovered(pending):
-                pendingTriggers = pending
+                await replacePending(with: pending)
+                await releaseCoveredPreview(request, active: activeRun, pending: pending)
                 return .alreadyCovered(activeRun: activeRun)
             case let .queue(pending):
-                pendingTriggers = pending
+                await replacePending(with: pending)
                 return .queued(activeRun: activeRun)
             }
         }
@@ -207,6 +208,30 @@ public actor RunOrchestrator {
         guard let configuration = request.previewConfiguration,
               let releasePreview = dependencies.releasePreview else { return }
         await releasePreview(configuration)
+    }
+
+    private func releaseCoveredPreview(
+        _ request: RunRequest,
+        active: RunLifecycleSnapshot,
+        pending: [PendingTrigger]
+    ) async {
+        guard let configurationID = request.previewConfiguration?.id else { return }
+        let isActive = active.previewConfiguration?.id == configurationID
+        let isPending = pending.contains { $0.request.previewConfiguration?.id == configurationID }
+        guard !isActive, !isPending else { return }
+        await releasePreview(request)
+    }
+
+    private func replacePending(with replacement: [PendingTrigger]) async {
+        let retainedConfigurationIDs = Set(replacement.compactMap { $0.request.previewConfiguration?.id })
+        let removed = pendingTriggers.filter { pending in
+            guard let configurationID = pending.request.previewConfiguration?.id else { return false }
+            return !retainedConfigurationIDs.contains(configurationID)
+        }
+        pendingTriggers = replacement
+        for pending in removed {
+            await releasePreview(pending.request)
+        }
     }
 
     private func performRunWork(

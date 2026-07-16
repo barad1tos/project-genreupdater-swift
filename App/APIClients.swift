@@ -104,6 +104,35 @@ private struct DiscogsClientContext {
     let disabledSources: Set<APISource>
 }
 
+enum DiscogsAccess: Sendable {
+    case enabled(DiscogsClient)
+    case disabled
+
+    var isEnabled: Bool {
+        if case .enabled = self {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+actor DiscogsAccessStore {
+    private var accessByConfigurationID: [UUID: DiscogsAccess] = [:]
+
+    func save(_ access: DiscogsAccess, configurationID: UUID) {
+        accessByConfigurationID[configurationID] = access
+    }
+
+    func consume(configurationID: UUID) -> DiscogsAccess? {
+        accessByConfigurationID.removeValue(forKey: configurationID)
+    }
+
+    func discard(configurationID: UUID) {
+        accessByConfigurationID.removeValue(forKey: configurationID)
+    }
+}
+
 extension AppDependencies {
     static func makeAPIOrchestrator(
         configuration: AppConfiguration,
@@ -117,17 +146,63 @@ extension AppDependencies {
             apiAuth.contactEmailReference,
             fallbackUserDefaultsKey: "contactEmail"
         )
+        let discogsContext = makeDiscogsClientContext(
+            apiAuth: apiAuth,
+            contactEmail: contactEmail,
+            rateLimiter: makeDiscogsRateLimiter(configuration: configuration),
+            factoryOverrides: factoryOverrides
+        )
+        return makeAPIOrchestrator(
+            configuration: configuration,
+            cache: cache,
+            pendingVerificationService: pendingVerificationService,
+            reachability: reachability,
+            discogsContext: discogsContext
+        )
+    }
+
+    static func makePreviewAPIOrchestrator(
+        configuration: AppConfiguration,
+        cache: (any CacheService)?,
+        pendingVerificationService: (any PendingVerificationService)?,
+        reachability: NetworkReachabilityMonitor?,
+        discogsAccess: DiscogsAccess
+    ) -> APIOrchestrator {
+        let apiAuth = configuration.yearRetrieval.apiAuth
+        let contactEmail = APIAuthReferenceResolver.resolve(
+            apiAuth.contactEmailReference,
+            fallbackUserDefaultsKey: "contactEmail"
+        )
+        let discogsContext = makeDiscogsClientContext(
+            access: discogsAccess,
+            apiAuth: apiAuth,
+            contactEmail: contactEmail
+        )
+        return makeAPIOrchestrator(
+            configuration: configuration,
+            cache: cache,
+            pendingVerificationService: pendingVerificationService,
+            reachability: reachability,
+            discogsContext: discogsContext
+        )
+    }
+
+    private static func makeAPIOrchestrator(
+        configuration: AppConfiguration,
+        cache: (any CacheService)?,
+        pendingVerificationService: (any PendingVerificationService)?,
+        reachability: NetworkReachabilityMonitor?,
+        discogsContext: DiscogsClientContext
+    ) -> APIOrchestrator {
+        let apiAuth = configuration.yearRetrieval.apiAuth
+        let contactEmail = APIAuthReferenceResolver.resolve(
+            apiAuth.contactEmailReference,
+            fallbackUserDefaultsKey: "contactEmail"
+        )
         let musicBrainzClient = MusicBrainzClient(
             appName: apiAuth.musicBrainzAppName,
             contactEmail: contactEmail,
             rateLimiter: makeMusicBrainzRateLimiter(configuration: configuration)
-        )
-        let discogsRateLimiter = makeDiscogsRateLimiter(configuration: configuration)
-        let discogsContext = makeDiscogsClientContext(
-            apiAuth: apiAuth,
-            contactEmail: contactEmail,
-            rateLimiter: discogsRateLimiter,
-            factoryOverrides: factoryOverrides
         )
         let orchestratorConfiguration = makeAPIOrchestratorConfiguration(
             configuration: configuration,
@@ -145,6 +220,44 @@ extension AppDependencies {
             ),
             configuration: orchestratorConfiguration
         )
+    }
+
+    static func captureDiscogsAccess(
+        configuration: AppConfiguration,
+        factoryOverrides: APIClientFactoryOverrides = APIClientFactoryOverrides()
+    ) -> DiscogsAccess {
+        let apiAuth = configuration.yearRetrieval.apiAuth
+        let contactEmail = APIAuthReferenceResolver.resolve(
+            apiAuth.contactEmailReference,
+            fallbackUserDefaultsKey: "contactEmail"
+        )
+        let context = makeDiscogsClientContext(
+            apiAuth: apiAuth,
+            contactEmail: contactEmail,
+            rateLimiter: makeDiscogsRateLimiter(configuration: configuration),
+            factoryOverrides: factoryOverrides
+        )
+        return context.disabledSources.contains(.discogs) ? .disabled : .enabled(context.client)
+    }
+
+    private static func makeDiscogsClientContext(
+        access: DiscogsAccess,
+        apiAuth: APIAuthConfig,
+        contactEmail: String
+    ) -> DiscogsClientContext {
+        switch access {
+        case let .enabled(client):
+            DiscogsClientContext(client: client, disabledSources: [])
+        case .disabled:
+            DiscogsClientContext(
+                client: makeDisabledDiscogsClient(
+                    contactEmail,
+                    nil,
+                    apiAuth.discogsBaseURL
+                ),
+                disabledSources: [.discogs]
+            )
+        }
     }
 
     private static func makeDiscogsClientContext(

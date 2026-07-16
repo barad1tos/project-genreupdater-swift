@@ -15,6 +15,7 @@ public struct FixPlanConfig: Codable, Sendable {
     public let cleanTrackNames: Bool
     public let cleanAlbumNames: Bool
     public let minConfidence: Int
+    public let hasDiscogsAccess: Bool
 
     private let discogsReferenceDigest: String
     private let discogsCredentialRevision: String
@@ -29,7 +30,8 @@ public struct FixPlanConfig: Codable, Sendable {
         capturedAt: Date,
         appConfiguration: AppConfiguration,
         options: UpdateOptions,
-        discogsCredentialRevision: String = ""
+        discogsCredentialRevision: String = "",
+        hasDiscogsAccess: Bool = false
     ) {
         self.id = id
         self.capturedAt = capturedAt
@@ -41,6 +43,7 @@ public struct FixPlanConfig: Codable, Sendable {
         cleanTrackNames = options.cleanTrackNames
         cleanAlbumNames = options.cleanAlbumNames
         minConfidence = options.minConfidence
+        self.hasDiscogsAccess = hasDiscogsAccess
         let discogsReferenceDigest = digestDiscogsReference(appConfiguration)
         self.discogsReferenceDigest = discogsReferenceDigest
         self.discogsCredentialRevision = discogsCredentialRevision
@@ -48,7 +51,8 @@ public struct FixPlanConfig: Codable, Sendable {
             configuration: appConfiguration,
             options: options,
             discogsReferenceDigest: discogsReferenceDigest,
-            discogsCredentialRevision: discogsCredentialRevision
+            discogsCredentialRevision: discogsCredentialRevision,
+            hasDiscogsAccess: hasDiscogsAccess
         )
     }
 
@@ -56,13 +60,15 @@ public struct FixPlanConfig: Codable, Sendable {
         configuration: AppConfiguration,
         options: UpdateOptions,
         capturedAt: Date,
-        discogsCredentialRevision: String = ""
+        discogsCredentialRevision: String = "",
+        hasDiscogsAccess: Bool = false
     ) -> Self {
         Self(
             capturedAt: capturedAt,
             appConfiguration: configuration,
             options: options,
-            discogsCredentialRevision: discogsCredentialRevision
+            discogsCredentialRevision: discogsCredentialRevision,
+            hasDiscogsAccess: hasDiscogsAccess
         )
     }
 
@@ -84,13 +90,15 @@ public struct FixPlanConfig: Codable, Sendable {
         configuration: AppConfiguration,
         options: UpdateOptions,
         discogsReferenceDigest: String,
-        discogsCredentialRevision: String
+        discogsCredentialRevision: String,
+        hasDiscogsAccess: Bool
     ) -> String {
         let input = FingerprintInput(
             configuration: configuration,
             options: options,
             discogsReferenceDigest: discogsReferenceDigest,
-            discogsCredentialRevision: discogsCredentialRevision
+            discogsCredentialRevision: discogsCredentialRevision,
+            hasDiscogsAccess: hasDiscogsAccess
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -104,7 +112,7 @@ public struct FixPlanConfig: Codable, Sendable {
         case id, capturedAt, appConfiguration
         case updateGenre, updateYear, repairExistingGenreMismatches, forceYearLookup
         case cleanTrackNames, cleanAlbumNames, minConfidence
-        case discogsReferenceDigest, discogsCredentialRevision, fingerprint
+        case discogsReferenceDigest, discogsCredentialRevision, hasDiscogsAccess, fingerprint
     }
 
     public init(from decoder: any Decoder) throws {
@@ -118,6 +126,7 @@ public struct FixPlanConfig: Codable, Sendable {
         cleanTrackNames = try container.decode(Bool.self, forKey: .cleanTrackNames)
         cleanAlbumNames = try container.decode(Bool.self, forKey: .cleanAlbumNames)
         minConfidence = try container.decode(Int.self, forKey: .minConfidence)
+        hasDiscogsAccess = try container.decodeIfPresent(Bool.self, forKey: .hasDiscogsAccess) ?? false
 
         if let configuration = try container.decodeIfPresent(AppConfiguration.self, forKey: .appConfiguration) {
             appConfiguration = configuration
@@ -138,7 +147,8 @@ public struct FixPlanConfig: Codable, Sendable {
                     autoAccept: false
                 ),
                 discogsReferenceDigest: discogsReferenceDigest,
-                discogsCredentialRevision: discogsCredentialRevision
+                discogsCredentialRevision: discogsCredentialRevision,
+                hasDiscogsAccess: hasDiscogsAccess
             )
         } else {
             appConfiguration = AppConfiguration()
@@ -162,6 +172,7 @@ public struct FixPlanConfig: Codable, Sendable {
         try container.encode(minConfidence, forKey: .minConfidence)
         try container.encode(discogsReferenceDigest, forKey: .discogsReferenceDigest)
         try container.encode(discogsCredentialRevision, forKey: .discogsCredentialRevision)
+        try container.encode(hasDiscogsAccess, forKey: .hasDiscogsAccess)
         // Older readers consume this field; current readers recompute it when appConfiguration is present.
         try container.encode(fingerprint, forKey: .fingerprint)
     }
@@ -182,6 +193,7 @@ private struct FingerprintInput: Encodable {
     let options: Options
     let discogsReferenceDigest: String
     let discogsCredentialRevision: String
+    let hasDiscogsAccess: Bool
     let runtime: Runtime
     let appleScript: AppleScript
     let yearRetrieval: YearRetrievalConfig
@@ -198,12 +210,14 @@ private struct FingerprintInput: Encodable {
         configuration: AppConfiguration,
         options: UpdateOptions,
         discogsReferenceDigest: String,
-        discogsCredentialRevision: String
+        discogsCredentialRevision: String,
+        hasDiscogsAccess: Bool
     ) {
         let configuration = redactedConfiguration(configuration)
         self.options = Options(options)
         self.discogsReferenceDigest = discogsReferenceDigest
         self.discogsCredentialRevision = discogsCredentialRevision
+        self.hasDiscogsAccess = hasDiscogsAccess
         runtime = Runtime(configuration.runtime)
         appleScript = AppleScript(configuration.applescript)
         yearRetrieval = configuration.yearRetrieval

@@ -114,6 +114,7 @@ final class AppDependencies {
     private(set) var checkpointManager: CheckpointManager?
     private(set) var librarySyncService: LibrarySyncService?
     private(set) var runOrchestrator: RunOrchestrator?
+    @ObservationIgnored let discogsAccessStore = DiscogsAccessStore()
     private(set) var runRecordStore: (any RunRecordStore)?
     private(set) var fixPlanStore: (any FixPlanStore)?
     private(set) var librarySnapshotService: (any LibrarySnapshotService)?
@@ -124,10 +125,12 @@ final class AppDependencies {
     private(set) var incrementalRunTracker: IncrementalRunTracker?
     @ObservationIgnored private(set) var previousIncrementalScopeTracks: [Track] = []
     private(set) var discogsCredentialIssue: DiscogsCredentialIssue?
+    private(set) var isDiscogsAccessAvailable: Bool?
     @ObservationIgnored var trackCountSource: (@Sendable () async -> Int?)?
 
     func setDiscogsIssue(_ issue: DiscogsCredentialIssue?) {
         discogsCredentialIssue = issue
+        isDiscogsAccessAvailable = issue == nil
     }
 
     // MARK: - Init
@@ -401,7 +404,7 @@ final class AppDependencies {
             pendingVerificationService: pendingVerification,
             reachability: reachability,
             factoryOverrides: APIClientFactoryOverrides(discogsCredentialIssueHandler: { [weak self] issue in
-                self?.discogsCredentialIssue = issue
+                self?.setDiscogsIssue(issue)
             })
         )
     }
@@ -567,7 +570,10 @@ final class AppDependencies {
             createdAt: now,
             reason: "fixPlanProjectionRefresh"
         )
-        let currentConfiguration = capturePreviewConfig(at: now)
+        let currentConfiguration = capturePreviewConfig(
+            at: now,
+            hasDiscogsAccess: isDiscogsAccessAvailable ?? plan.configuration.hasDiscogsAccess
+        )
         return FixPlanProjector.makeProjection(
             plan: plan,
             decision: decision,
@@ -609,7 +615,7 @@ extension AppDependencies {
             pendingVerificationService: pendingVerificationStore,
             reachability: networkReachabilityMonitor,
             factoryOverrides: APIClientFactoryOverrides(discogsCredentialIssueHandler: { [weak self] issue in
-                self?.discogsCredentialIssue = issue
+                self?.setDiscogsIssue(issue)
             })
         )
         yearDeterminator = configuredYearDeterminator

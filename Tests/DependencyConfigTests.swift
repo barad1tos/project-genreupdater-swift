@@ -182,7 +182,8 @@ struct DependencyConfigTests {
             }
         )
         let plan = try #require(makeStoredFixPlan(configuration: dependencies.capturePreviewConfig(
-            at: Date(timeIntervalSince1970: 1_800_000_100)
+            at: Date(timeIntervalSince1970: 1_800_000_100),
+            hasDiscogsAccess: true
         )))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
         dependencies.configureLibraryPersistenceForTesting(
@@ -197,7 +198,13 @@ struct DependencyConfigTests {
         #expect(projection.itemCount == 1)
         #expect(projection.acceptedCount == 1)
         #expect(projection.status == .ready)
+        #expect(projection.stalenessReasons.isEmpty)
         #expect(storedProjection == projection)
+
+        dependencies.setDiscogsIssue(.missingToken)
+        let staleProjection = await dependencies.refreshFixPlanProjection()
+        #expect(staleProjection.status == .stale)
+        #expect(staleProjection.stalenessReasons == [.configurationChanged])
     }
 
     @Test("Missing fix plan store keeps projection empty")
