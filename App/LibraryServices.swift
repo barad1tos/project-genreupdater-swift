@@ -33,6 +33,7 @@ private func isOpenReportState(_ state: RunLifecycleState) -> Bool {
 enum AppDependencyServiceError: LocalizedError, Equatable {
     case librarySyncUnavailable
     case recoveryBlocked
+    case recoveryUpdateRequired
     case recoveryUnavailable
     case runRecordStoreUnavailable
     case runOrchestratorUnavailable
@@ -43,6 +44,8 @@ enum AppDependencyServiceError: LocalizedError, Equatable {
             "Library sync service is unavailable"
         case .recoveryBlocked:
             "Recovery needs attention before this run can be closed"
+        case .recoveryUpdateRequired:
+            "Update GenreUpdater before reviewing this recovery"
         case .recoveryUnavailable:
             "Recovery service is unavailable"
         case .runRecordStoreUnavailable:
@@ -254,6 +257,18 @@ extension AppDependencies {
         let recoveryRunIDs = (recentPage.recoveryRunIDs + openPage.recoveryRunIDs).filter {
             seenRecovery.insert($0).inserted
         }
+        var seenClosable = Set<RunID>()
+        let closableRunIDs = (recentPage.closableRunIDs + openPage.closableRunIDs).filter {
+            seenClosable.insert($0).inserted
+        }
+        var seenAttention = Set<RunID>()
+        let attentionRunIDs = (recentPage.attentionRunIDs + openPage.attentionRunIDs).filter {
+            seenAttention.insert($0).inserted
+        }
+        var seenUnsupported = Set<RunID>()
+        let unsupportedRunIDs = (recentPage.unsupportedRunIDs + openPage.unsupportedRunIDs).filter {
+            seenUnsupported.insert($0).inserted
+        }
         let duplicatedCorruptedCount = Set(recentPage.corruptedRunIDs)
             .intersection(openPage.corruptedRunIDs)
             .count
@@ -264,7 +279,10 @@ extension AppDependencies {
                 + openPage.skippedCorruptedCount
                 - duplicatedCorruptedCount,
             corruptedRunIDs: corruptedRunIDs,
-            recoveryRunIDs: recoveryRunIDs
+            recoveryRunIDs: recoveryRunIDs,
+            closableRunIDs: closableRunIDs,
+            attentionRunIDs: attentionRunIDs,
+            unsupportedRunIDs: unsupportedRunIDs
         )
     }
 

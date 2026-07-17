@@ -42,6 +42,7 @@ func insertCorruptedRun(
     id: UUID,
     state: RunLifecycleState,
     intentRaw: String = RunIntent.writeFixes.rawValue,
+    transitionsData: Data = Data([0xDE, 0xAD, 0xBE, 0xEF]),
     into container: ModelContainer
 ) throws {
     let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
@@ -59,7 +60,7 @@ func insertCorruptedRun(
         intentRaw: intentRaw,
         stateRaw: state.rawValue,
         scopeData: JSONEncoder().encode(scope),
-        transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+        transitionsData: transitionsData,
         syncNewCount: nil,
         syncModifiedCount: nil,
         syncIdentityChangedCount: nil,

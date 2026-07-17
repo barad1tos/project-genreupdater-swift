@@ -1,8 +1,23 @@
 import DesignUI
+import Foundation
 import Services
 
 enum RunHistoryAdapter {
     static let runHistoryLimit = 50
+
+    static func makeInput(
+        from page: RunReportPage,
+        now: Date,
+        activeRunID: RunID?
+    ) -> ReportsProjectionInput {
+        ReportsProjectionInput(
+            records: page.records,
+            skippedCorruptedCount: page.skippedCorruptedCount,
+            recoveryRunIDs: page.unresolvedRunIDs,
+            now: now,
+            activeRunID: activeRunID
+        )
+    }
 
     static func makeRunHistory(from projection: ReportsProjection) -> [RunReportRow] {
         projection.runs.map { run in

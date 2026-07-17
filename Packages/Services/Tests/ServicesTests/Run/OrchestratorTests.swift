@@ -5,6 +5,27 @@ import Testing
 
 @Suite("RunOrchestrator")
 struct OrchestratorTests {
+    @Test("run audit remains monotonic when the clock moves backward")
+    func clampsReversedClock() async throws {
+        let clock = ReversingClockProbe()
+        let records = RunRecordProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await records.append($0) },
+            now: { clock.now() }
+        ))
+
+        _ = await orchestrator.submit(.manualObservation(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+
+        let final = try #require(await records.records.last)
+        let timestamps = final.transitions.map(\.timestamp)
+        #expect(timestamps == timestamps.sorted())
+        #expect(final.finishedAt == timestamps.last)
+    }
+
     @Test("manual observation captures immutable test artist scope")
     func manualObservationCapturesScope() async {
         let clock = ClockProbe()
@@ -602,6 +623,15 @@ private final class ClockProbe: @unchecked Sendable {
 
     func now() -> Date {
         defer { timestamp += 1 }
+        return Date(timeIntervalSince1970: timestamp)
+    }
+}
+
+private final class ReversingClockProbe: @unchecked Sendable {
+    private var timestamp: TimeInterval = 100
+
+    func now() -> Date {
+        defer { timestamp -= 1 }
         return Date(timeIntervalSince1970: timestamp)
     }
 }

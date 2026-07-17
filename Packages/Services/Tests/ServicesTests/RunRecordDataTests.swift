@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import SwiftData
 import Testing
@@ -5,98 +6,10 @@ import Testing
 
 @Suite("RunRecordDataStore")
 struct RunRecordDataTests {
-    @Test("upsert inserts and loadAll round-trips all fields")
-    func roundTripsAllFields() async throws {
-        let store = try makeStore()
-        let writeTarget = FixPlanWriteTarget(
-            planID: FixPlanID(),
-            planRevision: FixPlanRevision(2),
-            decisionRevision: ReviewDecisionRevision(3)
-        )
-        let recoveryID = UUID()
-        let record = makeRecord(
-            intent: .writeFixes,
-            writeTarget: writeTarget,
-            recoveryID: recoveryID,
-            startedAt: Date(timeIntervalSince1970: 100),
-            finishedAt: Date(timeIntervalSince1970: 104),
-            state: .completed,
-            syncSummary: ActivitySyncSummary(new: 2, modified: 1, identityChanged: 0, refreshed: 1, removed: 3),
-            writeSummary: RunWriteSummary(applied: 1, verifiedNoOp: 2, failed: 3)
-        )
-
-        try await store.upsert(record)
-        let loaded = try await store.loadAll()
-
-        #expect(loaded == [record])
-    }
-
-    @Test("upsert round-trips preview intent and planning transition")
-    func upsertRoundTripsPreviewPlanning() async throws {
-        let store = try makeStore()
-        let startedAt = Date(timeIntervalSince1970: 100)
-        let finishedAt = Date(timeIntervalSince1970: 104)
-        let record = RunRecord(
-            runID: RunID(),
-            requestID: RunRequestID(),
-            trigger: .manualCheck,
-            intent: .previewFixes,
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: ["Aphex Twin"],
-                knownTrackCount: 75,
-                createdAt: startedAt,
-                reason: "manualCheck"
-            ),
-            transitions: [
-                RunLifecycleTransition(state: .created, timestamp: startedAt),
-                RunLifecycleTransition(state: .syncingLibrary, timestamp: startedAt.addingTimeInterval(1)),
-                RunLifecycleTransition(state: .planningFixes, timestamp: startedAt.addingTimeInterval(2)),
-                RunLifecycleTransition(state: .reporting, timestamp: startedAt.addingTimeInterval(3)),
-                RunLifecycleTransition(state: .completed, timestamp: finishedAt),
-            ],
-            syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 0),
-            failureMessage: nil,
-            startedAt: startedAt,
-            finishedAt: finishedAt
-        )
-
-        try await store.upsert(record)
-        let loaded = try await store.loadAll()
-
-        #expect(loaded == [record])
-        #expect(loaded.first?.intent == .previewFixes)
-        #expect(loaded.first?.transitions.map(\.state).contains(.planningFixes) == true)
-    }
-
-    @Test("upsert with the same run updates the open record to final")
-    func upsertSameRunUpdatesOpenRecordToFinal() async throws {
-        let store = try makeStore()
-        let open = makeRecord(
-            startedAt: Date(timeIntervalSince1970: 100),
-            finishedAt: nil,
-            state: .syncingLibrary,
-            syncSummary: nil
-        )
-        let final = makeRecord(
-            runID: open.runID,
-            requestID: open.requestID,
-            startedAt: open.startedAt,
-            finishedAt: Date(timeIntervalSince1970: 104),
-            state: .completedNoOp,
-            syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 0)
-        )
-
-        try await store.upsert(open)
-        try await store.upsert(final)
-        let loaded = try await store.loadAll()
-
-        #expect(loaded == [final])
-    }
-
     @Test("record(for:) returns the match or nil")
-    func recordForIDReturnsMatchOrNil() async throws {
-        let store = try makeStore()
-        let record = makeRecord(
+    func loadsRecordByID() async throws {
+        let store = try makeRunStore()
+        let record = makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
             state: .syncingLibrary,
@@ -110,15 +23,15 @@ struct RunRecordDataTests {
     }
 
     @Test("loadAll sorts by startedAt descending")
-    func loadAllSortsByStartedAtDescending() async throws {
-        let store = try makeStore()
-        let older = makeRecord(
+    func sortsNewestFirst() async throws {
+        let store = try makeRunStore()
+        let older = makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: Date(timeIntervalSince1970: 101),
             state: .completedNoOp,
             syncSummary: nil
         )
-        let newer = makeRecord(
+        let newer = makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 200),
             finishedAt: Date(timeIntervalSince1970: 201),
             state: .completedNoOp,
@@ -132,49 +45,49 @@ struct RunRecordDataTests {
     }
 
     @Test("loadAll throws corruptedField naming transitions for garbage transition bytes")
-    func loadAllThrowsCorruptedFieldForGarbageTransitionBytes() async throws {
+    func rejectsGarbageTransitions() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
-        try insertPersistedRunRecord(runID: runID, transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]), into: container)
+        try insertRunRow(runID: runID, transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]), into: container)
 
         let store = RunRecordDataStore(modelContainer: container)
 
-        await assertLoadAllThrowsCorruptedField(store: store, expectedName: "transitions", expectedRunID: runID)
+        await assertCorruptedRunField(store: store, expectedName: "transitions", expectedRunID: runID)
     }
 
     @Test("loadAll throws corruptedField naming transitions for an empty transitions array")
-    func loadAllThrowsCorruptedFieldForEmptyTransitionsArray() async throws {
+    func rejectsEmptyTransitions() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
         let emptyTransitionsData = try JSONEncoder().encode([RunLifecycleTransition]())
-        try insertPersistedRunRecord(runID: runID, transitionsData: emptyTransitionsData, into: container)
+        try insertRunRow(runID: runID, transitionsData: emptyTransitionsData, into: container)
 
         let store = RunRecordDataStore(modelContainer: container)
 
-        await assertLoadAllThrowsCorruptedField(store: store, expectedName: "transitions", expectedRunID: runID)
+        await assertCorruptedRunField(store: store, expectedName: "transitions", expectedRunID: runID)
     }
 
     @Test("loadAll throws corruptedField naming scope for garbage scope bytes")
-    func loadAllThrowsCorruptedFieldForGarbageScopeBytes() async throws {
+    func rejectsGarbageScope() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
-        try insertPersistedRunRecord(
+        try insertRunRow(
             runID: runID,
-            transitionsData: validTransitionsData(),
-            scopeData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+            transitionsData: validRunTransitionsData(),
+            input: RunRowInput(scopeData: Data([0xDE, 0xAD, 0xBE, 0xEF])),
             into: container
         )
 
         let store = RunRecordDataStore(modelContainer: container)
 
-        await assertLoadAllThrowsCorruptedField(store: store, expectedName: "scope", expectedRunID: runID)
+        await assertCorruptedRunField(store: store, expectedName: "scope", expectedRunID: runID)
     }
 
     @Test("prune keeps the newest terminal records and reports the deleted count")
-    func pruneKeepsNewestTerminalRecords() async throws {
-        let store = try makeStore()
+    func keepsNewestRuns() async throws {
+        let store = try makeRunStore()
         for offset in 0 ..< 3 {
-            try await store.upsert(makeRecord(
+            try await store.upsert(makeRunRecord(
                 startedAt: Date(timeIntervalSince1970: 100 + Double(offset) * 100),
                 finishedAt: Date(timeIntervalSince1970: 150 + Double(offset) * 100),
                 state: .completedNoOp,
@@ -194,9 +107,9 @@ struct RunRecordDataTests {
     }
 
     @Test("prune never deletes open records")
-    func pruneNeverDeletesOpenRecords() async throws {
-        let store = try makeStore()
-        let open = makeRecord(
+    func keepsOpenRuns() async throws {
+        let store = try makeRunStore()
+        let open = makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
             state: .syncingLibrary,
@@ -204,7 +117,7 @@ struct RunRecordDataTests {
         )
         try await store.upsert(open)
         for offset in 0 ..< 2 {
-            try await store.upsert(makeRecord(
+            try await store.upsert(makeRunRecord(
                 startedAt: Date(timeIntervalSince1970: 200 + Double(offset) * 100),
                 finishedAt: Date(timeIntervalSince1970: 250 + Double(offset) * 100),
                 state: .completed,
@@ -221,9 +134,9 @@ struct RunRecordDataTests {
     }
 
     @Test("prune under the limit deletes nothing")
-    func pruneUnderLimitDeletesNothing() async throws {
-        let store = try makeStore()
-        try await store.upsert(makeRecord(
+    func keepsRunsUnderLimit() async throws {
+        let store = try makeRunStore()
+        try await store.upsert(makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: Date(timeIntervalSince1970: 101),
             state: .completedNoOp,
@@ -235,10 +148,10 @@ struct RunRecordDataTests {
     }
 
     @Test("prune at exactly the limit deletes nothing")
-    func pruneAtExactlyTheLimitDeletesNothing() async throws {
-        let store = try makeStore()
+    func keepsRunsAtLimit() async throws {
+        let store = try makeRunStore()
         for offset in 0 ..< 2 {
-            try await store.upsert(makeRecord(
+            try await store.upsert(makeRunRecord(
                 startedAt: Date(timeIntervalSince1970: 100 + Double(offset) * 100),
                 finishedAt: Date(timeIntervalSince1970: 150 + Double(offset) * 100),
                 state: .completedNoOp,
@@ -251,9 +164,9 @@ struct RunRecordDataTests {
     }
 
     @Test("prune with a limit below one is a no-op")
-    func pruneWithLimitBelowOneIsNoOp() async throws {
-        let store = try makeStore()
-        try await store.upsert(makeRecord(
+    func ignoresInvalidPruneLimit() async throws {
+        let store = try makeRunStore()
+        try await store.upsert(makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: Date(timeIntervalSince1970: 101),
             state: .completedNoOp,
@@ -266,10 +179,10 @@ struct RunRecordDataTests {
     }
 
     @Test("reports date bounds are inclusive at the exact boundary")
-    func reportsDateBoundsAreInclusiveAtExactBoundary() async throws {
-        let store = try makeStore()
+    func includesDateBoundary() async throws {
+        let store = try makeRunStore()
         let boundary = Date(timeIntervalSince1970: 200)
-        try await store.upsert(makeRecord(
+        try await store.upsert(makeRunRecord(
             startedAt: boundary,
             finishedAt: Date(timeIntervalSince1970: 201),
             state: .completedNoOp,
@@ -285,19 +198,19 @@ struct RunRecordDataTests {
     }
 
     @Test("corrupted rows consume fetch-limit slots")
-    func corruptedRowsConsumeFetchLimitSlots() async throws {
+    func countsCorruptPageSlots() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
-        try await store.upsert(makeRecord(
+        try await store.upsert(makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: Date(timeIntervalSince1970: 101),
             state: .completedNoOp,
             syncSummary: nil
         ))
-        try insertPersistedRunRecord(
+        try insertRunRow(
             runID: UUID(),
             transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
-            startedAt: Date(timeIntervalSince1970: 200),
+            input: RunRowInput(startedAt: Date(timeIntervalSince1970: 200)),
             into: container
         )
 
@@ -308,21 +221,21 @@ struct RunRecordDataTests {
     }
 
     @Test("reports filters by date range and state, newest first")
-    func reportsFiltersByDateRangeAndState() async throws {
-        let store = try makeStore()
-        try await store.upsert(makeRecord(
+    func filtersHistory() async throws {
+        let store = try makeRunStore()
+        try await store.upsert(makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: Date(timeIntervalSince1970: 101),
             state: .completedNoOp,
             syncSummary: nil
         ))
-        try await store.upsert(makeRecord(
+        try await store.upsert(makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 200),
             finishedAt: Date(timeIntervalSince1970: 201),
             state: .failed,
             syncSummary: nil
         ))
-        try await store.upsert(makeRecord(
+        try await store.upsert(makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 300),
             finishedAt: Date(timeIntervalSince1970: 301),
             state: .completed,
@@ -358,22 +271,26 @@ struct RunRecordDataTests {
     }
 
     @Test("reports state filter sees the updated terminal state")
-    func reportsStateFilterSeesUpdatedTerminalState() async throws {
-        let store = try makeStore()
-        let open = makeRecord(
+    func filtersUpdatedState() async throws {
+        let store = try makeRunStore()
+        let open = makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
             state: .syncingLibrary,
             syncSummary: nil
         )
         try await store.upsert(open)
-        try await store.upsert(makeRecord(
-            runID: open.runID,
-            requestID: open.requestID,
+        try await store.upsert(makeRunRecord(
             startedAt: open.startedAt,
             finishedAt: Date(timeIntervalSince1970: 104),
             state: .completedNoOp,
-            syncSummary: nil
+            syncSummary: nil,
+            input: RunRecordInput(
+                runID: open.runID,
+                requestID: open.requestID,
+                scope: open.scope,
+                configuration: open.configuration
+            )
         ))
 
         let noOp = try await store.reports(matching: RunReportQuery(states: [.completedNoOp]))
@@ -384,20 +301,20 @@ struct RunRecordDataTests {
     }
 
     @Test("reports filters by trigger")
-    func reportsFiltersByTrigger() async throws {
-        let store = try makeStore()
-        try await store.upsert(makeRecord(
+    func filtersByTrigger() async throws {
+        let store = try makeRunStore()
+        try await store.upsert(makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: Date(timeIntervalSince1970: 101),
             state: .completedNoOp,
             syncSummary: nil
         ))
-        try await store.upsert(makeRecord(
-            trigger: .recovery,
+        try await store.upsert(makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 200),
             finishedAt: Date(timeIntervalSince1970: 201),
             state: .completedNoOp,
-            syncSummary: nil
+            syncSummary: nil,
+            input: RunRecordInput(trigger: .recovery)
         ))
 
         let recoveryOnly = try await store.reports(matching: RunReportQuery(trigger: .recovery))
@@ -406,16 +323,16 @@ struct RunRecordDataTests {
     }
 
     @Test("reports skips corrupted rows and counts them")
-    func reportsSkipsCorruptedRowsAndCountsThem() async throws {
+    func countsCorruptRows() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
-        try await store.upsert(makeRecord(
+        try await store.upsert(makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: Date(timeIntervalSince1970: 101),
             state: .completedNoOp,
             syncSummary: nil
         ))
-        try insertPersistedRunRecord(
+        try insertRunRow(
             runID: UUID(),
             transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
             into: container
@@ -425,120 +342,5 @@ struct RunRecordDataTests {
 
         #expect(page.records.count == 1)
         #expect(page.skippedCorruptedCount == 1)
-    }
-
-    private func validTransitionsData() throws -> Data {
-        try JSONEncoder().encode([
-            RunLifecycleTransition(state: .created, timestamp: Date(timeIntervalSince1970: 100)),
-            RunLifecycleTransition(state: .syncingLibrary, timestamp: Date(timeIntervalSince1970: 101)),
-        ])
-    }
-
-    private func assertLoadAllThrowsCorruptedField(
-        store: RunRecordDataStore,
-        expectedName: String,
-        expectedRunID: UUID
-    ) async {
-        do {
-            _ = try await store.loadAll()
-            Issue.record("Expected loadAll to throw RunRecordPersistenceError.corruptedField")
-        } catch let error as RunRecordPersistenceError {
-            guard case let .corruptedField(name, runID) = error else {
-                Issue.record("Expected corruptedField, got \(error)")
-                return
-            }
-            #expect(name == expectedName)
-            #expect(runID == expectedRunID)
-        } catch {
-            Issue.record("Expected RunRecordPersistenceError, got \(error)")
-        }
-    }
-
-    private func insertPersistedRunRecord(
-        runID: UUID,
-        transitionsData: Data,
-        scopeData: Data? = nil,
-        intent: RunIntent = .observeLibrary,
-        rawIntent: String? = nil,
-        state: RunLifecycleState = .completed,
-        startedAt: Date = Date(timeIntervalSince1970: 100),
-        into container: ModelContainer
-    ) throws {
-        let context = ModelContext(container)
-        let scopeData = try scopeData ?? JSONEncoder().encode(ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: 1,
-            createdAt: Date(timeIntervalSince1970: 100),
-            reason: "manualCheck"
-        ))
-        context.insert(PersistedRunRecord(
-            runID: runID,
-            requestID: UUID(),
-            triggerRaw: RunTrigger.manualCheck.rawValue,
-            intentRaw: rawIntent ?? intent.rawValue,
-            stateRaw: state.rawValue,
-            scopeData: scopeData,
-            transitionsData: transitionsData,
-            syncNewCount: nil,
-            syncModifiedCount: nil,
-            syncIdentityChangedCount: nil,
-            syncRefreshedCount: nil,
-            syncRemovedCount: nil,
-            failureMessage: nil,
-            startedAt: startedAt,
-            finishedAt: nil
-        ))
-        try context.save()
-    }
-
-    private func makeStore() throws -> RunRecordDataStore {
-        let container = try ModelContainerFactory.createInMemory()
-        return RunRecordDataStore(modelContainer: container)
-    }
-
-    private func makeRecord(
-        runID: RunID = RunID(),
-        requestID: RunRequestID = RunRequestID(),
-        trigger: RunTrigger = .manualCheck,
-        intent: RunIntent = .observeLibrary,
-        writeTarget: FixPlanWriteTarget? = nil,
-        recoveryID: UUID? = nil,
-        startedAt: Date,
-        finishedAt: Date?,
-        state: RunLifecycleState,
-        syncSummary: ActivitySyncSummary?,
-        writeSummary: RunWriteSummary? = nil
-    ) -> RunRecord {
-        var transitions = [
-            RunLifecycleTransition(state: .created, timestamp: startedAt),
-            RunLifecycleTransition(state: .syncingLibrary, timestamp: startedAt.addingTimeInterval(1)),
-        ]
-        if state != .syncingLibrary {
-            transitions.append(RunLifecycleTransition(
-                state: state,
-                timestamp: finishedAt ?? startedAt.addingTimeInterval(2)
-            ))
-        }
-
-        return RunRecord(
-            runID: runID,
-            requestID: requestID,
-            trigger: trigger,
-            intent: intent,
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: ["Aphex Twin"],
-                knownTrackCount: 75,
-                createdAt: startedAt,
-                reason: "manualCheck"
-            ),
-            writeTarget: writeTarget,
-            recoveryID: recoveryID,
-            transitions: transitions,
-            syncSummary: syncSummary,
-            writeSummary: writeSummary,
-            failureMessage: state == .failed ? "Music.app unavailable" : nil,
-            startedAt: startedAt,
-            finishedAt: finishedAt
-        )
     }
 }

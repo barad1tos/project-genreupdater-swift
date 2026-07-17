@@ -268,6 +268,27 @@ struct ActivityCommandsTests {
         #expect(harness.preflightRunIDs == [ActivityFixtures.recoveryRunID])
     }
 
+    @Test("resume recovery requests an update for a future payload")
+    func futurePayloadNeedsUpdate() async {
+        let harness = ActivityFixtures.Harness(
+            projection: ActivityFixtures.makeRecoveryProjection(revision: ProjectionRevision(2)),
+            preflightOutcome: .needsAttention(
+                runID: ActivityFixtures.recoveryRunID,
+                reason: .unsupportedPayload
+            )
+        )
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.resumeRecovery())
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.message == "Update GenreUpdater before reviewing this recovery.")
+        #expect(result.issue?.id == "recovery-update-required")
+        #expect(result.issue?.category == .safetyBlocked)
+        #expect(result.navigationTarget == nil)
+        #expect(harness.preflightRunIDs == [ActivityFixtures.recoveryRunID])
+    }
+
     @Test("resume recovery surfaces blocked preflight")
     func blockedNeedsAttention() async {
         let harness = ActivityFixtures.Harness(

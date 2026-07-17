@@ -1,10 +1,35 @@
 import DesignUI
+import Foundation
 import Services
 import Testing
 @testable import Genre_Updater
 
 @Suite("RunHistoryAdapter")
 struct RunHistoryTests {
+    @Test("maps every unresolved run into recovery projection")
+    func mapsUnresolvedRuns() {
+        let recoveryRunID = RunID()
+        let attentionRunID = RunID()
+        let unsupportedRunID = RunID()
+        let page = RunReportPage(
+            records: [],
+            skippedCorruptedCount: 3,
+            recoveryRunIDs: [recoveryRunID],
+            attentionRunIDs: [attentionRunID],
+            unsupportedRunIDs: [unsupportedRunID]
+        )
+
+        let input = RunHistoryAdapter.makeInput(from: page, now: Date(), activeRunID: nil)
+        let projection = ReportsBuilder.makeProjection(from: input)
+
+        #expect(input.recoveryRunIDs == [recoveryRunID, attentionRunID, unsupportedRunID])
+        #expect(projection.recoveryRunIDs == [
+            recoveryRunID.rawValue.uuidString,
+            attentionRunID.rawValue.uuidString,
+            unsupportedRunID.rawValue.uuidString,
+        ])
+    }
+
     @Test("maps run item fields to row")
     func mapsRunItemFieldsToRow() throws {
         let item = ReportsRunItem(

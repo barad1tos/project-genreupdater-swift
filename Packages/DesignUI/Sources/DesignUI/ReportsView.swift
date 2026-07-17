@@ -270,10 +270,10 @@ struct ReportsView: View {
                         .foregroundStyle(Ayu.fg)
                 }
             }
-            if let failureMessage = detail.failureMessage {
-                Text(failureMessage)
+            if let detailMessage = detail.detailMessage {
+                Text(detailMessage)
                     .font(.system(size: 13))
-                    .foregroundStyle(Ayu.error)
+                    .foregroundStyle(detail.tone == .success || detail.tone == .neutral ? Ayu.info : Ayu.error)
             }
         }
     }

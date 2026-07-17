@@ -21,7 +21,7 @@ enum ReportDetailAdapter {
             summaryItems: detail.summaryItems.map { item in
                 RunReportSummaryRow(id: item.id, label: item.label, value: item.value)
             },
-            failureMessage: detail.failureMessage
+            detailMessage: detail.detailMessage
         )
     }
 }

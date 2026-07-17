@@ -21,7 +21,7 @@ struct ReportDetailTests {
             summaryItems: [
                 RunReportSummaryItem(id: "summary-total", label: "Total changes", value: "6"),
             ],
-            failureMessage: nil
+            detailMessage: nil
         )
 
         let snapshot = ReportDetailAdapter.makeSnapshot(from: projection)
@@ -39,7 +39,7 @@ struct ReportDetailTests {
         #expect(snapshot.summaryItems.map(\.id) == ["summary-total"])
         #expect(snapshot.summaryItems.map(\.label) == ["Total changes"])
         #expect(snapshot.summaryItems.map(\.value) == ["6"])
-        #expect(snapshot.failureMessage == nil)
+        #expect(snapshot.detailMessage == nil)
         #expect(snapshot.unavailableReason == nil)
     }
 
@@ -55,13 +55,13 @@ struct ReportDetailTests {
             scopeLines: [],
             transitions: [],
             summaryItems: [],
-            failureMessage: "Music.app unavailable"
+            detailMessage: "Music.app unavailable"
         )
 
         let snapshot = ReportDetailAdapter.makeSnapshot(from: projection)
 
         #expect(snapshot.tone == .error)
-        #expect(snapshot.failureMessage == "Music.app unavailable")
+        #expect(snapshot.detailMessage == "Music.app unavailable")
         #expect(snapshot.unavailableReason == nil)
     }
 }

@@ -5,9 +5,28 @@ import Testing
 
 @Suite("Run record recovery persistence")
 struct RunRecoveryTests {
+    @Test("Recovery transitions clamp stale timestamps")
+    func clampsRecoveryTimestamps() throws {
+        let startedAt = Date(timeIntervalSince1970: 200)
+        let record = makeRecoveryRecord(
+            intent: .writeFixes,
+            startedAt: startedAt,
+            finishedAt: nil,
+            state: .writing
+        )
+
+        let opened = record.openingRecovery(id: UUID(), at: Date(timeIntervalSince1970: 100))
+        let closed = opened.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        let previousTime = try #require(record.transitions.last?.timestamp)
+
+        #expect(opened.transitions.last?.timestamp == previousTime)
+        #expect(closed.transitions.suffix(2).map(\.timestamp) == [previousTime, previousTime])
+        #expect(closed.finishedAt == previousTime)
+    }
+
     @Test("Legacy run record JSON decodes without recovery fields")
     func decodesLegacyRecordJSON() throws {
-        let record = makeRecord(
+        let record = makeRecoveryRecord(
             writeTarget: FixPlanWriteTarget(
                 planID: FixPlanID(),
                 planRevision: .initial,
@@ -24,6 +43,7 @@ struct RunRecoveryTests {
         object.removeValue(forKey: "writeTarget")
         object.removeValue(forKey: "recoveryID")
         object.removeValue(forKey: "writeSummary")
+        object.removeValue(forKey: "configuration")
 
         let decoded = try JSONDecoder().decode(
             RunRecord.self,
@@ -33,6 +53,7 @@ struct RunRecoveryTests {
         #expect(decoded.writeTarget == nil)
         #expect(decoded.recoveryID == nil)
         #expect(decoded.writeSummary == nil)
+        #expect(decoded.configuration == nil)
         #expect(decoded.transitions == record.transitions)
     }
 
@@ -44,10 +65,10 @@ struct RunRecoveryTests {
             RunLifecycleTransition(state: .created, timestamp: Date(timeIntervalSince1970: 100)),
             RunLifecycleTransition(state: .writing, timestamp: Date(timeIntervalSince1970: 101)),
         ]
-        try insertRow(
+        try insertRunRow(
             runID: runID,
             transitionsData: JSONEncoder().encode(transitions),
-            state: .writing,
+            input: RunRowInput(intent: .writeFixes, state: .writing),
             into: container
         )
 
@@ -64,11 +85,13 @@ struct RunRecoveryTests {
     func closesCorruptedRecovery() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
-        try insertRow(
+        try insertRunRow(
             runID: runID,
             transitionsData: corruptedData,
-            intentRaw: RunIntent.writeFixes.rawValue,
-            state: .recoverable,
+            input: RunRowInput(
+                rawIntent: RunIntent.writeFixes.rawValue,
+                state: .recoverable
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -93,18 +116,22 @@ struct RunRecoveryTests {
         #expect(audit.runID == RunID(rawValue: runID))
         #expect(audit.state == .cancelled)
         #expect(audit.finishedAt == Date(timeIntervalSince1970: 200))
+        #expect(audit.configuration == nil)
+        #expect(audit.failureMessage?.contains("Music.app verification") == true)
         #expect(audit.failureMessage?.contains("stored run payload was corrupted") == true)
     }
 
     @Test("Blocked corrupted recovery cannot be dismissed")
-    func blockedCorruptionStaysOpen() async throws {
+    func keepsBlockedOpen() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
-        try insertRow(
+        try insertRunRow(
             runID: runID,
             transitionsData: corruptedData,
-            intentRaw: RunIntent.writeFixes.rawValue,
-            state: .blocked,
+            input: RunRowInput(
+                rawIntent: RunIntent.writeFixes.rawValue,
+                state: .blocked
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -114,19 +141,22 @@ struct RunRecoveryTests {
 
         #expect(didClose == false)
         #expect(page.corruptedRunIDs == [RunID(rawValue: runID)])
-        #expect(page.recoveryRunIDs == [RunID(rawValue: runID)])
+        #expect(page.recoveryRunIDs.isEmpty)
+        #expect(page.attentionRunIDs == [RunID(rawValue: runID)])
     }
 
     @Test("Terminal corruption is reported without an actionable recovery ID")
-    func terminalCorruptionIsNotActionable() async throws {
+    func excludesTerminalCorruption() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
-        try insertRow(
+        try insertRunRow(
             runID: runID,
             transitionsData: corruptedData,
-            intentRaw: RunIntent.writeFixes.rawValue,
-            state: .cancelled,
-            finishedAt: Date(timeIntervalSince1970: 200),
+            input: RunRowInput(
+                rawIntent: RunIntent.writeFixes.rawValue,
+                state: .cancelled,
+                finishedAt: Date(timeIntervalSince1970: 200)
+            ),
             into: container
         )
 
@@ -139,15 +169,17 @@ struct RunRecoveryTests {
     }
 
     @Test("Unsupported payload version stays open")
-    func unsupportedPayloadStaysOpen() async throws {
+    func preservesFuturePayload() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
         let payload = FuturePayload()
-        try insertRow(
+        try insertRunRow(
             runID: runID,
             transitionsData: JSONEncoder().encode(payload),
-            intentRaw: RunIntent.writeFixes.rawValue,
-            state: .recoverable,
+            input: RunRowInput(
+                rawIntent: RunIntent.writeFixes.rawValue,
+                state: .recoverable
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -158,13 +190,45 @@ struct RunRecoveryTests {
         #expect(didClose == false)
         #expect(page.skippedCorruptedCount == 1)
         #expect(page.corruptedRunIDs == [RunID(rawValue: runID)])
-        #expect(page.recoveryRunIDs == [RunID(rawValue: runID)])
+        #expect(page.recoveryRunIDs.isEmpty)
+        #expect(page.unsupportedRunIDs == [RunID(rawValue: runID)])
+    }
+
+    @Test("Payload versions below legacy can use explicit corrupted closure")
+    func closesInvalidVersion() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        let transitions = [
+            RunLifecycleTransition(state: .created, timestamp: Date(timeIntervalSince1970: 100)),
+            RunLifecycleTransition(state: .recoverable, timestamp: Date(timeIntervalSince1970: 101)),
+        ]
+        try insertRunRow(
+            runID: runID,
+            transitionsData: JSONEncoder().encode(InvalidVersionPayload(version: 0, transitions: transitions)),
+            input: RunRowInput(intent: .writeFixes, state: .recoverable),
+            into: container
+        )
+        let store = RunRecordDataStore(modelContainer: container)
+
+        do {
+            _ = try await store.loadAll()
+            Issue.record("Expected version zero to be classified as malformed")
+        } catch let RunRecordPersistenceError.malformedPayloadVersion(errorRunID) {
+            #expect(errorRunID == runID)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(try await store.closeCorruptedRun(RunID(rawValue: runID), at: Date()))
+        let audit = try #require(await store.record(for: RunID(rawValue: runID)))
+        #expect(audit.state == .cancelled)
+        #expect(audit.transitions.starts(with: transitions))
     }
 
     @Test("Unfinished reporting write can be claimed for recovery")
-    func reportingWriteCanBeClaimed() async throws {
-        let store = try makeStore()
-        let record = makeRecord(
+    func claimsReportingWrite() async throws {
+        let store = try makeRunStore()
+        let record = makeRecoveryRecord(
             intent: .writeFixes,
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
@@ -185,11 +249,10 @@ struct RunRecoveryTests {
     func invalidIntentHolds() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
-        try insertRow(
+        try insertRunRow(
             runID: runID,
             transitionsData: corruptedData,
-            intentRaw: "invalid",
-            state: .writing,
+            input: RunRowInput(rawIntent: "invalid", state: .writing),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -204,9 +267,9 @@ struct RunRecoveryTests {
     }
 
     @Test("Read-only runs are not recovery candidates")
-    func readOnlyRunsAreNotRecoverable() async throws {
-        let store = try makeStore()
-        let record = makeRecord(
+    func excludesReadOnlyRuns() async throws {
+        let store = try makeRunStore()
+        let record = makeRecoveryRecord(
             intent: .observeLibrary,
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
@@ -226,30 +289,86 @@ struct RunRecoveryTests {
         #expect(try await store.record(for: record.runID) == record)
     }
 
-    @Test("Corrupted read-only rows are reported but not actionable")
-    func corruptedReadOnlyRunIsNotActionable() async throws {
+    @Test("Corrupted read-only rows can use explicit closure")
+    func closesReadOnly() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
-        try insertRow(
+        try insertRunRow(
             runID: runID,
             transitionsData: corruptedData,
-            intentRaw: RunIntent.observeLibrary.rawValue,
-            state: .reporting,
+            input: RunRowInput(
+                rawIntent: RunIntent.observeLibrary.rawValue,
+                state: .reporting
+            ),
             into: container
         )
 
-        let page = try await RunRecordDataStore(modelContainer: container).reports(matching: RunReportQuery())
+        let store = RunRecordDataStore(modelContainer: container)
+        let page = try await store.recoveryRecords()
+        let finishedAt = Date(timeIntervalSince1970: 200)
 
         #expect(page.records.isEmpty)
         #expect(page.skippedCorruptedCount == 1)
         #expect(page.corruptedRunIDs == [RunID(rawValue: runID)])
         #expect(page.recoveryRunIDs.isEmpty)
+        #expect(page.closableRunIDs == [RunID(rawValue: runID)])
+        #expect(try await store.closeReadOnlyCorruption(RunID(rawValue: runID), at: finishedAt))
+        let audit = try #require(await store.record(for: RunID(rawValue: runID)))
+        #expect(audit.intent == .observeLibrary)
+        #expect(audit.state == .cancelled)
+        #expect(audit.recoveryID == nil)
+        #expect(audit.finishedAt == finishedAt)
+        #expect(audit.failureMessage?.contains("no Music.app write recovery was required") == true)
+    }
+
+    @Test("Blocked read-only corruption requires an explicit decision")
+    func flagsBlockedRun() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        try insertRunRow(
+            runID: runID,
+            transitionsData: corruptedData,
+            input: RunRowInput(intent: .observeLibrary, state: .blocked),
+            into: container
+        )
+        let store = RunRecordDataStore(modelContainer: container)
+
+        let page = try await store.recoveryRecords()
+
+        #expect(page.recoveryRunIDs.isEmpty)
+        #expect(page.closableRunIDs.isEmpty)
+        #expect(page.attentionRunIDs == [RunID(rawValue: runID)])
+        #expect(try await store.closeReadOnlyCorruption(RunID(rawValue: runID), at: Date()))
+        let audit = try #require(await store.record(for: RunID(rawValue: runID)))
+        #expect(audit.transitions.map(\.state) == [.created, .blocked, .cancelled])
+    }
+
+    @Test("Future read-only payloads fail closed without automatic closure")
+    func holdsFuturePayload() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        try insertRunRow(
+            runID: runID,
+            transitionsData: JSONEncoder().encode(FuturePayload()),
+            input: RunRowInput(intent: .observeLibrary, state: .reporting),
+            into: container
+        )
+        let store = RunRecordDataStore(modelContainer: container)
+
+        let page = try await store.recoveryRecords()
+
+        #expect(page.recoveryRunIDs.isEmpty)
+        #expect(page.closableRunIDs.isEmpty)
+        #expect(page.attentionRunIDs.isEmpty)
+        #expect(page.unsupportedRunIDs == [RunID(rawValue: runID)])
+        #expect(try await store.closeReadOnlyCorruption(RunID(rawValue: runID), at: Date()) == false)
+        #expect(try await store.recoveryRecords().unsupportedRunIDs == [RunID(rawValue: runID)])
     }
 
     @Test("Healthy open writes cannot use corrupted recovery closure")
-    func healthyWriteCannotCloseAsCorrupted() async throws {
-        let store = try makeStore()
-        let record = makeRecord(
+    func rejectsHealthyClosure() async throws {
+        let store = try makeRunStore()
+        let record = makeRecoveryRecord(
             intent: .writeFixes,
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
@@ -264,16 +383,16 @@ struct RunRecoveryTests {
     }
 
     @Test("claimRecovery keeps the first ID and rejects terminal records")
-    func claimRecoveryKeepsFirstID() async throws {
-        let store = try makeStore()
+    func keepsRecoveryID() async throws {
+        let store = try makeRunStore()
         let startedAt = Date(timeIntervalSince1970: 100)
-        let open = makeRecord(
+        let open = makeRecoveryRecord(
             intent: .writeFixes,
             startedAt: startedAt,
             finishedAt: nil,
             state: .writing
         )
-        let terminal = makeRecord(
+        let terminal = makeRecoveryRecord(
             intent: .writeFixes,
             startedAt: startedAt,
             finishedAt: Date(timeIntervalSince1970: 104),
@@ -311,86 +430,9 @@ struct RunRecoveryTests {
     private var corruptedData: Data {
         Data([0xDE, 0xAD, 0xBE, 0xEF])
     }
-
-    private func insertRow(
-        runID: UUID,
-        transitionsData: Data,
-        intentRaw: String = RunIntent.observeLibrary.rawValue,
-        state: RunLifecycleState,
-        finishedAt: Date? = nil,
-        into container: ModelContainer
-    ) throws {
-        let context = ModelContext(container)
-        let scope = ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: 1,
-            createdAt: Date(timeIntervalSince1970: 100),
-            reason: "manualCheck"
-        )
-        try context.insert(PersistedRunRecord(
-            runID: runID,
-            requestID: UUID(),
-            triggerRaw: RunTrigger.manualCheck.rawValue,
-            intentRaw: intentRaw,
-            stateRaw: state.rawValue,
-            scopeData: JSONEncoder().encode(scope),
-            transitionsData: transitionsData,
-            syncNewCount: nil,
-            syncModifiedCount: nil,
-            syncIdentityChangedCount: nil,
-            syncRefreshedCount: nil,
-            syncRemovedCount: nil,
-            failureMessage: nil,
-            startedAt: Date(timeIntervalSince1970: 100),
-            finishedAt: finishedAt
-        ))
-        try context.save()
-    }
-
-    private func makeStore() throws -> RunRecordDataStore {
-        try RunRecordDataStore(modelContainer: ModelContainerFactory.createInMemory())
-    }
-
-    private func makeRecord(
-        intent: RunIntent = .observeLibrary,
-        writeTarget: FixPlanWriteTarget? = nil,
-        recoveryID: UUID? = nil,
-        startedAt: Date,
-        finishedAt: Date?,
-        state: RunLifecycleState,
-        writeSummary: RunWriteSummary? = nil
-    ) -> RunRecord {
-        var transitions = [RunLifecycleTransition(state: .created, timestamp: startedAt)]
-        if state != .created {
-            transitions.append(RunLifecycleTransition(
-                state: state,
-                timestamp: finishedAt ?? startedAt.addingTimeInterval(1)
-            ))
-        }
-        return RunRecord(
-            runID: RunID(),
-            requestID: RunRequestID(),
-            trigger: .manualCheck,
-            intent: intent,
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: ["Aphex Twin"],
-                knownTrackCount: 75,
-                createdAt: startedAt,
-                reason: "manualCheck"
-            ),
-            writeTarget: writeTarget,
-            recoveryID: recoveryID,
-            transitions: transitions,
-            syncSummary: nil,
-            writeSummary: writeSummary,
-            failureMessage: nil,
-            startedAt: startedAt,
-            finishedAt: finishedAt
-        )
-    }
 }
 
 private struct FuturePayload: Encodable {
-    let version = 2
-    let futureState = "incompatible-v2"
+    let version = 3
+    let futureState = "incompatible-v3"
 }

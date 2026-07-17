@@ -11,6 +11,7 @@ public enum RecoveryPreflightResolution: Equatable, Sendable {
 public enum RecoveryPreflightAttention: Equatable, Sendable {
     case writeAdjacentState(RunLifecycleState)
     case unresolvedState(RunLifecycleState)
+    case unsupportedPayload
 }
 
 public enum RecoveryPreflightBlocker: Equatable, Sendable {

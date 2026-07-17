@@ -158,7 +158,7 @@ struct ReportDetailBuilderTests {
         #expect(detail.state == .failed)
         #expect(detail.stateLabel == "Failed")
         #expect(detail.durationLabel == nil)
-        #expect(detail.failureMessage == "Run failed")
+        #expect(detail.detailMessage == "Run failed")
         #expect(detail.transitions.map(\.stageLabel) == ["Created", "Syncing library", "Reporting"])
     }
 
@@ -328,8 +328,23 @@ struct ReportDetailBuilderTests {
         )
 
         #expect(RunReportDetailBuilder.makeDetail(from: withMessage, now: now)
-            .failureMessage == "Music.app unavailable")
-        #expect(RunReportDetailBuilder.makeDetail(from: withoutMessage, now: now).failureMessage == "Run failed")
+            .detailMessage == "Music.app unavailable")
+        #expect(RunReportDetailBuilder.makeDetail(from: withoutMessage, now: now).detailMessage == "Run failed")
+    }
+
+    @Test("completed recovery exposes its audit message")
+    func completedRecoveryShowsAudit() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .completed,
+            syncSummary: nil,
+            failureMessage: "Recovery closed after Music.app verification."
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.detailMessage == "Recovery closed after Music.app verification.")
     }
 
     @Test("missing summary produces no summary items")

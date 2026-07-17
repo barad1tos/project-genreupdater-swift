@@ -28,6 +28,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     public let trigger: RunTrigger
     public let intent: RunIntent
     public let scope: ProcessingScopeSnapshot
+    public let configuration: RunConfig?
     public let writeTarget: FixPlanWriteTarget?
     public let recoveryID: UUID?
     public let transitions: [RunLifecycleTransition]
@@ -51,6 +52,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         trigger: RunTrigger,
         intent: RunIntent,
         scope: ProcessingScopeSnapshot,
+        configuration: RunConfig? = nil,
         writeTarget: FixPlanWriteTarget? = nil,
         recoveryID: UUID? = nil,
         transitions: [RunLifecycleTransition],
@@ -65,6 +67,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         self.trigger = trigger
         self.intent = intent
         self.scope = scope
+        self.configuration = configuration
         self.writeTarget = writeTarget
         self.recoveryID = recoveryID
         self.transitions = transitions
@@ -77,10 +80,11 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
 
     public func closingRecovery(at finishedAt: Date) -> Self {
         var transitions = transitions
+        let auditTime = max(finishedAt, transitions.last?.timestamp ?? startedAt)
         if state != .recovering {
-            transitions.append(RunLifecycleTransition(state: .recovering, timestamp: finishedAt))
+            transitions.append(RunLifecycleTransition(state: .recovering, timestamp: auditTime))
         }
-        transitions.append(RunLifecycleTransition(state: .cancelled, timestamp: finishedAt))
+        transitions.append(RunLifecycleTransition(state: .cancelled, timestamp: auditTime))
         let closure = "Recovery closed after Music.app verification; interrupted writes were not resumed."
         let message = failureMessage.map { "\($0) \(closure)" } ?? closure
         return Self(
@@ -89,6 +93,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
             trigger: trigger,
             intent: intent,
             scope: scope,
+            configuration: configuration,
             writeTarget: writeTarget,
             recoveryID: recoveryID,
             transitions: transitions,
@@ -96,14 +101,15 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
             writeSummary: writeSummary,
             failureMessage: message,
             startedAt: startedAt,
-            finishedAt: finishedAt
+            finishedAt: auditTime
         )
     }
 
     public func openingRecovery(id: UUID, at timestamp: Date) -> Self {
         var transitions = transitions
+        let auditTime = max(timestamp, transitions.last?.timestamp ?? startedAt)
         if state != .recoverable, state != .blocked {
-            transitions.append(RunLifecycleTransition(state: .recoverable, timestamp: timestamp))
+            transitions.append(RunLifecycleTransition(state: .recoverable, timestamp: auditTime))
         }
         return Self(
             runID: runID,
@@ -111,6 +117,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
             trigger: trigger,
             intent: intent,
             scope: scope,
+            configuration: configuration,
             writeTarget: writeTarget,
             recoveryID: id,
             transitions: transitions,
@@ -134,14 +141,14 @@ public protocol RunRecordStore: Sendable {
 
     /// Deletes the oldest terminal records beyond `limit`. Open records
     /// (`finishedAt == nil`) are never pruned: unresolved runs are recovery
-    /// evidence, not disposable history. A `limit` below 1 is a no-op so a
-    /// misconfigured value cannot wipe the whole history. Returns the number
-    /// of deleted rows.
+    /// evidence, not disposable history. Unreadable terminal rows are pruned
+    /// only when their header and salvage route prove they are read-only;
+    /// write or unsupported-schema evidence is retained. A `limit` below 1
+    /// is a no-op. Returns the number of deleted rows.
     func prune(keepingLatest limit: Int) async throws -> Int
 
-    /// Lists every unfinished write record without trusting its denormalized
-    /// state field. Corrupted rows are returned by identifier for fail-closed
-    /// recovery handling.
+    /// Lists open recovery candidates plus corrupted terminal audits that need
+    /// repair. Corrupted rows are returned by identifier for fail-closed handling.
     func recoveryRecords() async throws -> RunReportPage
 
     /// Opens recovery only while the persisted run is still an unfinished write.
@@ -149,9 +156,13 @@ public protocol RunRecordStore: Sendable {
     /// the run is missing, terminal, or not an unfinished write.
     func claimRecovery(for runID: RunID, id: UUID, at timestamp: Date) async throws -> UUID?
 
-    /// Marks one still-corrupted unfinished write terminal after Music.app
-    /// verification. Returns false if the row is missing, terminal, or healthy.
+    /// Repairs a corrupted unfinished write or terminal write audit after Music.app verification.
+    /// Returns false if the row is missing, healthy, unresolved-blocked, read-only, or from a future schema.
     func closeCorruptedRun(_ runID: RunID, at finishedAt: Date) async throws -> Bool
+
+    /// Repairs corruption that does not represent an unfinished write, without touching Music.app.
+    /// Returns false if unresolved write evidence exists or the payload uses a future schema.
+    func closeReadOnlyCorruption(_ runID: RunID, at finishedAt: Date) async throws -> Bool
 
     /// Lists run history for report surfaces, newest first. Unlike `loadAll()`,
     /// corrupted rows are skipped, logged, and counted in the returned page so
@@ -160,4 +171,10 @@ public protocol RunRecordStore: Sendable {
     /// fewer than `limit` records while older valid rows exist beyond it;
     /// `skippedCorruptedCount` covers only the fetched window.
     func reports(matching query: RunReportQuery) async throws -> RunReportPage
+}
+
+extension RunRecordStore {
+    public func closeReadOnlyCorruption(_: RunID, at _: Date) async throws -> Bool {
+        false
+    }
 }

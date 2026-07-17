@@ -265,12 +265,13 @@ public actor RunOrchestrator {
 
     private func finishSuccessfulRun(_ work: RunWork, intent: RunIntent) async -> RunSubmissionResult {
         let reporting = beginReporting(from: work.reportingSource)
+        let finishedAt = auditTime()
         let completed = reporting.finishing(
             result: work.result,
             hasActionableWork: work.hasActionableWork,
-            at: dependencies.now()
+            at: finishedAt
         )
-        appendTransition(completed.state, at: completed.finishedAt)
+        appendTransition(completed.state, at: finishedAt)
         let isStored = await persistRecord(
             for: completed,
             syncResult: completed.syncResult,
@@ -424,8 +425,9 @@ public actor RunOrchestrator {
         writeSummary: RunWriteSummary? = nil
     ) async -> RunSubmissionResult {
         let reporting = beginReporting(from: lifecycle)
-        let failed = reporting.failing(message: failureMessage, at: dependencies.now())
-        appendTransition(failed.state, at: failed.finishedAt)
+        let finishedAt = auditTime()
+        let failed = reporting.failing(message: failureMessage, at: finishedAt)
+        appendTransition(failed.state, at: finishedAt)
         let isStored = await persistRecord(
             for: failed,
             syncResult: syncResult,
@@ -501,8 +503,9 @@ public actor RunOrchestrator {
         message: String
     ) async -> RunSubmissionResult {
         let reporting = beginReporting(from: lifecycle)
-        let cancelled = reporting.cancelling(message: message, at: dependencies.now())
-        appendTransition(cancelled.state, at: cancelled.finishedAt)
+        let finishedAt = auditTime()
+        let cancelled = reporting.cancelling(message: message, at: finishedAt)
+        appendTransition(cancelled.state, at: finishedAt)
         await persistRecord(
             for: cancelled,
             syncResult: nil,
@@ -567,8 +570,12 @@ public actor RunOrchestrator {
     private func appendTransition(_ state: RunLifecycleState, at timestamp: Date? = nil) {
         activeTransitions.append(RunLifecycleTransition(
             state: state,
-            timestamp: timestamp ?? dependencies.now()
+            timestamp: auditTime(timestamp)
         ))
+    }
+
+    private func auditTime(_ timestamp: Date? = nil) -> Date {
+        max(timestamp ?? dependencies.now(), activeTransitions.last?.timestamp ?? .distantPast)
     }
 
     @discardableResult
