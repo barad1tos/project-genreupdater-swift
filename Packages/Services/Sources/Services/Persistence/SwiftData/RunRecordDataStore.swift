@@ -2,13 +2,6 @@ import Foundation
 import OSLog
 import SwiftData
 
-private enum CorruptionRoute {
-    case writeRecovery
-    case readOnlyClosure
-    case attention
-    case unsupported
-}
-
 @ModelActor
 public actor RunRecordDataStore: RunRecordStore {
     private let log = Logger(subsystem: "com.genreupdater", category: "RunRecordStore")
@@ -128,30 +121,39 @@ public actor RunRecordDataStore: RunRecordStore {
                 predicate: #Predicate { $0.runID == targetID }
             )
             descriptor.fetchLimit = 1
-            guard let row = try modelContext.fetch(descriptor).first,
-                  Self.scansForRecovery(row)
-            else { return false }
+            guard let row = try modelContext.fetch(descriptor).first else { return false }
+            guard (try? makeRecord(from: row)) == nil else { return false }
             let decoded: (payload: RunRecordPayload?, fallback: RecoveryPayload?)
             do {
                 decoded = try RunPayloadCodec.decodeForRecovery(from: row)
             } catch RunRecordPersistenceError.unsupportedPayloadVersion {
                 return false
             }
+            let transitions = decoded.payload?.transitions ?? decoded.fallback?.transitions
+            let preservesTerminalOutcome = Self.hasTerminalAudit(row, transitions: transitions)
+                || (row.finishedAt != nil
+                    && RunLifecycleState(rawValue: row.stateRaw).map(Self.isTerminalState) == true)
             let route = Self.corruptionRoute(for: row, payload: decoded.payload, fallback: decoded.fallback)
-            if isReadOnly {
-                guard route == .readOnlyClosure
-                    || (route == .attention && Self.isReadOnlyAttention(
-                        row,
-                        payload: decoded.payload,
-                        fallback: decoded.fallback
-                    ))
-                else { return false }
-            } else {
-                guard route == .writeRecovery,
-                      !Self.isBlocked(row, payload: decoded.payload, fallback: decoded.fallback)
-                else { return false }
+            guard Self.allowsCorruptionClosure(
+                row,
+                payload: decoded.payload,
+                fallback: decoded.fallback,
+                route: route,
+                isReadOnly: isReadOnly
+            ) else { return false }
+            let payload = decoded.payload
+            let recoveryPayload = decoded.fallback
+            if try repairTerminalRow(
+                row,
+                payload: payload,
+                fallback: recoveryPayload,
+                route: route,
+                at: finishedAt
+            ) {
+                try modelContext.save()
+                return true
             }
-            let payload = decoded.payload, recoveryPayload = decoded.fallback
+            guard !preservesTerminalOutcome else { return false }
             do {
                 _ = try makeRecord(from: row)
                 return false
@@ -208,8 +210,6 @@ public actor RunRecordDataStore: RunRecordStore {
         var skippedCorruptedCount = 0
         for row in rows {
             let isIncluded = shouldInclude(row)
-            let scansForRecovery = Self.scansForRecovery(row)
-            guard isIncluded || scansForRecovery else { continue }
             do {
                 let record = try makeRecord(from: row)
                 if isIncluded {
@@ -219,17 +219,17 @@ public actor RunRecordDataStore: RunRecordStore {
                 skippedCorruptedCount += 1
                 let runID = RunID(rawValue: row.runID)
                 corruptedRunIDs.append(runID)
-                if scansForRecovery {
-                    switch corruptionRoute(for: row) {
-                    case .writeRecovery:
-                        recoveryRunIDs.append(runID)
-                    case .readOnlyClosure:
-                        closableRunIDs.append(runID)
-                    case .attention:
-                        attentionRunIDs.append(runID)
-                    case .unsupported:
-                        unsupportedRunIDs.append(runID)
-                    }
+                switch corruptionRoute(for: row) {
+                case .writeRecovery:
+                    recoveryRunIDs.append(runID)
+                case .readOnlyClosure:
+                    closableRunIDs.append(runID)
+                case .attention:
+                    attentionRunIDs.append(runID)
+                case .diagnostic:
+                    break
+                case .unsupported:
+                    unsupportedRunIDs.append(runID)
                 }
                 log.error("""
                 Skipping corrupted run record \(row.runID.uuidString, privacy: .public) \
@@ -342,7 +342,7 @@ public actor RunRecordDataStore: RunRecordStore {
         guard payload.transitions.last?.state.rawValue == persisted.stateRaw else {
             throw RunRecordPersistenceError.corruptedField(name: "state", runID: persisted.runID)
         }
-        guard !hasInvalidStop(payload.transitions) else {
+        guard !hasInvalidTimeline(payload.transitions) else {
             throw RunRecordPersistenceError.corruptedField(name: "transitions", runID: persisted.runID)
         }
         if let state = payload.transitions.last?.state,
@@ -401,7 +401,7 @@ public actor RunRecordDataStore: RunRecordStore {
         guard !record.transitions.isEmpty else {
             throw RunRecordPersistenceError.invalidField(name: "transitions", runID: record.runID.rawValue)
         }
-        guard !hasInvalidStop(record.transitions) else {
+        guard !hasInvalidTimeline(record.transitions) else {
             throw RunRecordPersistenceError.invalidField(name: "transitions", runID: record.runID.rawValue)
         }
         if let field = invalidLifecycleField(state: record.state, finishedAt: record.finishedAt) {
@@ -532,15 +532,19 @@ public actor RunRecordDataStore: RunRecordStore {
         let storedConfiguration = payload?.configuration ?? fallback?.configuration
         let scope = recoveryScope(for: row, configuration: storedConfiguration)
         var transitions = Self.recoveryTransitions(row, payload: payload, fallback: fallback)
+        if Self.hasTerminalAudit(row, transitions: transitions) {
+            transitions.removeLast()
+        }
         guard !transitions.contains(where: { Self.isTerminalState($0.state) }) else {
             throw RunRecordPersistenceError.corruptedField(name: "transitions", runID: row.runID)
         }
+        let auditTime = max(finishedAt, transitions.last?.timestamp ?? finishedAt)
         let intent = RunIntent(rawValue: row.intentRaw)
         let isWriteRecovery = route == .writeRecovery
         if isWriteRecovery, transitions.last?.state != .recovering {
-            transitions.append(RunLifecycleTransition(state: .recovering, timestamp: finishedAt))
+            transitions.append(RunLifecycleTransition(state: .recovering, timestamp: auditTime))
         }
-        transitions.append(RunLifecycleTransition(state: .cancelled, timestamp: finishedAt))
+        transitions.append(RunLifecycleTransition(state: .cancelled, timestamp: auditTime))
 
         row.triggerRaw = RunTrigger(rawValue: row.triggerRaw)?.rawValue ?? RunTrigger.recovery.rawValue
         row.intentRaw = isWriteRecovery ? RunIntent.writeFixes.rawValue : (intent ?? .observeLibrary).rawValue
@@ -566,7 +570,45 @@ public actor RunRecordDataStore: RunRecordStore {
             existing: row.failureMessage,
             isWriteRecovery: isWriteRecovery
         )
-        row.finishedAt = finishedAt
+        row.finishedAt = auditTime
+    }
+
+    private func repairTerminalRow(
+        _ row: PersistedRunRecord,
+        payload: RunRecordPayload?,
+        fallback: RecoveryPayload?,
+        route: CorruptionRoute,
+        at finishedAt: Date
+    ) throws -> Bool {
+        let storedData = row.transitionsData
+        let storedFinish = row.finishedAt
+        let transitions = Self.recoveryTransitions(row, payload: payload, fallback: fallback)
+        guard Self.hasTerminalAudit(row, transitions: transitions),
+              let terminalTime = transitions.last?.timestamp
+        else { return false }
+
+        let configuration = payload?.configuration ?? fallback?.configuration
+        row.transitionsData = try JSONEncoder().encode(RunRecordPayload(
+            version: RunRecordPayload.version(for: configuration),
+            transitions: transitions,
+            configuration: configuration,
+            writeTarget: payload?.writeTarget ?? fallback?.writeTarget,
+            recoveryID: payload?.recoveryID ?? fallback?.recoveryID,
+            writeSummary: payload?.writeSummary ?? fallback?.writeSummary
+        ))
+        row.finishedAt = max(storedFinish ?? finishedAt, terminalTime)
+        do {
+            _ = try makeRecord(from: row)
+        } catch is RunRecordPersistenceError {
+            row.transitionsData = storedData
+            row.finishedAt = storedFinish
+            return false
+        }
+        row.failureMessage = Self.corruptedRecoveryMessage(
+            existing: row.failureMessage,
+            isWriteRecovery: route == .writeRecovery
+        )
+        return true
     }
 
     private static func corruptionRoute(
@@ -583,7 +625,19 @@ public actor RunRecordDataStore: RunRecordStore {
         } ?? false
         let hasWriteRisk = requiresWriteRecovery(row, payload: payload, fallback: fallback)
         if transitions?.contains(where: { isTerminalState($0.state) }) == true {
-            return .attention
+            guard hasTerminalAudit(row, transitions: transitions) else {
+                return hasWriteRisk ? .attention : .diagnostic
+            }
+            guard isTerminalRepairable(row, payload: payload, fallback: fallback) else {
+                return hasWriteRisk ? .attention : .diagnostic
+            }
+            return row.finishedAt == nil && hasWriteRisk ? .writeRecovery : .readOnlyClosure
+        }
+        if isTerminalState(state), row.finishedAt != nil {
+            guard isTerminalRepairable(row, payload: payload, fallback: fallback) else {
+                return hasWriteRisk ? .attention : .diagnostic
+            }
+            return .readOnlyClosure
         }
         if isBlocked(row, payload: payload, fallback: fallback) {
             return .attention
@@ -591,7 +645,30 @@ public actor RunRecordDataStore: RunRecordStore {
         if isMissingConfiguration || hasWriteRisk || isWriteExclusive(state) {
             return .writeRecovery
         }
+        if isTerminalState(state), row.finishedAt == nil {
+            return .readOnlyClosure
+        }
+        if let transitions, hasTimeReversal(transitions) {
+            return .readOnlyClosure
+        }
         return .readOnlyClosure
+    }
+
+    private static func allowsCorruptionClosure(
+        _ row: PersistedRunRecord,
+        payload: RunRecordPayload?,
+        fallback: RecoveryPayload?,
+        route: CorruptionRoute,
+        isReadOnly: Bool
+    ) -> Bool {
+        if isReadOnly {
+            return route == .readOnlyClosure
+                || (route == .attention && isReadOnlyAttention(row, payload: payload, fallback: fallback))
+        }
+        let transitions = payload?.transitions ?? fallback?.transitions
+        return route == .writeRecovery
+            && (hasTerminalAudit(row, transitions: transitions)
+                || !isBlocked(row, payload: payload, fallback: fallback))
     }
 
     private static func invalidLifecycleField(state: RunLifecycleState, finishedAt: Date?) -> String? {
@@ -604,11 +681,6 @@ public actor RunRecordDataStore: RunRecordStore {
         }
     }
 
-    private static func scansForRecovery(_ row: PersistedRunRecord) -> Bool {
-        row.finishedAt == nil
-            || RunLifecycleState(rawValue: row.stateRaw)?.needsWriteRecovery == true
-    }
-
     private func isPrunable(_ row: PersistedRunRecord) -> Bool {
         if (try? makeRecord(from: row)) != nil {
             return true
@@ -616,7 +688,11 @@ public actor RunRecordDataStore: RunRecordStore {
         guard let state = RunLifecycleState(rawValue: row.stateRaw),
               Self.isTerminalState(state)
         else { return false }
-        return corruptionRoute(for: row) == .readOnlyClosure
+        let route = corruptionRoute(for: row)
+        guard route == .readOnlyClosure || route == .diagnostic,
+              let decoded = try? RunPayloadCodec.decodeForRecovery(from: row)
+        else { return false }
+        return !Self.requiresWriteRecovery(row, payload: decoded.payload, fallback: decoded.fallback)
     }
 
     private static func isReadOnlyAttention(
@@ -624,8 +700,12 @@ public actor RunRecordDataStore: RunRecordStore {
         payload: RunRecordPayload?,
         fallback: RecoveryPayload?
     ) -> Bool {
+        guard fallback?.isWriteRecoveryRequired != true else { return false }
         let transitions = recoveryTransitions(row, payload: payload, fallback: fallback)
-        return !hasInvalidStop(transitions)
+        if hasTerminalAudit(row, transitions: transitions) {
+            return false
+        }
+        return !hasInvalidTimeline(transitions)
             && !transitions.contains(where: { isTerminalState($0.state) })
             && !requiresWriteRecovery(row, payload: payload, fallback: fallback)
     }
@@ -635,14 +715,22 @@ public actor RunRecordDataStore: RunRecordStore {
         payload: RunRecordPayload?,
         fallback: RecoveryPayload?
     ) -> [RunLifecycleTransition] {
-        var transitions = payload?.transitions ?? fallback?.transitions ?? []
+        var previousTimestamp = row.startedAt
+        var transitions = (payload?.transitions ?? fallback?.transitions ?? []).map { transition in
+            let timestamp = max(previousTimestamp, transition.timestamp)
+            previousTimestamp = timestamp
+            return RunLifecycleTransition(state: transition.state, timestamp: timestamp)
+        }
         if transitions.isEmpty {
             transitions.append(RunLifecycleTransition(state: .created, timestamp: row.startedAt))
         }
-        if let state = RunLifecycleState(rawValue: row.stateRaw), transitions.last?.state != state {
+        if let state = RunLifecycleState(rawValue: row.stateRaw),
+           transitions.last?.state != state,
+           !(isTerminalState(state) && row.finishedAt == nil) {
+            let headerTime = max(row.finishedAt ?? row.startedAt, transitions.last?.timestamp ?? row.startedAt)
             transitions.append(RunLifecycleTransition(
                 state: state,
-                timestamp: row.finishedAt ?? row.startedAt
+                timestamp: headerTime
             ))
         }
         return transitions
@@ -662,71 +750,6 @@ public actor RunRecordDataStore: RunRecordStore {
                 transitions: payload?.transitions ?? fallback?.transitions,
                 writeSummary: payload?.writeSummary ?? fallback?.writeSummary
             ) != nil
-    }
-
-    private static func hasInvalidStop(_ transitions: [RunLifecycleTransition]) -> Bool {
-        transitions.dropLast().enumerated().contains { offset, transition in
-            if isTerminalState(transition.state) {
-                return true
-            }
-            guard transition.state == .blocked else { return false }
-            return offset != transitions.count - 2 || transitions.last?.state != .cancelled
-        }
-    }
-
-    private static func isTerminalState(_ state: RunLifecycleState) -> Bool {
-        switch state {
-        case .completed, .completedNoOp, .failed, .cancelled:
-            true
-        case .created, .queued, .syncingLibrary, .analyzingDelta, .planningFixes, .awaitingReview,
-             .writing, .verifying, .reporting, .blocked, .recoverable, .recovering:
-            false
-        }
-    }
-
-    private static func isBlocked(
-        _ row: PersistedRunRecord,
-        payload: RunRecordPayload?,
-        fallback: RecoveryPayload?
-    ) -> Bool {
-        let transitions = payload?.transitions ?? fallback?.transitions ?? []
-        return row.stateRaw == RunLifecycleState.blocked.rawValue
-            || transitions.contains { $0.state == .blocked }
-    }
-
-    private static func writeEvidenceField(
-        configuration: RunConfig?,
-        writeTarget: FixPlanWriteTarget?,
-        recoveryID: UUID?,
-        transitions: [RunLifecycleTransition]?,
-        writeSummary: RunWriteSummary?
-    ) -> String? {
-        if configuration?.writeAuthority == .reviewedPlan {
-            return "configuration.writeAuthority"
-        }
-        if writeTarget != nil {
-            return "writeTarget"
-        }
-        if recoveryID != nil {
-            return "recoveryID"
-        }
-        if writeSummary != nil {
-            return "writeSummary"
-        }
-        if transitions?.contains(where: { isWriteExclusive($0.state) }) == true {
-            return "transitions"
-        }
-        return nil
-    }
-
-    private static func isWriteExclusive(_ state: RunLifecycleState) -> Bool {
-        switch state {
-        case .writing, .verifying, .recoverable, .recovering:
-            true
-        case .created, .queued, .syncingLibrary, .analyzingDelta, .planningFixes, .awaitingReview,
-             .reporting, .completed, .completedNoOp, .blocked, .failed, .cancelled:
-            false
-        }
     }
 
     private func recoveryConfiguration(

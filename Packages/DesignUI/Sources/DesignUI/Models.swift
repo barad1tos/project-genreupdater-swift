@@ -415,7 +415,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
     public let scopeLines: [String]
     public let transitions: [RunReportTransitionRow]
     public let summaryItems: [RunReportSummaryRow]
-    public let failureMessage: String?
+    public let detailMessage: String?
     public let unavailableReason: String?
 
     public init(
@@ -428,7 +428,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         scopeLines: [String],
         transitions: [RunReportTransitionRow],
         summaryItems: [RunReportSummaryRow],
-        failureMessage: String? = nil
+        detailMessage: String? = nil
     ) {
         self.runID = runID
         self.stateLabel = stateLabel
@@ -439,7 +439,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         self.scopeLines = scopeLines
         self.transitions = transitions
         self.summaryItems = summaryItems
-        self.failureMessage = failureMessage
+        self.detailMessage = detailMessage
         unavailableReason = nil
     }
 
@@ -453,7 +453,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         scopeLines = []
         transitions = []
         summaryItems = []
-        failureMessage = nil
+        detailMessage = nil
         unavailableReason = "This run report is no longer available"
     }
 }

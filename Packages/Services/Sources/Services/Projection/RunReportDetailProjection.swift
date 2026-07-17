@@ -34,7 +34,7 @@ public struct RunReportDetailProjection: Equatable, Sendable {
     public let scopeLines: [String]
     public let transitions: [RunReportTransitionItem]
     public let summaryItems: [RunReportSummaryItem]
-    public let failureMessage: String?
+    public let detailMessage: String?
 
     public init(
         runID: String,
@@ -46,7 +46,7 @@ public struct RunReportDetailProjection: Equatable, Sendable {
         scopeLines: [String],
         transitions: [RunReportTransitionItem],
         summaryItems: [RunReportSummaryItem],
-        failureMessage: String?
+        detailMessage: String?
     ) {
         self.runID = runID
         self.state = state
@@ -57,6 +57,6 @@ public struct RunReportDetailProjection: Equatable, Sendable {
         self.scopeLines = scopeLines
         self.transitions = transitions
         self.summaryItems = summaryItems
-        self.failureMessage = failureMessage
+        self.detailMessage = detailMessage
     }
 }

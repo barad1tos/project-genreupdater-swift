@@ -93,7 +93,7 @@ struct RecoveryClearTests {
     }
 
     @Test("Corrupted blocked write cannot be dismissed")
-    func corruptedBlockedWriteStaysOpen() async throws {
+    func blockedWriteStaysOpen() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let setup = try makeRecoverySetup(store: RunRecordDataStore(modelContainer: container))
         defer { try? FileManager.default.removeItem(at: setup.directory) }

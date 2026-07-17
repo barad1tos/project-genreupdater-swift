@@ -5,6 +5,25 @@ import Testing
 
 @Suite("Run record recovery persistence")
 struct RunRecoveryTests {
+    @Test("Recovery transitions clamp stale timestamps")
+    func clampsRecoveryTimestamps() throws {
+        let startedAt = Date(timeIntervalSince1970: 200)
+        let record = makeRecoveryRecord(
+            intent: .writeFixes,
+            startedAt: startedAt,
+            finishedAt: nil,
+            state: .writing
+        )
+
+        let opened = record.openingRecovery(id: UUID(), at: Date(timeIntervalSince1970: 100))
+        let closed = opened.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        let previousTime = try #require(record.transitions.last?.timestamp)
+
+        #expect(opened.transitions.last?.timestamp == previousTime)
+        #expect(closed.transitions.suffix(2).map(\.timestamp) == [previousTime, previousTime])
+        #expect(closed.finishedAt == previousTime)
+    }
+
     @Test("Legacy run record JSON decodes without recovery fields")
     func decodesLegacyRecordJSON() throws {
         let record = makeRecoveryRecord(
@@ -49,8 +68,7 @@ struct RunRecoveryTests {
         try insertRunRow(
             runID: runID,
             transitionsData: JSONEncoder().encode(transitions),
-            intent: .writeFixes,
-            state: .writing,
+            input: RunRowInput(intent: .writeFixes, state: .writing),
             into: container
         )
 
@@ -70,8 +88,10 @@ struct RunRecoveryTests {
         try insertRunRow(
             runID: runID,
             transitionsData: corruptedData,
-            rawIntent: RunIntent.writeFixes.rawValue,
-            state: .recoverable,
+            input: RunRowInput(
+                rawIntent: RunIntent.writeFixes.rawValue,
+                state: .recoverable
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -108,8 +128,10 @@ struct RunRecoveryTests {
         try insertRunRow(
             runID: runID,
             transitionsData: corruptedData,
-            rawIntent: RunIntent.writeFixes.rawValue,
-            state: .blocked,
+            input: RunRowInput(
+                rawIntent: RunIntent.writeFixes.rawValue,
+                state: .blocked
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -130,9 +152,11 @@ struct RunRecoveryTests {
         try insertRunRow(
             runID: runID,
             transitionsData: corruptedData,
-            rawIntent: RunIntent.writeFixes.rawValue,
-            state: .cancelled,
-            finishedAt: Date(timeIntervalSince1970: 200),
+            input: RunRowInput(
+                rawIntent: RunIntent.writeFixes.rawValue,
+                state: .cancelled,
+                finishedAt: Date(timeIntervalSince1970: 200)
+            ),
             into: container
         )
 
@@ -152,8 +176,10 @@ struct RunRecoveryTests {
         try insertRunRow(
             runID: runID,
             transitionsData: JSONEncoder().encode(payload),
-            rawIntent: RunIntent.writeFixes.rawValue,
-            state: .recoverable,
+            input: RunRowInput(
+                rawIntent: RunIntent.writeFixes.rawValue,
+                state: .recoverable
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -179,8 +205,7 @@ struct RunRecoveryTests {
         try insertRunRow(
             runID: runID,
             transitionsData: JSONEncoder().encode(InvalidVersionPayload(version: 0, transitions: transitions)),
-            intent: .writeFixes,
-            state: .recoverable,
+            input: RunRowInput(intent: .writeFixes, state: .recoverable),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -227,8 +252,7 @@ struct RunRecoveryTests {
         try insertRunRow(
             runID: runID,
             transitionsData: corruptedData,
-            rawIntent: "invalid",
-            state: .writing,
+            input: RunRowInput(rawIntent: "invalid", state: .writing),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -272,8 +296,10 @@ struct RunRecoveryTests {
         try insertRunRow(
             runID: runID,
             transitionsData: corruptedData,
-            rawIntent: RunIntent.observeLibrary.rawValue,
-            state: .reporting,
+            input: RunRowInput(
+                rawIntent: RunIntent.observeLibrary.rawValue,
+                state: .reporting
+            ),
             into: container
         )
 
@@ -302,8 +328,7 @@ struct RunRecoveryTests {
         try insertRunRow(
             runID: runID,
             transitionsData: corruptedData,
-            intent: .observeLibrary,
-            state: .blocked,
+            input: RunRowInput(intent: .observeLibrary, state: .blocked),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -325,8 +350,7 @@ struct RunRecoveryTests {
         try insertRunRow(
             runID: runID,
             transitionsData: JSONEncoder().encode(FuturePayload()),
-            intent: .observeLibrary,
-            state: .reporting,
+            input: RunRowInput(intent: .observeLibrary, state: .reporting),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)

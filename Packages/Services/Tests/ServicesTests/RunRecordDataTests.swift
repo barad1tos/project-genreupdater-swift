@@ -74,7 +74,7 @@ struct RunRecordDataTests {
         try insertRunRow(
             runID: runID,
             transitionsData: validRunTransitionsData(),
-            scopeData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+            input: RunRowInput(scopeData: Data([0xDE, 0xAD, 0xBE, 0xEF])),
             into: container
         )
 
@@ -210,7 +210,7 @@ struct RunRecordDataTests {
         try insertRunRow(
             runID: UUID(),
             transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
-            startedAt: Date(timeIntervalSince1970: 200),
+            input: RunRowInput(startedAt: Date(timeIntervalSince1970: 200)),
             into: container
         )
 
@@ -281,14 +281,16 @@ struct RunRecordDataTests {
         )
         try await store.upsert(open)
         try await store.upsert(makeRunRecord(
-            runID: open.runID,
-            requestID: open.requestID,
             startedAt: open.startedAt,
             finishedAt: Date(timeIntervalSince1970: 104),
             state: .completedNoOp,
             syncSummary: nil,
-            scope: open.scope,
-            configuration: open.configuration
+            input: RunRecordInput(
+                runID: open.runID,
+                requestID: open.requestID,
+                scope: open.scope,
+                configuration: open.configuration
+            )
         ))
 
         let noOp = try await store.reports(matching: RunReportQuery(states: [.completedNoOp]))
@@ -308,11 +310,11 @@ struct RunRecordDataTests {
             syncSummary: nil
         ))
         try await store.upsert(makeRunRecord(
-            trigger: .recovery,
             startedAt: Date(timeIntervalSince1970: 200),
             finishedAt: Date(timeIntervalSince1970: 201),
             state: .completedNoOp,
-            syncSummary: nil
+            syncSummary: nil,
+            input: RunRecordInput(trigger: .recovery)
         ))
 
         let recoveryOnly = try await store.reports(matching: RunReportQuery(trigger: .recovery))

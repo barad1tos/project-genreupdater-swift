@@ -27,9 +27,11 @@ struct RunCorruptionTests {
         try insertRunRow(
             runID: runID,
             transitionsData: JSONEncoder().encode(payload),
-            scopeData: JSONEncoder().encode(scope),
-            intent: .writeFixes,
-            state: .writing,
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .writeFixes,
+                state: .writing
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -61,10 +63,12 @@ struct RunCorruptionTests {
                 ],
                 configuration: makeRunConfiguration(scopeID: scope.id, capturedAt: startedAt)
             )),
-            scopeData: JSONEncoder().encode(scope),
-            intent: .writeFixes,
-            state: .writing,
-            finishedAt: startedAt.addingTimeInterval(2),
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .writeFixes,
+                state: .writing,
+                finishedAt: startedAt.addingTimeInterval(2)
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -91,9 +95,11 @@ struct RunCorruptionTests {
         try insertRunRow(
             runID: runID,
             transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
-            state: .cancelled,
-            startedAt: Date(timeIntervalSince1970: 100),
-            finishedAt: Date(timeIntervalSince1970: 101),
+            input: RunRowInput(
+                state: .cancelled,
+                startedAt: Date(timeIntervalSince1970: 100),
+                finishedAt: Date(timeIntervalSince1970: 101)
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -109,15 +115,17 @@ struct RunCorruptionTests {
     }
 
     @Test("Prune preserves terminal future payloads")
-    func preservesFuturePayloadDuringPrune() async throws {
+    func preservesFuturePayload() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
         try insertRunRow(
             runID: runID,
             transitionsData: JSONEncoder().encode(FutureRunPayload()),
-            state: .cancelled,
-            startedAt: Date(timeIntervalSince1970: 100),
-            finishedAt: Date(timeIntervalSince1970: 101),
+            input: RunRowInput(
+                state: .cancelled,
+                startedAt: Date(timeIntervalSince1970: 100),
+                finishedAt: Date(timeIntervalSince1970: 101)
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -153,9 +161,11 @@ struct RunCorruptionTests {
                 ],
                 configuration: makeRunConfiguration(scopeID: scope.id, capturedAt: startedAt)
             )),
-            scopeData: JSONEncoder().encode(scope),
-            intent: .writeFixes,
-            state: .recoverable,
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .writeFixes,
+                state: .recoverable
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -191,9 +201,11 @@ struct RunCorruptionTests {
                     writeAuthority: .reviewedPlan
                 )
             )),
-            scopeData: JSONEncoder().encode(scope),
-            intent: .observeLibrary,
-            state: .blocked,
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .observeLibrary,
+                state: .blocked
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -215,12 +227,15 @@ struct RunCorruptionTests {
             transitionsData: JSONEncoder().encode(VersionedPayload(
                 transitions: [
                     RunLifecycleTransition(state: .created, timestamp: startedAt),
+                    RunLifecycleTransition(state: .syncingLibrary, timestamp: startedAt.addingTimeInterval(50)),
                 ],
                 configuration: configuration
             )),
-            scopeData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
-            intent: .observeLibrary,
-            state: .blocked,
+            input: RunRowInput(
+                scopeData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+                intent: .observeLibrary,
+                state: .blocked
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -228,9 +243,13 @@ struct RunCorruptionTests {
         let page = try await store.recoveryRecords()
 
         #expect(page.attentionRunIDs == [RunID(rawValue: runID)])
-        #expect(try await store.closeReadOnlyCorruption(RunID(rawValue: runID), at: Date()))
+        let auditTime = startedAt.addingTimeInterval(25)
+        #expect(try await store.closeReadOnlyCorruption(RunID(rawValue: runID), at: auditTime))
         let audit = try #require(await store.record(for: RunID(rawValue: runID)))
-        #expect(audit.transitions.map(\.state) == [.created, .blocked, .cancelled])
+        #expect(audit.transitions.map(\.state) == [.created, .syncingLibrary, .blocked, .cancelled])
+        #expect(audit.transitions.map(\.timestamp) == audit.transitions.map(\.timestamp).sorted())
+        #expect(audit.transitions.last?.timestamp == startedAt.addingTimeInterval(50))
+        #expect(audit.finishedAt == startedAt.addingTimeInterval(50))
     }
 
     @Test("Invalid blocked history cannot be dismissed")
@@ -254,9 +273,11 @@ struct RunCorruptionTests {
                 ],
                 configuration: makeRunConfiguration(scopeID: scope.id, capturedAt: startedAt)
             )),
-            scopeData: JSONEncoder().encode(scope),
-            intent: .observeLibrary,
-            state: .reporting,
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .observeLibrary,
+                state: .reporting
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -267,6 +288,126 @@ struct RunCorruptionTests {
         #expect(try await store.closeReadOnlyCorruption(RunID(rawValue: runID), at: Date()) == false)
     }
 
+    @Test("Terminal header without finish requires an explicit close")
+    func closesUnfinishedHeader() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: startedAt,
+            reason: "manualCheck"
+        )
+        try insertRunRow(
+            runID: runID,
+            transitionsData: JSONEncoder().encode(VersionedPayload(
+                transitions: [RunLifecycleTransition(state: .created, timestamp: startedAt)],
+                configuration: makeRunConfiguration(scopeID: scope.id, capturedAt: startedAt)
+            )),
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .observeLibrary,
+                state: .completed
+            ),
+            into: container
+        )
+        let store = RunRecordDataStore(modelContainer: container)
+
+        let page = try await store.recoveryRecords()
+
+        #expect(page.attentionRunIDs.isEmpty)
+        #expect(page.closableRunIDs == [RunID(rawValue: runID)])
+        #expect(try await store.closeReadOnlyCorruption(
+            RunID(rawValue: runID),
+            at: startedAt.addingTimeInterval(1)
+        ))
+        let audit = try #require(await store.record(for: RunID(rawValue: runID)))
+        #expect(audit.transitions.map(\.state) == [.created, .cancelled])
+    }
+
+    @Test("Terminal write header without finish requires write recovery")
+    func recoversUnfinishedWriteHeader() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: startedAt,
+            reason: "manualCheck"
+        )
+        try insertRunRow(
+            runID: runID,
+            transitionsData: JSONEncoder().encode(VersionedPayload(
+                transitions: [RunLifecycleTransition(state: .created, timestamp: startedAt)],
+                configuration: makeRunConfiguration(
+                    scopeID: scope.id,
+                    capturedAt: startedAt,
+                    writeAuthority: .reviewedPlan
+                )
+            )),
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .writeFixes,
+                state: .completed
+            ),
+            into: container
+        )
+        let store = RunRecordDataStore(modelContainer: container)
+
+        let page = try await store.recoveryRecords()
+
+        #expect(page.recoveryRunIDs == [RunID(rawValue: runID)])
+        #expect(try await store.closeCorruptedRun(
+            RunID(rawValue: runID),
+            at: startedAt.addingTimeInterval(1)
+        ))
+        let audit = try #require(await store.record(for: RunID(rawValue: runID)))
+        #expect(audit.transitions.map(\.state) == [.created, .recovering, .cancelled])
+    }
+
+    @Test("Explicit close repairs reversed transition timestamps")
+    func repairsReversedTimestamps() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: startedAt,
+            reason: "manualCheck"
+        )
+        try insertRunRow(
+            runID: runID,
+            transitionsData: JSONEncoder().encode(VersionedPayload(
+                transitions: [
+                    RunLifecycleTransition(state: .created, timestamp: startedAt.addingTimeInterval(20)),
+                    RunLifecycleTransition(state: .syncingLibrary, timestamp: startedAt.addingTimeInterval(10)),
+                ],
+                configuration: makeRunConfiguration(scopeID: scope.id, capturedAt: startedAt)
+            )),
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                state: .syncingLibrary,
+                startedAt: startedAt
+            ),
+            into: container
+        )
+        let store = RunRecordDataStore(modelContainer: container)
+
+        let page = try await store.recoveryRecords()
+
+        #expect(page.closableRunIDs == [RunID(rawValue: runID)])
+        #expect(try await store.closeReadOnlyCorruption(
+            RunID(rawValue: runID),
+            at: startedAt.addingTimeInterval(15)
+        ))
+        let audit = try #require(await store.record(for: RunID(rawValue: runID)))
+        #expect(audit.transitions.map(\.state) == [.created, .syncingLibrary, .cancelled])
+        #expect(audit.transitions.map(\.timestamp) == audit.transitions.map(\.timestamp).sorted())
+    }
+
     @Test("Run configuration scope must match the persisted scope")
     func rejectsMismatchedScope() async throws {
         let store = try makeRunStore()
@@ -275,7 +416,7 @@ struct RunCorruptionTests {
             finishedAt: Date(timeIntervalSince1970: 101),
             state: .completed,
             syncSummary: nil,
-            configurationScopeID: UUID()
+            input: RunRecordInput(configurationScopeID: UUID())
         )
 
         do {
@@ -312,8 +453,7 @@ struct RunCorruptionTests {
                 recoveryID: runID,
                 writeSummary: summary
             )),
-            intent: .writeFixes,
-            state: .recoverable,
+            input: RunRowInput(intent: .writeFixes, state: .recoverable),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -358,9 +498,11 @@ struct RunCorruptionTests {
                 transitions: [],
                 configuration: configuration
             )),
-            scopeData: JSONEncoder().encode(scope),
-            intent: .writeFixes,
-            state: .recoverable,
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .writeFixes,
+                state: .recoverable
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -390,9 +532,11 @@ struct RunCorruptionTests {
                 ],
                 configuration: configuration
             )),
-            scopeData: JSONEncoder().encode(scope),
-            intent: .writeFixes,
-            state: .recoverable,
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .writeFixes,
+                state: .recoverable
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -421,9 +565,11 @@ struct RunCorruptionTests {
                 ],
                 configuration: makeRunConfiguration(scopeID: UUID(), capturedAt: startedAt)
             )),
-            scopeData: JSONEncoder().encode(scope),
-            intent: .writeFixes,
-            state: .recoverable,
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .writeFixes,
+                state: .recoverable
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -457,9 +603,11 @@ struct RunCorruptionTests {
                 ],
                 configuration: configuration
             )),
-            scopeData: JSONEncoder().encode(scope),
-            intent: .observeLibrary,
-            state: .reporting,
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .observeLibrary,
+                state: .reporting
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
@@ -490,8 +638,7 @@ struct RunCorruptionTests {
                 RunLifecycleTransition(state: .created, timestamp: startedAt),
                 RunLifecycleTransition(state: .reporting, timestamp: startedAt.addingTimeInterval(1)),
             ])),
-            intent: .observeLibrary,
-            state: .reporting,
+            input: RunRowInput(intent: .observeLibrary, state: .reporting),
             into: container
         )
 
@@ -522,9 +669,11 @@ struct RunCorruptionTests {
                 ],
                 configuration: configuration
             )),
-            scopeData: JSONEncoder().encode(scope),
-            intent: .observeLibrary,
-            state: .reporting,
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .observeLibrary,
+                state: .reporting
+            ),
             into: container
         )
 
@@ -549,9 +698,11 @@ struct RunCorruptionTests {
                 ],
                 configuration: configuration
             )),
-            scopeData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
-            intent: .writeFixes,
-            state: .recoverable,
+            input: RunRowInput(
+                scopeData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+                intent: .writeFixes,
+                state: .recoverable
+            ),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)

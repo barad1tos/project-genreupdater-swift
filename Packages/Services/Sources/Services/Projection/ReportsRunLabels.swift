@@ -223,4 +223,13 @@ enum ReportsRunLabels {
             nil
         }
     }
+
+    static func detailMessage(state: ReportsRunState, failureMessage: String?) -> String? {
+        switch state {
+        case .completed, .completedNoOp:
+            failureMessage
+        case .running, .awaitingReview, .blocked, .failed, .cancelled, .recoveryNeeded:
+            failureSummary(state: state, failureMessage: failureMessage)
+        }
+    }
 }

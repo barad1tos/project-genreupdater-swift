@@ -318,6 +318,21 @@ struct LibraryServicesTests {
         #expect(isHeld)
     }
 
+    @Test("Recovery hold is active for attention records")
+    func attentionRecordHolds() async throws {
+        let runID = RunID()
+        let stub = RunRecordStoreStub(reportPage: RunReportPage(
+            records: [],
+            skippedCorruptedCount: 1,
+            attentionRunIDs: [runID]
+        ))
+        let fixture = try makeFixture(testArtists: [], runRecordStore: stub)
+
+        let isHeld = await fixture.dependencies.ensureRecoveryHold()
+
+        #expect(isHeld)
+    }
+
     @Test("Recovery hold fails closed when run records cannot be read")
     func recoveryHoldFailsClosedOnStoreError() async throws {
         let fixture = try makeFixture(

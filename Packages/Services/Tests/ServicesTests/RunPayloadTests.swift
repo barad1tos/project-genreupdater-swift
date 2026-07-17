@@ -16,14 +16,16 @@ struct RunPayloadTests {
         )
         let recoveryID = UUID()
         let record = makeRunRecord(
-            intent: .writeFixes,
-            writeTarget: writeTarget,
-            recoveryID: recoveryID,
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: Date(timeIntervalSince1970: 104),
             state: .completed,
             syncSummary: ActivitySyncSummary(new: 2, modified: 1, identityChanged: 0, refreshed: 1, removed: 3),
-            writeSummary: RunWriteSummary(applied: 1, verifiedNoOp: 2, failed: 3)
+            input: RunRecordInput(
+                intent: .writeFixes,
+                writeTarget: writeTarget,
+                recoveryID: recoveryID,
+                writeSummary: RunWriteSummary(applied: 1, verifiedNoOp: 2, failed: 3)
+            )
         )
 
         try await store.upsert(record)
@@ -46,8 +48,10 @@ struct RunPayloadTests {
         try insertRunRow(
             runID: runID,
             transitionsData: JSONEncoder().encode(LegacyPayload(transitions: transitions)),
-            state: .completedNoOp,
-            finishedAt: Date(timeIntervalSince1970: 101),
+            input: RunRowInput(
+                state: .completedNoOp,
+                finishedAt: Date(timeIntervalSince1970: 101)
+            ),
             into: container
         )
 
@@ -111,8 +115,10 @@ struct RunPayloadTests {
                 recoveryID: runID,
                 writeSummary: summary
             )),
-            intent: .writeFixes,
-            finishedAt: Date(timeIntervalSince1970: 101),
+            input: RunRowInput(
+                intent: .writeFixes,
+                finishedAt: Date(timeIntervalSince1970: 101)
+            ),
             into: container
         )
 
@@ -145,8 +151,10 @@ struct RunPayloadTests {
         try insertRunRow(
             runID: runID,
             transitionsData: JSONEncoder().encode(MissingConfigPayload(transitions: transitions)),
-            state: .completedNoOp,
-            finishedAt: Date(timeIntervalSince1970: 101),
+            input: RunRowInput(
+                state: .completedNoOp,
+                finishedAt: Date(timeIntervalSince1970: 101)
+            ),
             into: container
         )
 
@@ -178,8 +186,7 @@ struct RunPayloadTests {
             try insertRunRow(
                 runID: runID,
                 transitionsData: payload,
-                intent: .writeFixes,
-                state: .recoverable,
+                input: RunRowInput(intent: .writeFixes, state: .recoverable),
                 into: container
             )
             let store = RunRecordDataStore(modelContainer: container)
@@ -218,9 +225,11 @@ struct RunPayloadTests {
         try insertRunRow(
             runID: runID,
             transitionsData: JSONEncoder().encode(payload),
-            scopeData: JSONEncoder().encode(scope),
-            state: .completedNoOp,
-            finishedAt: startedAt.addingTimeInterval(1),
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                state: .completedNoOp,
+                finishedAt: startedAt.addingTimeInterval(1)
+            ),
             into: container
         )
 

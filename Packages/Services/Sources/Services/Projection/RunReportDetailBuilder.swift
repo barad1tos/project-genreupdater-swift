@@ -19,7 +19,7 @@ public enum RunReportDetailBuilder {
             scopeLines: makeScopeLines(from: record.scope),
             transitions: makeTransitions(from: record.transitions, now: now),
             summaryItems: makeSummaryItems(from: record.syncSummary, intent: record.intent),
-            failureMessage: ReportsRunLabels.failureSummary(state: state, failureMessage: record.failureMessage)
+            detailMessage: ReportsRunLabels.detailMessage(state: state, failureMessage: record.failureMessage)
         )
     }
 

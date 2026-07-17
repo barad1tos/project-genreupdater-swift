@@ -38,11 +38,11 @@ public struct RunReportPage: Equatable, Sendable {
     public let skippedCorruptedCount: Int
     /// Identifiers for every row included in `skippedCorruptedCount`.
     public let corruptedRunIDs: [RunID]
-    /// Corrupted unfinished rows that may represent interrupted writes.
+    /// Corrupted rows that may represent unresolved or unauditable writes.
     public let recoveryRunIDs: [RunID]
-    /// Corrupted unfinished read-only rows that can be closed without write recovery.
+    /// Corrupted rows repairable without write recovery, including finished terminal audits.
     public let closableRunIDs: [RunID]
-    /// Corrupted unfinished read-only rows that require an explicit decision.
+    /// Corrupted rows that require an explicit decision or safer app-side repair.
     public let attentionRunIDs: [RunID]
     /// Corrupted rows written by a newer payload schema and requiring an app update.
     public let unsupportedRunIDs: [RunID]

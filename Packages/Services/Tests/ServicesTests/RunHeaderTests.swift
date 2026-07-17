@@ -101,16 +101,16 @@ struct RunHeaderTests {
         try insertRunRow(
             runID: runID,
             transitionsData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
-            state: .syncingLibrary,
+            input: RunRowInput(state: .syncingLibrary),
             into: container
         )
         let store = RunRecordDataStore(modelContainer: container)
         let replacement = makeRunRecord(
-            runID: RunID(rawValue: runID),
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
             state: .syncingLibrary,
-            syncSummary: nil
+            syncSummary: nil,
+            input: RunRecordInput(runID: RunID(rawValue: runID))
         )
 
         await #expect(throws: RunRecordPersistenceError.self) {
@@ -148,12 +148,11 @@ struct RunHeaderTests {
     func preservesRecoveryID() async throws {
         let store = try makeRunStore()
         let initial = makeRunRecord(
-            intent: .writeFixes,
-            recoveryID: UUID(),
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
             state: .syncingLibrary,
-            syncSummary: nil
+            syncSummary: nil,
+            input: RunRecordInput(intent: .writeFixes, recoveryID: UUID())
         )
         let replacement = RunRecord(
             runID: initial.runID,
@@ -187,11 +186,11 @@ struct RunHeaderTests {
     func rejectsTransitionRollback() async throws {
         let store = try makeRunStore()
         let initial = makeRunRecord(
-            intent: .writeFixes,
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
             state: .verifying,
-            syncSummary: nil
+            syncSummary: nil,
+            input: RunRecordInput(intent: .writeFixes)
         )
         let stale = RunRecord(
             runID: initial.runID,
@@ -333,11 +332,11 @@ struct RunHeaderTests {
     func rejectsTerminalMutation() async throws {
         let store = try makeRunStore()
         let initial = makeRunRecord(
-            intent: .writeFixes,
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: Date(timeIntervalSince1970: 101),
             state: .completed,
-            syncSummary: nil
+            syncSummary: nil,
+            input: RunRecordInput(intent: .writeFixes)
         )
         let replacements = [
             ("recoveryID", terminalReplacement(initial, recoveryID: UUID())),

@@ -31,19 +31,23 @@ func assertCorruptedRunField(
     }
 }
 
+struct RunRowInput {
+    var scopeData: Data?
+    var intent: RunIntent = .observeLibrary
+    var rawIntent: String?
+    var state: RunLifecycleState = .completed
+    var startedAt = Date(timeIntervalSince1970: 100)
+    var finishedAt: Date?
+}
+
 func insertRunRow(
     runID: UUID,
     transitionsData: Data,
-    scopeData: Data? = nil,
-    intent: RunIntent = .observeLibrary,
-    rawIntent: String? = nil,
-    state: RunLifecycleState = .completed,
-    startedAt: Date = Date(timeIntervalSince1970: 100),
-    finishedAt: Date? = nil,
+    input: RunRowInput = RunRowInput(),
     into container: ModelContainer
 ) throws {
     let context = ModelContext(container)
-    let scopeData = try scopeData ?? JSONEncoder().encode(ProcessingScopeSnapshot.capture(
+    let scopeData = try input.scopeData ?? JSONEncoder().encode(ProcessingScopeSnapshot.capture(
         requestedTestArtists: [],
         knownTrackCount: 1,
         createdAt: Date(timeIntervalSince1970: 100),
@@ -53,8 +57,8 @@ func insertRunRow(
         runID: runID,
         requestID: UUID(),
         triggerRaw: RunTrigger.manualCheck.rawValue,
-        intentRaw: rawIntent ?? intent.rawValue,
-        stateRaw: state.rawValue,
+        intentRaw: input.rawIntent ?? input.intent.rawValue,
+        stateRaw: input.state.rawValue,
         scopeData: scopeData,
         transitionsData: transitionsData,
         syncNewCount: nil,
@@ -63,8 +67,8 @@ func insertRunRow(
         syncRefreshedCount: nil,
         syncRemovedCount: nil,
         failureMessage: nil,
-        startedAt: startedAt,
-        finishedAt: finishedAt
+        startedAt: input.startedAt,
+        finishedAt: input.finishedAt
     ))
     try context.save()
 }
@@ -74,31 +78,35 @@ func makeRunStore() throws -> RunRecordDataStore {
     return RunRecordDataStore(modelContainer: container)
 }
 
+struct RunRecordInput {
+    var runID = RunID()
+    var requestID = RunRequestID()
+    var trigger: RunTrigger = .manualCheck
+    var intent: RunIntent = .observeLibrary
+    var writeTarget: FixPlanWriteTarget?
+    var recoveryID: UUID?
+    var writeSummary: RunWriteSummary?
+    var configurationScopeID: UUID?
+    var scope: ProcessingScopeSnapshot?
+    var configuration: RunConfig?
+    var includesSyncTransition = true
+}
+
 func makeRunRecord(
-    runID: RunID = RunID(),
-    requestID: RunRequestID = RunRequestID(),
-    trigger: RunTrigger = .manualCheck,
-    intent: RunIntent = .observeLibrary,
-    writeTarget: FixPlanWriteTarget? = nil,
-    recoveryID: UUID? = nil,
     startedAt: Date,
     finishedAt: Date?,
     state: RunLifecycleState,
     syncSummary: ActivitySyncSummary?,
-    writeSummary: RunWriteSummary? = nil,
-    configurationScopeID: UUID? = nil,
-    scope: ProcessingScopeSnapshot? = nil,
-    configuration: RunConfig? = nil,
-    includesSyncTransition: Bool = true
+    input: RunRecordInput = RunRecordInput()
 ) -> RunRecord {
     var transitions = [RunLifecycleTransition(state: .created, timestamp: startedAt)]
-    if includesSyncTransition {
+    if input.includesSyncTransition {
         transitions.append(RunLifecycleTransition(
             state: .syncingLibrary,
             timestamp: startedAt.addingTimeInterval(1)
         ))
     }
-    let initialState: RunLifecycleState = includesSyncTransition ? .syncingLibrary : .created
+    let initialState: RunLifecycleState = input.includesSyncTransition ? .syncingLibrary : .created
     if state != initialState {
         transitions.append(RunLifecycleTransition(
             state: state,
@@ -106,30 +114,30 @@ func makeRunRecord(
         ))
     }
 
-    let scope = scope ?? ProcessingScopeSnapshot.capture(
+    let scope = input.scope ?? ProcessingScopeSnapshot.capture(
         requestedTestArtists: ["Aphex Twin"],
         knownTrackCount: 75,
         createdAt: startedAt,
         reason: "manualCheck"
     )
-    let authority: WriteAuthority = intent == .writeFixes ? .reviewedPlan : .readOnly
+    let authority: WriteAuthority = input.intent == .writeFixes ? .reviewedPlan : .readOnly
 
     return RunRecord(
-        runID: runID,
-        requestID: requestID,
-        trigger: trigger,
-        intent: intent,
+        runID: input.runID,
+        requestID: input.requestID,
+        trigger: input.trigger,
+        intent: input.intent,
         scope: scope,
-        configuration: configuration ?? makeRunConfiguration(
-            scopeID: configurationScopeID ?? scope.id,
+        configuration: input.configuration ?? makeRunConfiguration(
+            scopeID: input.configurationScopeID ?? scope.id,
             capturedAt: startedAt,
             writeAuthority: authority
         ),
-        writeTarget: writeTarget,
-        recoveryID: recoveryID,
+        writeTarget: input.writeTarget,
+        recoveryID: input.recoveryID,
         transitions: transitions,
         syncSummary: syncSummary,
-        writeSummary: writeSummary,
+        writeSummary: input.writeSummary,
         failureMessage: state == .failed ? "Music.app unavailable" : nil,
         startedAt: startedAt,
         finishedAt: finishedAt
@@ -191,15 +199,17 @@ func makeRecoveryRecord(
     writeSummary: RunWriteSummary? = nil
 ) -> RunRecord {
     makeRunRecord(
-        intent: intent,
-        writeTarget: writeTarget,
-        recoveryID: recoveryID,
         startedAt: startedAt,
         finishedAt: finishedAt,
         state: state,
         syncSummary: nil,
-        writeSummary: writeSummary,
-        includesSyncTransition: false
+        input: RunRecordInput(
+            intent: intent,
+            writeTarget: writeTarget,
+            recoveryID: recoveryID,
+            writeSummary: writeSummary,
+            includesSyncTransition: false
+        )
     )
 }
 

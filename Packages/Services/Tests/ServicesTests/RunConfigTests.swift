@@ -68,14 +68,16 @@ struct RunConfigStoreTests {
             syncSummary: nil
         )
         let final = makeRunRecord(
-            runID: open.runID,
-            requestID: open.requestID,
             startedAt: open.startedAt,
             finishedAt: Date(timeIntervalSince1970: 104),
             state: .completedNoOp,
             syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 0),
-            scope: open.scope,
-            configuration: open.configuration
+            input: RunRecordInput(
+                runID: open.runID,
+                requestID: open.requestID,
+                scope: open.scope,
+                configuration: open.configuration
+            )
         )
 
         try await store.upsert(open)
@@ -95,13 +97,15 @@ struct RunConfigStoreTests {
             syncSummary: nil
         )
         let replacement = makeRunRecord(
-            runID: initial.runID,
-            requestID: initial.requestID,
             startedAt: initial.startedAt,
             finishedAt: Date(timeIntervalSince1970: 101),
             state: .completedNoOp,
             syncSummary: nil,
-            scope: initial.scope
+            input: RunRecordInput(
+                runID: initial.runID,
+                requestID: initial.requestID,
+                scope: initial.scope
+            )
         )
         try await store.upsert(initial)
 
@@ -250,11 +254,13 @@ struct RunConfigStoreTests {
             finishedAt: nil,
             state: .syncingLibrary,
             syncSummary: nil,
-            scope: scope,
-            configuration: makeRunConfiguration(
-                scopeID: scope.id,
-                capturedAt: startedAt,
-                appConfiguration: appConfiguration
+            input: RunRecordInput(
+                scope: scope,
+                configuration: makeRunConfiguration(
+                    scopeID: scope.id,
+                    capturedAt: startedAt,
+                    appConfiguration: appConfiguration
+                )
             )
         )
         let finishedAt = startedAt.addingTimeInterval(2)
@@ -309,8 +315,7 @@ struct RunConfigStoreTests {
             finishedAt: nil,
             state: .syncingLibrary,
             syncSummary: nil,
-            scope: scope,
-            configuration: configuration
+            input: RunRecordInput(scope: scope, configuration: configuration)
         )
         try await store.upsert(record)
 
