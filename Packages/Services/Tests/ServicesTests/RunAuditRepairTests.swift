@@ -119,7 +119,7 @@ struct RunAuditRepairTests {
             intent: .observeLibrary,
             storedFinish: Date(timeIntervalSince1970: 103),
             reversesTime: true,
-            corruptsScope: true
+            corruption: AuditCorruption(corruptsScope: true)
         )
 
         let page = try await fixture.store.recoveryRecords()
@@ -152,8 +152,10 @@ struct RunAuditRepairTests {
             intent: .observeLibrary,
             storedFinish: Date(timeIntervalSince1970: 103),
             reversesTime: true,
-            corruptsScope: true,
-            omitsTerminalTransition: true
+            corruption: AuditCorruption(
+                corruptsScope: true,
+                omitsTerminalTransition: true
+            )
         )
 
         let page = try await fixture.store.recoveryRecords()
@@ -185,7 +187,7 @@ struct RunAuditRepairTests {
         let fixture = try makeFixture(
             intent: .writeFixes,
             storedFinish: Date(timeIntervalSince1970: 103),
-            payloadState: .failed
+            corruption: AuditCorruption(payloadState: .failed)
         )
 
         try await assertAttention(fixture)
@@ -196,7 +198,7 @@ struct RunAuditRepairTests {
         let fixture = try makeFixture(
             intent: .observeLibrary,
             storedFinish: Date(timeIntervalSince1970: 103),
-            payloadState: .failed
+            corruption: AuditCorruption(payloadState: .failed)
         )
 
         let page = try await fixture.store.recoveryRecords()
@@ -212,7 +214,7 @@ struct RunAuditRepairTests {
             intent: .writeFixes,
             storedFinish: Date(timeIntervalSince1970: 103),
             reversesTime: reversesTime,
-            payloadState: .writing
+            corruption: AuditCorruption(payloadState: .writing)
         )
 
         try await assertAttention(fixture)
@@ -224,7 +226,7 @@ struct RunAuditRepairTests {
             intent: .writeFixes,
             storedFinish: Date(timeIntervalSince1970: 103),
             reversesTime: reversesTime,
-            payloadState: .reporting
+            corruption: AuditCorruption(payloadState: .reporting)
         )
 
         try await assertAttention(fixture)
@@ -235,7 +237,7 @@ struct RunAuditRepairTests {
         let fixture = try makeFixture(
             intent: .writeFixes,
             storedFinish: Date(timeIntervalSince1970: 103),
-            payloadState: .created
+            corruption: AuditCorruption(payloadState: .created)
         )
 
         try await assertAttention(fixture)
@@ -259,10 +261,7 @@ struct RunAuditRepairTests {
         reversesTime: Bool = false,
         terminalState: RunLifecycleState = .completed,
         includesBlockedStop: Bool = false,
-        corruptsScope: Bool = false,
-        payloadFault: AuditPayloadFault? = nil,
-        payloadState: RunLifecycleState? = nil,
-        omitsTerminalTransition: Bool = false
+        corruption: AuditCorruption = AuditCorruption()
     ) throws -> RepairFixture {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
@@ -274,24 +273,14 @@ struct RunAuditRepairTests {
             createdAt: startedAt,
             reason: "manualCheck"
         )
-        var transitions = [
-            RunLifecycleTransition(
-                state: .created,
-                timestamp: startedAt.addingTimeInterval(reversesTime ? 1 : 0)
-            ),
-        ]
-        if includesBlockedStop {
-            transitions.append(RunLifecycleTransition(state: .blocked, timestamp: startedAt.addingTimeInterval(1)))
-        }
-        if omitsTerminalTransition {
-            transitions.append(RunLifecycleTransition(state: .reporting, timestamp: startedAt))
-        } else {
-            transitions.append(RunLifecycleTransition(
-                state: payloadState ?? terminalState,
-                timestamp: startedAt.addingTimeInterval(reversesTime ? 0 : (includesBlockedStop ? 2 : 1))
-            ))
-        }
-        let configScopeID = payloadFault == .mismatchedScope ? UUID() : scope.id
+        let transitions = makeTransitions(
+            startedAt: startedAt,
+            reversesTime: reversesTime,
+            terminalState: terminalState,
+            includesBlockedStop: includesBlockedStop,
+            corruption: corruption
+        )
+        let configScopeID = corruption.payloadFault == .mismatchedScope ? UUID() : scope.id
         let configuration = makeRunConfiguration(
             scopeID: configScopeID,
             capturedAt: startedAt,
@@ -300,13 +289,13 @@ struct RunAuditRepairTests {
         let transitionsData = try makePayloadData(
             transitions: transitions,
             configuration: configuration,
-            fault: payloadFault
+            fault: corruption.payloadFault
         )
         try insertRunRow(
             runID: runID,
             transitionsData: transitionsData,
             input: RunRowInput(
-                scopeData: corruptsScope ? Data([0xDE, 0xAD, 0xBE, 0xEF]) : JSONEncoder().encode(scope),
+                scopeData: corruption.corruptsScope ? Data([0xDE, 0xAD, 0xBE, 0xEF]) : JSONEncoder().encode(scope),
                 intent: intent,
                 state: terminalState,
                 startedAt: startedAt,
@@ -325,11 +314,42 @@ struct RunAuditRepairTests {
         )
     }
 
+    private func makeTransitions(
+        startedAt: Date,
+        reversesTime: Bool,
+        terminalState: RunLifecycleState,
+        includesBlockedStop: Bool,
+        corruption: AuditCorruption
+    ) -> [RunLifecycleTransition] {
+        var transitions = [
+            RunLifecycleTransition(
+                state: .created,
+                timestamp: startedAt.addingTimeInterval(reversesTime ? 1 : 0)
+            ),
+        ]
+        if includesBlockedStop {
+            transitions.append(RunLifecycleTransition(state: .blocked, timestamp: startedAt.addingTimeInterval(1)))
+        }
+        if corruption.omitsTerminalTransition {
+            transitions.append(RunLifecycleTransition(state: .reporting, timestamp: startedAt))
+            return transitions
+        }
+        var terminalOffset: TimeInterval = includesBlockedStop ? 2 : 1
+        if reversesTime {
+            terminalOffset = 0
+        }
+        transitions.append(RunLifecycleTransition(
+            state: corruption.payloadState ?? terminalState,
+            timestamp: startedAt.addingTimeInterval(terminalOffset)
+        ))
+        return transitions
+    }
+
     private func assertUnsafeAudit(_ fault: AuditPayloadFault) async throws {
         let fixture = try makeFixture(
             intent: .writeFixes,
             storedFinish: Date(timeIntervalSince1970: 103),
-            payloadFault: fault
+            corruption: AuditCorruption(payloadFault: fault)
         )
 
         try await assertAttention(fixture)
@@ -382,6 +402,13 @@ private enum AuditPayloadFault: Equatable, Sendable {
     case missingConfiguration
     case malformedWriteTarget
     case mismatchedScope
+}
+
+private struct AuditCorruption {
+    var corruptsScope = false
+    var payloadFault: AuditPayloadFault?
+    var payloadState: RunLifecycleState?
+    var omitsTerminalTransition = false
 }
 
 private struct RepairFixture {
