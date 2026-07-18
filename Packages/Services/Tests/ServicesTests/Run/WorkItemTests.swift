@@ -46,20 +46,22 @@ struct WorkItemTests {
         let work = RunWorkItem(
             id: id,
             target: .album(identity),
-            changeType: .yearUpdate,
-            oldValue: nil,
-            newValue: "2024",
-            confidence: 87,
-            source: "MusicBrainz"
+            change: WorkChange(
+                changeType: .yearUpdate,
+                oldValue: nil,
+                newValue: "2024",
+                confidence: 87,
+                source: "MusicBrainz"
+            )
         )
 
         #expect(work.id == id)
         #expect(work.target == .album(identity))
-        #expect(work.changeType == .yearUpdate)
-        #expect(work.oldValue == nil)
-        #expect(work.newValue == "2024")
-        #expect(work.confidence == 87)
-        #expect(work.source == "MusicBrainz")
+        #expect(work.change.changeType == .yearUpdate)
+        #expect(work.change.oldValue == nil)
+        #expect(work.change.newValue == "2024")
+        #expect(work.change.confidence == 87)
+        #expect(work.change.source == "MusicBrainz")
         #expect(work.state == .prepared)
         #expect(work.detail == nil)
     }
@@ -86,11 +88,11 @@ struct WorkItemTests {
 
         #expect(work.id == item.id)
         #expect(work.target == .track(item.identity))
-        #expect(work.changeType == item.changeType)
-        #expect(work.oldValue == item.oldValue)
-        #expect(work.newValue == item.newValue)
-        #expect(work.confidence == item.confidence)
-        #expect(work.source == item.source)
+        #expect(work.change.changeType == item.changeType)
+        #expect(work.change.oldValue == item.oldValue)
+        #expect(work.change.newValue == item.newValue)
+        #expect(work.change.confidence == item.confidence)
+        #expect(work.change.source == item.source)
         #expect(work.state == .prepared)
         #expect(work.detail == nil)
     }
