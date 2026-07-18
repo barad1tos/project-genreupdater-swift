@@ -146,9 +146,8 @@ struct MusicBrainzClientTests {
         let testURL = try #require(URL(string: "https://musicbrainz.org/ws/2/release-group"))
         let request = client.makeRequest(for: testURL)
 
-        let userAgent = request.value(forHTTPHeaderField: "User-Agent")
-        #expect(userAgent != nil)
-        #expect(try #require(userAgent?.contains("GenreUpdater")))
+        let userAgent = try #require(request.value(forHTTPHeaderField: "User-Agent"))
+        #expect(userAgent.contains("GenreUpdater"))
 
         let accept = request.value(forHTTPHeaderField: "Accept")
         #expect(accept == "application/json")
