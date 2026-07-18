@@ -23,6 +23,7 @@ public enum WorkOutcome: String, CaseIterable, Codable, Equatable, Sendable {
 public enum WorkState: Codable, Equatable, Sendable {
     case prepared
     case attempting
+    /// The attempt finished, but verification or its terminal outcome is not yet recorded.
     case attempted
     case outcome(WorkOutcome)
 }

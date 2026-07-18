@@ -66,6 +66,30 @@ struct WorkItemTests {
         #expect(work.detail == nil)
     }
 
+    @Test("Terminal work preserves state and detail")
+    func roundTripsTerminalWork() throws {
+        let work = RunWorkItem(
+            id: UUID(),
+            target: .album(AlbumIdentity(artist: "Artist", album: "Album")),
+            change: WorkChange(
+                changeType: .yearUpdate,
+                oldValue: nil,
+                newValue: "2024",
+                confidence: 87,
+                source: "MusicBrainz"
+            ),
+            state: .outcome(.failed),
+            detail: "Verification failed: année 2024"
+        )
+
+        let encoded = try JSONEncoder().encode(work)
+        let decoded = try JSONDecoder().decode(RunWorkItem.self, from: encoded)
+
+        #expect(decoded == work)
+        #expect(decoded.state == .outcome(.failed))
+        #expect(decoded.detail == "Verification failed: année 2024")
+    }
+
     @Test("Track work captures the immutable fix plan item")
     func capturesTrackWork() {
         let item = FixPlanItem(
