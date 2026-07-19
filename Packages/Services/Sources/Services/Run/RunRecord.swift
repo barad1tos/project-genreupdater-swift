@@ -190,11 +190,11 @@ public protocol RunRecordStore: Sendable {
     func claimRecovery(for runID: RunID, id: UUID, at timestamp: Date) async throws -> UUID?
 
     /// Repairs a corrupted unfinished write or terminal write audit after Music.app verification.
-    /// Returns false if the row is missing, healthy, unresolved-blocked, read-only, or from a future schema.
+    /// Returns false if the row is missing, healthy, opaque, unresolved-blocked, read-only, or from a future schema.
     func closeCorruptedRun(_ runID: RunID, at finishedAt: Date) async throws -> Bool
 
     /// Repairs corruption that does not represent an unfinished write, without touching Music.app.
-    /// Returns false if unresolved write evidence exists or the payload uses a future schema.
+    /// Returns false if the payload is opaque, unresolved write evidence exists, or the schema is from the future.
     func closeReadOnlyCorruption(_ runID: RunID, at finishedAt: Date) async throws -> Bool
 
     /// Lists run history for report surfaces, newest first. Unlike `loadAll()`,

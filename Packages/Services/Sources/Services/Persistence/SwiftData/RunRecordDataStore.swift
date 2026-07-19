@@ -596,6 +596,26 @@ public actor RunRecordDataStore: RunRecordStore {
         payload: RunRecordPayload?,
         fallback: RecoveryPayload?
     ) -> CorruptionRoute {
+        guard payload != nil || fallback != nil else { return opaqueRoute(for: row) }
+        return decodedRoute(for: row, payload: payload, fallback: fallback)
+    }
+
+    private static func opaqueRoute(for row: PersistedRunRecord) -> CorruptionRoute {
+        if RunIntent(rawValue: row.intentRaw) == .writeFixes {
+            return .attention
+        }
+        let isTerminal = RunLifecycleState(rawValue: row.stateRaw).map(isTerminalState) == true
+        return isTerminal ? .diagnostic : .attention
+    }
+
+    private static func decodedRoute(
+        for row: PersistedRunRecord,
+        payload: RunRecordPayload?,
+        fallback: RecoveryPayload?
+    ) -> CorruptionRoute {
+        guard !hasUnsafeItemAudit(row, payload: payload, fallback: fallback) else {
+            return .attention
+        }
         guard RunIntent(rawValue: row.intentRaw) != nil,
               let state = RunLifecycleState(rawValue: row.stateRaw)
         else { return .writeRecovery }
@@ -604,20 +624,14 @@ public actor RunRecordDataStore: RunRecordStore {
             $0.version >= RunRecordPayload.configurationVersion && $0.configuration == nil
         } ?? false
         let hasWriteRisk = requiresWriteRecovery(row, payload: payload, fallback: fallback)
-        if transitions?.contains(where: { isTerminalState($0.state) }) == true {
-            guard hasTerminalAudit(row, transitions: transitions) else {
-                return hasWriteRisk ? .attention : .diagnostic
-            }
-            guard isTerminalRepairable(row, payload: payload, fallback: fallback) else {
-                return hasWriteRisk ? .attention : .diagnostic
-            }
-            return row.finishedAt == nil && hasWriteRisk ? .writeRecovery : .readOnlyClosure
-        }
-        if isTerminalState(state), row.finishedAt != nil {
-            guard isTerminalRepairable(row, payload: payload, fallback: fallback) else {
-                return hasWriteRisk ? .attention : .diagnostic
-            }
-            return .readOnlyClosure
+        if let route = terminalRoute(
+            for: row,
+            state: state,
+            payload: payload,
+            fallback: fallback,
+            hasWriteRisk: hasWriteRisk
+        ) {
+            return route
         }
         if isBlocked(row, payload: payload, fallback: fallback) {
             return .attention
@@ -634,6 +648,32 @@ public actor RunRecordDataStore: RunRecordStore {
         return .readOnlyClosure
     }
 
+    private static func terminalRoute(
+        for row: PersistedRunRecord,
+        state: RunLifecycleState,
+        payload: RunRecordPayload?,
+        fallback: RecoveryPayload?,
+        hasWriteRisk: Bool
+    ) -> CorruptionRoute? {
+        let transitions = payload?.transitions ?? fallback?.transitions
+        if transitions?.contains(where: { isTerminalState($0.state) }) == true {
+            guard hasTerminalAudit(row, transitions: transitions) else {
+                return hasWriteRisk ? .attention : .diagnostic
+            }
+            guard isTerminalRepairable(row, payload: payload, fallback: fallback) else {
+                return hasWriteRisk ? .attention : .diagnostic
+            }
+            return row.finishedAt == nil && hasWriteRisk ? .writeRecovery : .readOnlyClosure
+        }
+        if isTerminalState(state), row.finishedAt != nil {
+            guard isTerminalRepairable(row, payload: payload, fallback: fallback) else {
+                return hasWriteRisk ? .attention : .diagnostic
+            }
+            return .readOnlyClosure
+        }
+        return nil
+    }
+
     private static func allowsCorruptionClosure(
         _ row: PersistedRunRecord,
         payload: RunRecordPayload?,
@@ -641,7 +681,8 @@ public actor RunRecordDataStore: RunRecordStore {
         route: CorruptionRoute,
         isReadOnly: Bool
     ) -> Bool {
-        guard fallback?.hasMalformedItems != true else { return false }
+        guard payload != nil || fallback != nil else { return false }
+        guard !hasUnsafeItemAudit(row, payload: payload, fallback: fallback) else { return false }
         if isReadOnly {
             return route == .readOnlyClosure
                 || (route == .attention && isReadOnlyAttention(row, payload: payload, fallback: fallback))
@@ -663,6 +704,7 @@ public actor RunRecordDataStore: RunRecordStore {
         guard route == .readOnlyClosure || route == .diagnostic,
               let decoded = try? RunPayloadCodec.decodeForRecovery(from: row)
         else { return false }
+        guard decoded.payload != nil || decoded.fallback != nil else { return false }
         return !Self.requiresWriteRecovery(row, payload: decoded.payload, fallback: decoded.fallback)
     }
 

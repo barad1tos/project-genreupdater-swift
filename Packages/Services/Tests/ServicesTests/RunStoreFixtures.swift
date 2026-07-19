@@ -161,6 +161,7 @@ func replacing(
         writeTarget: record.writeTarget,
         recoveryID: record.recoveryID,
         transitions: record.transitions,
+        workItems: record.workItems,
         syncSummary: record.syncSummary,
         writeSummary: record.writeSummary,
         failureMessage: record.failureMessage,
@@ -195,6 +196,7 @@ func makeRecoveryRecord(
     intent: RunIntent = .observeLibrary,
     writeTarget: FixPlanWriteTarget? = nil,
     recoveryID: UUID? = nil,
+    workItems: [RunWorkItem] = [],
     startedAt: Date,
     finishedAt: Date?,
     state: RunLifecycleState,
@@ -210,6 +212,7 @@ func makeRecoveryRecord(
             writeTarget: writeTarget,
             recoveryID: recoveryID,
             writeSummary: writeSummary,
+            workItems: workItems,
             includesSyncTransition: false
         )
     )

@@ -1,5 +1,6 @@
 import Core
 import Foundation
+import SwiftData
 import Testing
 @testable import Services
 
@@ -21,6 +22,78 @@ struct WorkItemStoreTests {
 
         #expect(try await store.loadAll() == [record])
         #expect(try await store.record(for: record.runID)?.workItems == workItems)
+    }
+
+    @Test("Configured empty audits persist as version three")
+    func persistsEmptyAuditSchema() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .planningFixes,
+            syncSummary: nil
+        )
+
+        try await store.upsert(record)
+
+        let row = try #require(ModelContext(container).fetch(FetchDescriptor<PersistedRunRecord>()).first)
+        let payload = try #require(JSONSerialization.jsonObject(
+            with: row.transitionsData
+        ) as? [String: Any])
+        #expect(payload["version"] as? Int == RunRecordPayload.workItemVersion)
+        #expect(payload.keys.contains("workItems"))
+        #expect((payload["workItems"] as? [Any])?.isEmpty == true)
+
+        let freshStore = RunRecordDataStore(modelContainer: container)
+        #expect(try await freshStore.record(for: record.runID) == record)
+    }
+
+    @Test("Run record JSON preserves work-item outcomes")
+    func decodesRunRecordAudit() throws {
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [
+                    makeWorkItem(state: .attempted),
+                    makeWorkItem(state: .outcome(.written))
+                ]
+            )
+        )
+
+        let decoded = try JSONDecoder().decode(RunRecord.self, from: JSONEncoder().encode(record))
+
+        #expect(decoded == record)
+        #expect(decoded.workItems == record.workItems)
+    }
+
+    @Test("Work items require a configuration snapshot")
+    func rejectsMissingConfiguration() async throws {
+        let store = try makeRunStore()
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [makeWorkItem(state: .attempted)]
+            )
+        )
+        let invalid = replacing(record, scope: record.scope, configuration: nil)
+
+        do {
+            try await store.upsert(invalid)
+            Issue.record("Expected work items without configuration to fail")
+        } catch let RunRecordPersistenceError.invalidField(name, runID) {
+            #expect(name == "configuration")
+            #expect(runID == record.runID.rawValue)
+        }
+        #expect(try await store.loadAll().isEmpty)
     }
 
     @Test("Configuration payloads load without work items")

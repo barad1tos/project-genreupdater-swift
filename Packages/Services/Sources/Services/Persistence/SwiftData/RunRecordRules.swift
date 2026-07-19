@@ -147,6 +147,22 @@ extension RunRecordDataStore {
             || transitions.contains { $0.state == .blocked }
     }
 
+    static func hasUnsafeItemAudit(
+        _ row: PersistedRunRecord,
+        payload: RunRecordPayload?,
+        fallback: RecoveryPayload?
+    ) -> Bool {
+        if fallback?.hasMalformedItems == true {
+            return true
+        }
+        let workItems = payload?.workItems ?? fallback?.workItems ?? []
+        guard !workItems.isEmpty else { return false }
+        guard let configuration = payload?.configuration ?? fallback?.configuration,
+              let scope = try? JSONDecoder().decode(ProcessingScopeSnapshot.self, from: row.scopeData)
+        else { return true }
+        return configuration.scopeID != scope.id
+    }
+
     static func writeEvidenceField(
         configuration: RunConfig?,
         writeTarget: FixPlanWriteTarget?,

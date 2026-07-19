@@ -88,8 +88,8 @@ struct RunCorruptionTests {
         ))
     }
 
-    @Test("Prune removes terminal read-only corruption")
-    func prunesReadOnlyCorruption() async throws {
+    @Test("Prune preserves opaque terminal corruption")
+    func preservesOpaqueCorruption() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
         try insertRunRow(
@@ -110,8 +110,10 @@ struct RunCorruptionTests {
             syncSummary: nil
         ))
 
-        #expect(try await store.prune(keepingLatest: 1) == 1)
-        #expect(try await store.record(for: RunID(rawValue: runID)) == nil)
+        #expect(try await store.prune(keepingLatest: 1) == 0)
+        await #expect(throws: RunRecordPersistenceError.self) {
+            try await store.record(for: RunID(rawValue: runID))
+        }
     }
 
     @Test("Prune preserves terminal future payloads")
@@ -137,6 +139,8 @@ struct RunCorruptionTests {
         ))
 
         #expect(try await store.prune(keepingLatest: 1) == 0)
+        let page = try await store.reports(matching: RunReportQuery())
+        #expect(page.unsupportedRunIDs == [RunID(rawValue: runID)])
         let rows = try ModelContext(container).fetch(FetchDescriptor<PersistedRunRecord>())
         #expect(rows.contains { $0.runID == runID })
     }
@@ -715,5 +719,5 @@ struct RunCorruptionTests {
 }
 
 private struct FutureRunPayload: Encodable {
-    let version = 3
+    let version = RunRecordPayload.currentVersion + 1
 }

@@ -119,12 +119,14 @@ struct RecoveryPayload: Decodable {
 
         let decodedVersion = versionField.value
         let decodedConfiguration = configurationField.value
+        let hasConfigurationField = container.contains(.configuration)
+        let hasWorkItemsField = container.contains(.workItems)
         let supportsWorkItems = decodedVersion.map { $0 >= RunRecordPayload.workItemVersion } == true
         let hasUnknownSchema = decodedVersion.map { $0 < RunRecordPayload.legacyVersion } ?? true
         let hasUnknownItemAudit = hasUnknownSchema
             && (workItemsField.isMalformed
                 || workItemsField.value?.isEmpty == false
-                || (workItemsField.value == nil && decodedConfiguration != nil))
+                || (workItemsField.value == nil && (hasConfigurationField || hasWorkItemsField)))
         version = decodedVersion
         transitions = transitionsField.value
         workItems = supportsWorkItems || hasUnknownSchema ? workItemsField.value : []

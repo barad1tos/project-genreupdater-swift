@@ -52,8 +52,8 @@ struct RecoveryRestoreTests {
         #expect(await setup.processor.recoveryHoldID() == runID)
     }
 
-    @Test("Corrupted read-only runs close without a recovery hold")
-    func closesReadOnly() async throws {
+    @Test("Opaque read-only runs restore a fail-closed hold")
+    func holdsOpaqueReadOnly() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
         let setup = try makeRecoverySetup(store: store)
@@ -66,13 +66,12 @@ struct RecoveryRestoreTests {
             into: container
         )
 
-        #expect(await setup.dependencies.ensureRecoveryHold() == false)
+        #expect(await setup.dependencies.ensureRecoveryHold())
 
-        #expect(await setup.processor.recoveryHoldID() == nil)
-        let record = try #require(await store.record(for: RunID(rawValue: runID)))
-        #expect(record.state == .cancelled)
-        #expect(record.intent == .observeLibrary)
-        #expect(record.recoveryID == nil)
+        #expect(await setup.processor.recoveryHoldID() == runID)
+        let page = try await store.reports(matching: RunReportQuery())
+        #expect(page.records.isEmpty)
+        #expect(page.attentionRunIDs == [RunID(rawValue: runID)])
     }
 
     @Test("Conflicting write evidence restores a fail-closed hold")
@@ -115,8 +114,8 @@ struct RecoveryRestoreTests {
         #expect(await setup.processor.recoveryHoldID() == runID)
     }
 
-    @Test("Blocked read-only corruption closes only after an explicit clear")
-    func clearsBlockedRun() async throws {
+    @Test("Opaque blocked read-only corruption cannot be dismissed")
+    func holdsBlockedReadOnly() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
         let setup = try makeRecoverySetup(store: store)
@@ -130,12 +129,14 @@ struct RecoveryRestoreTests {
         )
         #expect(await setup.dependencies.ensureRecoveryHold())
 
-        try await setup.dependencies.clearRecoveryHold(id: runID)
+        await #expect(throws: AppDependencyServiceError.recoveryBlocked) {
+            try await setup.dependencies.clearRecoveryHold(id: runID)
+        }
 
-        #expect(await setup.processor.recoveryHoldID() == nil)
-        let record = try #require(await store.record(for: RunID(rawValue: runID)))
-        #expect(record.state == .cancelled)
-        #expect(record.intent == .observeLibrary)
+        #expect(await setup.processor.recoveryHoldID() == runID)
+        let page = try await store.reports(matching: RunReportQuery())
+        #expect(page.records.isEmpty)
+        #expect(page.attentionRunIDs == [RunID(rawValue: runID)])
     }
 
     @Test("Store failures create a fail-closed batch hold")
