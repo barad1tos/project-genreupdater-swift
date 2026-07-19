@@ -32,6 +32,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     public let writeTarget: FixPlanWriteTarget?
     public let recoveryID: UUID?
     public let transitions: [RunLifecycleTransition]
+    public let workItems: [RunWorkItem]
     public let syncSummary: ActivitySyncSummary?
     public let writeSummary: RunWriteSummary?
     public let failureMessage: String?
@@ -56,6 +57,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         writeTarget: FixPlanWriteTarget? = nil,
         recoveryID: UUID? = nil,
         transitions: [RunLifecycleTransition],
+        workItems: [RunWorkItem] = [],
         syncSummary: ActivitySyncSummary?,
         writeSummary: RunWriteSummary? = nil,
         failureMessage: String?,
@@ -71,6 +73,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         self.writeTarget = writeTarget
         self.recoveryID = recoveryID
         self.transitions = transitions
+        self.workItems = workItems
         self.syncSummary = syncSummary
         self.writeSummary = writeSummary
         self.failureMessage = failureMessage
@@ -97,6 +100,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
             writeTarget: writeTarget,
             recoveryID: recoveryID,
             transitions: transitions,
+            workItems: workItems,
             syncSummary: syncSummary,
             writeSummary: writeSummary,
             failureMessage: message,
@@ -121,12 +125,41 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
             writeTarget: writeTarget,
             recoveryID: id,
             transitions: transitions,
+            workItems: workItems,
             syncSummary: syncSummary,
             writeSummary: writeSummary,
             failureMessage: failureMessage ?? "Interrupted write requires Music.app verification.",
             startedAt: startedAt,
             finishedAt: nil
         )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case runID, requestID, trigger, intent, scope, configuration, writeTarget, recoveryID
+        case transitions, workItems, syncSummary, writeSummary, failureMessage, startedAt, finishedAt
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        runID = try container.decode(RunID.self, forKey: .runID)
+        requestID = try container.decode(RunRequestID.self, forKey: .requestID)
+        trigger = try container.decode(RunTrigger.self, forKey: .trigger)
+        intent = try container.decode(RunIntent.self, forKey: .intent)
+        scope = try container.decode(ProcessingScopeSnapshot.self, forKey: .scope)
+        configuration = try container.decodeIfPresent(RunConfig.self, forKey: .configuration)
+        writeTarget = try container.decodeIfPresent(FixPlanWriteTarget.self, forKey: .writeTarget)
+        recoveryID = try container.decodeIfPresent(UUID.self, forKey: .recoveryID)
+        transitions = try container.decode([RunLifecycleTransition].self, forKey: .transitions)
+        workItems = if container.contains(.workItems) {
+            try container.decode([RunWorkItem].self, forKey: .workItems)
+        } else {
+            []
+        }
+        syncSummary = try container.decodeIfPresent(ActivitySyncSummary.self, forKey: .syncSummary)
+        writeSummary = try container.decodeIfPresent(RunWriteSummary.self, forKey: .writeSummary)
+        failureMessage = try container.decodeIfPresent(String.self, forKey: .failureMessage)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        finishedAt = try container.decodeIfPresent(Date.self, forKey: .finishedAt)
     }
 }
 

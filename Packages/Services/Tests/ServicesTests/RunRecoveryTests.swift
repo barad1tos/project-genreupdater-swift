@@ -44,6 +44,7 @@ struct RunRecoveryTests {
         object.removeValue(forKey: "recoveryID")
         object.removeValue(forKey: "writeSummary")
         object.removeValue(forKey: "configuration")
+        object.removeValue(forKey: "workItems")
 
         let decoded = try JSONDecoder().decode(
             RunRecord.self,
@@ -55,6 +56,26 @@ struct RunRecoveryTests {
         #expect(decoded.writeSummary == nil)
         #expect(decoded.configuration == nil)
         #expect(decoded.transitions == record.transitions)
+        #expect(decoded.workItems.isEmpty)
+    }
+
+    @Test("Run record JSON rejects a null work-item audit")
+    func rejectsNullAudit() throws {
+        let record = makeRecoveryRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .recoverable
+        )
+        let encoded = try JSONEncoder().encode(record)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object["workItems"] = NSNull()
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(
+                RunRecord.self,
+                from: JSONSerialization.data(withJSONObject: object)
+            )
+        }
     }
 
     @Test("Legacy store row decodes through payload fallback")
@@ -433,6 +454,6 @@ struct RunRecoveryTests {
 }
 
 private struct FuturePayload: Encodable {
-    let version = 3
-    let futureState = "incompatible-v3"
+    let version = 4
+    let futureState = "incompatible-v4"
 }

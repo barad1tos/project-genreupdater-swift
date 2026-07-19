@@ -89,6 +89,54 @@ extension RunRecordDataStore {
         }
     }
 
+    static func invalidLifecycleField(state: RunLifecycleState, finishedAt: Date?) -> String? {
+        switch state {
+        case .completed, .completedNoOp, .failed, .cancelled:
+            finishedAt == nil ? "finishedAt" : nil
+        case .created, .queued, .syncingLibrary, .analyzingDelta, .planningFixes, .awaitingReview,
+             .writing, .verifying, .reporting, .blocked, .recoverable, .recovering:
+            finishedAt == nil ? nil : "finishedAt"
+        }
+    }
+
+    static func validateRecord(_ record: RunRecord) throws {
+        guard !record.transitions.isEmpty else {
+            throw RunRecordPersistenceError.invalidField(name: "transitions", runID: record.runID.rawValue)
+        }
+        guard !hasInvalidTimeline(record.transitions) else {
+            throw RunRecordPersistenceError.invalidField(name: "transitions", runID: record.runID.rawValue)
+        }
+        if let field = invalidLifecycleField(state: record.state, finishedAt: record.finishedAt) {
+            throw RunRecordPersistenceError.invalidField(name: field, runID: record.runID.rawValue)
+        }
+        if record.intent != .writeFixes,
+           let field = writeEvidenceField(
+               configuration: record.configuration,
+               writeTarget: record.writeTarget,
+               recoveryID: record.recoveryID,
+               transitions: record.transitions,
+               writeSummary: record.writeSummary
+           ) {
+            throw RunRecordPersistenceError.invalidField(name: field, runID: record.runID.rawValue)
+        }
+        guard record.workItems.isEmpty || record.configuration != nil else {
+            throw RunRecordPersistenceError.invalidField(name: "configuration", runID: record.runID.rawValue)
+        }
+        guard let configuration = record.configuration else { return }
+        guard configuration.scopeID == record.scope.id else {
+            throw RunRecordPersistenceError.invalidField(
+                name: "configuration.scopeID",
+                runID: record.runID.rawValue
+            )
+        }
+        guard (try? JSONEncoder().encode(configuration)) != nil else {
+            throw RunRecordPersistenceError.invalidField(
+                name: "configuration",
+                runID: record.runID.rawValue
+            )
+        }
+    }
+
     static func isBlocked(
         _ row: PersistedRunRecord,
         payload: RunRecordPayload?,

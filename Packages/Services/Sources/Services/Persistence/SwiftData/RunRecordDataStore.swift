@@ -166,6 +166,7 @@ public actor RunRecordDataStore: RunRecordStore {
                     at: finishedAt
                 )
             }
+            _ = try makeRecord(from: row)
             try modelContext.save()
             return true
         } catch {
@@ -321,6 +322,7 @@ public actor RunRecordDataStore: RunRecordStore {
             writeTarget: payload.writeTarget,
             recoveryID: payload.recoveryID,
             transitions: payload.transitions,
+            workItems: payload.workItems,
             syncSummary: syncSummary,
             writeSummary: payload.writeSummary,
             failureMessage: persisted.failureMessage,
@@ -397,41 +399,6 @@ public actor RunRecordDataStore: RunRecordStore {
         }
     }
 
-    private static func validateRecord(_ record: RunRecord) throws {
-        guard !record.transitions.isEmpty else {
-            throw RunRecordPersistenceError.invalidField(name: "transitions", runID: record.runID.rawValue)
-        }
-        guard !hasInvalidTimeline(record.transitions) else {
-            throw RunRecordPersistenceError.invalidField(name: "transitions", runID: record.runID.rawValue)
-        }
-        if let field = invalidLifecycleField(state: record.state, finishedAt: record.finishedAt) {
-            throw RunRecordPersistenceError.invalidField(name: field, runID: record.runID.rawValue)
-        }
-        if record.intent != .writeFixes,
-           let field = writeEvidenceField(
-               configuration: record.configuration,
-               writeTarget: record.writeTarget,
-               recoveryID: record.recoveryID,
-               transitions: record.transitions,
-               writeSummary: record.writeSummary
-           ) {
-            throw RunRecordPersistenceError.invalidField(name: field, runID: record.runID.rawValue)
-        }
-        guard let configuration = record.configuration else { return }
-        guard configuration.scopeID == record.scope.id else {
-            throw RunRecordPersistenceError.invalidField(
-                name: "configuration.scopeID",
-                runID: record.runID.rawValue
-            )
-        }
-        guard (try? JSONEncoder().encode(configuration)) != nil else {
-            throw RunRecordPersistenceError.invalidField(
-                name: "configuration",
-                runID: record.runID.rawValue
-            )
-        }
-    }
-
     private static func changedHeaderField(from stored: RunRecord, to replacement: RunRecord) -> String? {
         if stored.requestID != replacement.requestID {
             return "requestID"
@@ -476,6 +443,9 @@ public actor RunRecordDataStore: RunRecordStore {
         }
         if stored.writeSummary != replacement.writeSummary {
             return "writeSummary"
+        }
+        if stored.workItems != replacement.workItems {
+            return "workItems"
         }
         if stored.failureMessage != replacement.failureMessage {
             return "failureMessage"
@@ -555,12 +525,17 @@ public actor RunRecordDataStore: RunRecordStore {
             scope: scope,
             runID: row.runID
         )
+        let workItems = payload?.workItems ?? fallback?.workItems ?? []
+        guard workItems.isEmpty || configuration != nil else {
+            throw RunRecordPersistenceError.corruptedField(name: "configuration", runID: row.runID)
+        }
         let payloadVersion = RunRecordPayload.version(for: configuration)
         let storedRecoveryID = payload?.recoveryID ?? fallback?.recoveryID
         let recoveryID = isWriteRecovery ? (storedRecoveryID ?? row.runID) : nil
         row.transitionsData = try JSONEncoder().encode(RunRecordPayload(
             version: payloadVersion,
             transitions: transitions,
+            workItems: workItems,
             configuration: configuration,
             writeTarget: payload?.writeTarget ?? fallback?.writeTarget,
             recoveryID: recoveryID,
@@ -588,9 +563,14 @@ public actor RunRecordDataStore: RunRecordStore {
         else { return false }
 
         let configuration = payload?.configuration ?? fallback?.configuration
+        let workItems = payload?.workItems ?? fallback?.workItems ?? []
+        guard workItems.isEmpty || configuration != nil else {
+            throw RunRecordPersistenceError.corruptedField(name: "configuration", runID: row.runID)
+        }
         row.transitionsData = try JSONEncoder().encode(RunRecordPayload(
             version: RunRecordPayload.version(for: configuration),
             transitions: transitions,
+            workItems: workItems,
             configuration: configuration,
             writeTarget: payload?.writeTarget ?? fallback?.writeTarget,
             recoveryID: payload?.recoveryID ?? fallback?.recoveryID,
@@ -661,6 +641,7 @@ public actor RunRecordDataStore: RunRecordStore {
         route: CorruptionRoute,
         isReadOnly: Bool
     ) -> Bool {
+        guard fallback?.hasMalformedItems != true else { return false }
         if isReadOnly {
             return route == .readOnlyClosure
                 || (route == .attention && isReadOnlyAttention(row, payload: payload, fallback: fallback))
@@ -669,16 +650,6 @@ public actor RunRecordDataStore: RunRecordStore {
         return route == .writeRecovery
             && (hasTerminalAudit(row, transitions: transitions)
                 || !isBlocked(row, payload: payload, fallback: fallback))
-    }
-
-    private static func invalidLifecycleField(state: RunLifecycleState, finishedAt: Date?) -> String? {
-        switch state {
-        case .completed, .completedNoOp, .failed, .cancelled:
-            finishedAt == nil ? "finishedAt" : nil
-        case .created, .queued, .syncingLibrary, .analyzingDelta, .planningFixes, .awaitingReview,
-             .writing, .verifying, .reporting, .blocked, .recoverable, .recovering:
-            finishedAt == nil ? nil : "finishedAt"
-        }
     }
 
     private func isPrunable(_ row: PersistedRunRecord) -> Bool {
