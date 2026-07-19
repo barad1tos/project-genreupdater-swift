@@ -83,6 +83,7 @@ enum RunPayloadCodec {
             return RunRecordPayload(
                 version: RunRecordPayload.legacyVersion,
                 transitions: transitions,
+                workItems: [],
                 configuration: nil,
                 writeTarget: nil,
                 recoveryID: nil,

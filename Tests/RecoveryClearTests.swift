@@ -32,8 +32,8 @@ struct RecoveryClearTests {
         #expect(await setup.dependencies.ensureRecoveryHold() == false)
     }
 
-    @Test("Verified corrupted write becomes a readable audit record")
-    func closesCorruptedWrite() async throws {
+    @Test("Opaque writes cannot be dismissed after verification")
+    func holdsOpaqueWrite() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
         let setup = try makeRecoverySetup(store: store)
@@ -42,12 +42,14 @@ struct RecoveryClearTests {
         try insertCorruptedRun(id: runID, state: .recoverable, into: container)
         #expect(await setup.dependencies.ensureRecoveryHold())
 
-        try await setup.dependencies.clearRecoveryHold(id: runID)
+        await #expect(throws: AppDependencyServiceError.recoveryBlocked) {
+            try await setup.dependencies.clearRecoveryHold(id: runID)
+        }
 
-        #expect(await setup.processor.recoveryHoldID() == nil)
-        #expect(await setup.dependencies.ensureRecoveryHold() == false)
-        let audit = try #require(await store.reports(matching: RunReportQuery()).records.first)
-        #expect(audit.state == .cancelled)
+        #expect(await setup.processor.recoveryHoldID() == runID)
+        let page = try await store.reports(matching: RunReportQuery())
+        #expect(page.records.isEmpty)
+        #expect(page.attentionRunIDs == [RunID(rawValue: runID)])
     }
 
     @Test("Blocked recovery cannot be dismissed as verified")

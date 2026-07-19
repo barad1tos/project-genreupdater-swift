@@ -8,8 +8,10 @@ struct RunRecoveryTests {
     @Test("Recovery transitions clamp stale timestamps")
     func clampsRecoveryTimestamps() throws {
         let startedAt = Date(timeIntervalSince1970: 200)
+        let workItems = [makeWorkItem(state: .attempted)]
         let record = makeRecoveryRecord(
             intent: .writeFixes,
+            workItems: workItems,
             startedAt: startedAt,
             finishedAt: nil,
             state: .writing
@@ -21,6 +23,8 @@ struct RunRecoveryTests {
 
         #expect(opened.transitions.last?.timestamp == previousTime)
         #expect(closed.transitions.suffix(2).map(\.timestamp) == [previousTime, previousTime])
+        #expect(opened.workItems == workItems)
+        #expect(closed.workItems == workItems)
         #expect(closed.finishedAt == previousTime)
     }
 
@@ -44,6 +48,7 @@ struct RunRecoveryTests {
         object.removeValue(forKey: "recoveryID")
         object.removeValue(forKey: "writeSummary")
         object.removeValue(forKey: "configuration")
+        object.removeValue(forKey: "workItems")
 
         let decoded = try JSONDecoder().decode(
             RunRecord.self,
@@ -55,6 +60,26 @@ struct RunRecoveryTests {
         #expect(decoded.writeSummary == nil)
         #expect(decoded.configuration == nil)
         #expect(decoded.transitions == record.transitions)
+        #expect(decoded.workItems.isEmpty)
+    }
+
+    @Test("Run record JSON rejects a null work-item audit")
+    func rejectsNullAudit() throws {
+        let record = makeRecoveryRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .recoverable
+        )
+        let encoded = try JSONEncoder().encode(record)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object["workItems"] = NSNull()
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(
+                RunRecord.self,
+                from: JSONSerialization.data(withJSONObject: object)
+            )
+        }
     }
 
     @Test("Legacy store row decodes through payload fallback")
@@ -81,8 +106,8 @@ struct RunRecoveryTests {
         #expect(record.writeSummary == nil)
     }
 
-    @Test("Corrupted recovery closure creates a readable terminal audit record")
-    func closesCorruptedRecovery() async throws {
+    @Test("Opaque recovery data requires attention")
+    func holdsOpaqueRecovery() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
         try insertRunRow(
@@ -98,27 +123,17 @@ struct RunRecoveryTests {
 
         let recoveryPage = try await store.reports(matching: RunReportQuery(states: [.recoverable]))
         #expect(recoveryPage.corruptedRunIDs == [RunID(rawValue: runID)])
-        #expect(recoveryPage.recoveryRunIDs == [RunID(rawValue: runID)])
+        #expect(recoveryPage.recoveryRunIDs.isEmpty)
+        #expect(recoveryPage.attentionRunIDs == [RunID(rawValue: runID)])
 
         let didClose = try await store.closeCorruptedRun(
             RunID(rawValue: runID),
             at: Date(timeIntervalSince1970: 200)
         )
 
-        let closedPage = try await store.reports(matching: RunReportQuery(states: [.recoverable]))
-        let auditPage = try await store.reports(matching: RunReportQuery())
-        #expect(closedPage.skippedCorruptedCount == 0)
-        #expect(didClose)
-        #expect(auditPage.skippedCorruptedCount == 0)
-        #expect(auditPage.corruptedRunIDs.isEmpty)
-        #expect(auditPage.recoveryRunIDs.isEmpty)
-        let audit = try #require(auditPage.records.first)
-        #expect(audit.runID == RunID(rawValue: runID))
-        #expect(audit.state == .cancelled)
-        #expect(audit.finishedAt == Date(timeIntervalSince1970: 200))
-        #expect(audit.configuration == nil)
-        #expect(audit.failureMessage?.contains("Music.app verification") == true)
-        #expect(audit.failureMessage?.contains("stored run payload was corrupted") == true)
+        let rows = try ModelContext(container).fetch(FetchDescriptor<PersistedRunRecord>())
+        #expect(didClose == false)
+        #expect(rows.first?.transitionsData == corruptedData)
     }
 
     @Test("Blocked corrupted recovery cannot be dismissed")
@@ -262,8 +277,9 @@ struct RunRecoveryTests {
         #expect(page.records.isEmpty)
         #expect(page.skippedCorruptedCount == 1)
         #expect(page.corruptedRunIDs == [RunID(rawValue: runID)])
-        #expect(page.recoveryRunIDs == [RunID(rawValue: runID)])
-        #expect(try await store.closeCorruptedRun(RunID(rawValue: runID), at: Date()))
+        #expect(page.recoveryRunIDs.isEmpty)
+        #expect(page.attentionRunIDs == [RunID(rawValue: runID)])
+        #expect(try await store.closeCorruptedRun(RunID(rawValue: runID), at: Date()) == false)
     }
 
     @Test("Read-only runs are not recovery candidates")
@@ -289,8 +305,8 @@ struct RunRecoveryTests {
         #expect(try await store.record(for: record.runID) == record)
     }
 
-    @Test("Corrupted read-only rows can use explicit closure")
-    func closesReadOnly() async throws {
+    @Test("Opaque read-only rows require attention")
+    func holdsOpaqueReadOnly() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let runID = UUID()
         try insertRunRow(
@@ -305,20 +321,13 @@ struct RunRecoveryTests {
 
         let store = RunRecordDataStore(modelContainer: container)
         let page = try await store.recoveryRecords()
-        let finishedAt = Date(timeIntervalSince1970: 200)
-
         #expect(page.records.isEmpty)
         #expect(page.skippedCorruptedCount == 1)
         #expect(page.corruptedRunIDs == [RunID(rawValue: runID)])
         #expect(page.recoveryRunIDs.isEmpty)
-        #expect(page.closableRunIDs == [RunID(rawValue: runID)])
-        #expect(try await store.closeReadOnlyCorruption(RunID(rawValue: runID), at: finishedAt))
-        let audit = try #require(await store.record(for: RunID(rawValue: runID)))
-        #expect(audit.intent == .observeLibrary)
-        #expect(audit.state == .cancelled)
-        #expect(audit.recoveryID == nil)
-        #expect(audit.finishedAt == finishedAt)
-        #expect(audit.failureMessage?.contains("no Music.app write recovery was required") == true)
+        #expect(page.closableRunIDs.isEmpty)
+        #expect(page.attentionRunIDs == [RunID(rawValue: runID)])
+        #expect(try await store.closeReadOnlyCorruption(RunID(rawValue: runID), at: Date()) == false)
     }
 
     @Test("Blocked read-only corruption requires an explicit decision")
@@ -338,9 +347,7 @@ struct RunRecoveryTests {
         #expect(page.recoveryRunIDs.isEmpty)
         #expect(page.closableRunIDs.isEmpty)
         #expect(page.attentionRunIDs == [RunID(rawValue: runID)])
-        #expect(try await store.closeReadOnlyCorruption(RunID(rawValue: runID), at: Date()))
-        let audit = try #require(await store.record(for: RunID(rawValue: runID)))
-        #expect(audit.transitions.map(\.state) == [.created, .blocked, .cancelled])
+        #expect(try await store.closeReadOnlyCorruption(RunID(rawValue: runID), at: Date()) == false)
     }
 
     @Test("Future read-only payloads fail closed without automatic closure")
@@ -433,6 +440,6 @@ struct RunRecoveryTests {
 }
 
 private struct FuturePayload: Encodable {
-    let version = 3
-    let futureState = "incompatible-v3"
+    let version = 4
+    let futureState = "incompatible-v4"
 }

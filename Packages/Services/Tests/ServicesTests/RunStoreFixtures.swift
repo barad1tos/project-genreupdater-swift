@@ -7,7 +7,7 @@ import Testing
 func validRunTransitionsData() throws -> Data {
     try JSONEncoder().encode([
         RunLifecycleTransition(state: .created, timestamp: Date(timeIntervalSince1970: 100)),
-        RunLifecycleTransition(state: .syncingLibrary, timestamp: Date(timeIntervalSince1970: 101)),
+        RunLifecycleTransition(state: .syncingLibrary, timestamp: Date(timeIntervalSince1970: 101))
     ])
 }
 
@@ -86,6 +86,7 @@ struct RunRecordInput {
     var writeTarget: FixPlanWriteTarget?
     var recoveryID: UUID?
     var writeSummary: RunWriteSummary?
+    var workItems: [RunWorkItem] = []
     var configurationScopeID: UUID?
     var scope: ProcessingScopeSnapshot?
     var configuration: RunConfig?
@@ -136,6 +137,7 @@ func makeRunRecord(
         writeTarget: input.writeTarget,
         recoveryID: input.recoveryID,
         transitions: transitions,
+        workItems: input.workItems,
         syncSummary: syncSummary,
         writeSummary: input.writeSummary,
         failureMessage: state == .failed ? "Music.app unavailable" : nil,
@@ -159,6 +161,7 @@ func replacing(
         writeTarget: record.writeTarget,
         recoveryID: record.recoveryID,
         transitions: record.transitions,
+        workItems: record.workItems,
         syncSummary: record.syncSummary,
         writeSummary: record.writeSummary,
         failureMessage: record.failureMessage,
@@ -193,6 +196,7 @@ func makeRecoveryRecord(
     intent: RunIntent = .observeLibrary,
     writeTarget: FixPlanWriteTarget? = nil,
     recoveryID: UUID? = nil,
+    workItems: [RunWorkItem] = [],
     startedAt: Date,
     finishedAt: Date?,
     state: RunLifecycleState,
@@ -208,6 +212,7 @@ func makeRecoveryRecord(
             writeTarget: writeTarget,
             recoveryID: recoveryID,
             writeSummary: writeSummary,
+            workItems: workItems,
             includesSyncTransition: false
         )
     )
