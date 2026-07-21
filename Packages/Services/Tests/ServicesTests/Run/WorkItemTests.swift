@@ -15,8 +15,7 @@ struct WorkItemTests {
             .skipped,
             .failed,
             .deferred,
-            .dismissed,
-            .cancelled
+            .dismissed
         ]
         let states: [WorkState] = [
             .prepared,
@@ -33,8 +32,7 @@ struct WorkItemTests {
             "skipped",
             "failed",
             "deferred",
-            "dismissed",
-            "cancelled"
+            "dismissed"
         ])
         #expect(try JSONDecoder().decode([WorkOutcome].self, from: JSONEncoder().encode(outcomes)) == outcomes)
         #expect(try JSONDecoder().decode([WorkState].self, from: JSONEncoder().encode(states)) == states)

@@ -573,11 +573,26 @@ public actor RunOrchestrator {
     ) async -> RunSubmissionResult {
         let reporting = beginReporting(from: lifecycle)
         let finishedAt = auditTime()
-        // Only the terminal record closes never-dispatched `.attempting` items as `.cancelled`.
-        // The pre-coercion `lifecycle`/`reporting` still count them as write progress, so a
-        // failed terminal persist below retains recovery instead of publishing an unstored
-        // terminal over a durable record that still holds the open `.attempting` checkpoint.
-        let cancelled = reporting.cancellingAttempts().cancelling(message: message, at: finishedAt)
+        // Cancellation reaches here only when no write was dispatched, so the terminal record
+        // closes every still-open item as `.skipped`. The pre-close `lifecycle` still counts
+        // `.attempting` items as write progress, keeping the unstored-terminal fallback below
+        // consistent with the durable record that may still hold the open checkpoint.
+        let closed: RunLifecycleSnapshot
+        do {
+            closed = try reporting.skippingOpenWork()
+        } catch {
+            log.error("""
+            Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) could not close open work \
+            on cancellation: \(error.localizedDescription, privacy: .public)
+            """)
+            return await finishUnstoredWrite(
+                from: reporting,
+                syncResult: nil,
+                writeSummary: nil,
+                failureMessage: message
+            )
+        }
+        let cancelled = closed.cancelling(message: message, at: finishedAt)
         appendTransition(cancelled.state, at: finishedAt)
         let isStored = await persistRecord(
             for: cancelled,
@@ -586,13 +601,21 @@ public actor RunOrchestrator {
             failureMessage: cancelled.failureMessage,
             finishedAt: cancelled.finishedAt
         )
-        if lifecycle.intent == .writeFixes, !isStored, lifecycle.hasWriteProgress {
+        if lifecycle.intent == .writeFixes, !isStored {
             activeTransitions.removeLast()
-            return await finishUnstoredWrite(
-                from: reporting,
-                syncResult: nil,
-                writeSummary: nil,
-                failureMessage: message
+            if lifecycle.hasWriteProgress {
+                return await finishUnstoredWrite(
+                    from: reporting,
+                    syncResult: nil,
+                    writeSummary: nil,
+                    failureMessage: message
+                )
+            }
+            // A cancelled run with no write progress is conclusive; mirror the verified
+            // no-op rule: never publish a terminal whose record did not persist.
+            return await finishFailedRun(
+                from: closed,
+                failureMessage: "\(message); run history could not be finalized"
             )
         }
         publishInactive(cancelled)

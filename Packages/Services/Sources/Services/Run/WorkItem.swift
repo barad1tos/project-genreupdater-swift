@@ -17,8 +17,6 @@ public enum WorkOutcome: String, CaseIterable, Codable, Equatable, Sendable {
     case failed
     case deferred
     case dismissed
-    /// The write was abandoned before any command reached Music.app (for example a cancelled run).
-    case cancelled
 }
 
 /// Durable progress kept separately from the result of the work.

@@ -77,18 +77,6 @@ struct WorkLedgerTests {
         #expect(attempted.hasUncertainty)
     }
 
-    @Test("a never-dispatched attempt terminalizes as cancelled")
-    func cancelsUndispatchedAttempt() throws {
-        let item = makeWorkItem(state: .prepared)
-        let attempting = try WorkLedger([item]).applying(.beforeAttempt([item.id]))
-        let cancelled = try attempting.applying(.afterVerification([item.id: .cancelled]))
-
-        #expect(cancelled.items.first?.state == .outcome(.cancelled))
-        #expect(!cancelled.hasUncertainty)
-        #expect(!cancelled.hasDispatchedWrite)
-        #expect(!cancelled.hasOpenItems)
-    }
-
     @Test("a no-op or skip verification resolves an undispatched attempt as-is")
     func recordsFallbackNoOp() throws {
         let noOpItem = makeWorkItem(state: .prepared)

@@ -420,26 +420,18 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         return try withWorkLedger(workLedger.applying(checkpoint))
     }
 
-    /// Terminalizes any `.attempting` work item as `.cancelled` — used when a write run is
-    /// cancelled before its command reached Music.app, so no uncertain item lingers in the
-    /// terminal record. A no-op when nothing is mid-attempt.
-    func cancellingAttempts() -> Self {
-        let attemptingIDs = Set(workItems.filter { $0.state == .attempting }.map(\.id))
-        guard !attemptingIDs.isEmpty else { return self }
+    /// Terminalizes every still-open work item as `.skipped` — used when a write run is
+    /// cancelled before its command reached Music.app, so the terminal record has a
+    /// conclusive outcome for each item (`.prepared` work was never started; `.attempting`
+    /// work provably never dispatched). A no-op when no item is open; throws when the
+    /// closing checkpoint is rejected so the caller can stay on a conservative path.
+    func skippingOpenWork() throws -> Self {
+        let openIDs = Set(workItems.filter { $0.state == .prepared || $0.state == .attempting }.map(\.id))
+        guard !openIDs.isEmpty else { return self }
         let checkpoint = WorkCheckpoint.afterVerification(
-            Dictionary(uniqueKeysWithValues: attemptingIDs.map { ($0, WorkOutcome.cancelled) })
+            Dictionary(uniqueKeysWithValues: openIDs.map { ($0, WorkOutcome.skipped) })
         )
-        do {
-            return try applying(checkpoint)
-        } catch {
-            // Unreachable for a real cancelled write: any `.attempting` item already passed the
-            // same intent/authority guards. Kept observable so a violated invariant leaves a trail.
-            log.error("""
-            Failed to close undispatched attempts on cancellation: \
-            \(error.localizedDescription, privacy: .public)
-            """)
-            return self
-        }
+        return try applying(checkpoint)
     }
 
     /// assertionFailure alone compiles to a no-op in Release, so a violated

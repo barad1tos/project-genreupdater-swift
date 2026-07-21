@@ -106,6 +106,27 @@ struct BatchWriteTests {
         #expect(written.isEmpty)
     }
 
+    @Test("A pre-dispatch batch cancellation emits only the before-attempt checkpoint")
+    func propagatesBatchCancellation() async throws {
+        let fixture = await makeCoordinator(batchUpdatesEnabled: true)
+        await fixture.bridge.setBatchCancellationMode(true)
+        let track = makeTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.bridge.setFetchedTracks([track])
+        let proposals = acceptedProposals(for: track)
+        let checkpoints = CheckpointRecorder()
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                proposals,
+                progressHandler: ignoreProgress,
+                checkpoint: { await checkpoints.append($0.boundary) }
+            )
+        }
+
+        #expect(await checkpoints.boundaries == [.beforeAttempt])
+        #expect(await fixture.bridge.writtenProperties.isEmpty)
+    }
+
     @Test("A stale reviewed item does not discard a valid batch peer")
     func isolatesStalePeer() async throws {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
@@ -286,4 +307,12 @@ private struct BatchWriteFixture {
     let bridge: MockAppleScriptClient
     let cache: MockCacheService
     let snapshot: MockLibrarySnapshotService
+}
+
+private actor CheckpointRecorder {
+    private(set) var boundaries: [CheckpointBoundary] = []
+
+    func append(_ boundary: CheckpointBoundary) {
+        boundaries.append(boundary)
+    }
 }

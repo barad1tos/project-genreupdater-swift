@@ -200,7 +200,8 @@ func writeTarget() -> FixPlanWriteTarget {
 func writeInput(
     target: FixPlanWriteTarget = writeTarget(),
     artists: [String] = [],
-    knownTrackCount: Int? = nil
+    knownTrackCount: Int? = nil,
+    workItems: [RunWorkItem]? = nil
 ) -> FixPlanWriteInput {
     let capturedAt = Date(timeIntervalSince1970: 90)
     let scope = ProcessingScopeSnapshot.capture(
@@ -217,7 +218,7 @@ func writeInput(
             capturedAt: capturedAt,
             writeAuthority: .reviewedPlan
         ),
-        workItems: [makeWorkItem(state: .prepared)]
+        workItems: workItems ?? [makeWorkItem(state: .prepared)]
     )
 }
 
