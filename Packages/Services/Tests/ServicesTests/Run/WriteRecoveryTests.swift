@@ -527,6 +527,38 @@ struct WriteRecoveryTests {
         #expect(await orchestrator.currentLifecycle()?.state == .failed)
     }
 
+    @Test("verified no-op retains recovery when every terminal persistence attempt fails")
+    func noOpRepeatedStoreFailure() async throws {
+        let records = RejectingTerminalProbe()
+        let recoveryID = UUID()
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await records.append($0) },
+            write: .init(
+                writeFixPlan: { _, checkpoint in
+                    try await checkpoint(.afterVerification([itemID: .noFixNeeded]))
+                    return BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
+                },
+                beginRecoveryHold: { recoveryID }
+            )
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case let .recoverable(snapshot, reason) = result else {
+            Issue.record("Expected recoverable result after repeated terminal persistence failure")
+            return
+        }
+        #expect(snapshot.state == .recoverable)
+        #expect(snapshot.workItems.first?.state == .outcome(.noFixNeeded))
+        #expect(reason.contains("history could not be finalized"))
+        #expect(!reason.contains("Verify Music.app"))
+        #expect(await records.records.last?.state == .recoverable)
+        #expect(await records.records.last?.recoveryID == recoveryID)
+    }
+
     @Test("Conclusive write failures do not open recovery when terminal persistence fails")
     func failedWriteFinalizationFailure() async throws {
         let records = FailedRunProbe()

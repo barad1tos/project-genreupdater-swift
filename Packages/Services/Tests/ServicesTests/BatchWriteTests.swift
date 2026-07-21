@@ -106,24 +106,49 @@ struct BatchWriteTests {
         #expect(written.isEmpty)
     }
 
-    @Test("A pre-dispatch batch cancellation emits only the before-attempt checkpoint")
-    func propagatesBatchCancellation() async throws {
+    @Test("A pre-dispatch batch cancellation closes its orchestrated run")
+    func orchestratesBatchCancellation() async {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
         await fixture.bridge.setBatchCancellationMode(true)
         let track = makeTrack(id: "MK1", genre: "Rock", year: 1999)
         await fixture.bridge.setFetchedTracks([track])
         let proposals = acceptedProposals(for: track)
         let checkpoints = CheckpointRecorder()
-
-        await #expect(throws: CancellationError.self) {
-            _ = try await fixture.coordinator.applyAcceptedChanges(
-                proposals,
-                progressHandler: ignoreProgress,
-                checkpoint: { await checkpoints.append($0.boundary) }
+        let records = WriteRecordProbe()
+        let input = writeInput(workItems: workItems(for: proposals))
+        let coordinator = fixture.coordinator
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await records.append($0) },
+            write: .init(
+                writeFixPlan: { _, checkpoint in
+                    try await coordinator.applyAcceptedChanges(
+                        proposals,
+                        progressHandler: ignoreProgress,
+                        checkpoint: {
+                            await checkpoints.append($0.boundary)
+                            try await checkpoint($0)
+                        }
+                    )
+                },
+                beginRecoveryHold: {
+                    Issue.record("Pre-dispatch batch cancellation must not open recovery")
+                    return UUID()
+                }
             )
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case let .cancelled(snapshot) = result else {
+            Issue.record("Expected terminal cancellation, got \(result)")
+            return
         }
 
         #expect(await checkpoints.boundaries == [.beforeAttempt])
+        #expect(snapshot.workItems.allSatisfy { $0.state == .outcome(.skipped) })
+        #expect(await records.records.last?.state == .cancelled)
+        #expect(await records.records.last?.workItems.allSatisfy { $0.state == .outcome(.skipped) } == true)
         #expect(await fixture.bridge.writtenProperties.isEmpty)
     }
 
@@ -278,6 +303,28 @@ struct BatchWriteTests {
                 isAccepted: true
             ),
         ]
+    }
+
+    private func workItems(for proposals: [ProposedChange]) -> [RunWorkItem] {
+        proposals.map { proposal in
+            RunWorkItem(
+                id: proposal.id,
+                target: .track(FixPlanItemIdentity(
+                    readID: proposal.track.id,
+                    appleScriptID: proposal.track.appleScriptID,
+                    artist: proposal.track.artist,
+                    album: proposal.track.album,
+                    trackName: proposal.track.name
+                )),
+                change: WorkChange(
+                    changeType: proposal.changeType,
+                    oldValue: proposal.oldValue,
+                    newValue: proposal.newValue,
+                    confidence: proposal.confidence,
+                    source: proposal.source
+                )
+            )
+        }
     }
 
     private func makeTrack(

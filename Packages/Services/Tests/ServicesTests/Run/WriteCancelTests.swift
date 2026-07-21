@@ -95,6 +95,35 @@ struct WriteCancelTests {
         #expect(terminal.recoveryID == nil)
     }
 
+    @Test("repeated terminal persistence failure keeps cancellation recoverable")
+    func recoversRepeatedStoreFailure() async {
+        let records = RejectingTerminalProbe()
+        let recoveryID = UUID()
+        let input = writeInput()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await records.append($0) },
+            write: .init(
+                writeFixPlan: { _, _ in throw CancellationError() },
+                beginRecoveryHold: { recoveryID }
+            )
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case let .recoverable(snapshot, reason) = result else {
+            Issue.record("Expected recoverable result after repeated terminal persistence failure")
+            return
+        }
+        #expect(snapshot.state == .recoverable)
+        #expect(snapshot.finishedAt == nil)
+        #expect(reason.contains("history could not be finalized"))
+        #expect(!reason.contains("Verify Music.app"))
+        #expect(await records.records.map(\.state) == [.writing, .recoverable])
+        #expect(await records.records.last?.recoveryID == recoveryID)
+        #expect(await records.records.allSatisfy { $0.finishedAt == nil })
+    }
+
     @Test("cancellation closes untouched work items as skipped")
     func skipsRemainingOnCancel() async throws {
         let records = WriteRecordProbe()
@@ -148,13 +177,16 @@ struct WriteCancelTests {
 
         let result = await orchestrator.submit(.manualWrite(input: input))
 
-        guard case .recoverable = result else {
+        guard case let .recoverable(snapshot, reason) = result else {
             Issue.record("Expected recoverable result when the cancelled terminal cannot persist")
             return
         }
+        #expect(snapshot.workItems.allSatisfy { $0.state == .outcome(.skipped) })
+        #expect(!reason.contains("Verify Music.app"))
         #expect(await orchestrator.currentLifecycle()?.state == .recoverable)
         let retained = try #require(await records.records.last)
         #expect(retained.state == .recoverable)
+        #expect(retained.workItems.allSatisfy { $0.state == .outcome(.skipped) })
         #expect(retained.finishedAt == nil)
         #expect(retained.recoveryID == recoveryID)
     }

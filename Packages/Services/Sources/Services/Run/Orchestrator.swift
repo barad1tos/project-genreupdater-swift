@@ -329,7 +329,8 @@ public actor RunOrchestrator {
                 from: reporting,
                 failureMessage: "Verified write run could not persist its terminal record",
                 syncResult: completed.syncResult,
-                writeSummary: work.writeSummary
+                writeSummary: work.writeSummary,
+                isTerminalRetry: true
             )
         }
         publishInactive(completed)
@@ -489,7 +490,8 @@ public actor RunOrchestrator {
         from lifecycle: RunLifecycleSnapshot,
         failureMessage: String,
         syncResult: SyncResult? = nil,
-        writeSummary: RunWriteSummary? = nil
+        writeSummary: RunWriteSummary? = nil,
+        isTerminalRetry: Bool = false
     ) async -> RunSubmissionResult {
         let reporting = lifecycle.state == .reporting ? lifecycle : beginReporting(from: lifecycle)
         let finishedAt = auditTime()
@@ -502,9 +504,8 @@ public actor RunOrchestrator {
             failureMessage: failed.failureMessage,
             finishedAt: failed.finishedAt
         )
-        if lifecycle.intent == .writeFixes,
-           !isStored,
-           (writeSummary?.applied ?? 0) > 0 || lifecycle.hasWriteProgress {
+        let shouldRecover = isTerminalRetry || (writeSummary?.applied ?? 0) > 0 || lifecycle.hasWriteProgress
+        if lifecycle.intent == .writeFixes, !isStored, shouldRecover {
             activeTransitions.removeLast()
             return await finishUnstoredWrite(
                 from: reporting,
@@ -546,8 +547,10 @@ public actor RunOrchestrator {
         writeSummary: RunWriteSummary?,
         failureMessage: String?
     ) async -> RunSubmissionResult {
-        let finalizationMessage =
-            "Write finished, but run history could not be finalized. Verify Music.app before continuing."
+        let hasWriteEffects = reporting.hasWriteProgress || (writeSummary?.applied ?? 0) > 0
+        let finalizationMessage = hasWriteEffects
+            ? "Write finished, but run history could not be finalized. Verify Music.app before continuing."
+            : "Run history could not be finalized. Writes remain blocked until history is available."
         let message = failureMessage.map { "\($0) \(finalizationMessage)" } ?? finalizationMessage
         let recoverable = reporting.requiringRecovery()
         appendTransition(recoverable.state)
@@ -573,10 +576,8 @@ public actor RunOrchestrator {
     ) async -> RunSubmissionResult {
         let reporting = beginReporting(from: lifecycle)
         let finishedAt = auditTime()
-        // Cancellation reaches here only when no write was dispatched, so the terminal record
-        // closes every still-open item as `.skipped`. The pre-close `lifecycle` still counts
-        // `.attempting` items as write progress, keeping the unstored-terminal fallback below
-        // consistent with the durable record that may still hold the open checkpoint.
+        // Cancellation reaches here before dispatch. Close open work as `.skipped` while retaining
+        // the pre-close checkpoint for unstored-terminal recovery.
         let closed: RunLifecycleSnapshot
         do {
             closed = try reporting.skippingOpenWork()
@@ -605,17 +606,17 @@ public actor RunOrchestrator {
             activeTransitions.removeLast()
             if lifecycle.hasWriteProgress {
                 return await finishUnstoredWrite(
-                    from: reporting,
+                    from: closed,
                     syncResult: nil,
                     writeSummary: nil,
                     failureMessage: message
                 )
             }
-            // A cancelled run with no write progress is conclusive; mirror the verified
-            // no-op rule: never publish a terminal whose record did not persist.
+            // Never publish a cancelled terminal whose record did not persist.
             return await finishFailedRun(
                 from: closed,
-                failureMessage: "\(message); run history could not be finalized"
+                failureMessage: "\(message); run history could not be finalized",
+                isTerminalRetry: true
             )
         }
         publishInactive(cancelled)

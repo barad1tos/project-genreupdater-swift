@@ -63,6 +63,15 @@ actor FailingRecordProbe {
     }
 }
 
+actor RejectingTerminalProbe {
+    private(set) var records: [RunRecord] = []
+
+    func append(_ record: RunRecord) throws {
+        guard record.finishedAt == nil else { throw RecordWriteError() }
+        records.append(record)
+    }
+}
+
 func checkpointWrite(
     _ input: FixPlanWriteInput,
     outcome: WorkOutcome = .written,
