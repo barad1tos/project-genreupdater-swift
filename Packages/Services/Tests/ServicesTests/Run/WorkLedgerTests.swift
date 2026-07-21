@@ -89,6 +89,30 @@ struct WorkLedgerTests {
         #expect(!cancelled.hasOpenItems)
     }
 
+    @Test("a no-op or skip on an undispatched attempt records cancellation")
+    func coercesAbandonedAttemptToCancelled() throws {
+        let noOpItem = makeWorkItem(state: .prepared)
+        let skipItem = makeWorkItem(state: .prepared)
+        let ledger = try WorkLedger([noOpItem, skipItem])
+            .applying(.beforeAttempt([noOpItem.id, skipItem.id]))
+
+        let resolved = try ledger
+            .applying(.afterVerification([noOpItem.id: .noFixNeeded]))
+            .applying(.afterVerification([skipItem.id: .skipped]))
+
+        #expect(resolved.items.map(\.state) == [.outcome(.cancelled), .outcome(.cancelled)])
+        #expect(!resolved.hasUncertainty)
+        #expect(!resolved.hasOpenItems)
+    }
+
+    @Test("a no-op verification on a prepared item is unchanged")
+    func keepsPreparedNoOp() throws {
+        let item = makeWorkItem(state: .prepared)
+        let resolved = try WorkLedger([item]).applying(.afterVerification([item.id: .noFixNeeded]))
+
+        #expect(resolved.items.first?.state == .outcome(.noFixNeeded))
+    }
+
     @Test(
         "per-item checkpoints scale to a full library",
         .timeLimit(.minutes(1))
