@@ -283,7 +283,9 @@ struct RunRecoveryTests {
         let interrupted = try #require(await store.recoveryRecords().records.first)
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in }
+            persistRunRecord: { _ in
+                // The test restores the record already persisted above.
+            }
         ))
         await orchestrator.restoreRecovery(interrupted)
         let recoveryID = UUID()

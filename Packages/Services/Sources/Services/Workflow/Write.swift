@@ -5,11 +5,13 @@ private struct BatchWriteOutcome {
     let currentTracksByID: [String: Track]
     let appliedIndexes: Set<Int>
     let noOpIndexes: Set<Int>
+    let preflightFailures: [Int: UpdateCoordinatorError]
 }
 
 private struct ReviewedBatchPreflight {
     let writeIndexes: Set<Int>
     let noOpIndexes: Set<Int>
+    let failures: [Int: UpdateCoordinatorError]
 }
 
 extension UpdateCoordinator {
@@ -255,11 +257,21 @@ extension UpdateCoordinator {
                 noOpEntries.append(Self.noOpLogEntry(preparedWrite.change))
                 continue
             case .failed:
-                await recordUnverifiedBatchWrite(
-                    preparedWrite,
-                    failedTrackIDs: &failedTrackIDs,
-                    errorDescriptions: &errorDescriptions
-                )
+                if let error = batchOutcome.preflightFailures[writeIndex] {
+                    try recordWorkflowWriteFailure(
+                        error,
+                        isReviewedChange: true,
+                        trackID: preparedWrite.change.track.id,
+                        failedTrackIDs: &failedTrackIDs,
+                        errorDescriptions: &errorDescriptions
+                    )
+                } else {
+                    await recordUnverifiedBatchWrite(
+                        preparedWrite,
+                        failedTrackIDs: &failedTrackIDs,
+                        errorDescriptions: &errorDescriptions
+                    )
+                }
                 continue
             case .written:
                 do {
@@ -362,7 +374,8 @@ extension UpdateCoordinator {
             return BatchWriteOutcome(
                 currentTracksByID: currentTracksByID,
                 appliedIndexes: [],
-                noOpIndexes: preflight.noOpIndexes
+                noOpIndexes: preflight.noOpIndexes,
+                preflightFailures: preflight.failures
             )
         }
 
@@ -422,7 +435,8 @@ extension UpdateCoordinator {
         return BatchWriteOutcome(
             currentTracksByID: currentTracksByID,
             appliedIndexes: preflight.writeIndexes,
-            noOpIndexes: preflight.noOpIndexes
+            noOpIndexes: preflight.noOpIndexes,
+            preflightFailures: preflight.failures
         )
     }
 
@@ -434,29 +448,40 @@ extension UpdateCoordinator {
         guard isReviewedChange else {
             return ReviewedBatchPreflight(
                 writeIndexes: Set(preparedWrites.indices),
-                noOpIndexes: []
+                noOpIndexes: [],
+                failures: [:]
             )
         }
 
         var writeIndexes = Set<Int>()
         var noOpIndexes = Set<Int>()
+        var failures: [Int: UpdateCoordinatorError] = [:]
         for (index, preparedWrite) in preparedWrites.enumerated() {
             guard let currentTrack = currentTracksByID[preparedWrite.trackID] else {
                 continue
             }
-            let shouldWrite = try shouldWrite(
-                preparedWrite.change,
-                to: currentTrack,
-                property: preparedWrite.property,
-                staleTrackID: preparedWrite.change.track.id
-            )
-            if shouldWrite {
-                writeIndexes.insert(index)
-            } else {
-                noOpIndexes.insert(index)
+            do {
+                let shouldWrite = try shouldWrite(
+                    preparedWrite.change,
+                    to: currentTrack,
+                    property: preparedWrite.property,
+                    staleTrackID: preparedWrite.change.track.id
+                )
+                if shouldWrite {
+                    writeIndexes.insert(index)
+                } else {
+                    noOpIndexes.insert(index)
+                }
+            } catch let error as UpdateCoordinatorError {
+                guard case .reviewedChangeStale = error else { throw error }
+                failures[index] = error
             }
         }
-        return ReviewedBatchPreflight(writeIndexes: writeIndexes, noOpIndexes: noOpIndexes)
+        return ReviewedBatchPreflight(
+            writeIndexes: writeIndexes,
+            noOpIndexes: noOpIndexes,
+            failures: failures
+        )
     }
 
     private func verifyBatchAfterFailure(
@@ -482,7 +507,8 @@ extension UpdateCoordinator {
                 let batch = BatchWriteOutcome(
                     currentTracksByID: currentTracksByID,
                     appliedIndexes: appliedIndexes,
-                    noOpIndexes: preflight.noOpIndexes
+                    noOpIndexes: preflight.noOpIndexes,
+                    preflightFailures: preflight.failures
                 )
                 try await recordBatchEffects(
                     preparedWrites,
@@ -509,7 +535,8 @@ extension UpdateCoordinator {
             return BatchWriteOutcome(
                 currentTracksByID: currentTracksByID,
                 appliedIndexes: appliedIndexes,
-                noOpIndexes: preflight.noOpIndexes
+                noOpIndexes: preflight.noOpIndexes,
+                preflightFailures: preflight.failures
             )
         } catch is CancellationError {
             throw CancellationError()

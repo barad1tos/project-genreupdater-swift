@@ -41,7 +41,9 @@ func makeWorkflowFixture(
     pendingVerificationService: (any PendingVerificationService)? = nil,
     idMapper: (any TrackIDMapping)? = nil,
     prepareMutationMetadata: (([Track]) async throws -> Void)? = noOpPrepareMutationMetadata,
-    configure: (inout WorkflowFixtureOptions) -> Void = { _ in }
+    configure: (inout WorkflowFixtureOptions) -> Void = { _ in
+        // Default fixtures keep workflow options unchanged.
+    }
 ) -> WorkflowFixture {
     var options = WorkflowFixtureOptions()
     configure(&options)

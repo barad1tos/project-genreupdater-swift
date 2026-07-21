@@ -106,28 +106,29 @@ struct BatchWriteTests {
         #expect(written.isEmpty)
     }
 
-    @Test("Reviewed batch write fails stale current metadata before script write")
-    func reviewedBatchRejectsStale() async throws {
+    @Test("A stale reviewed item does not discard a valid batch peer")
+    func isolatesStalePeer() async throws {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
         let reviewedTrack = makeTrack(id: "MK1", genre: "Rock", year: 1999)
         let currentTrack = makeTrack(id: "MK1", genre: "Jazz", year: 1999)
         await fixture.bridge.setFetchedTracks([currentTrack])
         let proposals = acceptedProposals(for: reviewedTrack)
 
-        do {
-            _ = try await fixture.coordinator.applyAcceptedChanges(
-                proposals,
-                progressHandler: ignoreProgress
-            )
-            Issue.record("Expected stale reviewed batch failure")
-        } catch let error as UpdateCoordinatorError {
-            #expect(error.errorDescription?.contains("reviewed value no longer matches Music.app") == true)
-        }
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreProgress
+        )
 
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
-        #expect(batches.isEmpty)
+        #expect(batches.map { $0.map(\.property) } == [["year"]])
         #expect(written.isEmpty)
+        #expect(result.entries.map(\.changeType) == [.yearUpdate])
+        #expect(result.noOpEntries.isEmpty)
+        #expect(result.failedTrackIDs == ["MK1"])
+        #expect(result.errorDescriptions.count == 1)
+        #expect(result.errorDescriptions.first?.contains("reviewed value no longer matches Music.app") == true)
+        #expect(result.hasPartialFailures)
     }
 
     @Test("Pre-run batch failure falls back to single writes")

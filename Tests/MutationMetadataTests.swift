@@ -37,7 +37,9 @@ struct MutationMetadataTests {
     func previewContinuesWhileRecoveryHoldIsActive() async throws {
         let fixture = makeWorkflowFixture(configure: { options in
             options.ensureRecoveryHold = { true }
-            options.clearRecovery = { _ in }
+            options.clearRecovery = { _ in
+                // Preview must leave the active recovery hold intact.
+            }
         })
         let viewModel = fixture.viewModel
         let tracks = [

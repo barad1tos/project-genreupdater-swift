@@ -294,6 +294,45 @@ struct OrchestratorTests {
         #expect(firstTerminalIndex < queuedActiveIndex)
     }
 
+    @Test("Recovery changes stay behind an active lifecycle")
+    func keepsRecoveryHidden() async throws {
+        let gate = SyncGate()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                await gate.waitUntilReleased()
+                return SyncResult()
+            },
+            persistRunRecord: ignoreRunRecord
+        ))
+        let active = Task {
+            await orchestrator.submit(.manualObservation(
+                requestedTestArtists: [],
+                knownTrackCount: nil
+            ))
+        }
+        await gate.waitUntilEntered()
+        let activeRunID = try #require(await orchestrator.activeLifecycle()?.runID)
+        let iterator = await LifecycleIterator(updates: orchestrator.lifecycleUpdates())
+
+        let replayed = try await nextLifecycleSnapshot(from: iterator)
+        #expect(replayed?.runID == activeRunID)
+
+        let recovery = recoveryRecord()
+        await orchestrator.restoreRecovery(recovery)
+        await orchestrator.resolveRecovery(runID: recovery.runID, at: Date(timeIntervalSince1970: 200))
+        await gate.release()
+        _ = await active.value
+
+        var snapshots: [RunLifecycleSnapshot] = []
+        while let snapshot = try await nextLifecycleSnapshot(from: iterator) {
+            snapshots.append(snapshot)
+            if snapshot.runID == activeRunID, !snapshot.isActive {
+                break
+            }
+        }
+        #expect(snapshots.allSatisfy { $0.runID == activeRunID })
+    }
+
     @Test("lifecycle stream bounds buffered checkpoint snapshots")
     func boundsLifecycleBuffer() async throws {
         let input = writeInput()

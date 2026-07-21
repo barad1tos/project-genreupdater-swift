@@ -286,7 +286,9 @@ private func makeWriteFixture(hasInitialRecovery: Bool) async -> WriteFixture {
         processor: processor,
         runtime: runtime,
         run: { input in
-            try await write(input) { _ in }
+            try await write(input) { _ in
+                // Checkpoint persistence is outside this write-fixture contract.
+            }
         },
         directory: directory
     )

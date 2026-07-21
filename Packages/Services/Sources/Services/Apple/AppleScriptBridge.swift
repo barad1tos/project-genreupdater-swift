@@ -367,14 +367,6 @@ extension AppleScriptBridge {
         } catch let error as AppleScriptOutcomeError {
             try await onAttempt?()
             throw error
-        } catch {
-            try await onAttempt?()
-            // Dispatched unknown outcomes use post-run verification instead of single-write replay.
-            throw AppleScriptBatchVerificationError(
-                updateCount: updates.count,
-                failedCount: nil,
-                reason: "Batch script did not return a verifiable result: \(error.localizedDescription)"
-            )
         }
         try await onAttempt?()
 

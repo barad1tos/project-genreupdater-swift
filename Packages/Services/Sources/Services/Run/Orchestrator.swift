@@ -155,8 +155,8 @@ public actor RunOrchestrator {
         discardPendingWrites()
         if activeRun == nil {
             latestRun = snapshot
+            broadcast(snapshot)
         }
-        broadcast(snapshot)
     }
 
     /// Resolves only recoverable holds; blocked records require a separate repair path.
@@ -171,8 +171,8 @@ public actor RunOrchestrator {
         self.recoveryRun = nil
         if activeRun == nil {
             latestRun = resolved
+            broadcast(resolved)
         }
-        broadcast(resolved)
     }
 
     public func lifecycleUpdates() -> LifecycleUpdates {
