@@ -257,13 +257,13 @@ public actor RunOrchestrator {
             await releasePreview(request)
             log.error("Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) cancelled")
             let current = activeRun ?? lifecycle
-            if request.intent == .writeFixes, current.hasWriteUncertainty {
+            if request.intent == .writeFixes, current.hasDispatchedWrite {
                 return await finishRecoverableRun(
                     from: current,
                     failureMessage: "Write cancelled after durable progress; verify Music.app before continuing"
                 )
             }
-            return await finishCancelledRun(from: current, message: "Run cancelled")
+            return await finishCancelledRun(from: current.cancellingAttempts(), message: "Run cancelled")
         } catch let error as WorkCheckpointError where request.intent == .writeFixes && error.needsRecovery {
             await releasePreview(request)
             return await finishRecoverableRun(

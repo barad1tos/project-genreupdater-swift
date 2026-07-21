@@ -5,6 +5,7 @@ struct WorkLedger: Equatable, Sendable {
     private struct Counts: Equatable, Sendable {
         var open = 0
         var uncertain = 0
+        var dispatched = 0
         var written = 0
 
         init(_ items: [RunWorkItem]) {
@@ -22,9 +23,13 @@ struct WorkLedger: Equatable, Sendable {
             switch state {
             case .prepared:
                 open += change
-            case .attempting, .attempted:
+            case .attempting:
                 open += change
                 uncertain += change
+            case .attempted:
+                open += change
+                uncertain += change
+                dispatched += change
             case .outcome(.written):
                 written += change
             case .outcome:
@@ -70,6 +75,12 @@ struct WorkLedger: Equatable, Sendable {
 
     var hasUncertainty: Bool {
         counts.uncertain > 0
+    }
+
+    /// True once at least one write was actually dispatched to Music.app (an `.attempted` item).
+    /// Distinct from `hasUncertainty`, which also covers `.attempting` items that never dispatched.
+    var hasDispatchedWrite: Bool {
+        counts.dispatched > 0
     }
 
     var hasProgress: Bool {

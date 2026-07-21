@@ -280,7 +280,7 @@ extension UpdateCoordinator {
                 } catch {
                     firstFinalizationError = firstFinalizationError ?? error
                 }
-            case .fixProposed, .needsReview, .skipped, .deferred, .dismissed:
+            case .fixProposed, .needsReview, .skipped, .deferred, .dismissed, .cancelled:
                 assertionFailure("Unexpected terminal batch work outcome")
             }
         }
@@ -570,7 +570,7 @@ extension UpdateCoordinator {
                 }
             case .noFixNeeded:
                 await invalidateCaches(for: write.change)
-            case .failed, .fixProposed, .needsReview, .skipped, .deferred, .dismissed:
+            case .failed, .fixProposed, .needsReview, .skipped, .deferred, .dismissed, .cancelled:
                 assertionFailure("Unexpected unconfirmed batch work outcome")
             }
         }

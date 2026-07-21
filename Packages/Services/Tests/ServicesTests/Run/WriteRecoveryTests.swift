@@ -362,6 +362,38 @@ struct WriteRecoveryTests {
         #expect(record.recoveryID == recoveryID)
     }
 
+    @Test("cancellation before dispatch cancels the item without recovery")
+    func cancellationBeforeDispatchCancels() async throws {
+        let records = WriteRecordProbe()
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await records.append($0) },
+            write: .init(
+                writeFixPlan: { _, checkpoint in
+                    try await checkpoint(.beforeAttempt([itemID]))
+                    throw CancellationError()
+                },
+                beginRecoveryHold: {
+                    Issue.record("Pre-dispatch cancellation must not open recovery")
+                    return UUID()
+                }
+            )
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case let .cancelled(snapshot) = result else {
+            Issue.record("Expected cancelled result")
+            return
+        }
+        #expect(snapshot.workItems.first?.state == .outcome(.cancelled))
+        #expect(await records.records.last?.state == .cancelled)
+        #expect(await records.records.last?.recoveryID == nil)
+        #expect(await records.records.last?.workItems.first?.state == .outcome(.cancelled))
+    }
+
     @Test("cancellation after a verified skip does not require recovery")
     func cancellationAfterSkip() async throws {
         let records = WriteRecordProbe()

@@ -63,6 +63,32 @@ struct WorkLedgerTests {
         #expect(written.hasProgress)
     }
 
+    @Test("dispatched writes are distinguished from mere attempts")
+    func distinguishesDispatchFromAttempt() throws {
+        let item = makeWorkItem(state: .prepared)
+        let prepared = WorkLedger([item])
+        let attempting = try prepared.applying(.beforeAttempt([item.id]))
+        let attempted = try attempting.applying(.afterAttempt([item.id]))
+
+        #expect(!prepared.hasDispatchedWrite)
+        #expect(!attempting.hasDispatchedWrite)
+        #expect(attempting.hasUncertainty)
+        #expect(attempted.hasDispatchedWrite)
+        #expect(attempted.hasUncertainty)
+    }
+
+    @Test("a never-dispatched attempt terminalizes as cancelled")
+    func cancelsUndispatchedAttempt() throws {
+        let item = makeWorkItem(state: .prepared)
+        let attempting = try WorkLedger([item]).applying(.beforeAttempt([item.id]))
+        let cancelled = try attempting.applying(.afterVerification([item.id: .cancelled]))
+
+        #expect(cancelled.items.first?.state == .outcome(.cancelled))
+        #expect(!cancelled.hasUncertainty)
+        #expect(!cancelled.hasDispatchedWrite)
+        #expect(!cancelled.hasOpenItems)
+    }
+
     @Test(
         "per-item checkpoints scale to a full library",
         .timeLimit(.minutes(1))

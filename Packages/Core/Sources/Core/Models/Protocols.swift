@@ -396,7 +396,7 @@ public protocol AppleScriptClient: Actor {
     /// Fetch editable tracks, optionally scoped to a single effective artist.
     func fetchTracks(artist: String?, timeout: Duration?) async throws -> [Track]
 
-    /// Update a single property on a track in Music.app.йццйццц
+    /// Update a single property on a track in Music.app.
     func updateTrackProperty(trackID: String, property: String, value: String) async throws -> AppleScriptWriteResult
 
     /// Update one property and report when Music.app has returned from the mutation attempt.

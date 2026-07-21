@@ -139,6 +139,12 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         workLedger.hasUncertainty
     }
 
+    /// True once a write was actually dispatched to Music.app (an `.attempted` item).
+    /// A pre-dispatch `.attempting` item is uncertain for crash replay but not yet dispatched.
+    var hasDispatchedWrite: Bool {
+        workLedger.hasDispatchedWrite
+    }
+
     var hasWriteProgress: Bool {
         workLedger.hasProgress
     }
@@ -412,6 +418,18 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
             )
         }
         return try withWorkLedger(workLedger.applying(checkpoint))
+    }
+
+    /// Terminalizes any `.attempting` work item as `.cancelled` — used when a write run is
+    /// cancelled before its command reached Music.app, so no uncertain item lingers in the
+    /// terminal record. A no-op when nothing is mid-attempt.
+    func cancellingAttempts() -> Self {
+        let attemptingIDs = workItems.filter { $0.state == .attempting }.map(\.id)
+        guard !attemptingIDs.isEmpty else { return self }
+        let checkpoint = WorkCheckpoint.afterVerification(
+            Dictionary(uniqueKeysWithValues: attemptingIDs.map { ($0, WorkOutcome.cancelled) })
+        )
+        return (try? applying(checkpoint)) ?? self
     }
 
     /// assertionFailure alone compiles to a no-op in Release, so a violated

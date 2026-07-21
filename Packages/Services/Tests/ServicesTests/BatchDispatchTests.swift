@@ -57,6 +57,24 @@ struct BatchDispatchTests {
         #expect(await checkpoints.value == 0)
     }
 
+    @Test("Pre-dispatch batch cancellation does not record an attempt")
+    func cancellationUnattempted() async throws {
+        let fixture = try makeBatchBridge()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let checkpoints = BatchAttemptCounter()
+
+        await #expect(throws: CancellationError.self) {
+            try await fixture.bridge.batchUpdateTracks([
+                (trackID: "101", property: "genre", value: "Metal")
+            ], onAttempt: {
+                _ = await checkpoints.next()
+            }, execute: { _ in
+                throw CancellationError()
+            })
+        }
+        #expect(await checkpoints.value == 0)
+    }
+
     @Test("Unknown batch outcome reaches the caller")
     func preservesUnknownOutcome() async throws {
         let fixture = try makeBatchBridge()
