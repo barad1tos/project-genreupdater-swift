@@ -122,8 +122,8 @@ enum FixPlanWrite {
 
     static func makeRunner(
         _ dependencies: RunnerDependencies
-    ) -> @Sendable (FixPlanWriteInput) async throws -> BatchUpdateResult {
-        { input in
+    ) -> @Sendable (FixPlanWriteInput, @escaping WorkCheckpointSink) async throws -> BatchUpdateResult {
+        { input, checkpoint in
             if await dependencies.hasRunRecovery() {
                 throw WriteAdmissionError.recoveryRequired
             }
@@ -134,7 +134,6 @@ enum FixPlanWrite {
                 ) else {
                     throw Failure.missingPlan(input.target.planID)
                 }
-                try validateInput(input, against: plan)
                 guard let decision = try await dependencies.fixPlanStore.currentDecision(
                     for: input.target.planID
                 ) else {
@@ -145,6 +144,7 @@ enum FixPlanWrite {
                 else {
                     throw Failure.staleDecision
                 }
+                try validateInput(input, plan: plan, decision: decision)
 
                 let changes = try proposedChanges(from: plan, decision: decision)
                 let acceptedChanges = changes.filter(\.isAccepted)
@@ -163,15 +163,31 @@ enum FixPlanWrite {
                 )
                 return try await runtime.coordinator.applyAcceptedChanges(
                     changes,
-                    progressHandler: ignoreProgress
+                    progressHandler: ignoreProgress,
+                    checkpoint: checkpoint
                 )
             }
         }
     }
 
-    private static func validateInput(_ input: FixPlanWriteInput, against plan: FixPlan) throws {
+    private static func validateInput(
+        _ input: FixPlanWriteInput,
+        plan: FixPlan,
+        decision: FixPlanReviewDecision
+    ) throws {
         // The input crosses an async queue; it must still match the immutable plan revision.
-        guard plan.scope == input.scope else {
+        let acceptedItemIDs = Set(decision.itemDecisions.compactMap { item in
+            item.verdict == .accepted ? item.itemID : nil
+        })
+        let expectedWorkItems = plan.items
+            .filter { acceptedItemIDs.contains($0.id) }
+            .map(RunWorkItem.init(item:))
+        guard plan.scope == input.scope,
+              input.configuration.writeAuthority == .reviewedPlan,
+              input.configuration.scopeID == plan.scope.id,
+              input.configuration.settings == plan.configuration,
+              input.workItems == expectedWorkItems
+        else {
             throw Failure.staleInput
         }
     }
@@ -200,7 +216,7 @@ enum FixPlanWrite {
 extension AppDependencies {
     func makeWriteRunner(
         runtime: RunRuntimeFactory?
-    ) -> (@Sendable (FixPlanWriteInput) async throws -> BatchUpdateResult)? {
+    ) -> (@Sendable (FixPlanWriteInput, @escaping WorkCheckpointSink) async throws -> BatchUpdateResult)? {
         guard let runtime,
               let fixPlanStore,
               let mapper = trackIDMapper,

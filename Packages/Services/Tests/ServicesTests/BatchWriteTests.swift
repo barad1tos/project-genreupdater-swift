@@ -214,15 +214,14 @@ struct BatchWriteTests {
             yearScores: [2001: 95]
         ))
         let coordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: makeAPIOrchestrator(
                     musicBrainz: apiService,
                     discogs: apiService,
                     appleMusic: apiService
                 ),
                 scriptBridge: bridge,
-                trackStore: MockTrackStore(),
-                cache: cache,
+                stores: .init(trackStore: MockTrackStore(), cache: cache),
                 undoCoordinator: undo,
                 idMapper: idMapper,
                 librarySnapshotService: snapshot

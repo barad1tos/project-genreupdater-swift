@@ -437,11 +437,10 @@ final class AppDependencies {
         undoCoordinator = undo
 
         updateCoordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
                 scriptBridge: bridge,
-                trackStore: store,
-                cache: cache,
+                stores: .init(trackStore: store, cache: cache),
                 undoCoordinator: undo,
                 idMapper: mapper,
                 librarySnapshotService: librarySnapshotService,
@@ -522,6 +521,20 @@ final class AppDependencies {
         } else {
             nil
         }
+        let writeDependencies: RunOrchestrator
+            .WriteDependencies? = if let writeFixPlan = makeWriteRunner(runtime: runtime) {
+            .init(
+                persistCheckpoint: { checkpointRunID, checkpoint in
+                    try await runRecordStore.checkpoint(checkpoint, runID: checkpointRunID)
+                },
+                writeFixPlan: writeFixPlan,
+                beginRecoveryHold: {
+                    await processor.beginRecoveryHold()
+                }
+            )
+        } else {
+            nil
+        }
 
         return RunOrchestrator(dependencies: RunOrchestrator.Dependencies(
             synchronizeLibrary: { [syncService] in
@@ -538,10 +551,7 @@ final class AppDependencies {
             releasePreview: { configuration in
                 await runtime?.discard(configuration)
             },
-            writeFixPlan: makeWriteRunner(runtime: runtime),
-            beginRecoveryHold: {
-                await processor.beginRecoveryHold()
-            }
+            write: writeDependencies
         ))
     }
 

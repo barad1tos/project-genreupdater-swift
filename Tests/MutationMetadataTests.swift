@@ -35,10 +35,10 @@ struct MutationMetadataTests {
 
     @Test("preview continues while recovery hold is active")
     func previewContinuesWhileRecoveryHoldIsActive() async throws {
-        let fixture = makeWorkflowFixture(
-            ensureRecoveryHold: { true },
-            clearRecovery: { _ in }
-        )
+        let fixture = makeWorkflowFixture(configure: { options in
+            options.ensureRecoveryHold = { true }
+            options.clearRecovery = { _ in }
+        })
         let viewModel = fixture.viewModel
         let tracks = [
             Track(id: "selected-1", name: "Battery", artist: "Metallica", album: "Master of Puppets"),
@@ -86,9 +86,11 @@ struct MutationMetadataTests {
     func applyAcceptedStopsWhenRecoveryHoldIsActive() async {
         let recorder = MutationPreparationRecorder()
         let fixture = makeWorkflowFixture(
-            ensureRecoveryHold: { true },
             prepareMutationMetadata: { tracks in
                 await recorder.record(tracks)
+            },
+            configure: { options in
+                options.ensureRecoveryHold = { true }
             }
         )
         let viewModel = fixture.viewModel
@@ -116,12 +118,14 @@ struct MutationMetadataTests {
         let recoveryHold = MutationPreparationHold()
         let recorder = MutationPreparationRecorder()
         let fixture = makeWorkflowFixture(
-            ensureRecoveryHold: {
-                await recoveryHold.hold()
-                return false
-            },
             prepareMutationMetadata: { tracks in
                 await recorder.record(tracks)
+            },
+            configure: { options in
+                options.ensureRecoveryHold = {
+                    await recoveryHold.hold()
+                    return false
+                }
             }
         )
         let viewModel = fixture.viewModel
@@ -294,9 +298,11 @@ struct MutationMetadataTests {
     func fullLibraryWriteStopsWhenRecoveryHoldIsActive() async {
         let recorder = MutationPreparationRecorder()
         let fixture = makeWorkflowFixture(
-            ensureRecoveryHold: { true },
             prepareMutationMetadata: { tracks in
                 await recorder.record(tracks)
+            },
+            configure: { options in
+                options.ensureRecoveryHold = { true }
             }
         )
         let viewModel = fixture.viewModel

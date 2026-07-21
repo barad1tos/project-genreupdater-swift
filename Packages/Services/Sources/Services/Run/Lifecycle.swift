@@ -114,8 +114,14 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     public let scope: ProcessingScopeSnapshot
     public let previewConfiguration: FixPlanConfig?
     public let writeTarget: FixPlanWriteTarget?
+    public let configuration: RunConfig?
+    let workLedger: WorkLedger
     public let startedAt: Date
     public let phase: RunPhase
+
+    public var workItems: [RunWorkItem] {
+        workLedger.items
+    }
 
     public var state: RunLifecycleState {
         phase.state
@@ -127,6 +133,22 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         } else {
             false
         }
+    }
+
+    var hasWriteUncertainty: Bool {
+        workLedger.hasUncertainty
+    }
+
+    var hasWriteProgress: Bool {
+        workLedger.hasProgress
+    }
+
+    var hasOpenItems: Bool {
+        workLedger.hasOpenItems
+    }
+
+    func isWriteAdjacent(to checkpoint: WorkCheckpoint) -> Bool {
+        workLedger.isWriteAdjacent(to: checkpoint)
     }
 
     var canQueueManual: Bool {
@@ -170,8 +192,6 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         trigger: RunTrigger,
         intent: RunIntent,
         scope: ProcessingScopeSnapshot,
-        previewConfiguration: FixPlanConfig? = nil,
-        writeTarget: FixPlanWriteTarget? = nil,
         startedAt: Date,
         phase: RunPhase
     ) {
@@ -180,10 +200,108 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         self.trigger = trigger
         self.intent = intent
         self.scope = scope
-        self.previewConfiguration = previewConfiguration
-        self.writeTarget = writeTarget
+        previewConfiguration = nil
+        writeTarget = nil
+        configuration = nil
+        workLedger = WorkLedger([])
         self.startedAt = startedAt
         self.phase = phase
+    }
+
+    public init(
+        runID: RunID = RunID(),
+        request: RunRequest,
+        scope: ProcessingScopeSnapshot,
+        startedAt: Date,
+        phase: RunPhase
+    ) {
+        self.runID = runID
+        requestID = request.id
+        trigger = request.trigger
+        intent = request.intent
+        self.scope = scope
+        previewConfiguration = request.previewConfiguration
+        writeTarget = request.writeTarget
+        configuration = request.writeInput?.configuration
+        workLedger = WorkLedger(request.writeInput?.workItems ?? [])
+        self.startedAt = startedAt
+        self.phase = phase
+    }
+
+    init(
+        runID: RunID,
+        requestID: RunRequestID,
+        trigger: RunTrigger,
+        scope: ProcessingScopeSnapshot,
+        previewConfiguration: FixPlanConfig,
+        startedAt: Date,
+        phase: RunPhase
+    ) {
+        self.runID = runID
+        self.requestID = requestID
+        self.trigger = trigger
+        intent = .previewFixes
+        self.scope = scope
+        self.previewConfiguration = previewConfiguration
+        writeTarget = nil
+        configuration = nil
+        workLedger = WorkLedger([])
+        self.startedAt = startedAt
+        self.phase = phase
+    }
+
+    init(
+        runID: RunID,
+        requestID: RunRequestID,
+        trigger: RunTrigger,
+        scope: ProcessingScopeSnapshot,
+        writeTarget: FixPlanWriteTarget,
+        startedAt: Date,
+        phase: RunPhase
+    ) {
+        self.runID = runID
+        self.requestID = requestID
+        self.trigger = trigger
+        intent = .writeFixes
+        self.scope = scope
+        previewConfiguration = nil
+        self.writeTarget = writeTarget
+        configuration = nil
+        workLedger = WorkLedger([])
+        self.startedAt = startedAt
+        self.phase = phase
+    }
+
+    init(recovering record: RunRecord) {
+        runID = record.runID
+        requestID = record.requestID
+        trigger = record.trigger
+        intent = record.intent
+        scope = record.scope
+        previewConfiguration = nil
+        writeTarget = record.writeTarget
+        configuration = record.configuration
+        workLedger = record.workLedger
+        startedAt = record.startedAt
+        phase = record.state == .blocked ? .suspended(.blocked) : .suspended(.recoverable)
+    }
+
+    private init(
+        copying snapshot: Self,
+        workLedger: WorkLedger? = nil,
+        phase: RunPhase? = nil
+    ) {
+        runID = snapshot.runID
+        requestID = snapshot.requestID
+        trigger = snapshot.trigger
+        intent = snapshot.intent
+        scope = snapshot.scope
+        previewConfiguration = snapshot.previewConfiguration
+        writeTarget = snapshot.writeTarget
+        configuration = snapshot.configuration
+        self.workLedger = workLedger ?? snapshot.workLedger
+        startedAt = snapshot.startedAt
+        self.phase = phase ?? snapshot.phase
     }
 
     public func beginningSync() -> Self {
@@ -277,6 +395,25 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         return withPhase(.finished(.cancelled(message: message), finishedAt: finishedAt))
     }
 
+    func applying(_ checkpoint: WorkCheckpoint) throws -> Self {
+        let writeAdjacent = workLedger.isWriteAdjacent(to: checkpoint)
+        guard intent == .writeFixes else {
+            throw WorkCheckpointError.invalid(
+                checkpoint.boundary,
+                writeAdjacent: writeAdjacent,
+                reason: "unexpected \(intent.rawValue) run intent"
+            )
+        }
+        guard configuration?.writeAuthority == .reviewedPlan else {
+            throw WorkCheckpointError.invalid(
+                checkpoint.boundary,
+                writeAdjacent: writeAdjacent,
+                reason: "write checkpoint requires reviewed plan authority"
+            )
+        }
+        return try withWorkLedger(workLedger.applying(checkpoint))
+    }
+
     /// assertionFailure alone compiles to a no-op in Release, so a violated
     /// invariant would leave no trail in shipped builds; the log line keeps the
     /// evidence. Only the wire-state name is logged: interpolating the full
@@ -290,17 +427,11 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     }
 
     private func withPhase(_ phase: RunPhase) -> Self {
-        Self(
-            runID: runID,
-            requestID: requestID,
-            trigger: trigger,
-            intent: intent,
-            scope: scope,
-            previewConfiguration: previewConfiguration,
-            writeTarget: writeTarget,
-            startedAt: startedAt,
-            phase: phase
-        )
+        Self(copying: self, phase: phase)
+    }
+
+    private func withWorkLedger(_ workLedger: WorkLedger) -> Self {
+        Self(copying: self, workLedger: workLedger)
     }
 }
 

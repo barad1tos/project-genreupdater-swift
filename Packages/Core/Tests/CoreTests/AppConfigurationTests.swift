@@ -2,6 +2,76 @@ import Foundation
 import Testing
 @testable import Core
 
+private let pythonRootJSON = """
+{
+  "music_library_path": "/Users/test/Music/Music Library.musiclibrary",
+  "apple_scripts_dir": "legacy-applescripts",
+  "logs_base_dir": "/tmp/mgu-logs",
+  "api_cache_file": "cache/python-cache.json",
+  "dry_run": true,
+  "cache_ttl_seconds": 77,
+  "incremental_interval_minutes": 9,
+  "max_retries": 4,
+  "retry_delay_seconds": 2.5,
+  "max_generic_entries": 321,
+  "apple_script_concurrency": 3,
+  "apple_script_rate_limit": {
+    "enabled": false,
+    "requests_per_window": 12,
+    "window_size_seconds": 1.5
+  },
+  "applescript_timeouts": {
+    "default": 100,
+    "full_library_fetch": 101,
+    "single_artist_fetch": 102,
+    "batch_update": 103,
+    "ids_batch_fetch": 104
+  },
+  "applescript_retry": {
+    "max_retries": 5,
+    "base_delay_seconds": 0.25,
+    "max_delay_seconds": 7,
+    "jitter_range": 0.4,
+    "operation_timeout_seconds": 45
+  },
+  "batch_processing": {
+    "ids_batch_size": 44,
+    "batch_size": 55
+  },
+  "year_retrieval": {
+    "preferred_api": "discogs",
+    "api_auth": {
+      "discogs_token": "${DISCOGS_TOKEN}",
+      "musicbrainz_app_name": "GenreUpdaterTests/1.0",
+      "contact_email": "${CONTACT_EMAIL}"
+    },
+    "rate_limits": {
+      "discogs_requests_per_minute": 50,
+      "musicbrainz_requests_per_second": 0.75,
+      "concurrent_api_calls": 4
+    },
+    "processing": {
+      "batch_size": 11,
+      "delay_between_batches": 12.5,
+      "adaptive_delay": false,
+      "cache_ttl_days": 365,
+      "pending_verification_interval_days": 8,
+      "skip_prerelease": false,
+      "future_year_threshold": 2,
+      "prerelease_recheck_days": 10,
+      "prerelease_handling": "mark_only"
+    },
+    "script_api_priorities": {
+      "default": {
+        "primary": ["discogs"],
+        "fallback": ["musicbrainz", "itunes"]
+      }
+    }
+  },
+  "test_artists": ["Паліндром", "Clutch"]
+}
+"""
+
 @Suite("AppConfiguration — defaults, Codable, nested configs")
 struct AppConfigurationTests {
     // MARK: - Default Values
@@ -209,81 +279,15 @@ struct AppConfigurationTests {
 
     @Test("Python-era root keys decode into Swift-native configuration owners")
     func pythonRootKeysDecodeIntoSwiftOwners() throws {
-        let jsonString = """
-        {
-          "music_library_path": "/Users/test/Music/Music Library.musiclibrary",
-          "apple_scripts_dir": "legacy-applescripts",
-          "logs_base_dir": "/tmp/mgu-logs",
-          "api_cache_file": "cache/python-cache.json",
-          "dry_run": true,
-          "cache_ttl_seconds": 77,
-          "incremental_interval_minutes": 9,
-          "max_retries": 4,
-          "retry_delay_seconds": 2.5,
-          "max_generic_entries": 321,
-          "apple_script_concurrency": 3,
-          "apple_script_rate_limit": {
-            "enabled": false,
-            "requests_per_window": 12,
-            "window_size_seconds": 1.5
-          },
-          "applescript_timeouts": {
-            "default": 100,
-            "full_library_fetch": 101,
-            "single_artist_fetch": 102,
-            "batch_update": 103,
-            "ids_batch_fetch": 104
-          },
-          "applescript_retry": {
-            "max_retries": 5,
-            "base_delay_seconds": 0.25,
-            "max_delay_seconds": 7,
-            "jitter_range": 0.4,
-            "operation_timeout_seconds": 45
-          },
-          "batch_processing": {
-            "ids_batch_size": 44,
-            "batch_size": 55
-          },
-          "year_retrieval": {
-            "preferred_api": "discogs",
-            "api_auth": {
-              "discogs_token": "${DISCOGS_TOKEN}",
-              "musicbrainz_app_name": "GenreUpdaterTests/1.0",
-              "contact_email": "${CONTACT_EMAIL}"
-            },
-            "rate_limits": {
-              "discogs_requests_per_minute": 50,
-              "musicbrainz_requests_per_second": 0.75,
-              "concurrent_api_calls": 4
-            },
-            "processing": {
-              "batch_size": 11,
-              "delay_between_batches": 12.5,
-              "adaptive_delay": false,
-              "cache_ttl_days": 365,
-              "pending_verification_interval_days": 8,
-              "skip_prerelease": false,
-              "future_year_threshold": 2,
-              "prerelease_recheck_days": 10,
-              "prerelease_handling": "mark_only"
-            },
-            "script_api_priorities": {
-              "default": {
-                "primary": ["discogs"],
-                "fallback": ["musicbrainz", "itunes"]
-              }
-            }
-          },
-          "test_artists": ["Паліндром", "Clutch"]
-        }
-        """
-
         let decoded = try AppConfiguration.configurationDecoder().decode(
             AppConfiguration.self,
-            from: Data(jsonString.utf8)
+            from: Data(pythonRootJSON.utf8)
         )
 
+        expectPythonConfiguration(decoded)
+    }
+
+    private func expectPythonConfiguration(_ decoded: AppConfiguration) {
         #expect(decoded.paths.musicLibraryPath == "/Users/test/Music/Music Library.musiclibrary")
         #expect(decoded.paths.appleScriptsDirectory == "legacy-applescripts")
         #expect(decoded.paths.logsBaseDirectory == PathsConfig.legacyTemporaryLogsBaseDirectory)

@@ -9,6 +9,67 @@ enum CorruptionRoute {
 }
 
 extension RunRecordDataStore {
+    static func validatePayload(
+        _ payload: RunRecordPayload,
+        persisted: PersistedRunRecord,
+        scope: ProcessingScopeSnapshot,
+        intent: RunIntent
+    ) throws {
+        // An empty list would otherwise decode as a fake `.created` record (see RunRecord.state).
+        guard !payload.transitions.isEmpty else {
+            throw RunRecordPersistenceError.corruptedField(name: "transitions", runID: persisted.runID)
+        }
+        guard payload.transitions.last?.state.rawValue == persisted.stateRaw else {
+            throw RunRecordPersistenceError.corruptedField(name: "state", runID: persisted.runID)
+        }
+        guard !hasInvalidTimeline(payload.transitions) else {
+            throw RunRecordPersistenceError.corruptedField(name: "transitions", runID: persisted.runID)
+        }
+        if let state = payload.transitions.last?.state,
+           let field = invalidLifecycleField(state: state, finishedAt: persisted.finishedAt) {
+            throw RunRecordPersistenceError.corruptedField(name: field, runID: persisted.runID)
+        }
+        let requiresConfiguration = payload.version >= RunRecordPayload.configurationVersion
+        guard requiresConfiguration == (payload.configuration != nil) else {
+            throw RunRecordPersistenceError.corruptedField(name: "configuration", runID: persisted.runID)
+        }
+        if let configuration = payload.configuration,
+           configuration.scopeID != scope.id {
+            throw RunRecordPersistenceError.corruptedField(name: "configuration.scopeID", runID: persisted.runID)
+        }
+        if let writeAuthorityRaw = persisted.writeAuthorityRaw,
+           writeAuthorityRaw != payload.configuration?.writeAuthority.rawValue {
+            throw RunRecordPersistenceError.corruptedField(name: "writeAuthority", runID: persisted.runID)
+        }
+        if intent != .writeFixes,
+           let field = Self.writeEvidenceField(
+               configuration: payload.configuration,
+               writeTarget: payload.writeTarget,
+               recoveryID: payload.recoveryID,
+               transitions: payload.transitions,
+               writeSummary: payload.writeSummary
+           ) {
+            throw RunRecordPersistenceError.corruptedField(name: field, runID: persisted.runID)
+        }
+    }
+
+    func decodeSyncSummary(from persisted: PersistedRunRecord) -> ActivitySyncSummary? {
+        guard let new = persisted.syncNewCount,
+              let modified = persisted.syncModifiedCount,
+              let identityChanged = persisted.syncIdentityChangedCount,
+              let refreshed = persisted.syncRefreshedCount,
+              let removed = persisted.syncRemovedCount
+        else { return nil }
+
+        return ActivitySyncSummary(
+            new: new,
+            modified: modified,
+            identityChanged: identityChanged,
+            refreshed: refreshed,
+            removed: removed
+        )
+    }
+
     static func hasInvalidStop(_ transitions: [RunLifecycleTransition]) -> Bool {
         transitions.dropLast().enumerated().contains { offset, transition in
             if isTerminalState(transition.state) {
@@ -122,6 +183,13 @@ extension RunRecordDataStore {
         guard record.workItems.isEmpty || record.configuration != nil else {
             throw RunRecordPersistenceError.invalidField(name: "configuration", runID: record.runID.rawValue)
         }
+        guard !hasInvalidWorkAuthority(
+            record.workItems,
+            intent: record.intent,
+            configuration: record.configuration
+        ) else {
+            throw RunRecordPersistenceError.invalidField(name: "workItems", runID: record.runID.rawValue)
+        }
         guard let configuration = record.configuration else { return }
         guard configuration.scopeID == record.scope.id else {
             throw RunRecordPersistenceError.invalidField(
@@ -135,6 +203,23 @@ extension RunRecordDataStore {
                 runID: record.runID.rawValue
             )
         }
+    }
+
+    static func hasInvalidWorkAuthority(
+        _ workItems: [RunWorkItem],
+        intent: RunIntent,
+        configuration: RunConfig?
+    ) -> Bool {
+        let hasWriteState = workItems.contains { item in
+            switch item.state {
+            case .attempting, .attempted, .outcome(.written):
+                true
+            case .prepared, .outcome:
+                false
+            }
+        }
+        return hasWriteState
+            && (intent != .writeFixes || configuration?.writeAuthority != .reviewedPlan)
     }
 
     static func isBlocked(
@@ -196,5 +281,101 @@ extension RunRecordDataStore {
              .reporting, .completed, .completedNoOp, .blocked, .failed, .cancelled:
             false
         }
+    }
+
+    static func changedHeaderField(from stored: RunRecord, to replacement: RunRecord) -> String? {
+        if let field = identityChangeField(from: stored, to: replacement) {
+            return field
+        }
+        if let field = itemChangeField(from: stored.workItems, to: replacement.workItems) {
+            return field
+        }
+        if let field = changedTerminalField(from: stored, to: replacement) {
+            return field
+        }
+        if let recoveryID = stored.recoveryID, recoveryID != replacement.recoveryID {
+            return "recoveryID"
+        }
+        if let field = changedTransitionField(from: stored, to: replacement) {
+            return field
+        }
+        if stored.startedAt != replacement.startedAt {
+            return "startedAt"
+        }
+        return nil
+    }
+
+    static func identityChangeField(from stored: RunRecord, to replacement: RunRecord) -> String? {
+        if stored.requestID != replacement.requestID {
+            return "requestID"
+        }
+        if stored.trigger != replacement.trigger {
+            return "trigger"
+        }
+        if stored.intent != replacement.intent {
+            return "intent"
+        }
+        if stored.scope != replacement.scope {
+            return "scope"
+        }
+        if stored.configuration != replacement.configuration {
+            return "configuration"
+        }
+        if stored.writeTarget != replacement.writeTarget {
+            return "writeTarget"
+        }
+        return nil
+    }
+
+    static func itemChangeField(from stored: [RunWorkItem], to replacement: [RunWorkItem]) -> String? {
+        guard stored.count == replacement.count else { return "workItems" }
+        var replacements: [UUID: RunWorkItem] = [:]
+        for item in replacement {
+            guard replacements.updateValue(item, forKey: item.id) == nil else { return "workItems" }
+        }
+        for item in stored {
+            guard let next = replacements[item.id] else { return "workItems" }
+            if item == next {
+                continue
+            }
+            guard item.state != next.state,
+                  let advanced = try? item.transition(to: next.state, detail: next.detail),
+                  advanced == next
+            else { return "workItems" }
+        }
+        return nil
+    }
+
+    static func changedTerminalField(from stored: RunRecord, to replacement: RunRecord) -> String? {
+        guard stored.finishedAt != nil else { return nil }
+        if stored.recoveryID != replacement.recoveryID {
+            return "recoveryID"
+        }
+        if stored.syncSummary != replacement.syncSummary {
+            return "syncSummary"
+        }
+        if stored.writeSummary != replacement.writeSummary {
+            return "writeSummary"
+        }
+        if stored.workItems != replacement.workItems {
+            return "workItems"
+        }
+        if stored.failureMessage != replacement.failureMessage {
+            return "failureMessage"
+        }
+        return nil
+    }
+
+    static func changedTransitionField(from stored: RunRecord, to replacement: RunRecord) -> String? {
+        if !replacement.transitions.starts(with: stored.transitions) {
+            return "transitions"
+        }
+        if stored.finishedAt != nil, replacement.transitions != stored.transitions {
+            return "transitions"
+        }
+        if let finishedAt = stored.finishedAt, replacement.finishedAt != finishedAt {
+            return "finishedAt"
+        }
+        return nil
     }
 }

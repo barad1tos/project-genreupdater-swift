@@ -94,7 +94,7 @@ struct ScopeWorkflowTests {
 
     @Test("reviewed apply cancellation returns to configuration")
     func reviewedApplyCancellationReturnsToConfiguration() async {
-        let fixture = makeWorkflowFixture(cancellingWriteTrackIDs: ["accepted"])
+        let fixture = makeWorkflowFixture(configure: { $0.cancellingWriteTrackIDs = ["accepted"] })
         let viewModel = fixture.viewModel
         viewModel.phase = .review
         viewModel.previewOnly = false
@@ -328,7 +328,9 @@ struct ScopeWorkflowTests {
     func fullLibraryPreviewOnlyStillRequiresBatchFeature() async {
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2020, confidence: 90),
-            tier: .free
+            configure: { options in
+                options.tier = .free
+            }
         )
         let viewModel = fixture.viewModel
         viewModel.mode = .fullLibrary
@@ -434,7 +436,7 @@ struct ScopeWorkflowTests {
 
     @Test("full library live cancellation returns to configuration")
     func fullLibraryLiveCancellationReturnsToConfiguration() async throws {
-        let fixture = makeWorkflowFixture(cancellingWriteTrackIDs: ["missing-genre"])
+        let fixture = makeWorkflowFixture(configure: { $0.cancellingWriteTrackIDs = ["missing-genre"] })
         let viewModel = fixture.viewModel
         viewModel.mode = .fullLibrary
         viewModel.previewOnly = false
@@ -564,7 +566,9 @@ struct ScopeWorkflowTests {
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2020, confidence: 90),
             failingWriteTrackIDs: ["failed-year"],
-            noChangeWriteTrackIDs: ["unchanged-year"]
+            configure: { options in
+                options.noChangeWriteTrackIDs = ["unchanged-year"]
+            }
         )
         let viewModel = fixture.viewModel
         viewModel.mode = .fullLibrary
@@ -674,7 +678,7 @@ struct ScopeWorkflowTests {
     @Test("release year restore reset ignores delayed completion")
     func releaseYearRestoreResetIgnoresDelayedCompletion() async {
         let writeHold = LiveBatchHold()
-        let fixture = makeWorkflowFixture(writeHold: writeHold)
+        let fixture = makeWorkflowFixture(configure: { $0.writeHold = writeHold })
         let viewModel = fixture.viewModel
         viewModel.mode = .releaseYearRestore
         viewModel.releaseYearRestoreThreshold = 5

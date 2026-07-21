@@ -47,15 +47,33 @@ actor WriteRecordProbe {
     }
 }
 
-actor TerminalRecordProbe {
+actor FailingRecordProbe {
     private(set) var records: [RunRecord] = []
+    private let failingCall: Int
     private var callCount = 0
+
+    init(failingCall: Int) {
+        self.failingCall = failingCall
+    }
 
     func append(_ record: RunRecord) throws {
         callCount += 1
-        guard callCount != 2 else { throw RecordWriteError() }
+        guard callCount != failingCall else { throw RecordWriteError() }
         records.append(record)
     }
+}
+
+func checkpointWrite(
+    _ input: FixPlanWriteInput,
+    outcome: WorkOutcome = .written,
+    using checkpoint: WorkCheckpointSink
+) async throws {
+    let itemIDs = input.workItems.map(\.id)
+    try await checkpoint(.beforeAttempt(itemIDs))
+    try await checkpoint(.afterAttempt(itemIDs))
+    try await checkpoint(.afterVerification(Dictionary(
+        uniqueKeysWithValues: itemIDs.map { ($0, outcome) }
+    )))
 }
 
 actor WriteSyncProbe {
@@ -127,18 +145,28 @@ actor WriteSyncGate {
 
 actor RecoveryWriteProbe {
     private(set) var calls: [FixPlanWriteInput] = []
+    private var isReleased = false
     private var callContinuations: [CheckedContinuation<Void, Never>] = []
     private var releaseContinuation: CheckedContinuation<Void, Never>?
 
-    func apply(input: FixPlanWriteInput) async throws -> BatchUpdateResult {
+    func apply(
+        input: FixPlanWriteInput,
+        checkpoint: WorkCheckpointSink
+    ) async throws -> BatchUpdateResult {
         calls.append(input)
         callContinuations.forEach { $0.resume() }
         callContinuations = []
         guard calls.count == 1 else {
+            try await checkpointWrite(input, using: checkpoint)
             return BatchUpdateResult(entries: [writeEntry()], failedTrackIDs: [], errorDescriptions: [])
         }
-        await withCheckedContinuation { continuation in
-            releaseContinuation = continuation
+        let itemIDs = input.workItems.map(\.id)
+        try await checkpoint(.beforeAttempt(itemIDs))
+        try await checkpoint(.afterAttempt(itemIDs))
+        if !isReleased {
+            await withCheckedContinuation { continuation in
+                releaseContinuation = continuation
+            }
         }
         throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
     }
@@ -153,6 +181,7 @@ actor RecoveryWriteProbe {
     }
 
     func release() {
+        isReleased = true
         releaseContinuation?.resume()
         releaseContinuation = nil
     }
@@ -174,14 +203,21 @@ func writeInput(
     knownTrackCount: Int? = nil
 ) -> FixPlanWriteInput {
     let capturedAt = Date(timeIntervalSince1970: 90)
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: artists,
+        knownTrackCount: knownTrackCount,
+        createdAt: capturedAt,
+        reason: "write-test"
+    )
     return FixPlanWriteInput(
         target: target,
-        scope: .capture(
-            requestedTestArtists: artists,
-            knownTrackCount: knownTrackCount,
-            createdAt: capturedAt,
-            reason: "write-test"
-        )
+        scope: scope,
+        configuration: makeRunConfiguration(
+            scopeID: scope.id,
+            capturedAt: capturedAt,
+            writeAuthority: .reviewedPlan
+        ),
+        workItems: [makeWorkItem(state: .prepared)]
     )
 }
 
@@ -201,11 +237,14 @@ func writeEntry() -> ChangeLogEntry {
 func recoveryRecord(state: RunLifecycleState = .recoverable) -> RunRecord {
     let startedAt = Date(timeIntervalSince1970: 50)
     return RunRecord(
-        runID: RunID(),
-        requestID: RunRequestID(),
-        trigger: .recovery,
-        intent: .writeFixes,
-        scope: writeInput().scope,
+        header: RunRecord.Header(
+            runID: RunID(),
+            requestID: RunRequestID(),
+            trigger: .recovery,
+            intent: .writeFixes,
+            scope: writeInput().scope,
+            startedAt: startedAt
+        ),
         writeTarget: writeTarget(),
         recoveryID: UUID(),
         transitions: [
@@ -213,10 +252,10 @@ func recoveryRecord(state: RunLifecycleState = .recoverable) -> RunRecord {
             RunLifecycleTransition(state: .writing, timestamp: startedAt),
             RunLifecycleTransition(state: state, timestamp: startedAt),
         ],
-        syncSummary: nil,
-        writeSummary: nil,
-        failureMessage: "Music.app verification required",
-        startedAt: startedAt,
-        finishedAt: nil
+        status: RunRecord.Status(
+            syncSummary: nil,
+            failureMessage: "Music.app verification required",
+            finishedAt: nil
+        )
     )
 }

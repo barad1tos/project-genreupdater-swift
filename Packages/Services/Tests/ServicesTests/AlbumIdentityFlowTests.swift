@@ -653,12 +653,17 @@ struct AlbumIdentityFlowTests {
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AlbumIdentityFlowTests-\(UUID().uuidString)")
         return UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: api,
                 scriptBridge: script,
-                trackStore: MockTrackStore(),
-                cache: cache,
-                undoCoordinator: UndoCoordinator(scriptBridge: script, directory: undoDirectory),
+                stores: .init(
+                    trackStore: MockTrackStore(),
+                    cache: cache
+                ),
+                undoCoordinator: UndoCoordinator(
+                    scriptBridge: script,
+                    directory: undoDirectory
+                ),
                 idMapper: idMapper,
                 pendingVerificationService: pendingVerification
             ),

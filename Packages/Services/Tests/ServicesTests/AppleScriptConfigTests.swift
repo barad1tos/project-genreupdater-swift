@@ -86,17 +86,17 @@ struct AppleScriptConfigTests {
 
     @Test("Single update output rejects errors, empty response, and unknown text")
     func singleUpdateOutputRejectsFailures() throws {
-        #expect(throws: AppleScriptBridgeError.self) {
+        #expect(throws: AppleScriptOutcomeError.self) {
             try AppleScriptBridge.validateUpdatePropertyOutput(
                 "Error: Track 10 not found",
                 trackID: "10",
                 property: "genre"
             )
         }
-        #expect(throws: AppleScriptBridgeError.self) {
+        #expect(throws: AppleScriptOutcomeError.self) {
             try AppleScriptBridge.validateUpdatePropertyOutput(nil, trackID: "10", property: "genre")
         }
-        #expect(throws: AppleScriptBridgeError.self) {
+        #expect(throws: AppleScriptOutcomeError.self) {
             try AppleScriptBridge.validateUpdatePropertyOutput(
                 "Updated track 10",
                 trackID: "10",

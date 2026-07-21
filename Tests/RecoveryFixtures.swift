@@ -53,22 +53,16 @@ func insertCorruptedRun(
         reason: "recovery-test"
     )
     let context = ModelContext(container)
-    try context.insert(PersistedRunRecord(
+    let record = try PersistedRunRecord(
         runID: id,
-        requestID: UUID(),
-        triggerRaw: RunTrigger.manualCheck.rawValue,
         intentRaw: intentRaw,
         stateRaw: state.rawValue,
         scopeData: JSONEncoder().encode(scope),
         transitionsData: transitionsData,
-        syncNewCount: nil,
-        syncModifiedCount: nil,
-        syncIdentityChangedCount: nil,
-        syncRefreshedCount: nil,
-        syncRemovedCount: nil,
-        failureMessage: "Corrupted recovery record",
         startedAt: startedAt,
         finishedAt: nil
-    ))
+    )
+    record.failureMessage = "Corrupted recovery record"
+    context.insert(record)
     try context.save()
 }

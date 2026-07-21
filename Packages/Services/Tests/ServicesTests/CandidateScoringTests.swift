@@ -758,9 +758,11 @@ struct CandidateScoringTests {
             artist: "SubRosa",
             album: "Strega",
             reason: reason,
-            attemptCount: 1,
-            lastAttempt: Date(),
-            recheckInterval: 30 * 24 * 60 * 60
+            retry: .init(
+                attemptCount: 1,
+                lastAttempt: Date(),
+                recheckInterval: 30 * 24 * 60 * 60
+            )
         )
     }
 
@@ -774,12 +776,17 @@ struct CandidateScoringTests {
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("CandidateScoringTests-\(UUID().uuidString)")
         return UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: api,
                 scriptBridge: bridge,
-                trackStore: MockTrackStore(),
-                cache: cache,
-                undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: undoDirectory),
+                stores: .init(
+                    trackStore: MockTrackStore(),
+                    cache: cache
+                ),
+                undoCoordinator: UndoCoordinator(
+                    scriptBridge: bridge,
+                    directory: undoDirectory
+                ),
                 idMapper: idMapper,
                 librarySnapshotService: nil,
                 pendingVerificationService: pendingVerificationService

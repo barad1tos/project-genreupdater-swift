@@ -12,17 +12,20 @@ struct BatchDispatchTests {
         let scriptsDirectory = fixture.directory
         defer { try? FileManager.default.removeItem(at: scriptsDirectory) }
         let attempts = BatchAttemptCounter()
+        let checkpoints = BatchAttemptCounter()
 
         do {
             try await bridge.batchUpdateTracks([
                 (trackID: "101", property: "genre", value: "Metal")
-            ]) { _ in
+            ], onAttempt: {
+                _ = await checkpoints.next()
+            }, execute: { _ in
                 _ = await attempts.next()
                 throw AppleScriptBridgeError.dispatchDeadline(
                     scriptName: "batch_update_tracks",
                     duration: .seconds(1)
                 )
-            }
+            })
             Issue.record("Expected dispatchDeadline")
         } catch let error as AppleScriptBridgeError {
             guard case .dispatchDeadline = error else {
@@ -33,42 +36,51 @@ struct BatchDispatchTests {
             Issue.record("Expected AppleScriptBridgeError, got \(error)")
         }
         #expect(await attempts.value == 1)
+        #expect(await checkpoints.value == 0)
     }
 
     @Test("Ambiguous batch failure requires verification")
     func wrapsAmbiguousFailure() async throws {
         let fixture = try makeBatchBridge()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let checkpoints = BatchAttemptCounter()
 
         do {
             try await fixture.bridge.batchUpdateTracks([
                 (trackID: "101", property: "genre", value: "Metal")
-            ]) { _ in
+            ], onAttempt: {
+                _ = await checkpoints.next()
+            }, execute: { _ in
                 throw AppleScriptBridgeError.timeout(
                     scriptName: "batch_update_tracks",
                     duration: .seconds(1)
                 )
-            }
+            })
             Issue.record("Expected batch verification failure")
         } catch let error as AppleScriptBatchVerificationError {
             #expect(error.updateCount == 1)
         } catch {
             Issue.record("Expected AppleScriptBatchVerificationError, got \(error)")
         }
+        #expect(await checkpoints.value == 1)
     }
 
     @Test("Unknown batch outcome reaches the caller")
     func preservesUnknownOutcome() async throws {
         let fixture = try makeBatchBridge()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let checkpoints = BatchAttemptCounter()
 
         await #expect(throws: AppleScriptOutcomeError.self) {
             try await fixture.bridge.batchUpdateTracks([
                 (trackID: "101", property: "genre", value: "Metal")
-            ]) { _ in
+            ], onAttempt: {
+                _ = await checkpoints.next()
+            }, execute: { _ in
                 throw AppleScriptOutcomeError(scriptName: "batch_update_tracks", duration: .seconds(3))
-            }
+            })
         }
+        #expect(await checkpoints.value == 1)
     }
 
     private func makeBridge(scriptsDirectory: URL = FileManager.default.temporaryDirectory) -> AppleScriptBridge {

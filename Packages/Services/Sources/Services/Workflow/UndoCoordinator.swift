@@ -120,11 +120,11 @@ public actor UndoCoordinator {
     // MARK: Record
 
     /// Log a change after a successful write to Music.app.
-    public func recordChange(_ entry: ChangeLogEntry) async {
+    public func recordChange(_ entry: ChangeLogEntry) async throws {
         await loadHistoryIfNeeded()
 
+        try await changeLogStore?.saveEntry(entry)
         history.append(entry)
-        try? await changeLogStore?.saveEntry(entry)
         log
             .info(
                 "Recorded \(entry.changeType.rawValue, privacy: .public) for track \(entry.trackID, privacy: .private)"
@@ -132,11 +132,11 @@ public actor UndoCoordinator {
     }
 
     /// Record multiple changes at once (e.g. after batch processing).
-    public func recordChanges(_ entries: [ChangeLogEntry]) async {
+    public func recordChanges(_ entries: [ChangeLogEntry]) async throws {
         await loadHistoryIfNeeded()
 
+        try await changeLogStore?.saveEntries(entries)
         history.append(contentsOf: entries)
-        try? await changeLogStore?.saveEntries(entries)
         log.info("Recorded \(entries.count, privacy: .public) change(s)")
     }
 
@@ -450,7 +450,7 @@ public actor UndoCoordinator {
                 )
                 entry.oldYear = track.year
                 entry.newYear = target.year
-                await recordChange(entry)
+                try await recordChange(entry)
                 updatedCount += 1
             } catch is CancellationError {
                 throw CancellationError()

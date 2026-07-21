@@ -264,15 +264,14 @@ struct MetadataCleaningTests {
     ) async -> UpdateCoordinator {
         let scriptBridge = MockAppleScriptClient()
         return UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: makeAPIOrchestrator(
                     musicBrainz: apiService,
                     discogs: apiService,
                     appleMusic: apiService
                 ),
                 scriptBridge: scriptBridge,
-                trackStore: MockTrackStore(),
-                cache: MockCacheService(),
+                stores: .init(trackStore: MockTrackStore(), cache: MockCacheService()),
                 undoCoordinator: UndoCoordinator(
                     scriptBridge: scriptBridge,
                     directory: FileManager.default.temporaryDirectory

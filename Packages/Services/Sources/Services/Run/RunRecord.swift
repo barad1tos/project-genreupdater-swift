@@ -23,6 +23,34 @@ public struct RunWriteSummary: Codable, Equatable, Sendable {
 }
 
 public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
+    struct Header: Equatable, Sendable {
+        let runID: RunID
+        let requestID: RunRequestID
+        let trigger: RunTrigger
+        let intent: RunIntent
+        let scope: ProcessingScopeSnapshot
+        let startedAt: Date
+    }
+
+    struct Status: Equatable, Sendable {
+        let syncSummary: ActivitySyncSummary?
+        let writeSummary: RunWriteSummary?
+        let failureMessage: String?
+        let finishedAt: Date?
+
+        init(
+            syncSummary: ActivitySyncSummary?,
+            writeSummary: RunWriteSummary? = nil,
+            failureMessage: String?,
+            finishedAt: Date?
+        ) {
+            self.syncSummary = syncSummary
+            self.writeSummary = writeSummary
+            self.failureMessage = failureMessage
+            self.finishedAt = finishedAt
+        }
+    }
+
     public let runID: RunID
     public let requestID: RunRequestID
     public let trigger: RunTrigger
@@ -32,7 +60,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     public let writeTarget: FixPlanWriteTarget?
     public let recoveryID: UUID?
     public let transitions: [RunLifecycleTransition]
-    public let workItems: [RunWorkItem]
+    let workLedger: WorkLedger
     public let syncSummary: ActivitySyncSummary?
     public let writeSummary: RunWriteSummary?
     public let failureMessage: String?
@@ -47,37 +75,84 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         transitions.last?.state ?? .created
     }
 
-    public init(
-        runID: RunID,
-        requestID: RunRequestID,
-        trigger: RunTrigger,
-        intent: RunIntent,
-        scope: ProcessingScopeSnapshot,
+    public var workItems: [RunWorkItem] {
+        workLedger.items
+    }
+
+    init(
+        header: Header,
         configuration: RunConfig? = nil,
         writeTarget: FixPlanWriteTarget? = nil,
         recoveryID: UUID? = nil,
         transitions: [RunLifecycleTransition],
         workItems: [RunWorkItem] = [],
-        syncSummary: ActivitySyncSummary?,
-        writeSummary: RunWriteSummary? = nil,
-        failureMessage: String?,
-        startedAt: Date,
-        finishedAt: Date?
+        status: Status
     ) {
-        self.runID = runID
-        self.requestID = requestID
-        self.trigger = trigger
-        self.intent = intent
-        self.scope = scope
+        runID = header.runID
+        requestID = header.requestID
+        trigger = header.trigger
+        intent = header.intent
+        scope = header.scope
         self.configuration = configuration
         self.writeTarget = writeTarget
         self.recoveryID = recoveryID
         self.transitions = transitions
-        self.workItems = workItems
+        workLedger = WorkLedger(workItems)
+        syncSummary = status.syncSummary
+        writeSummary = status.writeSummary
+        failureMessage = status.failureMessage
+        startedAt = header.startedAt
+        finishedAt = status.finishedAt
+    }
+
+    public init(
+        lifecycle: RunLifecycleSnapshot,
+        transitions: [RunLifecycleTransition],
+        recoveryID: UUID? = nil,
+        syncSummary: ActivitySyncSummary?,
+        writeSummary: RunWriteSummary? = nil,
+        failureMessage: String?,
+        finishedAt: Date?
+    ) {
+        runID = lifecycle.runID
+        requestID = lifecycle.requestID
+        trigger = lifecycle.trigger
+        intent = lifecycle.intent
+        scope = lifecycle.scope
+        configuration = lifecycle.configuration
+        writeTarget = lifecycle.writeTarget
+        self.recoveryID = recoveryID
+        self.transitions = transitions
+        workLedger = lifecycle.workLedger
         self.syncSummary = syncSummary
         self.writeSummary = writeSummary
         self.failureMessage = failureMessage
-        self.startedAt = startedAt
+        startedAt = lifecycle.startedAt
+        self.finishedAt = finishedAt
+    }
+
+    private init(
+        copying record: Self,
+        recoveryID: UUID?,
+        transitions: [RunLifecycleTransition],
+        workLedger: WorkLedger,
+        failureMessage: String?,
+        finishedAt: Date?
+    ) {
+        runID = record.runID
+        requestID = record.requestID
+        trigger = record.trigger
+        intent = record.intent
+        scope = record.scope
+        configuration = record.configuration
+        writeTarget = record.writeTarget
+        self.recoveryID = recoveryID
+        self.transitions = transitions
+        self.workLedger = workLedger
+        syncSummary = record.syncSummary
+        writeSummary = record.writeSummary
+        self.failureMessage = failureMessage
+        startedAt = record.startedAt
         self.finishedAt = finishedAt
     }
 
@@ -91,20 +166,11 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         let closure = "Recovery closed after Music.app verification; interrupted writes were not resumed."
         let message = failureMessage.map { "\($0) \(closure)" } ?? closure
         return Self(
-            runID: runID,
-            requestID: requestID,
-            trigger: trigger,
-            intent: intent,
-            scope: scope,
-            configuration: configuration,
-            writeTarget: writeTarget,
+            copying: self,
             recoveryID: recoveryID,
             transitions: transitions,
-            workItems: workItems,
-            syncSummary: syncSummary,
-            writeSummary: writeSummary,
+            workLedger: workLedger,
             failureMessage: message,
-            startedAt: startedAt,
             finishedAt: auditTime
         )
     }
@@ -116,21 +182,34 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
             transitions.append(RunLifecycleTransition(state: .recoverable, timestamp: auditTime))
         }
         return Self(
-            runID: runID,
-            requestID: requestID,
-            trigger: trigger,
-            intent: intent,
-            scope: scope,
-            configuration: configuration,
-            writeTarget: writeTarget,
+            copying: self,
             recoveryID: id,
             transitions: transitions,
-            workItems: workItems,
-            syncSummary: syncSummary,
-            writeSummary: writeSummary,
+            workLedger: workLedger,
             failureMessage: failureMessage ?? "Interrupted write requires Music.app verification.",
-            startedAt: startedAt,
             finishedAt: nil
+        )
+    }
+
+    func applying(_ checkpoint: WorkCheckpoint) throws -> Self {
+        let writeAdjacent = workLedger.isWriteAdjacent(to: checkpoint)
+        guard intent == .writeFixes,
+              configuration?.writeAuthority == .reviewedPlan,
+              finishedAt == nil
+        else {
+            throw WorkCheckpointError.invalid(
+                checkpoint.boundary,
+                writeAdjacent: writeAdjacent,
+                reason: "run is not an open reviewed write"
+            )
+        }
+        return try Self(
+            copying: self,
+            recoveryID: recoveryID,
+            transitions: transitions,
+            workLedger: workLedger.applying(checkpoint),
+            failureMessage: failureMessage,
+            finishedAt: finishedAt
         )
     }
 
@@ -150,21 +229,42 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         writeTarget = try container.decodeIfPresent(FixPlanWriteTarget.self, forKey: .writeTarget)
         recoveryID = try container.decodeIfPresent(UUID.self, forKey: .recoveryID)
         transitions = try container.decode([RunLifecycleTransition].self, forKey: .transitions)
-        workItems = if container.contains(.workItems) {
+        let workItems: [RunWorkItem] = if container.contains(.workItems) {
             try container.decode([RunWorkItem].self, forKey: .workItems)
         } else {
             []
         }
+        workLedger = WorkLedger(workItems)
         syncSummary = try container.decodeIfPresent(ActivitySyncSummary.self, forKey: .syncSummary)
         writeSummary = try container.decodeIfPresent(RunWriteSummary.self, forKey: .writeSummary)
         failureMessage = try container.decodeIfPresent(String.self, forKey: .failureMessage)
         startedAt = try container.decode(Date.self, forKey: .startedAt)
         finishedAt = try container.decodeIfPresent(Date.self, forKey: .finishedAt)
     }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(runID, forKey: .runID)
+        try container.encode(requestID, forKey: .requestID)
+        try container.encode(trigger, forKey: .trigger)
+        try container.encode(intent, forKey: .intent)
+        try container.encode(scope, forKey: .scope)
+        try container.encodeIfPresent(configuration, forKey: .configuration)
+        try container.encodeIfPresent(writeTarget, forKey: .writeTarget)
+        try container.encodeIfPresent(recoveryID, forKey: .recoveryID)
+        try container.encode(transitions, forKey: .transitions)
+        try container.encode(workItems, forKey: .workItems)
+        try container.encodeIfPresent(syncSummary, forKey: .syncSummary)
+        try container.encodeIfPresent(writeSummary, forKey: .writeSummary)
+        try container.encodeIfPresent(failureMessage, forKey: .failureMessage)
+        try container.encode(startedAt, forKey: .startedAt)
+        try container.encodeIfPresent(finishedAt, forKey: .finishedAt)
+    }
 }
 
 public protocol RunRecordStore: Sendable {
     func upsert(_ record: RunRecord) async throws
+    func checkpoint(_ checkpoint: WorkCheckpoint, runID: RunID) async throws
 
     /// Loads every persisted run record. All-or-nothing: a single corrupted row
     /// fails the whole load, deliberately; report surfaces that need per-row
@@ -207,6 +307,13 @@ public protocol RunRecordStore: Sendable {
 }
 
 extension RunRecordStore {
+    public func checkpoint(_ checkpoint: WorkCheckpoint, runID: RunID) async throws {
+        guard let record = try await record(for: runID) else {
+            throw RunRecordPersistenceError.invalidField(name: "checkpoint.runID", runID: runID.rawValue)
+        }
+        try await upsert(record.applying(checkpoint))
+    }
+
     public func closeReadOnlyCorruption(_: RunID, at _: Date) async throws -> Bool {
         false
     }

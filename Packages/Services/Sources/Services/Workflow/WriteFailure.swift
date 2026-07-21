@@ -15,6 +15,10 @@ extension UpdateCoordinator {
             throw outcomeError
         }
         if let coordinatorError = error as? UpdateCoordinatorError,
+           case .writeFinalizationFailed = coordinatorError {
+            throw coordinatorError
+        }
+        if let coordinatorError = error as? UpdateCoordinatorError,
            recordKnownWorkflowFailure(
                coordinatorError,
                fallbackTrackID: trackID,

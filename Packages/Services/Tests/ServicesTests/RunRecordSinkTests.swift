@@ -87,21 +87,25 @@ struct RunRecordSinkTests {
         }
 
         return RunRecord(
-            runID: RunID(),
-            requestID: RunRequestID(),
-            trigger: .manualCheck,
-            intent: .observeLibrary,
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: [],
-                knownTrackCount: 1,
-                createdAt: started,
-                reason: "manualCheck"
+            header: RunRecord.Header(
+                runID: RunID(),
+                requestID: RunRequestID(),
+                trigger: .manualCheck,
+                intent: .observeLibrary,
+                scope: ProcessingScopeSnapshot.capture(
+                    requestedTestArtists: [],
+                    knownTrackCount: 1,
+                    createdAt: started,
+                    reason: "manualCheck"
+                ),
+                startedAt: started
             ),
             transitions: transitions,
-            syncSummary: nil,
-            failureMessage: nil,
-            startedAt: started,
-            finishedAt: finishedAt.map(Date.init(timeIntervalSince1970:))
+            status: RunRecord.Status(
+                syncSummary: nil,
+                failureMessage: nil,
+                finishedAt: finishedAt.map(Date.init(timeIntervalSince1970:))
+            )
         )
     }
 }

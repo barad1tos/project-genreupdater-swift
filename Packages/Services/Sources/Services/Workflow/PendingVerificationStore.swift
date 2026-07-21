@@ -146,9 +146,11 @@ public actor PendingVerificationStore: ModelActor, Core.PendingVerificationServi
             artist: artist.trimmingCharacters(in: .whitespacesAndNewlines),
             album: album.trimmingCharacters(in: .whitespacesAndNewlines),
             reason: effectiveReason,
-            attemptCount: (existing?.attemptCount ?? 0) + 1,
-            lastAttempt: currentDate(),
-            recheckInterval: interval,
+            retry: .init(
+                attemptCount: (existing?.attemptCount ?? 0) + 1,
+                lastAttempt: currentDate(),
+                recheckInterval: interval
+            ),
             metadata: mergedMetadata
         )
 
@@ -348,9 +350,11 @@ extension PendingVerificationStore {
             artist: artist,
             album: album,
             reason: reason,
-            attemptCount: attemptCount,
-            lastAttempt: lastAttempt,
-            recheckInterval: pendingCSVRecheckInterval(reason: reason, metadata: metadata),
+            retry: .init(
+                attemptCount: attemptCount,
+                lastAttempt: lastAttempt,
+                recheckInterval: pendingCSVRecheckInterval(reason: reason, metadata: metadata)
+            ),
             metadata: metadata
         )
     }
@@ -517,9 +521,11 @@ extension PendingVerificationStore {
             artist: entry.artist,
             album: entry.album,
             reason: entry.reason,
-            attemptCount: entry.attemptCount,
-            lastAttempt: entry.lastAttempt,
-            recheckInterval: entry.recheckInterval,
+            retry: .init(
+                attemptCount: entry.attemptCount,
+                lastAttempt: entry.lastAttempt,
+                recheckInterval: entry.recheckInterval
+            ),
             metadata: entry.metadata
         )
     }

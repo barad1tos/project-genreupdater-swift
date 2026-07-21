@@ -169,6 +169,46 @@ struct WriteAdmissionTests {
         }
         let recoveryID = try #require(await processor.recoveryHoldID())
         let completion = try #require(outcome.completion)
+        let clearanceResults = await runClearanceRace(
+            processor: processor,
+            recoveryID: recoveryID,
+            completion: completion,
+            callback: callback,
+            dispatches: dispatches
+        )
+        #expect(clearanceResults.count(where: { $0 }) == 1)
+
+        await #expect(throws: AppleScriptOutcomeError.self) {
+            _ = try await processor.performRecoverableWrite {
+                throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
+            }
+        }
+        let newRecoveryID = try #require(await processor.recoveryHoldID())
+        #expect(newRecoveryID != recoveryID)
+        try await processor.clearRecovery(batchID: newRecoveryID)
+
+        let secondCall = ScriptCall(
+            name: "update_property",
+            intent: .mutation,
+            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
+            timeout: .seconds(1)
+        )
+        _ = try await processor.performRecoverableWrite {
+            try await ScriptDispatch.run(secondCall, limiter: nil, gate: gate) { finish in
+                dispatches.append("second")
+                finish(.success("done"))
+            }
+        }
+        #expect(dispatches.values == ["first", "second"])
+    }
+
+    private func runClearanceRace(
+        processor: BatchProcessor,
+        recoveryID: UUID,
+        completion: ScriptCompletion,
+        callback: CallbackHold,
+        dispatches: CallList
+    ) async -> [Bool] {
         let firstClearance = Task {
             do {
                 try await processor.clearRecovery(batchID: recoveryID)
@@ -204,31 +244,7 @@ struct WriteAdmissionTests {
         #expect(dispatches.values == ["first"])
 
         callback.finish(.success("done"))
-        let clearanceResults = await [firstClearance.value, secondClearance.value]
-        #expect(clearanceResults.count(where: { $0 }) == 1)
-
-        await #expect(throws: AppleScriptOutcomeError.self) {
-            _ = try await processor.performRecoverableWrite {
-                throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
-            }
-        }
-        let newRecoveryID = try #require(await processor.recoveryHoldID())
-        #expect(newRecoveryID != recoveryID)
-        try await processor.clearRecovery(batchID: newRecoveryID)
-
-        let secondCall = ScriptCall(
-            name: "update_property",
-            intent: .mutation,
-            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-            timeout: .seconds(1)
-        )
-        _ = try await processor.performRecoverableWrite {
-            try await ScriptDispatch.run(secondCall, limiter: nil, gate: gate) { finish in
-                dispatches.append("second")
-                finish(.success("done"))
-            }
-        }
-        #expect(dispatches.values == ["first", "second"])
+        return await [firstClearance.value, secondClearance.value]
     }
 
     private func waitForClearance(_ completion: ScriptCompletion) async {

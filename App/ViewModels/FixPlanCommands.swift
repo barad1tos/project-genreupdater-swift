@@ -236,9 +236,23 @@ struct FixPlanCommands {
             guard let plan = try await store.plan(id: target.planID, revision: target.planRevision) else {
                 return await conflictResult()
             }
+            let acceptedItemIDs = Set(decision.itemDecisions.compactMap { item in
+                item.verdict == .accepted ? item.itemID : nil
+            })
             let input = FixPlanWriteInput(
                 target: target.writeTarget,
-                scope: plan.scope
+                scope: plan.scope,
+                configuration: RunConfig(
+                    capturedAt: now(),
+                    writeAuthority: .reviewedPlan,
+                    automation: .manualOnly,
+                    scopeID: plan.scope.id,
+                    settings: plan.configuration,
+                    hadRecoveryHold: false
+                ),
+                workItems: plan.items
+                    .filter { acceptedItemIDs.contains($0.id) }
+                    .map(RunWorkItem.init(item:))
             )
             let result = try await submitFixPlanWrite(input)
             return await writeResult(result, fallbackAcceptedCount: projection.acceptedCount)

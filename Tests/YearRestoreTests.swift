@@ -83,9 +83,11 @@ struct YearRestoreTests {
     func releaseYearRestoreStopsWhenRecoveryHoldIsActive() async {
         let recorder = MutationPreparationRecorder()
         let fixture = makeWorkflowFixture(
-            ensureRecoveryHold: { true },
             prepareMutationMetadata: { tracks in
                 await recorder.record(tracks)
+            },
+            configure: { options in
+                options.ensureRecoveryHold = { true }
             }
         )
         let viewModel = fixture.viewModel
@@ -119,12 +121,14 @@ struct YearRestoreTests {
         let recoveryHold = MutationPreparationHold()
         let recorder = MutationPreparationRecorder()
         let fixture = makeWorkflowFixture(
-            ensureRecoveryHold: {
-                await recoveryHold.hold()
-                return false
-            },
             prepareMutationMetadata: { tracks in
                 await recorder.record(tracks)
+            },
+            configure: { options in
+                options.ensureRecoveryHold = {
+                    await recoveryHold.hold()
+                    return false
+                }
             }
         )
         let viewModel = fixture.viewModel

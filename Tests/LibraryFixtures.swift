@@ -1,7 +1,7 @@
 import Core
 import Foundation
-import Services
 @testable import Genre_Updater
+@testable import Services
 
 struct LibraryPersistenceFixture {
     let dependencies: AppDependencies
@@ -172,22 +172,27 @@ func sampleRunRecord(
     finishedAt: Date? = Date(timeIntervalSince1970: 1_800_000_045)
 ) -> RunRecord {
     let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
-    return RunRecord(
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: [],
+        knownTrackCount: nil,
+        createdAt: startedAt,
+        reason: "manualCheck"
+    )
+    let lifecycle = RunLifecycleSnapshot(
         runID: runID,
         requestID: RunRequestID(),
         trigger: .manualCheck,
         intent: intent,
-        scope: ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: nil,
-            createdAt: startedAt,
-            reason: "manualCheck"
-        ),
-        recoveryID: recoveryID,
+        scope: scope,
+        startedAt: startedAt,
+        phase: .active(.created)
+    )
+    return RunRecord(
+        lifecycle: lifecycle,
         transitions: [RunLifecycleTransition(state: state, timestamp: startedAt)],
+        recoveryID: recoveryID,
         syncSummary: nil,
         failureMessage: failureMessage,
-        startedAt: startedAt,
         finishedAt: finishedAt
     )
 }

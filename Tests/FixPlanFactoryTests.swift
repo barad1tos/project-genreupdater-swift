@@ -48,7 +48,12 @@ struct FixPlanFactoryTests {
             fingerprint: "altered-scope",
             reason: planScope.reason
         )
-        let input = FixPlanWriteInput(target: fixture.input.target, scope: alteredScope)
+        let input = FixPlanWriteInput(
+            target: fixture.input.target,
+            scope: alteredScope,
+            configuration: fixture.input.configuration,
+            workItems: fixture.input.workItems
+        )
 
         do {
             _ = try await fixture.run(input)
@@ -262,7 +267,7 @@ private func makeWriteFixture(hasInitialRecovery: Bool) async -> WriteFixture {
     let coordinator = makeCoordinator(script: script, mapper: mapper, directory: directory)
     let recovery = RecoveryProbe(isHeld: hasInitialRecovery)
     let runtime = RuntimeProbe()
-    let run = FixPlanWrite.makeRunner(FixPlanWrite.RunnerDependencies(
+    let write = FixPlanWrite.makeRunner(FixPlanWrite.RunnerDependencies(
         fixPlanStore: store,
         mapper: mapper,
         batchProcessor: processor,
@@ -274,18 +279,36 @@ private func makeWriteFixture(hasInitialRecovery: Bool) async -> WriteFixture {
         },
         hasRunRecovery: { await recovery.check() }
     ))
-    let target = FixPlanWriteTarget(
-        planID: plan.id,
-        planRevision: plan.revision,
-        decisionRevision: decision.revision
-    )
+    let input = makeWriteInput(plan: plan, decision: decision)
     return WriteFixture(
-        input: FixPlanWriteInput(target: target, scope: plan.scope),
+        input: input,
         script: script,
         processor: processor,
         runtime: runtime,
-        run: run,
+        run: { input in
+            try await write(input) { _ in }
+        },
         directory: directory
+    )
+}
+
+private func makeWriteInput(plan: FixPlan, decision: FixPlanReviewDecision) -> FixPlanWriteInput {
+    FixPlanWriteInput(
+        target: FixPlanWriteTarget(
+            planID: plan.id,
+            planRevision: plan.revision,
+            decisionRevision: decision.revision
+        ),
+        scope: plan.scope,
+        configuration: RunConfig(
+            capturedAt: decision.decidedAt,
+            writeAuthority: .reviewedPlan,
+            automation: .manualOnly,
+            scopeID: plan.scope.id,
+            settings: plan.configuration,
+            hadRecoveryHold: false
+        ),
+        workItems: plan.items.map(RunWorkItem.init(item:))
     )
 }
 
@@ -296,16 +319,18 @@ private func makeCoordinator(
 ) -> UpdateCoordinator {
     let api = DashboardStateAPIService()
     return UpdateCoordinator(
-        dependencies: UpdateCoordinatorDependencies(
+        dependencies: UpdateDependencies(
             apiOrchestrator: APIOrchestrator(services: APIOrchestratorServices(
                 musicBrainz: api,
                 discogs: api,
                 appleMusic: api
             )),
             scriptBridge: script,
-            trackStore: FactoryTrackStore(),
-            cache: FactoryCache(),
-            undoCoordinator: UndoCoordinator(scriptBridge: script, directory: directory),
+            stores: .init(trackStore: FactoryTrackStore(), cache: FactoryCache()),
+            undoCoordinator: UndoCoordinator(
+                scriptBridge: script,
+                directory: directory
+            ),
             idMapper: mapper
         ),
         genreDeterminator: GenreDeterminator(),

@@ -60,11 +60,13 @@ struct RunRuntimeFactory {
             discogsAccess: capturedAccess ?? .disabled
         )
         let coordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: apiOrchestrator,
                 scriptBridge: runServices.scripts,
-                trackStore: store,
-                cache: cache,
+                stores: .init(
+                    trackStore: store,
+                    cache: cache
+                ),
                 undoCoordinator: undo,
                 idMapper: mapper,
                 librarySnapshotService: snapshotService,
@@ -111,7 +113,7 @@ struct RunRuntimeFactory {
             configuration: appConfiguration
         )
         let coordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: AppDependencies.makeCapturedAPI(
                     configuration: appConfiguration,
                     cache: cache,
@@ -120,8 +122,7 @@ struct RunRuntimeFactory {
                     discogsAccess: .disabled
                 ),
                 scriptBridge: runServices.scripts,
-                trackStore: store,
-                cache: cache,
+                stores: .init(trackStore: store, cache: cache),
                 undoCoordinator: undo,
                 idMapper: mapper,
                 librarySnapshotService: snapshotService,

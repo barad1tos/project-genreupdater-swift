@@ -1076,26 +1076,14 @@ func advanceQueuedReload(
     _ state: QueuedManualReload?,
     lifecycle: RunLifecycleSnapshot
 ) -> QueuedReloadAdvance {
-    guard let state, !lifecycle.isActive else {
+    guard let state, lifecycle.finishedAt != nil else {
         return QueuedReloadAdvance(next: state, shouldReload: false)
     }
 
     switch state {
-    case let .waitingForActive(runID):
-        if lifecycle.runID == runID {
-            return QueuedReloadAdvance(next: .waitingForQueued, shouldReload: false)
-        }
-        return QueuedReloadAdvance(next: nil, shouldReload: lifecycle.isCompletedManualObservation)
-    case .waitingForQueued:
-        let shouldReload = lifecycle.isCompletedManualObservation
-        return QueuedReloadAdvance(next: nil, shouldReload: shouldReload)
-    }
-}
-
-extension RunLifecycleSnapshot {
-    fileprivate var isCompletedManualObservation: Bool {
-        (state == .completed || state == .completedNoOp) &&
-            trigger == .manualCheck &&
-            intent == .observeLibrary
+    case let .waitingForActive(runID) where lifecycle.runID == runID:
+        return QueuedReloadAdvance(next: .waitingForQueued, shouldReload: false)
+    case .waitingForActive, .waitingForQueued:
+        return QueuedReloadAdvance(next: nil, shouldReload: true)
     }
 }

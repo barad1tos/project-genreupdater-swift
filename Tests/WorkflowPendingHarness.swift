@@ -90,15 +90,12 @@ func makeRandomAccessPendingViewModel(
 @MainActor
 func makeRandomAccessLiveBatchRun(
     pendingVerificationService: WorkflowPendingVerificationService? = nil,
-    apiService: DashboardStateAPIService = DashboardStateAPIService(year: 2013, confidence: 100),
     randomAccessYear: Int? = nil,
     failingWriteTrackIDs: Set<String> = [],
     cancellingWriteTrackIDs: Set<String> = [],
-    liveBatchTracks: [Track]? = nil,
-    preflightState: PendingPreflightState = .due,
-    prepareMutationMetadata: (([Track]) async throws -> Void)? = noOpPrepareMutationMetadata
+    preflightState: PendingPreflightState = .due
 ) -> RandomAccessLiveBatchRun {
-    let batchTracks = liveBatchTracks ?? [batchYearTrack()]
+    let batchTracks = [batchYearTrack()]
     let batchTrackIDs = Set(batchTracks.map(\.id))
     let scriptIDsByMusicKitID = Dictionary(
         uniqueKeysWithValues: batchTracks.map { ($0.id, "as-\($0.id)") }
@@ -109,7 +106,7 @@ func makeRandomAccessLiveBatchRun(
         dueEntries: [randomAccessMemoriesPendingEntry()]
     )
     var options = RandomAccessWorkflowFixtureOptions()
-    options.apiService = apiService
+    options.apiService = DashboardStateAPIService(year: 2013, confidence: 100)
     options.randomAccessYear = randomAccessYear
     options.failingWriteTrackIDs = failingWriteTrackIDs
     options.cancellingWriteTrackIDs = cancellingWriteTrackIDs
@@ -119,7 +116,7 @@ func makeRandomAccessLiveBatchRun(
         tracks.filter { batchTrackIDs.contains($0.id) }
     }
     options.runMaintenancePreflight = { preflightState.result }
-    options.prepareMutationMetadata = prepareMutationMetadata
+    options.prepareMutationMetadata = noOpPrepareMutationMetadata
     options.updateIncrementalRunTimestamp = {
         await timestampUpdates.record()
     }
@@ -181,15 +178,16 @@ func makeRandomAccessWorkflowFixture(
     return makeWorkflowFixture(
         apiService: options.apiService,
         failingWriteTrackIDs: options.failingWriteTrackIDs,
-        cancellingWriteTrackIDs: options.cancellingWriteTrackIDs,
         resolveIncrementalTracks: options.resolveIncrementalTracks,
         pendingVerificationService: pendingVerificationService,
         idMapper: resolvedIDMapper,
-        runMaintenancePreflight: options.runMaintenancePreflight,
-        ensureRecoveryHold: options.ensureRecoveryHold,
-        prepareMutationMetadata: options.prepareMutationMetadata,
-        updateIncrementalRunTimestamp: options.updateIncrementalRunTimestamp
-    )
+        prepareMutationMetadata: options.prepareMutationMetadata
+    ) { fixtureOptions in
+        fixtureOptions.cancellingWriteTrackIDs = options.cancellingWriteTrackIDs
+        fixtureOptions.runMaintenancePreflight = options.runMaintenancePreflight
+        fixtureOptions.ensureRecoveryHold = options.ensureRecoveryHold
+        fixtureOptions.updateIncrementalRunTimestamp = options.updateIncrementalRunTimestamp
+    }
 }
 
 func makeRandomAccessPendingFixture(

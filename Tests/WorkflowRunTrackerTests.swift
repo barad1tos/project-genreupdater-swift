@@ -11,8 +11,10 @@ struct WorkflowRunTrackerTests {
         let timestampUpdates = RunTimestampUpdateCounter()
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2001, confidence: 90),
-            updateIncrementalRunTimestamp: {
-                await timestampUpdates.record()
+            configure: { options in
+                options.updateIncrementalRunTimestamp = {
+                    await timestampUpdates.record()
+                }
             }
         )
         let viewModel = fixture.viewModel
@@ -35,8 +37,10 @@ struct WorkflowRunTrackerTests {
         let timestampUpdates = RunTimestampUpdateCounter()
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2001, confidence: 90),
-            updateIncrementalRunTimestamp: {
-                await timestampUpdates.record()
+            configure: { options in
+                options.updateIncrementalRunTimestamp = {
+                    await timestampUpdates.record()
+                }
             }
         )
         let viewModel = fixture.viewModel
@@ -60,8 +64,10 @@ struct WorkflowRunTrackerTests {
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2001, confidence: 90),
             failingWriteTrackIDs: ["missing-year"],
-            updateIncrementalRunTimestamp: {
-                await timestampUpdates.record()
+            configure: { options in
+                options.updateIncrementalRunTimestamp = {
+                    await timestampUpdates.record()
+                }
             }
         )
         let viewModel = fixture.viewModel
@@ -91,8 +97,10 @@ struct WorkflowRunTrackerTests {
                     await invalidationsObservedAtYearLookup.set(cacheInvalidations.count())
                 }
             ),
-            invalidateAlbumYearCache: {
-                await cacheInvalidations.record()
+            configure: { options in
+                options.invalidateAlbumYearCache = {
+                    await cacheInvalidations.record()
+                }
             }
         )
         let viewModel = fixture.viewModel
@@ -117,8 +125,10 @@ struct WorkflowRunTrackerTests {
         let cacheInvalidations = AlbumYearCacheInvalidationCounter()
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2001, confidence: 90),
-            invalidateAlbumYearCache: {
-                await cacheInvalidations.record()
+            configure: { options in
+                options.invalidateAlbumYearCache = {
+                    await cacheInvalidations.record()
+                }
             }
         )
         let viewModel = fixture.viewModel
@@ -254,8 +264,10 @@ struct WorkflowRunTrackerTests {
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2001, confidence: 90),
             resolveIncrementalTracks: { _, _ in [] },
-            updateIncrementalRunTimestamp: {
-                await timestampUpdates.record()
+            configure: { options in
+                options.updateIncrementalRunTimestamp = {
+                    await timestampUpdates.record()
+                }
             }
         )
         let viewModel = fixture.viewModel

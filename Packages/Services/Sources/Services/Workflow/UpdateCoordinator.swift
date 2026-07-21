@@ -12,6 +12,7 @@ public enum UpdateCoordinatorError: Error, LocalizedError {
     case missingAppleScriptID(trackID: String)
     case reviewedChangeStale(trackID: String, property: String)
     case writeFailed(trackID: String, property: String, reason: String)
+    case writeFinalizationFailed(trackID: String, effects: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -29,6 +30,8 @@ public enum UpdateCoordinatorError: Error, LocalizedError {
             "Cannot write \(property) for track \(trackID): reviewed value no longer matches Music.app"
         case let .writeFailed(trackID, property, reason):
             "Failed to write \(property) for track \(trackID): \(reason)"
+        case let .writeFinalizationFailed(trackID, effects):
+            "Music.app updated track \(trackID), but GenreUpdater could not persist \(effects.joined(separator: " and "))"
         }
     }
 
@@ -58,40 +61,6 @@ extension AlbumTypeDetectionConfig {
     }
 }
 
-// MARK: - Update Coordinator
-
-/// Infrastructure dependencies used by ``UpdateCoordinator``.
-public struct UpdateCoordinatorDependencies {
-    let apiOrchestrator: APIOrchestrator
-    let scriptBridge: any AppleScriptClient
-    let trackStore: any TrackStateStore
-    let cache: any CacheService
-    let undoCoordinator: UndoCoordinator
-    let idMapper: (any TrackIDMapping)?
-    let librarySnapshotService: (any LibrarySnapshotService)?
-    let pendingVerificationService: (any PendingVerificationService)?
-
-    public init(
-        apiOrchestrator: APIOrchestrator,
-        scriptBridge: any AppleScriptClient,
-        trackStore: any TrackStateStore,
-        cache: any CacheService,
-        undoCoordinator: UndoCoordinator,
-        idMapper: (any TrackIDMapping)? = nil,
-        librarySnapshotService: (any LibrarySnapshotService)? = nil,
-        pendingVerificationService: (any PendingVerificationService)? = nil
-    ) {
-        self.apiOrchestrator = apiOrchestrator
-        self.scriptBridge = scriptBridge
-        self.trackStore = trackStore
-        self.cache = cache
-        self.undoCoordinator = undoCoordinator
-        self.idMapper = idMapper
-        self.librarySnapshotService = librarySnapshotService
-        self.pendingVerificationService = pendingVerificationService
-    }
-}
-
 /// Central orchestrator: read → determine → preview → write → log.
 ///
 /// Coordinates all services to update track metadata in Music.app.
@@ -111,15 +80,15 @@ public actor UpdateCoordinator {
     let log = Logger(subsystem: "com.genreupdater", category: "UpdateCoordinator")
 
     public init(
-        dependencies: UpdateCoordinatorDependencies,
+        dependencies: UpdateDependencies,
         genreDeterminator: GenreDeterminator,
         yearDeterminator: YearDeterminator = YearDeterminator(),
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
     ) {
         apiOrchestrator = dependencies.apiOrchestrator
         scriptBridge = dependencies.scriptBridge
-        trackStore = dependencies.trackStore
-        cache = dependencies.cache
+        trackStore = dependencies.stores.trackStore
+        cache = dependencies.stores.cache
         undoCoordinator = dependencies.undoCoordinator
         idMapper = dependencies.idMapper
         librarySnapshotService = dependencies.librarySnapshotService
@@ -628,7 +597,8 @@ public actor UpdateCoordinator {
     /// recalculated or reintroduced during the write phase.
     public func applyAcceptedChanges(
         _ changes: [ProposedChange],
-        progressHandler: @Sendable (ProgressUpdate) -> Void
+        progressHandler: @Sendable (ProgressUpdate) -> Void,
+        checkpoint: WorkCheckpointSink? = nil
     ) async throws -> BatchUpdateResult {
         let accepted = changes.filter(\.isAccepted)
         guard !accepted.isEmpty else {
@@ -646,7 +616,8 @@ public actor UpdateCoordinator {
             let groupOutcome = try await applyReviewedChangeGroup(
                 changeGroup,
                 failedTrackIDs: &failedTrackIDs,
-                errorDescriptions: &errorDescriptions
+                errorDescriptions: &errorDescriptions,
+                checkpoint: checkpoint
             )
             entries.append(contentsOf: groupOutcome.entries)
             noOpEntries.append(contentsOf: groupOutcome.noOpEntries)

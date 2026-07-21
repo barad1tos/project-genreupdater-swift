@@ -1,19 +1,6 @@
 import Core
 import Foundation
 
-private struct PreparedAppleScriptWrite {
-    let change: ProposedChange
-    let trackID: String
-    let property: String
-    let value: String
-}
-
-private enum PreparedAppleScriptWriteOutcome {
-    case write(PreparedAppleScriptWrite)
-    case noOp(ChangeLogEntry)
-    case skipped
-}
-
 private struct BatchWriteOutcome {
     let currentTracksByID: [String: Track]
     let appliedIndexes: Set<Int>
@@ -78,13 +65,15 @@ extension UpdateCoordinator {
     func applyReviewedChangeGroup(
         _ changes: [ProposedChange],
         failedTrackIDs: inout [String],
-        errorDescriptions: inout [String]
+        errorDescriptions: inout [String],
+        checkpoint: WorkCheckpointSink? = nil
     ) async throws -> AppliedChangeEntries {
         if let applied = try await applyChangesAsBatchIfPossible(
             changes,
             isReviewedChange: true,
             failedTrackIDs: &failedTrackIDs,
-            errorDescriptions: &errorDescriptions
+            errorDescriptions: &errorDescriptions,
+            checkpoint: checkpoint
         ) {
             return applied
         }
@@ -93,13 +82,21 @@ extension UpdateCoordinator {
         var noOpEntries: [ChangeLogEntry] = []
         for change in changes {
             do {
-                let outcome = try await applyChangeOutcome(change, isReviewedChange: true)
+                let outcome = try await applyChangeOutcome(
+                    change,
+                    isReviewedChange: true,
+                    checkpoint: checkpoint
+                )
                 if let entry = outcome.entry {
                     entries.append(entry)
                 }
                 if let noOpEntry = outcome.noOpEntry {
                     noOpEntries.append(noOpEntry)
                 }
+            } catch let error as WorkCheckpointError {
+                throw error
+            } catch let error as AppleScriptOutcomeError {
+                throw error
             } catch {
                 try recordWorkflowWriteFailure(
                     error,
@@ -170,7 +167,8 @@ extension UpdateCoordinator {
         _ changes: [ProposedChange],
         isReviewedChange: Bool = true,
         failedTrackIDs: inout [String],
-        errorDescriptions: inout [String]
+        errorDescriptions: inout [String],
+        checkpoint: WorkCheckpointSink? = nil
     ) async throws -> AppliedChangeEntries? {
         guard runtimeConfiguration.areBatchUpdatesEnabled,
               changes.count > 1,
@@ -190,77 +188,115 @@ extension UpdateCoordinator {
         do {
             guard let verifiedBatchOutcome = try await performVerifiedBatchWrite(
                 preparedWrites,
-                isReviewedChange: isReviewedChange
+                isReviewedChange: isReviewedChange,
+                checkpoint: checkpoint
             ) else {
                 return nil
             }
             batchOutcome = verifiedBatchOutcome
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as WorkCheckpointError {
+            throw error
         } catch let error as AppleScriptOutcomeError {
             throw error
         } catch let error as UpdateCoordinatorError {
             throw error
         } catch {
-            log.warning(
-                "Batch AppleScript write failed; falling back to single writes: \(error.localizedDescription, privacy: .private)"
-            )
+            log.warning("""
+            Batch AppleScript write failed; falling back to single writes: \
+            \(error.localizedDescription, privacy: .private)
+            """)
             return nil
         }
 
-        return await appliedChangeEntries(
+        let entries = try await appliedChangeEntries(
             for: preparedWrites,
             batchOutcome: batchOutcome,
             failedTrackIDs: &failedTrackIDs,
             errorDescriptions: &errorDescriptions
         )
+        try await checkpointBatch(preparedWrites, batch: batchOutcome, sink: checkpoint)
+        return entries
+    }
+
+    private func checkpointBatch(
+        _ preparedWrites: [PreparedWrite],
+        batch: BatchWriteOutcome,
+        sink: WorkCheckpointSink?,
+        indexes: Set<Int>? = nil
+    ) async throws {
+        guard let sink else { return }
+        var outcomes: [UUID: WorkOutcome] = [:]
+        for (index, write) in preparedWrites.enumerated() {
+            if let indexes, !indexes.contains(index) {
+                continue
+            }
+            outcomes[write.change.id] = Self.batchWorkOutcome(at: index, write: write, batch: batch)
+        }
+        if !outcomes.isEmpty {
+            try await sink(.afterVerification(outcomes))
+        }
     }
 
     private func appliedChangeEntries(
-        for preparedWrites: [PreparedAppleScriptWrite],
+        for preparedWrites: [PreparedWrite],
         batchOutcome: BatchWriteOutcome,
         failedTrackIDs: inout [String],
         errorDescriptions: inout [String]
-    ) async -> AppliedChangeEntries {
+    ) async throws -> AppliedChangeEntries {
         var entries: [ChangeLogEntry] = []
         var noOpEntries: [ChangeLogEntry] = []
+        var firstFinalizationError: (any Error)?
         for (writeIndex, preparedWrite) in preparedWrites.enumerated() {
-            if batchOutcome.noOpIndexes.contains(writeIndex) {
+            switch Self.batchWorkOutcome(at: writeIndex, write: preparedWrite, batch: batchOutcome) {
+            case .noFixNeeded:
                 await invalidateCaches(for: preparedWrite.change)
                 noOpEntries.append(Self.noOpLogEntry(preparedWrite.change))
                 continue
-            }
-
-            guard batchOutcome.appliedIndexes.contains(writeIndex) else {
+            case .failed:
                 await recordUnverifiedBatchWrite(
                     preparedWrite,
                     failedTrackIDs: &failedTrackIDs,
                     errorDescriptions: &errorDescriptions
                 )
                 continue
+            case .written:
+                do {
+                    let entry = try await recordAppliedChange(preparedWrite.change)
+                    entries.append(entry)
+                } catch {
+                    firstFinalizationError = firstFinalizationError ?? error
+                }
+            case .fixProposed, .needsReview, .skipped, .deferred, .dismissed:
+                assertionFailure("Unexpected terminal batch work outcome")
             }
-
-            let currentValue = batchOutcome.currentTracksByID[preparedWrite.trackID].flatMap { currentTrack in
-                Self.value(forAppleScriptProperty: preparedWrite.property, in: currentTrack)
-            }
-            guard currentValue != preparedWrite.value else {
-                await invalidateCaches(for: preparedWrite.change)
-                log
-                    .info(
-                        "Skipped applied-change record for verified batch no-op \(preparedWrite.change.changeType.rawValue, privacy: .public) on track \(preparedWrite.change.track.id, privacy: .private)"
-                    )
-                noOpEntries.append(Self.noOpLogEntry(preparedWrite.change))
-                continue
-            }
-
-            let entry = await recordAppliedChange(preparedWrite.change)
-            entries.append(entry)
+        }
+        if let firstFinalizationError {
+            throw firstFinalizationError
         }
         return (entries, noOpEntries)
     }
 
+    private static func batchWorkOutcome(
+        at index: Int,
+        write: PreparedWrite,
+        batch: BatchWriteOutcome
+    ) -> WorkOutcome {
+        if batch.noOpIndexes.contains(index) {
+            return .noFixNeeded
+        }
+        guard batch.appliedIndexes.contains(index) else {
+            return .failed
+        }
+        let priorValue = batch.currentTracksByID[write.trackID].flatMap { track in
+            value(forAppleScriptProperty: write.property, in: track)
+        }
+        return priorValue == write.value ? .noFixNeeded : .written
+    }
+
     private func recordUnverifiedBatchWrite(
-        _ preparedWrite: PreparedAppleScriptWrite,
+        _ preparedWrite: PreparedWrite,
         failedTrackIDs: inout [String],
         errorDescriptions: inout [String]
     ) async {
@@ -280,11 +316,11 @@ extension UpdateCoordinator {
     private func prepareBatchWrites(
         _ changes: [ProposedChange],
         isReviewedChange: Bool
-    ) async throws -> [PreparedAppleScriptWrite]? {
-        var preparedWrites: [PreparedAppleScriptWrite] = []
+    ) async throws -> [PreparedWrite]? {
+        var preparedWrites: [PreparedWrite] = []
         for change in changes {
             do {
-                let outcome = try await prepareAppleScriptWrite(
+                let outcome = try await prepareWrite(
                     for: change,
                     isReviewedChange: isReviewedChange
                 )
@@ -295,9 +331,10 @@ extension UpdateCoordinator {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                log.warning(
-                    "Batch write preparation failed; falling back to single writes: \(error.localizedDescription, privacy: .private)"
-                )
+                log.warning("""
+                Batch write preparation failed; falling back to single writes: \
+                \(error.localizedDescription, privacy: .private)
+                """)
                 return nil
             }
         }
@@ -305,8 +342,9 @@ extension UpdateCoordinator {
     }
 
     private func performVerifiedBatchWrite(
-        _ preparedWrites: [PreparedAppleScriptWrite],
-        isReviewedChange: Bool
+        _ preparedWrites: [PreparedWrite],
+        isReviewedChange: Bool,
+        checkpoint: WorkCheckpointSink?
     ) async throws -> BatchWriteOutcome? {
         guard let currentTracksByID = try await fetchBatchWriteTracks(preparedWrites) else {
             log.warning(
@@ -328,29 +366,54 @@ extension UpdateCoordinator {
             )
         }
 
+        return try await executeBatchWrite(
+            preparedWrites,
+            currentTracksByID: currentTracksByID,
+            preflight: preflight,
+            checkpoint: checkpoint
+        )
+    }
+
+    private func executeBatchWrite(
+        _ preparedWrites: [PreparedWrite],
+        currentTracksByID: [String: Track],
+        preflight: ReviewedBatchPreflight,
+        checkpoint: WorkCheckpointSink?
+    ) async throws -> BatchWriteOutcome {
         let writesToApply = preflight.writeIndexes.sorted().map { preparedWrites[$0] }
+        let itemIDs = writesToApply.map(\.change.id)
+        try await checkpoint?(.beforeAttempt(itemIDs))
+        let attemptState = WriteAttemptState()
         do {
             try await scriptBridge.batchUpdateTracks(
-                writesToApply.map { preparedWrite in
-                    (
-                        trackID: preparedWrite.trackID,
-                        property: preparedWrite.property,
-                        value: preparedWrite.value
-                    )
+                writesToApply.map { write in
+                    (trackID: write.trackID, property: write.property, value: write.value)
+                },
+                onAttempt: {
+                    attemptState.markAttempted()
+                    try await checkpoint?(.afterAttempt(itemIDs))
                 }
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as WorkCheckpointError {
+            throw error
         } catch let error as AppleScriptOutcomeError {
             await invalidateBatchCaches(preparedWrites, indexes: preflight.writeIndexes)
             throw error
         } catch let error as AppleScriptBatchVerificationError {
-            return try await batchOutcomeAfterPostRunVerificationFailure(
+            return try await verifyBatchAfterFailure(
                 preparedWrites,
                 currentTracksByID: currentTracksByID,
-                attemptedIndexes: preflight.writeIndexes,
-                noOpIndexes: preflight.noOpIndexes,
-                error: error
+                preflight: preflight,
+                error: error,
+                checkpoint: checkpoint
+            )
+        } catch let error where attemptState.hasAttempted {
+            await invalidateBatchCaches(preparedWrites, indexes: preflight.writeIndexes)
+            throw AppleScriptOutcomeError(
+                scriptName: "batch_update_tracks",
+                reason: "returned an error after dispatch: \(error.localizedDescription)"
             )
         } catch {
             throw error
@@ -364,7 +427,7 @@ extension UpdateCoordinator {
     }
 
     private func reviewedBatchPreflight(
-        _ preparedWrites: [PreparedAppleScriptWrite],
+        _ preparedWrites: [PreparedWrite],
         currentTracksByID: [String: Track],
         isReviewedChange: Bool
     ) throws -> ReviewedBatchPreflight {
@@ -381,7 +444,7 @@ extension UpdateCoordinator {
             guard let currentTrack = currentTracksByID[preparedWrite.trackID] else {
                 continue
             }
-            let shouldWrite = try shouldWriteReviewedChange(
+            let shouldWrite = try shouldWrite(
                 preparedWrite.change,
                 to: currentTrack,
                 property: preparedWrite.property,
@@ -396,42 +459,66 @@ extension UpdateCoordinator {
         return ReviewedBatchPreflight(writeIndexes: writeIndexes, noOpIndexes: noOpIndexes)
     }
 
-    private func batchOutcomeAfterPostRunVerificationFailure(
-        _ preparedWrites: [PreparedAppleScriptWrite],
+    private func verifyBatchAfterFailure(
+        _ preparedWrites: [PreparedWrite],
         currentTracksByID: [String: Track],
-        attemptedIndexes: Set<Int>,
-        noOpIndexes: Set<Int>,
-        error: AppleScriptBatchVerificationError
+        preflight: ReviewedBatchPreflight,
+        error: AppleScriptBatchVerificationError,
+        checkpoint: WorkCheckpointSink?
     ) async throws -> BatchWriteOutcome {
         do {
-            guard let appliedIndexes = try await verifiedBatchWriteIndexes(
+            guard let appliedIndexes = try await verifiedIndexes(
                 preparedWrites,
-                attemptedIndexes: attemptedIndexes
+                attemptedIndexes: preflight.writeIndexes
             ) else {
-                await invalidateBatchCaches(preparedWrites, indexes: attemptedIndexes)
+                await invalidateBatchCaches(preparedWrites, indexes: preflight.writeIndexes)
                 throw AppleScriptOutcomeError(
                     scriptName: "batch_update_tracks",
                     reason: "could not verify metadata after dispatch: \(error.localizedDescription)"
                 )
             }
-            guard appliedIndexes == attemptedIndexes else {
-                await invalidateBatchCaches(preparedWrites, indexes: attemptedIndexes)
+            guard appliedIndexes == preflight.writeIndexes else {
+                let confirmedIndexes = appliedIndexes.union(preflight.noOpIndexes)
+                let batch = BatchWriteOutcome(
+                    currentTracksByID: currentTracksByID,
+                    appliedIndexes: appliedIndexes,
+                    noOpIndexes: preflight.noOpIndexes
+                )
+                try await recordBatchEffects(
+                    preparedWrites,
+                    batch: batch,
+                    indexes: confirmedIndexes
+                )
+                await invalidateBatchCaches(
+                    preparedWrites,
+                    indexes: preflight.writeIndexes.subtracting(appliedIndexes)
+                )
+                try await checkpointBatch(
+                    preparedWrites,
+                    batch: batch,
+                    sink: checkpoint,
+                    indexes: confirmedIndexes
+                )
+                let reason = "verification covered only \(appliedIndexes.count) of \(preflight.writeIndexes.count) " +
+                    "writes after dispatch: \(error.localizedDescription)"
                 throw AppleScriptOutcomeError(
                     scriptName: "batch_update_tracks",
-                    reason: "verification covered only \(appliedIndexes.count) of \(attemptedIndexes.count) writes after dispatch: \(error.localizedDescription)"
+                    reason: reason
                 )
             }
             return BatchWriteOutcome(
                 currentTracksByID: currentTracksByID,
                 appliedIndexes: appliedIndexes,
-                noOpIndexes: noOpIndexes
+                noOpIndexes: preflight.noOpIndexes
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as WorkCheckpointError {
+            throw error
         } catch let outcome as AppleScriptOutcomeError {
             throw outcome
         } catch {
-            await invalidateBatchCaches(preparedWrites, indexes: attemptedIndexes)
+            await invalidateBatchCaches(preparedWrites, indexes: preflight.writeIndexes)
             throw AppleScriptOutcomeError(
                 scriptName: "batch_update_tracks",
                 reason: "verification failed after dispatch: \(error.localizedDescription)"
@@ -439,8 +526,34 @@ extension UpdateCoordinator {
         }
     }
 
+    private func recordBatchEffects(
+        _ preparedWrites: [PreparedWrite],
+        batch: BatchWriteOutcome,
+        indexes: Set<Int>
+    ) async throws {
+        var firstFinalizationError: (any Error)?
+        for index in indexes.sorted() {
+            let write = preparedWrites[index]
+            switch Self.batchWorkOutcome(at: index, write: write, batch: batch) {
+            case .written:
+                do {
+                    _ = try await recordAppliedChange(write.change)
+                } catch {
+                    firstFinalizationError = firstFinalizationError ?? error
+                }
+            case .noFixNeeded:
+                await invalidateCaches(for: write.change)
+            case .failed, .fixProposed, .needsReview, .skipped, .deferred, .dismissed:
+                assertionFailure("Unexpected unconfirmed batch work outcome")
+            }
+        }
+        if let firstFinalizationError {
+            throw firstFinalizationError
+        }
+    }
+
     private func invalidateBatchCaches(
-        _ preparedWrites: [PreparedAppleScriptWrite],
+        _ preparedWrites: [PreparedWrite],
         indexes: Set<Int>
     ) async {
         for index in indexes.sorted() {
@@ -448,7 +561,7 @@ extension UpdateCoordinator {
         }
     }
 
-    private func fetchBatchWriteTracks(_ preparedWrites: [PreparedAppleScriptWrite]) async throws -> [String: Track]? {
+    private func fetchBatchWriteTracks(_ preparedWrites: [PreparedWrite]) async throws -> [String: Track]? {
         let trackIDs = Array(Set(preparedWrites.map(\.trackID)))
         let fetchedTracks = try await scriptBridge.fetchTracksByIDs(
             trackIDs,
@@ -460,8 +573,8 @@ extension UpdateCoordinator {
         return hasAllTracks ? fetchedTracksByID : nil
     }
 
-    private func verifiedBatchWriteIndexes(
-        _ preparedWrites: [PreparedAppleScriptWrite],
+    private func verifiedIndexes(
+        _ preparedWrites: [PreparedWrite],
         attemptedIndexes: Set<Int>
     ) async throws -> Set<Int>? {
         guard let refreshedTracksByID = try await fetchBatchWriteTracks(preparedWrites) else {
@@ -483,168 +596,6 @@ extension UpdateCoordinator {
             }
         }
         return appliedIndexes
-    }
-
-    @discardableResult
-    func applyChange(
-        _ change: ProposedChange,
-        isReviewedChange: Bool = true
-    ) async throws -> ChangeLogEntry? {
-        try await applyChangeOutcome(change, isReviewedChange: isReviewedChange).entry
-    }
-
-    func applyChangeOutcome(
-        _ change: ProposedChange,
-        isReviewedChange: Bool = true
-    ) async throws -> AppliedChangeOutcome {
-        let preparedOutcome = try await prepareAppleScriptWrite(
-            for: change,
-            isReviewedChange: isReviewedChange
-        )
-        let preparedWrite: PreparedAppleScriptWrite
-        switch preparedOutcome {
-        case let .write(write):
-            preparedWrite = write
-        case let .noOp(noOpEntry):
-            await invalidateCaches(for: change)
-            return (nil, noOpEntry)
-        case .skipped:
-            return (nil, nil)
-        }
-
-        let writeResult: AppleScriptWriteResult
-        do {
-            writeResult = try await scriptBridge.updateTrackProperty(
-                trackID: preparedWrite.trackID,
-                property: preparedWrite.property,
-                value: preparedWrite.value
-            )
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let error as AppleScriptOutcomeError {
-            await invalidateCaches(for: change)
-            throw error
-        } catch {
-            throw UpdateCoordinatorError.writeFailed(
-                trackID: change.track.id,
-                property: preparedWrite.property,
-                reason: error.localizedDescription
-            )
-        }
-
-        guard writeResult == .changed else {
-            await invalidateCaches(for: change)
-            log
-                .info(
-                    "Skipped applied-change record for no-op \(change.changeType.rawValue, privacy: .public) on track \(change.track.id, privacy: .private)"
-                )
-            return (nil, Self.noOpLogEntry(change))
-        }
-
-        return await (recordAppliedChange(change), nil)
-    }
-
-    private func prepareAppleScriptWrite(
-        for change: ProposedChange,
-        isReviewedChange: Bool = true
-    ) async throws -> PreparedAppleScriptWriteOutcome {
-        guard runtimeConfiguration.allowsChange(change) else {
-            log
-                .info(
-                    "Skipped change for track \(change.track.id, privacy: .private) outside test artist allow-list"
-                )
-            return .skipped
-        }
-
-        guard let newValue = change.newValue else { return .skipped }
-        let mutationTrack = try await trackWithMutationMetadata(change.track)
-        guard mutationTrack.canEdit else {
-            throw UpdateCoordinatorError.trackNotEditable(trackID: mutationTrack.id)
-        }
-        guard Self.isTrackAvailableForProcessing(mutationTrack) else {
-            throw UpdateCoordinatorError.trackNotProcessable(
-                trackID: mutationTrack.id,
-                status: mutationTrack.trackStatus ?? "unknown"
-            )
-        }
-        let property = Self.appleScriptProperty(for: change.changeType)
-        if isReviewedChange {
-            guard try shouldWriteReviewedChange(change, to: mutationTrack, property: property) else {
-                log.info(
-                    "Skipped reviewed \(change.changeType.rawValue, privacy: .public) for track \(change.track.id, privacy: .private) after write preflight"
-                )
-                return .noOp(Self.noOpLogEntry(change))
-            }
-        }
-
-        let writeID: String
-        if let idMapper {
-            guard let appleScriptID = await idMapper.appleScriptID(forMusicKitID: mutationTrack.id) else {
-                throw UpdateCoordinatorError.missingAppleScriptID(trackID: mutationTrack.id)
-            }
-            writeID = appleScriptID
-        } else {
-            writeID = mutationTrack.id
-        }
-
-        return .write(
-            PreparedAppleScriptWrite(
-                change: change,
-                trackID: writeID,
-                property: property,
-                value: newValue
-            )
-        )
-    }
-
-    private func shouldWriteReviewedChange(
-        _ change: ProposedChange,
-        to mutationTrack: Track,
-        property: String,
-        staleTrackID: String? = nil
-    ) throws -> Bool {
-        if change.changeType == .yearUpdate, mutationTrack.hasBeenProcessed {
-            return false
-        }
-        guard Self.valueMatches(change.oldValue, in: mutationTrack, property: property) ||
-            Self.valueMatches(change.newValue, in: mutationTrack, property: property)
-        else {
-            throw UpdateCoordinatorError.reviewedChangeStale(
-                trackID: staleTrackID ?? mutationTrack.id,
-                property: property
-            )
-        }
-        return true
-    }
-
-    private static func valueMatches(_ expectedValue: String?, in track: Track, property: String) -> Bool {
-        normalizedReviewedValue(expectedValue) == normalizedReviewedValue(value(
-            forAppleScriptProperty: property,
-            in: track
-        ))
-    }
-
-    private static func normalizedReviewedValue(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    private func recordAppliedChange(_ change: ProposedChange) async -> ChangeLogEntry {
-        let logEntry = Self.changeToLogEntry(change)
-        await undoCoordinator.recordChange(logEntry)
-
-        try? await trackStore.updateTrackProcessingState(
-            id: change.track.id,
-            genreUpdated: change.changeType == .genreUpdate ? true : nil,
-            yearUpdated: change.changeType == .yearUpdate || change.changeType == .yearRevert ? true : nil
-        )
-        await invalidateCaches(for: change)
-
-        log
-            .info(
-                "Applied \(change.changeType.rawValue, privacy: .public) to track \(change.track.id, privacy: .private)"
-            )
-        return logEntry
     }
 
     static func appleScriptProperty(for changeType: ChangeType) -> String {
@@ -681,7 +632,7 @@ extension UpdateCoordinator {
         return identity.key == otherTrack.albumIdentity.key
     }
 
-    private static func value(forAppleScriptProperty property: String, in track: Track) -> String? {
+    static func value(forAppleScriptProperty property: String, in track: Track) -> String? {
         AppleScriptTrackProperty(rawValue: property)?.currentValue(in: track)
     }
 
@@ -689,7 +640,7 @@ extension UpdateCoordinator {
         track.kind?.isAvailableForProcessing ?? true
     }
 
-    private func invalidateCaches(for change: ProposedChange) async {
+    func invalidateCaches(for change: ProposedChange) async {
         for target in Self.cacheInvalidationTargets(for: change, cleaning: runtimeConfiguration.cleaning) {
             await cache.invalidateAlbum(artist: target.artist, album: target.album)
             await cache.invalidateCachedAPIResults(artist: target.artist, album: target.album)

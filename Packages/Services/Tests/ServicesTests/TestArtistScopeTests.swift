@@ -60,11 +60,13 @@ struct TestArtistScopeTests {
             appleMusic: apiService
         )
         let coordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
                 scriptBridge: bridge,
-                trackStore: store,
-                cache: cache,
+                stores: .init(
+                    trackStore: store,
+                    cache: cache
+                ),
                 undoCoordinator: undo
             ),
             genreDeterminator: GenreDeterminator(),

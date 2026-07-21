@@ -244,11 +244,13 @@ struct WriteFailureTests {
         )
 
         return UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
                 scriptBridge: scriptBridge,
-                trackStore: store,
-                cache: cache,
+                stores: .init(
+                    trackStore: store,
+                    cache: cache
+                ),
                 undoCoordinator: undo
             ),
             genreDeterminator: GenreDeterminator()
@@ -299,11 +301,13 @@ struct WriteFailureTests {
         )
 
         let coordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
                 scriptBridge: bridge,
-                trackStore: store,
-                cache: cache,
+                stores: .init(
+                    trackStore: store,
+                    cache: cache
+                ),
                 undoCoordinator: undo
             ),
             genreDeterminator: GenreDeterminator()

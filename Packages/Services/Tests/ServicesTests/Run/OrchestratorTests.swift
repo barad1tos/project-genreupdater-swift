@@ -252,7 +252,7 @@ struct OrchestratorTests {
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
-        let iterator = await LifecycleIterator(stream: orchestrator.lifecycleUpdates())
+        let iterator = await LifecycleIterator(updates: orchestrator.lifecycleUpdates())
 
         let first = Task {
             await orchestrator.submit(RunRequest.observation(
@@ -276,14 +276,15 @@ struct OrchestratorTests {
         let firstResult = await first.value
         await syncCalls.waitUntilCount(2)
 
+        let firstRunID = firstResult.lifecycle.runID
         var snapshots: [RunLifecycleSnapshot] = []
-        for _ in 0 ..< 6 {
-            if let snapshot = try await nextLifecycleSnapshot(from: iterator) {
-                snapshots.append(snapshot)
+        while let snapshot = try await nextLifecycleSnapshot(from: iterator) {
+            snapshots.append(snapshot)
+            if snapshot.runID != firstRunID, snapshot.isActive {
+                break
             }
         }
 
-        let firstRunID = firstResult.lifecycle.runID
         let firstTerminalIndex = try #require(snapshots.firstIndex {
             $0.runID == firstRunID && !$0.isActive
         })
@@ -291,6 +292,36 @@ struct OrchestratorTests {
             $0.runID != firstRunID && $0.isActive
         })
         #expect(firstTerminalIndex < queuedActiveIndex)
+    }
+
+    @Test("lifecycle stream bounds buffered checkpoint snapshots")
+    func boundsLifecycleBuffer() async throws {
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: ignoreRunRecord,
+            write: .init(writeFixPlan: { _, checkpoint in
+                for _ in 0 ..< RunOrchestrator.lifecycleBufferLimit * 2 {
+                    try await checkpoint(.beforeAttempt([itemID]))
+                }
+                try await checkpoint(.afterAttempt([itemID]))
+                try await checkpoint(.afterVerification([itemID: .written]))
+                return BatchUpdateResult(entries: [writeEntry()], failedTrackIDs: [], errorDescriptions: [])
+            })
+        ))
+        let iterator = await LifecycleIterator(updates: orchestrator.lifecycleUpdates())
+
+        _ = await orchestrator.submit(RunRequest.manualWrite(input: input))
+
+        var buffered = 0
+        while let snapshot = try await nextLifecycleSnapshot(from: iterator) {
+            buffered += 1
+            if !snapshot.isActive {
+                break
+            }
+        }
+        #expect(buffered <= RunOrchestrator.lifecycleBufferLimit)
     }
 
     @Test("cancelling the submitter does not fail the active run")
@@ -330,7 +361,8 @@ struct OrchestratorTests {
         ))
         let stream = await orchestrator.lifecycleUpdates()
         let observer = Task {
-            for await _ in stream {}
+            var iterator = stream.makeAsyncIterator()
+            _ = await iterator.next()
         }
 
         await waitForSubscriptionCount(orchestrator, expected: 1)
@@ -457,7 +489,7 @@ struct OrchestratorTests {
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
-        let iterator = await LifecycleIterator(stream: orchestrator.lifecycleUpdates())
+        let iterator = await LifecycleIterator(updates: orchestrator.lifecycleUpdates())
 
         let submitTask = Task {
             await orchestrator.submit(.manualObservation(
@@ -480,7 +512,7 @@ struct OrchestratorTests {
         let snapshot = try #require(terminalSnapshot)
         #expect(snapshot.state == .completedNoOp)
 
-        let replayIterator = await LifecycleIterator(stream: orchestrator.lifecycleUpdates())
+        let replayIterator = await LifecycleIterator(updates: orchestrator.lifecycleUpdates())
         let replayed = try await nextLifecycleSnapshot(from: replayIterator)
 
         #expect(replayed == snapshot)
@@ -532,10 +564,10 @@ private func waitForSubscriptionCount(
 }
 
 private final class LifecycleIterator: @unchecked Sendable {
-    private var iterator: AsyncStream<RunLifecycleSnapshot>.Iterator
+    private var iterator: LifecycleUpdates.AsyncIterator
 
-    init(stream: AsyncStream<RunLifecycleSnapshot>) {
-        iterator = stream.makeAsyncIterator()
+    init(updates: LifecycleUpdates) {
+        iterator = updates.makeAsyncIterator()
     }
 
     func next() async -> RunLifecycleSnapshot? {

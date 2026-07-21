@@ -11,6 +11,11 @@ struct WriteTests {
         let sync = WriteSyncProbe()
         let target = writeTarget()
         let input = writeInput(target: target, artists: ["Björk"], knownTrackCount: 12)
+        let itemID = try #require(input.workItems.first?.id)
+        let writtenItem = try input.workItems[0]
+            .transition(to: .attempting)
+            .transition(to: .attempted)
+            .transition(to: .outcome(.written))
         let writer = WriteProbe(result: BatchUpdateResult(
             entries: [writeEntry()],
             failedTrackIDs: [],
@@ -19,7 +24,12 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { await sync.run() },
             persistRunRecord: { try await probe.append($0) },
-            writeFixPlan: { try await writer.apply(input: $0) },
+            write: .init(writeFixPlan: { submittedInput, checkpoint in
+                try await checkpoint(.beforeAttempt([itemID]))
+                try await checkpoint(.afterAttempt([itemID]))
+                try await checkpoint(.afterVerification([itemID: .written]))
+                return try await writer.apply(input: submittedInput)
+            }),
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -36,6 +46,8 @@ struct WriteTests {
         #expect(final.intent == .writeFixes)
         #expect(final.scope == input.scope)
         #expect(final.writeTarget == input.target)
+        #expect(final.configuration == input.configuration)
+        #expect(final.workItems == [writtenItem])
         #expect(final.syncSummary?.modified == 1)
         #expect(final.writeSummary == RunWriteSummary(applied: 1, verifiedNoOp: 0, failed: 0))
         #expect(final.transitions.map(\.state) == [
@@ -44,6 +56,13 @@ struct WriteTests {
             .verifying,
             .reporting,
             .completed,
+        ])
+        #expect(await probe.records.compactMap { $0.workItems.first?.state } == [
+            .prepared,
+            .attempting,
+            .attempted,
+            .outcome(.written),
+            .outcome(.written),
         ])
     }
 
@@ -61,7 +80,10 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
-            writeFixPlan: { try await writer.apply(input: $0) },
+            write: .init(writeFixPlan: { input, checkpoint in
+                try await checkpointWrite(input, using: checkpoint)
+                return try await writer.apply(input: input)
+            }),
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -125,7 +147,10 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { await syncGate.sync() },
             persistRunRecord: { _ in },
-            writeFixPlan: { try await writer.apply(input: $0) },
+            write: .init(writeFixPlan: { input, checkpoint in
+                try await checkpointWrite(input, using: checkpoint)
+                return try await writer.apply(input: input)
+            }),
             now: { Date(timeIntervalSince1970: 100) }
         ))
         let firstTarget = writeTarget()

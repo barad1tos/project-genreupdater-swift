@@ -22,6 +22,125 @@ struct RunRecordDataTests {
         #expect(try await store.record(for: RunID()) == nil)
     }
 
+    @Test("work checkpoints survive store recreation without rewriting the run payload")
+    func checkpointsSurviveReopen() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        var store = RunRecordDataStore(modelContainer: container)
+        let detail = "Reviewed metadata correction"
+        let item = makeWorkItem(state: .prepared, detail: detail)
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let input = RunRecordInput(
+            intent: .writeFixes,
+            workItems: [item],
+            includesSyncTransition: false
+        )
+        let record = makeRunRecord(
+            startedAt: startedAt,
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: input
+        )
+        try await store.upsert(record)
+        let originalPayload = try runPayload(runID: record.runID, in: container)
+
+        let boundaries: [(WorkCheckpoint, WorkState)] = [
+            (.beforeAttempt([item.id]), .attempting),
+            (.afterAttempt([item.id]), .attempted),
+            (.afterVerification([item.id: .written]), .outcome(.written)),
+        ]
+        for (checkpoint, expectedState) in boundaries {
+            try await store.checkpoint(checkpoint, runID: record.runID)
+            store = RunRecordDataStore(modelContainer: container)
+            let storedItem = try #require(try await store.record(for: record.runID)?.workItems.first)
+            #expect(storedItem.state == expectedState)
+            #expect(storedItem.detail == detail)
+        }
+
+        #expect(try runPayload(runID: record.runID, in: container) == originalPayload)
+    }
+
+    @Test("Work checkpoints decode only addressed items")
+    func checkpointsAddressedItems() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let items = [makeWorkItem(state: .prepared), makeWorkItem(state: .prepared)]
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: items,
+                includesSyncTransition: false
+            )
+        )
+        try await store.upsert(record)
+
+        let context = ModelContext(container)
+        let rows = try context.fetch(FetchDescriptor<PersistedRunWorkItem>())
+        let unrelated = try #require(rows.first { $0.itemID == items[1].id })
+        unrelated.itemData = Data([0xDE, 0xAD, 0xBE, 0xEF])
+        try context.save()
+
+        try await store.checkpoint(.beforeAttempt([items[0].id]), runID: record.runID)
+
+        let currentRows = try ModelContext(container).fetch(FetchDescriptor<PersistedRunWorkItem>())
+        let addressed = try #require(currentRows.first { $0.itemID == items[0].id })
+        let updated = try JSONDecoder().decode(RunWorkItem.self, from: addressed.itemData)
+        #expect(updated.state == .attempting)
+    }
+
+    @Test("Adding work-item storage preserves existing run records")
+    func migratesWorkItemModel() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            do {
+                try FileManager.default.removeItem(at: directory)
+            } catch {
+                Issue.record("Failed to remove migration fixture: \(error)")
+            }
+        }
+        let storeURL = directory.appendingPathComponent("GenreUpdater.store")
+        let runID = UUID()
+
+        do {
+            let legacySchema = runSchema(includesItems: false)
+            let legacyConfig = ModelConfiguration(
+                "GenreUpdaterMigration",
+                schema: legacySchema,
+                url: storeURL,
+                cloudKitDatabase: .none
+            )
+            let legacyContainer = try ModelContainer(for: legacySchema, configurations: [legacyConfig])
+            try insertRunRow(runID: runID, transitionsData: validRunTransitionsData(), into: legacyContainer)
+        }
+
+        let currentSchema = runSchema(includesItems: true)
+        let currentConfig = ModelConfiguration(
+            "GenreUpdaterMigration",
+            schema: currentSchema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        let currentContainer = try ModelContainer(for: currentSchema, configurations: [currentConfig])
+        let context = ModelContext(currentContainer)
+        #expect(try context.fetch(FetchDescriptor<PersistedRunRecord>()).map(\.runID) == [runID])
+
+        let item = makeWorkItem(state: .prepared)
+        try context.insert(PersistedRunWorkItem(
+            runID: runID,
+            itemID: item.id,
+            position: 0,
+            itemData: JSONEncoder().encode(item)
+        ))
+        try context.save()
+        #expect(try context.fetch(FetchDescriptor<PersistedRunWorkItem>()).count == 1)
+    }
+
     @Test("loadAll sorts by startedAt descending")
     func sortsNewestFirst() async throws {
         let store = try makeRunStore()
@@ -343,4 +462,31 @@ struct RunRecordDataTests {
         #expect(page.records.count == 1)
         #expect(page.skippedCorruptedCount == 1)
     }
+}
+
+private func runPayload(runID: RunID, in container: ModelContainer) throws -> Data {
+    let context = ModelContext(container)
+    let rawID = runID.rawValue
+    var descriptor = FetchDescriptor<PersistedRunRecord>(
+        predicate: #Predicate { $0.runID == rawID }
+    )
+    descriptor.fetchLimit = 1
+    return try #require(context.fetch(descriptor).first).transitionsData
+}
+
+private func runSchema(includesItems: Bool) -> Schema {
+    var models: [any PersistentModel.Type] = [
+        PersistedTrack.self,
+        PersistedChangeLogEntry.self,
+        PersistedMetricsSnapshot.self,
+        PersistedPendingAlbumEntry.self,
+        PersistedPendingVerificationMetadata.self,
+        PersistedRunRecord.self,
+        PersistedFixPlan.self,
+        PersistedFixPlanDecision.self,
+    ]
+    if includesItems {
+        models.append(PersistedRunWorkItem.self)
+    }
+    return Schema(models)
 }

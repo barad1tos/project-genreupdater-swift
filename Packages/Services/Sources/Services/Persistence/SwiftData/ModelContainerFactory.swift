@@ -19,6 +19,7 @@ public enum ModelContainerFactory {
             PersistedPendingAlbumEntry.self,
             PersistedPendingVerificationMetadata.self,
             PersistedRunRecord.self,
+            PersistedRunWorkItem.self,
             PersistedFixPlan.self,
             PersistedFixPlanDecision.self
         ])
@@ -41,6 +42,7 @@ public enum ModelContainerFactory {
             PersistedPendingAlbumEntry.self,
             PersistedPendingVerificationMetadata.self,
             PersistedRunRecord.self,
+            PersistedRunWorkItem.self,
             PersistedFixPlan.self,
             PersistedFixPlanDecision.self
         ])

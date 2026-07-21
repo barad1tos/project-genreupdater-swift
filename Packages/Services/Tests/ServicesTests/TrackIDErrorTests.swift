@@ -29,16 +29,16 @@ private struct InvalidResponse: Sendable, CustomTestStringConvertible {
     }
 
     static let cases = [
-        InvalidResponse(output: nil, error: .parse),
-        InvalidResponse(output: "ERROR:Music failed", error: .execution),
-        InvalidResponse(
+        Self(output: nil, error: .parse),
+        Self(output: "ERROR:Music failed", error: .execution),
+        Self(
             output: "ERROR:LIBRARY_DB_NOT_FOUND: Music library database not found at /Music/Library.musicdb",
             error: .path
         ),
-        InvalidResponse(output: "INVALID", error: .parse),
-        InvalidResponse(output: "BATCH:3:2:G1:A,B,C", error: .libraryChanged),
-        InvalidResponse(output: "BATCH:2:2:G1:A", error: .parse),
-        InvalidResponse(output: "BATCH:2:3::A,B", error: .parse),
+        Self(output: "INVALID", error: .parse),
+        Self(output: "BATCH:3:2:G1:A,B,C", error: .libraryChanged),
+        Self(output: "BATCH:2:2:G1:A", error: .parse),
+        Self(output: "BATCH:2:3::A,B", error: .parse),
     ]
 }
 
