@@ -424,12 +424,22 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     /// cancelled before its command reached Music.app, so no uncertain item lingers in the
     /// terminal record. A no-op when nothing is mid-attempt.
     func cancellingAttempts() -> Self {
-        let attemptingIDs = workItems.filter { $0.state == .attempting }.map(\.id)
+        let attemptingIDs = Set(workItems.filter { $0.state == .attempting }.map(\.id))
         guard !attemptingIDs.isEmpty else { return self }
         let checkpoint = WorkCheckpoint.afterVerification(
             Dictionary(uniqueKeysWithValues: attemptingIDs.map { ($0, WorkOutcome.cancelled) })
         )
-        return (try? applying(checkpoint)) ?? self
+        do {
+            return try applying(checkpoint)
+        } catch {
+            // Unreachable for a real cancelled write: any `.attempting` item already passed the
+            // same intent/authority guards. Kept observable so a violated invariant leaves a trail.
+            log.error("""
+            Failed to close undispatched attempts on cancellation: \
+            \(error.localizedDescription, privacy: .public)
+            """)
+            return self
+        }
     }
 
     /// assertionFailure alone compiles to a no-op in Release, so a violated

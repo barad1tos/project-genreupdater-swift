@@ -363,7 +363,7 @@ struct WriteRecoveryTests {
     }
 
     @Test("cancellation before dispatch cancels the item without recovery")
-    func cancellationBeforeDispatchCancels() async throws {
+    func cancelsBeforeDispatch() async throws {
         let records = WriteRecordProbe()
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
@@ -392,6 +392,67 @@ struct WriteRecoveryTests {
         #expect(await records.records.last?.state == .cancelled)
         #expect(await records.records.last?.recoveryID == nil)
         #expect(await records.records.last?.workItems.first?.state == .outcome(.cancelled))
+    }
+
+    @Test("pre-dispatch cancellation holds recovery when its terminal cannot persist")
+    func holdsUnstoredCancellation() async throws {
+        let records = FailingRecordProbe(failingCall: 3)
+        let recoveryID = UUID()
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await records.append($0) },
+            write: .init(
+                writeFixPlan: { _, checkpoint in
+                    try await checkpoint(.beforeAttempt([itemID]))
+                    throw CancellationError()
+                },
+                beginRecoveryHold: { recoveryID }
+            )
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case .recoverable = result else {
+            Issue.record("Expected recoverable result when the cancelled terminal cannot persist")
+            return
+        }
+        #expect(await orchestrator.currentLifecycle()?.state == .recoverable)
+        let retained = try #require(await records.records.last)
+        #expect(retained.state == .recoverable)
+        #expect(retained.finishedAt == nil)
+        #expect(retained.recoveryID == recoveryID)
+    }
+
+    @Test("a fallback no-op after an undispatched attempt completes without recovery")
+    func completesFallbackNoOp() async throws {
+        let records = WriteRecordProbe()
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await records.append($0) },
+            write: .init(
+                writeFixPlan: { _, checkpoint in
+                    try await checkpoint(.beforeAttempt([itemID]))
+                    try await checkpoint(.afterVerification([itemID: .noFixNeeded]))
+                    return BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
+                },
+                beginRecoveryHold: {
+                    Issue.record("A verified fallback no-op must not open recovery")
+                    return UUID()
+                }
+            )
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case .completedNoOp = result else {
+            Issue.record("Expected a no-op completion, got \(result)")
+            return
+        }
+        #expect(await records.records.last?.workItems.first?.state == .outcome(.noFixNeeded))
     }
 
     @Test("cancellation after a verified skip does not require recovery")

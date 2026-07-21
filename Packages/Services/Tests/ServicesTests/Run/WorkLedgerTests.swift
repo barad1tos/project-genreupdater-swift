@@ -64,7 +64,7 @@ struct WorkLedgerTests {
     }
 
     @Test("dispatched writes are distinguished from mere attempts")
-    func distinguishesDispatchFromAttempt() throws {
+    func tracksDispatchSeparately() throws {
         let item = makeWorkItem(state: .prepared)
         let prepared = WorkLedger([item])
         let attempting = try prepared.applying(.beforeAttempt([item.id]))
@@ -89,8 +89,8 @@ struct WorkLedgerTests {
         #expect(!cancelled.hasOpenItems)
     }
 
-    @Test("a no-op or skip on an undispatched attempt records cancellation")
-    func coercesAbandonedAttemptToCancelled() throws {
+    @Test("a no-op or skip verification resolves an undispatched attempt as-is")
+    func recordsFallbackNoOp() throws {
         let noOpItem = makeWorkItem(state: .prepared)
         let skipItem = makeWorkItem(state: .prepared)
         let ledger = try WorkLedger([noOpItem, skipItem])
@@ -100,7 +100,7 @@ struct WorkLedgerTests {
             .applying(.afterVerification([noOpItem.id: .noFixNeeded]))
             .applying(.afterVerification([skipItem.id: .skipped]))
 
-        #expect(resolved.items.map(\.state) == [.outcome(.cancelled), .outcome(.cancelled)])
+        #expect(resolved.items.map(\.state) == [.outcome(.noFixNeeded), .outcome(.skipped)])
         #expect(!resolved.hasUncertainty)
         #expect(!resolved.hasOpenItems)
     }

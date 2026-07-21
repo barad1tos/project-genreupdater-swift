@@ -263,7 +263,7 @@ public actor RunOrchestrator {
                     failureMessage: "Write cancelled after durable progress; verify Music.app before continuing"
                 )
             }
-            return await finishCancelledRun(from: current.cancellingAttempts(), message: "Run cancelled")
+            return await finishCancelledRun(from: current, message: "Run cancelled")
         } catch let error as WorkCheckpointError where request.intent == .writeFixes && error.needsRecovery {
             await releasePreview(request)
             return await finishRecoverableRun(
@@ -573,7 +573,11 @@ public actor RunOrchestrator {
     ) async -> RunSubmissionResult {
         let reporting = beginReporting(from: lifecycle)
         let finishedAt = auditTime()
-        let cancelled = reporting.cancelling(message: message, at: finishedAt)
+        // Only the terminal record closes never-dispatched `.attempting` items as `.cancelled`.
+        // The pre-coercion `lifecycle`/`reporting` still count them as write progress, so a
+        // failed terminal persist below retains recovery instead of publishing an unstored
+        // terminal over a durable record that still holds the open `.attempting` checkpoint.
+        let cancelled = reporting.cancellingAttempts().cancelling(message: message, at: finishedAt)
         appendTransition(cancelled.state, at: finishedAt)
         let isStored = await persistRecord(
             for: cancelled,

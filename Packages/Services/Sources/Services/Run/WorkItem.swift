@@ -182,32 +182,16 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
     }
 
     func transition(to nextState: WorkState, detail: String?) throws -> Self {
-        let resolved = Self.resolvingAbandonedAttempt(from: state, to: nextState)
-        guard Self.canTransition(from: state, to: resolved) else {
+        guard Self.canTransition(from: state, to: nextState) else {
             throw WorkStateError.invalid(current: state, next: nextState)
         }
         return Self(
             id: id,
             target: target,
             change: change,
-            state: resolved,
+            state: nextState,
             detail: detail
         )
-    }
-
-    /// A no-op or skip verification on a still-`.attempting` item means the intended write was
-    /// abandoned before any command reached Music.app — for example a batch that hit its dispatch
-    /// deadline, fell back to single writes, then re-evaluated the item as unnecessary. Record it
-    /// as `.cancelled` (a legal terminal for an undispatched attempt) instead of rejecting a
-    /// legitimate outcome as an invalid transition.
-    private static func resolvingAbandonedAttempt(from state: WorkState, to nextState: WorkState) -> WorkState {
-        guard state == .attempting else { return nextState }
-        switch nextState {
-        case .outcome(.noFixNeeded), .outcome(.skipped):
-            return .outcome(.cancelled)
-        default:
-            return nextState
-        }
     }
 
     private static func canTransition(from state: WorkState, to nextState: WorkState) -> Bool {
@@ -218,8 +202,12 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             true
         case let (.prepared, .outcome(outcome)):
             outcome != .written
+        // An `.attempting` item provably never reached Music.app (`onAttempt` promotes to
+        // `.attempted` on every dispatched path), so any conclusive outcome except `.written`
+        // is a truthful terminal — e.g. a batch dispatch-deadline fallback re-verifying the
+        // item as a no-op. `.written` still requires a confirmed `.attempted` dispatch.
         case let (.attempting, .outcome(outcome)):
-            outcome == .failed || outcome == .cancelled
+            outcome != .written
         case (.prepared, .prepared),
              (.attempting, .attempting),
              (.attempted, .attempted),
