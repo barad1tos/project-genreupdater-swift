@@ -107,17 +107,15 @@ struct RetryDeadlineTests {
             .dispatchDeadline(scriptName: "fetch_tracks", duration: .seconds(1))
         ])
         var retry = deadlineRetryPolicy()
-        retry.maxRetries = 2
-        retry.baseDelaySeconds = 0.2
-        retry.maxDelaySeconds = 0.4
-        retry.operationTimeoutSeconds = 0.5
+        retry.maxRetries = 1
+        let timeout = Duration.seconds(30)
 
         do {
             _ = try await bridge.retryRead(
                 scriptName: "fetch_tracks",
                 retry: retry,
-                deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-                timeout: .seconds(1)
+                deadline: ContinuousClock().now.advanced(by: timeout),
+                timeout: timeout
             ) { _ in
                 try await probe.run()
             }

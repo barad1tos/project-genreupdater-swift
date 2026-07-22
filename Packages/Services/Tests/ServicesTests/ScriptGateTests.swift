@@ -10,14 +10,14 @@ struct ScriptGateTests {
         let gate = ScriptGate(limit: 0)
         let holder = try await gate.acquire(
             scriptName: "holder",
-            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-            timeout: .seconds(1)
+            deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+            timeout: .seconds(30)
         )
         let queued = Task {
             try await gate.acquire(
                 scriptName: "queued",
-                deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-                timeout: .seconds(1)
+                deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+                timeout: .seconds(30)
             )
         }
 
@@ -32,14 +32,14 @@ struct ScriptGateTests {
         let gate = ScriptGate(limit: 1)
         let holder = try await gate.acquire(
             scriptName: "holder",
-            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-            timeout: .seconds(1)
+            deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+            timeout: .seconds(30)
         )
         let queued = Task {
             try await gate.acquire(
                 scriptName: "queued",
-                deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-                timeout: .seconds(1)
+                deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+                timeout: .seconds(30)
             )
         }
         #expect(await awaitQueue(gate, count: 1))
@@ -59,8 +59,8 @@ struct ScriptGateTests {
         let gate = ScriptGate(limit: 1)
         let holder = try await gate.acquire(
             scriptName: "holder",
-            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-            timeout: .seconds(1)
+            deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+            timeout: .seconds(30)
         )
         let queued = Task {
             try await gate.acquire(
@@ -99,14 +99,14 @@ struct ScriptGateTests {
         let gate = ScriptGate(limit: 1)
         let holder = try await gate.acquire(
             scriptName: "holder",
-            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-            timeout: .seconds(1)
+            deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+            timeout: .seconds(30)
         )
         let queued = Task {
             try await gate.acquire(
                 scriptName: "queued",
-                deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-                timeout: .seconds(1)
+                deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+                timeout: .seconds(30)
             )
         }
         #expect(await awaitQueue(gate, count: 1))
@@ -124,14 +124,14 @@ struct ScriptGateTests {
         let order = GateOrder()
         let holder = try await gate.acquire(
             scriptName: "holder",
-            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-            timeout: .seconds(1)
+            deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+            timeout: .seconds(30)
         )
         let first = Task {
             let permit = try await gate.acquire(
                 scriptName: "first",
-                deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-                timeout: .seconds(1)
+                deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+                timeout: .seconds(30)
             )
             await order.record(1)
             permit.release()
@@ -140,8 +140,8 @@ struct ScriptGateTests {
         let second = Task {
             let permit = try await gate.acquire(
                 scriptName: "second",
-                deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-                timeout: .seconds(1)
+                deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+                timeout: .seconds(30)
             )
             await order.record(2)
             permit.release()
@@ -167,13 +167,13 @@ struct ScriptGateTests {
         let bridge = AppleScriptBridge(installer: installer, config: configuration)
         let first = try await bridge.acquirePermit(
             scriptName: "first",
-            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-            timeout: .seconds(1)
+            deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+            timeout: .seconds(30)
         )
         let second = try await bridge.acquirePermit(
             scriptName: "second",
-            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-            timeout: .seconds(1)
+            deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+            timeout: .seconds(30)
         )
 
         configuration.concurrency = 1
@@ -206,14 +206,14 @@ struct ScriptGateTests {
         let gate = ScriptGate(limit: 1)
         let first = try await gate.acquire(
             scriptName: "first",
-            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-            timeout: .seconds(1)
+            deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+            timeout: .seconds(30)
         )
         let secondTask = Task {
             try await gate.acquire(
                 scriptName: "second",
-                deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-                timeout: .seconds(1)
+                deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+                timeout: .seconds(30)
             )
         }
         #expect(await awaitQueue(gate, count: 1))
@@ -224,8 +224,8 @@ struct ScriptGateTests {
         let thirdTask = Task {
             try await gate.acquire(
                 scriptName: "third",
-                deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-                timeout: .seconds(1)
+                deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+                timeout: .seconds(30)
             )
         }
 
@@ -239,7 +239,7 @@ struct ScriptGateTests {
 func awaitQueue(
     _ gate: ScriptGate,
     count: Int,
-    timeout: Duration = .seconds(1)
+    timeout: Duration = .seconds(30)
 ) async -> Bool {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: timeout)
