@@ -64,6 +64,18 @@ enum FixPlanWrite {
         }
     }
 
+    static func acceptedWorkItems(
+        in plan: FixPlan,
+        decision: FixPlanReviewDecision
+    ) -> [RunWorkItem] {
+        let acceptedItemIDs = Set(decision.itemDecisions.compactMap { item in
+            item.verdict == .accepted ? item.itemID : nil
+        })
+        return plan.items
+            .filter { acceptedItemIDs.contains($0.id) }
+            .map(RunWorkItem.init(item:))
+    }
+
     private static func itemVerdicts(
         from decision: FixPlanReviewDecision,
         matching plan: FixPlan
@@ -176,12 +188,7 @@ enum FixPlanWrite {
         decision: FixPlanReviewDecision
     ) throws {
         // The input crosses an async queue; it must still match the immutable plan revision.
-        let acceptedItemIDs = Set(decision.itemDecisions.compactMap { item in
-            item.verdict == .accepted ? item.itemID : nil
-        })
-        let expectedWorkItems = plan.items
-            .filter { acceptedItemIDs.contains($0.id) }
-            .map(RunWorkItem.init(item:))
+        let expectedWorkItems = acceptedWorkItems(in: plan, decision: decision)
         guard plan.scope == input.scope,
               input.configuration.writeAuthority == .reviewedPlan,
               input.configuration.scopeID == plan.scope.id,
