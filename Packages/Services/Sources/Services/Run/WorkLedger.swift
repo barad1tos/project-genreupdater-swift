@@ -73,6 +73,10 @@ struct WorkLedger: Equatable, Sendable {
         }
     }
 
+    var hasDuplicateItems: Bool {
+        duplicateItemID != nil
+    }
+
     var hasUncertainty: Bool {
         counts.uncertain > 0
     }

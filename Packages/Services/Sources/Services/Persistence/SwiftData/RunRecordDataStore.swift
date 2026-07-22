@@ -125,7 +125,10 @@ public actor RunRecordDataStore: RunRecordStore {
         } else {
             payload.workItems
         }
-        guard !Self.hasOpenWork(finishedAt: persisted.finishedAt, workItems: workItems) else {
+        let workLedger = WorkLedger(workItems)
+        guard !workLedger.hasDuplicateItems,
+              !(persisted.finishedAt != nil && workLedger.hasOpenItems)
+        else {
             throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: persisted.runID)
         }
         guard !Self.hasInvalidWorkAuthority(
@@ -144,7 +147,7 @@ public actor RunRecordDataStore: RunRecordStore {
             intent: intent,
             scope: scope,
             payload: payload,
-            workItems: workItems,
+            workLedger: workLedger,
             syncSummary: syncSummary
         )
     }
@@ -166,7 +169,7 @@ extension RunRecord {
         intent: RunIntent,
         scope: ProcessingScopeSnapshot,
         payload: RunRecordPayload,
-        workItems: [RunWorkItem],
+        workLedger: WorkLedger,
         syncSummary: ActivitySyncSummary?
     ) {
         runID = RunID(rawValue: persisted.runID)
@@ -178,7 +181,7 @@ extension RunRecord {
         writeTarget = payload.writeTarget
         recoveryID = payload.recoveryID
         transitions = payload.transitions
-        workLedger = WorkLedger(workItems)
+        self.workLedger = workLedger
         self.syncSummary = syncSummary
         writeSummary = payload.writeSummary
         failureMessage = persisted.failureMessage

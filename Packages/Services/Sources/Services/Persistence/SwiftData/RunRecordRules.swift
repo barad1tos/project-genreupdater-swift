@@ -174,7 +174,9 @@ extension RunRecordDataStore {
         if let field = invalidLifecycleField(state: record.state, finishedAt: record.finishedAt) {
             throw RunRecordPersistenceError.invalidField(name: field, runID: record.runID.rawValue)
         }
-        guard !hasOpenWork(finishedAt: record.finishedAt, workItems: record.workItems) else {
+        guard !record.workLedger.hasDuplicateItems,
+              !hasOpenWork(finishedAt: record.finishedAt, workItems: record.workItems)
+        else {
             throw RunRecordPersistenceError.invalidField(name: "workItems", runID: record.runID.rawValue)
         }
         if record.intent != .writeFixes,
@@ -249,6 +251,7 @@ extension RunRecordDataStore {
         }
         let workItems = payload?.workItems ?? fallback?.workItems ?? []
         guard !workItems.isEmpty else { return false }
+        guard !WorkLedger(workItems).hasDuplicateItems else { return true }
         guard let configuration = payload?.configuration ?? fallback?.configuration,
               let scope = try? JSONDecoder().decode(ProcessingScopeSnapshot.self, from: row.scopeData)
         else { return true }

@@ -13,6 +13,7 @@ struct WorkLedgerTests {
         let attempting = try original.applying(.beforeAttempt([second.id]))
 
         #expect(original.items.map(\.state) == [.prepared, .prepared])
+        #expect(!original.hasDuplicateItems)
         #expect(attempting.items.map(\.id) == [first.id, second.id])
         #expect(attempting.items.map(\.state) == [.prepared, .attempting])
         #expect(attempting.hasOpenItems)
@@ -39,6 +40,7 @@ struct WorkLedgerTests {
         let ledger = WorkLedger([first, duplicate])
 
         #expect(ledger.items == [first, duplicate])
+        #expect(ledger.hasDuplicateItems)
         #expect(ledger.isWriteAdjacent(to: .afterAttempt([itemID])))
         #expect(throws: WorkCheckpointError.self) {
             try ledger.applying(.afterAttempt([itemID]))
