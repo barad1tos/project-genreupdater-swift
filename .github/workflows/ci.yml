@@ -65,25 +65,20 @@ jobs:
       - name: Unlock Keychain for tests
         run: security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db
 
+      - name: Clear cached coverage data
+        run: |
+          for build_path in Packages/Core/.build Packages/Services/.build; do
+            if [[ -d "$build_path" ]]; then
+              find "$build_path" -type d -name codecov -prune -exec rm -rf {} +
+            fi
+          done
+
       - name: Test Core
         run: swift test --package-path Packages/Core --enable-code-coverage
         timeout-minutes: 5
 
       - name: Test Services
-        run: |
-          swift test --package-path Packages/Services --enable-code-coverage &
-          TEST_PID=$!
-          SECONDS=0
-          while kill -0 $TEST_PID 2>/dev/null; do
-            if [ $SECONDS -ge 120 ]; then
-              echo "::warning::swift test hung after completion, killing"
-              kill $TEST_PID 2>/dev/null
-              wait $TEST_PID 2>/dev/null || true
-              exit 0
-            fi
-            sleep 1
-          done
-          wait $TEST_PID
+        run: swift test --package-path Packages/Services --enable-code-coverage
         timeout-minutes: 5
 
       - name: Check coverage thresholds
@@ -92,14 +87,18 @@ jobs:
 
           # Core coverage (threshold: 85%)
           echo "=== Core coverage ==="
-          PROFDATA=$(find Packages/Core/.build -name "default.profdata" -type f 2>/dev/null | head -1)
-          BINARY=$(find Packages/Core/.build -name "CorePackageTests.xctest" -type d 2>/dev/null | head -1)
-          if [ -n "$PROFDATA" ] && [ -n "$BINARY" ]; then
-            xcrun llvm-cov report "$BINARY/Contents/MacOS/CorePackageTests" \
-              -instr-profile "$PROFDATA" \
+          CORE_BIN_PATH=$(
+            swift build --package-path Packages/Core \
+              --configuration debug --disable-automatic-resolution --show-bin-path
+          )
+          CORE_BINARY="$CORE_BIN_PATH/CorePackageTests.xctest/Contents/MacOS/CorePackageTests"
+          CORE_PROFDATA="$CORE_BIN_PATH/codecov/default.profdata"
+          if [ -f "$CORE_PROFDATA" ] && [ -f "$CORE_BINARY" ]; then
+            xcrun llvm-cov report "$CORE_BINARY" \
+              -instr-profile "$CORE_PROFDATA" \
               --ignore-filename-regex="Tests/" --ignore-filename-regex="\.build/" | tail -3
-            CORE_COV=$(xcrun llvm-cov export "$BINARY/Contents/MacOS/CorePackageTests" \
-              --instr-profile "$PROFDATA" --summary-only \
+            CORE_COV=$(xcrun llvm-cov export "$CORE_BINARY" \
+              -instr-profile "$CORE_PROFDATA" --summary-only \
               --ignore-filename-regex="Tests/" --ignore-filename-regex="\.build/" 2>/dev/null \
               | python3 -c "import sys,json;d=json.load(sys.stdin);print(int(d['data'][0]['totals']['lines']['percent']))")
             echo "Core line coverage: ${CORE_COV}% (threshold: 85%)"
@@ -108,20 +107,25 @@ jobs:
               FAILED=1
             fi
           else
-            echo "::warning::Core coverage data not found"
+            echo "::error::Core coverage data not found"
+            FAILED=1
           fi
 
           # Services coverage (threshold: 65%)
           # Excludes Core/ sources (tested separately) and system-dependent files
           echo "=== Services coverage ==="
-          PROFDATA=$(find Packages/Services/.build -name "default.profdata" -type f 2>/dev/null | head -1)
-          BINARY=$(find Packages/Services/.build -name "ServicesPackageTests.xctest" -type d 2>/dev/null | head -1)
-          if [ -n "$PROFDATA" ] && [ -n "$BINARY" ]; then
-            xcrun llvm-cov report "$BINARY/Contents/MacOS/ServicesPackageTests" \
-              -instr-profile "$PROFDATA" \
+          SERVICES_BIN_PATH=$(
+            swift build --package-path Packages/Services \
+              --configuration debug --disable-automatic-resolution --show-bin-path
+          )
+          SERVICES_BINARY="$SERVICES_BIN_PATH/ServicesPackageTests.xctest/Contents/MacOS/ServicesPackageTests"
+          SERVICES_PROFDATA="$SERVICES_BIN_PATH/codecov/default.profdata"
+          if [ -f "$SERVICES_PROFDATA" ] && [ -f "$SERVICES_BINARY" ]; then
+            xcrun llvm-cov report "$SERVICES_BINARY" \
+              -instr-profile "$SERVICES_PROFDATA" \
               --ignore-filename-regex="Tests/" --ignore-filename-regex="\.build/" --ignore-filename-regex="Core/" | tail -3
-            SVC_COV=$(xcrun llvm-cov export "$BINARY/Contents/MacOS/ServicesPackageTests" \
-              --instr-profile "$PROFDATA" --summary-only \
+            SVC_COV=$(xcrun llvm-cov export "$SERVICES_BINARY" \
+              -instr-profile "$SERVICES_PROFDATA" --summary-only \
               --ignore-filename-regex="Tests/" --ignore-filename-regex="\.build/" --ignore-filename-regex="Core/" 2>/dev/null \
               | python3 -c "import sys,json;d=json.load(sys.stdin);print(int(d['data'][0]['totals']['lines']['percent']))")
             echo "Services line coverage: ${SVC_COV}% (threshold: 65%)"
@@ -130,7 +134,8 @@ jobs:
               FAILED=1
             fi
           else
-            echo "::warning::Services coverage data not found"
+            echo "::error::Services coverage data not found"
+            FAILED=1
           fi
 
           if [ "$FAILED" -ne 0 ]; then
