@@ -158,6 +158,146 @@ extension ApplyAcceptedTests {
         #expect(captured.allSatisfy { Set($0.states.keys) == [proposals[0].id] })
     }
 
+    @Test("Single after-attempt checkpoint failure clears write caches")
+    func singleFailureClearsCaches() async throws {
+        let fixture = await makeCoordinator()
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1969)
+        try await seedCaches(for: track, fixture: fixture)
+        let proposal = ProposedChange(
+            track: track,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Electronic",
+            confidence: 80,
+            source: "Library",
+            isAccepted: true
+        )
+        let failure = storeFailure(for: .afterAttempt([proposal.id]))
+
+        await #expect(throws: WorkCheckpointError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [proposal],
+                progressHandler: ignoreAcceptedChangeProgress,
+                checkpoint: { checkpoint in
+                    if checkpoint.boundary == .afterAttempt {
+                        throw failure
+                    }
+                }
+            )
+        }
+
+        await expectCachesCleared(for: track, fixture: fixture)
+    }
+
+    @Test("Batch after-attempt checkpoint failure clears write caches")
+    func batchFailureClearsCaches() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            )
+        )
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.bridge.setFetchedTracks([track])
+        try await seedCaches(for: track, fixture: fixture)
+        let proposals = [
+            ProposedChange(
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Stoner Rock",
+                confidence: 90,
+                source: "Library"
+            ),
+            ProposedChange(
+                track: track,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz"
+            ),
+        ]
+        let failure = storeFailure(for: .afterAttempt(proposals.map(\.id)))
+
+        await #expect(throws: WorkCheckpointError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                proposals,
+                progressHandler: ignoreAcceptedChangeProgress,
+                checkpoint: { checkpoint in
+                    if checkpoint.boundary == .afterAttempt {
+                        throw failure
+                    }
+                }
+            )
+        }
+
+        await expectCachesCleared(for: track, fixture: fixture)
+    }
+
+    @Test("Out-of-scope writes checkpoint a skipped outcome")
+    func skippedWriteCheckpoints() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(testArtists: ["In Flames"])
+        )
+        let proposal = ProposedChange(
+            track: makeEditableTrack(id: "MK1", genre: "Rock", year: 1969),
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Electronic",
+            confidence: 80,
+            source: "Library",
+            isAccepted: true
+        )
+        let checkpoints = CheckpointProbe()
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            [proposal],
+            progressHandler: ignoreAcceptedChangeProgress,
+            checkpoint: { await checkpoints.append($0) }
+        )
+
+        #expect(result.entries.isEmpty)
+        #expect(result.failedTrackIDs.isEmpty)
+        #expect(await checkpoints.values.map(\.boundary) == [.afterVerification])
+        #expect(await checkpoints.values.first?.states == [proposal.id: .outcome(.skipped)])
+    }
+
+    @Test("Preparation failures checkpoint a failed outcome")
+    func failedWriteCheckpoints() async throws {
+        let fixture = await makeCoordinator()
+        let proposal = ProposedChange(
+            track: Track(
+                id: "MK1",
+                name: "Come Together",
+                artist: "Beatles",
+                album: "Abbey Road",
+                genre: "Rock",
+                year: 1969,
+                trackStatus: "no longer available"
+            ),
+            changeType: .yearUpdate,
+            oldValue: "1969",
+            newValue: "1970",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+        let checkpoints = CheckpointProbe()
+
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [proposal],
+                progressHandler: ignoreAcceptedChangeProgress,
+                checkpoint: { await checkpoints.append($0) }
+            )
+        }
+
+        #expect(await checkpoints.values.map(\.boundary) == [.afterVerification])
+        #expect(await checkpoints.values.first?.states == [proposal.id: .outcome(.failed)])
+        #expect(await fixture.bridge.writtenProperties.isEmpty)
+    }
+
     @Test("Reviewed batch writes checkpoint all items atomically")
     func checkpointsBatchWrite() async throws {
         let fixture = await makeCoordinator(
@@ -420,6 +560,34 @@ extension ApplyAcceptedTests {
             historyCount: historyCount,
             processingCount: processingCount
         )
+    }
+
+    private func seedCaches(for track: Track, fixture: AcceptedApplyFixture) async throws {
+        let year = try #require(track.year)
+        await fixture.cache.storeAlbumYear(
+            artist: track.artist,
+            album: track.album,
+            year: year,
+            confidence: 80
+        )
+        await fixture.cache.setCachedAPIResult(CachedAPIResult(
+            artist: track.artist,
+            album: track.album,
+            year: year,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: nil
+        ))
+    }
+
+    private func expectCachesCleared(for track: Track, fixture: AcceptedApplyFixture) async {
+        #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
+        #expect(await fixture.cache.getCachedAPIResult(
+            artist: track.artist,
+            album: track.album,
+            source: "musicbrainz"
+        ) == nil)
+        #expect(await fixture.snapshot.wasCleared())
     }
 
     private func storeFailure(for checkpoint: WorkCheckpoint) -> WorkCheckpointError {

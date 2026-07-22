@@ -110,8 +110,14 @@ extension UpdateCoordinator {
                 }
             )
         } catch is CancellationError {
+            if attemptState.hasAttempted {
+                await invalidateCaches(for: write.change)
+            }
             throw CancellationError()
         } catch let error as WorkCheckpointError {
+            if attemptState.hasAttempted {
+                await invalidateCaches(for: write.change)
+            }
             throw error
         } catch let error as AppleScriptOutcomeError {
             await invalidateCaches(for: write.change)

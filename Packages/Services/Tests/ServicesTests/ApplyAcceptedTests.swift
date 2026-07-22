@@ -700,6 +700,7 @@ struct ApplyAcceptedTests {
         let undoDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ApplyAcceptedTests-\(UUID().uuidString)")
         let cache = MockCacheService()
+        let snapshot = MockLibrarySnapshotService()
         let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
         let trackStore = MockTrackStore()
         let coordinator = UpdateCoordinator(
@@ -711,7 +712,8 @@ struct ApplyAcceptedTests {
                     cache: cache
                 ),
                 undoCoordinator: undo,
-                idMapper: idMapper
+                idMapper: idMapper,
+                librarySnapshotService: snapshot
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),
@@ -722,6 +724,7 @@ struct ApplyAcceptedTests {
             coordinator: coordinator,
             bridge: bridge,
             cache: cache,
+            snapshot: snapshot,
             trackStore: trackStore,
             undo: undo
         )
@@ -770,29 +773,4 @@ struct ApplyAcceptedTests {
     func ignoreAcceptedChangeProgress(_ update: ProgressUpdate) {
         _ = update
     }
-}
-
-struct AcceptedApplyFixture {
-    let coordinator: UpdateCoordinator
-    let bridge: MockAppleScriptClient
-    let cache: MockCacheService
-    let trackStore: MockTrackStore
-    let undo: UndoCoordinator
-}
-
-actor CheckpointProbe {
-    private(set) var values: [WorkCheckpoint] = []
-    private(set) var verifiedEffects: [CheckpointEffects] = []
-
-    func append(_ checkpoint: WorkCheckpoint, effects: CheckpointEffects? = nil) {
-        values.append(checkpoint)
-        if let effects {
-            verifiedEffects.append(effects)
-        }
-    }
-}
-
-struct CheckpointEffects: Sendable {
-    let historyCount: Int
-    let processingCount: Int
 }

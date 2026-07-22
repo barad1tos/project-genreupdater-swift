@@ -436,11 +436,9 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         return try applying(.afterVerification(outcomes))
     }
 
-    /// Terminalizes every still-open work item as `.skipped` — used when a write run is
-    /// cancelled before its command reached Music.app, so the terminal record has a
-    /// conclusive outcome for each item (`.prepared` work was never started; `.attempting`
-    /// work provably never dispatched). A no-op when no item is open; throws when the
-    /// closing checkpoint is rejected so the caller can stay on a conservative path.
+    /// Marks `.prepared` and proven-undispatched `.attempting` work as skipped.
+    /// Attempted work stays open for recovery because Music.app may already have changed.
+    /// Throws when the closing checkpoint is rejected so the caller stays conservative.
     func skippingOpenWork() throws -> Self {
         let openIDs = Set(workItems.filter { $0.state == .prepared || $0.state == .attempting }.map(\.id))
         guard !openIDs.isEmpty else { return self }

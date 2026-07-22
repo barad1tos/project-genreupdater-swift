@@ -408,8 +408,14 @@ extension UpdateCoordinator {
                 }
             )
         } catch is CancellationError {
+            if attemptState.hasAttempted {
+                await invalidateBatchCaches(preparedWrites, indexes: preflight.writeIndexes)
+            }
             throw CancellationError()
         } catch let error as WorkCheckpointError {
+            if attemptState.hasAttempted {
+                await invalidateBatchCaches(preparedWrites, indexes: preflight.writeIndexes)
+            }
             throw error
         } catch let error as AppleScriptOutcomeError {
             await invalidateBatchCaches(preparedWrites, indexes: preflight.writeIndexes)
