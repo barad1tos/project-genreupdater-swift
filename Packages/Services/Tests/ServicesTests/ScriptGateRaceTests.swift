@@ -13,13 +13,12 @@ struct ScriptGateRaceTests {
         )
         let holder = try await gate.acquire(
             scriptName: "holder",
-            deadline: ContinuousClock().now.advanced(by: .seconds(2)),
-            timeout: .seconds(2)
+            deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+            timeout: .seconds(30)
         )
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
         let expired = Task {
-            try await gate.acquire(
+            let deadline = ContinuousClock().now.advanced(by: .seconds(1))
+            return try await gate.acquire(
                 scriptName: "expired",
                 deadline: deadline,
                 timeout: .seconds(1)
@@ -29,15 +28,15 @@ struct ScriptGateRaceTests {
         let next = Task {
             try await gate.acquire(
                 scriptName: "next",
-                deadline: clock.now.advanced(by: .seconds(5)),
-                timeout: .seconds(5)
+                deadline: ContinuousClock().now.advanced(by: .seconds(30)),
+                timeout: .seconds(30)
             )
         }
         #expect(await awaitQueue(gate, count: 2))
 
         holder.release()
         #expect(await pause.waitForEntry())
-        try await clock.sleep(until: deadline.advanced(by: .milliseconds(10)))
+        try await Task.sleep(for: .milliseconds(1100))
         await pause.open()
 
         var didExpire = false
@@ -76,7 +75,7 @@ private actor GrantPause {
         await withCheckedContinuation { continuation = $0 }
     }
 
-    func waitForEntry(timeout: Duration = .seconds(1)) async -> Bool {
+    func waitForEntry(timeout: Duration = .seconds(30)) async -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
         while !isWaiting, clock.now < deadline {

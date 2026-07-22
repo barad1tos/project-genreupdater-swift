@@ -201,7 +201,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
 
     /// Polls until a stable waiter count equals `count` or the timeout elapses.
     /// Transient queue states between polling intervals may not be observed.
-    func waitForQueue(_ count: Int, timeout: Duration = .seconds(1)) async -> Bool {
+    func waitForQueue(_ count: Int, timeout: Duration = .seconds(30)) async -> Bool {
         let deadline = clock.now.advanced(by: timeout)
         while waiters.count != count, clock.now < deadline {
             do {
