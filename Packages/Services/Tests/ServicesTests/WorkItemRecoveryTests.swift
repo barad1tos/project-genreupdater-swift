@@ -351,6 +351,46 @@ struct WorkItemRecoveryTests {
         #expect(repaired.workItems.first?.state == .outcome(.written))
     }
 
+    @Test("Recovery dismisses open child checkpoints")
+    func dismissesOpenChildState() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let item = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [item],
+                includesSyncTransition: false
+            )
+        )
+        try await store.upsert(record)
+
+        let context = ModelContext(container)
+        let child = try #require(context.fetch(FetchDescriptor<PersistedRunWorkItem>()).first)
+        child.itemData = try JSONEncoder().encode(
+            item.transition(to: .attempting).transition(to: .attempted)
+        )
+        let row = try #require(context.fetch(FetchDescriptor<PersistedRunRecord>()).first)
+        row.stateRaw = "invalid"
+        try context.save()
+        let freshStore = RunRecordDataStore(modelContainer: container)
+
+        let didClose = try await freshStore.closeCorruptedRun(
+            record.runID,
+            at: Date(timeIntervalSince1970: 200)
+        )
+        let repaired = try #require(await freshStore.record(for: record.runID))
+
+        #expect(didClose)
+        #expect(repaired.state == .cancelled)
+        #expect(repaired.finishedAt == Date(timeIntervalSince1970: 200))
+        #expect(repaired.workItems.first?.state == .outcome(.dismissed))
+    }
+
     @Test("Scope-detached item audit requires attention")
     func holdsDetachedScope() async throws {
         let container = try ModelContainerFactory.createInMemory()

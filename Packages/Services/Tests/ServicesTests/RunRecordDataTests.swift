@@ -60,8 +60,8 @@ struct RunRecordDataTests {
         #expect(try runPayload(runID: record.runID, in: container) == originalPayload)
     }
 
-    @Test("Work checkpoints reject a corrupted sibling")
-    func rejectsCorruptSibling() async throws {
+    @Test("Work checkpoints decode only addressed items")
+    func checkpointsAddressedItems() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
         let items = [makeWorkItem(state: .prepared), makeWorkItem(state: .prepared)]
@@ -84,18 +84,19 @@ struct RunRecordDataTests {
         unrelated.itemData = Data([0xDE, 0xAD, 0xBE, 0xEF])
         try context.save()
 
-        await #expect(throws: RunRecordPersistenceError.self) {
-            try await store.checkpoint(.beforeAttempt([items[0].id]), runID: record.runID)
-        }
+        try await store.checkpoint(.beforeAttempt([items[0].id]), runID: record.runID)
 
         let currentRows = try ModelContext(container).fetch(FetchDescriptor<PersistedRunWorkItem>())
         let addressed = try #require(currentRows.first { $0.itemID == items[0].id })
-        let unchanged = try JSONDecoder().decode(RunWorkItem.self, from: addressed.itemData)
-        #expect(unchanged.state == .prepared)
+        let updated = try JSONDecoder().decode(RunWorkItem.self, from: addressed.itemData)
+        #expect(updated.state == .attempting)
+        await #expect(throws: RunRecordPersistenceError.self) {
+            _ = try await store.record(for: record.runID)
+        }
     }
 
-    @Test("Work checkpoints reject a corrupted parent")
-    func rejectsCorruptParent() async throws {
+    @Test("Work checkpoints use the persisted run header")
+    func usesCheckpointHeader() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
         let item = makeWorkItem(state: .prepared)
@@ -117,13 +118,14 @@ struct RunRecordDataTests {
         parent.transitionsData = Data([0xDE, 0xAD, 0xBE, 0xEF])
         try context.save()
 
-        await #expect(throws: RunRecordPersistenceError.self) {
-            try await store.checkpoint(.beforeAttempt([item.id]), runID: record.runID)
-        }
+        try await store.checkpoint(.beforeAttempt([item.id]), runID: record.runID)
 
         let child = try #require(ModelContext(container).fetch(FetchDescriptor<PersistedRunWorkItem>()).first)
-        let unchanged = try JSONDecoder().decode(RunWorkItem.self, from: child.itemData)
-        #expect(unchanged.state == .prepared)
+        let updated = try JSONDecoder().decode(RunWorkItem.self, from: child.itemData)
+        #expect(updated.state == .attempting)
+        await #expect(throws: RunRecordPersistenceError.self) {
+            _ = try await store.record(for: record.runID)
+        }
     }
 
     @Test("Work checkpoints require the persisted write-authority header")

@@ -148,7 +148,7 @@ extension RunRecordDataStore {
         let row = decoded.row
         let payload = decoded.payload
         let fallback = decoded.fallback
-        let workItems = decoded.itemAudit.workItems
+        let workItems = try WorkLedger(decoded.itemAudit.workItems).dismissingOpenWork().items
         let storedConfiguration = payload?.configuration ?? fallback?.configuration
         let scope = recoveryScope(for: row, configuration: storedConfiguration)
         var transitions = Self.recoveryTransitions(row, payload: payload, fallback: fallback)

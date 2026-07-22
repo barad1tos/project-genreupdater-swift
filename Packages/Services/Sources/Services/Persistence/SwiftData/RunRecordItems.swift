@@ -6,9 +6,18 @@ private typealias CheckpointItem = (row: PersistedRunWorkItem, item: RunWorkItem
 extension RunRecordDataStore {
     public func checkpoint(_ checkpoint: WorkCheckpoint, runID: RunID) async throws {
         do {
-            try requireCheckpointRun(runID, checkpoint: checkpoint)
             let items = try loadCheckpointItems(checkpoint, runID: runID)
-            try updateCheckpointItems(items, boundary: checkpoint.boundary)
+            let writeAdjacent = items.contains { $0.item.state == .attempting || $0.item.state == .attempted }
+            try requireCheckpointRun(
+                runID,
+                boundary: checkpoint.boundary,
+                writeAdjacent: writeAdjacent
+            )
+            try updateCheckpointItems(
+                items,
+                boundary: checkpoint.boundary,
+                writeAdjacent: writeAdjacent
+            )
             try modelContext.save()
         } catch {
             modelContext.rollback()
@@ -16,7 +25,11 @@ extension RunRecordDataStore {
         }
     }
 
-    private func requireCheckpointRun(_ runID: RunID, checkpoint: WorkCheckpoint) throws {
+    private func requireCheckpointRun(
+        _ runID: RunID,
+        boundary: CheckpointBoundary,
+        writeAdjacent: Bool
+    ) throws {
         let rawRunID = runID.rawValue
         var descriptor = FetchDescriptor<PersistedRunRecord>(
             predicate: #Predicate { $0.runID == rawRunID }
@@ -25,16 +38,13 @@ extension RunRecordDataStore {
         guard let row = try modelContext.fetch(descriptor).first else {
             throw RunRecordPersistenceError.invalidField(name: "checkpoint.runID", runID: rawRunID)
         }
-        let record = try makeRecord(from: row)
-        let writeAdjacent = record.workLedger.isWriteAdjacent(to: checkpoint)
-        guard row.writeAuthorityRaw == WriteAuthority.reviewedPlan.rawValue,
-              record.intent == .writeFixes,
-              record.configuration?.writeAuthority == .reviewedPlan,
-              record.state == .writing,
-              record.finishedAt == nil
+        guard row.intentRaw == RunIntent.writeFixes.rawValue,
+              row.writeAuthorityRaw == WriteAuthority.reviewedPlan.rawValue,
+              row.stateRaw == RunLifecycleState.writing.rawValue,
+              row.finishedAt == nil
         else {
             throw WorkCheckpointError.invalid(
-                checkpoint.boundary,
+                boundary,
                 writeAdjacent: writeAdjacent,
                 reason: "run is not an active reviewed write"
             )
@@ -65,8 +75,11 @@ extension RunRecordDataStore {
         return (row, item, state)
     }
 
-    private func updateCheckpointItems(_ items: [CheckpointItem], boundary: CheckpointBoundary) throws {
-        let isWriteAdjacent = items.contains { $0.item.state == .attempting || $0.item.state == .attempted }
+    private func updateCheckpointItems(
+        _ items: [CheckpointItem],
+        boundary: CheckpointBoundary,
+        writeAdjacent: Bool
+    ) throws {
         do {
             for item in items {
                 item.row.itemData = try JSONEncoder().encode(item.item.transition(to: item.state))
@@ -74,7 +87,7 @@ extension RunRecordDataStore {
         } catch {
             throw WorkCheckpointError.invalid(
                 boundary,
-                writeAdjacent: isWriteAdjacent,
+                writeAdjacent: writeAdjacent,
                 reason: error.localizedDescription
             )
         }
