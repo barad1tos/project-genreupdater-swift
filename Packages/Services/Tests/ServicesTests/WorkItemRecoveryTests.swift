@@ -417,6 +417,33 @@ struct WorkItemRecoveryTests {
         #expect(Set(rows.map(\.runID)) == [unsafeRunID, safeRunID])
     }
 
+    @Test("Prune preserves terminal audits with open work")
+    func holdsOpenHistory() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let unsafeRunID = UUID()
+        let safeRunID = UUID()
+        try insertTerminalAudit(
+            runID: unsafeRunID,
+            startedAt: Date(timeIntervalSince1970: 100),
+            workItems: [makeWorkItem(state: .prepared)],
+            isDetached: false,
+            into: container
+        )
+        try insertTerminalAudit(
+            runID: safeRunID,
+            startedAt: Date(timeIntervalSince1970: 200),
+            workItems: [],
+            isDetached: false,
+            into: container
+        )
+        let store = RunRecordDataStore(modelContainer: container)
+
+        try await expectAttention(unsafeRunID, in: store)
+        #expect(try await store.prune(keepingLatest: 1) == 0)
+        let rows = try ModelContext(container).fetch(FetchDescriptor<PersistedRunRecord>())
+        #expect(Set(rows.map(\.runID)) == [unsafeRunID, safeRunID])
+    }
+
     private func insertTerminalAudit(
         runID: UUID,
         startedAt: Date,

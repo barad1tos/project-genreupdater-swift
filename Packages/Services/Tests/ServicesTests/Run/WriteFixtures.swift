@@ -49,16 +49,20 @@ actor WriteRecordProbe {
 
 actor FailingRecordProbe {
     private(set) var records: [RunRecord] = []
-    private let failingCall: Int
+    private let failingCalls: Set<Int>
     private var callCount = 0
 
+    init(failingCalls: Set<Int>) {
+        self.failingCalls = failingCalls
+    }
+
     init(failingCall: Int) {
-        self.failingCall = failingCall
+        failingCalls = [failingCall]
     }
 
     func append(_ record: RunRecord) throws {
         callCount += 1
-        guard callCount != failingCall else { throw RecordWriteError() }
+        guard !failingCalls.contains(callCount) else { throw RecordWriteError() }
         records.append(record)
     }
 }

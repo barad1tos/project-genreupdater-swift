@@ -4,6 +4,53 @@ import Testing
 @testable import Services
 
 extension ApplyAcceptedTests {
+    @Test("Checkpoint store failures stop the reviewed write group")
+    func stopsAfterStoreFailure() async {
+        let fixture = await makeCoordinator()
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        let proposals = [
+            ProposedChange(
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Stoner Rock",
+                confidence: 90,
+                source: "Library"
+            ),
+            ProposedChange(
+                track: track,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz"
+            ),
+        ]
+        let checkpoints = CheckpointProbe()
+        let failure = storeFailure(for: .beforeAttempt([proposals[0].id]))
+
+        do {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                proposals,
+                progressHandler: ignoreAcceptedChangeProgress,
+                checkpoint: { checkpoint in
+                    await checkpoints.append(checkpoint)
+                    if await checkpoints.values.count == 1 {
+                        throw failure
+                    }
+                }
+            )
+            Issue.record("Expected checkpoint store failure")
+        } catch let caught as WorkCheckpointError {
+            #expect(caught == failure)
+        } catch {
+            Issue.record("Expected WorkCheckpointError, got \(error)")
+        }
+
+        #expect(await checkpoints.values.count == 1)
+        #expect(await fixture.bridge.writtenProperties.isEmpty)
+    }
+
     @Test("Reviewed single writes emit durable checkpoint boundaries")
     func checkpointsSingleWrite() async throws {
         let fixture = await makeCoordinator()
@@ -373,5 +420,30 @@ extension ApplyAcceptedTests {
             historyCount: historyCount,
             processingCount: processingCount
         )
+    }
+
+    private func storeFailure(for checkpoint: WorkCheckpoint) -> WorkCheckpointError {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: startedAt,
+            reason: "checkpoint-store-test"
+        )
+        let candidate = RunLifecycleSnapshot(
+            runID: RunID(),
+            requestID: RunRequestID(),
+            trigger: .manualCheck,
+            intent: .writeFixes,
+            scope: scope,
+            startedAt: startedAt,
+            phase: .active(.writing)
+        )
+        return .store(CheckpointStoreFailure(
+            checkpoint: checkpoint,
+            candidate: candidate,
+            durableSnapshot: candidate,
+            isWriteAdjacent: false
+        ))
     }
 }

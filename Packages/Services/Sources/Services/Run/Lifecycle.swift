@@ -420,6 +420,22 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         return try withWorkLedger(workLedger.applying(checkpoint))
     }
 
+    func failingUndispatchedWork(_ checkpoint: WorkCheckpoint? = nil) throws -> Self {
+        let failingIDs = Set(workItems.compactMap { item -> UUID? in
+            switch item.state {
+            case .prepared:
+                item.id
+            case .attempting where checkpoint?.states[item.id] != nil:
+                item.id
+            case .attempting, .attempted, .outcome:
+                nil
+            }
+        })
+        guard !failingIDs.isEmpty else { return self }
+        let outcomes = Dictionary(uniqueKeysWithValues: failingIDs.map { ($0, WorkOutcome.failed) })
+        return try applying(.afterVerification(outcomes))
+    }
+
     /// Terminalizes every still-open work item as `.skipped` — used when a write run is
     /// cancelled before its command reached Music.app, so the terminal record has a
     /// conclusive outcome for each item (`.prepared` work was never started; `.attempting`

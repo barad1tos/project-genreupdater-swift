@@ -125,6 +125,9 @@ public actor RunRecordDataStore: RunRecordStore {
         } else {
             payload.workItems
         }
+        guard !Self.hasOpenWork(finishedAt: persisted.finishedAt, workItems: workItems) else {
+            throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: persisted.runID)
+        }
         guard !Self.hasInvalidWorkAuthority(
             workItems,
             intent: intent,

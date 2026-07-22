@@ -92,6 +92,75 @@ struct RunRecordDataTests {
         #expect(updated.state == .attempting)
     }
 
+    @Test("upsert rejects a terminal run with open work")
+    func rejectsOpenCompletion() async throws {
+        let store = try makeRunStore()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let record = makeRunRecord(
+            startedAt: startedAt,
+            finishedAt: startedAt.addingTimeInterval(1),
+            state: .completed,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [makeWorkItem(state: .prepared)],
+                includesSyncTransition: false
+            )
+        )
+
+        do {
+            try await store.upsert(record)
+            Issue.record("Expected terminal open work to be rejected")
+        } catch let RunRecordPersistenceError.invalidField(name, _) {
+            #expect(name == "workItems")
+        }
+        #expect(try await store.record(for: record.runID) == nil)
+    }
+
+    @Test("loading rejects persisted terminal history with open work")
+    func rejectsOpenHistory() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let finishedAt = startedAt.addingTimeInterval(1)
+        let item = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: startedAt,
+            finishedAt: finishedAt,
+            state: .completed,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [item],
+                includesSyncTransition: false
+            )
+        )
+        let context = ModelContext(container)
+        let scopeData = try JSONEncoder().encode(record.scope)
+        let payloadData = try JSONEncoder().encode(RunRecordPayload(record: record))
+        let itemData = try JSONEncoder().encode(item)
+        context.insert(PersistedRunRecord(
+            record: record,
+            scopeData: scopeData,
+            payloadData: payloadData
+        ))
+        context.insert(PersistedRunWorkItem(
+            runID: record.runID.rawValue,
+            itemID: item.id,
+            position: 0,
+            itemData: itemData
+        ))
+        try context.save()
+        let store = RunRecordDataStore(modelContainer: container)
+
+        do {
+            _ = try await store.record(for: record.runID)
+            Issue.record("Expected terminal open work to be rejected")
+        } catch let RunRecordPersistenceError.corruptedField(name, runID) {
+            #expect(name == "workItems")
+            #expect(runID == record.runID.rawValue)
+        }
+    }
+
     @Test("Adding work-item storage preserves existing run records")
     func migratesWorkItemModel() throws {
         let directory = FileManager.default.temporaryDirectory

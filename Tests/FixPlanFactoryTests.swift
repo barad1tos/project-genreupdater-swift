@@ -37,23 +37,7 @@ struct FixPlanFactoryTests {
     func rejectsAlteredScope() async {
         let fixture = await makeWriteFixture(hasInitialRecovery: false)
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        let planScope = fixture.input.scope
-        let alteredScope = ProcessingScopeSnapshot(
-            id: planScope.id,
-            createdAt: planScope.createdAt,
-            source: .testArtists,
-            normalizedTestArtists: ["Other Artist"],
-            matchingRule: planScope.matchingRule,
-            knownTrackCount: planScope.knownTrackCount,
-            fingerprint: "altered-scope",
-            reason: planScope.reason
-        )
-        let input = FixPlanWriteInput(
-            target: fixture.input.target,
-            scope: alteredScope,
-            configuration: fixture.input.configuration,
-            workItems: fixture.input.workItems
-        )
+        let input = makeStaleInput(from: fixture)
 
         do {
             _ = try await fixture.run(input)
@@ -69,6 +53,55 @@ struct FixPlanFactoryTests {
         #expect(await fixture.runtime.callCount == 0)
         #expect(await fixture.script.fetchCalls.isEmpty)
     }
+
+    @Test("orchestrator closes work when the real writer rejects stale input")
+    @MainActor
+    func closesStaleWork() async {
+        let fixture = await makeWriteFixture(hasInitialRecovery: false)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let input = makeStaleInput(from: fixture)
+        let capture = RunCapture()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await capture.append($0) },
+            write: .init(writeFixPlan: fixture.write),
+            now: { Date(timeIntervalSince1970: 120) }
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case let .failed(snapshot) = result else {
+            Issue.record("Expected failed run for stale write input")
+            return
+        }
+        #expect(snapshot.finishedAt != nil)
+        #expect(snapshot.workItems.allSatisfy { $0.state == .outcome(.failed) })
+        #expect(await capture.last?.workItems.allSatisfy {
+            $0.state == .outcome(.failed)
+        } == true)
+        #expect(await fixture.runtime.callCount == 0)
+        #expect(await fixture.script.fetchCalls.isEmpty)
+    }
+
+    private func makeStaleInput(from fixture: WriteFixture) -> FixPlanWriteInput {
+        let planScope = fixture.input.scope
+        let alteredScope = ProcessingScopeSnapshot(
+            id: planScope.id,
+            createdAt: planScope.createdAt,
+            source: .testArtists,
+            normalizedTestArtists: ["Other Artist"],
+            matchingRule: planScope.matchingRule,
+            knownTrackCount: planScope.knownTrackCount,
+            fingerprint: "altered-scope",
+            reason: planScope.reason
+        )
+        return FixPlanWriteInput(
+            target: fixture.input.target,
+            scope: alteredScope,
+            configuration: fixture.input.configuration,
+            workItems: fixture.input.workItems
+        )
+    }
 }
 
 private struct WriteFixture {
@@ -76,8 +109,27 @@ private struct WriteFixture {
     let script: ScriptSpy
     let processor: BatchProcessor
     let runtime: RuntimeProbe
-    let run: @Sendable (FixPlanWriteInput) async throws -> BatchUpdateResult
+    let write: @Sendable (
+        FixPlanWriteInput,
+        @escaping WorkCheckpointSink
+    ) async throws -> BatchUpdateResult
     let directory: URL
+
+    func run(_ input: FixPlanWriteInput) async throws -> BatchUpdateResult {
+        try await write(input) { _ in }
+    }
+}
+
+private actor RunCapture {
+    private(set) var records: [RunRecord] = []
+
+    var last: RunRecord? {
+        records.last
+    }
+
+    func append(_ record: RunRecord) {
+        records.append(record)
+    }
 }
 
 private actor RecoveryProbe {
@@ -285,11 +337,7 @@ private func makeWriteFixture(hasInitialRecovery: Bool) async -> WriteFixture {
         script: script,
         processor: processor,
         runtime: runtime,
-        run: { input in
-            try await write(input) { _ in
-                // Checkpoint persistence is outside this write-fixture contract.
-            }
-        },
+        write: write,
         directory: directory
     )
 }

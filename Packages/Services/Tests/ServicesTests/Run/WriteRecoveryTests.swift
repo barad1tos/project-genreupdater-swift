@@ -208,72 +208,6 @@ struct WriteRecoveryTests {
         #expect(await writer.calls.isEmpty)
     }
 
-    @Test("pre-attempt checkpoint failure prevents write dispatch")
-    func preAttemptStoreFailure() async throws {
-        let records = FailingRecordProbe(failingCall: 2)
-        let writer = WriteProbe(result: BatchUpdateResult(
-            entries: [writeEntry()],
-            failedTrackIDs: [],
-            errorDescriptions: []
-        ))
-        let input = writeInput()
-        let itemID = try #require(input.workItems.first?.id)
-        let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { try await records.append($0) },
-            write: .init(writeFixPlan: { submittedInput, checkpoint in
-                try await checkpoint(.beforeAttempt([itemID]))
-                return try await writer.apply(input: submittedInput)
-            })
-        ))
-
-        let result = await orchestrator.submit(.manualWrite(input: input))
-
-        guard case .failed = result else {
-            Issue.record("Expected failed result")
-            return
-        }
-        #expect(await writer.calls.isEmpty)
-        #expect(await records.records.last?.workItems.first?.state == .prepared)
-    }
-
-    @Test("post-attempt checkpoint failure requires recovery")
-    func postAttemptStoreFailure() async throws {
-        let records = FailingRecordProbe(failingCall: 3)
-        let recoveryID = UUID()
-        let writer = WriteProbe(result: BatchUpdateResult(
-            entries: [writeEntry()],
-            failedTrackIDs: [],
-            errorDescriptions: []
-        ))
-        let input = writeInput()
-        let itemID = try #require(input.workItems.first?.id)
-        let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { try await records.append($0) },
-            write: .init(
-                writeFixPlan: { submittedInput, checkpoint in
-                    try await checkpoint(.beforeAttempt([itemID]))
-                    let result = try await writer.apply(input: submittedInput)
-                    try await checkpoint(.afterAttempt([itemID]))
-                    return result
-                },
-                beginRecoveryHold: { recoveryID }
-            )
-        ))
-
-        let result = await orchestrator.submit(.manualWrite(input: input))
-
-        guard case let .recoverable(snapshot, _) = result else {
-            Issue.record("Expected recoverable result")
-            return
-        }
-        #expect(snapshot.state == .recoverable)
-        #expect(await writer.calls.count == 1)
-        #expect(await records.records.last?.recoveryID == recoveryID)
-        #expect(await records.records.last?.workItems.first?.state == .attempting)
-    }
-
     @Test("finalization failure after an attempted write requires recovery")
     func finalizationFailureRecovers() async throws {
         let records = WriteRecordProbe()
@@ -492,7 +426,8 @@ struct WriteRecoveryTests {
             Issue.record("Expected recoverable result")
             return
         }
-        #expect(reason.contains("run history could not be finalized"))
+        #expect(reason.contains("Run history could not be finalized"))
+        #expect(!reason.contains("Verify Music.app"))
         #expect(snapshot.state == .recoverable)
         #expect(await writer.calls.count == 1)
         let open = try #require(await records.records.first)
@@ -682,8 +617,9 @@ struct WriteRecoveryTests {
             return
         }
         #expect(snapshot.state == .recoverable)
-        #expect(reason.contains("run history could not be finalized"))
+        #expect(reason.contains("Run history could not be finalized"))
         #expect(reason.contains("Failed to write genre for track track-2"))
+        #expect(!reason.contains("Verify Music.app"))
         #expect(await writer.calls.count == 1)
         let recovered = await records.records.last
         #expect(recovered?.recoveryID == recoveryID)

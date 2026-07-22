@@ -38,13 +38,15 @@ extension RunRecordDataStore {
             let configuration = payload?.configuration ?? fallback?.configuration
             let intent = RunIntent(rawValue: row.intentRaw)
                 ?? (configuration?.writeAuthority == .reviewedPlan ? .writeFixes : .observeLibrary)
+            let hasInvalidAuthority = Self.hasInvalidWorkAuthority(
+                workItems,
+                intent: intent,
+                configuration: configuration
+            )
             return RecoveryItemAudit(
                 workItems: workItems,
-                isUnsafe: Self.hasInvalidWorkAuthority(
-                    workItems,
-                    intent: intent,
-                    configuration: configuration
-                )
+                isUnsafe: hasInvalidAuthority
+                    || Self.hasOpenWork(finishedAt: row.finishedAt, workItems: workItems)
             )
         } catch {
             return RecoveryItemAudit(workItems: parentItems, isUnsafe: true)

@@ -36,24 +36,28 @@ struct WorkAuditTests {
         #expect(try await store.record(for: record.runID)?.workItems.first?.state == .attempted)
     }
 
-    @Test("Checkpoints require an open reviewed write")
-    func requiresWriteRun() async throws {
+    @Test(
+        "Checkpoints require active writing state",
+        arguments: [RunLifecycleState.planningFixes, .blocked, .recoverable]
+    )
+    func requiresWritingState(_ state: RunLifecycleState) async throws {
         let store = try makeRunStore()
         let item = makeWorkItem(state: .prepared)
         let record = makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
-            state: .planningFixes,
+            state: state,
             syncSummary: nil,
-            input: RunRecordInput(workItems: [item], includesSyncTransition: false)
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [item],
+                includesSyncTransition: false
+            )
         )
         try await store.upsert(record)
 
         await #expect(throws: WorkCheckpointError.self) {
             try await store.checkpoint(.beforeAttempt([item.id]), runID: record.runID)
-        }
-        await #expect(throws: WorkCheckpointError.self) {
-            try await store.checkpoint(.afterAttempt([item.id]), runID: record.runID)
         }
 
         #expect(try await store.record(for: record.runID)?.workItems.first?.state == .prepared)

@@ -160,6 +160,10 @@ extension RunRecordDataStore {
         }
     }
 
+    static func hasOpenWork(finishedAt: Date?, workItems: [RunWorkItem]) -> Bool {
+        finishedAt != nil && WorkLedger(workItems).hasOpenItems
+    }
+
     static func validateRecord(_ record: RunRecord) throws {
         guard !record.transitions.isEmpty else {
             throw RunRecordPersistenceError.invalidField(name: "transitions", runID: record.runID.rawValue)
@@ -169,6 +173,9 @@ extension RunRecordDataStore {
         }
         if let field = invalidLifecycleField(state: record.state, finishedAt: record.finishedAt) {
             throw RunRecordPersistenceError.invalidField(name: field, runID: record.runID.rawValue)
+        }
+        guard !hasOpenWork(finishedAt: record.finishedAt, workItems: record.workItems) else {
+            throw RunRecordPersistenceError.invalidField(name: "workItems", runID: record.runID.rawValue)
         }
         if record.intent != .writeFixes,
            let field = writeEvidenceField(

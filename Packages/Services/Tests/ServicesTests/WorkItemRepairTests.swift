@@ -176,8 +176,8 @@ struct WorkItemRepairTests {
         #expect(repaired.finishedAt == finishedAt)
     }
 
-    @Test("Terminal repair preserves the latest valid child checkpoint")
-    func preservesTerminalChild() async throws {
+    @Test("Terminal repair holds conflicting parent and child outcomes for attention")
+    func holdsOutcomeConflict() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
         let startedAt = Date(timeIntervalSince1970: 100)
@@ -213,11 +213,17 @@ struct WorkItemRepairTests {
         let freshStore = RunRecordDataStore(modelContainer: container)
 
         let didClose = try await freshStore.closeCorruptedRun(record.runID, at: startedAt)
-        let repaired = try #require(await freshStore.record(for: record.runID))
+        let page = try await freshStore.reports(matching: RunReportQuery())
+        let rows = try ModelContext(container).fetch(FetchDescriptor<PersistedRunWorkItem>())
+        let childData = try #require(rows.first).itemData
+        let storedChild = try JSONDecoder().decode(
+            RunWorkItem.self,
+            from: childData
+        )
 
-        #expect(didClose)
-        #expect(repaired.workItems == [childItem])
-        #expect(repaired.finishedAt == finishedAt)
+        #expect(didClose == false)
+        #expect(page.attentionRunIDs == [record.runID])
+        #expect(storedChild == childItem)
     }
 
     private func repairTransitions() -> [RunLifecycleTransition] {

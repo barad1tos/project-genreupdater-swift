@@ -5,46 +5,6 @@ import OSLog
 public actor RunOrchestrator {
     static let lifecycleBufferLimit = 16
 
-    private enum RunWorkError: LocalizedError {
-        case missingFixPlanProducer
-        case missingWriteRunner
-        case writeFailure(
-            failedOperationCount: Int,
-            failedTrackCount: Int,
-            reasons: [String],
-            isPartial: Bool
-        )
-
-        var errorDescription: String? {
-            switch self {
-            case .missingFixPlanProducer:
-                "Fix plan producer is unavailable"
-            case .missingWriteRunner:
-                "Fix plan write runner is unavailable"
-            case let .writeFailure(failedOperationCount, failedTrackCount, reasons, isPartial):
-                Self.writeFailureDescription(
-                    failedOperationCount: failedOperationCount,
-                    failedTrackCount: failedTrackCount,
-                    reasons: reasons,
-                    isPartial: isPartial
-                )
-            }
-        }
-
-        private static func writeFailureDescription(
-            failedOperationCount: Int,
-            failedTrackCount: Int,
-            reasons: [String],
-            isPartial: Bool
-        ) -> String {
-            let failureKind = isPartial ? "partially failed" : "failed"
-            let summary = "Write run \(failureKind): \(failedOperationCount) operations failed across " +
-                "\(failedTrackCount) tracks"
-            let details = reasons.filter { !$0.isEmpty }.joined(separator: "; ")
-            return details.isEmpty ? summary : "\(summary). Errors: \(details)"
-        }
-    }
-
     private struct RunWork {
         let reportingSource: RunLifecycleSnapshot
         let result: SyncResult
@@ -200,6 +160,8 @@ public actor RunOrchestrator {
                 )
             }
             return await finishCancelledRun(from: current, message: "Run cancelled")
+        } catch let WorkCheckpointError.store(failure) where request.intent == .writeFixes {
+            return await finishCheckpointFailure(failure, request: request)
         } catch let error as WorkCheckpointError where request.intent == .writeFixes && error.needsRecovery {
             await releasePreview(request)
             return await finishRecoverableRun(
@@ -233,6 +195,19 @@ public actor RunOrchestrator {
             }
             return await finishFailedRun(from: current, failureMessage: error.localizedDescription)
         }
+    }
+
+    private func finishCheckpointFailure(
+        _ failure: CheckpointStoreFailure,
+        request: RunRequest
+    ) async -> RunSubmissionResult {
+        await releasePreview(request)
+        return await finishFailedRun(
+            from: failure.candidate,
+            failureMessage: failure.localizedDescription,
+            checkpoint: failure.checkpoint,
+            durableFallback: failure.durableSnapshot
+        )
     }
 
     private func finishSuccessfulRun(_ work: RunWork, intent: RunIntent) async -> RunSubmissionResult {
@@ -427,9 +402,34 @@ public actor RunOrchestrator {
         failureMessage: String,
         syncResult: SyncResult? = nil,
         writeSummary: RunWriteSummary? = nil,
+        checkpoint: WorkCheckpoint? = nil,
+        durableFallback: RunLifecycleSnapshot? = nil,
         isTerminalRetry: Bool = false
     ) async -> RunSubmissionResult {
-        let reporting = lifecycle.state == .reporting ? lifecycle : beginReporting(from: lifecycle)
+        let source: RunLifecycleSnapshot
+        do {
+            let beforeAttempt = checkpoint?.boundary == .beforeAttempt ? checkpoint : nil
+            source = try lifecycle.failingUndispatchedWork(beforeAttempt)
+        } catch {
+            return await finishUnstoredWrite(
+                from: lifecycle,
+                syncResult: syncResult,
+                writeSummary: writeSummary,
+                failureMessage: failureMessage,
+                durableFallback: durableFallback
+            )
+        }
+        guard !source.hasOpenItems else {
+            return await finishUnstoredWrite(
+                from: source,
+                syncResult: syncResult,
+                writeSummary: writeSummary,
+                failureMessage: failureMessage,
+                durableFallback: durableFallback
+            )
+        }
+
+        let reporting = prepareFailedReporting(from: source, original: lifecycle, checkpoint: checkpoint)
         let finishedAt = auditTime()
         let failed = reporting.failing(message: failureMessage, at: finishedAt)
         appendTransition(failed.state, at: finishedAt)
@@ -440,29 +440,47 @@ public actor RunOrchestrator {
             failureMessage: failed.failureMessage,
             finishedAt: failed.finishedAt
         )
-        let hasWriteEffects = (writeSummary?.applied ?? 0) > 0 || lifecycle.hasWriteProgress
-        if lifecycle.intent == .writeFixes, !isStored, !isTerminalRetry, !hasWriteEffects {
+        let hasWriteEffects = (writeSummary?.applied ?? 0) > 0 || source.hasWriteProgress
+        if source.intent == .writeFixes, !isStored, !isTerminalRetry, !hasWriteEffects {
             activeTransitions.removeLast()
             return await finishFailedRun(
                 from: reporting,
                 failureMessage: failureMessage,
                 syncResult: syncResult,
                 writeSummary: writeSummary,
+                durableFallback: durableFallback,
                 isTerminalRetry: true
             )
         }
-        if lifecycle.intent == .writeFixes, !isStored {
+        if source.intent == .writeFixes, !isStored {
             activeTransitions.removeLast()
             return await finishUnstoredWrite(
                 from: reporting,
                 syncResult: syncResult,
                 writeSummary: writeSummary,
-                failureMessage: failureMessage
+                failureMessage: failureMessage,
+                durableFallback: durableFallback
             )
         }
         publishInactive(failed)
         startPendingRun()
         return .failed(failed)
+    }
+
+    private func prepareFailedReporting(
+        from source: RunLifecycleSnapshot,
+        original: RunLifecycleSnapshot,
+        checkpoint: WorkCheckpoint?
+    ) -> RunLifecycleSnapshot {
+        if source.state == .reporting {
+            return source
+        }
+        if checkpoint != nil || source != original {
+            let reporting = source.beginningReporting()
+            appendTransition(reporting.state)
+            return reporting
+        }
+        return beginReporting(from: source)
     }
 
     private func finishRecoverableRun(
@@ -491,17 +509,14 @@ public actor RunOrchestrator {
         from reporting: RunLifecycleSnapshot,
         syncResult: SyncResult?,
         writeSummary: RunWriteSummary?,
-        failureMessage: String?
+        failureMessage: String?,
+        durableFallback: RunLifecycleSnapshot? = nil
     ) async -> RunSubmissionResult {
-        let hasWriteEffects = reporting.hasWriteProgress || (writeSummary?.applied ?? 0) > 0
-        let finalizationMessage = hasWriteEffects
-            ? "Write finished, but run history could not be finalized. Verify Music.app before continuing."
-            : "Run history could not be finalized. Writes remain blocked until history is available."
-        let message = failureMessage.map { "\($0) \(finalizationMessage)" } ?? finalizationMessage
+        let message = unstoredWriteMessage(for: reporting, failureMessage: failureMessage)
         let recoverable = reporting.requiringRecovery()
         appendTransition(recoverable.state)
         let recoveryID = await dependencies.write?.beginRecoveryHold?()
-        await persistRecord(
+        let isStored = await persistRecord(
             for: recoverable,
             syncResult: syncResult,
             writeSummary: writeSummary,
@@ -509,11 +524,30 @@ public actor RunOrchestrator {
             failureMessage: message,
             finishedAt: nil
         )
-        recoveryRun = RecoveryRun(snapshot: recoverable, reason: message)
+        let heldSnapshot: RunLifecycleSnapshot
+        let heldMessage: String
+        if !isStored, let durableFallback {
+            heldSnapshot = durableFallback.requiringRecovery()
+            heldMessage = unstoredWriteMessage(for: durableFallback, failureMessage: failureMessage)
+        } else {
+            heldSnapshot = recoverable
+            heldMessage = message
+        }
+        recoveryRun = RecoveryRun(snapshot: heldSnapshot, reason: heldMessage)
         discardPendingWrites()
-        publishInactive(recoverable)
+        publishInactive(heldSnapshot)
         startPendingRun()
-        return .recoverable(recoverable, reason: message)
+        return .recoverable(heldSnapshot, reason: heldMessage)
+    }
+
+    private func unstoredWriteMessage(
+        for lifecycle: RunLifecycleSnapshot,
+        failureMessage: String?
+    ) -> String {
+        let finalizationMessage = lifecycle.hasWriteUncertainty
+            ? "Run history could not be finalized after a write attempt. Verify Music.app before continuing."
+            : "Run history could not be finalized. Writes remain blocked until history is available."
+        return failureMessage.map { "\($0): \(finalizationMessage)" } ?? finalizationMessage
     }
 
     private func finishCancelledRun(
@@ -622,7 +656,12 @@ public actor RunOrchestrator {
         let checkpointed = try activeRun.applying(checkpoint)
         let isStored = await persist(checkpoint, for: checkpointed)
         guard isStored else {
-            throw WorkCheckpointError.persistence(checkpoint.boundary, writeAdjacent: writeAdjacent)
+            throw WorkCheckpointError.store(CheckpointStoreFailure(
+                checkpoint: checkpoint,
+                candidate: checkpointed,
+                durableSnapshot: activeRun,
+                isWriteAdjacent: writeAdjacent
+            ))
         }
         publish(checkpointed)
     }
@@ -648,9 +687,8 @@ public actor RunOrchestrator {
         }
     }
 
-    /// Records the transition and publishes the snapshot in one step so the
-    /// transitions log can never drift from the published lifecycle for
-    /// non-terminal (active) transitions.
+    /// Records and publishes ordinary active transitions in one step. Terminalization may stage
+    /// a transition with `appendTransition` until its corresponding record is durable.
     private func advance(_ lifecycle: RunLifecycleSnapshot, at timestamp: Date? = nil) {
         appendTransition(lifecycle.state, at: timestamp)
         publish(lifecycle)

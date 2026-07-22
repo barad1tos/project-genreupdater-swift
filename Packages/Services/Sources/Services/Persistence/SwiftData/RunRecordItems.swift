@@ -27,12 +27,13 @@ extension RunRecordDataStore {
         }
         guard row.intentRaw == RunIntent.writeFixes.rawValue,
               row.writeAuthorityRaw == WriteAuthority.reviewedPlan.rawValue,
+              row.stateRaw == RunLifecycleState.writing.rawValue,
               row.finishedAt == nil
         else {
             throw WorkCheckpointError.invalid(
                 boundary,
                 writeAdjacent: false,
-                reason: "run is not an open reviewed write"
+                reason: "run is not an active reviewed write"
             )
         }
     }

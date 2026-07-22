@@ -36,8 +36,8 @@ public enum WorkState: Codable, Equatable, Sendable {
              (.attempted, .attempted),
              (.attempted, .outcome):
             true
-        case (.outcome, .outcome):
-            true
+        case let (.outcome(previous), .outcome(next)):
+            previous == next
         case (.attempting, .prepared),
              (.attempted, .prepared),
              (.attempted, .attempting),
@@ -96,11 +96,14 @@ public typealias WorkCheckpointSink = @Sendable (WorkCheckpoint) async throws ->
 enum WorkCheckpointError: Error, Equatable {
     case invalid(CheckpointBoundary, writeAdjacent: Bool, reason: String)
     case persistence(CheckpointBoundary, writeAdjacent: Bool)
+    case store(CheckpointStoreFailure)
 
     var needsRecovery: Bool {
         switch self {
         case let .invalid(_, writeAdjacent, _), let .persistence(_, writeAdjacent):
             writeAdjacent
+        case let .store(failure):
+            failure.isWriteAdjacent
         }
     }
 }
@@ -112,6 +115,8 @@ extension WorkCheckpointError: LocalizedError {
             "Invalid \(String(describing: boundary)) work checkpoint: \(reason)"
         case let .persistence(boundary, _):
             "Could not persist \(String(describing: boundary)) work checkpoint"
+        case let .store(failure):
+            failure.errorDescription
         }
     }
 }

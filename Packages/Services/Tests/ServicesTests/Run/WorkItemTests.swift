@@ -158,6 +158,15 @@ struct WorkItemTests {
         }
     }
 
+    @Test("Child hydration preserves terminal outcome identity")
+    func rejectsOutcomeReplacement() {
+        #expect(WorkState.outcome(.written).canFollow(.prepared))
+        #expect(WorkState.outcome(.written).canFollow(.attempting))
+        #expect(WorkState.outcome(.written).canFollow(.attempted))
+        #expect(WorkState.outcome(.written).canFollow(.outcome(.written)))
+        #expect(!WorkState.outcome(.failed).canFollow(.outcome(.written)))
+    }
+
     @Test("A batch checkpoint advances all matching work items atomically")
     func appliesBatchCheckpoint() throws {
         let first = makeWorkItem(state: .prepared)
@@ -190,6 +199,28 @@ struct WorkItemTests {
             try lifecycle.applying(.beforeAttempt([work.id]))
         }
         #expect(lifecycle.workItems.map(\.state) == [.prepared])
+    }
+
+    @Test("Run record checkpoints require writing state")
+    func recordRequiresWriting() {
+        let work = makeWorkItem(state: .prepared)
+        let writing = makeLifecycle(workItems: [work])
+        let recoverable = writing.requiringRecovery()
+        let record = RunRecord(
+            lifecycle: recoverable,
+            transitions: [
+                RunLifecycleTransition(state: .writing, timestamp: writing.startedAt),
+                RunLifecycleTransition(state: .recoverable, timestamp: writing.startedAt),
+            ],
+            syncSummary: nil,
+            failureMessage: nil,
+            finishedAt: nil
+        )
+
+        #expect(throws: WorkCheckpointError.self) {
+            try record.applying(.beforeAttempt([work.id]))
+        }
+        #expect(record.workItems.first?.state == .prepared)
     }
 
     @Test("run records keep ordered workItems JSON")
