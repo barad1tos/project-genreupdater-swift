@@ -81,7 +81,6 @@ extension RunRecordDataStore {
         guard RunIntent(rawValue: row.intentRaw) != nil,
               let state = RunLifecycleState(rawValue: row.stateRaw)
         else { return .writeRecovery }
-        let transitions = payload?.transitions ?? fallback?.transitions
         let isMissingConfiguration = payload.map {
             $0.version >= RunRecordPayload.configurationVersion && $0.configuration == nil
         } ?? false
@@ -100,12 +99,6 @@ extension RunRecordDataStore {
         }
         if isMissingConfiguration || hasWriteRisk || isWriteExclusive(state) {
             return .writeRecovery
-        }
-        if isTerminalState(state), row.finishedAt == nil {
-            return .readOnlyClosure
-        }
-        if let transitions, hasTimeReversal(transitions) {
-            return .readOnlyClosure
         }
         return .readOnlyClosure
     }
