@@ -173,8 +173,9 @@ struct WriteRecoveryTests {
         #expect(await writer.calls.isEmpty)
     }
 
-    @Test("write fails closed when its open record cannot persist")
+    @Test("write retains authority when no run record can persist")
     func persistenceBlocksWrite() async {
+        let recoveryID = UUID()
         let writer = WriteProbe(result: BatchUpdateResult(
             entries: [writeEntry()],
             failedTrackIDs: [],
@@ -183,16 +184,27 @@ struct WriteRecoveryTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in throw RecordWriteError() },
-            write: .init(writeFixPlan: { input, _ in try await writer.apply(input: input) })
+            write: .init(
+                writeFixPlan: { input, _ in try await writer.apply(input: input) },
+                beginRecoveryHold: { recoveryID }
+            )
         ))
 
         let result = await orchestrator.submit(.manualWrite(input: writeInput()))
 
-        guard case let .failed(snapshot) = result else {
-            Issue.record("Expected failed result")
+        guard case let .recoverable(snapshot, reason) = result else {
+            Issue.record("Expected recoverable result")
             return
         }
-        #expect(snapshot.failureMessage == "Write run could not start because run history is unavailable")
+        #expect(snapshot.state == .recoverable)
+        #expect(reason.contains("run history is unavailable"))
+        #expect(!reason.contains("Verify Music.app"))
+
+        guard case let .recoverable(repeated, _) = await orchestrator.submit(.manualWrite(input: writeInput())) else {
+            Issue.record("Expected recovery hold to block another write")
+            return
+        }
+        #expect(repeated.runID == snapshot.runID)
         #expect(await writer.calls.isEmpty)
     }
 
@@ -559,25 +571,71 @@ struct WriteRecoveryTests {
         #expect(await records.records.last?.recoveryID == recoveryID)
     }
 
-    @Test("Conclusive write failures do not open recovery when terminal persistence fails")
-    func failedWriteFinalizationFailure() async throws {
+    @Test("unstored failed terminal retains write authority")
+    func failedTerminalStoreFailure() async throws {
         let records = FailedRunProbe()
+        let recoveryID = UUID()
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
+        let writer = WriteProbe(result: BatchUpdateResult(
+            entries: [],
+            failedTrackIDs: ["track-1"],
+            errorDescriptions: ["Write was rejected before dispatch"]
+        ))
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { submittedInput, checkpoint in
                     try await checkpoint(.afterVerification([itemID: .failed]))
-                    return BatchUpdateResult(
-                        entries: [],
-                        failedTrackIDs: ["track-1"],
-                        errorDescriptions: ["Write was rejected before dispatch"]
-                    )
+                    return try await writer.apply(input: submittedInput)
+                },
+                beginRecoveryHold: { recoveryID }
+            )
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case let .recoverable(snapshot, reason) = result else {
+            Issue.record("Expected recoverable result")
+            return
+        }
+        #expect(snapshot.state == .recoverable)
+        #expect(snapshot.workItems.first?.state == .outcome(.failed))
+        #expect(reason.contains("Run history could not be finalized"))
+        #expect(!reason.contains("Verify Music.app"))
+        #expect(await records.failedAttempts == 2)
+        #expect(await records.records.last?.state == .recoverable)
+        #expect(await records.records.last?.recoveryID == recoveryID)
+
+        guard case let .recoverable(repeated, _) = await orchestrator.submit(.manualWrite(input: input)) else {
+            Issue.record("Expected recovery hold to block another write")
+            return
+        }
+        #expect(repeated.runID == snapshot.runID)
+        #expect(await writer.calls.count == 1)
+    }
+
+    @Test("conclusive failed terminal retries persistence before recovery")
+    func failedTerminalRetrySucceeds() async throws {
+        let records = FailingRecordProbe(failingCall: 3)
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let writer = WriteProbe(result: BatchUpdateResult(
+            entries: [],
+            failedTrackIDs: ["track-1"],
+            errorDescriptions: ["Write was rejected before dispatch"]
+        ))
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await records.append($0) },
+            write: .init(
+                writeFixPlan: { submittedInput, checkpoint in
+                    try await checkpoint(.afterVerification([itemID: .failed]))
+                    return try await writer.apply(input: submittedInput)
                 },
                 beginRecoveryHold: {
-                    Issue.record("A conclusive failed outcome must not open recovery")
+                    Issue.record("A successful failed-terminal retry must not open recovery")
                     return UUID()
                 }
             )
@@ -586,13 +644,13 @@ struct WriteRecoveryTests {
         let result = await orchestrator.submit(.manualWrite(input: input))
 
         guard case let .failed(snapshot) = result else {
-            Issue.record("Expected failed result")
+            Issue.record("Expected failed result after a successful terminal retry")
             return
         }
         #expect(snapshot.state == .failed)
         #expect(snapshot.workItems.first?.state == .outcome(.failed))
-        #expect(await records.failedAttempts == 1)
-        #expect(await orchestrator.currentLifecycle()?.state == .failed)
+        #expect(await records.records.last?.state == .failed)
+        #expect(await writer.calls.count == 1)
     }
 
     @Test("partial write requires recovery when its terminal record cannot persist")

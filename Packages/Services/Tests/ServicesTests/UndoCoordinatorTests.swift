@@ -153,8 +153,9 @@ struct RawTrackIDWriteError: LocalizedError {
 
 @Suite("UndoCoordinator — record and revert changes")
 struct UndoCoordinatorTests {
-    @Test("Failed single-entry persistence is surfaced without changing memory")
+    @Test("Failed single-entry persistence retains in-memory undo")
     func recordFailure() async {
+        let entry = makeGenreEntry()
         let store = MockChangeLogStore()
         await store.failSaves()
         let coordinator = UndoCoordinator(
@@ -164,15 +165,16 @@ struct UndoCoordinatorTests {
         )
 
         await #expect(throws: MockScriptError.self) {
-            try await coordinator.recordChange(makeGenreEntry())
+            try await coordinator.recordChange(entry)
         }
 
-        #expect(await coordinator.getHistory().isEmpty)
+        #expect(await coordinator.getHistory() == [entry])
         #expect(await store.entries.isEmpty)
     }
 
-    @Test("Failed batch persistence is surfaced without changing memory")
+    @Test("Failed batch persistence retains in-memory undo")
     func batchRecordFailure() async {
+        let entries = [makeGenreEntry(), makeYearEntry()]
         let store = MockChangeLogStore()
         await store.failSaves()
         let coordinator = UndoCoordinator(
@@ -182,10 +184,10 @@ struct UndoCoordinatorTests {
         )
 
         await #expect(throws: MockScriptError.self) {
-            try await coordinator.recordChanges([makeGenreEntry(), makeYearEntry()])
+            try await coordinator.recordChanges(entries)
         }
 
-        #expect(await coordinator.getHistory().isEmpty)
+        #expect(await coordinator.getHistory().count == entries.count)
         #expect(await store.entries.isEmpty)
     }
 
