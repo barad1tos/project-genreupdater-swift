@@ -81,8 +81,8 @@ struct WorkLedger: Equatable, Sendable {
         counts.uncertain > 0
     }
 
-    /// True once at least one write was actually dispatched to Music.app (an `.attempted` item).
-    /// Distinct from `hasUncertainty`, which also covers `.attempting` items that never dispatched.
+    /// True while at least one item has a confirmed dispatch without a terminal outcome.
+    /// Distinct from `hasUncertainty`, which also includes `.attempting` items whose dispatch outcome is unknown.
     var hasDispatchedWrite: Bool {
         counts.dispatched > 0
     }

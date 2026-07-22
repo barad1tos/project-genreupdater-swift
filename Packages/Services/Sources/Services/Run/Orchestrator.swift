@@ -571,7 +571,7 @@ public actor RunOrchestrator {
         } catch {
             log.error("""
             Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) could not close open work \
-            on cancellation: \(error.localizedDescription, privacy: .public)
+            on cancellation: \(error.localizedDescription, privacy: .private)
             """)
             return await finishUnstoredWrite(
                 from: reporting,

@@ -156,7 +156,9 @@ struct WriteRecoveryTests {
         let recovery = recoveryRecord(workItems: [attempted])
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in }
+            persistRunRecord: { _ in
+                // Persistence is inert because this test observes only in-memory recovery closure.
+            }
         ))
 
         await orchestrator.restoreRecovery(recovery)

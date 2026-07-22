@@ -139,8 +139,8 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         workLedger.hasUncertainty
     }
 
-    /// True once a write was actually dispatched to Music.app (an `.attempted` item).
-    /// A pre-dispatch `.attempting` item is uncertain for crash replay but not yet dispatched.
+    /// True while a work item has confirmed dispatch without a terminal outcome.
+    /// An `.attempting` item remains uncertain because dispatch may or may not have occurred.
     var hasDispatchedWrite: Bool {
         workLedger.hasDispatchedWrite
     }

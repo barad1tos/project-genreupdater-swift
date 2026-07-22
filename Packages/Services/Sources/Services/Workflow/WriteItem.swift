@@ -224,7 +224,7 @@ extension UpdateCoordinator {
             failedEffects.append("change history")
             log.error("""
             Failed to persist change history for track \(change.track.id, privacy: .private): \
-            \(error.localizedDescription, privacy: .public)
+            \(error.localizedDescription, privacy: .private)
             """)
         }
         do {
@@ -237,7 +237,7 @@ extension UpdateCoordinator {
             failedEffects.append("track processing state")
             log.error("""
             Failed to persist processing state for track \(change.track.id, privacy: .private): \
-            \(error.localizedDescription, privacy: .public)
+            \(error.localizedDescription, privacy: .private)
             """)
         }
         await invalidateCaches(for: change)

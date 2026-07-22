@@ -205,10 +205,9 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             true
         case let (.prepared, .outcome(outcome)):
             outcome != .written
-        // An `.attempting` item provably never reached Music.app (`onAttempt` promotes to
-        // `.attempted` on every dispatched path), so any conclusive outcome except `.written`
-        // is a truthful terminal — e.g. a batch dispatch-deadline fallback re-verifying the
-        // item as a no-op. `.written` still requires a confirmed `.attempted` dispatch.
+        // `.attempting` carries no confirmed dispatch outcome: a crash can leave it before
+        // dispatch or after dispatch but before `.attempted` persisted. Recovery may close it
+        // only with a conclusive non-written result; `.written` still requires `.attempted`.
         case let (.attempting, .outcome(outcome)):
             outcome != .written
         case (.prepared, .prepared),
