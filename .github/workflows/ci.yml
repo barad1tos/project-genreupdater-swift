@@ -87,7 +87,10 @@ jobs:
 
           # Core coverage (threshold: 85%)
           echo "=== Core coverage ==="
-          CORE_BIN_PATH=$(swift build --package-path Packages/Core --configuration debug --show-bin-path)
+          CORE_BIN_PATH=$(
+            swift build --package-path Packages/Core \
+              --configuration debug --disable-automatic-resolution --show-bin-path
+          )
           CORE_BINARY="$CORE_BIN_PATH/CorePackageTests.xctest/Contents/MacOS/CorePackageTests"
           CORE_PROFDATA="$CORE_BIN_PATH/codecov/default.profdata"
           if [ -f "$CORE_PROFDATA" ] && [ -f "$CORE_BINARY" ]; then
@@ -111,7 +114,10 @@ jobs:
           # Services coverage (threshold: 65%)
           # Excludes Core/ sources (tested separately) and system-dependent files
           echo "=== Services coverage ==="
-          SERVICES_BIN_PATH=$(swift build --package-path Packages/Services --configuration debug --show-bin-path)
+          SERVICES_BIN_PATH=$(
+            swift build --package-path Packages/Services \
+              --configuration debug --disable-automatic-resolution --show-bin-path
+          )
           SERVICES_BINARY="$SERVICES_BIN_PATH/ServicesPackageTests.xctest/Contents/MacOS/ServicesPackageTests"
           SERVICES_PROFDATA="$SERVICES_BIN_PATH/codecov/default.profdata"
           if [ -f "$SERVICES_PROFDATA" ] && [ -f "$SERVICES_BINARY" ]; then
