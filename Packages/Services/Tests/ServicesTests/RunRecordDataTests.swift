@@ -60,8 +60,8 @@ struct RunRecordDataTests {
         #expect(try runPayload(runID: record.runID, in: container) == originalPayload)
     }
 
-    @Test("Work checkpoints decode only addressed items")
-    func checkpointsAddressedItems() async throws {
+    @Test("Work checkpoints reject a corrupted sibling")
+    func rejectsCorruptSibling() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
         let items = [makeWorkItem(state: .prepared), makeWorkItem(state: .prepared)]
@@ -84,12 +84,114 @@ struct RunRecordDataTests {
         unrelated.itemData = Data([0xDE, 0xAD, 0xBE, 0xEF])
         try context.save()
 
-        try await store.checkpoint(.beforeAttempt([items[0].id]), runID: record.runID)
+        await #expect(throws: RunRecordPersistenceError.self) {
+            try await store.checkpoint(.beforeAttempt([items[0].id]), runID: record.runID)
+        }
 
         let currentRows = try ModelContext(container).fetch(FetchDescriptor<PersistedRunWorkItem>())
         let addressed = try #require(currentRows.first { $0.itemID == items[0].id })
-        let updated = try JSONDecoder().decode(RunWorkItem.self, from: addressed.itemData)
-        #expect(updated.state == .attempting)
+        let unchanged = try JSONDecoder().decode(RunWorkItem.self, from: addressed.itemData)
+        #expect(unchanged.state == .prepared)
+    }
+
+    @Test("Work checkpoints reject a corrupted parent")
+    func rejectsCorruptParent() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let item = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [item],
+                includesSyncTransition: false
+            )
+        )
+        try await store.upsert(record)
+
+        let context = ModelContext(container)
+        let parent = try #require(context.fetch(FetchDescriptor<PersistedRunRecord>()).first)
+        parent.transitionsData = Data([0xDE, 0xAD, 0xBE, 0xEF])
+        try context.save()
+
+        await #expect(throws: RunRecordPersistenceError.self) {
+            try await store.checkpoint(.beforeAttempt([item.id]), runID: record.runID)
+        }
+
+        let child = try #require(ModelContext(container).fetch(FetchDescriptor<PersistedRunWorkItem>()).first)
+        let unchanged = try JSONDecoder().decode(RunWorkItem.self, from: child.itemData)
+        #expect(unchanged.state == .prepared)
+    }
+
+    @Test("Work checkpoints require the persisted write-authority header")
+    func rejectsMissingAuthority() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let item = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [item],
+                includesSyncTransition: false
+            )
+        )
+        try await store.upsert(record)
+
+        let context = ModelContext(container)
+        let parent = try #require(context.fetch(FetchDescriptor<PersistedRunRecord>()).first)
+        parent.writeAuthorityRaw = nil
+        try context.save()
+
+        await #expect(throws: WorkCheckpointError.self) {
+            try await store.checkpoint(.beforeAttempt([item.id]), runID: record.runID)
+        }
+
+        let child = try #require(ModelContext(container).fetch(FetchDescriptor<PersistedRunWorkItem>()).first)
+        let unchanged = try JSONDecoder().decode(RunWorkItem.self, from: child.itemData)
+        #expect(unchanged.state == .prepared)
+    }
+
+    @Test("Authority loss after before-attempt requires recovery")
+    func flagsAuthorityLoss() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let item = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [item],
+                includesSyncTransition: false
+            )
+        )
+        try await store.upsert(record)
+        try await store.checkpoint(.beforeAttempt([item.id]), runID: record.runID)
+
+        let context = ModelContext(container)
+        let parent = try #require(context.fetch(FetchDescriptor<PersistedRunRecord>()).first)
+        parent.writeAuthorityRaw = nil
+        try context.save()
+
+        do {
+            try await store.checkpoint(.afterAttempt([item.id]), runID: record.runID)
+            Issue.record("Expected missing write authority to reject the checkpoint")
+        } catch let error as WorkCheckpointError {
+            #expect(error.needsRecovery)
+        }
+
+        let child = try #require(ModelContext(container).fetch(FetchDescriptor<PersistedRunWorkItem>()).first)
+        let unchanged = try JSONDecoder().decode(RunWorkItem.self, from: child.itemData)
+        #expect(unchanged.state == .attempting)
     }
 
     @Test("upsert rejects a terminal run with open work")

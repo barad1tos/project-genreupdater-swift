@@ -142,6 +142,19 @@ struct WorkLedger: Equatable, Sendable {
         }
         return updated
     }
+
+    func dismissingOpenWork() throws -> Self {
+        var outcomes: [UUID: WorkOutcome] = [:]
+        for item in items {
+            switch item.state {
+            case .prepared, .attempting, .attempted:
+                outcomes[item.id] = .dismissed
+            case .outcome:
+                break
+            }
+        }
+        return try applying(.afterVerification(outcomes))
+    }
 }
 
 extension WorkState {

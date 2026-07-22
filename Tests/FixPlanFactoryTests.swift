@@ -116,7 +116,9 @@ private struct WriteFixture {
     let directory: URL
 
     func run(_ input: FixPlanWriteInput) async throws -> BatchUpdateResult {
-        try await write(input) { _ in }
+        try await write(input) { _ in
+            // Direct writer tests assert results; orchestrator tests own checkpoint assertions.
+        }
     }
 }
 

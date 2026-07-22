@@ -6,7 +6,7 @@ private typealias CheckpointItem = (row: PersistedRunWorkItem, item: RunWorkItem
 extension RunRecordDataStore {
     public func checkpoint(_ checkpoint: WorkCheckpoint, runID: RunID) async throws {
         do {
-            try requireCheckpointRun(runID, boundary: checkpoint.boundary)
+            try requireCheckpointRun(runID, checkpoint: checkpoint)
             let items = try loadCheckpointItems(checkpoint, runID: runID)
             try updateCheckpointItems(items, boundary: checkpoint.boundary)
             try modelContext.save()
@@ -16,7 +16,7 @@ extension RunRecordDataStore {
         }
     }
 
-    private func requireCheckpointRun(_ runID: RunID, boundary: CheckpointBoundary) throws {
+    private func requireCheckpointRun(_ runID: RunID, checkpoint: WorkCheckpoint) throws {
         let rawRunID = runID.rawValue
         var descriptor = FetchDescriptor<PersistedRunRecord>(
             predicate: #Predicate { $0.runID == rawRunID }
@@ -25,14 +25,17 @@ extension RunRecordDataStore {
         guard let row = try modelContext.fetch(descriptor).first else {
             throw RunRecordPersistenceError.invalidField(name: "checkpoint.runID", runID: rawRunID)
         }
-        guard row.intentRaw == RunIntent.writeFixes.rawValue,
-              row.writeAuthorityRaw == WriteAuthority.reviewedPlan.rawValue,
-              row.stateRaw == RunLifecycleState.writing.rawValue,
-              row.finishedAt == nil
+        let record = try makeRecord(from: row)
+        let writeAdjacent = record.workLedger.isWriteAdjacent(to: checkpoint)
+        guard row.writeAuthorityRaw == WriteAuthority.reviewedPlan.rawValue,
+              record.intent == .writeFixes,
+              record.configuration?.writeAuthority == .reviewedPlan,
+              record.state == .writing,
+              record.finishedAt == nil
         else {
             throw WorkCheckpointError.invalid(
-                boundary,
-                writeAdjacent: false,
+                checkpoint.boundary,
+                writeAdjacent: writeAdjacent,
                 reason: "run is not an active reviewed write"
             )
         }

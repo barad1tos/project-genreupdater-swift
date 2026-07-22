@@ -156,20 +156,21 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         self.finishedAt = finishedAt
     }
 
-    public func closingRecovery(at finishedAt: Date) -> Self {
+    public func closingRecovery(at finishedAt: Date) throws -> Self {
         var transitions = transitions
         let auditTime = max(finishedAt, transitions.last?.timestamp ?? startedAt)
         if state != .recovering {
             transitions.append(RunLifecycleTransition(state: .recovering, timestamp: auditTime))
         }
         transitions.append(RunLifecycleTransition(state: .cancelled, timestamp: auditTime))
+        let closedWork = try workLedger.dismissingOpenWork()
         let closure = "Recovery closed after Music.app verification; interrupted writes were not resumed."
         let message = failureMessage.map { "\($0) \(closure)" } ?? closure
         return Self(
             copying: self,
             recoveryID: recoveryID,
             transitions: transitions,
-            workLedger: workLedger,
+            workLedger: closedWork,
             failureMessage: message,
             finishedAt: auditTime
         )

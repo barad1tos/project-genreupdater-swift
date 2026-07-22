@@ -17,14 +17,85 @@ struct RunRecoveryTests {
         )
 
         let opened = record.openingRecovery(id: UUID(), at: Date(timeIntervalSince1970: 100))
-        let closed = opened.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        let closed = try opened.closingRecovery(at: Date(timeIntervalSince1970: 150))
         let previousTime = try #require(record.transitions.last?.timestamp)
 
         #expect(opened.transitions.last?.timestamp == previousTime)
         #expect(closed.transitions.suffix(2).map(\.timestamp) == [previousTime, previousTime])
         #expect(opened.workItems == workItems)
-        #expect(closed.workItems == workItems)
+        #expect(closed.workItems.map(\.state) == [.outcome(.dismissed)])
         #expect(closed.finishedAt == previousTime)
+    }
+
+    @Test("Recovery closure terminalizes open work")
+    func closesRecoveryWork() throws {
+        let workItems = [
+            makeWorkItem(state: .prepared),
+            makeWorkItem(state: .attempting),
+            makeWorkItem(state: .attempted),
+            makeWorkItem(state: .outcome(.written)),
+        ]
+        let record = makeRecoveryRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .recoverable,
+            input: RunRecordInput(intent: .writeFixes, workItems: workItems)
+        )
+
+        let closed = try record.closingRecovery(at: Date(timeIntervalSince1970: 150))
+
+        #expect(closed.workItems.map(\.state) == [
+            .outcome(.dismissed),
+            .outcome(.dismissed),
+            .outcome(.dismissed),
+            .outcome(.written),
+        ])
+    }
+
+    @Test("Recovery closure persists terminal work")
+    func persistsRecoveryClosure() async throws {
+        let store = try makeRunStore()
+        let record = makeRecoveryRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .writing,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [makeWorkItem(state: .attempted)]
+            )
+        )
+        try await store.upsert(record)
+        let opened = record.openingRecovery(id: UUID(), at: Date(timeIntervalSince1970: 125))
+        try await store.upsert(opened)
+
+        let closed = try opened.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        try await store.upsert(closed)
+
+        let stored = try #require(try await store.record(for: record.runID))
+        #expect(stored.state == .cancelled)
+        #expect(stored.finishedAt == Date(timeIntervalSince1970: 150))
+        #expect(stored.workItems.map(\.state) == [.outcome(.dismissed)])
+    }
+
+    @Test("Recovery closure rejects duplicate terminal work")
+    func rejectsDuplicateRecoveryWork() {
+        let itemID = UUID()
+        let record = makeRecoveryRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .recoverable,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [
+                    makeWorkItem(id: itemID, state: .outcome(.written)),
+                    makeWorkItem(id: itemID, state: .outcome(.failed)),
+                ]
+            )
+        )
+
+        #expect(throws: WorkCheckpointError.self) {
+            try record.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        }
     }
 
     @Test("Legacy run record JSON decodes without recovery fields")
