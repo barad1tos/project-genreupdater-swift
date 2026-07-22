@@ -450,6 +450,10 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         return try applying(checkpoint)
     }
 
+    func dismissingOpenWork() throws -> Self {
+        try withWorkLedger(workLedger.dismissingOpenWork())
+    }
+
     /// assertionFailure alone compiles to a no-op in Release, so a violated
     /// invariant would leave no trail in shipped builds; the log line keeps the
     /// evidence. Only the wire-state name is logged: interpolating the full

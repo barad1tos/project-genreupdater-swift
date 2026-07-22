@@ -399,7 +399,11 @@ public protocol AppleScriptClient: Actor {
     /// Update a single property on a track in Music.app.
     func updateTrackProperty(trackID: String, property: String, value: String) async throws -> AppleScriptWriteResult
 
-    /// Update one property and report when Music.app has returned from the mutation attempt.
+    /// Update one property and report when the caller must conservatively treat it as attempted.
+    ///
+    /// Conformers with dispatch visibility may report as soon as Music.app may have received
+    /// the mutation. The compatibility implementation reports after the legacy overload
+    /// returns or throws.
     func updateTrackProperty(
         trackID: String,
         property: String,
@@ -415,7 +419,11 @@ public protocol AppleScriptClient: Actor {
     /// after a potentially mutating batch execution.
     func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws
 
-    /// Update multiple properties and report after dispatch but before verification.
+    /// Update multiple properties and report when the caller must conservatively treat them as attempted.
+    ///
+    /// Conformers with dispatch visibility may report as soon as Music.app may have received
+    /// the mutations. The compatibility implementation reports after the legacy overload
+    /// returns or throws.
     func batchUpdateTracks(
         _ updates: [(trackID: String, property: String, value: String)],
         onAttempt: @escaping WriteAttemptHook

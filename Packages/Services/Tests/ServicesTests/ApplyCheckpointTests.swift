@@ -443,7 +443,8 @@ extension ApplyAcceptedTests {
             checkpoint: checkpoint,
             candidate: candidate,
             durableSnapshot: candidate,
-            isWriteAdjacent: false
+            isWriteAdjacent: false,
+            reason: "record store unavailable"
         ))
     }
 }

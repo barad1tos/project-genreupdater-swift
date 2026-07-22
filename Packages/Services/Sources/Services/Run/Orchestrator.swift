@@ -60,7 +60,14 @@ public actor RunOrchestrator {
         guard let recoveryRun, recoveryRun.snapshot.runID == runID else { return }
         guard case .suspended(.recoverable) = recoveryRun.snapshot.phase else { return }
         let recovering = recoveryRun.snapshot.beginningRecovery()
-        let resolved = recovering.cancelling(
+        let closed: RunLifecycleSnapshot
+        do {
+            closed = try recovering.dismissingOpenWork()
+        } catch {
+            log.error("Recovery work closure failed: \(error.localizedDescription, privacy: .private)")
+            return
+        }
+        let resolved = closed.cancelling(
             message: "Recovery closed after Music.app verification.",
             at: finishedAt
         )
@@ -654,36 +661,41 @@ public actor RunOrchestrator {
         }
         let writeAdjacent = activeRun.isWriteAdjacent(to: checkpoint)
         let checkpointed = try activeRun.applying(checkpoint)
-        let isStored = await persist(checkpoint, for: checkpointed)
-        guard isStored else {
+        if let reason = await checkpointFailureReason(checkpoint, for: checkpointed) {
             throw WorkCheckpointError.store(CheckpointStoreFailure(
                 checkpoint: checkpoint,
                 candidate: checkpointed,
                 durableSnapshot: activeRun,
-                isWriteAdjacent: writeAdjacent
+                isWriteAdjacent: writeAdjacent,
+                reason: reason
             ))
         }
         publish(checkpointed)
     }
 
-    private func persist(_ checkpoint: WorkCheckpoint, for lifecycle: RunLifecycleSnapshot) async -> Bool {
+    private func checkpointFailureReason(
+        _ checkpoint: WorkCheckpoint,
+        for lifecycle: RunLifecycleSnapshot
+    ) async -> String? {
         guard let persistCheckpoint = dependencies.write?.persistCheckpoint else {
-            return await persistRecord(
-                for: lifecycle,
-                syncResult: nil,
-                writeSummary: nil,
+            let record = RunRecord(
+                lifecycle: lifecycle,
+                transitions: activeTransitions,
+                syncSummary: nil,
                 failureMessage: nil,
                 finishedAt: nil
             )
+            return await storeFailure(for: record)
         }
         do {
             try await persistCheckpoint(lifecycle.runID, checkpoint)
-            return true
+            return nil
         } catch {
-            log.error(
-                "Run checkpoint persistence failed with \(String(describing: type(of: error)), privacy: .public)"
-            )
-            return false
+            log.error("""
+            Run checkpoint persistence failed with \(String(describing: type(of: error)), privacy: .public): \
+            \(error.localizedDescription, privacy: .private)
+            """)
+            return error.localizedDescription
         }
     }
 
@@ -724,15 +736,19 @@ public actor RunOrchestrator {
             finishedAt: finishedAt
         )
 
+        return await storeFailure(for: record) == nil
+    }
+
+    private func storeFailure(for record: RunRecord) async -> String? {
         do {
             try await dependencies.persistRunRecord(record)
-            return true
+            return nil
         } catch {
             log.error("""
-            Failed to persist run record \(lifecycle.runID.rawValue.uuidString, privacy: .public): \
+            Failed to persist run record \(record.runID.rawValue.uuidString, privacy: .public): \
             \(error.localizedDescription, privacy: .private)
             """)
-            return false
+            return error.localizedDescription
         }
     }
 

@@ -57,7 +57,7 @@ struct LifecycleBufferTests {
             })
         ))
         let updates = await orchestrator.lifecycleUpdates()
-        var iterator = updates.makeAsyncIterator()
+        let iterator = SnapshotIterator(updates: updates)
         let first = Task {
             await orchestrator.submit(.observation(
                 trigger: .backgroundSync,
@@ -76,7 +76,7 @@ struct LifecycleBufferTests {
         let secondTerminal = try await waitForQueuedTerminal(orchestrator, after: firstResult.lifecycle.runID)
 
         var snapshots: [RunLifecycleSnapshot] = []
-        while let snapshot = await iterator.next() {
+        while let snapshot = try await nextSnapshot(from: iterator) {
             snapshots.append(snapshot)
             if snapshot.runID == secondTerminal.runID, !snapshot.isActive {
                 break
@@ -90,6 +90,16 @@ struct LifecycleBufferTests {
             $0.runID == secondTerminal.runID
         })
         #expect(firstTerminalIndex < secondRunIndex)
+    }
+
+    @Test("snapshot waits stop at their deadline")
+    func snapshotWaitTimesOut() async {
+        let updates = LifecycleUpdates(buffer: LifecycleUpdateBuffer(limit: 1))
+        let iterator = SnapshotIterator(updates: updates)
+
+        await #expect(throws: BufferTestError.snapshotTimedOut) {
+            try await nextSnapshot(from: iterator, timeout: .milliseconds(20))
+        }
     }
 
     private func terminal(_ runID: RunID) -> RunLifecycleSnapshot {
@@ -127,21 +137,58 @@ struct LifecycleBufferTests {
 
 private func waitForQueuedTerminal(
     _ orchestrator: RunOrchestrator,
-    after runID: RunID
+    after runID: RunID,
+    timeout: Duration = .seconds(5)
 ) async throws -> RunLifecycleSnapshot {
-    for _ in 0 ..< 1000 {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while clock.now < deadline {
         if let lifecycle = await orchestrator.currentLifecycle(),
            lifecycle.runID != runID,
            !lifecycle.isActive {
             return lifecycle
         }
-        await Task.yield()
+        try await Task.sleep(for: .milliseconds(10))
     }
     throw BufferTestError.queuedRunDidNotFinish
 }
 
-private enum BufferTestError: Error {
+private func nextSnapshot(
+    from iterator: SnapshotIterator,
+    timeout: Duration = .seconds(5)
+) async throws -> RunLifecycleSnapshot? {
+    try await withThrowingTaskGroup(of: RunLifecycleSnapshot?.self) { group in
+        group.addTask {
+            await iterator.next()
+        }
+        group.addTask {
+            try await Task.sleep(for: timeout)
+            throw BufferTestError.snapshotTimedOut
+        }
+
+        let snapshotResult = try await group.next()
+        group.cancelAll()
+        guard let snapshotResult else { return nil }
+        return snapshotResult
+    }
+}
+
+private enum BufferTestError: Error, Equatable {
     case queuedRunDidNotFinish
+    case snapshotTimedOut
+}
+
+private final class SnapshotIterator: @unchecked Sendable {
+    /// Calls are serialized; unchecked Sendable only permits capture by the timeout task group.
+    private var iterator: LifecycleUpdates.AsyncIterator
+
+    init(updates: LifecycleUpdates) {
+        iterator = updates.makeAsyncIterator()
+    }
+
+    func next() async -> RunLifecycleSnapshot? {
+        await iterator.next()
+    }
 }
 
 private actor CheckpointRunGate {

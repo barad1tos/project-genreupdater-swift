@@ -32,6 +32,7 @@ struct CheckpointStoreTests {
         }
         #expect(snapshot.workItems.first?.state == .outcome(.failed))
         #expect(snapshot.finishedAt != nil)
+        #expect(snapshot.failureMessage?.contains(RecordWriteError.message) == true)
         #expect(await writer.calls.isEmpty)
         #expect(await records.records.last?.workItems.first?.state == .outcome(.failed))
     }
@@ -70,6 +71,7 @@ struct CheckpointStoreTests {
         #expect(snapshot.state == .recoverable)
         #expect(snapshot.workItems.first?.state == .attempted)
         #expect(reason.contains("Verify Music.app"))
+        #expect(reason.contains(RecordWriteError.message))
         #expect(!reason.contains("Write finished"))
         #expect(await writer.calls.count == 1)
         #expect(await records.records.last?.recoveryID == recoveryID)

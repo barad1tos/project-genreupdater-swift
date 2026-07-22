@@ -5,9 +5,10 @@ struct CheckpointStoreFailure: LocalizedError, Equatable, Sendable {
     let candidate: RunLifecycleSnapshot
     let durableSnapshot: RunLifecycleSnapshot
     let isWriteAdjacent: Bool
+    let reason: String
 
     var errorDescription: String? {
-        "Could not persist \(String(describing: checkpoint.boundary)) work checkpoint"
+        "Could not persist \(String(describing: checkpoint.boundary)) work checkpoint: \(reason)"
     }
 }
 

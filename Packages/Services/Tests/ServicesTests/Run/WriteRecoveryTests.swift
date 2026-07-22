@@ -150,6 +150,27 @@ struct WriteRecoveryTests {
         #expect(await writer.calls.isEmpty)
     }
 
+    @Test("resolved recovery dismisses restored open work")
+    func closesRestoredWork() async {
+        let attempted = makeWorkItem(state: .attempted)
+        let recovery = recoveryRecord(workItems: [attempted])
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in }
+        ))
+
+        await orchestrator.restoreRecovery(recovery)
+        await orchestrator.resolveRecovery(
+            runID: recovery.runID,
+            at: Date(timeIntervalSince1970: 200)
+        )
+
+        let resolved = await orchestrator.currentLifecycle()
+        #expect(resolved?.state == .cancelled)
+        #expect(resolved?.hasOpenItems == false)
+        #expect(resolved?.workItems.first?.state == .outcome(.dismissed))
+    }
+
     @Test("blocked recovery cannot be resolved")
     func blockedRecoveryRemains() async {
         let writer = WriteProbe(result: BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: []))

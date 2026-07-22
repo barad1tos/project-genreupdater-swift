@@ -200,7 +200,13 @@ actor RecoveryWriteProbe {
     }
 }
 
-struct RecordWriteError: Error {}
+struct RecordWriteError: LocalizedError {
+    static let message = "sentinel run record failure"
+
+    var errorDescription: String? {
+        Self.message
+    }
+}
 
 func writeTarget() -> FixPlanWriteTarget {
     FixPlanWriteTarget(
@@ -248,7 +254,10 @@ func writeEntry() -> ChangeLogEntry {
     return entry
 }
 
-func recoveryRecord(state: RunLifecycleState = .recoverable) -> RunRecord {
+func recoveryRecord(
+    state: RunLifecycleState = .recoverable,
+    workItems: [RunWorkItem] = []
+) -> RunRecord {
     let startedAt = Date(timeIntervalSince1970: 50)
     return RunRecord(
         header: RunRecord.Header(
@@ -266,6 +275,7 @@ func recoveryRecord(state: RunLifecycleState = .recoverable) -> RunRecord {
             RunLifecycleTransition(state: .writing, timestamp: startedAt),
             RunLifecycleTransition(state: state, timestamp: startedAt),
         ],
+        workItems: workItems,
         status: RunRecord.Status(
             syncSummary: nil,
             failureMessage: "Music.app verification required",
