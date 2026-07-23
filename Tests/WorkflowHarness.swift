@@ -13,55 +13,57 @@ func noOpPrepareMutationMetadata(_: [Track]) async throws {
     // Default test hook intentionally skips mutation metadata preparation.
 }
 
+struct WorkflowFixtureOptions {
+    var apiServices: APIOrchestratorServices?
+    var tier: Tier = .pro
+    var cancellingWriteTrackIDs: Set<String> = []
+    var outcomeTrackIDs: Set<String> = []
+    var noChangeWriteTrackIDs: Set<String> = []
+    var writeHold: LiveBatchHold?
+    var checkpointDirectory: URL = temporaryDirectory()
+    var recoverySuiteName: String?
+    var problematicAlbumReportMinAttempts: () -> Int = { 3 }
+    var runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
+    var ensureRecoveryHold: () async -> Bool = { false }
+    var clearRecovery: ((UUID) async throws -> Void)?
+    var invalidateAlbumYearCache: (() async -> Void)?
+    var updateIncrementalRunTimestamp: (() async -> Void)?
+}
+
 @MainActor
 func makeWorkflowFixture(
     apiService: DashboardStateAPIService = DashboardStateAPIService(),
-    apiServices: APIOrchestratorServices? = nil,
-    tier: Tier = .pro,
     failingWriteTrackIDs: Set<String> = [],
-    cancellingWriteTrackIDs: Set<String> = [],
-    outcomeWriteTrackIDs: Set<String> = [],
-    noChangeWriteTrackIDs: Set<String> = [],
-    writeHold: LiveBatchHold? = nil,
-    checkpointDirectory: URL = temporaryDirectory(),
-    recoverySuiteName: String? = nil,
     resolveIncrementalTracks: @escaping (
         [Track],
         IncrementalTrackScopeOptions
     ) async -> [Track] = { tracks, _ in tracks },
     pendingVerificationService: (any PendingVerificationService)? = nil,
     idMapper: (any TrackIDMapping)? = nil,
-    problematicAlbumReportMinAttempts: @escaping () -> Int = { 3 },
-    runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
-    ensureRecoveryHold: @escaping () async -> Bool = { false },
-    clearRecovery: ((UUID) async throws -> Void)? = nil,
     prepareMutationMetadata: (([Track]) async throws -> Void)? = noOpPrepareMutationMetadata,
-    invalidateAlbumYearCache: (() async -> Void)? = nil,
-    updateIncrementalRunTimestamp: (() async -> Void)? = nil
+    configure: (inout WorkflowFixtureOptions) -> Void = { _ in
+        // Default fixtures keep workflow options unchanged.
+    }
 ) -> WorkflowFixture {
+    var options = WorkflowFixtureOptions()
+    configure(&options)
     let scriptClient = DashboardStateScriptClient(
         failingTrackIDs: failingWriteTrackIDs,
-        cancellingTrackIDs: cancellingWriteTrackIDs,
-        outcomeTrackIDs: outcomeWriteTrackIDs,
-        noChangeTrackIDs: noChangeWriteTrackIDs,
-        writeHold: writeHold
+        cancellingTrackIDs: options.cancellingWriteTrackIDs,
+        outcomeTrackIDs: options.outcomeTrackIDs,
+        noChangeTrackIDs: options.noChangeWriteTrackIDs,
+        writeHold: options.writeHold
     )
     let trackStore = DashboardStateTrackStore()
     let cache = DashboardStateCacheService()
-    var apiOrchestratorConfiguration = APIOrchestratorConfiguration()
-    apiOrchestratorConfiguration.cache = cache
-    let resolvedAPIServices = apiServices ?? APIOrchestratorServices(
-        musicBrainz: apiService,
-        discogs: apiService,
-        appleMusic: apiService
-    )
-    let apiOrchestrator = APIOrchestrator(
-        services: resolvedAPIServices,
-        configuration: apiOrchestratorConfiguration
+    let apiOrchestrator = makeWorkflowAPI(
+        service: apiService,
+        services: options.apiServices,
+        cache: cache
     )
     let undoCoordinator = UndoCoordinator(scriptBridge: scriptClient, directory: temporaryDirectory())
     let updateCoordinator = UpdateCoordinator(
-        dependencies: UpdateCoordinatorDependencies(
+        dependencies: UpdateDependencies(
             apiOrchestrator: apiOrchestrator,
             scriptBridge: scriptClient,
             trackStore: trackStore,
@@ -72,15 +74,15 @@ func makeWorkflowFixture(
         ),
         genreDeterminator: GenreDeterminator()
     )
-    let featureGate = FeatureGate(fixedTier: tier)
+    let featureGate = FeatureGate(fixedTier: options.tier)
     let batchProcessor = BatchProcessor(
         checkpointManager: CheckpointManager(
-            directory: checkpointDirectory,
-            recoverySuiteName: recoverySuiteName
+            directory: options.checkpointDirectory,
+            recoverySuiteName: options.recoverySuiteName
         ),
         featureGate: featureGate
     )
-    let resolvedClearRecovery = clearRecovery ?? { id in
+    let resolvedClearRecovery = options.clearRecovery ?? { id in
         try await batchProcessor.clearRecovery(batchID: id)
     }
 
@@ -91,18 +93,35 @@ func makeWorkflowFixture(
             changePreviewPipeline: ChangePreviewPipeline(),
             pendingVerificationService: pendingVerificationService,
             featureGate: featureGate,
-            runMaintenancePreflight: runMaintenancePreflight,
-            ensureRecoveryHold: ensureRecoveryHold,
+            runMaintenancePreflight: options.runMaintenancePreflight,
+            ensureRecoveryHold: options.ensureRecoveryHold,
             clearRecovery: resolvedClearRecovery,
             prepareMutationMetadata: prepareMutationMetadata,
             resolveIncrementalTracks: resolveIncrementalTracks,
-            invalidateAlbumYearCache: invalidateAlbumYearCache,
-            updateIncrementalRunTimestamp: updateIncrementalRunTimestamp,
-            problematicAlbumReportMinAttempts: problematicAlbumReportMinAttempts
+            invalidateAlbumYearCache: options.invalidateAlbumYearCache,
+            updateIncrementalRunTimestamp: options.updateIncrementalRunTimestamp,
+            problematicAlbumReportMinAttempts: options.problematicAlbumReportMinAttempts
         )
     )
 
     return WorkflowFixture(viewModel: viewModel, scriptClient: scriptClient, batchProcessor: batchProcessor)
+}
+
+private func makeWorkflowAPI(
+    service: DashboardStateAPIService,
+    services: APIOrchestratorServices?,
+    cache: DashboardStateCacheService
+) -> APIOrchestrator {
+    var configuration = APIOrchestratorConfiguration()
+    configuration.cache = cache
+    return APIOrchestrator(
+        services: services ?? APIOrchestratorServices(
+            musicBrainz: service,
+            discogs: service,
+            appleMusic: service
+        ),
+        configuration: configuration
+    )
 }
 
 struct WorkflowFixture {
@@ -377,6 +396,27 @@ actor DashboardStateScriptClient: AppleScriptClient {
         return .changed
     }
 
+    func updateTrackProperty(
+        trackID: String,
+        property: String,
+        value: String,
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws -> AppleScriptWriteResult {
+        let result: AppleScriptWriteResult
+        do {
+            result = try await updateTrackProperty(
+                trackID: trackID,
+                property: property,
+                value: value
+            )
+        } catch let error as AppleScriptOutcomeError {
+            try await onAttempt()
+            throw error
+        }
+        try await onAttempt()
+        return result
+    }
+
     func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
         for update in updates {
             _ = try await updateTrackProperty(
@@ -385,6 +425,33 @@ actor DashboardStateScriptClient: AppleScriptClient {
                 value: update.value
             )
         }
+    }
+
+    func batchUpdateTracks(
+        _ updates: [(trackID: String, property: String, value: String)],
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws {
+        guard !updates.isEmpty else { return }
+        var hasAttempted = false
+        do {
+            for update in updates {
+                _ = try await updateTrackProperty(
+                    trackID: update.trackID,
+                    property: update.property,
+                    value: update.value
+                )
+                hasAttempted = true
+            }
+        } catch let error as AppleScriptOutcomeError {
+            try await onAttempt()
+            throw error
+        } catch {
+            if hasAttempted {
+                try await onAttempt()
+            }
+            throw error
+        }
+        try await onAttempt()
     }
 
     func updatedProperties() -> [(trackID: String, property: String, value: String)] {
@@ -508,7 +575,7 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
         let currentEntryKeys = currentEntryKeys()
         return seededProblematicAlbums.filter { problematicAlbum in
             problematicAlbum.totalAttempts >= minAttempts
-                && currentEntryKeys.contains(Self.key(for: problematicAlbum.entry))
+                && currentEntryKeys.contains(entryKey(problematicAlbum.entry))
         }
     }
 
@@ -535,14 +602,20 @@ actor WorkflowPendingVerificationService: PendingVerificationService {
         guard let seededDueEntries else { return entries }
 
         let currentEntryKeys = currentEntryKeys()
-        return seededDueEntries.filter { currentEntryKeys.contains(Self.key(for: $0)) }
+        var dueEntries: [PendingAlbumEntry] = []
+        for entry in seededDueEntries {
+            let key = entryKey(entry)
+            guard currentEntryKeys.contains(key) else { continue }
+            dueEntries.append(entry)
+        }
+        return dueEntries
     }
 
     private func currentEntryKeys() -> Set<String> {
-        Set(entries.map(Self.key(for:)))
+        Set(entries.map { entryKey($0) })
     }
 
-    private static func key(for entry: PendingAlbumEntry) -> String {
+    private func entryKey(_ entry: PendingAlbumEntry) -> String {
         AlbumIdentity.key(artist: entry.artist, album: entry.album)
     }
 }

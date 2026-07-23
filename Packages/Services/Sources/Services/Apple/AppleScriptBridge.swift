@@ -152,7 +152,10 @@ public actor AppleScriptBridge: AppleScriptClient {
 
         log
             .info(
-                "Executing script: \(name, privacy: .public) with \(validatedArguments.count, privacy: .public) arguments"
+                """
+                Executing script: \(name, privacy: .public) with \
+                \(validatedArguments.count, privacy: .public) arguments
+                """
             )
 
         let deadline = ContinuousClock().now.advanced(by: effectiveTimeout)
@@ -186,7 +189,10 @@ public actor AppleScriptBridge: AppleScriptClient {
         let effectiveBatchSize = BatchProcessingConfig.clampIDBatch(batchSize)
         if effectiveBatchSize != batchSize {
             log.info(
-                "Clamped ID lookup batch size from \(batchSize, privacy: .public) to \(effectiveBatchSize, privacy: .public)"
+                """
+                Clamped ID lookup batch size from \(batchSize, privacy: .public) to \
+                \(effectiveBatchSize, privacy: .public)
+                """
             )
         }
         let effectiveTimeout = timeout ?? config.timeouts.idsBatchFetch
@@ -205,7 +211,10 @@ public actor AppleScriptBridge: AppleScriptClient {
 
         log
             .info(
-                "Fetched \(tracks.count, privacy: .public) tracks by IDs (\(trackIDs.count, privacy: .public) requested)"
+                """
+                Fetched \(tracks.count, privacy: .public) tracks by IDs \
+                (\(trackIDs.count, privacy: .public) requested)
+                """
             )
         return tracks
     }
@@ -237,7 +246,9 @@ public actor AppleScriptBridge: AppleScriptClient {
         }
         return [String(offset), String(limit), libraryPath]
     }
+}
 
+extension AppleScriptBridge {
     // MARK: - Music.app Write Operations
 
     /// Update a property of a track in Music.app.
@@ -246,22 +257,81 @@ public actor AppleScriptBridge: AppleScriptClient {
         property: String,
         value: String
     ) async throws -> AppleScriptWriteResult {
-        let output = try await runScript(
-            name: "update_property",
-            arguments: [trackID, property, value]
-        )
+        try await updateTrackProperty(
+            trackID: trackID,
+            property: property,
+            value: value,
+            onAttempt: nil
+        ) { [self] in
+            try await runScript(
+                name: "update_property",
+                arguments: [trackID, property, value]
+            )
+        }
+    }
+
+    public func updateTrackProperty(
+        trackID: String,
+        property: String,
+        value: String,
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws -> AppleScriptWriteResult {
+        try await updateTrackProperty(
+            trackID: trackID,
+            property: property,
+            value: value,
+            onAttempt: onAttempt
+        ) { [self] in
+            try await runScript(
+                name: "update_property",
+                arguments: [trackID, property, value]
+            )
+        }
+    }
+
+    func updateTrackProperty(
+        trackID: String,
+        property: String,
+        value: String,
+        onAttempt: WriteAttemptHook?,
+        execute: () async throws -> String?
+    ) async throws -> AppleScriptWriteResult {
+        let output: String?
+        do {
+            output = try await execute()
+        } catch let error as AppleScriptOutcomeError {
+            try await recordUnknownAttempt(onAttempt, outcome: error)
+            throw error
+        }
+        try await onAttempt?()
         let result = try Self.validateUpdatePropertyOutput(output, trackID: trackID, property: property)
 
         log
             .info(
-                "Completed update_property for \(property, privacy: .public) on track \(trackID, privacy: .private): \(value, privacy: .private)"
+                """
+                Completed update_property for \(property, privacy: .public) on track \
+                \(trackID, privacy: .private): \(value, privacy: .private)
+                """
             )
         return result
     }
 
     /// Batch update multiple tracks' properties.
     public func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
-        try await batchUpdateTracks(updates) { [self] batchArgument in
+        try await batchUpdateTracks(updates, onAttempt: nil) { [self] batchArgument in
+            try await runScript(
+                name: Self.batchUpdateScriptName,
+                arguments: [batchArgument],
+                timeout: config.timeouts.batchUpdate
+            )
+        }
+    }
+
+    public func batchUpdateTracks(
+        _ updates: [(trackID: String, property: String, value: String)],
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws {
+        try await batchUpdateTracks(updates, onAttempt: onAttempt) { [self] batchArgument in
             try await runScript(
                 name: Self.batchUpdateScriptName,
                 arguments: [batchArgument],
@@ -272,6 +342,7 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     func batchUpdateTracks(
         _ updates: [(trackID: String, property: String, value: String)],
+        onAttempt: WriteAttemptHook?,
         execute: (String) async throws -> String?
     ) async throws {
         let batchUpdateSignpost = AppSignpost.appleScriptWrite.beginInterval("batchUpdateTracks")
@@ -294,15 +365,10 @@ public actor AppleScriptBridge: AppleScriptClient {
             // Music.app was never reached, so the caller may safely fall back to single writes.
             throw error
         } catch let error as AppleScriptOutcomeError {
+            try await recordUnknownAttempt(onAttempt, outcome: error)
             throw error
-        } catch {
-            // Dispatched unknown outcomes use post-run verification instead of single-write replay.
-            throw AppleScriptBatchVerificationError(
-                updateCount: updates.count,
-                failedCount: nil,
-                reason: "Batch script did not return a verifiable result: \(error.localizedDescription)"
-            )
         }
+        try await onAttempt?()
 
         do {
             try Self.validateBatchUpdateOutput(output, updateCount: updates.count)
@@ -315,6 +381,25 @@ public actor AppleScriptBridge: AppleScriptClient {
         }
         try await verifyBatchUpdateResult(updates)
         log.info("Batch updated \(updates.count, privacy: .public) tracks")
+    }
+
+    private func recordUnknownAttempt(
+        _ onAttempt: WriteAttemptHook?,
+        outcome: AppleScriptOutcomeError
+    ) async throws {
+        guard let onAttempt else { return }
+        do {
+            try await onAttempt()
+        } catch let WorkCheckpointError.store(failure) {
+            throw WorkCheckpointError.store(failure.withOutcome(outcome))
+        } catch {
+            log.error("""
+            Unknown AppleScript outcome \(outcome.localizedDescription, privacy: .private); attempt hook failed with \
+            \(String(describing: type(of: error)), privacy: .public): \
+            \(error.localizedDescription, privacy: .private)
+            """)
+            throw error
+        }
     }
 
     private func ensureBatchUpdateScriptExists() async throws {
@@ -458,9 +543,9 @@ public actor AppleScriptBridge: AppleScriptClient {
         property: String
     ) throws -> AppleScriptWriteResult {
         guard let output else {
-            throw AppleScriptBridgeError.executionFailed(
+            throw AppleScriptOutcomeError(
                 scriptName: "update_property",
-                detail: "Track=\(trackID), property=\(property), response=<empty>"
+                reason: "returned no verifiable response for track \(trackID), property \(property)"
             )
         }
 
@@ -473,9 +558,10 @@ public actor AppleScriptBridge: AppleScriptClient {
             return .noChange
         }
 
-        throw AppleScriptBridgeError.executionFailed(
+        throw AppleScriptOutcomeError(
             scriptName: "update_property",
-            detail: "Track=\(trackID), property=\(property), response=\(String(trimmedOutput.prefix(200)))"
+            reason: "returned an unverifiable response for track \(trackID), property \(property): "
+                + String(trimmedOutput.prefix(200))
         )
     }
 

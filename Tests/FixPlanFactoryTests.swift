@@ -32,23 +32,15 @@ struct FixPlanFactoryTests {
         try await fixture.processor.clearRecovery(batchID: recoveryID)
     }
 
-    @Test("Fix plan writer rejects altered queued scope")
+    @Test(
+        "Fix plan writer rejects every stale write contract",
+        arguments: StaleInputMutation.allCases
+    )
     @MainActor
-    func rejectsAlteredScope() async {
+    fileprivate func rejectsStaleInput(_ mutation: StaleInputMutation) async {
         let fixture = await makeWriteFixture(hasInitialRecovery: false)
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        let planScope = fixture.input.scope
-        let alteredScope = ProcessingScopeSnapshot(
-            id: planScope.id,
-            createdAt: planScope.createdAt,
-            source: .testArtists,
-            normalizedTestArtists: ["Other Artist"],
-            matchingRule: planScope.matchingRule,
-            knownTrackCount: planScope.knownTrackCount,
-            fingerprint: "altered-scope",
-            reason: planScope.reason
-        )
-        let input = FixPlanWriteInput(target: fixture.input.target, scope: alteredScope)
+        let input = mutation.applying(to: fixture.input)
 
         do {
             _ = try await fixture.run(input)
@@ -64,6 +56,108 @@ struct FixPlanFactoryTests {
         #expect(await fixture.runtime.callCount == 0)
         #expect(await fixture.script.fetchCalls.isEmpty)
     }
+
+    @Test("orchestrator closes work when the real writer rejects stale input")
+    @MainActor
+    func closesStaleWork() async {
+        let fixture = await makeWriteFixture(hasInitialRecovery: false)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let input = StaleInputMutation.scope.applying(to: fixture.input)
+        let capture = RunCapture()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await capture.append($0) },
+            write: .init(writeFixPlan: fixture.write),
+            now: { Date(timeIntervalSince1970: 120) }
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case let .failed(snapshot) = result else {
+            Issue.record("Expected failed run for stale write input")
+            return
+        }
+        #expect(snapshot.finishedAt != nil)
+        #expect(snapshot.workItems.allSatisfy { $0.state == .outcome(.failed) })
+        #expect(await capture.last?.workItems.allSatisfy {
+            $0.state == .outcome(.failed)
+        } == true)
+        #expect(await fixture.runtime.callCount == 0)
+        #expect(await fixture.script.fetchCalls.isEmpty)
+    }
+}
+
+private enum StaleInputMutation: CaseIterable, Equatable {
+    case scope
+    case authority
+    case scopeID
+    case settings
+    case workItems
+
+    func applying(to input: FixPlanWriteInput) -> FixPlanWriteInput {
+        let scope = switch self {
+        case .scope: alteredScope(input.scope)
+        case .authority, .scopeID, .settings, .workItems: input.scope
+        }
+        let configuration = switch self {
+        case .authority:
+            alteredConfiguration(input.configuration, writeAuthority: .readOnly)
+        case .scopeID:
+            alteredConfiguration(input.configuration, scopeID: UUID())
+        case .settings:
+            alteredConfiguration(input.configuration, settings: alteredSettings(input.configuration.settings))
+        case .scope, .workItems:
+            input.configuration
+        }
+        let workItems = self == .workItems ? [] : input.workItems
+        return FixPlanWriteInput(
+            target: input.target,
+            scope: scope,
+            configuration: configuration,
+            workItems: workItems
+        )
+    }
+
+    private func alteredScope(_ scope: ProcessingScopeSnapshot) -> ProcessingScopeSnapshot {
+        ProcessingScopeSnapshot(
+            id: scope.id,
+            createdAt: scope.createdAt,
+            source: .testArtists,
+            normalizedTestArtists: ["Other Artist"],
+            matchingRule: scope.matchingRule,
+            knownTrackCount: scope.knownTrackCount,
+            fingerprint: "altered-scope",
+            reason: scope.reason
+        )
+    }
+
+    private func alteredConfiguration(
+        _ configuration: RunConfig,
+        writeAuthority: WriteAuthority? = nil,
+        scopeID: UUID? = nil,
+        settings: FixPlanConfig? = nil
+    ) -> RunConfig {
+        RunConfig(
+            id: configuration.id,
+            capturedAt: configuration.capturedAt,
+            writeAuthority: writeAuthority ?? configuration.writeAuthority,
+            automation: configuration.automation,
+            scopeID: scopeID ?? configuration.scopeID,
+            settings: settings ?? configuration.settings,
+            hadRecoveryHold: configuration.hadRecoveryHold
+        )
+    }
+
+    private func alteredSettings(_ settings: FixPlanConfig) -> FixPlanConfig {
+        var configuration = settings.appConfiguration
+        configuration.applescript.batchProcessing.idsBatchSize += 1
+        return FixPlanConfig.capture(
+            configuration: configuration,
+            options: settings.determinationOptions,
+            capturedAt: settings.capturedAt,
+            hasDiscogsAccess: settings.hasDiscogsAccess
+        )
+    }
 }
 
 private struct WriteFixture {
@@ -71,8 +165,29 @@ private struct WriteFixture {
     let script: ScriptSpy
     let processor: BatchProcessor
     let runtime: RuntimeProbe
-    let run: @Sendable (FixPlanWriteInput) async throws -> BatchUpdateResult
+    let write: @Sendable (
+        FixPlanWriteInput,
+        @escaping WorkCheckpointSink
+    ) async throws -> BatchUpdateResult
     let directory: URL
+
+    func run(_ input: FixPlanWriteInput) async throws -> BatchUpdateResult {
+        try await write(input) { _ in
+            // Direct writer tests assert results; Services checkpoint tests own checkpoint assertions.
+        }
+    }
+}
+
+private actor RunCapture {
+    private(set) var records: [RunRecord] = []
+
+    var last: RunRecord? {
+        records.last
+    }
+
+    func append(_ record: RunRecord) {
+        records.append(record)
+    }
 }
 
 private actor RecoveryProbe {
@@ -262,7 +377,7 @@ private func makeWriteFixture(hasInitialRecovery: Bool) async -> WriteFixture {
     let coordinator = makeCoordinator(script: script, mapper: mapper, directory: directory)
     let recovery = RecoveryProbe(isHeld: hasInitialRecovery)
     let runtime = RuntimeProbe()
-    let run = FixPlanWrite.makeRunner(FixPlanWrite.RunnerDependencies(
+    let write = FixPlanWrite.makeRunner(FixPlanWrite.RunnerDependencies(
         fixPlanStore: store,
         mapper: mapper,
         batchProcessor: processor,
@@ -274,18 +389,34 @@ private func makeWriteFixture(hasInitialRecovery: Bool) async -> WriteFixture {
         },
         hasRunRecovery: { await recovery.check() }
     ))
-    let target = FixPlanWriteTarget(
-        planID: plan.id,
-        planRevision: plan.revision,
-        decisionRevision: decision.revision
-    )
+    let input = makeWriteInput(plan: plan, decision: decision)
     return WriteFixture(
-        input: FixPlanWriteInput(target: target, scope: plan.scope),
+        input: input,
         script: script,
         processor: processor,
         runtime: runtime,
-        run: run,
+        write: write,
         directory: directory
+    )
+}
+
+private func makeWriteInput(plan: FixPlan, decision: FixPlanReviewDecision) -> FixPlanWriteInput {
+    FixPlanWriteInput(
+        target: FixPlanWriteTarget(
+            planID: plan.id,
+            planRevision: plan.revision,
+            decisionRevision: decision.revision
+        ),
+        scope: plan.scope,
+        configuration: RunConfig(
+            capturedAt: decision.decidedAt,
+            writeAuthority: .reviewedPlan,
+            automation: .manualOnly,
+            scopeID: plan.scope.id,
+            settings: plan.configuration,
+            hadRecoveryHold: false
+        ),
+        workItems: plan.items.map(RunWorkItem.init(item:))
     )
 }
 
@@ -296,16 +427,18 @@ private func makeCoordinator(
 ) -> UpdateCoordinator {
     let api = DashboardStateAPIService()
     return UpdateCoordinator(
-        dependencies: UpdateCoordinatorDependencies(
+        dependencies: UpdateDependencies(
             apiOrchestrator: APIOrchestrator(services: APIOrchestratorServices(
                 musicBrainz: api,
                 discogs: api,
                 appleMusic: api
             )),
             scriptBridge: script,
-            trackStore: FactoryTrackStore(),
-            cache: FactoryCache(),
-            undoCoordinator: UndoCoordinator(scriptBridge: script, directory: directory),
+            stores: .init(trackStore: FactoryTrackStore(), cache: FactoryCache()),
+            undoCoordinator: UndoCoordinator(
+                scriptBridge: script,
+                directory: directory
+            ),
             idMapper: mapper
         ),
         genreDeterminator: GenreDeterminator(),

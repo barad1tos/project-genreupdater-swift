@@ -1,6 +1,6 @@
 import Foundation
-import Services
 import Testing
+@testable import Services
 
 @Suite("RunReportDetailBuilder")
 struct ReportDetailBuilderTests {
@@ -41,7 +41,7 @@ struct ReportDetailBuilderTests {
             finishedAt: startDate.addingTimeInterval(45),
             state: .completedNoOp,
             syncSummary: ActivitySyncSummary(new: 2, modified: 3, identityChanged: 0, refreshed: 0, removed: 0),
-            intent: .previewFixes
+            input: RecordInput(intent: .previewFixes)
         )
 
         let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
@@ -106,21 +106,25 @@ struct ReportDetailBuilderTests {
             RunLifecycleTransition(state: entry.0, timestamp: startDate.addingTimeInterval(Double(index)))
         }
         let record = RunRecord(
-            runID: RunID(),
-            requestID: RunRequestID(),
-            trigger: .manualCheck,
-            intent: .observeLibrary,
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: [],
-                knownTrackCount: nil,
-                createdAt: startDate,
-                reason: ""
+            header: RunRecord.Header(
+                runID: RunID(),
+                requestID: RunRequestID(),
+                trigger: .manualCheck,
+                intent: .observeLibrary,
+                scope: ProcessingScopeSnapshot.capture(
+                    requestedTestArtists: [],
+                    knownTrackCount: nil,
+                    createdAt: startDate,
+                    reason: ""
+                ),
+                startedAt: startDate
             ),
             transitions: transitions,
-            syncSummary: nil,
-            failureMessage: nil,
-            startedAt: startDate,
-            finishedAt: nil
+            status: RunRecord.Status(
+                syncSummary: nil,
+                failureMessage: nil,
+                finishedAt: nil
+            )
         )
 
         let detail = RunReportDetailBuilder.makeDetail(from: record, now: now, activeRunID: record.runID)
@@ -175,7 +179,7 @@ struct ReportDetailBuilderTests {
             finishedAt: startDate.addingTimeInterval(45),
             state: .completed,
             syncSummary: nil,
-            scope: scope
+            input: RecordInput(scope: scope)
         )
 
         let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
@@ -207,7 +211,7 @@ struct ReportDetailBuilderTests {
                 finishedAt: nil,
                 state: .syncingLibrary,
                 syncSummary: nil,
-                scope: fiveArtistScope
+                input: RecordInput(scope: fiveArtistScope)
             ),
             now: now
         )
@@ -217,7 +221,7 @@ struct ReportDetailBuilderTests {
                 finishedAt: nil,
                 state: .syncingLibrary,
                 syncSummary: nil,
-                scope: twoArtistScope
+                input: RecordInput(scope: twoArtistScope)
             ),
             now: now
         )
@@ -243,7 +247,7 @@ struct ReportDetailBuilderTests {
             finishedAt: nil,
             state: .syncingLibrary,
             syncSummary: nil,
-            scope: scope
+            input: RecordInput(scope: scope)
         )
 
         let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
@@ -264,7 +268,7 @@ struct ReportDetailBuilderTests {
             finishedAt: nil,
             state: .syncingLibrary,
             syncSummary: nil,
-            scope: scope
+            input: RecordInput(scope: scope)
         )
 
         let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
@@ -286,7 +290,7 @@ struct ReportDetailBuilderTests {
             finishedAt: nil,
             state: .syncingLibrary,
             syncSummary: nil,
-            scope: scope
+            input: RecordInput(scope: scope)
         )
 
         let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
@@ -317,14 +321,14 @@ struct ReportDetailBuilderTests {
             finishedAt: startDate.addingTimeInterval(45),
             state: .failed,
             syncSummary: nil,
-            failureMessage: "Music.app unavailable"
+            input: RecordInput(failureMessage: "Music.app unavailable")
         )
         let withoutMessage = makeRunRecord(
             startedAt: startDate,
             finishedAt: startDate.addingTimeInterval(45),
             state: .failed,
             syncSummary: nil,
-            failureMessage: nil
+            input: RecordInput(failureMessage: nil)
         )
 
         #expect(RunReportDetailBuilder.makeDetail(from: withMessage, now: now)
@@ -339,7 +343,7 @@ struct ReportDetailBuilderTests {
             finishedAt: startDate.addingTimeInterval(45),
             state: .completed,
             syncSummary: nil,
-            failureMessage: "Recovery closed after Music.app verification."
+            input: RecordInput(failureMessage: "Recovery closed after Music.app verification.")
         )
 
         let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
@@ -356,16 +360,18 @@ struct ReportDetailBuilderTests {
         #expect(detail.summaryItems.isEmpty)
     }
 
+    private struct RecordInput {
+        var failureMessage: String?
+        var scope: ProcessingScopeSnapshot?
+        var intent: RunIntent = .observeLibrary
+    }
+
     private func makeRunRecord(
-        runID: RunID = RunID(),
-        trigger: RunTrigger = .manualCheck,
         startedAt: Date,
         finishedAt: Date?,
         state: RunLifecycleState,
         syncSummary: ActivitySyncSummary?,
-        failureMessage: String? = nil,
-        scope: ProcessingScopeSnapshot? = nil,
-        intent: RunIntent = .observeLibrary
+        input: RecordInput = RecordInput()
     ) -> RunRecord {
         var transitions = [
             RunLifecycleTransition(state: .created, timestamp: startedAt),
@@ -379,21 +385,25 @@ struct ReportDetailBuilderTests {
         }
 
         return RunRecord(
-            runID: runID,
-            requestID: RunRequestID(),
-            trigger: trigger,
-            intent: intent,
-            scope: scope ?? ProcessingScopeSnapshot.capture(
-                requestedTestArtists: [],
-                knownTrackCount: nil,
-                createdAt: startedAt,
-                reason: ""
+            header: RunRecord.Header(
+                runID: RunID(),
+                requestID: RunRequestID(),
+                trigger: .manualCheck,
+                intent: input.intent,
+                scope: input.scope ?? ProcessingScopeSnapshot.capture(
+                    requestedTestArtists: [],
+                    knownTrackCount: nil,
+                    createdAt: startedAt,
+                    reason: ""
+                ),
+                startedAt: startedAt
             ),
             transitions: transitions,
-            syncSummary: syncSummary,
-            failureMessage: failureMessage,
-            startedAt: startedAt,
-            finishedAt: finishedAt
+            status: RunRecord.Status(
+                syncSummary: syncSummary,
+                failureMessage: input.failureMessage,
+                finishedAt: finishedAt
+            )
         )
     }
 }

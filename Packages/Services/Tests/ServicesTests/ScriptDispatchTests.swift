@@ -123,6 +123,26 @@ struct ScriptDispatchTests {
         #expect(try await task.value == "applied")
     }
 
+    @Test("Mutation callback failures have unknown outcomes")
+    func wrapsMutationFailure() async {
+        let call = ScriptCall(
+            name: "update_property",
+            intent: .mutation,
+            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
+            timeout: .seconds(1)
+        )
+
+        await #expect(throws: AppleScriptOutcomeError.self) {
+            _ = try await ScriptDispatch.run(
+                call,
+                limiter: nil,
+                gate: ScriptGate(limit: 1)
+            ) { finish in
+                finish(.failure(CallbackFailure()))
+            } as String?
+        }
+    }
+
     @Test("Mutation outcome ceiling retains its permit until callback")
     func boundsMutationOutcome() async throws {
         let gate = ScriptGate(limit: 1)
@@ -168,6 +188,8 @@ struct ScriptDispatchTests {
         permit.release()
     }
 }
+
+private struct CallbackFailure: Error {}
 
 private enum BridgeFailure {
     case dispatchDeadline

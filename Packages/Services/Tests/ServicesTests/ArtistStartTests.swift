@@ -104,12 +104,17 @@ struct ArtistStartTests {
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ArtistStartTests-\(UUID().uuidString)")
         return UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: apiOrchestrator,
                 scriptBridge: bridge,
-                trackStore: store,
-                cache: cache,
-                undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
+                stores: .init(
+                    trackStore: store,
+                    cache: cache
+                ),
+                undoCoordinator: UndoCoordinator(
+                    scriptBridge: bridge,
+                    directory: undoDirectory
+                )
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),

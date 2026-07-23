@@ -106,28 +106,74 @@ struct BatchWriteTests {
         #expect(written.isEmpty)
     }
 
-    @Test("Reviewed batch write fails stale current metadata before script write")
-    func reviewedBatchRejectsStale() async throws {
+    @Test("A batch cancellation after admission enters recovery")
+    func recoversBatchCancellation() async {
+        let fixture = await makeCoordinator(batchUpdatesEnabled: true)
+        await fixture.bridge.setBatchCancellationMode(true)
+        let track = makeTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.bridge.setFetchedTracks([track])
+        let proposals = acceptedProposals(for: track)
+        let checkpoints = CheckpointRecorder()
+        let records = WriteRecordProbe()
+        let recoveryID = UUID()
+        let input = writeInput(workItems: workItems(for: proposals))
+        let coordinator = fixture.coordinator
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await records.append($0) },
+            write: .init(
+                writeFixPlan: { _, checkpoint in
+                    try await coordinator.applyAcceptedChanges(
+                        proposals,
+                        progressHandler: ignoreProgress,
+                        checkpoint: {
+                            await checkpoints.append($0.boundary)
+                            try await checkpoint($0)
+                        }
+                    )
+                },
+                beginRecoveryHold: { recoveryID }
+            )
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case let .recoverable(snapshot, _) = result else {
+            Issue.record("Expected recoverable result, got \(result)")
+            return
+        }
+
+        #expect(await checkpoints.boundaries == [.beforeAttempt])
+        #expect(snapshot.workItems.allSatisfy { $0.state == .attempting })
+        #expect(await records.records.last?.state == .recoverable)
+        #expect(await records.records.last?.recoveryID == recoveryID)
+        #expect(await records.records.last?.workItems.allSatisfy { $0.state == .attempting } == true)
+        #expect(await fixture.bridge.writtenProperties.isEmpty)
+    }
+
+    @Test("A stale reviewed item does not discard a valid batch peer")
+    func isolatesStalePeer() async throws {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
         let reviewedTrack = makeTrack(id: "MK1", genre: "Rock", year: 1999)
         let currentTrack = makeTrack(id: "MK1", genre: "Jazz", year: 1999)
         await fixture.bridge.setFetchedTracks([currentTrack])
         let proposals = acceptedProposals(for: reviewedTrack)
 
-        do {
-            _ = try await fixture.coordinator.applyAcceptedChanges(
-                proposals,
-                progressHandler: ignoreProgress
-            )
-            Issue.record("Expected stale reviewed batch failure")
-        } catch let error as UpdateCoordinatorError {
-            #expect(error.errorDescription?.contains("reviewed value no longer matches Music.app") == true)
-        }
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            proposals,
+            progressHandler: ignoreProgress
+        )
 
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
-        #expect(batches.isEmpty)
+        #expect(batches.map { $0.map(\.property) } == [["year"]])
         #expect(written.isEmpty)
+        #expect(result.entries.map(\.changeType) == [.yearUpdate])
+        #expect(result.noOpEntries.isEmpty)
+        #expect(result.failedTrackIDs == ["MK1"])
+        #expect(result.errorDescriptions.count == 1)
+        #expect(result.errorDescriptions.first?.contains("reviewed value no longer matches Music.app") == true)
+        #expect(result.hasPartialFailures)
     }
 
     @Test("Pre-run batch failure falls back to single writes")
@@ -214,15 +260,14 @@ struct BatchWriteTests {
             yearScores: [2001: 95]
         ))
         let coordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: makeAPIOrchestrator(
                     musicBrainz: apiService,
                     discogs: apiService,
                     appleMusic: apiService
                 ),
                 scriptBridge: bridge,
-                trackStore: MockTrackStore(),
-                cache: cache,
+                stores: .init(trackStore: MockTrackStore(), cache: cache),
                 undoCoordinator: undo,
                 idMapper: idMapper,
                 librarySnapshotService: snapshot
@@ -259,6 +304,28 @@ struct BatchWriteTests {
         ]
     }
 
+    private func workItems(for proposals: [ProposedChange]) -> [RunWorkItem] {
+        proposals.map { proposal in
+            RunWorkItem(
+                id: proposal.id,
+                target: .track(FixPlanItemIdentity(
+                    readID: proposal.track.id,
+                    appleScriptID: proposal.track.appleScriptID,
+                    artist: proposal.track.artist,
+                    album: proposal.track.album,
+                    trackName: proposal.track.name
+                )),
+                change: WorkChange(
+                    changeType: proposal.changeType,
+                    oldValue: proposal.oldValue,
+                    newValue: proposal.newValue,
+                    confidence: proposal.confidence,
+                    source: proposal.source
+                )
+            )
+        }
+    }
+
     private func makeTrack(
         id: String,
         name: String = "Come Together",
@@ -286,4 +353,12 @@ private struct BatchWriteFixture {
     let bridge: MockAppleScriptClient
     let cache: MockCacheService
     let snapshot: MockLibrarySnapshotService
+}
+
+private actor CheckpointRecorder {
+    private(set) var boundaries: [CheckpointBoundary] = []
+
+    func append(_ boundary: CheckpointBoundary) {
+        boundaries.append(boundary)
+    }
 }

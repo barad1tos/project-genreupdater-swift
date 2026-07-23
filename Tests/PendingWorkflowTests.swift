@@ -65,11 +65,6 @@ struct PendingWorkflowTests {
         )
         let pendingVerification = WorkflowPendingVerificationService(entries: [pendingEntry])
         let fixture = makeWorkflowFixture(
-            apiServices: APIOrchestratorServices(
-                musicBrainz: DashboardStateAPIService(year: 2013, confidence: 60, isDefinitive: false),
-                discogs: DashboardStateAPIService(),
-                appleMusic: DashboardStateAPIService()
-            ),
             pendingVerificationService: pendingVerification,
             idMapper: WorkflowTrackIDMapper(
                 enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(year: 2013),
@@ -77,7 +72,14 @@ struct PendingWorkflowTests {
                     "ram-1": "as-ram-1",
                     "ram-2": "as-ram-2",
                 ]
-            )
+            ),
+            configure: { options in
+                options.apiServices = APIOrchestratorServices(
+                    musicBrainz: DashboardStateAPIService(year: 2013, confidence: 60, isDefinitive: false),
+                    discogs: DashboardStateAPIService(),
+                    appleMusic: DashboardStateAPIService()
+                )
+            }
         )
         let viewModel = fixture.viewModel
         viewModel.mode = .pendingVerification
@@ -588,7 +590,9 @@ struct PendingWorkflowTests {
         )
         let viewModel = makeWorkflowFixture(
             pendingVerificationService: pendingVerification,
-            problematicAlbumReportMinAttempts: { 5 }
+            configure: { options in
+                options.problematicAlbumReportMinAttempts = { 5 }
+            }
         ).viewModel
         viewModel.mode = .pendingVerification
 

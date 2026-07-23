@@ -588,7 +588,7 @@ struct ActivityCommandsTests {
         let afterPreview = advanceQueuedReload(afterActive.next, lifecycle: previewTerminal)
 
         #expect(afterPreview.next == nil)
-        #expect(!afterPreview.shouldReload)
+        #expect(afterPreview.shouldReload)
 
         let directManualTerminal = ActivityFixtures.lifecycle(
             phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate)
@@ -625,7 +625,22 @@ struct ActivityCommandsTests {
         let afterPreview = advanceQueuedReload(.waitingForActive(activeRunID), lifecycle: previewTerminal)
 
         #expect(afterPreview.next == nil)
-        #expect(!afterPreview.shouldReload)
+        #expect(afterPreview.shouldReload)
+    }
+
+    @Test("queued reload remains pending through recovery suspension")
+    func recoveryPreservesReload() {
+        let activeRunID = RunID()
+        let recoverable = ActivityFixtures.lifecycle(
+            phase: .suspended(.recoverable),
+            runID: activeRunID,
+            trigger: .backgroundSync
+        )
+
+        let advance = advanceQueuedReload(.waitingForActive(activeRunID), lifecycle: recoverable)
+
+        #expect(advance.next == .waitingForActive(activeRunID))
+        #expect(!advance.shouldReload)
     }
 
     private func track(id: String) -> Core.Track {

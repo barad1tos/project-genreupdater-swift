@@ -23,9 +23,103 @@ public enum WorkOutcome: String, CaseIterable, Codable, Equatable, Sendable {
 public enum WorkState: Codable, Equatable, Sendable {
     case prepared
     case attempting
-    /// The attempt finished, but verification or its terminal outcome is not yet recorded.
+    /// The write may have reached Music.app, but its physical and verified outcome is still unknown.
     case attempted
     case outcome(WorkOutcome)
+
+    func canFollow(_ previous: Self) -> Bool {
+        switch (previous, self) {
+        case (.prepared, _),
+             (.attempting, .attempting),
+             (.attempting, .attempted),
+             (.attempting, .outcome),
+             (.attempted, .attempted),
+             (.attempted, .outcome):
+            true
+        case let (.outcome(previous), .outcome(next)):
+            previous == next
+        case (.attempting, .prepared),
+             (.attempted, .prepared),
+             (.attempted, .attempting),
+             (.outcome, .prepared),
+             (.outcome, .attempting),
+             (.outcome, .attempted):
+            false
+        }
+    }
+}
+
+enum WorkStateError: Error, Equatable {
+    case invalid(current: WorkState, next: WorkState)
+}
+
+public enum CheckpointBoundary: Equatable, Sendable {
+    case beforeAttempt
+    case afterAttempt
+    case afterVerification
+}
+
+/// A grouped request to transition run work-item states at a checkpoint boundary.
+/// Durability is established only after its sink succeeds.
+public struct WorkCheckpoint: Equatable, Sendable {
+    public let boundary: CheckpointBoundary
+    let states: [UUID: WorkState]
+
+    private init(boundary: CheckpointBoundary, states: [UUID: WorkState]) {
+        self.boundary = boundary
+        self.states = states
+    }
+
+    public static func beforeAttempt(_ itemIDs: [UUID]) -> Self {
+        Self(
+            boundary: .beforeAttempt,
+            states: Dictionary(uniqueKeysWithValues: Set(itemIDs).map { ($0, .attempting) })
+        )
+    }
+
+    public static func afterAttempt(_ itemIDs: [UUID]) -> Self {
+        Self(
+            boundary: .afterAttempt,
+            states: Dictionary(uniqueKeysWithValues: Set(itemIDs).map { ($0, .attempted) })
+        )
+    }
+
+    public static func afterVerification(_ outcomes: [UUID: WorkOutcome]) -> Self {
+        Self(
+            boundary: .afterVerification,
+            states: outcomes.mapValues(WorkState.outcome)
+        )
+    }
+}
+
+public typealias WorkCheckpointSink = @Sendable (WorkCheckpoint) async throws -> Void
+
+enum WorkCheckpointError: Error, Equatable {
+    case invalid(CheckpointBoundary, writeAdjacent: Bool, reason: String)
+    case persistence(CheckpointBoundary, writeAdjacent: Bool)
+    case store(CheckpointStoreFailure)
+
+    var needsRecovery: Bool {
+        switch self {
+        case let .invalid(_, writeAdjacent, _), let .persistence(_, writeAdjacent):
+            writeAdjacent
+        case let .store(failure):
+            failure.isWriteAdjacent
+        }
+    }
+}
+
+extension WorkCheckpointError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case let .invalid(boundary, _, reason):
+            "Invalid \(String(describing: boundary)) work checkpoint: \(reason)"
+        case let .persistence(boundary, _):
+            "Could not persist \(String(describing: boundary)) work checkpoint"
+        case let .store(failure):
+            failure.errorDescription
+        }
+    }
 }
 
 /// Metadata change proposed for one work target.
@@ -85,5 +179,51 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
                 source: item.source
             )
         )
+    }
+
+    func transition(to nextState: WorkState) throws -> Self {
+        try transition(to: nextState, detail: detail)
+    }
+
+    func transition(to nextState: WorkState, detail: String?) throws -> Self {
+        guard Self.canTransition(from: state, to: nextState) else {
+            throw WorkStateError.invalid(current: state, next: nextState)
+        }
+        return Self(
+            id: id,
+            target: target,
+            change: change,
+            state: nextState,
+            detail: detail
+        )
+    }
+
+    private static func canTransition(from state: WorkState, to nextState: WorkState) -> Bool {
+        switch (state, nextState) {
+        case (.prepared, .attempting),
+             (.attempting, .attempted),
+             (.attempted, .outcome):
+            true
+        case let (.prepared, .outcome(outcome)):
+            outcome != .written
+        // `.attempting` carries no confirmed dispatch outcome: a crash can leave it before
+        // dispatch or after dispatch but before `.attempted` persists. Recovery may record a
+        // non-written closure such as `.dismissed`; `.written` still requires `.attempted`.
+        case let (.attempting, .outcome(outcome)):
+            outcome != .written
+        case (.prepared, .prepared),
+             (.attempting, .attempting),
+             (.attempted, .attempted),
+             (.outcome, .outcome):
+            state == nextState
+        case (.prepared, .attempted),
+             (.attempting, .prepared),
+             (.attempted, .prepared),
+             (.attempted, .attempting),
+             (.outcome, .prepared),
+             (.outcome, .attempting),
+             (.outcome, .attempted):
+            false
+        }
     }
 }

@@ -192,6 +192,10 @@ public actor BatchProcessor {
             let recoveryID = activateRecovery(batchID: UUID(), completion: outcome.completion)
             await persistRecoveryPlaceholder(batchID: recoveryID)
             throw outcome
+        } catch let WorkCheckpointError.store(failure) where failure.completion != nil {
+            let recoveryID = activateRecovery(batchID: UUID(), completion: failure.completion)
+            await persistRecoveryPlaceholder(batchID: recoveryID)
+            throw WorkCheckpointError.store(failure)
         }
     }
 

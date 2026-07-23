@@ -169,6 +169,110 @@ struct WriteAdmissionTests {
         }
         let recoveryID = try #require(await processor.recoveryHoldID())
         let completion = try #require(outcome.completion)
+        let clearanceResults = await runClearanceRace(
+            processor: processor,
+            recoveryID: recoveryID,
+            completion: completion,
+            callback: callback,
+            dispatches: dispatches
+        )
+        #expect(clearanceResults.count(where: { $0 }) == 1)
+
+        await #expect(throws: AppleScriptOutcomeError.self) {
+            _ = try await processor.performRecoverableWrite {
+                throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
+            }
+        }
+        let newRecoveryID = try #require(await processor.recoveryHoldID())
+        #expect(newRecoveryID != recoveryID)
+        try await processor.clearRecovery(batchID: newRecoveryID)
+
+        let secondCall = ScriptCall(
+            name: "update_property",
+            intent: .mutation,
+            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
+            timeout: .seconds(1)
+        )
+        _ = try await processor.performRecoverableWrite {
+            try await ScriptDispatch.run(secondCall, limiter: nil, gate: gate) { finish in
+                dispatches.append("second")
+                finish(.success("done"))
+            }
+        }
+        #expect(dispatches.values == ["first", "second"])
+    }
+
+    @Test("Wrapped checkpoint outcome keeps physical completion")
+    func wrappedOutcomeWaits() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let processor = await BatchProcessor(
+            checkpointManager: CheckpointManager(directory: dir),
+            featureGate: FeatureGate(fixedTier: .pro)
+        )
+        let bridge = AppleScriptBridge(installer: ScriptInstaller(
+            scriptsDirectory: dir,
+            bundleScriptsDirectory: nil
+        ))
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let request = RunRequest.manualWrite(input: input)
+        let initial = RunLifecycleSnapshot(
+            request: request,
+            scope: input.scope,
+            startedAt: Date(timeIntervalSince1970: 100),
+            phase: .active(.writing)
+        )
+        let durable = try initial.applying(.beforeAttempt([itemID]))
+        let checkpoint = WorkCheckpoint.afterAttempt([itemID])
+        let failure = try CheckpointStoreFailure(
+            checkpoint: checkpoint,
+            candidate: durable.applying(checkpoint),
+            durableSnapshot: durable,
+            isWriteAdjacent: true,
+            reason: "checkpoint store unavailable"
+        )
+        let completion = ScriptCompletion()
+
+        do {
+            _ = try await processor.performRecoverableWrite {
+                try await bridge.updateTrackProperty(
+                    trackID: "101",
+                    property: "genre",
+                    value: "Metal",
+                    onAttempt: { throw WorkCheckpointError.store(failure) },
+                    execute: {
+                        throw AppleScriptOutcomeError(
+                            scriptName: "update_property",
+                            duration: .seconds(3),
+                            completion: completion
+                        )
+                    }
+                )
+            }
+            Issue.record("Expected the checkpoint store failure")
+        } catch {
+            #expect(error is WorkCheckpointError)
+        }
+
+        let recoveryID = try #require(await processor.recoveryHoldID())
+        let clearance = Task {
+            try await processor.clearRecovery(batchID: recoveryID)
+        }
+        await waitForClearance(completion)
+        #expect(completion.hasWaiters)
+        completion.finish()
+        try await clearance.value
+    }
+
+    private func runClearanceRace(
+        processor: BatchProcessor,
+        recoveryID: UUID,
+        completion: ScriptCompletion,
+        callback: CallbackHold,
+        dispatches: CallList
+    ) async -> [Bool] {
         let firstClearance = Task {
             do {
                 try await processor.clearRecovery(batchID: recoveryID)
@@ -204,31 +308,7 @@ struct WriteAdmissionTests {
         #expect(dispatches.values == ["first"])
 
         callback.finish(.success("done"))
-        let clearanceResults = await [firstClearance.value, secondClearance.value]
-        #expect(clearanceResults.count(where: { $0 }) == 1)
-
-        await #expect(throws: AppleScriptOutcomeError.self) {
-            _ = try await processor.performRecoverableWrite {
-                throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
-            }
-        }
-        let newRecoveryID = try #require(await processor.recoveryHoldID())
-        #expect(newRecoveryID != recoveryID)
-        try await processor.clearRecovery(batchID: newRecoveryID)
-
-        let secondCall = ScriptCall(
-            name: "update_property",
-            intent: .mutation,
-            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-            timeout: .seconds(1)
-        )
-        _ = try await processor.performRecoverableWrite {
-            try await ScriptDispatch.run(secondCall, limiter: nil, gate: gate) { finish in
-                dispatches.append("second")
-                finish(.success("done"))
-            }
-        }
-        #expect(dispatches.values == ["first", "second"])
+        return await [firstClearance.value, secondClearance.value]
     }
 
     private func waitForClearance(_ completion: ScriptCompletion) async {

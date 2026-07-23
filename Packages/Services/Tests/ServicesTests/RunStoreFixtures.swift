@@ -55,18 +55,10 @@ func insertRunRow(
     ))
     context.insert(PersistedRunRecord(
         runID: runID,
-        requestID: UUID(),
-        triggerRaw: RunTrigger.manualCheck.rawValue,
         intentRaw: input.rawIntent ?? input.intent.rawValue,
         stateRaw: input.state.rawValue,
         scopeData: scopeData,
         transitionsData: transitionsData,
-        syncNewCount: nil,
-        syncModifiedCount: nil,
-        syncIdentityChangedCount: nil,
-        syncRefreshedCount: nil,
-        syncRemovedCount: nil,
-        failureMessage: nil,
         startedAt: input.startedAt,
         finishedAt: input.finishedAt
     ))
@@ -124,11 +116,14 @@ func makeRunRecord(
     let authority: WriteAuthority = input.intent == .writeFixes ? .reviewedPlan : .readOnly
 
     return RunRecord(
-        runID: input.runID,
-        requestID: input.requestID,
-        trigger: input.trigger,
-        intent: input.intent,
-        scope: scope,
+        header: RunRecord.Header(
+            runID: input.runID,
+            requestID: input.requestID,
+            trigger: input.trigger,
+            intent: input.intent,
+            scope: scope,
+            startedAt: startedAt
+        ),
         configuration: input.configuration ?? makeRunConfiguration(
             scopeID: input.configurationScopeID ?? scope.id,
             capturedAt: startedAt,
@@ -138,11 +133,12 @@ func makeRunRecord(
         recoveryID: input.recoveryID,
         transitions: transitions,
         workItems: input.workItems,
-        syncSummary: syncSummary,
-        writeSummary: input.writeSummary,
-        failureMessage: state == .failed ? "Music.app unavailable" : nil,
-        startedAt: startedAt,
-        finishedAt: finishedAt
+        status: RunRecord.Status(
+            syncSummary: syncSummary,
+            writeSummary: input.writeSummary,
+            failureMessage: state == .failed ? "Music.app unavailable" : nil,
+            finishedAt: finishedAt
+        )
     )
 }
 
@@ -152,21 +148,25 @@ func replacing(
     configuration: RunConfig?
 ) -> RunRecord {
     RunRecord(
-        runID: record.runID,
-        requestID: record.requestID,
-        trigger: record.trigger,
-        intent: record.intent,
-        scope: scope,
+        header: RunRecord.Header(
+            runID: record.runID,
+            requestID: record.requestID,
+            trigger: record.trigger,
+            intent: record.intent,
+            scope: scope,
+            startedAt: record.startedAt
+        ),
         configuration: configuration,
         writeTarget: record.writeTarget,
         recoveryID: record.recoveryID,
         transitions: record.transitions,
         workItems: record.workItems,
-        syncSummary: record.syncSummary,
-        writeSummary: record.writeSummary,
-        failureMessage: record.failureMessage,
-        startedAt: record.startedAt,
-        finishedAt: record.finishedAt
+        status: RunRecord.Status(
+            syncSummary: record.syncSummary,
+            writeSummary: record.writeSummary,
+            failureMessage: record.failureMessage,
+            finishedAt: record.finishedAt
+        )
     )
 }
 
@@ -193,28 +193,19 @@ func makeRunConfiguration(
 }
 
 func makeRecoveryRecord(
-    intent: RunIntent = .observeLibrary,
-    writeTarget: FixPlanWriteTarget? = nil,
-    recoveryID: UUID? = nil,
-    workItems: [RunWorkItem] = [],
     startedAt: Date,
     finishedAt: Date?,
     state: RunLifecycleState,
-    writeSummary: RunWriteSummary? = nil
+    input: RunRecordInput = RunRecordInput()
 ) -> RunRecord {
-    makeRunRecord(
+    var input = input
+    input.includesSyncTransition = false
+    return makeRunRecord(
         startedAt: startedAt,
         finishedAt: finishedAt,
         state: state,
         syncSummary: nil,
-        input: RunRecordInput(
-            intent: intent,
-            writeTarget: writeTarget,
-            recoveryID: recoveryID,
-            writeSummary: writeSummary,
-            workItems: workItems,
-            includesSyncTransition: false
-        )
+        input: input
     )
 }
 

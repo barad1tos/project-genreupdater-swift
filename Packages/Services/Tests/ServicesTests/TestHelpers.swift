@@ -87,7 +87,36 @@ actor MockAppleScriptClient: AppleScriptClient {
         property: String,
         value: String
     ) async throws -> AppleScriptWriteResult {
+        try await performWrite(
+            trackID: trackID,
+            property: property,
+            value: value,
+            onAttempt: nil
+        )
+    }
+
+    func updateTrackProperty(
+        trackID: String,
+        property: String,
+        value: String,
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws -> AppleScriptWriteResult {
+        try await performWrite(
+            trackID: trackID,
+            property: property,
+            value: value,
+            onAttempt: onAttempt
+        )
+    }
+
+    private func performWrite(
+        trackID: String,
+        property: String,
+        value: String,
+        onAttempt: WriteAttemptHook?
+    ) async throws -> AppleScriptWriteResult {
         if let customWriteError {
+            try await onAttempt?()
             throw customWriteError
         }
         if shouldThrow || failingWriteTrackIDs.contains(trackID) {
@@ -100,15 +129,31 @@ actor MockAppleScriptClient: AppleScriptClient {
         if singleWriteResult == .changed {
             apply(property: property, value: value, toTrackWithID: trackID)
         }
+        try await onAttempt?()
         return singleWriteResult
     }
 
     func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
+        try await performBatch(updates, onAttempt: nil)
+    }
+
+    func batchUpdateTracks(
+        _ updates: [(trackID: String, property: String, value: String)],
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws {
+        try await performBatch(updates, onAttempt: onAttempt)
+    }
+
+    private func performBatch(
+        _ updates: [(trackID: String, property: String, value: String)],
+        onAttempt: WriteAttemptHook?
+    ) async throws {
         batchUpdates.append(updates)
         if shouldCancelBatch {
             throw CancellationError()
         }
         if let customBatchError {
+            try await onAttempt?()
             throw customBatchError
         }
         if shouldThrowBatch {
@@ -122,6 +167,7 @@ actor MockAppleScriptClient: AppleScriptClient {
         if shouldClearFetchedTracksAfterBatchUpdate {
             tracksByID.removeAll()
         }
+        try await onAttempt?()
         try verifyBatchUpdates(updates)
     }
 
@@ -240,6 +286,12 @@ enum MockScriptError: Error {
 
 actor MockTrackStore: TrackStateStore {
     var tracks: [Track] = []
+    private(set) var processingUpdates: [(id: String, genreUpdated: Bool?, yearUpdated: Bool?)] = []
+    private var shouldFailProcessingUpdates = false
+
+    func failProcessingUpdates() {
+        shouldFailProcessingUpdates = true
+    }
 
     func initialize() async throws {}
 
@@ -263,10 +315,15 @@ actor MockTrackStore: TrackStateStore {
     }
 
     func updateTrackProcessingState(
-        id _: String,
-        genreUpdated _: Bool?,
-        yearUpdated _: Bool?
-    ) async throws {}
+        id: String,
+        genreUpdated: Bool?,
+        yearUpdated: Bool?
+    ) async throws {
+        if shouldFailProcessingUpdates {
+            throw MockScriptError.intentional
+        }
+        processingUpdates.append((id, genreUpdated, yearUpdated))
+    }
 
     func getUnprocessedTracks() async throws -> [Track] {
         tracks
@@ -274,6 +331,43 @@ actor MockTrackStore: TrackStateStore {
 
     func trackCount() async throws -> Int {
         tracks.count
+    }
+}
+
+// MARK: - MockChangeLogStore
+
+actor MockChangeLogStore: ChangeLogStore {
+    private(set) var entries: [ChangeLogEntry] = []
+    private var shouldFailSaves = false
+
+    func failSaves() {
+        shouldFailSaves = true
+    }
+
+    func saveEntry(_ entry: ChangeLogEntry) async throws {
+        if shouldFailSaves {
+            throw MockScriptError.intentional
+        }
+        entries.append(entry)
+    }
+
+    func saveEntries(_ entries: [ChangeLogEntry]) async throws {
+        if shouldFailSaves {
+            throw MockScriptError.intentional
+        }
+        self.entries.append(contentsOf: entries)
+    }
+
+    func loadAll() async throws -> [ChangeLogEntry] {
+        entries
+    }
+
+    func delete(entryID: UUID) async throws {
+        entries.removeAll { $0.id == entryID }
+    }
+
+    func deleteAll() async throws {
+        entries.removeAll()
     }
 }
 

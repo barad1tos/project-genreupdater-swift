@@ -260,11 +260,13 @@ struct WritePreflightTests {
             .appendingPathComponent("WritePreflightTests-\(UUID().uuidString)")
         let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
         let coordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
                 scriptBridge: bridge,
-                trackStore: MockTrackStore(),
-                cache: MockCacheService(),
+                stores: .init(
+                    trackStore: MockTrackStore(),
+                    cache: MockCacheService()
+                ),
                 undoCoordinator: undo,
                 idMapper: idMapper
             ),

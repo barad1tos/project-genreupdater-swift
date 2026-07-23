@@ -89,17 +89,20 @@ actor MockLibrarySnapshotService: LibrarySnapshotService {
 
 @Suite("UpdateCoordinator — single and multi-track updates")
 struct UpdateCoordinatorTests {
+    struct Setup {
+        var scriptBridge: MockAppleScriptClient?
+        var idMapper: (any TrackIDMapping)?
+        var librarySnapshotService: (any LibrarySnapshotService)?
+    }
+
     func makeCoordinator(
         year: Int? = nil,
         confidence: Int = 0,
-        scriptBridge: MockAppleScriptClient? = nil,
         cache: MockCacheService? = nil,
-        idMapper: (any TrackIDMapping)? = nil,
-        librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
-        yearDeterminator: YearDeterminator = YearDeterminator()
+        setup: Setup = Setup()
     ) async -> CoordinatorFixture {
-        let bridge = scriptBridge ?? MockAppleScriptClient()
+        let bridge = setup.scriptBridge ?? MockAppleScriptClient()
         let store = MockTrackStore()
         let cacheService = cache ?? MockCacheService()
         let undoDir = FileManager.default.temporaryDirectory
@@ -125,17 +128,19 @@ struct UpdateCoordinatorTests {
         )
 
         let coordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
                 scriptBridge: bridge,
-                trackStore: store,
-                cache: cacheService,
+                stores: .init(
+                    trackStore: store,
+                    cache: cacheService
+                ),
                 undoCoordinator: undo,
-                idMapper: idMapper,
-                librarySnapshotService: librarySnapshotService
+                idMapper: setup.idMapper,
+                librarySnapshotService: setup.librarySnapshotService
             ),
             genreDeterminator: GenreDeterminator(),
-            yearDeterminator: yearDeterminator,
+            yearDeterminator: YearDeterminator(),
             runtimeConfiguration: runtimeConfiguration
         )
 
@@ -278,7 +283,7 @@ struct UpdateCoordinatorTests {
             musicKitTracks: [musicKitSource, targetTrack],
             appleScriptTracks: [appleScriptSource, appleScriptTarget]
         )
-        let fixture = await makeCoordinator(idMapper: mapper)
+        let fixture = await makeCoordinator(setup: .init(idMapper: mapper))
 
         let changes = try await fixture.coordinator.updateTrack(
             targetTrack,
@@ -526,7 +531,7 @@ struct UpdateCoordinatorTests {
     @Test("Successful write invalidates library snapshot cache")
     func successfulWriteInvalidatesLibrarySnapshotCache() async throws {
         let snapshotService = MockLibrarySnapshotService()
-        let fixture = await makeCoordinator(librarySnapshotService: snapshotService)
+        let fixture = await makeCoordinator(setup: .init(librarySnapshotService: snapshotService))
 
         let change = ProposedChange(
             track: makeEditableTrack(),
@@ -551,8 +556,10 @@ struct UpdateCoordinatorTests {
         let bridge = MockAppleScriptClient()
         await bridge.setThrowMode(true)
         let fixture = await makeCoordinator(
-            scriptBridge: bridge,
-            librarySnapshotService: snapshotService
+            setup: .init(
+                scriptBridge: bridge,
+                librarySnapshotService: snapshotService
+            )
         )
 
         let change = ProposedChange(
@@ -647,7 +654,9 @@ struct UpdateCoordinatorTests {
         // Wait for unstructured Task closures to deliver all progress updates
         for _ in 0 ..< 20 {
             let current = await accumulator.getAll()
-            if current.count >= 4 { break }
+            if current.count >= 4 {
+                break
+            }
             try await Task.sleep(for: .milliseconds(20))
         }
         let updates = await accumulator.getAll()
@@ -704,7 +713,11 @@ extension UpdateCoordinatorTests {
     @Test("Multi-track update reports non-editable tracks as failures")
     func multiTrackUpdateReportsNonEditableTracksAsFailures() async throws {
         let runtimeConfiguration = UpdateRuntimeConfiguration(policies: .init(skipPrerelease: false))
-        let fixture = await makeCoordinator(year: 2020, confidence: 90, runtimeConfiguration: runtimeConfiguration)
+        let fixture = await makeCoordinator(
+            year: 2020,
+            confidence: 90,
+            runtimeConfiguration: runtimeConfiguration
+        )
         let prereleaseTrack = Track(
             id: "prerelease",
             name: "Upcoming Song",
@@ -729,7 +742,7 @@ extension UpdateCoordinatorTests {
     @Test("Multi-track update returns only entries created by the current call")
     func multiTrackUpdateReturnsOnlyCurrentEntries() async throws {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)
-        await fixture.undo.recordChange(ChangeLogEntry(
+        try await fixture.undo.recordChange(ChangeLogEntry(
             changeType: .genreUpdate,
             trackID: "previous",
             artist: "Previous Artist"

@@ -235,5 +235,8 @@ private func makeItem(
 }
 
 private func itemID(_ value: Int) -> UUID {
-    UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", value))!
+    guard let id = UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", value)) else {
+        preconditionFailure("Failed to build a deterministic test UUID")
+    }
+    return id
 }

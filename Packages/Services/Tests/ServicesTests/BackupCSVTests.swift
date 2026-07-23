@@ -94,6 +94,58 @@ struct BackupCSVTests {
         #expect(history.contains { $0.trackID == "T2" && $0.oldYear == 2020 && $0.newYear == 1998 })
     }
 
+    @Test("Applied backup write survives history persistence failure")
+    func retainsAppliedWrite() async throws {
+        let bridge = MockAppleScriptClient()
+        let store = MockChangeLogStore()
+        await store.failSaves()
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            changeLogStore: store,
+            directory: makeBackupTempDirectory()
+        )
+        let csv = """
+        id,name,artist,album,year_before_mgu
+        T1,Angel,Massive Attack,Mezzanine,1998
+        """
+        let tracks = [
+            Track(
+                id: "T1",
+                name: "Angel",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                year: 2019
+            ),
+        ]
+
+        do {
+            _ = try await coordinator.revertYearsFromBackupCSV(
+                csv,
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                currentTracks: tracks
+            )
+            Issue.record("Expected post-write finalization failure")
+        } catch let error as UpdateCoordinatorError {
+            guard case let .writeFinalizationFailed(trackID, effects) = error else {
+                Issue.record("Expected writeFinalizationFailed, got \(error)")
+                return
+            }
+            #expect(trackID == "T1")
+            #expect(effects == ["change history"])
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        let written = await bridge.writtenProperties
+        #expect(written.count == 1)
+        #expect(written.first?.value == "1998")
+        let history = await coordinator.getHistory()
+        #expect(history.count == 1)
+        #expect(history.first?.trackID == "T1")
+        #expect(await store.entries.isEmpty)
+    }
+
     @Test("Backup CSV revert invalidates album API and snapshot caches")
     func backupCSVRevertInvalidatesAlbumAPIAndSnapshotCaches() async throws {
         let bridge = MockAppleScriptClient()

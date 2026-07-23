@@ -193,10 +193,12 @@ struct ApplyAcceptedTests {
             ttl: 3600
         ))
         let proposals = acceptedProposals(for: track)
+        let checkpoints = CheckpointProbe()
 
         let result = try await fixture.coordinator.applyAcceptedChanges(
             proposals,
-            progressHandler: ignoreAcceptedChangeProgress
+            progressHandler: ignoreAcceptedChangeProgress,
+            checkpoint: { await checkpoints.append($0) }
         )
 
         let batches = await fixture.bridge.batchUpdates
@@ -207,6 +209,9 @@ struct ApplyAcceptedTests {
         #expect(result.entries.isEmpty)
         #expect(result.noOpEntries.map(\.changeType) == [.genreUpdate, .yearUpdate])
         #expect(result.failedTrackIDs.isEmpty)
+        #expect(await checkpoints.values.last?.states == Dictionary(
+            uniqueKeysWithValues: proposals.map { ($0.id, .outcome(.noFixNeeded)) }
+        ))
         #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
         #expect(await fixture.cache.getCachedAPIResult(
             artist: track.artist,
@@ -681,7 +686,7 @@ struct ApplyAcceptedTests {
         #expect(written.isEmpty)
     }
 
-    private func makeCoordinator(
+    func makeCoordinator(
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
         idMapper: (any TrackIDMapping)? = nil
     ) async -> AcceptedApplyFixture {
@@ -695,22 +700,34 @@ struct ApplyAcceptedTests {
         let undoDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ApplyAcceptedTests-\(UUID().uuidString)")
         let cache = MockCacheService()
+        let snapshot = MockLibrarySnapshotService()
         let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
+        let trackStore = MockTrackStore()
         let coordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
                 scriptBridge: bridge,
-                trackStore: MockTrackStore(),
-                cache: cache,
+                stores: .init(
+                    trackStore: trackStore,
+                    cache: cache
+                ),
                 undoCoordinator: undo,
-                idMapper: idMapper
+                idMapper: idMapper,
+                librarySnapshotService: snapshot
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),
             runtimeConfiguration: runtimeConfiguration
         )
 
-        return AcceptedApplyFixture(coordinator: coordinator, bridge: bridge, cache: cache)
+        return AcceptedApplyFixture(
+            coordinator: coordinator,
+            bridge: bridge,
+            cache: cache,
+            snapshot: snapshot,
+            trackStore: trackStore,
+            undo: undo
+        )
     }
 
     private func acceptedProposals(for track: Track) -> [ProposedChange] {
@@ -736,7 +753,7 @@ struct ApplyAcceptedTests {
         ]
     }
 
-    private func makeEditableTrack(
+    func makeEditableTrack(
         id: String,
         genre: String?,
         year: Int?,
@@ -752,14 +769,8 @@ struct ApplyAcceptedTests {
             trackStatus: nil
         )
     }
-}
 
-private func ignoreAcceptedChangeProgress(_ update: ProgressUpdate) {
-    _ = update
-}
-
-private struct AcceptedApplyFixture {
-    let coordinator: UpdateCoordinator
-    let bridge: MockAppleScriptClient
-    let cache: MockCacheService
+    func ignoreAcceptedChangeProgress(_ update: ProgressUpdate) {
+        _ = update
+    }
 }

@@ -120,11 +120,11 @@ public actor UndoCoordinator {
     // MARK: Record
 
     /// Log a change after a successful write to Music.app.
-    public func recordChange(_ entry: ChangeLogEntry) async {
+    public func recordChange(_ entry: ChangeLogEntry) async throws {
         await loadHistoryIfNeeded()
 
         history.append(entry)
-        try? await changeLogStore?.saveEntry(entry)
+        try await changeLogStore?.saveEntry(entry)
         log
             .info(
                 "Recorded \(entry.changeType.rawValue, privacy: .public) for track \(entry.trackID, privacy: .private)"
@@ -132,11 +132,11 @@ public actor UndoCoordinator {
     }
 
     /// Record multiple changes at once (e.g. after batch processing).
-    public func recordChanges(_ entries: [ChangeLogEntry]) async {
+    public func recordChanges(_ entries: [ChangeLogEntry]) async throws {
         await loadHistoryIfNeeded()
 
         history.append(contentsOf: entries)
-        try? await changeLogStore?.saveEntries(entries)
+        try await changeLogStore?.saveEntries(entries)
         log.info("Recorded \(entries.count, privacy: .public) change(s)")
     }
 
@@ -450,11 +450,13 @@ public actor UndoCoordinator {
                 )
                 entry.oldYear = track.year
                 entry.newYear = target.year
-                await recordChange(entry)
+                try await recordYearRevert(entry, trackID: track.id)
                 updatedCount += 1
             } catch is CancellationError {
                 throw CancellationError()
             } catch let error as AppleScriptOutcomeError {
+                throw error
+            } catch let error as UpdateCoordinatorError {
                 throw error
             } catch {
                 failedCount += 1
@@ -474,6 +476,17 @@ public actor UndoCoordinator {
             failedCount: failedCount,
             firstFailureDescription: firstFailureDescription
         )
+    }
+
+    private func recordYearRevert(_ entry: ChangeLogEntry, trackID: String) async throws {
+        do {
+            try await recordChange(entry)
+        } catch {
+            throw UpdateCoordinatorError.writeFinalizationFailed(
+                trackID: trackID,
+                effects: ["change history"]
+            )
+        }
     }
 
     private static func publicFailureDescription(for error: Error) -> String {

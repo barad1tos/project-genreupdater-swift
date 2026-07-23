@@ -68,24 +68,28 @@ struct RunPayloadTests {
         let startedAt = Date(timeIntervalSince1970: 100)
         let finishedAt = Date(timeIntervalSince1970: 101)
         let record = RunRecord(
-            runID: RunID(),
-            requestID: RunRequestID(),
-            trigger: .manualCheck,
-            intent: .observeLibrary,
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: [],
-                knownTrackCount: 10,
-                createdAt: startedAt,
-                reason: "manualCheck"
+            header: RunRecord.Header(
+                runID: RunID(),
+                requestID: RunRequestID(),
+                trigger: .manualCheck,
+                intent: .observeLibrary,
+                scope: ProcessingScopeSnapshot.capture(
+                    requestedTestArtists: [],
+                    knownTrackCount: 10,
+                    createdAt: startedAt,
+                    reason: "manualCheck"
+                ),
+                startedAt: startedAt
             ),
             transitions: [
                 RunLifecycleTransition(state: .created, timestamp: startedAt),
                 RunLifecycleTransition(state: .completedNoOp, timestamp: finishedAt),
             ],
-            syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 0),
-            failureMessage: nil,
-            startedAt: startedAt,
-            finishedAt: finishedAt
+            status: RunRecord.Status(
+                syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 0),
+                failureMessage: nil,
+                finishedAt: finishedAt
+            )
         )
 
         try await store.upsert(record)

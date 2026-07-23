@@ -221,9 +221,11 @@ struct PendingVerificationStoreTests {
             artist: "Slowdive",
             album: "Everything Is Alive",
             reason: "prerelease",
-            attemptCount: 1,
-            lastAttempt: baseDate,
-            recheckInterval: 30 * day
+            retry: .init(
+                attemptCount: 1,
+                lastAttempt: baseDate,
+                recheckInterval: 30 * day
+            )
         )
         let envelope = LegacyPendingVerificationTestStore(entries: [entry], lastAutoVerification: nil)
         let encoder = JSONEncoder()
@@ -371,9 +373,11 @@ struct PendingVerificationStoreTests {
             artist: "Low",
             album: "HEY WHAT",
             reason: "missing_year",
-            attemptCount: 2,
-            lastAttempt: baseDate,
-            recheckInterval: 7 * day,
+            retry: .init(
+                attemptCount: 2,
+                lastAttempt: baseDate,
+                recheckInterval: 7 * day
+            ),
             metadata: ["source": "legacy"]
         )
         let envelope = LegacyPendingVerificationTestStore(
@@ -412,9 +416,11 @@ struct PendingVerificationStoreTests {
                 artist: "  PINK FLOYD  ",
                 album: "  The Wall  ",
                 reason: "no_year_found",
-                attemptCount: 1,
-                lastAttempt: baseDate,
-                recheckInterval: 30 * day,
+                retry: .init(
+                    attemptCount: 1,
+                    lastAttempt: baseDate,
+                    recheckInterval: 30 * day
+                ),
                 metadata: ["source": "legacy"]
             ),
             PendingAlbumEntry(
@@ -422,9 +428,11 @@ struct PendingVerificationStoreTests {
                 artist: "BJÖRK",
                 album: "Debut",
                 reason: "prerelease",
-                attemptCount: 2,
-                lastAttempt: baseDate,
-                recheckInterval: 7 * day,
+                retry: .init(
+                    attemptCount: 2,
+                    lastAttempt: baseDate,
+                    recheckInterval: 7 * day
+                ),
                 metadata: [:]
             ),
         ]
@@ -547,9 +555,11 @@ struct PendingVerificationStoreTests {
             artist: "Slowdive",
             album: "Everything Is Alive",
             reason: "prerelease",
-            attemptCount: 4,
-            lastAttempt: lastAttempt,
-            recheckInterval: 30 * day
+            retry: .init(
+                attemptCount: 4,
+                lastAttempt: lastAttempt,
+                recheckInterval: 30 * day
+            )
         )
         let envelope = LegacyPendingVerificationTestStore(entries: [entry], lastAutoVerification: nil)
         let encoder = JSONEncoder()

@@ -40,10 +40,10 @@ struct OrchestratorTests {
             knownTrackCount: 75
         ))
 
-        #expect(result.lifecycle.state == .completedNoOp)
-        #expect(result.lifecycle.scope.source == .testArtists)
-        #expect(result.lifecycle.scope.normalizedTestArtists == ["Aphex Twin"])
-        #expect(result.lifecycle.scope.knownTrackCount == 75)
+        #expect(result.lifecycle?.state == .completedNoOp)
+        #expect(result.lifecycle?.scope.source == .testArtists)
+        #expect(result.lifecycle?.scope.normalizedTestArtists == ["Aphex Twin"])
+        #expect(result.lifecycle?.scope.knownTrackCount == 75)
     }
 
     @Test("manual observation returns completed when sync detects any delta")
@@ -67,8 +67,8 @@ struct OrchestratorTests {
             Issue.record("Expected completed, got \(result)")
             return
         }
-        #expect(result.lifecycle.state == .completed)
-        #expect(result.lifecycle.syncResult?.changeCount == 1)
+        #expect(result.lifecycle?.state == .completed)
+        #expect(result.lifecycle?.syncResult?.changeCount == 1)
     }
 
     @Test("manual observation stores failed lifecycle")
@@ -90,8 +90,8 @@ struct OrchestratorTests {
             Issue.record("Expected failed, got \(result)")
             return
         }
-        #expect(result.lifecycle.state == .failed)
-        #expect(result.lifecycle.failureMessage == "Music.app unavailable")
+        #expect(result.lifecycle?.state == .failed)
+        #expect(result.lifecycle?.failureMessage == "Music.app unavailable")
     }
 
     @Test("cancellation error during sync cancels the run with a cancelled message")
@@ -114,8 +114,8 @@ struct OrchestratorTests {
             Issue.record("Expected cancelled, got \(result)")
             return
         }
-        #expect(result.lifecycle.state == .cancelled)
-        #expect(result.lifecycle.failureMessage == "Run cancelled")
+        #expect(result.lifecycle?.state == .cancelled)
+        #expect(result.lifecycle?.failureMessage == "Run cancelled")
 
         let final = try #require(await probe.records.last)
         #expect(final.state == .cancelled)
@@ -252,7 +252,7 @@ struct OrchestratorTests {
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
-        let iterator = await LifecycleIterator(stream: orchestrator.lifecycleUpdates())
+        let iterator = await LifecycleIterator(updates: orchestrator.lifecycleUpdates())
 
         let first = Task {
             await orchestrator.submit(RunRequest.observation(
@@ -276,14 +276,15 @@ struct OrchestratorTests {
         let firstResult = await first.value
         await syncCalls.waitUntilCount(2)
 
+        let firstRunID = firstResult.lifecycle?.runID
         var snapshots: [RunLifecycleSnapshot] = []
-        for _ in 0 ..< 6 {
-            if let snapshot = try await nextLifecycleSnapshot(from: iterator) {
-                snapshots.append(snapshot)
+        while let snapshot = try await nextLifecycleSnapshot(from: iterator) {
+            snapshots.append(snapshot)
+            if snapshot.runID != firstRunID, snapshot.isActive {
+                break
             }
         }
 
-        let firstRunID = firstResult.lifecycle.runID
         let firstTerminalIndex = try #require(snapshots.firstIndex {
             $0.runID == firstRunID && !$0.isActive
         })
@@ -291,6 +292,75 @@ struct OrchestratorTests {
             $0.runID != firstRunID && $0.isActive
         })
         #expect(firstTerminalIndex < queuedActiveIndex)
+    }
+
+    @Test("Recovery changes stay behind an active lifecycle")
+    func keepsRecoveryHidden() async throws {
+        let gate = SyncGate()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                await gate.waitUntilReleased()
+                return SyncResult()
+            },
+            persistRunRecord: ignoreRunRecord
+        ))
+        let active = Task {
+            await orchestrator.submit(.manualObservation(
+                requestedTestArtists: [],
+                knownTrackCount: nil
+            ))
+        }
+        await gate.waitUntilEntered()
+        let activeRunID = try #require(await orchestrator.activeLifecycle()?.runID)
+        let iterator = await LifecycleIterator(updates: orchestrator.lifecycleUpdates())
+
+        let replayed = try await nextLifecycleSnapshot(from: iterator)
+        #expect(replayed?.runID == activeRunID)
+
+        let recovery = recoveryRecord()
+        await orchestrator.restoreRecovery(recovery)
+        _ = await orchestrator.resolveRecovery(runID: recovery.runID, at: Date(timeIntervalSince1970: 200))
+        await gate.release()
+        _ = await active.value
+
+        var snapshots: [RunLifecycleSnapshot] = []
+        while let snapshot = try await nextLifecycleSnapshot(from: iterator) {
+            snapshots.append(snapshot)
+            if snapshot.runID == activeRunID, !snapshot.isActive {
+                break
+            }
+        }
+        #expect(snapshots.allSatisfy { $0.runID == activeRunID })
+    }
+
+    @Test("lifecycle stream bounds buffered checkpoint snapshots")
+    func boundsLifecycleBuffer() async throws {
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: ignoreRunRecord,
+            write: .init(writeFixPlan: { _, checkpoint in
+                for _ in 0 ..< RunOrchestrator.lifecycleBufferLimit * 2 {
+                    try await checkpoint(.beforeAttempt([itemID]))
+                }
+                try await checkpoint(.afterAttempt([itemID]))
+                try await checkpoint(.afterVerification([itemID: .written]))
+                return BatchUpdateResult(entries: [writeEntry()], failedTrackIDs: [], errorDescriptions: [])
+            })
+        ))
+        let iterator = await LifecycleIterator(updates: orchestrator.lifecycleUpdates())
+
+        _ = await orchestrator.submit(RunRequest.manualWrite(input: input))
+
+        var buffered = 0
+        while let snapshot = try await nextLifecycleSnapshot(from: iterator) {
+            buffered += 1
+            if !snapshot.isActive {
+                break
+            }
+        }
+        #expect(buffered <= RunOrchestrator.lifecycleBufferLimit)
     }
 
     @Test("cancelling the submitter does not fail the active run")
@@ -317,7 +387,7 @@ struct OrchestratorTests {
         await gate.release()
 
         let result = await submitter.value
-        #expect(result.lifecycle.state == .completedNoOp)
+        #expect(result.lifecycle?.state == .completedNoOp)
         #expect(await orchestrator.currentLifecycle()?.state == .completedNoOp)
     }
 
@@ -330,7 +400,8 @@ struct OrchestratorTests {
         ))
         let stream = await orchestrator.lifecycleUpdates()
         let observer = Task {
-            for await _ in stream {}
+            var iterator = stream.makeAsyncIterator()
+            _ = await iterator.next()
         }
 
         await waitForSubscriptionCount(orchestrator, expected: 1)
@@ -372,8 +443,8 @@ struct OrchestratorTests {
         #expect(final.state == .completed)
         #expect(final.transitions.map(\.state) == [.created, .syncingLibrary, .reporting, .completed])
         #expect(final.syncSummary?.changeCount == 1)
-        #expect(final.finishedAt == result.lifecycle.finishedAt)
-        #expect(final.startedAt == result.lifecycle.startedAt)
+        #expect(final.finishedAt == result.lifecycle?.finishedAt)
+        #expect(final.startedAt == result.lifecycle?.startedAt)
         #expect(final.failureMessage == nil)
     }
 
@@ -398,7 +469,7 @@ struct OrchestratorTests {
             knownTrackCount: nil
         ))
 
-        #expect(result.lifecycle.state == .completedNoOp)
+        #expect(result.lifecycle?.state == .completedNoOp)
         #expect(await producer.callCount == 0)
         let final = try #require(await probe.records.last)
         #expect(final.transitions.map(\.state) == [.created, .syncingLibrary, .reporting, .completedNoOp])
@@ -442,7 +513,7 @@ struct OrchestratorTests {
             knownTrackCount: nil
         ))
 
-        #expect(result.lifecycle.state == .completedNoOp)
+        #expect(result.lifecycle?.state == .completedNoOp)
         #expect(await orchestrator.currentLifecycle()?.state == .completedNoOp)
     }
 
@@ -457,7 +528,7 @@ struct OrchestratorTests {
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
-        let iterator = await LifecycleIterator(stream: orchestrator.lifecycleUpdates())
+        let iterator = await LifecycleIterator(updates: orchestrator.lifecycleUpdates())
 
         let submitTask = Task {
             await orchestrator.submit(.manualObservation(
@@ -480,7 +551,7 @@ struct OrchestratorTests {
         let snapshot = try #require(terminalSnapshot)
         #expect(snapshot.state == .completedNoOp)
 
-        let replayIterator = await LifecycleIterator(stream: orchestrator.lifecycleUpdates())
+        let replayIterator = await LifecycleIterator(updates: orchestrator.lifecycleUpdates())
         let replayed = try await nextLifecycleSnapshot(from: replayIterator)
 
         #expect(replayed == snapshot)
@@ -503,7 +574,7 @@ struct OrchestratorTests {
             Issue.record("Expected failed, got \(firstResult)")
             return
         }
-        #expect(firstResult.lifecycle.state == .failed)
+        #expect(firstResult.lifecycle?.state == .failed)
 
         let secondResult = await orchestrator.submit(.manualObservation(
             requestedTestArtists: [],
@@ -532,10 +603,10 @@ private func waitForSubscriptionCount(
 }
 
 private final class LifecycleIterator: @unchecked Sendable {
-    private var iterator: AsyncStream<RunLifecycleSnapshot>.Iterator
+    private var iterator: LifecycleUpdates.AsyncIterator
 
-    init(stream: AsyncStream<RunLifecycleSnapshot>) {
-        iterator = stream.makeAsyncIterator()
+    init(updates: LifecycleUpdates) {
+        iterator = updates.makeAsyncIterator()
     }
 
     func next() async -> RunLifecycleSnapshot? {

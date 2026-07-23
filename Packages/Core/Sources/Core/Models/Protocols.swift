@@ -126,6 +126,22 @@ public struct LibraryDeltaCache: Sendable, Codable {
 
 /// Entry for an album pending manual verification.
 public struct PendingAlbumEntry: Sendable, Codable, Identifiable {
+    public struct RetryState: Sendable {
+        public let attemptCount: Int
+        public let lastAttempt: Date
+        public let recheckInterval: TimeInterval
+
+        public init(
+            attemptCount: Int = 0,
+            lastAttempt: Date = .now,
+            recheckInterval: TimeInterval = 1_209_600
+        ) {
+            self.attemptCount = attemptCount
+            self.lastAttempt = lastAttempt
+            self.recheckInterval = recheckInterval
+        }
+    }
+
     public let id: String
     public let artist: String
     public let album: String
@@ -140,18 +156,16 @@ public struct PendingAlbumEntry: Sendable, Codable, Identifiable {
         artist: String,
         album: String,
         reason: String,
-        attemptCount: Int = 0,
-        lastAttempt: Date = .now,
-        recheckInterval: TimeInterval = 1_209_600,
+        retry: RetryState = RetryState(),
         metadata: [String: String] = [:]
     ) {
         self.id = id
         self.artist = artist
         self.album = album
         self.reason = reason
-        self.attemptCount = attemptCount
-        self.lastAttempt = lastAttempt
-        self.recheckInterval = recheckInterval
+        self.attemptCount = retry.attemptCount
+        self.lastAttempt = retry.lastAttempt
+        self.recheckInterval = retry.recheckInterval
         self.metadata = metadata
     }
 }
@@ -304,7 +318,9 @@ extension ExternalAPIService {
         try await initialize(force: force)
     }
 
-    public func close() async {}
+    public func close() async {
+        // Services without retained connections have nothing to release.
+    }
 }
 
 // MARK: - AppleScript Client
@@ -345,6 +361,9 @@ public struct AppleScriptClientParseError: Error, LocalizedError, Sendable, Equa
     }
 }
 
+/// Reports that a Music.app mutation may have been dispatched.
+public typealias WriteAttemptHook = @Sendable () async throws -> Void
+
 /// Protocol for interacting with Music.app via AppleScript.
 ///
 /// The actor requirement ensures serial access to AppleScript execution,
@@ -381,6 +400,18 @@ public protocol AppleScriptClient: Actor {
     /// Update a single property on a track in Music.app.
     func updateTrackProperty(trackID: String, property: String, value: String) async throws -> AppleScriptWriteResult
 
+    /// Update one property and report when the caller must conservatively treat it as attempted.
+    ///
+    /// Conformers with dispatch visibility may report as soon as Music.app may have received
+    /// the mutation. The compatibility implementation reports after the legacy overload
+    /// returns or throws.
+    func updateTrackProperty(
+        trackID: String,
+        property: String,
+        value: String,
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws -> AppleScriptWriteResult
+
     /// Update multiple track properties in one Music.app script call.
     ///
     /// A conformer must throw `AppleScriptBatchVerificationError` if the batch
@@ -388,9 +419,49 @@ public protocol AppleScriptClient: Actor {
     /// verified. Callers use that error to avoid unsafe single-write fallback
     /// after a potentially mutating batch execution.
     func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws
+
+    /// Update multiple properties and report when the caller must conservatively treat them as attempted.
+    ///
+    /// Conformers with dispatch visibility may report as soon as Music.app may have received
+    /// the mutations. The compatibility implementation reports after the legacy overload
+    /// returns or throws.
+    func batchUpdateTracks(
+        _ updates: [(trackID: String, property: String, value: String)],
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws
 }
 
 extension AppleScriptClient {
+    public func updateTrackProperty(
+        trackID: String,
+        property: String,
+        value: String,
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws -> AppleScriptWriteResult {
+        let result: AppleScriptWriteResult
+        do {
+            result = try await updateTrackProperty(trackID: trackID, property: property, value: value)
+        } catch {
+            try await onAttempt()
+            throw error
+        }
+        try await onAttempt()
+        return result
+    }
+
+    public func batchUpdateTracks(
+        _ updates: [(trackID: String, property: String, value: String)],
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws {
+        do {
+            try await batchUpdateTracks(updates)
+        } catch {
+            try await onAttempt()
+            throw error
+        }
+        try await onAttempt()
+    }
+
     public func runScript(name: String, arguments: [String] = [], timeout: Duration? = nil) async throws -> String? {
         try await runScript(name: name, arguments: arguments, timeout: timeout)
     }

@@ -264,7 +264,7 @@ struct ItemPayload: Encodable {
     let configuration: RunConfig?
 }
 
-func makeWorkItem(id: UUID = UUID(), state: WorkState) -> RunWorkItem {
+func makeWorkItem(id: UUID = UUID(), state: WorkState, detail: String? = nil) -> RunWorkItem {
     RunWorkItem(
         id: id,
         target: .track(FixPlanItemIdentity(
@@ -281,26 +281,31 @@ func makeWorkItem(id: UUID = UUID(), state: WorkState) -> RunWorkItem {
             confidence: 92,
             source: "MusicBrainz"
         ),
-        state: state
+        state: state,
+        detail: detail
     )
 }
 
 private func replacing(_ record: RunRecord, workItems: [RunWorkItem]) -> RunRecord {
     RunRecord(
-        runID: record.runID,
-        requestID: record.requestID,
-        trigger: record.trigger,
-        intent: record.intent,
-        scope: record.scope,
+        header: RunRecord.Header(
+            runID: record.runID,
+            requestID: record.requestID,
+            trigger: record.trigger,
+            intent: record.intent,
+            scope: record.scope,
+            startedAt: record.startedAt
+        ),
         configuration: record.configuration,
         writeTarget: record.writeTarget,
         recoveryID: record.recoveryID,
         transitions: record.transitions,
         workItems: workItems,
-        syncSummary: record.syncSummary,
-        writeSummary: record.writeSummary,
-        failureMessage: record.failureMessage,
-        startedAt: record.startedAt,
-        finishedAt: record.finishedAt
+        status: RunRecord.Status(
+            syncSummary: record.syncSummary,
+            writeSummary: record.writeSummary,
+            failureMessage: record.failureMessage,
+            finishedAt: record.finishedAt
+        )
     )
 }

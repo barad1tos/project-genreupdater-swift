@@ -658,7 +658,6 @@ struct WorkflowAlbumIdentityTests {
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2013, confidence: 100),
             failingWriteTrackIDs: ["as-ram-2"],
-            noChangeWriteTrackIDs: ["as-ram-1"],
             pendingVerificationService: pendingVerification,
             idMapper: WorkflowTrackIDMapper(
                 enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(),
@@ -666,7 +665,10 @@ struct WorkflowAlbumIdentityTests {
                     "ram-1": "as-ram-1",
                     "ram-2": "as-ram-2",
                 ]
-            )
+            ),
+            configure: { options in
+                options.noChangeWriteTrackIDs = ["as-ram-1"]
+            }
         )
         let viewModel = fixture.viewModel
         viewModel.mode = .pendingVerification

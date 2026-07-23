@@ -1,6 +1,6 @@
 import Foundation
-import Services
 import Testing
+@testable import Services
 
 @Suite("ReportsBuilder")
 struct ReportsBuilderTests {
@@ -70,7 +70,7 @@ struct ReportsBuilderTests {
             finishedAt: startDate.addingTimeInterval(45),
             state: .completedNoOp,
             syncSummary: ActivitySyncSummary(new: 2, modified: 3, identityChanged: 0, refreshed: 0, removed: 0),
-            intent: .previewFixes
+            input: RecordInput(intent: .previewFixes)
         )
 
         let item = try #require(makeProjection(records: [record]).runs.first)
@@ -171,14 +171,14 @@ struct ReportsBuilderTests {
             finishedAt: startDate.addingTimeInterval(45),
             state: .failed,
             syncSummary: nil,
-            failureMessage: "Music.app unavailable"
+            input: RecordInput(failureMessage: "Music.app unavailable")
         )
         let recordWithoutMessage = makeRunRecord(
             startedAt: startDate,
             finishedAt: startDate.addingTimeInterval(45),
             state: .failed,
             syncSummary: nil,
-            failureMessage: nil
+            input: RecordInput(failureMessage: nil)
         )
 
         let items = makeProjection(records: [recordWithMessage, recordWithoutMessage]).runs
@@ -229,7 +229,7 @@ struct ReportsBuilderTests {
             finishedAt: nil,
             state: .reporting,
             syncSummary: nil,
-            intent: .writeFixes
+            input: RecordInput(intent: .writeFixes)
         )
 
         let item = try #require(makeProjection(records: [record]).runs.first)
@@ -319,11 +319,11 @@ struct ReportsBuilderTests {
     )
     func triggerLabelsCoverAllTriggers(trigger: RunTrigger, expectedLabel: String) throws {
         let record = makeRunRecord(
-            trigger: trigger,
             startedAt: startDate,
             finishedAt: startDate.addingTimeInterval(45),
             state: .completed,
-            syncSummary: nil
+            syncSummary: nil,
+            input: RecordInput(trigger: trigger)
         )
 
         let item = try #require(makeProjection(records: [record]).runs.first)
@@ -395,22 +395,18 @@ struct ReportsBuilderTests {
         let recoveryID = UUID()
         let corruptedID = RunID()
         let firstRecord = makeRunRecord(
-            runID: runID,
             startedAt: startDate,
             finishedAt: nil,
             state: .recoverable,
             syncSummary: nil,
-            intent: .writeFixes,
-            recoveryID: recoveryID
+            input: RecordInput(runID: runID, intent: .writeFixes, recoveryID: recoveryID)
         )
         let duplicateRecord = makeRunRecord(
-            runID: runID,
             startedAt: startDate.addingTimeInterval(-1),
             finishedAt: nil,
             state: .recoverable,
             syncSummary: nil,
-            intent: .writeFixes,
-            recoveryID: recoveryID
+            input: RecordInput(runID: runID, intent: .writeFixes, recoveryID: recoveryID)
         )
 
         let projection = ReportsBuilder.makeProjection(from: ReportsProjectionInput(
@@ -430,8 +426,7 @@ struct ReportsBuilderTests {
             finishedAt: nil,
             state: .writing,
             syncSummary: nil,
-            intent: .writeFixes,
-            recoveryID: UUID()
+            input: RecordInput(intent: .writeFixes, recoveryID: UUID())
         )
 
         let projection = ReportsBuilder.makeProjection(from: ReportsProjectionInput(
@@ -475,16 +470,20 @@ struct ReportsBuilderTests {
         )
     }
 
+    private struct RecordInput {
+        var runID = RunID()
+        var trigger: RunTrigger = .manualCheck
+        var failureMessage: String?
+        var intent: RunIntent = .observeLibrary
+        var recoveryID: UUID?
+    }
+
     private func makeRunRecord(
-        runID: RunID = RunID(),
-        trigger: RunTrigger = .manualCheck,
         startedAt: Date,
         finishedAt: Date?,
         state: RunLifecycleState,
         syncSummary: ActivitySyncSummary?,
-        failureMessage: String? = nil,
-        intent: RunIntent = .observeLibrary,
-        recoveryID: UUID? = nil
+        input: RecordInput = RecordInput()
     ) -> RunRecord {
         var transitions = [
             RunLifecycleTransition(state: .created, timestamp: startedAt),
@@ -498,40 +497,48 @@ struct ReportsBuilderTests {
         }
 
         return RunRecord(
-            runID: runID,
-            requestID: RunRequestID(),
-            trigger: trigger,
-            intent: intent,
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: [],
-                knownTrackCount: nil,
-                createdAt: startedAt,
-                reason: "test"
+            header: RunRecord.Header(
+                runID: input.runID,
+                requestID: RunRequestID(),
+                trigger: input.trigger,
+                intent: input.intent,
+                scope: ProcessingScopeSnapshot.capture(
+                    requestedTestArtists: [],
+                    knownTrackCount: nil,
+                    createdAt: startedAt,
+                    reason: "test"
+                ),
+                startedAt: startedAt
             ),
-            recoveryID: recoveryID,
+            recoveryID: input.recoveryID,
             transitions: transitions,
-            syncSummary: syncSummary,
-            failureMessage: failureMessage,
-            startedAt: startedAt,
-            finishedAt: finishedAt
+            status: RunRecord.Status(
+                syncSummary: syncSummary,
+                failureMessage: input.failureMessage,
+                finishedAt: finishedAt
+            )
         )
     }
 
     private func makeRunRecord(scope: ProcessingScopeSnapshot, intent: RunIntent) -> RunRecord {
         RunRecord(
-            runID: RunID(),
-            requestID: RunRequestID(),
-            trigger: .manualCheck,
-            intent: intent,
-            scope: scope,
+            header: RunRecord.Header(
+                runID: RunID(),
+                requestID: RunRequestID(),
+                trigger: .manualCheck,
+                intent: intent,
+                scope: scope,
+                startedAt: startDate
+            ),
             transitions: [
                 RunLifecycleTransition(state: .created, timestamp: startDate),
                 RunLifecycleTransition(state: .completed, timestamp: startDate.addingTimeInterval(45))
             ],
-            syncSummary: nil,
-            failureMessage: nil,
-            startedAt: startDate,
-            finishedAt: startDate.addingTimeInterval(45)
+            status: RunRecord.Status(
+                syncSummary: nil,
+                failureMessage: nil,
+                finishedAt: startDate.addingTimeInterval(45)
+            )
         )
     }
 }

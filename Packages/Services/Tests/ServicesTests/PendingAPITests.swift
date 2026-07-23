@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 @Suite("APIOrchestrator - pending verification sync")
-struct PendingVerificationAPITests {
+struct PendingAPITests {
     @Test("Marks album pending when APIs return no usable year")
     func noUsableYearMarksPendingVerification() async {
         let pendingVerification = RecordingPendingVerificationService()
@@ -296,7 +296,7 @@ struct PendingVerificationAPITests {
                 artist: "Daft Punk feat. Pharrell Williams",
                 album: "Random Access Memories",
                 reason: "no_year_found",
-                attemptCount: 3
+                retry: .init(attemptCount: 3)
             ),
         ])
         let orchestrator = makeAPIOrchestrator(
