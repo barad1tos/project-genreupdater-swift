@@ -117,6 +117,24 @@ struct LifecycleBufferTests {
         #expect(try await nextSnapshot(from: first)?.runID == expected.runID)
     }
 
+    @Test("additional iterator does not retain the subscription lease")
+    func extraIteratorDropsLease() async throws {
+        let termination = TerminationProbe()
+        let buffer = LifecycleUpdateBuffer(limit: 1, onTermination: {
+            termination.markFinished()
+        })
+        let extra = makeExtraIterator(buffer: buffer)
+
+        #expect(termination.isFinished)
+        #expect(try await nextSnapshot(from: extra, timeout: .milliseconds(20)) == nil)
+    }
+
+    private func makeExtraIterator(buffer: LifecycleUpdateBuffer) -> SnapshotIterator {
+        let updates = LifecycleUpdates(buffer: buffer)
+        _ = updates.makeAsyncIterator()
+        return SnapshotIterator(updates: updates)
+    }
+
     private func terminal(_ runID: RunID) -> RunLifecycleSnapshot {
         lifecycle(
             runID,
@@ -203,6 +221,19 @@ private final class SnapshotIterator: @unchecked Sendable {
 
     func next() async -> RunLifecycleSnapshot? {
         await iterator.next()
+    }
+}
+
+private final class TerminationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didFinish = false
+
+    var isFinished: Bool {
+        lock.withLock { didFinish }
+    }
+
+    func markFinished() {
+        lock.withLock { didFinish = true }
     }
 }
 

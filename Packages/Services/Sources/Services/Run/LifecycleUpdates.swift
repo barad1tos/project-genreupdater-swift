@@ -8,18 +8,16 @@ public struct LifecycleUpdates: AsyncSequence, Sendable {
 
     public struct AsyncIterator: AsyncIteratorProtocol {
         private let buffer: LifecycleUpdateBuffer
-        private let lease: LifecycleLease
-        private let isActive: Bool
+        private let lease: LifecycleLease?
 
-        fileprivate init(buffer: LifecycleUpdateBuffer, lease: LifecycleLease, isActive: Bool) {
+        fileprivate init(buffer: LifecycleUpdateBuffer, lease: LifecycleLease?) {
             self.buffer = buffer
             self.lease = lease
-            self.isActive = isActive
         }
 
         public mutating func next() async -> RunLifecycleSnapshot? {
+            guard let lease else { return nil }
             _ = lease
-            guard isActive else { return nil }
             return await buffer.next()
         }
     }
@@ -39,11 +37,8 @@ public struct LifecycleUpdates: AsyncSequence, Sendable {
     }
 
     public func makeAsyncIterator() -> AsyncIterator {
-        AsyncIterator(
-            buffer: buffer,
-            lease: lease,
-            isActive: buffer.claimIterator()
-        )
+        let activeLease = buffer.claimIterator() ? lease : nil
+        return AsyncIterator(buffer: buffer, lease: activeLease)
     }
 }
 

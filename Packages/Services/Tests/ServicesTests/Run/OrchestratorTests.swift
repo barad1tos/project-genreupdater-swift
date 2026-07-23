@@ -319,7 +319,7 @@ struct OrchestratorTests {
 
         let recovery = recoveryRecord()
         await orchestrator.restoreRecovery(recovery)
-        await orchestrator.resolveRecovery(runID: recovery.runID, at: Date(timeIntervalSince1970: 200))
+        _ = await orchestrator.resolveRecovery(runID: recovery.runID, at: Date(timeIntervalSince1970: 200))
         await gate.release()
         _ = await active.value
 

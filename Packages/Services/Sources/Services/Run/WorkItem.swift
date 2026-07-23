@@ -23,7 +23,7 @@ public enum WorkOutcome: String, CaseIterable, Codable, Equatable, Sendable {
 public enum WorkState: Codable, Equatable, Sendable {
     case prepared
     case attempting
-    /// Dispatch returned, but the physical write and its verified outcome may still be unknown.
+    /// The write may have reached Music.app, but its physical and verified outcome is still unknown.
     case attempted
     case outcome(WorkOutcome)
 
