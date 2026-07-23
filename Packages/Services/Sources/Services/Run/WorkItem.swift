@@ -59,7 +59,8 @@ public enum CheckpointBoundary: Equatable, Sendable {
     case afterVerification
 }
 
-/// An atomic durable state update for one or more run work items.
+/// A grouped request to transition run work-item states at a checkpoint boundary.
+/// Durability is established only after its sink succeeds.
 public struct WorkCheckpoint: Equatable, Sendable {
     public let boundary: CheckpointBoundary
     let states: [UUID: WorkState]

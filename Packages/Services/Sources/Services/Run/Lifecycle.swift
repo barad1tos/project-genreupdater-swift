@@ -479,7 +479,9 @@ public enum RunSubmissionResult: Equatable, Sendable {
     case failed(RunLifecycleSnapshot)
     case cancelled(RunLifecycleSnapshot)
 
-    /// The run snapshot associated with this response, when admission created or reused one.
+    /// The run snapshot associated with this response.
+    /// For `.alreadyCovered` and `.queued`, this is the active run that covered or delayed the request;
+    /// `.recoveryRequired` has no snapshot.
     public var lifecycle: RunLifecycleSnapshot? {
         switch self {
         case let .alreadyCovered(snapshot),

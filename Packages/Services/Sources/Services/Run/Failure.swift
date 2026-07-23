@@ -6,9 +6,35 @@ struct CheckpointStoreFailure: LocalizedError, Equatable, Sendable {
     let durableSnapshot: RunLifecycleSnapshot
     let isWriteAdjacent: Bool
     let reason: String
+    let completion: ScriptCompletion?
+
+    init(
+        checkpoint: WorkCheckpoint,
+        candidate: RunLifecycleSnapshot,
+        durableSnapshot: RunLifecycleSnapshot,
+        isWriteAdjacent: Bool,
+        reason: String,
+        completion: ScriptCompletion? = nil
+    ) {
+        self.checkpoint = checkpoint
+        self.candidate = candidate
+        self.durableSnapshot = durableSnapshot
+        self.isWriteAdjacent = isWriteAdjacent
+        self.reason = reason
+        self.completion = completion
+    }
 
     var errorDescription: String? {
         "Could not persist \(String(describing: checkpoint.boundary)) work checkpoint: \(reason)"
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.checkpoint == rhs.checkpoint
+            && lhs.candidate == rhs.candidate
+            && lhs.durableSnapshot == rhs.durableSnapshot
+            && lhs.isWriteAdjacent == rhs.isWriteAdjacent
+            && lhs.reason == rhs.reason
+            && lhs.completion === rhs.completion
     }
 
     func withOutcome(_ outcome: AppleScriptOutcomeError) -> Self {
@@ -17,7 +43,8 @@ struct CheckpointStoreFailure: LocalizedError, Equatable, Sendable {
             candidate: candidate,
             durableSnapshot: durableSnapshot,
             isWriteAdjacent: isWriteAdjacent,
-            reason: "\(reason). \(outcome.localizedDescription)"
+            reason: "\(reason). \(outcome.localizedDescription)",
+            completion: outcome.completion
         )
     }
 }

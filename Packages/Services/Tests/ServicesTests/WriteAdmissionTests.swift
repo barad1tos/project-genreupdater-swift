@@ -202,6 +202,70 @@ struct WriteAdmissionTests {
         #expect(dispatches.values == ["first", "second"])
     }
 
+    @Test("Wrapped checkpoint outcome keeps physical completion")
+    func wrappedOutcomeWaits() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let processor = await BatchProcessor(
+            checkpointManager: CheckpointManager(directory: dir),
+            featureGate: FeatureGate(fixedTier: .pro)
+        )
+        let bridge = AppleScriptBridge(installer: ScriptInstaller(
+            scriptsDirectory: dir,
+            bundleScriptsDirectory: nil
+        ))
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let request = RunRequest.manualWrite(input: input)
+        let initial = RunLifecycleSnapshot(
+            request: request,
+            scope: input.scope,
+            startedAt: Date(timeIntervalSince1970: 100),
+            phase: .active(.writing)
+        )
+        let durable = try initial.applying(.beforeAttempt([itemID]))
+        let checkpoint = WorkCheckpoint.afterAttempt([itemID])
+        let failure = try CheckpointStoreFailure(
+            checkpoint: checkpoint,
+            candidate: durable.applying(checkpoint),
+            durableSnapshot: durable,
+            isWriteAdjacent: true,
+            reason: "checkpoint store unavailable"
+        )
+        let completion = ScriptCompletion()
+
+        do {
+            _ = try await processor.performRecoverableWrite {
+                try await bridge.updateTrackProperty(
+                    trackID: "101",
+                    property: "genre",
+                    value: "Metal",
+                    onAttempt: { throw WorkCheckpointError.store(failure) },
+                    execute: {
+                        throw AppleScriptOutcomeError(
+                            scriptName: "update_property",
+                            duration: .seconds(3),
+                            completion: completion
+                        )
+                    }
+                )
+            }
+            Issue.record("Expected the checkpoint store failure")
+        } catch {
+            #expect(error is WorkCheckpointError)
+        }
+
+        let recoveryID = try #require(await processor.recoveryHoldID())
+        let clearance = Task {
+            try await processor.clearRecovery(batchID: recoveryID)
+        }
+        await waitForClearance(completion)
+        #expect(completion.hasWaiters)
+        completion.finish()
+        try await clearance.value
+    }
+
     private func runClearanceRace(
         processor: BatchProcessor,
         recoveryID: UUID,
