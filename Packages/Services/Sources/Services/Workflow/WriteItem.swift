@@ -51,12 +51,30 @@ extension UpdateCoordinator {
         case let .write(write):
             return try await applyPreparedWrite(write, checkpoint: checkpoint)
         case let .noOp(entry):
-            try await checkpoint?(.afterVerification([change.id: .noFixNeeded]))
             await invalidateCaches(for: change)
+            try await checkpoint?(.afterVerification([change.id: .noFixNeeded]))
             return (nil, entry)
         case .skipped:
             try await checkpoint?(.afterVerification([change.id: .skipped]))
             return (nil, nil)
+        }
+    }
+
+    private func checkpointFailedWrite(
+        _ changeID: UUID,
+        primaryError: any Error,
+        sink: WorkCheckpointSink?
+    ) async throws {
+        do {
+            try await sink?(.afterVerification([changeID: .failed]))
+        } catch {
+            log.error("""
+            Write failed with \(String(describing: type(of: primaryError)), privacy: .public): \
+            \(primaryError.localizedDescription, privacy: .private); its failed-outcome checkpoint also failed with \
+            \(String(describing: type(of: error)), privacy: .public): \
+            \(error.localizedDescription, privacy: .private)
+            """)
+            throw error
         }
     }
 
@@ -71,7 +89,11 @@ extension UpdateCoordinator {
                 isReviewedChange: isReviewedChange
             )
         } catch {
-            try await checkpoint?(.afterVerification([change.id: .failed]))
+            try await checkpointFailedWrite(
+                change.id,
+                primaryError: error,
+                sink: checkpoint
+            )
             throw error
         }
     }
@@ -83,8 +105,8 @@ extension UpdateCoordinator {
         try await checkpoint?(.beforeAttempt([write.change.id]))
         let result = try await dispatchWrite(write, checkpoint: checkpoint)
         guard result == .changed else {
-            try await checkpoint?(.afterVerification([write.change.id: .noFixNeeded]))
             await invalidateCaches(for: write.change)
+            try await checkpoint?(.afterVerification([write.change.id: .noFixNeeded]))
             logNoOp(write.change)
             return (nil, Self.noOpLogEntry(write.change))
         }
@@ -129,12 +151,17 @@ extension UpdateCoordinator {
                 reason: "returned an error after dispatch: \(error.localizedDescription)"
             )
         } catch {
-            try await checkpoint?(.afterVerification([write.change.id: .failed]))
-            throw UpdateCoordinatorError.writeFailed(
+            let writeFailure = UpdateCoordinatorError.writeFailed(
                 trackID: write.change.track.id,
                 property: write.property,
                 reason: error.localizedDescription
             )
+            try await checkpointFailedWrite(
+                write.change.id,
+                primaryError: writeFailure,
+                sink: checkpoint
+            )
+            throw writeFailure
         }
     }
 

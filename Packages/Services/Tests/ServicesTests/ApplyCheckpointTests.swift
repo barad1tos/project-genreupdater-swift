@@ -189,6 +189,144 @@ extension ApplyAcceptedTests {
         await expectCachesCleared(for: track, fixture: fixture)
     }
 
+    @Test("Preflight no-op clears caches before terminal checkpoint")
+    func noOpCacheOrder() async throws {
+        let fixture = await makeCoordinator()
+        let itemID = UUID()
+        var track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1969)
+        track.yearBeforeMGU = 1969
+        try await seedCaches(for: track, fixture: fixture)
+        let proposal = ProposedChange(
+            id: itemID,
+            track: track,
+            changeType: .yearUpdate,
+            oldValue: "1969",
+            newValue: "1970",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+        let failure = storeFailure(for: .afterVerification([itemID: .noFixNeeded]))
+
+        await expectCheckpointFailure(failure) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [proposal],
+                progressHandler: ignoreAcceptedChangeProgress,
+                checkpoint: { checkpoint in
+                    if checkpoint.boundary == .afterVerification {
+                        throw failure
+                    }
+                }
+            )
+        }
+
+        #expect(await fixture.bridge.writtenProperties.isEmpty)
+        await expectCachesCleared(for: track, fixture: fixture)
+    }
+
+    @Test("Dispatched no-change clears caches before terminal checkpoint")
+    func noChangeCache() async throws {
+        let fixture = await makeCoordinator()
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1969)
+        try await seedCaches(for: track, fixture: fixture)
+        await fixture.bridge.setSingleWriteResult(.noChange)
+        let proposal = ProposedChange(
+            track: track,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Electronic",
+            confidence: 80,
+            source: "Library",
+            isAccepted: true
+        )
+        let failure = storeFailure(for: .afterVerification([proposal.id: .noFixNeeded]))
+
+        await expectCheckpointFailure(failure) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [proposal],
+                progressHandler: ignoreAcceptedChangeProgress,
+                checkpoint: { checkpoint in
+                    if checkpoint.boundary == .afterVerification {
+                        throw failure
+                    }
+                }
+            )
+        }
+
+        #expect(await fixture.bridge.writtenProperties.count == 1)
+        await expectCachesCleared(for: track, fixture: fixture)
+    }
+
+    @Test("Preparation dual failure preserves checkpoint safety error")
+    func prepareDualFailure() async {
+        let fixture = await makeCoordinator()
+        let proposal = ProposedChange(
+            track: Track(
+                id: "MK1",
+                name: "Come Together",
+                artist: "Beatles",
+                album: "Abbey Road",
+                genre: "Rock",
+                year: 1969,
+                trackStatus: "no longer available"
+            ),
+            changeType: .yearUpdate,
+            oldValue: "1969",
+            newValue: "1970",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+        let failure = storeFailure(for: .afterVerification([proposal.id: .failed]))
+
+        await expectCheckpointFailure(failure) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [proposal],
+                progressHandler: ignoreAcceptedChangeProgress,
+                checkpoint: { checkpoint in
+                    if checkpoint.boundary == .afterVerification {
+                        throw failure
+                    }
+                }
+            )
+        }
+
+        #expect(await fixture.bridge.writtenProperties.isEmpty)
+    }
+
+    @Test("Pre-dispatch dual failure preserves checkpoint safety error")
+    func dispatchDualFailure() async {
+        let fixture = await makeCoordinator()
+        await fixture.bridge.setThrowMode(true)
+        let proposal = ProposedChange(
+            track: makeEditableTrack(id: "MK1", genre: "Rock", year: 1969),
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Electronic",
+            confidence: 80,
+            source: "Library",
+            isAccepted: true
+        )
+        let checkpoints = CheckpointProbe()
+        let failure = storeFailure(for: .afterVerification([proposal.id: .failed]))
+
+        await expectCheckpointFailure(failure) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [proposal],
+                progressHandler: ignoreAcceptedChangeProgress,
+                checkpoint: { checkpoint in
+                    await checkpoints.append(checkpoint)
+                    if checkpoint.boundary == .afterVerification {
+                        throw failure
+                    }
+                }
+            )
+        }
+
+        #expect(await checkpoints.values.map(\.boundary) == [.beforeAttempt, .afterVerification])
+        #expect(await fixture.bridge.writtenProperties.isEmpty)
+    }
+
     @Test("Batch after-attempt checkpoint failure clears write caches")
     func batchFailureClearsCaches() async throws {
         let fixture = await makeCoordinator(
@@ -588,6 +726,20 @@ extension ApplyAcceptedTests {
             source: "musicbrainz"
         ) == nil)
         #expect(await fixture.snapshot.wasCleared())
+    }
+
+    private func expectCheckpointFailure(
+        _ expected: WorkCheckpointError,
+        operation: () async throws -> Void
+    ) async {
+        do {
+            try await operation()
+            Issue.record("Expected checkpoint failure")
+        } catch let caught as WorkCheckpointError {
+            #expect(caught == expected)
+        } catch {
+            Issue.record("Expected WorkCheckpointError, got \(error)")
+        }
     }
 
     private func storeFailure(for checkpoint: WorkCheckpoint) -> WorkCheckpointError {
