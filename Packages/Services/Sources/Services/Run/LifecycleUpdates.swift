@@ -1,21 +1,25 @@
 import Foundation
 
 /// A bounded lifecycle sequence that coalesces superseded progress while retaining
-/// the newest state for consumer resynchronization.
+/// the newest state for consumer resynchronization. The sequence is single-pass:
+/// additional iterators finish immediately without closing the active subscription.
 public struct LifecycleUpdates: AsyncSequence, Sendable {
     public typealias Element = RunLifecycleSnapshot
 
     public struct AsyncIterator: AsyncIteratorProtocol {
         private let buffer: LifecycleUpdateBuffer
         private let lease: LifecycleLease
+        private let isActive: Bool
 
-        fileprivate init(buffer: LifecycleUpdateBuffer, lease: LifecycleLease) {
+        fileprivate init(buffer: LifecycleUpdateBuffer, lease: LifecycleLease, isActive: Bool) {
             self.buffer = buffer
             self.lease = lease
+            self.isActive = isActive
         }
 
         public mutating func next() async -> RunLifecycleSnapshot? {
             _ = lease
+            guard isActive else { return nil }
             return await buffer.next()
         }
     }
@@ -35,7 +39,11 @@ public struct LifecycleUpdates: AsyncSequence, Sendable {
     }
 
     public func makeAsyncIterator() -> AsyncIterator {
-        AsyncIterator(buffer: buffer, lease: lease)
+        AsyncIterator(
+            buffer: buffer,
+            lease: lease,
+            isActive: buffer.claimIterator()
+        )
     }
 }
 
@@ -52,11 +60,20 @@ final class LifecycleUpdateBuffer: @unchecked Sendable {
     private var waiter: CheckedContinuation<RunLifecycleSnapshot?, Never>?
     private var onTermination: (@Sendable () -> Void)?
     private var isFinished = false
+    private var isIteratorClaimed = false
 
     init(limit: Int, onTermination: (@Sendable () -> Void)? = nil) {
         precondition(limit > 0)
         self.limit = limit
         self.onTermination = onTermination
+    }
+
+    func claimIterator() -> Bool {
+        lock.withLock {
+            guard !isIteratorClaimed else { return false }
+            isIteratorClaimed = true
+            return true
+        }
     }
 
     func push(_ snapshot: RunLifecycleSnapshot) {
@@ -126,7 +143,7 @@ final class LifecycleUpdateBuffer: @unchecked Sendable {
             return .snapshot(snapshots.removeFirst())
         }
         guard !isFinished else { return .finished }
-        precondition(waiter == nil, "Lifecycle updates support one iterator per subscription")
+        guard waiter == nil else { return .finished }
         waiter = continuation
         return .waiting
     }

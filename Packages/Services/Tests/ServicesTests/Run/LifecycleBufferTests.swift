@@ -103,6 +103,20 @@ struct LifecycleBufferTests {
         }
     }
 
+    @Test("additional iterators finish without closing the subscription")
+    func finishesExtraIterator() async throws {
+        let buffer = LifecycleUpdateBuffer(limit: 1)
+        let updates = LifecycleUpdates(buffer: buffer)
+        let first = SnapshotIterator(updates: updates)
+        let extra = SnapshotIterator(updates: updates)
+
+        #expect(try await nextSnapshot(from: extra, timeout: .milliseconds(20)) == nil)
+
+        let expected = active(RunID())
+        buffer.push(expected)
+        #expect(try await nextSnapshot(from: first)?.runID == expected.runID)
+    }
+
     private func terminal(_ runID: RunID) -> RunLifecycleSnapshot {
         lifecycle(
             runID,

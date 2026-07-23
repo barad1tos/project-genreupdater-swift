@@ -501,6 +501,31 @@ final class AppDependencies {
         )
     }
 
+    func writeDependencies(
+        store: any RunRecordStore,
+        processor: BatchProcessor,
+        writeFixPlan: (@Sendable (
+            FixPlanWriteInput,
+            @escaping WorkCheckpointSink
+        ) async throws -> BatchUpdateResult)?
+    ) -> RunOrchestrator.WriteDependencies {
+        RunOrchestrator.WriteDependencies(
+            persistCheckpoint: { runID, checkpoint in
+                try await store.checkpoint(checkpoint, runID: runID)
+            },
+            writeFixPlan: writeFixPlan,
+            beginRecoveryHold: {
+                await processor.beginRecoveryHold()
+            },
+            restoreRecoveryHold: { id in
+                await processor.beginRecoveryHold(id: id)
+            },
+            clearRecoveryHold: { id in
+                try await processor.clearRecovery(batchID: id)
+            }
+        )
+    }
+
     private func makeRunOrchestrator(
         syncService: LibrarySyncService,
         runRecordStore: any RunRecordStore,
@@ -521,17 +546,10 @@ final class AppDependencies {
         } else {
             nil
         }
-        let writeDependencies = RunOrchestrator.WriteDependencies(
-            persistCheckpoint: { checkpointRunID, checkpoint in
-                try await runRecordStore.checkpoint(checkpoint, runID: checkpointRunID)
-            },
-            writeFixPlan: makeWriteRunner(runtime: runtime),
-            beginRecoveryHold: {
-                await processor.beginRecoveryHold()
-            },
-            restoreRecoveryHold: { id in
-                await processor.beginRecoveryHold(id: id)
-            }
+        let write = writeDependencies(
+            store: runRecordStore,
+            processor: processor,
+            writeFixPlan: makeWriteRunner(runtime: runtime)
         )
 
         return RunOrchestrator(dependencies: RunOrchestrator.Dependencies(
@@ -549,7 +567,7 @@ final class AppDependencies {
             releasePreview: { configuration in
                 await runtime?.discard(configuration)
             },
-            write: writeDependencies
+            write: write
         ))
     }
 

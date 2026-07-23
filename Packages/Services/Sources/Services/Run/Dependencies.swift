@@ -9,6 +9,7 @@ extension RunOrchestrator {
         ) async throws -> BatchUpdateResult)?
         public let beginRecoveryHold: (@Sendable () async -> UUID)?
         public let restoreRecoveryHold: (@Sendable (UUID) async -> UUID)?
+        public let clearRecoveryHold: (@Sendable (UUID) async throws -> Void)?
 
         public init(
             persistCheckpoint: (@Sendable (RunID, WorkCheckpoint) async throws -> Void)? = nil,
@@ -17,12 +18,14 @@ extension RunOrchestrator {
                 @escaping WorkCheckpointSink
             ) async throws -> BatchUpdateResult)? = nil,
             beginRecoveryHold: (@Sendable () async -> UUID)? = nil,
-            restoreRecoveryHold: (@Sendable (UUID) async -> UUID)? = nil
+            restoreRecoveryHold: (@Sendable (UUID) async -> UUID)? = nil,
+            clearRecoveryHold: (@Sendable (UUID) async throws -> Void)? = nil
         ) {
             self.persistCheckpoint = persistCheckpoint
             self.writeFixPlan = writeFixPlan
             self.beginRecoveryHold = beginRecoveryHold
             self.restoreRecoveryHold = restoreRecoveryHold
+            self.clearRecoveryHold = clearRecoveryHold
         }
     }
 

@@ -78,6 +78,53 @@ struct CheckpointStoreTests {
         #expect(await records.records.last?.workItems.first?.state == .attempted)
     }
 
+    @Test("dedicated checkpoint store persists every durable boundary")
+    func persistsCheckpointCallback() async throws {
+        let store = try RunRecordDataStore(
+            modelContainer: ModelContainerFactory.createInMemory()
+        )
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let checkpoints = CheckpointStateProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await store.upsert($0) },
+            write: .init(
+                persistCheckpoint: { runID, checkpoint in
+                    try await store.checkpoint(checkpoint, runID: runID)
+                    let state = try await store.record(for: runID)?
+                        .workItems
+                        .first(where: { $0.id == itemID })?
+                        .state
+                    await checkpoints.append(runID: runID, state: state)
+                },
+                writeFixPlan: { _, checkpoint in
+                    try await checkpoint(.beforeAttempt([itemID]))
+                    try await checkpoint(.afterAttempt([itemID]))
+                    try await checkpoint(.afterVerification([itemID: .written]))
+                    return BatchUpdateResult(
+                        entries: [writeEntry()],
+                        failedTrackIDs: [],
+                        errorDescriptions: []
+                    )
+                }
+            )
+        ))
+
+        guard case .completed = await orchestrator.submit(.manualWrite(input: input)) else {
+            Issue.record("Expected checkpointed write to complete")
+            return
+        }
+
+        let captured = await checkpoints.values
+        #expect(Set(captured.map(\.runID)).count == 1)
+        #expect(captured.map(\.state) == [
+            .attempting,
+            .attempted,
+            .outcome(.written),
+        ])
+    }
+
     @Test("a rejected writer closes every unstarted work item")
     func closesUnstartedWork() async {
         let records = WriteRecordProbe()
@@ -345,5 +392,18 @@ private actor CheckpointCallProbe {
 
     func record() {
         count += 1
+    }
+}
+
+private struct StoredCheckpoint: Equatable, Sendable {
+    let runID: RunID
+    let state: WorkState?
+}
+
+private actor CheckpointStateProbe {
+    private(set) var values: [StoredCheckpoint] = []
+
+    func append(runID: RunID, state: WorkState?) {
+        values.append(StoredCheckpoint(runID: runID, state: state))
     }
 }

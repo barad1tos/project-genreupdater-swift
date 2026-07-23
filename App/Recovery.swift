@@ -26,11 +26,7 @@ extension AppDependencies {
             }
 
             if let existingID {
-                if let record = candidates.first(where: { $0.recoveryID == existingID }) {
-                    _ = await restoreRecoveryHold(for: record, preferredID: existingID)
-                } else if let record = candidates.first(where: { $0.recoveryID == nil }) {
-                    _ = await restoreRecoveryHold(for: record, preferredID: existingID)
-                }
+                await restoreExistingHold(id: existingID, candidates: candidates)
                 // Preserve the active hold; clearing it re-runs discovery for the next persisted run.
                 return true
             }
@@ -57,6 +53,17 @@ extension AppDependencies {
                 "Failed to read recovery hold state: \(error.localizedDescription, privacy: .private)"
             )
             return true
+        }
+    }
+
+    private func restoreExistingHold(id: UUID, candidates: [RunRecord]) async {
+        let candidate = candidates.first(where: { $0.recoveryID == id })
+            ?? candidates.first(where: { $0.recoveryID == nil })
+        guard let candidate,
+              await restoreRecoveryHold(for: candidate, preferredID: id)
+        else {
+            await admitRecoveryHold(id: id)
+            return
         }
     }
 
@@ -136,14 +143,17 @@ extension AppDependencies {
             at: finishedAt
         )
 
-        if await batchProcessor.recoveryHoldID() == id {
+        if let runOrchestrator {
+            guard await runOrchestrator.resolveRecovery(
+                id: id,
+                runID: resolvedRunID,
+                at: finishedAt
+            ) == .resolved else {
+                throw AppDependencyServiceError.recoveryUnavailable
+            }
+        } else if await batchProcessor.recoveryHoldID() == id {
             try await batchProcessor.clearRecovery(batchID: id)
         }
-        await runOrchestrator?.resolveRecovery(
-            id: id,
-            runID: resolvedRunID,
-            at: finishedAt
-        )
         _ = await ensureRecoveryHold()
     }
 

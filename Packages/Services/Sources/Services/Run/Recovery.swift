@@ -1,6 +1,11 @@
 import Foundation
 import OSLog
 
+public enum RecoveryResolutionOutcome: Equatable, Sendable {
+    case resolved
+    case rejected
+}
+
 extension RunOrchestrator {
     struct RecoveryRun {
         let snapshot: RunLifecycleSnapshot
@@ -77,41 +82,47 @@ extension RunOrchestrator {
     }
 
     /// Resolves only recoverable holds; blocked records require a separate repair path.
-    public func resolveRecovery(runID: RunID, at finishedAt: Date) async {
+    public func resolveRecovery(runID: RunID, at finishedAt: Date) async -> RecoveryResolutionOutcome {
         guard let current = recoveryState.current,
               current.run?.snapshot.runID == runID
-        else { return }
-        await resolveRecovery(current, runID: runID, at: finishedAt)
+        else { return .rejected }
+        return await resolveRecovery(current, runID: runID, at: finishedAt)
     }
 
-    public func resolveRecovery(id: UUID, runID: RunID?, at finishedAt: Date) async {
-        guard let current = recoveryState.current, current.holdID == id else { return }
-        await resolveRecovery(current, runID: runID, at: finishedAt)
+    public func resolveRecovery(
+        id: UUID,
+        runID: RunID?,
+        at finishedAt: Date
+    ) async -> RecoveryResolutionOutcome {
+        guard let current = recoveryState.current, current.holdID == id else {
+            return .rejected
+        }
+        return await resolveRecovery(current, runID: runID, at: finishedAt)
     }
 
     private func resolveRecovery(
         _ candidate: RecoveryCandidate,
         runID: RunID?,
         at finishedAt: Date
-    ) async {
+    ) async -> RecoveryResolutionOutcome {
         let resolved: RunLifecycleSnapshot?
         switch candidate {
         case let .run(run):
-            guard runID == nil || run.snapshot.runID == runID else { return }
-            guard case .suspended(.recoverable) = run.snapshot.phase else { return }
-            let recovering = run.snapshot.beginningRecovery()
-            do {
-                let closed = try recovering.dismissingOpenWork()
-                resolved = closed.cancelling(
-                    message: "Recovery closed after Music.app verification.",
-                    at: finishedAt
-                )
-            } catch {
-                log.error("Recovery work closure failed: \(error.localizedDescription, privacy: .private)")
-                return
+            guard let closure = recoveryClosure(run, matching: runID, at: finishedAt) else {
+                return .rejected
             }
+            resolved = closure
         case .hold:
             resolved = nil
+        }
+
+        if let clearHold = dependencies.write?.clearRecoveryHold {
+            do {
+                try await clearHold(candidate.holdID)
+            } catch {
+                log.error("Recovery hold clearance failed: \(error.localizedDescription, privacy: .private)")
+                return .rejected
+            }
         }
 
         switch recoveryState {
@@ -120,7 +131,8 @@ extension RunOrchestrator {
         case let .currentThenPending(current, pending) where current.holdID == candidate.holdID:
             recoveryState = .pending(pending)
         case .clear, .pending, .current, .currentThenPending:
-            return
+            log.error("Recovery state changed before logical clearance committed")
+            return .rejected
         }
 
         if let resolved, activeRun == nil {
@@ -128,6 +140,29 @@ extension RunOrchestrator {
             broadcast(resolved)
         }
         await promotePending()
+        return .resolved
+    }
+
+    private func recoveryClosure(
+        _ run: RecoveryRun,
+        matching runID: RunID?,
+        at finishedAt: Date
+    ) -> RunLifecycleSnapshot? {
+        guard runID == nil || run.snapshot.runID == runID else { return nil }
+        guard case .suspended(.recoverable) = run.snapshot.phase else { return nil }
+
+        do {
+            return try run.snapshot
+                .beginningRecovery()
+                .dismissingOpenWork()
+                .cancelling(
+                    message: "Recovery closed after Music.app verification.",
+                    at: finishedAt
+                )
+        } catch {
+            log.error("Recovery work closure failed: \(error.localizedDescription, privacy: .private)")
+            return nil
+        }
     }
 
     private func admitRecovery(_ candidate: RecoveryCandidate) async {
@@ -160,6 +195,8 @@ extension RunOrchestrator {
                 Recovery hold identity mismatch: requested \(candidate.holdID.uuidString, privacy: .public), active \
                 \(activeID.uuidString, privacy: .public)
                 """)
+                recoveryState = .currentThenPending(.hold(activeID), candidate)
+                return
             }
         }
         guard activeRun == nil, let run = candidate.run else { return }

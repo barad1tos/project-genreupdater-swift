@@ -19,7 +19,8 @@ struct RecoveryAdmissionTests {
                     try await gate.run(input: input, checkpoint: checkpoint)
                 },
                 beginRecoveryHold: { await holds.beginLive() },
-                restoreRecoveryHold: { await holds.restore($0) }
+                restoreRecoveryHold: { await holds.restore($0) },
+                clearRecoveryHold: { try await holds.clear($0) }
             )
         ))
         let active = Task { await orchestrator.submit(.manualWrite(input: writeInput())) }
@@ -56,7 +57,8 @@ struct RecoveryAdmissionTests {
                     try await gate.run(input: input, checkpoint: checkpoint)
                 },
                 beginRecoveryHold: { await holds.beginLive() },
-                restoreRecoveryHold: { await holds.restore($0) }
+                restoreRecoveryHold: { await holds.restore($0) },
+                clearRecoveryHold: { try await holds.clear($0) }
             )
         ))
         let active = Task { await orchestrator.submit(.manualWrite(input: writeInput())) }
@@ -89,7 +91,8 @@ struct RecoveryAdmissionTests {
                     try await gate.run(input: input, checkpoint: checkpoint)
                 },
                 beginRecoveryHold: { await holds.beginLive() },
-                restoreRecoveryHold: { await holds.restore($0) }
+                restoreRecoveryHold: { await holds.restore($0) },
+                clearRecoveryHold: { try await holds.clear($0) }
             )
         ))
         let active = Task { await orchestrator.submit(.manualWrite(input: writeInput())) }
@@ -106,9 +109,15 @@ struct RecoveryAdmissionTests {
         #expect(await holds.restoredIDs.isEmpty)
         #expect(await orchestrator.currentLifecycle()?.runID == live.runID)
 
-        await orchestrator.resolveRecovery(runID: live.runID, at: Date(timeIntervalSince1970: 200))
+        #expect(
+            await orchestrator.resolveRecovery(
+                runID: live.runID,
+                at: Date(timeIntervalSince1970: 200)
+            ) == .resolved
+        )
 
         #expect(await holds.restoredIDs == [recoveryID])
+        #expect(await holds.clearedIDs.count == 1)
         #expect(await orchestrator.currentLifecycle()?.runID == recovery.runID)
     }
 
@@ -125,7 +134,8 @@ struct RecoveryAdmissionTests {
                     try await gate.run(input: input, checkpoint: checkpoint)
                 },
                 beginRecoveryHold: { await holds.beginLive() },
-                restoreRecoveryHold: { await holds.restore($0) }
+                restoreRecoveryHold: { await holds.restore($0) },
+                clearRecoveryHold: { try await holds.clear($0) }
             )
         ))
         let active = Task { await orchestrator.submit(.manualWrite(input: writeInput())) }
@@ -142,13 +152,116 @@ struct RecoveryAdmissionTests {
             return
         }
 
-        await orchestrator.resolveRecovery(id: recoveryID, runID: nil, at: Date(timeIntervalSince1970: 200))
+        #expect(
+            await orchestrator.resolveRecovery(
+                id: recoveryID,
+                runID: nil,
+                at: Date(timeIntervalSince1970: 200)
+            ) == .resolved
+        )
         #expect(await holds.restoredIDs == [recoveryID])
+    }
+
+    @Test("authoritative hold stays current before the requested recovery")
+    func keepsAuthoritativeHold() async {
+        let requestedID = UUID()
+        let authoritativeID = UUID()
+        let holds = HoldProbe(activeID: authoritativeID)
+        let orchestrator = makeHoldOrchestrator(holds)
+
+        await orchestrator.restoreRecoveryHold(id: requestedID)
+
+        #expect(
+            await orchestrator.resolveRecovery(
+                id: requestedID,
+                runID: nil,
+                at: Date(timeIntervalSince1970: 200)
+            ) == .rejected
+        )
+        #expect(
+            await orchestrator.resolveRecovery(
+                id: authoritativeID,
+                runID: nil,
+                at: Date(timeIntervalSince1970: 201)
+            ) == .resolved
+        )
+        #expect(await holds.clearedIDs == [authoritativeID])
+        #expect(await holds.restoredIDs == [requestedID, requestedID])
+        #expect(await holds.activeID == requestedID)
+        guard case .recoveryRequired = await orchestrator.submit(.manualWrite(input: writeInput())) else {
+            Issue.record("Expected the promoted requested hold to block writes")
+            return
+        }
+    }
+
+    @Test("physical clear keeps logical write admission blocked")
+    func blocksDuringClear() async {
+        let recoveryID = UUID()
+        let holds = HoldProbe()
+        let orchestrator = makeHoldOrchestrator(holds)
+        await orchestrator.restoreRecoveryHold(id: recoveryID)
+        await holds.pauseClear()
+        let resolution = Task {
+            await orchestrator.resolveRecovery(
+                id: recoveryID,
+                runID: nil,
+                at: Date(timeIntervalSince1970: 200)
+            )
+        }
+        await holds.waitUntilPaused()
+
+        guard case .recoveryRequired = await orchestrator.submit(.manualWrite(input: writeInput())) else {
+            await holds.releaseClear()
+            _ = await resolution.value
+            Issue.record("Expected physical clear to retain the logical write gate")
+            return
+        }
+
+        await holds.releaseClear()
+        #expect(await resolution.value == .resolved)
+    }
+
+    @Test("invalid recovery closure retains both write gates")
+    func rejectsInvalidClosure() async {
+        let recoveryID = UUID()
+        let item = makeWorkItem(state: .prepared)
+        let holds = HoldProbe()
+        let orchestrator = makeHoldOrchestrator(holds)
+        let recovery = recoveryRecord(
+            workItems: [item, item],
+            recoveryID: recoveryID
+        )
+        await orchestrator.restoreRecovery(recovery)
+
+        #expect(
+            await orchestrator.resolveRecovery(
+                runID: recovery.runID,
+                at: Date(timeIntervalSince1970: 200)
+            ) == .rejected
+        )
+        #expect(await holds.clearedIDs.isEmpty)
+        #expect(await holds.activeID == recoveryID)
+        guard case let .recoverable(snapshot, _) = await orchestrator.submit(.manualWrite(input: writeInput())) else {
+            Issue.record("Expected rejected recovery closure to keep writes blocked")
+            return
+        }
+        #expect(snapshot.runID == recovery.runID)
     }
 }
 
 private let skipPersistence: @Sendable (RunRecord) async throws -> Void = { _ in
     // These tests exercise live recovery admission, not record persistence.
+}
+
+private func makeHoldOrchestrator(_ holds: HoldProbe) -> RunOrchestrator {
+    RunOrchestrator(dependencies: .init(
+        synchronizeLibrary: { SyncResult() },
+        persistRunRecord: skipPersistence,
+        write: .init(
+            restoreRecoveryHold: { await holds.restore($0) },
+            clearRecoveryHold: { try await holds.clear($0) }
+        )
+    ))
 }
 
 private actor AttemptGate {
@@ -228,16 +341,69 @@ private actor AttemptGate {
 
 private actor HoldProbe {
     private let liveID = UUID()
+    private(set) var activeID: UUID?
     private(set) var liveCount = 0
     private(set) var restoredIDs: [UUID] = []
+    private(set) var clearedIDs: [UUID] = []
+    private var shouldPauseClear = false
+    private var isClearPaused = false
+    private var clearPauseWaiters: [CheckedContinuation<Void, Never>] = []
+    private var clearReleaseWaiter: CheckedContinuation<Void, Never>?
+
+    init(activeID: UUID? = nil) {
+        self.activeID = activeID
+    }
 
     func beginLive() -> UUID {
+        if let activeID {
+            return activeID
+        }
         liveCount += 1
+        activeID = liveID
         return liveID
     }
 
     func restore(_ id: UUID) -> UUID {
         restoredIDs.append(id)
+        if let activeID {
+            return activeID
+        }
+        activeID = id
         return id
     }
+
+    func clear(_ id: UUID) async throws {
+        guard activeID == id else {
+            throw HoldProbeError.wrongID
+        }
+        if shouldPauseClear {
+            isClearPaused = true
+            clearPauseWaiters.forEach { $0.resume() }
+            clearPauseWaiters = []
+            await withCheckedContinuation { clearReleaseWaiter = $0 }
+        }
+        activeID = nil
+        clearedIDs.append(id)
+    }
+
+    func pauseClear() {
+        shouldPauseClear = true
+    }
+
+    func waitUntilPaused() async {
+        if isClearPaused {
+            return
+        }
+        await withCheckedContinuation { clearPauseWaiters.append($0) }
+    }
+
+    func releaseClear() {
+        shouldPauseClear = false
+        clearReleaseWaiter?.resume()
+        clearReleaseWaiter = nil
+    }
+}
+
+private enum HoldProbeError: Error {
+    case wrongID
 }

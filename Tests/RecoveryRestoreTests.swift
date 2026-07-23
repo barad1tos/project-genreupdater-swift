@@ -47,8 +47,10 @@ struct RecoveryRestoreTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await store.upsert($0) },
-            write: .init(
-                restoreRecoveryHold: { await processor.beginRecoveryHold(id: $0) }
+            write: setup.dependencies.writeDependencies(
+                store: store,
+                processor: processor,
+                writeFixPlan: nil
             )
         ))
         setup.dependencies.installTestOrchestrator(orchestrator)
@@ -65,6 +67,28 @@ struct RecoveryRestoreTests {
         let restored = try #require(await store.record(for: record.runID))
         let recoveryID = try #require(restored.recoveryID)
         #expect(await processor.recoveryHoldID() == recoveryID)
+        guard case let .recoverable(snapshot, _) = await orchestrator.submit(.manualWrite(input: emptyWriteInput()))
+        else {
+            Issue.record("Expected restored hold to reach the canonical write gate")
+            return
+        }
+        #expect(snapshot.runID == record.runID)
+    }
+
+    @Test("Orphaned physical hold reaches the canonical write gate")
+    func restoresOrphanedHold() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let orchestrator = try #require(setup.dependencies.runOrchestrator)
+
+        #expect(await setup.dependencies.ensureRecoveryHold())
+
+        #expect(await setup.processor.recoveryHoldID() == recoveryID)
+        guard case .recoveryRequired = await orchestrator.submit(.manualWrite(input: emptyWriteInput())) else {
+            Issue.record("Expected orphaned physical hold to block canonical write admission")
+            return
+        }
     }
 
     @Test("active writer defers restored hold activation until quiescence")
