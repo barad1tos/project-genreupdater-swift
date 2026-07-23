@@ -255,22 +255,14 @@ extension AppDependencies {
             try await store.upsert(record.closingRecovery(at: finishedAt))
             return record.runID
         }
-        if let runID = recoveryRunIDs.first {
-            guard try await store.closeCorruptedRun(runID, at: finishedAt) else {
-                throw AppDependencyServiceError.recoveryUnavailable
-            }
-            return runID
-        }
-        if !unsupportedRunIDs.isEmpty {
-            throw AppDependencyServiceError.recoveryUpdateRequired
-        }
-        if let runID = attentionRunIDs.first {
-            guard try await store.closeReadOnlyCorruption(runID, at: finishedAt) else {
-                throw AppDependencyServiceError.recoveryBlocked
-            }
-            return runID
-        }
-        return nil
+        guard targetCount == 1 else { return nil }
+        return try await closeCorruptedTarget(
+            recoveryRunID: recoveryRunIDs.first,
+            attentionRunID: attentionRunIDs.first,
+            unsupportedRunID: unsupportedRunIDs.first,
+            store: store,
+            at: finishedAt
+        )
     }
 
     private func resolvedRecoveryRun(id: UUID, store: any RunRecordStore) async throws -> RunID? {
