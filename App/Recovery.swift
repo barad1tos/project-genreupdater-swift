@@ -29,8 +29,7 @@ extension AppDependencies {
                 if let record = candidates.first(where: { $0.recoveryID == existingID }) {
                     _ = await restoreRecoveryHold(for: record, preferredID: existingID)
                 } else if let record = candidates.first(where: { $0.recoveryID == nil }) {
-                    let preferredID = activeLifecycle?.intent == .writeFixes ? nil : existingID
-                    _ = await restoreRecoveryHold(for: record, preferredID: preferredID)
+                    _ = await restoreRecoveryHold(for: record, preferredID: existingID)
                 }
                 // Preserve the active hold; clearing it re-runs discovery for the next persisted run.
                 return true
