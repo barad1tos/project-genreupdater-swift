@@ -14,19 +14,19 @@ extension UpdateCoordinator {
         if let outcomeError = error as? AppleScriptOutcomeError {
             throw outcomeError
         }
-        if let coordinatorError = error as? UpdateCoordinatorError,
-           case .writeFinalizationFailed = coordinatorError {
-            throw coordinatorError
-        }
-        if let coordinatorError = error as? UpdateCoordinatorError,
-           recordKnownWorkflowFailure(
-               coordinatorError,
-               fallbackTrackID: trackID,
-               isReviewedChange: isReviewedChange,
-               failedTrackIDs: &failedTrackIDs,
-               errorDescriptions: &errorDescriptions
-           ) {
-            return
+        if let coordinatorError = error as? UpdateCoordinatorError {
+            if case .writeFinalizationFailed = coordinatorError {
+                throw coordinatorError
+            }
+            if recordKnownWorkflowFailure(
+                coordinatorError,
+                fallbackTrackID: trackID,
+                isReviewedChange: isReviewedChange,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            ) {
+                return
+            }
         }
         recordUnexpectedFailure(
             trackID: trackID,
