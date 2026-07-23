@@ -206,8 +206,8 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         case let (.prepared, .outcome(outcome)):
             outcome != .written
         // `.attempting` carries no confirmed dispatch outcome: a crash can leave it before
-        // dispatch or after dispatch but before `.attempted` persisted. Recovery may close it
-        // only with a conclusive non-written result; `.written` still requires `.attempted`.
+        // dispatch or after dispatch but before `.attempted` persists. Recovery may record a
+        // non-written closure such as `.dismissed`; `.written` still requires `.attempted`.
         case let (.attempting, .outcome(outcome)):
             outcome != .written
         case (.prepared, .prepared),

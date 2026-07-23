@@ -361,12 +361,13 @@ public struct AppleScriptClientParseError: Error, LocalizedError, Sendable, Equa
     }
 }
 
+/// Reports that a Music.app mutation may have been dispatched.
+public typealias WriteAttemptHook = @Sendable () async throws -> Void
+
 /// Protocol for interacting with Music.app via AppleScript.
 ///
 /// The actor requirement ensures serial access to AppleScript execution,
 /// which avoids race conditions with Music.app.
-public typealias WriteAttemptHook = @Sendable () async throws -> Void
-
 public protocol AppleScriptClient: Actor {
     /// Initialize the client (validate scripts exist, etc.).
     func initialize() async throws
