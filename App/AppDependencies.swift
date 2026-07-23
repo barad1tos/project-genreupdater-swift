@@ -521,23 +521,18 @@ final class AppDependencies {
         } else {
             nil
         }
-        let writeDependencies: RunOrchestrator
-            .WriteDependencies? = if let writeFixPlan = makeWriteRunner(runtime: runtime) {
-            .init(
-                persistCheckpoint: { checkpointRunID, checkpoint in
-                    try await runRecordStore.checkpoint(checkpoint, runID: checkpointRunID)
-                },
-                writeFixPlan: writeFixPlan,
-                beginRecoveryHold: {
-                    await processor.beginRecoveryHold()
-                },
-                restoreRecoveryHold: { id in
-                    await processor.beginRecoveryHold(id: id)
-                }
-            )
-        } else {
-            nil
-        }
+        let writeDependencies = RunOrchestrator.WriteDependencies(
+            persistCheckpoint: { checkpointRunID, checkpoint in
+                try await runRecordStore.checkpoint(checkpoint, runID: checkpointRunID)
+            },
+            writeFixPlan: makeWriteRunner(runtime: runtime),
+            beginRecoveryHold: {
+                await processor.beginRecoveryHold()
+            },
+            restoreRecoveryHold: { id in
+                await processor.beginRecoveryHold(id: id)
+            }
+        )
 
         return RunOrchestrator(dependencies: RunOrchestrator.Dependencies(
             synchronizeLibrary: { [syncService] in

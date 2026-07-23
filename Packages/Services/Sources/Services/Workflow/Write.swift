@@ -241,6 +241,20 @@ extension UpdateCoordinator {
         }
     }
 
+    private func checkpointBatch(
+        _ preparedWrites: [PreparedWrite],
+        batch: BatchWriteOutcome,
+        sink: WorkCheckpointSink?,
+        indexes: Set<Int>,
+        preserving outcome: AppleScriptOutcomeError
+    ) async throws {
+        do {
+            try await checkpointBatch(preparedWrites, batch: batch, sink: sink, indexes: indexes)
+        } catch let WorkCheckpointError.store(failure) {
+            throw WorkCheckpointError.store(failure.withOutcome(outcome))
+        }
+    }
+
     private func appliedChangeEntries(
         for preparedWrites: [PreparedWrite],
         batchOutcome: BatchWriteOutcome,
@@ -525,18 +539,17 @@ extension UpdateCoordinator {
                     preparedWrites,
                     indexes: preflight.writeIndexes.subtracting(appliedIndexes)
                 )
+                let outcome = Self.partialBatchOutcome(
+                    applied: appliedIndexes.count, attempted: preflight.writeIndexes.count, error: error
+                )
                 try await checkpointBatch(
                     preparedWrites,
                     batch: batch,
                     sink: checkpoint,
-                    indexes: confirmedIndexes
+                    indexes: confirmedIndexes,
+                    preserving: outcome
                 )
-                let reason = "verification covered only \(appliedIndexes.count) of \(preflight.writeIndexes.count) " +
-                    "writes after dispatch: \(error.localizedDescription)"
-                throw AppleScriptOutcomeError(
-                    scriptName: "batch_update_tracks",
-                    reason: reason
-                )
+                throw outcome
             }
             return BatchWriteOutcome(
                 currentTracksByID: currentTracksByID,
@@ -557,6 +570,16 @@ extension UpdateCoordinator {
                 reason: "verification failed after dispatch: \(error.localizedDescription)"
             )
         }
+    }
+
+    private static func partialBatchOutcome(
+        applied: Int,
+        attempted: Int,
+        error: AppleScriptBatchVerificationError
+    ) -> AppleScriptOutcomeError {
+        let reason = "verification covered only \(applied) of \(attempted) writes after dispatch: " +
+            error.localizedDescription
+        return AppleScriptOutcomeError(scriptName: "batch_update_tracks", reason: reason)
     }
 
     private func recordBatchEffects(

@@ -139,8 +139,8 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         workLedger.hasUncertainty
     }
 
-    /// True while a work item has confirmed dispatch without a terminal outcome.
-    /// An `.attempting` item remains uncertain because dispatch may or may not have occurred.
+    /// True after a write crosses the pre-dispatch checkpoint or produces a written outcome.
+    /// An `.attempting` item counts because a missing later checkpoint cannot prove Music.app was not reached.
     var hasWriteProgress: Bool {
         workLedger.hasProgress
     }

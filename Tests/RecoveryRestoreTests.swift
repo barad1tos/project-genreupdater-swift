@@ -38,6 +38,35 @@ struct RecoveryRestoreTests {
         #expect(restored.failureMessage == "Write interrupted")
     }
 
+    @Test("Restored hold reaches the mutation gate without a write runner")
+    func restoresHoldWithoutWriter() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let store = setup.store
+        let processor = setup.processor
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await store.upsert($0) },
+            write: .init(
+                restoreRecoveryHold: { await processor.beginRecoveryHold(id: $0) }
+            )
+        ))
+        setup.dependencies.installTestOrchestrator(orchestrator)
+        let record = sampleRunRecord(
+            intent: .writeFixes,
+            state: .writing,
+            failureMessage: "Write interrupted",
+            finishedAt: nil
+        )
+        try await store.upsert(record)
+
+        #expect(await setup.dependencies.ensureRecoveryHold())
+
+        let restored = try #require(await store.record(for: record.runID))
+        let recoveryID = try #require(restored.recoveryID)
+        #expect(await processor.recoveryHoldID() == recoveryID)
+    }
+
     @Test("active writer defers restored hold activation until quiescence")
     func defersActiveWriterHold() async throws {
         let setup = try makeRecoverySetup()

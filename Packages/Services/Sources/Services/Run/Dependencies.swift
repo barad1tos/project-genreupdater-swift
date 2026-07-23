@@ -3,19 +3,19 @@ import Foundation
 extension RunOrchestrator {
     public struct WriteDependencies: Sendable {
         public let persistCheckpoint: (@Sendable (RunID, WorkCheckpoint) async throws -> Void)?
-        public let writeFixPlan: @Sendable (
+        public let writeFixPlan: (@Sendable (
             FixPlanWriteInput,
             @escaping WorkCheckpointSink
-        ) async throws -> BatchUpdateResult
+        ) async throws -> BatchUpdateResult)?
         public let beginRecoveryHold: (@Sendable () async -> UUID)?
         public let restoreRecoveryHold: (@Sendable (UUID) async -> UUID)?
 
         public init(
             persistCheckpoint: (@Sendable (RunID, WorkCheckpoint) async throws -> Void)? = nil,
-            writeFixPlan: @escaping @Sendable (
+            writeFixPlan: (@Sendable (
                 FixPlanWriteInput,
                 @escaping WorkCheckpointSink
-            ) async throws -> BatchUpdateResult,
+            ) async throws -> BatchUpdateResult)? = nil,
             beginRecoveryHold: (@Sendable () async -> UUID)? = nil,
             restoreRecoveryHold: (@Sendable (UUID) async -> UUID)? = nil
         ) {

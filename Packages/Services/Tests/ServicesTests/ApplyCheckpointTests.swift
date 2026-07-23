@@ -492,36 +492,7 @@ extension ApplyAcceptedTests {
 
     @Test("Partial batch verification records confirmed items")
     func recordsPartialBatch() async throws {
-        let fixture = await makeCoordinator(
-            runtimeConfiguration: UpdateRuntimeConfiguration(
-                areBatchUpdatesEnabled: true,
-                maxBatchUpdateSize: 5
-            )
-        )
-        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
-        await fixture.bridge.setFetchedTracks([track])
-        await fixture.bridge.setBatchMutationLimit(1)
-        let itemIDs = [UUID(), UUID()]
-        let proposals = [
-            ProposedChange(
-                id: itemIDs[0],
-                track: track,
-                changeType: .genreUpdate,
-                oldValue: "Rock",
-                newValue: "Stoner Rock",
-                confidence: 90,
-                source: "Library"
-            ),
-            ProposedChange(
-                id: itemIDs[1],
-                track: track,
-                changeType: .yearUpdate,
-                oldValue: "1999",
-                newValue: "2001",
-                confidence: 95,
-                source: "MusicBrainz"
-            ),
-        ]
+        let (fixture, itemIDs, proposals) = await makePartialBatch()
         let checkpoints = CheckpointProbe()
 
         await #expect(throws: AppleScriptOutcomeError.self) {
@@ -637,37 +608,8 @@ extension ApplyAcceptedTests {
 
     @Test("Partial-batch persistence failures do not publish written outcomes")
     func partialPersistenceFailure() async throws {
-        let fixture = await makeCoordinator(
-            runtimeConfiguration: UpdateRuntimeConfiguration(
-                areBatchUpdatesEnabled: true,
-                maxBatchUpdateSize: 5
-            )
-        )
+        let (fixture, itemIDs, proposals) = await makePartialBatch()
         await fixture.trackStore.failProcessingUpdates()
-        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
-        await fixture.bridge.setFetchedTracks([track])
-        await fixture.bridge.setBatchMutationLimit(1)
-        let itemIDs = [UUID(), UUID()]
-        let proposals = [
-            ProposedChange(
-                id: itemIDs[0],
-                track: track,
-                changeType: .genreUpdate,
-                oldValue: "Rock",
-                newValue: "Stoner Rock",
-                confidence: 90,
-                source: "Library"
-            ),
-            ProposedChange(
-                id: itemIDs[1],
-                track: track,
-                changeType: .yearUpdate,
-                oldValue: "1999",
-                newValue: "2001",
-                confidence: 95,
-                source: "MusicBrainz"
-            ),
-        ]
         let checkpoints = CheckpointProbe()
 
         await #expect(throws: AppleScriptOutcomeError.self) {
@@ -685,6 +627,39 @@ extension ApplyAcceptedTests {
         ])
         #expect(await fixture.undo.getHistory().count == 1)
         #expect(await fixture.trackStore.processingUpdates.isEmpty)
+    }
+
+    @Test("Partial-batch checkpoint failure keeps verification context")
+    func keepsPartialOutcome() async throws {
+        let (fixture, itemIDs, proposals) = await makePartialBatch()
+        let checkpoints = CheckpointProbe()
+        let failure = storeFailure(for: .afterVerification([itemIDs[0]: .written]))
+
+        do {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                proposals,
+                progressHandler: ignoreAcceptedChangeProgress,
+                checkpoint: { checkpoint in
+                    await checkpoints.append(checkpoint)
+                    if checkpoint.boundary == .afterVerification {
+                        throw failure
+                    }
+                }
+            )
+            Issue.record("Expected checkpoint store failure")
+        } catch let WorkCheckpointError.store(caught) {
+            #expect(caught.reason.contains("record store unavailable"))
+            #expect(caught.reason.contains("verification covered only 1 of 2 writes after dispatch"))
+            #expect(caught.reason.contains("its outcome is unknown"))
+        } catch {
+            Issue.record("Expected checkpoint store failure, got \(error)")
+        }
+
+        #expect(await checkpoints.values.map(\.boundary) == [
+            .beforeAttempt,
+            .afterAttempt,
+            .afterVerification,
+        ])
     }
 
     private func checkpointEffects(
@@ -766,5 +741,39 @@ extension ApplyAcceptedTests {
             isWriteAdjacent: false,
             reason: "record store unavailable"
         ))
+    }
+
+    private func makePartialBatch() async -> (AcceptedApplyFixture, [UUID], [ProposedChange]) {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            )
+        )
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.bridge.setFetchedTracks([track])
+        await fixture.bridge.setBatchMutationLimit(1)
+        let itemIDs = [UUID(), UUID()]
+        let proposals = [
+            ProposedChange(
+                id: itemIDs[0],
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Stoner Rock",
+                confidence: 90,
+                source: "Library"
+            ),
+            ProposedChange(
+                id: itemIDs[1],
+                track: track,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz"
+            ),
+        ]
+        return (fixture, itemIDs, proposals)
     }
 }
