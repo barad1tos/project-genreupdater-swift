@@ -35,9 +35,10 @@ struct WriteCancelTests {
         #expect(await records.records.last?.recoveryID == recoveryID)
     }
 
-    @Test("cancellation before dispatch cancels the item without recovery")
-    func cancelsBeforeDispatch() async throws {
+    @Test("cancellation after pre-attempt checkpoint requires recovery")
+    func recoversAttemptCancellation() async throws {
         let records = WriteRecordProbe()
+        let recoveryID = UUID()
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
@@ -48,8 +49,33 @@ struct WriteCancelTests {
                     try await checkpoint(.beforeAttempt([itemID]))
                     throw CancellationError()
                 },
+                beginRecoveryHold: { recoveryID }
+            )
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case let .recoverable(snapshot, _) = result else {
+            Issue.record("Expected recoverable result")
+            return
+        }
+        #expect(snapshot.workItems.first?.state == .attempting)
+        #expect(await records.records.last?.state == .recoverable)
+        #expect(await records.records.last?.recoveryID == recoveryID)
+        #expect(await records.records.last?.workItems.first?.state == .attempting)
+    }
+
+    @Test("cancellation before any checkpoint skips prepared work")
+    func cancelsPreparedWork() async {
+        let records = WriteRecordProbe()
+        let input = writeInput()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await records.append($0) },
+            write: .init(
+                writeFixPlan: { _, _ in throw CancellationError() },
                 beginRecoveryHold: {
-                    Issue.record("Pre-dispatch cancellation must not open recovery")
+                    Issue.record("Cancellation before an attempt must not open recovery")
                     return UUID()
                 }
             )
@@ -61,10 +87,9 @@ struct WriteCancelTests {
             Issue.record("Expected cancelled result")
             return
         }
-        #expect(snapshot.workItems.first?.state == .outcome(.skipped))
+        #expect(snapshot.workItems.allSatisfy { $0.state == .outcome(.skipped) })
         #expect(await records.records.last?.state == .cancelled)
         #expect(await records.records.last?.recoveryID == nil)
-        #expect(await records.records.last?.workItems.first?.state == .outcome(.skipped))
     }
 
     @Test("cancellation before any checkpoint fails when its terminal cannot persist")
@@ -124,9 +149,10 @@ struct WriteCancelTests {
         #expect(await records.records.allSatisfy { $0.finishedAt == nil })
     }
 
-    @Test("cancellation closes untouched work items as skipped")
-    func skipsRemainingOnCancel() async throws {
+    @Test("cancellation preserves uncertain and untouched work for recovery")
+    func retainsUncertainWork() async throws {
         let records = WriteRecordProbe()
+        let recoveryID = UUID()
         let first = makeWorkItem(state: .prepared)
         let second = makeWorkItem(state: .prepared)
         let input = writeInput(workItems: [first, second])
@@ -138,26 +164,24 @@ struct WriteCancelTests {
                     try await checkpoint(.beforeAttempt([first.id]))
                     throw CancellationError()
                 },
-                beginRecoveryHold: {
-                    Issue.record("Pre-dispatch cancellation must not open recovery")
-                    return UUID()
-                }
+                beginRecoveryHold: { recoveryID }
             )
         ))
 
         let result = await orchestrator.submit(.manualWrite(input: input))
 
-        guard case let .cancelled(snapshot) = result else {
-            Issue.record("Expected cancelled result")
+        guard case let .recoverable(snapshot, _) = result else {
+            Issue.record("Expected recoverable result")
             return
         }
-        #expect(snapshot.workItems.map(\.state) == [.outcome(.skipped), .outcome(.skipped)])
+        #expect(snapshot.workItems.map(\.state) == [.attempting, .prepared])
         let record = try #require(await records.records.last)
-        #expect(record.state == .cancelled)
-        #expect(record.workItems.map(\.state) == [.outcome(.skipped), .outcome(.skipped)])
+        #expect(record.state == .recoverable)
+        #expect(record.recoveryID == recoveryID)
+        #expect(record.workItems.map(\.state) == [.attempting, .prepared])
     }
 
-    @Test("pre-dispatch cancellation holds recovery when its terminal cannot persist")
+    @Test("uncertain cancellation keeps recovery when its state cannot persist")
     func holdsUnstoredCancellation() async throws {
         let records = FailingRecordProbe(failingCall: 3)
         let recoveryID = UUID()
@@ -178,17 +202,17 @@ struct WriteCancelTests {
         let result = await orchestrator.submit(.manualWrite(input: input))
 
         guard case let .recoverable(snapshot, reason) = result else {
-            Issue.record("Expected recoverable result when the cancelled terminal cannot persist")
+            Issue.record("Expected recoverable result when recovery state cannot persist")
             return
         }
-        #expect(snapshot.workItems.allSatisfy { $0.state == .outcome(.skipped) })
-        #expect(!reason.contains("Verify Music.app"))
+        #expect(snapshot.workItems.first?.state == .attempting)
+        #expect(reason.contains("verify Music.app"))
         #expect(await orchestrator.currentLifecycle()?.state == .recoverable)
         let retained = try #require(await records.records.last)
-        #expect(retained.state == .recoverable)
-        #expect(retained.workItems.allSatisfy { $0.state == .outcome(.skipped) })
+        #expect(retained.state == .writing)
+        #expect(retained.workItems.first?.state == .attempting)
         #expect(retained.finishedAt == nil)
-        #expect(retained.recoveryID == recoveryID)
+        #expect(retained.recoveryID == nil)
     }
 
     @Test("a fallback no-op after an undispatched attempt completes without recovery")

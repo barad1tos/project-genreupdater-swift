@@ -73,7 +73,8 @@ struct LifecycleBufferTests {
         }
         await gate.release()
         let firstResult = await first.value
-        let secondTerminal = try await waitForQueuedTerminal(orchestrator, after: firstResult.lifecycle.runID)
+        let firstLifecycle = try #require(firstResult.lifecycle)
+        let secondTerminal = try await waitForQueuedTerminal(orchestrator, after: firstLifecycle.runID)
 
         var snapshots: [RunLifecycleSnapshot] = []
         while let snapshot = try await nextSnapshot(from: iterator) {
@@ -84,7 +85,7 @@ struct LifecycleBufferTests {
         }
 
         let firstTerminalIndex = try #require(snapshots.firstIndex {
-            $0.runID == firstResult.lifecycle.runID && !$0.isActive
+            $0.runID == firstLifecycle.runID && !$0.isActive
         })
         let secondRunIndex = try #require(snapshots.firstIndex {
             $0.runID == secondTerminal.runID

@@ -40,10 +40,10 @@ struct OrchestratorTests {
             knownTrackCount: 75
         ))
 
-        #expect(result.lifecycle.state == .completedNoOp)
-        #expect(result.lifecycle.scope.source == .testArtists)
-        #expect(result.lifecycle.scope.normalizedTestArtists == ["Aphex Twin"])
-        #expect(result.lifecycle.scope.knownTrackCount == 75)
+        #expect(result.lifecycle?.state == .completedNoOp)
+        #expect(result.lifecycle?.scope.source == .testArtists)
+        #expect(result.lifecycle?.scope.normalizedTestArtists == ["Aphex Twin"])
+        #expect(result.lifecycle?.scope.knownTrackCount == 75)
     }
 
     @Test("manual observation returns completed when sync detects any delta")
@@ -67,8 +67,8 @@ struct OrchestratorTests {
             Issue.record("Expected completed, got \(result)")
             return
         }
-        #expect(result.lifecycle.state == .completed)
-        #expect(result.lifecycle.syncResult?.changeCount == 1)
+        #expect(result.lifecycle?.state == .completed)
+        #expect(result.lifecycle?.syncResult?.changeCount == 1)
     }
 
     @Test("manual observation stores failed lifecycle")
@@ -90,8 +90,8 @@ struct OrchestratorTests {
             Issue.record("Expected failed, got \(result)")
             return
         }
-        #expect(result.lifecycle.state == .failed)
-        #expect(result.lifecycle.failureMessage == "Music.app unavailable")
+        #expect(result.lifecycle?.state == .failed)
+        #expect(result.lifecycle?.failureMessage == "Music.app unavailable")
     }
 
     @Test("cancellation error during sync cancels the run with a cancelled message")
@@ -114,8 +114,8 @@ struct OrchestratorTests {
             Issue.record("Expected cancelled, got \(result)")
             return
         }
-        #expect(result.lifecycle.state == .cancelled)
-        #expect(result.lifecycle.failureMessage == "Run cancelled")
+        #expect(result.lifecycle?.state == .cancelled)
+        #expect(result.lifecycle?.failureMessage == "Run cancelled")
 
         let final = try #require(await probe.records.last)
         #expect(final.state == .cancelled)
@@ -276,7 +276,7 @@ struct OrchestratorTests {
         let firstResult = await first.value
         await syncCalls.waitUntilCount(2)
 
-        let firstRunID = firstResult.lifecycle.runID
+        let firstRunID = firstResult.lifecycle?.runID
         var snapshots: [RunLifecycleSnapshot] = []
         while let snapshot = try await nextLifecycleSnapshot(from: iterator) {
             snapshots.append(snapshot)
@@ -387,7 +387,7 @@ struct OrchestratorTests {
         await gate.release()
 
         let result = await submitter.value
-        #expect(result.lifecycle.state == .completedNoOp)
+        #expect(result.lifecycle?.state == .completedNoOp)
         #expect(await orchestrator.currentLifecycle()?.state == .completedNoOp)
     }
 
@@ -443,8 +443,8 @@ struct OrchestratorTests {
         #expect(final.state == .completed)
         #expect(final.transitions.map(\.state) == [.created, .syncingLibrary, .reporting, .completed])
         #expect(final.syncSummary?.changeCount == 1)
-        #expect(final.finishedAt == result.lifecycle.finishedAt)
-        #expect(final.startedAt == result.lifecycle.startedAt)
+        #expect(final.finishedAt == result.lifecycle?.finishedAt)
+        #expect(final.startedAt == result.lifecycle?.startedAt)
         #expect(final.failureMessage == nil)
     }
 
@@ -469,7 +469,7 @@ struct OrchestratorTests {
             knownTrackCount: nil
         ))
 
-        #expect(result.lifecycle.state == .completedNoOp)
+        #expect(result.lifecycle?.state == .completedNoOp)
         #expect(await producer.callCount == 0)
         let final = try #require(await probe.records.last)
         #expect(final.transitions.map(\.state) == [.created, .syncingLibrary, .reporting, .completedNoOp])
@@ -513,7 +513,7 @@ struct OrchestratorTests {
             knownTrackCount: nil
         ))
 
-        #expect(result.lifecycle.state == .completedNoOp)
+        #expect(result.lifecycle?.state == .completedNoOp)
         #expect(await orchestrator.currentLifecycle()?.state == .completedNoOp)
     }
 
@@ -574,7 +574,7 @@ struct OrchestratorTests {
             Issue.record("Expected failed, got \(firstResult)")
             return
         }
-        #expect(firstResult.lifecycle.state == .failed)
+        #expect(firstResult.lifecycle?.state == .failed)
 
         let secondResult = await orchestrator.submit(.manualObservation(
             requestedTestArtists: [],

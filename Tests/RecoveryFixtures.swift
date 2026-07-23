@@ -27,7 +27,14 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) throws -> RecoverySet
     ))
     let orchestrator = RunOrchestrator(dependencies: .init(
         synchronizeLibrary: { SyncResult() },
-        persistRunRecord: { try await store.upsert($0) }
+        persistRunRecord: { try await store.upsert($0) },
+        write: .init(
+            writeFixPlan: { _, _ in
+                BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
+            },
+            beginRecoveryHold: { await processor.beginRecoveryHold() },
+            restoreRecoveryHold: { await processor.beginRecoveryHold(id: $0) }
+        )
     ))
     fixture.dependencies.installTestOrchestrator(orchestrator)
     return RecoverySetup(

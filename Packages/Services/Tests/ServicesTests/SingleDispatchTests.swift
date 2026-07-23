@@ -70,6 +70,55 @@ struct SingleDispatchTests {
         #expect(await attempts.value == 1)
     }
 
+    @Test("unknown outcome preserves a typed checkpoint store failure")
+    func storeFailureKeepsOutcome() async throws {
+        let bridge = makeBridge()
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let request = RunRequest.manualWrite(input: input)
+        let durable = RunLifecycleSnapshot(
+            request: request,
+            scope: input.scope,
+            startedAt: Date(timeIntervalSince1970: 100),
+            phase: .active(.writing)
+        )
+        let checkpoint = WorkCheckpoint.beforeAttempt([itemID])
+        let candidate = try durable.applying(checkpoint)
+        let stored = CheckpointStoreFailure(
+            checkpoint: checkpoint,
+            candidate: candidate,
+            durableSnapshot: durable,
+            isWriteAdjacent: true,
+            reason: "checkpoint store unavailable"
+        )
+
+        do {
+            _ = try await bridge.updateTrackProperty(
+                trackID: "101",
+                property: "genre",
+                value: "Metal",
+                onAttempt: { throw WorkCheckpointError.store(stored) },
+                execute: {
+                    throw AppleScriptOutcomeError(
+                        scriptName: "update_property",
+                        reason: "connection ended before reply"
+                    )
+                }
+            )
+            Issue.record("Expected typed checkpoint store failure")
+        } catch let WorkCheckpointError.store(failure) {
+            #expect(failure.checkpoint == checkpoint)
+            #expect(failure.candidate == candidate)
+            #expect(failure.durableSnapshot == durable)
+            #expect(failure.isWriteAdjacent)
+            #expect(failure.reason.contains("checkpoint store unavailable"))
+            #expect(failure.reason.contains("connection ended before reply"))
+            #expect(failure.reason.contains("outcome is unknown"))
+        } catch {
+            Issue.record("Expected typed checkpoint store failure, got \(error)")
+        }
+    }
+
     @Test("Successful response records an attempt")
     func successIsAttempted() async throws {
         let bridge = makeBridge()

@@ -5,7 +5,6 @@ struct WorkLedger: Equatable, Sendable {
     private struct Counts: Equatable, Sendable {
         var open = 0
         var uncertain = 0
-        var dispatched = 0
         var written = 0
 
         init(_ items: [RunWorkItem]) {
@@ -23,13 +22,9 @@ struct WorkLedger: Equatable, Sendable {
             switch state {
             case .prepared:
                 open += change
-            case .attempting:
+            case .attempting, .attempted:
                 open += change
                 uncertain += change
-            case .attempted:
-                open += change
-                uncertain += change
-                dispatched += change
             case .outcome(.written):
                 written += change
             case .outcome:
@@ -79,12 +74,6 @@ struct WorkLedger: Equatable, Sendable {
 
     var hasUncertainty: Bool {
         counts.uncertain > 0
-    }
-
-    /// True while at least one item has a confirmed dispatch without a terminal outcome.
-    /// Distinct from `hasUncertainty`, which also includes `.attempting` items whose dispatch outcome is unknown.
-    var hasDispatchedWrite: Bool {
-        counts.dispatched > 0
     }
 
     var hasProgress: Bool {

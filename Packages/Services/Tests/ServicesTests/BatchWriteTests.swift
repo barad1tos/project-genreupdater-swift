@@ -106,8 +106,8 @@ struct BatchWriteTests {
         #expect(written.isEmpty)
     }
 
-    @Test("A pre-dispatch batch cancellation closes its orchestrated run")
-    func orchestratesBatchCancellation() async {
+    @Test("A batch cancellation after admission enters recovery")
+    func recoversBatchCancellation() async {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
         await fixture.bridge.setBatchCancellationMode(true)
         let track = makeTrack(id: "MK1", genre: "Rock", year: 1999)
@@ -115,6 +115,7 @@ struct BatchWriteTests {
         let proposals = acceptedProposals(for: track)
         let checkpoints = CheckpointRecorder()
         let records = WriteRecordProbe()
+        let recoveryID = UUID()
         let input = writeInput(workItems: workItems(for: proposals))
         let coordinator = fixture.coordinator
         let orchestrator = RunOrchestrator(dependencies: .init(
@@ -131,24 +132,22 @@ struct BatchWriteTests {
                         }
                     )
                 },
-                beginRecoveryHold: {
-                    Issue.record("Pre-dispatch batch cancellation must not open recovery")
-                    return UUID()
-                }
+                beginRecoveryHold: { recoveryID }
             )
         ))
 
         let result = await orchestrator.submit(.manualWrite(input: input))
 
-        guard case let .cancelled(snapshot) = result else {
-            Issue.record("Expected terminal cancellation, got \(result)")
+        guard case let .recoverable(snapshot, _) = result else {
+            Issue.record("Expected recoverable result, got \(result)")
             return
         }
 
         #expect(await checkpoints.boundaries == [.beforeAttempt])
-        #expect(snapshot.workItems.allSatisfy { $0.state == .outcome(.skipped) })
-        #expect(await records.records.last?.state == .cancelled)
-        #expect(await records.records.last?.workItems.allSatisfy { $0.state == .outcome(.skipped) } == true)
+        #expect(snapshot.workItems.allSatisfy { $0.state == .attempting })
+        #expect(await records.records.last?.state == .recoverable)
+        #expect(await records.records.last?.recoveryID == recoveryID)
+        #expect(await records.records.last?.workItems.allSatisfy { $0.state == .attempting } == true)
         #expect(await fixture.bridge.writtenProperties.isEmpty)
     }
 

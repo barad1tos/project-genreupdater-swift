@@ -300,7 +300,7 @@ extension AppleScriptBridge {
         do {
             output = try await execute()
         } catch let error as AppleScriptOutcomeError {
-            try await onAttempt?()
+            try await recordUnknownAttempt(onAttempt, outcome: error)
             throw error
         }
         try await onAttempt?()
@@ -365,7 +365,7 @@ extension AppleScriptBridge {
             // Music.app was never reached, so the caller may safely fall back to single writes.
             throw error
         } catch let error as AppleScriptOutcomeError {
-            try await onAttempt?()
+            try await recordUnknownAttempt(onAttempt, outcome: error)
             throw error
         }
         try await onAttempt?()
@@ -381,6 +381,25 @@ extension AppleScriptBridge {
         }
         try await verifyBatchUpdateResult(updates)
         log.info("Batch updated \(updates.count, privacy: .public) tracks")
+    }
+
+    private func recordUnknownAttempt(
+        _ onAttempt: WriteAttemptHook?,
+        outcome: AppleScriptOutcomeError
+    ) async throws {
+        guard let onAttempt else { return }
+        do {
+            try await onAttempt()
+        } catch let WorkCheckpointError.store(failure) {
+            throw WorkCheckpointError.store(failure.withOutcome(outcome))
+        } catch {
+            log.error("""
+            Unknown AppleScript outcome \(outcome.localizedDescription, privacy: .private); attempt hook failed with \
+            \(String(describing: type(of: error)), privacy: .public): \
+            \(error.localizedDescription, privacy: .private)
+            """)
+            throw error
+        }
     }
 
     private func ensureBatchUpdateScriptExists() async throws {

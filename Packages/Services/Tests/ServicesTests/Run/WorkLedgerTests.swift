@@ -65,17 +65,15 @@ struct WorkLedgerTests {
         #expect(written.hasProgress)
     }
 
-    @Test("dispatched writes are distinguished from mere attempts")
-    func tracksDispatchSeparately() throws {
+    @Test("attempting and attempted work are both uncertain")
+    func tracksUncertainty() throws {
         let item = makeWorkItem(state: .prepared)
         let prepared = WorkLedger([item])
         let attempting = try prepared.applying(.beforeAttempt([item.id]))
         let attempted = try attempting.applying(.afterAttempt([item.id]))
 
-        #expect(!prepared.hasDispatchedWrite)
-        #expect(!attempting.hasDispatchedWrite)
+        #expect(!prepared.hasUncertainty)
         #expect(attempting.hasUncertainty)
-        #expect(attempted.hasDispatchedWrite)
         #expect(attempted.hasUncertainty)
     }
 

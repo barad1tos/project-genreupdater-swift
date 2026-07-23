@@ -93,6 +93,54 @@ struct BatchDispatchTests {
         #expect(await checkpoints.value == 1)
     }
 
+    @Test("unknown batch outcome preserves a typed checkpoint store failure")
+    func storeFailureKeepsOutcome() async throws {
+        let fixture = try makeBatchBridge()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let request = RunRequest.manualWrite(input: input)
+        let durable = RunLifecycleSnapshot(
+            request: request,
+            scope: input.scope,
+            startedAt: Date(timeIntervalSince1970: 100),
+            phase: .active(.writing)
+        )
+        let checkpoint = WorkCheckpoint.beforeAttempt([itemID])
+        let candidate = try durable.applying(checkpoint)
+        let stored = CheckpointStoreFailure(
+            checkpoint: checkpoint,
+            candidate: candidate,
+            durableSnapshot: durable,
+            isWriteAdjacent: true,
+            reason: "checkpoint store unavailable"
+        )
+
+        do {
+            try await fixture.bridge.batchUpdateTracks([
+                (trackID: "101", property: "genre", value: "Metal")
+            ], onAttempt: {
+                throw WorkCheckpointError.store(stored)
+            }, execute: { _ in
+                throw AppleScriptOutcomeError(
+                    scriptName: "batch_update_tracks",
+                    reason: "connection ended before reply"
+                )
+            })
+            Issue.record("Expected typed checkpoint store failure")
+        } catch let WorkCheckpointError.store(failure) {
+            #expect(failure.checkpoint == checkpoint)
+            #expect(failure.candidate == candidate)
+            #expect(failure.durableSnapshot == durable)
+            #expect(failure.isWriteAdjacent)
+            #expect(failure.reason.contains("checkpoint store unavailable"))
+            #expect(failure.reason.contains("connection ended before reply"))
+            #expect(failure.reason.contains("outcome is unknown"))
+        } catch {
+            Issue.record("Expected typed checkpoint store failure, got \(error)")
+        }
+    }
+
     private func makeBridge(scriptsDirectory: URL = FileManager.default.temporaryDirectory) -> AppleScriptBridge {
         let installer = ScriptInstaller(
             scriptsDirectory: scriptsDirectory,

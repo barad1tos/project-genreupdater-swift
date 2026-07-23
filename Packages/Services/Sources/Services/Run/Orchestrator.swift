@@ -5,24 +5,11 @@ import OSLog
 public actor RunOrchestrator {
     static let lifecycleBufferLimit = 16
 
-    private struct RunWork {
-        let reportingSource: RunLifecycleSnapshot
-        let result: SyncResult
-        let hasActionableWork: Bool
-        let writeSummary: RunWriteSummary?
-        let failureMessage: String?
-    }
-
-    private struct RecoveryRun {
-        let snapshot: RunLifecycleSnapshot
-        let reason: String
-    }
-
-    private let dependencies: Dependencies
-    private let log = Logger(subsystem: "com.genreupdater", category: "RunOrchestrator")
-    private var activeRun: RunLifecycleSnapshot?
-    private var latestRun: RunLifecycleSnapshot?
-    private var recoveryRun: RecoveryRun?
+    let dependencies: Dependencies
+    let log = Logger(subsystem: "com.genreupdater", category: "RunOrchestrator")
+    var activeRun: RunLifecycleSnapshot?
+    var latestRun: RunLifecycleSnapshot?
+    var recoveryState = RecoveryState.clear
     private var activeTransitions: [RunLifecycleTransition] = []
     private var pendingTriggers: [PendingTrigger] = []
     private var subscribers: [UUID: LifecycleUpdateBuffer]
@@ -33,49 +20,11 @@ public actor RunOrchestrator {
     }
 
     public func currentLifecycle() -> RunLifecycleSnapshot? {
-        activeRun ?? recoveryRun?.snapshot ?? latestRun
+        activeRun ?? recoveryState.current?.run?.snapshot ?? latestRun
     }
 
     public func activeLifecycle() -> RunLifecycleSnapshot? {
         activeRun
-    }
-
-    public func restoreRecovery(_ record: RunRecord) async {
-        guard record.intent == .writeFixes,
-              record.finishedAt == nil,
-              record.state.needsWriteRecovery
-        else { return }
-        let snapshot = RunLifecycleSnapshot(recovering: record)
-        let reason = record.failureMessage ?? "Interrupted write requires Music.app verification."
-        recoveryRun = RecoveryRun(snapshot: snapshot, reason: reason)
-        discardPendingWrites()
-        if activeRun == nil {
-            latestRun = snapshot
-            broadcast(snapshot)
-        }
-    }
-
-    /// Resolves only recoverable holds; blocked records require a separate repair path.
-    public func resolveRecovery(runID: RunID, at finishedAt: Date) {
-        guard let recoveryRun, recoveryRun.snapshot.runID == runID else { return }
-        guard case .suspended(.recoverable) = recoveryRun.snapshot.phase else { return }
-        let recovering = recoveryRun.snapshot.beginningRecovery()
-        let closed: RunLifecycleSnapshot
-        do {
-            closed = try recovering.dismissingOpenWork()
-        } catch {
-            log.error("Recovery work closure failed: \(error.localizedDescription, privacy: .private)")
-            return
-        }
-        let resolved = closed.cancelling(
-            message: "Recovery closed after Music.app verification.",
-            at: finishedAt
-        )
-        self.recoveryRun = nil
-        if activeRun == nil {
-            latestRun = resolved
-            broadcast(resolved)
-        }
     }
 
     public func lifecycleUpdates() -> LifecycleUpdates {
@@ -99,8 +48,11 @@ public actor RunOrchestrator {
     }
 
     public func submit(_ request: RunRequest) async -> RunSubmissionResult {
-        if request.intent == .writeFixes, let recoveryRun {
-            return .recoverable(recoveryRun.snapshot, reason: recoveryRun.reason)
+        if request.intent == .writeFixes, recoveryState.hasWriteBlock {
+            if let run = recoveryState.current?.run {
+                return .recoverable(run.snapshot, reason: run.reason)
+            }
+            return .recoveryRequired
         }
         if let activeRun {
             switch TriggerArbiter.decide(active: activeRun, pending: pendingTriggers, incoming: request) {
@@ -160,10 +112,10 @@ public actor RunOrchestrator {
             await releasePreview(request)
             log.error("Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) cancelled")
             let current = activeRun ?? lifecycle
-            if request.intent == .writeFixes, current.hasDispatchedWrite {
+            if request.intent == .writeFixes, current.hasWriteUncertainty {
                 return await finishRecoverableRun(
                     from: current,
-                    failureMessage: "Write cancelled after durable progress; verify Music.app before continuing"
+                    failureMessage: "Write cancelled with an uncertain outcome; verify Music.app before continuing"
                 )
             }
             return await finishCancelledRun(from: current, message: "Run cancelled")
@@ -251,7 +203,7 @@ public actor RunOrchestrator {
                 isTerminalRetry: true
             )
         }
-        publishInactive(completed)
+        await publishInactive(completed)
         startPendingRun()
         if case .finished(.completedNoOp, _) = completed.phase {
             return .completedNoOp(completed)
@@ -393,17 +345,6 @@ public actor RunOrchestrator {
         )
     }
 
-    private static func makeWriteSyncResult(from result: BatchUpdateResult) -> SyncResult {
-        SyncResult(modifiedTracks: result.entries.map { entry in
-            Track(
-                id: entry.trackID,
-                name: entry.trackName,
-                artist: entry.artist,
-                album: entry.albumName
-            )
-        })
-    }
-
     private func finishFailedRun(
         from lifecycle: RunLifecycleSnapshot,
         failureMessage: String,
@@ -418,6 +359,7 @@ public actor RunOrchestrator {
             let beforeAttempt = checkpoint?.boundary == .beforeAttempt ? checkpoint : nil
             source = try lifecycle.failingUndispatchedWork(beforeAttempt)
         } catch {
+            logClosureFailure(error, runID: lifecycle.runID)
             return await finishUnstoredWrite(
                 from: lifecycle,
                 syncResult: syncResult,
@@ -469,9 +411,17 @@ public actor RunOrchestrator {
                 durableFallback: durableFallback
             )
         }
-        publishInactive(failed)
+        await publishInactive(failed)
         startPendingRun()
         return .failed(failed)
+    }
+
+    private func logClosureFailure(_ error: Error, runID: RunID) {
+        log.error("""
+        Run \(runID.rawValue.uuidString, privacy: .public) failed to close undispatched work with \
+        \(String(describing: type(of: error)), privacy: .public): \
+        \(error.localizedDescription, privacy: .private)
+        """)
     }
 
     private func prepareFailedReporting(
@@ -505,9 +455,13 @@ public actor RunOrchestrator {
             failureMessage: failureMessage,
             finishedAt: nil
         )
-        recoveryRun = RecoveryRun(snapshot: recoverable, reason: failureMessage)
+        installLiveRecovery(RecoveryRun(
+            snapshot: recoverable,
+            reason: failureMessage,
+            holdID: recoveryID ?? recoverable.runID.rawValue
+        ))
         discardPendingWrites()
-        publishInactive(recoverable)
+        await publishInactive(recoverable)
         startPendingRun()
         return .recoverable(recoverable, reason: failureMessage)
     }
@@ -540,9 +494,13 @@ public actor RunOrchestrator {
             heldSnapshot = recoverable
             heldMessage = message
         }
-        recoveryRun = RecoveryRun(snapshot: heldSnapshot, reason: heldMessage)
+        installLiveRecovery(RecoveryRun(
+            snapshot: heldSnapshot,
+            reason: heldMessage,
+            holdID: recoveryID ?? heldSnapshot.runID.rawValue
+        ))
         discardPendingWrites()
-        publishInactive(heldSnapshot)
+        await publishInactive(heldSnapshot)
         startPendingRun()
         return .recoverable(heldSnapshot, reason: heldMessage)
     }
@@ -563,8 +521,8 @@ public actor RunOrchestrator {
     ) async -> RunSubmissionResult {
         let reporting = beginReporting(from: lifecycle)
         let finishedAt = auditTime()
-        // Cancellation reaches here before dispatch. Close open work as `.skipped` while retaining
-        // the pre-close checkpoint for unstored-terminal recovery.
+        // Cancellation reaches here only without write uncertainty. Close prepared work as
+        // `.skipped` while retaining the pre-close checkpoint for unstored-terminal recovery.
         let closed: RunLifecycleSnapshot
         do {
             closed = try reporting.skippingOpenWork()
@@ -606,18 +564,21 @@ public actor RunOrchestrator {
                 isTerminalRetry: true
             )
         }
-        publishInactive(cancelled)
+        await publishInactive(cancelled)
         startPendingRun()
         return .cancelled(cancelled)
     }
 
     private func startPendingRun() {
+        if recoveryState.hasWriteBlock {
+            discardPendingWrites()
+        }
         guard !pendingTriggers.isEmpty else { return }
         let pending = pendingTriggers.removeFirst()
         _ = startRun(for: pending.request, startedAt: dependencies.now())
     }
 
-    private func discardPendingWrites() {
+    func discardPendingWrites() {
         // Queue acknowledgements are not completion handles; recovery cancels pending writes fail-closed.
         pendingTriggers.removeAll { $0.request.intent == .writeFixes }
     }
@@ -658,6 +619,9 @@ public actor RunOrchestrator {
                 checkpoint.boundary,
                 writeAdjacent: checkpoint.boundary != .beforeAttempt
             )
+        }
+        if checkpoint.boundary == .beforeAttempt, recoveryState.pending != nil {
+            throw RunWorkError.recoveryPending
         }
         let writeAdjacent = activeRun.isWriteAdjacent(to: checkpoint)
         let checkpointed = try activeRun.applying(checkpoint)
@@ -778,16 +742,19 @@ public actor RunOrchestrator {
         broadcast(lifecycle)
     }
 
-    private func publishInactive(_ lifecycle: RunLifecycleSnapshot) {
-        activeRun = nil
+    private func publishInactive(_ lifecycle: RunLifecycleSnapshot) async {
         latestRun = lifecycle
         broadcast(lifecycle)
-        guard let recoveryRun, recoveryRun.snapshot.runID != lifecycle.runID else { return }
-        latestRun = recoveryRun.snapshot
-        broadcast(recoveryRun.snapshot)
+        await promotePending()
+        activeRun = nil
+        guard let run = recoveryState.current?.run,
+              run.snapshot.runID != lifecycle.runID
+        else { return }
+        latestRun = run.snapshot
+        broadcast(run.snapshot)
     }
 
-    private func broadcast(_ lifecycle: RunLifecycleSnapshot) {
+    func broadcast(_ lifecycle: RunLifecycleSnapshot) {
         for subscriber in subscribers.values {
             subscriber.push(lifecycle)
         }

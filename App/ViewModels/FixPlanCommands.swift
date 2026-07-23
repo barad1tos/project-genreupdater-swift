@@ -292,16 +292,17 @@ struct FixPlanCommands {
                 refreshedActivityProjection: refreshedActivity,
                 refreshedFixPlanProjection: refreshedFixPlan
             )
+        case .recoveryRequired:
+            return writeRecoveryResult(
+                summary: "Recovery blocks this write",
+                detail: "An unresolved recovery hold rejected write admission.",
+                activity: refreshedActivity
+            )
         case let .recoverable(_, reason):
-            return .blockedByRecovery(
-                message: "Recovery must be resolved before writes continue.",
-                issue: OperationalIssue(
-                    id: "fix-plan-write-recovery",
-                    category: .recoveryRequired,
-                    summary: "Write outcome needs recovery",
-                    technicalDetail: reason
-                ),
-                refreshedActivityProjection: refreshedActivity
+            return writeRecoveryResult(
+                summary: "Write outcome needs recovery",
+                detail: reason,
+                activity: refreshedActivity
             )
         case let .failed(snapshot):
             return .requiresAttention(
@@ -336,13 +337,27 @@ struct FixPlanCommands {
         projection _: FixPlanProjection
     ) async -> UserCommandResult {
         let activity = await refreshActivityProjection()
-        return .blockedByRecovery(
+        return writeRecoveryResult(
+            id: "fix-plan-write-held",
+            summary: "Write held by recovery",
+            detail: target.planID.description,
+            activity: activity
+        )
+    }
+
+    private func writeRecoveryResult(
+        id: String = "fix-plan-write-recovery",
+        summary: String,
+        detail: String,
+        activity: ActivityProjection
+    ) -> UserCommandResult {
+        .blockedByRecovery(
             message: "Recovery must be resolved before writes continue.",
             issue: OperationalIssue(
-                id: "fix-plan-write-held",
+                id: id,
                 category: .recoveryRequired,
-                summary: "Write held by recovery",
-                technicalDetail: target.planID.description
+                summary: summary,
+                technicalDetail: detail
             ),
             refreshedActivityProjection: activity
         )

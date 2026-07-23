@@ -6,12 +6,17 @@ private let recoveryLog = AppLogger.make(category: "recovery")
 
 extension AppDependencies {
     func ensureRecoveryHold() async -> Bool {
-        let existingID = await batchProcessor?.recoveryHoldID()
+        let activeLifecycle = await runOrchestrator?.activeLifecycle()
+        let activeRunID = activeLifecycle?.runID
+        let existingID: UUID? = if activeLifecycle?.intent == .writeFixes {
+            nil
+        } else {
+            await batchProcessor?.recoveryHoldID()
+        }
         guard let runRecordStore else { return existingID != nil }
 
         do {
             let page = try await runRecordStore.recoveryRecords()
-            let activeRunID = await runOrchestrator?.activeLifecycle()?.runID
             await closeClosableRuns(in: page, excluding: activeRunID)
             let candidates = page.records.filter {
                 $0.finishedAt == nil
@@ -24,22 +29,23 @@ extension AppDependencies {
                 if let record = candidates.first(where: { $0.recoveryID == existingID }) {
                     _ = await restoreRecoveryHold(for: record, preferredID: existingID)
                 } else if let record = candidates.first(where: { $0.recoveryID == nil }) {
-                    _ = await restoreRecoveryHold(for: record, preferredID: existingID)
+                    let preferredID = activeLifecycle?.intent == .writeFixes ? nil : existingID
+                    _ = await restoreRecoveryHold(for: record, preferredID: preferredID)
                 }
-                // Preserve an unrelated active hold; clearing it re-runs discovery for the next persisted run.
+                // Preserve the active hold; clearing it re-runs discovery for the next persisted run.
                 return true
             }
 
             if let corruptedRunID = page.recoveryRunIDs.first(where: { $0 != activeRunID }) {
-                _ = await batchProcessor?.beginRecoveryHold(id: corruptedRunID.rawValue)
+                await admitRecoveryHold(id: corruptedRunID.rawValue)
                 return true
             }
             if let unsupportedRunID = page.unsupportedRunIDs.first(where: { $0 != activeRunID }) {
-                _ = await batchProcessor?.beginRecoveryHold(id: unsupportedRunID.rawValue)
+                await admitRecoveryHold(id: unsupportedRunID.rawValue)
                 return true
             }
             if let attentionRunID = page.attentionRunIDs.first(where: { $0 != activeRunID }) {
-                _ = await batchProcessor?.beginRecoveryHold(id: attentionRunID.rawValue)
+                await admitRecoveryHold(id: attentionRunID.rawValue)
                 return true
             }
             for record in candidates where await restoreRecoveryHold(for: record, preferredID: nil) {
@@ -47,7 +53,7 @@ extension AppDependencies {
             }
             return false
         } catch {
-            _ = await batchProcessor?.beginRecoveryHold()
+            await admitRecoveryHold(id: UUID())
             recoveryLog.error(
                 "Failed to read recovery hold state: \(error.localizedDescription, privacy: .private)"
             )
@@ -134,9 +140,11 @@ extension AppDependencies {
         if await batchProcessor.recoveryHoldID() == id {
             try await batchProcessor.clearRecovery(batchID: id)
         }
-        if let resolvedRunID {
-            await runOrchestrator?.resolveRecovery(runID: resolvedRunID, at: finishedAt)
-        }
+        await runOrchestrator?.resolveRecovery(
+            id: id,
+            runID: resolvedRunID,
+            at: finishedAt
+        )
         _ = await ensureRecoveryHold()
     }
 
@@ -261,11 +269,19 @@ extension AppDependencies {
         return history.records.first { $0.recoveryID == id && $0.finishedAt != nil }?.runID
     }
 
+    private func admitRecoveryHold(id: UUID) async {
+        if let runOrchestrator {
+            await runOrchestrator.restoreRecoveryHold(id: id)
+        } else {
+            _ = await batchProcessor?.beginRecoveryHold(id: id)
+        }
+    }
+
     private func restoreRecoveryHold(for candidate: RunRecord, preferredID: UUID?) async -> Bool {
         guard candidate.intent == .writeFixes,
               candidate.state.needsWriteRecovery
         else { return false }
-        guard let batchProcessor, let runRecordStore else { return true }
+        guard let runRecordStore else { return true }
 
         let requestedID = candidate.recoveryID ?? preferredID ?? UUID()
         do {
@@ -274,14 +290,18 @@ extension AppDependencies {
                 id: requestedID,
                 at: Date()
             ) else { return false }
-            let activeID = await batchProcessor.beginRecoveryHold(id: recoveryID)
-            guard activeID == recoveryID else { return true }
             if let restored = try await runRecordStore.record(for: candidate.runID) {
-                await runOrchestrator?.restoreRecovery(restored)
+                if let runOrchestrator {
+                    await runOrchestrator.restoreRecovery(restored)
+                } else {
+                    _ = await batchProcessor?.beginRecoveryHold(id: recoveryID)
+                }
+            } else {
+                await admitRecoveryHold(id: recoveryID)
             }
             return true
         } catch {
-            _ = await batchProcessor.beginRecoveryHold()
+            await admitRecoveryHold(id: requestedID)
             recoveryLog.error(
                 "Failed to restore interrupted write record: \(error.localizedDescription, privacy: .private)"
             )

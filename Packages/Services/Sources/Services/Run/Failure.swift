@@ -10,12 +10,23 @@ struct CheckpointStoreFailure: LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         "Could not persist \(String(describing: checkpoint.boundary)) work checkpoint: \(reason)"
     }
+
+    func withOutcome(_ outcome: AppleScriptOutcomeError) -> Self {
+        Self(
+            checkpoint: checkpoint,
+            candidate: candidate,
+            durableSnapshot: durableSnapshot,
+            isWriteAdjacent: isWriteAdjacent,
+            reason: "\(reason). \(outcome.localizedDescription)"
+        )
+    }
 }
 
 extension RunOrchestrator {
     enum RunWorkError: LocalizedError {
         case missingFixPlanProducer
         case missingWriteRunner
+        case recoveryPending
         case writeFailure(
             failedOperationCount: Int,
             failedTrackCount: Int,
@@ -29,6 +40,8 @@ extension RunOrchestrator {
                 "Fix plan producer is unavailable"
             case .missingWriteRunner:
                 "Fix plan write runner is unavailable"
+            case .recoveryPending:
+                "A restored recovery hold blocks the next write attempt"
             case let .writeFailure(failedOperationCount, failedTrackCount, reasons, isPartial):
                 Self.writeFailureDescription(
                     failedOperationCount: failedOperationCount,

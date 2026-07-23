@@ -530,6 +530,9 @@ final class AppDependencies {
                 writeFixPlan: writeFixPlan,
                 beginRecoveryHold: {
                     await processor.beginRecoveryHold()
+                },
+                restoreRecoveryHold: { id in
+                    await processor.beginRecoveryHold(id: id)
                 }
             )
         } else {

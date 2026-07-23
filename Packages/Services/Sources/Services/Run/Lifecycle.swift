@@ -141,10 +141,6 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
 
     /// True while a work item has confirmed dispatch without a terminal outcome.
     /// An `.attempting` item remains uncertain because dispatch may or may not have occurred.
-    var hasDispatchedWrite: Bool {
-        workLedger.hasDispatchedWrite
-    }
-
     var hasWriteProgress: Bool {
         workLedger.hasProgress
     }
@@ -436,14 +432,14 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         return try applying(.afterVerification(outcomes))
     }
 
-    /// Marks `.prepared` and proven-undispatched `.attempting` work as skipped.
-    /// Attempted work stays open for recovery because Music.app may already have changed.
+    /// Marks only `.prepared` work as skipped.
+    /// Attempting or attempted work stays open because Music.app may already have changed.
     /// Throws when the closing checkpoint is rejected so the caller stays conservative.
     func skippingOpenWork() throws -> Self {
-        let openIDs = Set(workItems.filter { $0.state == .prepared || $0.state == .attempting }.map(\.id))
-        guard !openIDs.isEmpty else { return self }
+        let preparedIDs = Set(workItems.filter { $0.state == .prepared }.map(\.id))
+        guard !preparedIDs.isEmpty else { return self }
         let checkpoint = WorkCheckpoint.afterVerification(
-            Dictionary(uniqueKeysWithValues: openIDs.map { ($0, WorkOutcome.skipped) })
+            Dictionary(uniqueKeysWithValues: preparedIDs.map { ($0, WorkOutcome.skipped) })
         )
         return try applying(checkpoint)
     }
@@ -479,12 +475,12 @@ public enum RunSubmissionResult: Equatable, Sendable {
     case completed(RunLifecycleSnapshot)
     case completedNoOp(RunLifecycleSnapshot)
     case recoverable(RunLifecycleSnapshot, reason: String)
+    case recoveryRequired
     case failed(RunLifecycleSnapshot)
     case cancelled(RunLifecycleSnapshot)
 
-    /// The run snapshot associated with this response. For `alreadyCovered`
-    /// and `queued`, this is the active run that covered or delayed the request.
-    public var lifecycle: RunLifecycleSnapshot {
+    /// The run snapshot associated with this response, when admission created or reused one.
+    public var lifecycle: RunLifecycleSnapshot? {
         switch self {
         case let .alreadyCovered(snapshot),
              let .queued(snapshot),
@@ -494,6 +490,8 @@ public enum RunSubmissionResult: Equatable, Sendable {
              let .failed(snapshot),
              let .cancelled(snapshot):
             snapshot
+        case .recoveryRequired:
+            nil
         }
     }
 }

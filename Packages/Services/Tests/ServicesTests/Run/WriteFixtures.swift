@@ -256,7 +256,8 @@ func writeEntry() -> ChangeLogEntry {
 
 func recoveryRecord(
     state: RunLifecycleState = .recoverable,
-    workItems: [RunWorkItem] = []
+    workItems: [RunWorkItem] = [],
+    recoveryID: UUID = UUID()
 ) -> RunRecord {
     let startedAt = Date(timeIntervalSince1970: 50)
     return RunRecord(
@@ -269,7 +270,7 @@ func recoveryRecord(
             startedAt: startedAt
         ),
         writeTarget: writeTarget(),
-        recoveryID: UUID(),
+        recoveryID: recoveryID,
         transitions: [
             RunLifecycleTransition(state: .created, timestamp: startedAt),
             RunLifecycleTransition(state: .writing, timestamp: startedAt),

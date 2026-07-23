@@ -117,7 +117,7 @@ private struct WriteFixture {
 
     func run(_ input: FixPlanWriteInput) async throws -> BatchUpdateResult {
         try await write(input) { _ in
-            // Direct writer tests assert results; orchestrator tests own checkpoint assertions.
+            // Direct writer tests assert results; Services checkpoint tests own checkpoint assertions.
         }
     }
 }
