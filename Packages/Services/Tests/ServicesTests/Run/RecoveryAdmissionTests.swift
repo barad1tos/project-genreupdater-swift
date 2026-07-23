@@ -13,7 +13,7 @@ struct RecoveryAdmissionTests {
         let recovery = recoveryRecord(recoveryID: recoveryID)
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in },
+            persistRunRecord: skipPersistence,
             write: .init(
                 writeFixPlan: { input, checkpoint in
                     try await gate.run(input: input, checkpoint: checkpoint)
@@ -50,7 +50,7 @@ struct RecoveryAdmissionTests {
         let recovery = recoveryRecord(recoveryID: recoveryID)
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in },
+            persistRunRecord: skipPersistence,
             write: .init(
                 writeFixPlan: { input, checkpoint in
                     try await gate.run(input: input, checkpoint: checkpoint)
@@ -83,7 +83,7 @@ struct RecoveryAdmissionTests {
         let recovery = recoveryRecord(recoveryID: recoveryID)
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in },
+            persistRunRecord: skipPersistence,
             write: .init(
                 writeFixPlan: { input, checkpoint in
                     try await gate.run(input: input, checkpoint: checkpoint)
@@ -119,7 +119,7 @@ struct RecoveryAdmissionTests {
         let recoveryID = UUID()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in },
+            persistRunRecord: skipPersistence,
             write: .init(
                 writeFixPlan: { input, checkpoint in
                     try await gate.run(input: input, checkpoint: checkpoint)
@@ -145,6 +145,10 @@ struct RecoveryAdmissionTests {
         await orchestrator.resolveRecovery(id: recoveryID, runID: nil, at: Date(timeIntervalSince1970: 200))
         #expect(await holds.restoredIDs == [recoveryID])
     }
+}
+
+private let skipPersistence: @Sendable (RunRecord) async throws -> Void = { _ in
+    // These tests exercise live recovery admission, not record persistence.
 }
 
 private actor AttemptGate {
