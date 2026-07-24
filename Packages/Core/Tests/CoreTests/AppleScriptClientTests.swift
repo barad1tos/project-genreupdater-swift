@@ -46,7 +46,7 @@ struct AppleScriptClientTests {
     func defaultFetchTracksRejectsMalformedNonEmptyRecords() async {
         let output = [
             appleScriptTrackOutput(id: "101", name: "American Sleep"),
-            appleScriptTrackOutput(id: "", name: "Missing ID"),
+            appleScriptTrackOutput(id: "", name: "Missing ID")
         ].joined(separator: String(Track.recordSeparator))
         let client = ScriptOutputClient(output: output)
 
@@ -104,7 +104,7 @@ private func appleScriptTrackOutput(
 ) -> String {
     [
         id, name, artist, artist, album,
-        "Rock", "", "", status, year, releaseYear, "",
+        "Rock", "", "", status, year, releaseYear, ""
     ].joined(separator: String(Track.fieldSeparator))
 }
 
@@ -154,7 +154,7 @@ private actor ScriptOutputClient: AppleScriptClient {
         throw ScriptOutputClientError.unsupportedWrite
     }
 
-    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
+    func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
         throw ScriptOutputClientError.unsupportedWrite
     }
 }

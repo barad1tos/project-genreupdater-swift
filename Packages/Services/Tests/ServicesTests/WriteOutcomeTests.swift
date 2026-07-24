@@ -168,66 +168,6 @@ struct WriteOutcomeTests {
         }
         #expect(await client.writeAttempts == 1)
     }
-
-    @Test("Default attempt hooks preserve plain write uncertainty")
-    func keepsHookUncertainty() async {
-        let track = makeTrack(id: "T1")
-        let client = OutcomeScriptClient(tracks: [track], failure: .plain)
-        let coordinator = makeCoordinator(client)
-        let checkpoints = CheckpointProbe()
-
-        await #expect(throws: AppleScriptOutcomeError.self) {
-            _ = try await coordinator.applyChangeOutcome(
-                makeGenreChange(track),
-                isReviewedChange: false,
-                checkpoint: { await checkpoints.append($0) }
-            )
-        }
-
-        #expect(await checkpoints.values.map(\.boundary) == [.beforeAttempt, .afterAttempt])
-    }
-
-    @Test("Plain write errors remain unknown without a checkpoint sink")
-    func plainWriteStaysUnknown() async {
-        let track = makeTrack(id: "T1")
-        let client = OutcomeScriptClient(tracks: [track], failure: .plain)
-        let coordinator = makeCoordinator(client)
-
-        await #expect(throws: AppleScriptOutcomeError.self) {
-            _ = try await coordinator.applyChangeOutcome(
-                makeGenreChange(track),
-                isReviewedChange: false
-            )
-        }
-
-        #expect(await client.writeAttempts == 1)
-    }
-
-    @Test("Plain batch errors remain unknown without falling back to single writes")
-    func plainBatchStaysUnknown() async {
-        let track = makeTrack(id: "T1")
-        let client = OutcomeScriptClient(tracks: [track], failure: .plain)
-        let coordinator = makeCoordinator(
-            client,
-            runtimeConfiguration: UpdateRuntimeConfiguration(
-                areBatchUpdatesEnabled: true,
-                maxBatchUpdateSize: 5
-            )
-        )
-        var failedTrackIDs: [String] = []
-        var errorDescriptions: [String] = []
-
-        await #expect(throws: AppleScriptOutcomeError.self) {
-            _ = try await coordinator.applyReviewedChangeGroup(
-                [makeGenreChange(track), makeYearChange(track)],
-                failedTrackIDs: &failedTrackIDs,
-                errorDescriptions: &errorDescriptions
-            )
-        }
-
-        #expect(await client.batchAttempts == 1)
-        #expect(await client.writeAttempts == 0)
-    }
 }
 
 // Safety: the lock protects every access to the progress snapshots.
@@ -244,7 +184,7 @@ private final class ProgressRecorder: @unchecked Sendable {
     }
 }
 
-private actor OutcomeScriptClient: AppleScriptClient {
+actor OutcomeScriptClient: AppleScriptClient {
     enum Failure {
         case unknown
         case cancellation
@@ -253,12 +193,18 @@ private actor OutcomeScriptClient: AppleScriptClient {
 
     private let tracksByID: [String: Track]
     private let failure: Failure
+    private let completion: ScriptCompletion?
     private(set) var writeAttempts = 0
     private(set) var batchAttempts = 0
 
-    init(tracks: [Track], failure: Failure = .unknown) {
+    init(
+        tracks: [Track],
+        failure: Failure = .unknown,
+        completion: ScriptCompletion? = nil
+    ) {
         tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
         self.failure = failure
+        self.completion = completion
     }
 
     func initialize() async throws {
@@ -282,7 +228,7 @@ private actor OutcomeScriptClient: AppleScriptClient {
         writeAttempts += 1
         switch failure {
         case .unknown:
-            throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
+            throw unknownOutcome(scriptName: "update_property")
         case .cancellation:
             throw CancellationError()
         case .plain:
@@ -290,22 +236,66 @@ private actor OutcomeScriptClient: AppleScriptClient {
         }
     }
 
-    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
+    func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
         batchAttempts += 1
         switch failure {
         case .unknown:
-            throw AppleScriptOutcomeError(scriptName: "batch_update_tracks", duration: .seconds(3))
+            throw unknownOutcome(scriptName: "batch_update_tracks")
         case .cancellation:
             throw CancellationError()
         case .plain:
             throw PlainWriteError()
         }
+    }
+
+    private func unknownOutcome(scriptName: String) -> AppleScriptOutcomeError {
+        guard let completion else {
+            return AppleScriptOutcomeError(scriptName: scriptName, duration: .seconds(3))
+        }
+        return AppleScriptOutcomeError(
+            scriptName: scriptName,
+            duration: .seconds(3),
+            completion: completion
+        )
     }
 }
 
 private struct PlainWriteError: Error {}
 
-private func makeCoordinator(
+func makeStoreFailure(itemIDs: [UUID]) throws -> CheckpointStoreFailure {
+    let input = writeInput(workItems: itemIDs.map { makeWorkItem(id: $0, state: .prepared) })
+    let initial = RunLifecycleSnapshot(
+        request: .manualWrite(input: input),
+        scope: input.scope,
+        startedAt: Date(timeIntervalSince1970: 100),
+        phase: .active(.writing)
+    )
+    let durable = try initial.applying(.beforeAttempt(itemIDs))
+    let checkpoint = WorkCheckpoint.afterAttempt(itemIDs)
+    return try CheckpointStoreFailure(
+        checkpoint: checkpoint,
+        candidate: durable.applying(checkpoint),
+        durableSnapshot: durable,
+        isWriteAdjacent: true,
+        reason: "checkpoint store unavailable"
+    )
+}
+
+func expectStoredCompletion(
+    _ completion: ScriptCompletion,
+    operation: () async throws -> Void
+) async {
+    do {
+        try await operation()
+        Issue.record("Expected the checkpoint store failure")
+    } catch let WorkCheckpointError.store(failure) {
+        #expect(failure.completion === completion)
+    } catch {
+        Issue.record("Expected a checkpoint store failure, got \(type(of: error))")
+    }
+}
+
+func makeCoordinator(
     _ client: any AppleScriptClient,
     year: Int? = nil,
     cache: any CacheService = MockCacheService(),
@@ -346,7 +336,7 @@ private func makeUndoCoordinator(
     )
 }
 
-private func makeTrack(
+func makeTrack(
     id: String,
     name: String = "Track",
     year: Int? = 2000,
@@ -363,7 +353,7 @@ private func makeTrack(
     )
 }
 
-private func makeGenreChange(_ track: Track) -> ProposedChange {
+func makeGenreChange(_ track: Track) -> ProposedChange {
     ProposedChange(
         track: track,
         changeType: .genreUpdate,
@@ -375,7 +365,7 @@ private func makeGenreChange(_ track: Track) -> ProposedChange {
     )
 }
 
-private func makeYearChange(_ track: Track) -> ProposedChange {
+func makeYearChange(_ track: Track) -> ProposedChange {
     ProposedChange(
         track: track,
         changeType: .yearUpdate,

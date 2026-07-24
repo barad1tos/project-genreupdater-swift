@@ -16,7 +16,7 @@ struct BatchDispatchTests {
 
         do {
             try await bridge.batchUpdateTracks([
-                (trackID: "101", property: "genre", value: "Metal")
+                TrackPropertyUpdate(trackID: "101", property: "genre", value: "Metal")
             ], onAttempt: {
                 _ = await checkpoints.next()
             }, execute: { _ in
@@ -47,7 +47,7 @@ struct BatchDispatchTests {
 
         await #expect(throws: BatchSetupError.self) {
             try await fixture.bridge.batchUpdateTracks([
-                (trackID: "101", property: "genre", value: "Metal")
+                TrackPropertyUpdate(trackID: "101", property: "genre", value: "Metal")
             ], onAttempt: {
                 _ = await checkpoints.next()
             }, execute: { _ in
@@ -65,7 +65,7 @@ struct BatchDispatchTests {
 
         await #expect(throws: CancellationError.self) {
             try await fixture.bridge.batchUpdateTracks([
-                (trackID: "101", property: "genre", value: "Metal")
+                TrackPropertyUpdate(trackID: "101", property: "genre", value: "Metal")
             ], onAttempt: {
                 _ = await checkpoints.next()
             }, execute: { _ in
@@ -83,7 +83,7 @@ struct BatchDispatchTests {
 
         await #expect(throws: AppleScriptOutcomeError.self) {
             try await fixture.bridge.batchUpdateTracks([
-                (trackID: "101", property: "genre", value: "Metal")
+                TrackPropertyUpdate(trackID: "101", property: "genre", value: "Metal")
             ], onAttempt: {
                 _ = await checkpoints.next()
             }, execute: { _ in
@@ -118,7 +118,7 @@ struct BatchDispatchTests {
 
         do {
             try await fixture.bridge.batchUpdateTracks([
-                (trackID: "101", property: "genre", value: "Metal")
+                TrackPropertyUpdate(trackID: "101", property: "genre", value: "Metal")
             ], onAttempt: {
                 throw WorkCheckpointError.store(stored)
             }, execute: { _ in

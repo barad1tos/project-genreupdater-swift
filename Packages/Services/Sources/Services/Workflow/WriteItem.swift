@@ -136,6 +136,11 @@ extension UpdateCoordinator {
                 await invalidateCaches(for: write.change)
             }
             throw CancellationError()
+        } catch let failure as WriteAttemptFailure {
+            if attemptState.hasAttempted {
+                await invalidateCaches(for: write.change)
+            }
+            throw failure.reportedError
         } catch let error as WorkCheckpointError {
             if attemptState.hasAttempted {
                 await invalidateCaches(for: write.change)

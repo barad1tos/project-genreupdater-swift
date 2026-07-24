@@ -1,3 +1,4 @@
+import Core
 import Foundation
 
 struct CheckpointStoreFailure: LocalizedError, Equatable, Sendable {
@@ -46,6 +47,17 @@ struct CheckpointStoreFailure: LocalizedError, Equatable, Sendable {
             reason: "\(reason). \(outcome.localizedDescription)",
             completion: outcome.completion
         )
+    }
+}
+
+extension WriteAttemptFailure {
+    var reportedError: any Error {
+        guard let outcome = writeError as? AppleScriptOutcomeError,
+              case let WorkCheckpointError.store(failure) = checkpointError
+        else {
+            return checkpointError
+        }
+        return WorkCheckpointError.store(failure.withOutcome(outcome))
     }
 }
 

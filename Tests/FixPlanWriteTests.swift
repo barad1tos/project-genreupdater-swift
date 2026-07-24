@@ -48,7 +48,7 @@ struct FixPlanWriteTests {
             for: plan,
             items: [
                 FixPlanItemDecision(itemID: firstItem.id, verdict: .accepted),
-                FixPlanItemDecision(itemID: secondItem.id, verdict: .rejected),
+                FixPlanItemDecision(itemID: secondItem.id, verdict: .rejected)
             ]
         )
 
@@ -67,7 +67,7 @@ struct FixPlanWriteTests {
             for: plan,
             items: [
                 FixPlanItemDecision(itemID: firstItem.id, verdict: .accepted),
-                FixPlanItemDecision(itemID: firstItem.id, verdict: .rejected),
+                FixPlanItemDecision(itemID: firstItem.id, verdict: .rejected)
             ]
         )
 
@@ -83,7 +83,7 @@ struct FixPlanWriteTests {
             for: plan,
             items: [
                 FixPlanItemDecision(itemID: firstItem.id, verdict: .accepted),
-                FixPlanItemDecision(itemID: UUID(), verdict: .rejected),
+                FixPlanItemDecision(itemID: UUID(), verdict: .rejected)
             ]
         )
 
@@ -98,7 +98,7 @@ struct FixPlanWriteTests {
         let decision = reviewDecision(
             for: plan,
             items: [
-                FixPlanItemDecision(itemID: firstItem.id, verdict: .accepted),
+                FixPlanItemDecision(itemID: firstItem.id, verdict: .accepted)
             ]
         )
 
@@ -108,7 +108,7 @@ struct FixPlanWriteTests {
 
 private actor WriteIDScriptSpy: AppleScriptClient {
     private var tracksByID: [String: Track] = [:]
-    private(set) var fetchCalls: [(trackIDs: [String], batchSize: Int, timeout: Duration?)] = []
+    private(set) var fetchCalls: [ScriptFetchCall] = []
 
     func setTracks(_ tracks: [Track]) {
         tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
@@ -131,7 +131,7 @@ private actor WriteIDScriptSpy: AppleScriptClient {
         batchSize: Int,
         timeout: Duration?
     ) async throws -> [Track] {
-        fetchCalls.append((trackIDs, batchSize, timeout))
+        fetchCalls.append(ScriptFetchCall(trackIDs: trackIDs, batchSize: batchSize, timeout: timeout))
         return trackIDs.compactMap { tracksByID[$0] }
     }
 
@@ -151,7 +151,7 @@ private actor WriteIDScriptSpy: AppleScriptClient {
         .noChange
     }
 
-    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
+    func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
         // This spy only exercises single-track writes.
     }
 }

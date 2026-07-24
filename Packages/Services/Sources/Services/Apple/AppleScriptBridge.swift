@@ -11,50 +11,11 @@
 // Python used subprocess.run(["osascript", ...]) which can't work in a sandbox.
 // NSUserAppleScriptTask is the MAS-compatible replacement.
 
-import Carbon.OpenScripting
 import Core
 import Foundation
 import OSLog
 
 private let log = AppLogger.make(category: "applescript")
-
-// MARK: - Errors
-
-/// Errors from AppleScript execution.
-public enum AppleScriptBridgeError: Error, LocalizedError {
-    case scriptNotFound(name: String, searchPath: URL)
-    case executionFailed(scriptName: String, detail: String)
-    case dispatchDeadline(scriptName: String, duration: Duration)
-    case timeout(scriptName: String, duration: Duration)
-    case parseError(scriptName: String, detail: String)
-    case libraryChanged(detail: String)
-    case invalidLibraryPath
-    case scriptsNotInstalled
-    case musicAppNotRunning
-
-    public var errorDescription: String? {
-        switch self {
-        case let .scriptNotFound(name, path):
-            "Script '\(name).scpt' not found at \(path.path)"
-        case let .executionFailed(name, detail):
-            "AppleScript '\(name)' failed: \(detail)"
-        case let .dispatchDeadline(name, duration):
-            "AppleScript '\(name)' was not dispatched before its \(duration) deadline"
-        case let .timeout(name, duration):
-            "AppleScript '\(name)' timed out after \(duration)"
-        case let .parseError(name, detail):
-            "Failed to parse output from '\(name)': \(detail)"
-        case let .libraryChanged(detail):
-            "Music library changed while it was being read: \(detail)"
-        case .invalidLibraryPath:
-            "The configured Music library does not contain Library.musicdb. Check the configured library path."
-        case .scriptsNotInstalled:
-            "AppleScript files are not installed. Please run the setup wizard."
-        case .musicAppNotRunning:
-            "Music.app is not running. Please start Music.app before using Genre Updater."
-        }
-    }
-}
 
 // MARK: - AppleScript Bridge Actor
 
@@ -251,44 +212,6 @@ public actor AppleScriptBridge: AppleScriptClient {
 extension AppleScriptBridge {
     // MARK: - Music.app Write Operations
 
-    /// Update a property of a track in Music.app.
-    public func updateTrackProperty(
-        trackID: String,
-        property: String,
-        value: String
-    ) async throws -> AppleScriptWriteResult {
-        try await updateTrackProperty(
-            trackID: trackID,
-            property: property,
-            value: value,
-            onAttempt: nil
-        ) { [self] in
-            try await runScript(
-                name: "update_property",
-                arguments: [trackID, property, value]
-            )
-        }
-    }
-
-    public func updateTrackProperty(
-        trackID: String,
-        property: String,
-        value: String,
-        onAttempt: @escaping WriteAttemptHook
-    ) async throws -> AppleScriptWriteResult {
-        try await updateTrackProperty(
-            trackID: trackID,
-            property: property,
-            value: value,
-            onAttempt: onAttempt
-        ) { [self] in
-            try await runScript(
-                name: "update_property",
-                arguments: [trackID, property, value]
-            )
-        }
-    }
-
     func updateTrackProperty(
         trackID: String,
         property: String,
@@ -317,7 +240,7 @@ extension AppleScriptBridge {
     }
 
     /// Batch update multiple tracks' properties.
-    public func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
+    public func batchUpdateTracks(_ updates: [TrackPropertyUpdate]) async throws {
         try await batchUpdateTracks(updates, onAttempt: nil) { [self] batchArgument in
             try await runScript(
                 name: Self.batchUpdateScriptName,
@@ -328,7 +251,7 @@ extension AppleScriptBridge {
     }
 
     public func batchUpdateTracks(
-        _ updates: [(trackID: String, property: String, value: String)],
+        _ updates: [TrackPropertyUpdate],
         onAttempt: @escaping WriteAttemptHook
     ) async throws {
         try await batchUpdateTracks(updates, onAttempt: onAttempt) { [self] batchArgument in
@@ -341,7 +264,7 @@ extension AppleScriptBridge {
     }
 
     func batchUpdateTracks(
-        _ updates: [(trackID: String, property: String, value: String)],
+        _ updates: [TrackPropertyUpdate],
         onAttempt: WriteAttemptHook?,
         execute: (String) async throws -> String?
     ) async throws {
@@ -412,45 +335,8 @@ extension AppleScriptBridge {
         }
     }
 
-    static func makeBatchUpdateArgument(_ updates: [(trackID: String, property: String, value: String)]) throws
-        -> String {
-        let fieldSep = String(Core.Track.fieldSeparator) // \x1E — between fields
-        let commandSep = String(Core.Track.recordSeparator) // \x1D — between commands
-        return try updates.map { update -> String in
-            try validateBatchUpdateComponent(update.trackID, label: "track ID")
-            try validateBatchUpdateComponent(update.value, label: "value")
-            let property = try validatedBatchUpdateProperty(update.property)
-            return "\(update.trackID)\(fieldSep)\(property)\(fieldSep)\(update.value)"
-        }.joined(separator: commandSep)
-    }
-
-    private static func validatedBatchUpdateProperty(_ property: String) throws -> String {
-        try validateBatchUpdateComponent(property, label: "property")
-        let sanitizedProperty = InputSanitizer.sanitizeScriptCode(property)
-        guard sanitizedProperty == property,
-              AppleScriptTrackProperty.supportedNames.contains(property)
-        else {
-            throw AppleScriptBridgeError.executionFailed(
-                scriptName: batchUpdateScriptName,
-                detail: "Unsupported batch update property: \(property)"
-            )
-        }
-        return property
-    }
-
-    private static func validateBatchUpdateComponent(_ value: String, label: String) throws {
-        let containsReservedSeparator = value.contains(Core.Track.fieldSeparator)
-            || value.contains(Core.Track.recordSeparator)
-        guard !containsReservedSeparator else {
-            throw AppleScriptBridgeError.executionFailed(
-                scriptName: batchUpdateScriptName,
-                detail: "Batch update \(label) contains a reserved separator"
-            )
-        }
-    }
-
     private func verifyBatchUpdateResult(
-        _ updates: [(trackID: String, property: String, value: String)]
+        _ updates: [TrackPropertyUpdate]
     ) async throws {
         let trackIDs = Array(Set(updates.map(\.trackID)))
         let refreshedTracks: [Core.Track]
@@ -470,100 +356,7 @@ extension AppleScriptBridge {
         try Self.verifyBatchUpdateValues(updates, in: refreshedTracks)
     }
 
-    static func verifyBatchUpdateValues(
-        _ updates: [(trackID: String, property: String, value: String)],
-        in refreshedTracks: [Core.Track]
-    ) throws {
-        let refreshedTracksByID = Dictionary(
-            refreshedTracks.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let failedUpdates = updates.filter { update in
-            guard let track = refreshedTracksByID[update.trackID],
-                  let property = AppleScriptTrackProperty(rawValue: update.property),
-                  let currentValue = property.currentValue(in: track)
-            else {
-                return true
-            }
-            return currentValue != update.value
-        }
-
-        guard failedUpdates.isEmpty else {
-            throw AppleScriptBatchVerificationError(
-                updateCount: updates.count,
-                failedCount: failedUpdates.count,
-                reason: "Requested values were not visible after batch write"
-            )
-        }
-    }
-
     // MARK: - Private Helpers
-
-    static func makeRunAppleEvent(arguments: [String]) -> NSAppleEventDescriptor? {
-        guard !arguments.isEmpty else { return nil }
-
-        let event = NSAppleEventDescriptor(
-            eventClass: AEEventClass(kCoreEventClass),
-            eventID: AEEventID(kAEOpenApplication),
-            targetDescriptor: nil,
-            returnID: AEReturnID(kAutoGenerateReturnID),
-            transactionID: AETransactionID(kAnyTransactionID)
-        )
-
-        let argList = NSAppleEventDescriptor.list()
-        for (index, arg) in arguments.enumerated() {
-            argList.insert(NSAppleEventDescriptor(string: arg), at: index + 1)
-        }
-        event.setDescriptor(argList, forKeyword: keyDirectObject)
-
-        return event
-    }
-
-    static func validateBatchUpdateOutput(_ output: String?, updateCount: Int) throws {
-        guard let output else {
-            throw AppleScriptBridgeError.executionFailed(
-                scriptName: batchUpdateScriptName,
-                detail: "Batch of \(updateCount) updates, response=<empty>"
-            )
-        }
-
-        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowercasedOutput = trimmedOutput.lowercased()
-        guard lowercasedOutput.hasPrefix("success:") else {
-            throw AppleScriptBridgeError.executionFailed(
-                scriptName: batchUpdateScriptName,
-                detail: "Batch of \(updateCount) updates, response=\(String(trimmedOutput.prefix(200)))"
-            )
-        }
-    }
-
-    static func validateUpdatePropertyOutput(
-        _ output: String?,
-        trackID: String,
-        property: String
-    ) throws -> AppleScriptWriteResult {
-        guard let output else {
-            throw AppleScriptOutcomeError(
-                scriptName: "update_property",
-                reason: "returned no verifiable response for track \(trackID), property \(property)"
-            )
-        }
-
-        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowercasedOutput = trimmedOutput.lowercased()
-        if lowercasedOutput.hasPrefix("success:") {
-            return .changed
-        }
-        if lowercasedOutput.hasPrefix("no change:") {
-            return .noChange
-        }
-
-        throw AppleScriptOutcomeError(
-            scriptName: "update_property",
-            reason: "returned an unverifiable response for track \(trackID), property \(property): "
-                + String(trimmedOutput.prefix(200))
-        )
-    }
 
     /// Parse AppleScript output into Track objects.
     static func parseTrackOutput(_ output: String) throws -> [Core.Track] {

@@ -109,7 +109,7 @@ struct RunRuntimeTests {
                 newValue: "2001",
                 confidence: 90,
                 source: "runtime-test"
-            ),
+            )
         ]
     }
 }
@@ -124,8 +124,8 @@ private actor RuntimeConfigProbe {
 
 private actor RuntimeScriptSpy: AppleScriptClient {
     private var tracks: [String: Track]
-    private(set) var fetchCalls: [(trackIDs: [String], batchSize: Int, timeout: Duration?)] = []
-    private(set) var batchCalls: [[(trackID: String, property: String, value: String)]] = []
+    private(set) var fetchCalls: [ScriptFetchCall] = []
+    private(set) var batchCalls: [[TrackPropertyUpdate]] = []
 
     init(track: Track) {
         tracks = [track.id: track]
@@ -144,7 +144,7 @@ private actor RuntimeScriptSpy: AppleScriptClient {
         batchSize: Int,
         timeout: Duration?
     ) async throws -> [Track] {
-        fetchCalls.append((trackIDs, batchSize, timeout))
+        fetchCalls.append(ScriptFetchCall(trackIDs: trackIDs, batchSize: batchSize, timeout: timeout))
         return trackIDs.compactMap { tracks[$0] }
     }
 
@@ -161,7 +161,7 @@ private actor RuntimeScriptSpy: AppleScriptClient {
         return .changed
     }
 
-    func batchUpdateTracks(_ updates: [(trackID: String, property: String, value: String)]) async throws {
+    func batchUpdateTracks(_ updates: [TrackPropertyUpdate]) async throws {
         batchCalls.append(updates)
         for update in updates {
             apply(property: update.property, value: update.value, trackID: update.trackID)
