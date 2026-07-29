@@ -322,8 +322,8 @@ extension AppleScriptBridge {
             \(error.localizedDescription, privacy: .private)
             """)
             // The unknown outcome must win over the hook error: it carries the
-            // ScriptCompletion that recovery awaits before allowing another
-            // physical Music.app write.
+            // ScriptCompletion (when the script is still pending) that recovery
+            // awaits before allowing another physical Music.app write.
             throw outcome
         }
     }

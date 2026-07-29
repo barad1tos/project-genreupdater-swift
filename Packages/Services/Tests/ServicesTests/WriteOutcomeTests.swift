@@ -152,6 +152,55 @@ struct WriteOutcomeTests {
         #expect(await client.writeAttempts == 1)
     }
 
+    @Test("Checkpoint failure stops the reviewed write loop")
+    func stopsOnCheckpointFailure() async {
+        let tracks = [
+            makeTrack(id: "T1", name: "First", year: 1969),
+            makeTrack(id: "T2", name: "Second", year: 1969)
+        ]
+        let client = MockAppleScriptClient()
+        await client.setFetchedTracks(tracks)
+        let coordinator = makeCoordinator(client)
+        var failedTrackIDs: [String] = []
+        var errorDescriptions: [String] = []
+
+        await #expect(throws: WorkCheckpointError.self) {
+            _ = try await coordinator.applyReviewedChangeGroup(
+                [makeGenreChange(tracks[0]), makeGenreChange(tracks[1])],
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions,
+                checkpoint: { _ in
+                    throw WorkCheckpointError.persistence(.beforeAttempt, writeAdjacent: false)
+                }
+            )
+        }
+        #expect(await client.writtenProperties.isEmpty)
+    }
+
+    @Test("Finalization failure stops the reviewed write loop")
+    func stopsOnFinalizationFailure() async {
+        let tracks = [
+            makeTrack(id: "T1", name: "First", year: 1969),
+            makeTrack(id: "T2", name: "Second", year: 1969)
+        ]
+        let client = MockAppleScriptClient()
+        await client.setFetchedTracks(tracks)
+        let store = MockChangeLogStore()
+        await store.failSaves()
+        let coordinator = makeCoordinator(client, changeLogStore: store)
+        var failedTrackIDs: [String] = []
+        var errorDescriptions: [String] = []
+
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await coordinator.applyReviewedChangeGroup(
+                [makeGenreChange(tracks[0]), makeGenreChange(tracks[1])],
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            )
+        }
+        #expect(await client.writtenProperties.count == 1)
+    }
+
     @Test("CSV restore stops after cancellation")
     func cancellationStopsCSVRestore() async {
         let tracks = [makeTrack(id: "T1", name: "First"), makeTrack(id: "T2", name: "Second")]
@@ -300,11 +349,12 @@ func makeCoordinator(
     year: Int? = nil,
     cache: any CacheService = MockCacheService(),
     snapshot: (any LibrarySnapshotService)? = nil,
-    runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
+    runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
+    changeLogStore: (any ChangeLogStore)? = nil
 ) -> UpdateCoordinator {
     let scores = year.map { [$0: 90] } ?? [:]
     let api = MockAPIService(yearResult: YearResult(year: year, confidence: 90, yearScores: scores))
-    let undo = makeUndoCoordinator(client, cache: cache, snapshot: snapshot)
+    let undo = makeUndoCoordinator(client, cache: cache, snapshot: snapshot, changeLogStore: changeLogStore)
     return UpdateCoordinator(
         dependencies: UpdateDependencies(
             apiOrchestrator: makeAPIOrchestrator(
@@ -325,10 +375,12 @@ func makeCoordinator(
 private func makeUndoCoordinator(
     _ client: any AppleScriptClient,
     cache: (any CacheService)? = nil,
-    snapshot: (any LibrarySnapshotService)? = nil
+    snapshot: (any LibrarySnapshotService)? = nil,
+    changeLogStore: (any ChangeLogStore)? = nil
 ) -> UndoCoordinator {
     UndoCoordinator(
         scriptBridge: client,
+        changeLogStore: changeLogStore,
         cache: cache,
         librarySnapshotService: snapshot,
         directory: FileManager.default.temporaryDirectory

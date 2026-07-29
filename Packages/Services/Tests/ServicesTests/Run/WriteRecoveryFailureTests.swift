@@ -130,10 +130,11 @@ struct WriteRecoveryFailureTests {
 
         let result = await orchestrator.submit(.manualWrite(input: writeInput()))
 
-        guard case .recoverable = result else {
+        guard case let .recoverable(_, reason) = result else {
             Issue.record("Expected recoverable result")
             return
         }
+        #expect(reason.contains("unfinished work items"))
         #expect(await records.records.last?.state == .recoverable)
         #expect(await records.records.last?.recoveryID == recoveryID)
     }

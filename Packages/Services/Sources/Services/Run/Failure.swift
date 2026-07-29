@@ -52,12 +52,16 @@ struct CheckpointStoreFailure: LocalizedError, Equatable, Sendable {
 
 extension WriteAttemptFailure {
     var reportedError: any Error {
-        guard let outcome = writeError as? AppleScriptOutcomeError,
-              case let WorkCheckpointError.store(failure) = checkpointError
-        else {
+        guard let outcome = writeError as? AppleScriptOutcomeError else {
             return checkpointError
         }
-        return WorkCheckpointError.store(failure.withOutcome(outcome))
+        if case let WorkCheckpointError.store(failure) = checkpointError {
+            return WorkCheckpointError.store(failure.withOutcome(outcome))
+        }
+        // The unknown outcome wins over a non-store checkpoint error: it
+        // carries the ScriptCompletion recovery awaits before allowing another
+        // physical write (mirrors AppleScriptBridge.recordUnknownAttempt).
+        return outcome
     }
 }
 

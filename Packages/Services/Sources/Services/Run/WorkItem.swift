@@ -27,6 +27,11 @@ public enum WorkState: Codable, Equatable, Sendable {
     case attempted
     case outcome(WorkOutcome)
 
+    /// Multi-step reachability under the transition closure, used to reconcile
+    /// durable child rows against a stale parent payload. Unlike the
+    /// single-step legality in `RunWorkItem.canTransition`, `(.prepared, _)`
+    /// is true because a row may legally advance through any number of
+    /// checkpoints while the payload still holds its preflight state.
     func canFollow(_ previous: Self) -> Bool {
         switch (previous, self) {
         case (.prepared, _),

@@ -249,6 +249,48 @@ struct RecoveryAdmissionTests {
     }
 }
 
+extension RecoveryAdmissionTests {
+    @Test("finished and non-write records do not restore recovery")
+    func ignoresIneligibleRestores() async {
+        let holds = HoldProbe()
+        let orchestrator = makeHoldOrchestrator(holds)
+
+        await orchestrator.restoreRecovery(
+            recoveryRecord(finishedAt: Date(timeIntervalSince1970: 60))
+        )
+        await orchestrator.restoreRecovery(recoveryRecord(intent: .observeLibrary))
+
+        #expect(await holds.restoredIDs.isEmpty)
+        #expect(await orchestrator.currentLifecycle()?.runID == nil)
+    }
+
+    @Test("rejected durable clear keeps the recovery hold")
+    func keepsHoldWhenClearThrows() async {
+        let recovery = recoveryRecord()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: skipPersistence,
+            write: .init(
+                restoreRecoveryHold: { $0 },
+                clearRecoveryHold: { _ in throw RecordWriteError() }
+            )
+        ))
+        await orchestrator.restoreRecovery(recovery)
+
+        let outcome = await orchestrator.resolveRecovery(
+            runID: recovery.runID,
+            at: Date(timeIntervalSince1970: 200)
+        )
+
+        #expect(outcome == .rejected)
+        guard case let .recoverable(snapshot, _) = await orchestrator.submit(.manualWrite(input: writeInput())) else {
+            Issue.record("Expected the retained hold to keep blocking writes")
+            return
+        }
+        #expect(snapshot.runID == recovery.runID)
+    }
+}
+
 private let skipPersistence: @Sendable (RunRecord) async throws -> Void = { _ in
     // These tests exercise live recovery admission, not record persistence.
 }

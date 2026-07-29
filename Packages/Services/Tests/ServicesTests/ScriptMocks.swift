@@ -98,6 +98,9 @@ actor MockAppleScriptClient: AppleScriptClient {
         }
         writtenProperties.append(TrackPropertyUpdate(trackID: trackID, property: property, value: value))
         if currentValue(for: property, inTrackWithID: trackID) == value {
+            // The real bridge fires the attempt hook for every dispatched
+            // response, including "no change".
+            try await onAttempt?()
             return .noChange
         }
         if singleWriteResult == .changed {

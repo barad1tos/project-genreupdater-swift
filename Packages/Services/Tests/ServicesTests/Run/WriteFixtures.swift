@@ -257,7 +257,9 @@ func writeEntry() -> ChangeLogEntry {
 func recoveryRecord(
     state: RunLifecycleState = .recoverable,
     workItems: [RunWorkItem] = [],
-    recoveryID: UUID = UUID()
+    recoveryID: UUID = UUID(),
+    intent: RunIntent = .writeFixes,
+    finishedAt: Date? = nil
 ) -> RunRecord {
     let startedAt = Date(timeIntervalSince1970: 50)
     return RunRecord(
@@ -265,7 +267,7 @@ func recoveryRecord(
             runID: RunID(),
             requestID: RunRequestID(),
             trigger: .recovery,
-            intent: .writeFixes,
+            intent: intent,
             scope: writeInput().scope,
             startedAt: startedAt
         ),
@@ -280,7 +282,7 @@ func recoveryRecord(
         status: RunRecord.Status(
             syncSummary: nil,
             failureMessage: "Music.app verification required",
-            finishedAt: nil
+            finishedAt: finishedAt
         )
     )
 }

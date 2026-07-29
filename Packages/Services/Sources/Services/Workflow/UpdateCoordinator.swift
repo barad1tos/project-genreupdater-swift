@@ -738,7 +738,7 @@ public actor UpdateCoordinator {
             errorDescriptions: &errorDescriptions
         )
         log.warning(
-            "Failed workflow operation for track \(trackID, privacy: .private): \(error.localizedDescription, privacy: .public)"
+            "Failed workflow operation for track \(trackID, privacy: .private): \(error.localizedDescription, privacy: .private)"
         )
     }
 

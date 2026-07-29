@@ -65,8 +65,8 @@ public struct WriteAttemptFailure: Error {
 
 /// Protocol for interacting with Music.app via AppleScript.
 ///
-/// The actor requirement ensures serial access to AppleScript execution,
-/// which avoids race conditions with Music.app.
+/// The actor requirement serializes access to bridge state; script
+/// concurrency is bounded separately by the configured dispatch gate.
 public protocol AppleScriptClient: Actor {
     func initialize() async throws
 

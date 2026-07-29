@@ -78,6 +78,48 @@ struct CheckpointStoreTests {
         #expect(await records.records.last?.workItems.first?.state == .attempted)
     }
 
+    @Test("dedicated checkpoint store failure prevents write dispatch")
+    func dedicatedStoreFailure() async throws {
+        let writer = WriteProbe(result: BatchUpdateResult(
+            entries: [writeEntry()],
+            failedTrackIDs: [],
+            errorDescriptions: []
+        ))
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in },
+            write: .init(
+                persistCheckpoint: { _, _ in throw RecordWriteError() },
+                writeFixPlan: { submittedInput, checkpoint in
+                    try await checkpoint(.beforeAttempt([itemID]))
+                    return try await writer.apply(input: submittedInput)
+                }
+            )
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case let .failed(snapshot) = result else {
+            Issue.record("Expected failed result, got \(result)")
+            return
+        }
+        #expect(snapshot.failureMessage?.contains(RecordWriteError.message) == true)
+        #expect(await writer.calls.isEmpty)
+    }
+
+    @Test("attempt failure reports the unknown outcome over non-store checkpoint errors")
+    func reportsOutcomeOverPersistence() {
+        let outcome = AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(1))
+        let failure = WriteAttemptFailure(
+            writeError: outcome,
+            checkpointError: WorkCheckpointError.persistence(.afterAttempt, writeAdjacent: true)
+        )
+
+        #expect(failure.reportedError is AppleScriptOutcomeError)
+    }
+
     @Test("dedicated checkpoint store persists every durable boundary")
     func persistsCheckpointCallback() async throws {
         let store = try RunRecordDataStore(

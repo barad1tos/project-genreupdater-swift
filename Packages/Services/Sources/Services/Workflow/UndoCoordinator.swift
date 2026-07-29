@@ -482,6 +482,10 @@ public actor UndoCoordinator {
         do {
             try await recordChange(entry)
         } catch {
+            log.error("""
+            Failed to persist year revert history for track \(trackID, privacy: .private): \
+            \(error.localizedDescription, privacy: .private)
+            """)
             throw UpdateCoordinatorError.writeFinalizationFailed(
                 trackID: trackID,
                 effects: ["change history"]

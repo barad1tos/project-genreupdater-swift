@@ -119,6 +119,23 @@ struct SingleDispatchTests {
         }
     }
 
+    @Test("Nil script output surfaces an unknown outcome")
+    func nilOutputIsUncertain() async {
+        let bridge = makeBridge()
+        let attempts = AttemptCounter()
+
+        await #expect(throws: AppleScriptOutcomeError.self) {
+            _ = try await bridge.updateTrackProperty(
+                trackID: "101",
+                property: "genre",
+                value: "Metal",
+                onAttempt: { await attempts.record() },
+                execute: { nil }
+            )
+        }
+        #expect(await attempts.value == 1)
+    }
+
     @Test("Non-store hook failure still surfaces the unknown outcome")
     func hookFailureKeepsOutcome() async {
         let bridge = makeBridge()
