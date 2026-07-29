@@ -7,7 +7,7 @@ extension UpdateCoordinator {
     /// evidence is not silently dropped (mirrors the bridge-side log).
     func reportAttemptFailure(_ failure: WriteAttemptFailure) -> any Error {
         let reported = failure.reportedError
-        if reported is AppleScriptOutcomeError {
+        if failure.writeError is AppleScriptOutcomeError, !(reported is WorkCheckpointError) {
             log.error("""
             Attempt hook failed with \(String(describing: type(of: failure.checkpointError)), privacy: .public): \
             \(failure.checkpointError.localizedDescription, privacy: .private); reporting the unknown write outcome

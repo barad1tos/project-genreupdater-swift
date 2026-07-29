@@ -79,7 +79,7 @@ extension UpdateCoordinator {
             reportedOutcome = AppleScriptOutcomeError(
                 scriptName: "batch_update_tracks",
                 reason: outcome.reason +
-                    "; change history could not be persisted for \(confirmedIndexes.count) confirmed writes"
+                    "; write finalization failed for \(batch.appliedIndexes.count) applied writes"
             )
         }
         for index in attemptedIndexes.subtracting(batch.appliedIndexes).sorted() {

@@ -616,12 +616,17 @@ extension ApplyAcceptedTests {
         await fixture.trackStore.failProcessingUpdates()
         let checkpoints = CheckpointProbe()
 
-        await #expect(throws: AppleScriptOutcomeError.self) {
+        do {
             _ = try await fixture.coordinator.applyAcceptedChanges(
                 proposals,
                 progressHandler: ignoreAcceptedChangeProgress,
                 checkpoint: { await checkpoints.append($0) }
             )
+            Issue.record("Expected an unknown batch outcome")
+        } catch let outcome as AppleScriptOutcomeError {
+            #expect(outcome.reason.contains("write finalization failed for 1 applied writes"))
+        } catch {
+            Issue.record("Expected AppleScriptOutcomeError, got \(error)")
         }
 
         #expect(await checkpoints.values.map(\.boundary) == [.beforeAttempt, .afterAttempt, .afterVerification])
@@ -635,6 +640,8 @@ extension ApplyAcceptedTests {
     @Test("Partial-batch checkpoint failure keeps verification context")
     func keepsPartialOutcome() async throws {
         let (fixture, itemIDs, proposals) = await makePartialBatch()
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        try await seedCaches(for: track, fixture: fixture)
         let checkpoints = CheckpointProbe()
         let failure = storeFailure(for: .afterVerification([itemIDs[0]: .written]))
 
@@ -664,6 +671,47 @@ extension ApplyAcceptedTests {
             .afterVerification,
         ])
         #expect(await fixture.undo.getHistory().isEmpty)
+        await expectCachesCleared(for: track, fixture: fixture)
+    }
+
+    @Test("Single-write checkpoint store failure keeps caches invalidated")
+    func singleCheckpointStoreFailure() async throws {
+        let fixture = await makeCoordinator()
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1969)
+        try await seedCaches(for: track, fixture: fixture)
+        let itemID = UUID()
+        let proposal = ProposedChange(
+            id: itemID,
+            track: track,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Electronic",
+            confidence: 80,
+            source: "Library",
+            isAccepted: true
+        )
+        let failure = storeFailure(for: .afterVerification([itemID: .written]))
+
+        do {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [proposal],
+                progressHandler: ignoreAcceptedChangeProgress,
+                checkpoint: { checkpoint in
+                    if checkpoint.boundary == .afterVerification {
+                        throw failure
+                    }
+                }
+            )
+            Issue.record("Expected checkpoint store failure")
+        } catch WorkCheckpointError.store {
+            // A landed single write with a failed durable checkpoint must not
+            // record history or keep pre-write cache values.
+        } catch {
+            Issue.record("Expected checkpoint store failure, got \(error)")
+        }
+
+        #expect(await fixture.undo.getHistory().isEmpty)
+        await expectCachesCleared(for: track, fixture: fixture)
     }
 
     @Test("Full-batch checkpoint store failure keeps caches invalidated")
