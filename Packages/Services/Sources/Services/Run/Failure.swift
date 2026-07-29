@@ -59,8 +59,9 @@ extension WriteAttemptFailure {
             return WorkCheckpointError.store(failure.withOutcome(outcome))
         }
         // The unknown outcome wins over a non-store checkpoint error: it
-        // carries the ScriptCompletion recovery awaits before allowing another
-        // physical write (mirrors AppleScriptBridge.recordUnknownAttempt).
+        // carries the ScriptCompletion (when the script is still pending) that
+        // recovery awaits before allowing another physical write (mirrors
+        // AppleScriptBridge.recordUnknownAttempt).
         return outcome
     }
 }

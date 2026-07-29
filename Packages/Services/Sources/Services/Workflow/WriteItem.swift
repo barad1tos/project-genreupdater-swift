@@ -111,8 +111,16 @@ extension UpdateCoordinator {
             return (nil, Self.noOpLogEntry(write.change))
         }
 
+        // Checkpoint the verified outcome before finalization (same contract as
+        // the batch path): a finalization failure must not erase it, and a
+        // checkpoint failure must still invalidate caches for the landed write.
+        do {
+            try await checkpoint?(.afterVerification([write.change.id: .written]))
+        } catch {
+            await invalidateCaches(for: write.change)
+            throw error
+        }
         let entry = try await recordAppliedChange(write.change)
-        try await checkpoint?(.afterVerification([write.change.id: .written]))
         return (entry, nil)
     }
 
@@ -140,7 +148,7 @@ extension UpdateCoordinator {
             if attemptState.hasAttempted {
                 await invalidateCaches(for: write.change)
             }
-            throw failure.reportedError
+            throw reportAttemptFailure(failure)
         } catch let error as WorkCheckpointError {
             if attemptState.hasAttempted {
                 await invalidateCaches(for: write.change)

@@ -156,9 +156,11 @@ public actor RunOrchestrator {
         }
     }
 
-    /// A finalization failure after checkpointed writes keeps recovery
-    /// authority: the physical outcomes are durable, but undo and history
-    /// evidence needs repair before the run can close clean.
+    /// A finalization failure keeps recovery authority: the Music.app writes
+    /// are physically durable (batch outcomes are checkpointed by then; single
+    /// writes remain at the attempted boundary), but undo and history evidence
+    /// stays incomplete until recovery closes the run. Matches the unwrapped
+    /// error only — wrapping it en route would silently downgrade the routing.
     private static func isFinalizationFailure(_ error: any Error) -> Bool {
         if case UpdateCoordinatorError.writeFinalizationFailed = error {
             return true

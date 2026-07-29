@@ -18,7 +18,14 @@ extension UpdateCoordinator {
     ) async throws -> AppliedChangeEntries {
         // Outcomes are fully determined before finalization, so checkpoint them
         // first: a finalization failure must not erase N verified writes.
-        try await checkpointBatch(preparedWrites, batch: batch, sink: checkpoint)
+        do {
+            try await checkpointBatch(preparedWrites, batch: batch, sink: checkpoint)
+        } catch {
+            // The batch was physically dispatched: caches must not keep serving
+            // pre-write values even when the checkpoint cannot persist.
+            await invalidateBatchCaches(preparedWrites)
+            throw error
+        }
         return try await appliedChangeEntries(
             for: preparedWrites,
             batch: batch,
@@ -41,15 +48,22 @@ extension UpdateCoordinator {
             error: error
         )
         // Confirmed outcomes checkpoint before finalization, and the outcome
-        // error outranks a finalization failure: it carries the completion the
-        // unverified writes need for recovery clearance.
-        try await checkpointBatch(
-            preparedWrites,
-            batch: batch,
-            sink: checkpoint,
-            indexes: confirmedIndexes,
-            preserving: outcome
-        )
+        // error outranks a finalization failure: it keeps recovery engaged for
+        // the unverified writes (no ScriptCompletion exists here — the batch
+        // script already returned).
+        do {
+            try await checkpointBatch(
+                preparedWrites,
+                batch: batch,
+                sink: checkpoint,
+                indexes: confirmedIndexes,
+                preserving: outcome
+            )
+        } catch {
+            await invalidateBatchCaches(preparedWrites)
+            throw error
+        }
+        var reportedOutcome = outcome
         do {
             try await recordBatchEffects(
                 preparedWrites,
@@ -58,14 +72,26 @@ extension UpdateCoordinator {
             )
         } catch {
             log.error("""
-            Batch finalization failed after checkpointing confirmed outcomes: \
+            Batch finalization failed after checkpointing \(confirmedIndexes.count, privacy: .public) confirmed \
+            outcomes with \(String(describing: type(of: error)), privacy: .public): \
             \(error.localizedDescription, privacy: .private)
             """)
+            reportedOutcome = AppleScriptOutcomeError(
+                scriptName: "batch_update_tracks",
+                reason: outcome.reason +
+                    "; change history could not be persisted for \(confirmedIndexes.count) confirmed writes"
+            )
         }
         for index in attemptedIndexes.subtracting(batch.appliedIndexes).sorted() {
             await invalidateCaches(for: preparedWrites[index].change)
         }
-        return outcome
+        return reportedOutcome
+    }
+
+    private func invalidateBatchCaches(_ preparedWrites: [PreparedWrite]) async {
+        for write in preparedWrites {
+            await invalidateCaches(for: write.change)
+        }
     }
 
     private func checkpointBatch(

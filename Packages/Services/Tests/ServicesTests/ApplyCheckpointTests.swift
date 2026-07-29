@@ -84,8 +84,10 @@ extension ApplyAcceptedTests {
             [itemID: .attempted],
             [itemID: .outcome(.written)],
         ])
-        #expect(effects.map(\.historyCount) == [1])
-        #expect(effects.map(\.processingCount) == [1])
+        #expect(effects.map(\.historyCount) == [0])
+        #expect(effects.map(\.processingCount) == [0])
+        #expect(await fixture.undo.getHistory().count == 1)
+        #expect(await fixture.trackStore.processingUpdates.count == 1)
     }
 
     @Test("Unknown single-write outcomes remain at the attempted boundary")
@@ -524,7 +526,7 @@ extension ApplyAcceptedTests {
         #expect(effects.map(\.processingCount) == [0])
     }
 
-    @Test("Single-write persistence failures remain at the attempted boundary")
+    @Test("Single-write finalization failures keep the written outcome")
     func singlePersistenceFailure() async throws {
         let fixture = await makeCoordinator()
         await fixture.trackStore.failProcessingUpdates()
@@ -550,8 +552,8 @@ extension ApplyAcceptedTests {
         }
 
         #expect(await fixture.bridge.writtenProperties.count == 1)
-        #expect(await checkpoints.values.map(\.boundary) == [.beforeAttempt, .afterAttempt])
-        #expect(await checkpoints.values.last?.states == [itemID: .attempted])
+        #expect(await checkpoints.values.map(\.boundary) == [.beforeAttempt, .afterAttempt, .afterVerification])
+        #expect(await checkpoints.values.last?.states == [itemID: .outcome(.written)])
         #expect(await fixture.undo.getHistory().count == 1)
         #expect(await fixture.trackStore.processingUpdates.isEmpty)
     }
@@ -661,6 +663,64 @@ extension ApplyAcceptedTests {
             .afterAttempt,
             .afterVerification,
         ])
+        #expect(await fixture.undo.getHistory().isEmpty)
+    }
+
+    @Test("Full-batch checkpoint store failure keeps caches invalidated")
+    func batchCheckpointStoreFailure() async throws {
+        let fixture = await makeCoordinator(
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            )
+        )
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
+        await fixture.bridge.setFetchedTracks([track])
+        try await seedCaches(for: track, fixture: fixture)
+        let itemIDs = [UUID(), UUID()]
+        let proposals = [
+            ProposedChange(
+                id: itemIDs[0],
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Stoner Rock",
+                confidence: 90,
+                source: "Library"
+            ),
+            ProposedChange(
+                id: itemIDs[1],
+                track: track,
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 95,
+                source: "MusicBrainz"
+            ),
+        ]
+        let failure = storeFailure(for: .afterVerification([itemIDs[0]: .written]))
+
+        do {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                proposals,
+                progressHandler: ignoreAcceptedChangeProgress,
+                checkpoint: { checkpoint in
+                    if checkpoint.boundary == .afterVerification {
+                        throw failure
+                    }
+                }
+            )
+            Issue.record("Expected checkpoint store failure")
+        } catch WorkCheckpointError.store {
+            // The dispatched batch failed its durable checkpoint: no history
+            // may be recorded, and caches must not serve pre-write values.
+        } catch {
+            Issue.record("Expected checkpoint store failure, got \(error)")
+        }
+
+        #expect(await fixture.undo.getHistory().isEmpty)
+        #expect(await fixture.trackStore.processingUpdates.isEmpty)
+        await expectCachesCleared(for: track, fixture: fixture)
     }
 
     private func checkpointEffects(

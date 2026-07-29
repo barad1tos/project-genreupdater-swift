@@ -197,7 +197,7 @@ extension UpdateCoordinator {
                 indexes: attemptedIndexes,
                 attemptState: attemptState
             )
-            throw failure.reportedError
+            throw reportAttemptFailure(failure)
         } catch let error as WorkCheckpointError {
             await invalidateAttemptedBatch(
                 preparedWrites,
