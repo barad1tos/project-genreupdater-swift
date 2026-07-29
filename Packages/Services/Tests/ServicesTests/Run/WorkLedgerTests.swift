@@ -32,6 +32,20 @@ struct WorkLedgerTests {
         #expect(ledger.items == [item])
     }
 
+    @Test("unknown item on a post-dispatch boundary needs recovery")
+    func classifiesUnknownPostDispatchWork() {
+        let ledger = WorkLedger([])
+
+        do {
+            _ = try ledger.applying(.afterAttempt([UUID()]))
+            Issue.record("Expected an invalid checkpoint error")
+        } catch let error as WorkCheckpointError {
+            #expect(error.needsRecovery)
+        } catch {
+            Issue.record("Expected WorkCheckpointError, got \(error)")
+        }
+    }
+
     @Test("duplicate input remains visible and rejects checkpoints")
     func preservesDuplicateEvidence() {
         let itemID = UUID()

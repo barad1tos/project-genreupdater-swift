@@ -110,9 +110,11 @@ struct WorkLedger: Equatable, Sendable {
         do {
             for (itemID, state) in checkpoint.states {
                 guard let current = itemsByID[itemID] else {
+                    // A post-dispatch boundary implies Music.app was reached, so an
+                    // unknown item must classify as write-adjacent (fail closed).
                     throw WorkCheckpointError.invalid(
                         checkpoint.boundary,
-                        writeAdjacent: writeAdjacent,
+                        writeAdjacent: writeAdjacent || checkpoint.boundary != .beforeAttempt,
                         reason: "unknown work item \(itemID.uuidString)"
                     )
                 }

@@ -119,6 +119,31 @@ struct SingleDispatchTests {
         }
     }
 
+    @Test("Non-store hook failure still surfaces the unknown outcome")
+    func hookFailureKeepsOutcome() async {
+        let bridge = makeBridge()
+
+        do {
+            _ = try await bridge.updateTrackProperty(
+                trackID: "101",
+                property: "genre",
+                value: "Metal",
+                onAttempt: { throw WorkCheckpointError.persistence(.afterAttempt, writeAdjacent: true) },
+                execute: {
+                    throw AppleScriptOutcomeError(
+                        scriptName: "update_property",
+                        reason: "connection ended before reply"
+                    )
+                }
+            )
+            Issue.record("Expected an unknown-outcome error")
+        } catch let error as AppleScriptOutcomeError {
+            #expect(error.reason.contains("connection ended before reply"))
+        } catch {
+            Issue.record("Expected AppleScriptOutcomeError, got \(error)")
+        }
+    }
+
     @Test("Successful response records an attempt")
     func successIsAttempted() async throws {
         let bridge = makeBridge()

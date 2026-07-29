@@ -416,6 +416,14 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         return try withWorkLedger(workLedger.applying(checkpoint))
     }
 
+    /// Closes `.prepared` items — and `.attempting` items named by the failing
+    /// checkpoint — as definite failures.
+    ///
+    /// Load-bearing invariant: a `.beforeAttempt` checkpoint can only name an
+    /// already-`.attempting` item when the batch fallback re-issues it after a
+    /// pre-dispatch batch failure (the bridge rethrows dispatch-deadline errors
+    /// unchanged and outcome errors block the fallback), so the first dispatch
+    /// never reached Music.app and a definite `.failed` outcome is truthful.
     func failingUndispatchedWork(_ checkpoint: WorkCheckpoint? = nil) throws -> Self {
         let failingIDs = Set(workItems.compactMap { item -> UUID? in
             switch item.state {

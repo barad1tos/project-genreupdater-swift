@@ -321,7 +321,10 @@ extension AppleScriptBridge {
             \(String(describing: type(of: error)), privacy: .public): \
             \(error.localizedDescription, privacy: .private)
             """)
-            throw error
+            // The unknown outcome must win over the hook error: it carries the
+            // ScriptCompletion that recovery awaits before allowing another
+            // physical Music.app write.
+            throw outcome
         }
     }
 

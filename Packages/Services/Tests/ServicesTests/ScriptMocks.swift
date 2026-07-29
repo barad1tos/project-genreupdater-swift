@@ -26,7 +26,9 @@ actor MockAppleScriptClient: AppleScriptClient {
     private var fetchedTracksByIDsCalls: [ScriptFetchRequest] = []
     private var fetchedAllTrackIDsTimeouts: [Duration?] = []
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // Mock: no initialization behavior required.
+    }
 
     func runScript(
         name _: String,
