@@ -146,7 +146,7 @@ public actor RunOrchestrator {
             \(String(describing: type(of: error)), privacy: .public): \
             \(error.localizedDescription, privacy: .private)
             """)
-            if request.intent == .writeFixes, current.hasWriteUncertainty {
+            if request.intent == .writeFixes, current.hasWriteUncertainty || Self.isFinalizationFailure(error) {
                 return await finishRecoverableRun(
                     from: current,
                     failureMessage: error.localizedDescription
@@ -154,6 +154,16 @@ public actor RunOrchestrator {
             }
             return await finishFailedRun(from: current, failureMessage: error.localizedDescription)
         }
+    }
+
+    /// A finalization failure after checkpointed writes keeps recovery
+    /// authority: the physical outcomes are durable, but undo and history
+    /// evidence needs repair before the run can close clean.
+    private static func isFinalizationFailure(_ error: any Error) -> Bool {
+        if case UpdateCoordinatorError.writeFinalizationFailed = error {
+            return true
+        }
+        return false
     }
 
     private func finishCheckpointFailure(

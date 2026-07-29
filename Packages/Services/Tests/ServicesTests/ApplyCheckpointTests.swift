@@ -486,8 +486,10 @@ extension ApplyAcceptedTests {
             itemIDs[0]: .outcome(.written),
             itemIDs[1]: .outcome(.written),
         ])
-        #expect(effects.map(\.historyCount) == [2])
-        #expect(effects.map(\.processingCount) == [2])
+        #expect(effects.map(\.historyCount) == [0])
+        #expect(effects.map(\.processingCount) == [0])
+        #expect(await fixture.undo.getHistory().count == 2)
+        #expect(await fixture.trackStore.processingUpdates.count == 2)
     }
 
     @Test("Partial batch verification records confirmed items")
@@ -518,8 +520,8 @@ extension ApplyAcceptedTests {
         #expect(processingUpdates.first?.id == "MK1")
         #expect(processingUpdates.first?.genreUpdated == true)
         #expect(processingUpdates.first?.yearUpdated == nil)
-        #expect(effects.map(\.historyCount) == [1])
-        #expect(effects.map(\.processingCount) == [1])
+        #expect(effects.map(\.historyCount) == [0])
+        #expect(effects.map(\.processingCount) == [0])
     }
 
     @Test("Single-write persistence failures remain at the attempted boundary")
@@ -554,7 +556,7 @@ extension ApplyAcceptedTests {
         #expect(await fixture.trackStore.processingUpdates.isEmpty)
     }
 
-    @Test("Verified batch persistence failures keep every item attempted")
+    @Test("Verified batch finalization failures keep written outcomes")
     func batchPersistenceFailure() async throws {
         let fixture = await makeCoordinator(
             runtimeConfiguration: UpdateRuntimeConfiguration(
@@ -597,16 +599,16 @@ extension ApplyAcceptedTests {
         }
 
         #expect(await fixture.bridge.batchUpdates.count == 1)
-        #expect(await checkpoints.values.map(\.boundary) == [.beforeAttempt, .afterAttempt])
+        #expect(await checkpoints.values.map(\.boundary) == [.beforeAttempt, .afterAttempt, .afterVerification])
         #expect(await checkpoints.values.last?.states == [
-            itemIDs[0]: .attempted,
-            itemIDs[1]: .attempted,
+            itemIDs[0]: .outcome(.written),
+            itemIDs[1]: .outcome(.written),
         ])
         #expect(await fixture.undo.getHistory().count == 2)
         #expect(await fixture.trackStore.processingUpdates.isEmpty)
     }
 
-    @Test("Partial-batch persistence failures do not publish written outcomes")
+    @Test("Partial-batch finalization failures keep confirmed outcomes")
     func partialPersistenceFailure() async throws {
         let (fixture, itemIDs, proposals) = await makePartialBatch()
         await fixture.trackStore.failProcessingUpdates()
@@ -620,10 +622,9 @@ extension ApplyAcceptedTests {
             )
         }
 
-        #expect(await checkpoints.values.map(\.boundary) == [.beforeAttempt, .afterAttempt])
+        #expect(await checkpoints.values.map(\.boundary) == [.beforeAttempt, .afterAttempt, .afterVerification])
         #expect(await checkpoints.values.last?.states == [
-            itemIDs[0]: .attempted,
-            itemIDs[1]: .attempted,
+            itemIDs[0]: .outcome(.written),
         ])
         #expect(await fixture.undo.getHistory().count == 1)
         #expect(await fixture.trackStore.processingUpdates.isEmpty)

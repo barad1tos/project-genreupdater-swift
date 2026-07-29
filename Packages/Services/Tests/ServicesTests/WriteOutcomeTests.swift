@@ -201,6 +201,43 @@ struct WriteOutcomeTests {
         #expect(await client.writtenProperties.count == 1)
     }
 
+    @Test("Batch finalization failure preserves verified outcomes")
+    func batchFinalizationPreservesOutcomes() async {
+        let tracks = [
+            makeTrack(id: "T1", name: "First", year: 1969),
+            makeTrack(id: "T2", name: "Second", year: 1969)
+        ]
+        let client = MockAppleScriptClient()
+        await client.setFetchedTracks(tracks)
+        let store = MockChangeLogStore()
+        await store.failSaves()
+        let coordinator = makeCoordinator(
+            client,
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            ),
+            changeLogStore: store
+        )
+        let checkpoints = CheckpointProbe()
+        var failedTrackIDs: [String] = []
+        var errorDescriptions: [String] = []
+        let changes = [makeGenreChange(tracks[0]), makeGenreChange(tracks[1])]
+
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await coordinator.applyReviewedChangeGroup(
+                changes,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions,
+                checkpoint: { await checkpoints.append($0) }
+            )
+        }
+
+        let verifications = await checkpoints.values.filter { $0.boundary == .afterVerification }
+        #expect(verifications.count == 1)
+        #expect(verifications.first?.states.count == changes.count)
+    }
+
     @Test("CSV restore stops after cancellation")
     func cancellationStopsCSVRestore() async {
         let tracks = [makeTrack(id: "T1", name: "First"), makeTrack(id: "T2", name: "Second")]

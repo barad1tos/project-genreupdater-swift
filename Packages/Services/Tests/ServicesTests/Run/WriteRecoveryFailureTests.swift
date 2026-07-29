@@ -139,6 +139,42 @@ struct WriteRecoveryFailureTests {
         #expect(await records.records.last?.recoveryID == recoveryID)
     }
 
+    @Test("finalization failure after checkpointed writes stays recoverable")
+    func finalizationFailureKeepsRecovery() async throws {
+        let records = WriteRecordProbe()
+        let recoveryID = UUID()
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await records.append($0) },
+            write: .init(
+                writeFixPlan: { _, checkpoint in
+                    try await checkpoint(.beforeAttempt([itemID]))
+                    try await checkpoint(.afterAttempt([itemID]))
+                    try await checkpoint(.afterVerification([itemID: .written]))
+                    throw UpdateCoordinatorError.writeFinalizationFailed(
+                        trackID: "track-1",
+                        effects: ["change history"]
+                    )
+                },
+                beginRecoveryHold: { recoveryID }
+            )
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case let .recoverable(snapshot, reason) = result else {
+            Issue.record("Expected recoverable result")
+            return
+        }
+        #expect(snapshot.workItems.first?.state == .outcome(.written))
+        #expect(reason.contains("change history"))
+        let record = try #require(await records.records.last)
+        #expect(record.recoveryID == recoveryID)
+        #expect(record.workItems.first?.state == .outcome(.written))
+    }
+
     @Test("recovery stays active when its state cannot persist")
     func unstoredRecoveryRemains() async throws {
         let records = FailingRecordProbe(failingCall: 4)

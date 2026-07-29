@@ -16,14 +16,15 @@ extension UpdateCoordinator {
         errorDescriptions: inout [String],
         checkpoint: WorkCheckpointSink?
     ) async throws -> AppliedChangeEntries {
-        let entries = try await appliedChangeEntries(
+        // Outcomes are fully determined before finalization, so checkpoint them
+        // first: a finalization failure must not erase N verified writes.
+        try await checkpointBatch(preparedWrites, batch: batch, sink: checkpoint)
+        return try await appliedChangeEntries(
             for: preparedWrites,
             batch: batch,
             failedTrackIDs: &failedTrackIDs,
             errorDescriptions: &errorDescriptions
         )
-        try await checkpointBatch(preparedWrites, batch: batch, sink: checkpoint)
-        return entries
     }
 
     func partialBatchFailure(
@@ -34,19 +35,14 @@ extension UpdateCoordinator {
         checkpoint: WorkCheckpointSink?
     ) async throws -> AppleScriptOutcomeError {
         let confirmedIndexes = batch.appliedIndexes.union(batch.noOpIndexes)
-        try await recordBatchEffects(
-            preparedWrites,
-            batch: batch,
-            indexes: confirmedIndexes
-        )
-        for index in attemptedIndexes.subtracting(batch.appliedIndexes).sorted() {
-            await invalidateCaches(for: preparedWrites[index].change)
-        }
         let outcome = Self.partialBatchOutcome(
             applied: batch.appliedIndexes.count,
             attempted: attemptedIndexes.count,
             error: error
         )
+        // Confirmed outcomes checkpoint before finalization, and the outcome
+        // error outranks a finalization failure: it carries the completion the
+        // unverified writes need for recovery clearance.
         try await checkpointBatch(
             preparedWrites,
             batch: batch,
@@ -54,6 +50,21 @@ extension UpdateCoordinator {
             indexes: confirmedIndexes,
             preserving: outcome
         )
+        do {
+            try await recordBatchEffects(
+                preparedWrites,
+                batch: batch,
+                indexes: confirmedIndexes
+            )
+        } catch {
+            log.error("""
+            Batch finalization failed after checkpointing confirmed outcomes: \
+            \(error.localizedDescription, privacy: .private)
+            """)
+        }
+        for index in attemptedIndexes.subtracting(batch.appliedIndexes).sorted() {
+            await invalidateCaches(for: preparedWrites[index].change)
+        }
         return outcome
     }
 
