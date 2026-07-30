@@ -3,11 +3,28 @@ import Foundation
 public enum UserIntentCommandKind: String, Equatable, Sendable {
     case acceptFixPlan
     case applyFixPlan
+    case applyRemainingFixes
+    case continueWrites
+    case dismissRecoveryItem
+    case dismissRecoveryItems
     case rejectFixPlan
     case reviewChanges
     case resumeRecovery
     case runManually
     case togglePlanItem
+}
+
+/// Which recovery work a dismissal command closes, and why.
+public struct RecoveryDismissalTarget: Equatable, Sendable {
+    public let runID: UUID
+    public let itemIDs: [UUID]
+    public let reason: String
+
+    public init(runID: UUID, itemIDs: [UUID], reason: String) {
+        self.runID = runID
+        self.itemIDs = itemIDs
+        self.reason = reason
+    }
 }
 
 public struct FixPlanCommandTarget: Equatable, Sendable {
@@ -42,17 +59,25 @@ public struct UserIntentCommand: Equatable, Sendable {
     public let kind: UserIntentCommandKind
     public let fixPlanTarget: FixPlanCommandTarget?
     public let targetItemID: UUID?
+    /// The closed run a remaining-fixes application continues.
+    public let sourceRunID: UUID?
+    /// The recovery work a dismissal command closes.
+    public let recoveryDismissal: RecoveryDismissalTarget?
 
     private init(
         id: UUID,
         kind: UserIntentCommandKind,
         fixPlanTarget: FixPlanCommandTarget? = nil,
-        targetItemID: UUID? = nil
+        targetItemID: UUID? = nil,
+        sourceRunID: UUID? = nil,
+        recoveryDismissal: RecoveryDismissalTarget? = nil
     ) {
         self.id = id
         self.kind = kind
         self.fixPlanTarget = fixPlanTarget
         self.targetItemID = targetItemID
+        self.sourceRunID = sourceRunID
+        self.recoveryDismissal = recoveryDismissal
     }
 
     public static func acceptFixPlan(target: FixPlanCommandTarget, id: UUID = UUID()) -> Self {
@@ -61,6 +86,14 @@ public struct UserIntentCommand: Equatable, Sendable {
 
     public static func applyFixPlan(target: FixPlanCommandTarget, id: UUID = UUID()) -> Self {
         Self(id: id, kind: .applyFixPlan, fixPlanTarget: target)
+    }
+
+    public static func applyRemainingFixes(
+        target: FixPlanCommandTarget,
+        sourceRunID: UUID,
+        id: UUID = UUID()
+    ) -> Self {
+        Self(id: id, kind: .applyRemainingFixes, fixPlanTarget: target, sourceRunID: sourceRunID)
     }
 
     public static func rejectFixPlan(target: FixPlanCommandTarget, id: UUID = UUID()) -> Self {
@@ -73,6 +106,40 @@ public struct UserIntentCommand: Equatable, Sendable {
 
     public static func resumeRecovery(id: UUID = UUID()) -> Self {
         Self(id: id, kind: .resumeRecovery)
+    }
+
+    public static func continueWrites(id: UUID = UUID()) -> Self {
+        Self(id: id, kind: .continueWrites)
+    }
+
+    /// Individual dismissal — the only affordance allowed to cover a
+    /// write-uncertain item (ADR 0006).
+    public static func dismissRecoveryItem(
+        runID: UUID,
+        itemID: UUID,
+        reason: String,
+        id: UUID = UUID()
+    ) -> Self {
+        Self(
+            id: id,
+            kind: .dismissRecoveryItem,
+            recoveryDismissal: RecoveryDismissalTarget(runID: runID, itemIDs: [itemID], reason: reason)
+        )
+    }
+
+    /// Grouped dismissal with one shared reason; write-uncertain items are
+    /// rejected by the domain gate (ADR 0006).
+    public static func dismissRecoveryItems(
+        runID: UUID,
+        itemIDs: [UUID],
+        reason: String,
+        id: UUID = UUID()
+    ) -> Self {
+        Self(
+            id: id,
+            kind: .dismissRecoveryItems,
+            recoveryDismissal: RecoveryDismissalTarget(runID: runID, itemIDs: itemIDs, reason: reason)
+        )
     }
 
     public static func runManually(id: UUID = UUID()) -> Self {

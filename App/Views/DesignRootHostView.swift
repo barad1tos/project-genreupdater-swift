@@ -28,6 +28,7 @@ struct DesignRootHostView: View {
     @State private var selectedBrowseAlbum: (album: DesignUI.Album, artist: String)?
     @State private var selectedRoute: Route? = .activity
     @State private var activityProjection: ActivityProjection = .empty()
+    @State private var queuedWriteSummary: ActivityQueuedWriteSummary?
     @State private var reportsProjection: ReportsProjection = .empty()
     @State private var fixPlanProjection: FixPlanProjection = .empty()
     @State private var selectedRunReport: RunReportDetailSnapshot?
@@ -217,6 +218,7 @@ struct DesignRootHostView: View {
             workflow: workflowDashboardState,
             fixPlanProjection: fixPlanProjection,
             reportsProjection: reportsProjection,
+            queuedWrite: queuedWriteSummary,
             pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
             runLifecycle: currentRunLifecycle,
             isLibrarySyncAvailable: dependencies.isManualRunAvailable,
@@ -699,6 +701,7 @@ struct DesignRootHostView: View {
     @discardableResult
     private func refreshActivityProjection() async -> ActivityProjection {
         let inputGeneration = await dependencies.projectionStore.nextActivityProjectionInputGeneration()
+        queuedWriteSummary = await dependencies.queuedWriteSummary()
         let projectionInput = activityProjectionInput
         let projection = ActivityBuilder.makeProjection(from: projectionInput)
         let storedProjection = await dependencies.projectionStore.replaceActivityProjection(
@@ -887,6 +890,20 @@ extension DesignRootHostView {
             submitManualRun: {
                 try await dependencies.submitManualRun()
             },
+            releaseQueuedWrite: {
+                await dependencies.runOrchestrator?.releaseQueuedWrite() ?? .empty
+            },
+            dismissRecoveryWork: { runID, itemIDs, reason, isIndividual in
+                try await dependencies.dismissRecoveryWork(
+                    id: runID,
+                    itemIDs: itemIDs,
+                    reason: reason,
+                    isIndividual: isIndividual
+                )
+                // Item states live in the reports projection; refresh it so
+                // the dismissal is visible without an unrelated lifecycle event.
+                await refreshReportsProjection()
+            },
             queueManualReload: { runID in
                 queuedManualReload = .waitingForActive(runID)
             },
@@ -914,6 +931,15 @@ extension DesignRootHostView {
             fixPlanStore: dependencies.fixPlanStore,
             submitFixPlanWrite: { input in
                 try await dependencies.submitFixPlanWrite(input: input)
+            },
+            loadRunRecord: { runID in
+                try await dependencies.runRecordStore?.record(for: runID)
+            },
+            submitRunRequest: { request in
+                guard let orchestrator = dependencies.runOrchestrator else {
+                    throw AppDependencyServiceError.runOrchestratorUnavailable
+                }
+                return await orchestrator.submit(request)
             },
             ensureRecoveryHold: {
                 await dependencies.ensureRecoveryHold()

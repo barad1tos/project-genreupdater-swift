@@ -129,6 +129,18 @@ public struct ActivityPendingVerificationSummary: Equatable, Sendable {
     }
 }
 
+/// Display data for the one write retained behind a recovery hold; never
+/// the full request — the release path owns execution (ADR 0014).
+public struct ActivityQueuedWriteSummary: Equatable, Sendable {
+    public let planID: String
+    public let isContinuation: Bool
+
+    public init(planID: String, isContinuation: Bool) {
+        self.planID = planID
+        self.isContinuation = isContinuation
+    }
+}
+
 public struct ActivityProjectionInput: Equatable, Sendable {
     public let tracks: [Track]
     public let metrics: ActivityProjectionMetrics?
@@ -138,6 +150,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
     public let workflow: ActivityWorkflowState
     public let fixPlan: ActivityFixPlanSummary?
     public let recovery: ActivityRecoverySummary?
+    public let queuedWrite: ActivityQueuedWriteSummary?
     public let pendingVerification: ActivityPendingVerificationSummary?
     public let runLifecycle: RunLifecycleSnapshot?
     public let isLibrarySyncAvailable: Bool
@@ -198,6 +211,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         workflow: ActivityWorkflowState,
         fixPlan: ActivityFixPlanSummary? = nil,
         recovery: ActivityRecoverySummary? = nil,
+        queuedWrite: ActivityQueuedWriteSummary? = nil,
         pendingVerification: ActivityPendingVerificationSummary?,
         runLifecycle: RunLifecycleSnapshot? = nil,
         isLibrarySyncAvailable: Bool,
@@ -212,6 +226,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         self.workflow = workflow
         self.fixPlan = fixPlan
         self.recovery = recovery
+        self.queuedWrite = queuedWrite
         self.pendingVerification = pendingVerification
         self.runLifecycle = runLifecycle
         self.isLibrarySyncAvailable = isLibrarySyncAvailable

@@ -412,6 +412,164 @@ struct FixPlanCommandsTests {
         #expect(await harness.store.recordCallCount() == 0)
         #expect(await harness.store.verdicts() == [.accepted, .accepted])
     }
+
+    @Test("remaining fixes submit the full accepted set as a linked continuation")
+    func remainingFixesSubmitLinkedContinuation() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        let source = makeClosedSourceRecord(readIDs: ["read-00000000-0000-0000-0000-000000000201"])
+        harness.sourceRecord = source
+        harness.setWriteResult(.completedNoOp(FixPlanCommandHarness.finishedLifecycle()))
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyRemainingFixes(
+            target: harness.target,
+            sourceRunID: source.runID.rawValue
+        ))
+
+        #expect(result.status == .noOp)
+        #expect(harness.submittedRequests.count == 1)
+        #expect(harness.submittedRequests.first?.continuesRunID == source.runID)
+        #expect(harness.submittedRequests.first?.trigger == .recovery)
+        // The write runner validates input against exactly the full accepted
+        // set; already-landed items verify as no-ops downstream.
+        let items = harness.submittedRequests.first?.writeInput?.workItems ?? []
+        #expect(items.count == 2)
+        #expect(items.allSatisfy { $0.state == .prepared })
+    }
+
+    @Test("remaining fixes reject a vanished source run")
+    func remainingFixesRejectMissingSource() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        harness.sourceRecord = nil
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyRemainingFixes(
+            target: harness.target,
+            sourceRunID: UUID()
+        ))
+
+        #expect(result.status == .rejectedStale)
+        #expect(harness.submittedRequests.isEmpty)
+    }
+
+    @Test("remaining fixes reject a stale decision triple without submitting")
+    func remainingFixesRejectStaleTriple() async throws {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        harness.sourceRecord = makeClosedSourceRecord(readIDs: ["read-00000000-0000-0000-0000-000000000201"])
+        let commands = harness.makeCommands()
+        let staleTarget = harness.target
+        let current = try #require(await harness.store.currentDecision(for: staleTarget.planID))
+        _ = try await harness.store.recordDecision(
+            FixPlanReviewer.rejectingAll(current, at: Date(timeIntervalSince1970: 1_800_000_300))
+        )
+
+        let result = await commands.handle(.applyRemainingFixes(
+            target: staleTarget,
+            sourceRunID: UUID()
+        ))
+
+        #expect(result.status == .rejectedStale)
+        #expect(harness.submittedRequests.isEmpty)
+    }
+
+    @Test("remaining fixes reject an open source run without submitting")
+    func remainingFixesRejectOpenSource() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        harness.sourceRecord = makeClosedSourceRecord(
+            readIDs: ["read-00000000-0000-0000-0000-000000000201"],
+            finished: false
+        )
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyRemainingFixes(
+            target: harness.target,
+            sourceRunID: UUID()
+        ))
+
+        #expect(result.status == .rejectedStale)
+        #expect(result.message.contains("still open"))
+        #expect(harness.submittedRequests.isEmpty)
+    }
+
+    @Test("remaining fixes stay blocked while a recovery hold is engaged")
+    func remainingFixesBlockedByHold() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        harness.isRecoveryHeld = true
+        harness.sourceRecord = makeClosedSourceRecord(readIDs: ["read-00000000-0000-0000-0000-000000000201"])
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyRemainingFixes(
+            target: harness.target,
+            sourceRunID: UUID()
+        ))
+
+        #expect(result.status == .blockedByRecovery)
+        #expect(harness.submittedRequests.isEmpty)
+    }
+}
+
+private func makeClosedSourceRecord(readIDs: [String], finished: Bool = true) -> RunRecord {
+    let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: [],
+        knownTrackCount: 1,
+        createdAt: startedAt,
+        reason: "continuation-command-test"
+    )
+    let items = readIDs.map { readID in
+        RunWorkItem(
+            id: UUID(),
+            target: .track(FixPlanItemIdentity(
+                readID: readID,
+                appleScriptID: "script-1",
+                artist: "Björk",
+                album: "Homogenic",
+                trackName: "Jóga"
+            )),
+            change: WorkChange(
+                changeType: .genreUpdate,
+                oldValue: "Alternative",
+                newValue: "Art Pop",
+                confidence: 92,
+                source: "MusicBrainz"
+            ),
+            state: .outcome(.failed),
+            detail: nil
+        )
+    }
+    let input = FixPlanWriteInput(
+        target: FixPlanWriteTarget(planID: FixPlanID(), planRevision: .initial, decisionRevision: .initial),
+        scope: scope,
+        configuration: RunConfig(
+            capturedAt: startedAt,
+            writeAuthority: .reviewedPlan,
+            automation: .manualOnly,
+            scopeID: scope.id,
+            settings: FixPlanConfig.capture(
+                configuration: AppConfiguration(),
+                options: UpdateOptions(),
+                capturedAt: startedAt
+            ),
+            hadRecoveryHold: false
+        ),
+        workItems: items
+    )
+    let lifecycle = RunLifecycleSnapshot(
+        request: .manualWrite(input: input),
+        scope: scope,
+        startedAt: startedAt,
+        phase: .active(.writing)
+    )
+    return RunRecord(
+        lifecycle: lifecycle,
+        transitions: [
+            RunLifecycleTransition(state: .writing, timestamp: startedAt),
+            RunLifecycleTransition(state: .cancelled, timestamp: startedAt.addingTimeInterval(5)),
+        ],
+        syncSummary: nil,
+        failureMessage: nil,
+        finishedAt: finished ? startedAt.addingTimeInterval(5) : nil
+    )
 }
 
 @MainActor
@@ -425,6 +583,8 @@ private final class FixPlanCommandHarness {
     private var writeError: (any Error)?
     private var writeInputs: [FixPlanWriteInput] = []
     var isRecoveryHeld = false
+    var sourceRecord: RunRecord?
+    var submittedRequests: [RunRequest] = []
 
     init(
         startingVerdict: FixPlanItemVerdict,
@@ -457,6 +617,16 @@ private final class FixPlanCommandHarness {
             fixPlanStore: fixPlanStore,
             submitFixPlanWrite: { [self] input in
                 try await submitWrite(input: input)
+            },
+            loadRunRecord: { [self] _ in
+                sourceRecord
+            },
+            submitRunRequest: { [self] request in
+                submittedRequests.append(request)
+                if let writeError {
+                    throw writeError
+                }
+                return writeResult ?? .recoveryRequired
             },
             ensureRecoveryHold: { [self] in
                 isRecoveryHeld
@@ -572,6 +742,23 @@ private final class FixPlanCommandHarness {
             phase: .finished(.completed(writeSyncResult(changeCount: changeCount)), finishedAt: Date(
                 timeIntervalSince1970: 1_800_000_260
             ))
+        )
+    }
+
+    static func finishedLifecycle() -> RunLifecycleSnapshot {
+        RunLifecycleSnapshot(
+            runID: RunID(rawValue: commandUUID("00000000-0000-0000-0000-000000000305")),
+            requestID: RunRequestID(rawValue: commandUUID("00000000-0000-0000-0000-000000000306")),
+            trigger: .recovery,
+            intent: .writeFixes,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: ["Björk"],
+                knownTrackCount: 12,
+                createdAt: Date(timeIntervalSince1970: 1_800_000_260),
+                reason: "fixPlanContinuation"
+            ),
+            startedAt: Date(timeIntervalSince1970: 1_800_000_260),
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: Date(timeIntervalSince1970: 1_800_000_261))
         )
     }
 

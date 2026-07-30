@@ -8,6 +8,13 @@ struct ActivityCommands {
 
     let isRunOrchestratorAvailable: () -> Bool
     let submitManualRun: () async throws -> RunSubmissionResult
+    let releaseQueuedWrite: () async -> QueuedWriteRelease
+    let dismissRecoveryWork: (
+        _ recoveryID: UUID,
+        _ itemIDs: [UUID],
+        _ reason: String,
+        _ isIndividual: Bool
+    ) async throws -> Void
     let queueManualReload: (RunID) -> Void
     let reloadLibrary: (_ forceRefresh: Bool) async -> Void
     let refreshActivityProjection: () async -> ActivityProjection
@@ -19,6 +26,7 @@ struct ActivityCommands {
         switch descriptor.commandKind {
         case .acceptFixPlan,
              .applyFixPlan,
+             .applyRemainingFixes,
              .rejectFixPlan,
              .togglePlanItem:
             // Fix-plan actions route through FixPlanCommands; Activity keeps these cases exhaustive.
@@ -27,6 +35,12 @@ struct ActivityCommands {
             return .reviewChanges()
         case .resumeRecovery:
             return .resumeRecovery()
+        case .continueWrites:
+            return .continueWrites()
+        case .dismissRecoveryItem,
+             .dismissRecoveryItems:
+            // The recovery surface constructs dismissal commands directly.
+            return nil
         case .runManually:
             return .runManually()
         }
@@ -36,32 +50,13 @@ struct ActivityCommands {
         switch command.kind {
         case .acceptFixPlan,
              .applyFixPlan,
+             .applyRemainingFixes,
              .rejectFixPlan,
              .togglePlanItem:
             // Defensive only: Activity descriptors never construct fix-plan commands.
             return await unavailableFixPlanCommand(command)
         case .reviewChanges:
-            let projection = await refreshActivityProjection()
-            if let issue = recoveryIssue(in: projection) {
-                return .blockedByRecovery(
-                    message: "Previous run needs recovery before writes continue.",
-                    issue: issue,
-                    refreshedActivityProjection: projection
-                )
-            }
-            guard projection.primaryCommand?.commandKind == .reviewChanges,
-                  projection.primaryCommand?.isEnabled == true
-            else {
-                return .rejectedStale(
-                    message: "Review plan is no longer available.",
-                    refreshedActivityProjection: projection
-                )
-            }
-            return UserCommandResult.navigated(
-                message: "Opening review.",
-                navigationTarget: .fixPlan(id: currentFixPlanID() ?? "current"),
-                refreshedActivityProjection: projection
-            )
+            return await handleReviewChanges()
         case .resumeRecovery:
             let projection = await refreshActivityProjection()
             if let blocker = libraryBlocker(in: projection) {
@@ -85,8 +80,231 @@ struct ActivityCommands {
             }
             let outcome = await runRecoveryPreflight(runID)
             return makeRecoveryResult(outcome, projection: projection)
+        case .continueWrites:
+            return await handleContinueWrites()
+        case .dismissRecoveryItem,
+             .dismissRecoveryItems:
+            return await handleDismissal(command)
         case .runManually:
             return await handleRunManually()
+        }
+    }
+
+    private func handleReviewChanges() async -> UserCommandResult {
+        let projection = await refreshActivityProjection()
+        if let issue = recoveryIssue(in: projection) {
+            return .blockedByRecovery(
+                message: "Previous run needs recovery before writes continue.",
+                issue: issue,
+                refreshedActivityProjection: projection
+            )
+        }
+        guard projection.primaryCommand?.commandKind == .reviewChanges,
+              projection.primaryCommand?.isEnabled == true
+        else {
+            return .rejectedStale(
+                message: "Review plan is no longer available.",
+                refreshedActivityProjection: projection
+            )
+        }
+        return UserCommandResult.navigated(
+            message: "Opening review.",
+            navigationTarget: .fixPlan(id: currentFixPlanID() ?? "current"),
+            refreshedActivityProjection: projection
+        )
+    }
+
+    private func handleDismissal(_ command: UserIntentCommand) async -> UserCommandResult {
+        guard let target = command.recoveryDismissal else {
+            let projection = await refreshActivityProjection()
+            return .rejectedInvalid(
+                message: "Dismissal target is missing.",
+                issue: OperationalIssue(
+                    id: "recovery-dismissal-target",
+                    category: .staleAction,
+                    summary: "Dismissal target missing",
+                    technicalDetail: nil
+                ),
+                refreshedActivityProjection: projection
+            )
+        }
+        do {
+            try await dismissRecoveryWork(
+                target.runID,
+                target.itemIDs,
+                target.reason,
+                command.kind == .dismissRecoveryItem
+            )
+            let projection = await refreshActivityProjection()
+            let count = target.itemIDs.count
+            return .accepted(
+                message: "Dismissed \(count) item\(count == 1 ? "" : "s"). Recovery stays open.",
+                refreshedActivityProjection: projection
+            )
+        } catch let error as WorkCheckpointError {
+            // Domain gate rejections (uncertain-in-grouped, closed targets,
+            // wrong lifecycle) — typed, never routed through the run loop.
+            let projection = await refreshActivityProjection()
+            return .rejectedInvalid(
+                message: "The selection cannot be dismissed.",
+                issue: OperationalIssue(
+                    id: "recovery-dismissal-rejected",
+                    category: .safetyBlocked,
+                    summary: "Dismissal rejected",
+                    technicalDetail: error.localizedDescription
+                ),
+                refreshedActivityProjection: projection
+            )
+        } catch {
+            let projection = await refreshActivityProjection()
+            return .requiresAttention(
+                message: "Dismissal failed.",
+                issue: OperationalIssue(
+                    id: "recovery-dismissal-failed",
+                    category: .internalFailure,
+                    summary: "Dismissal failed",
+                    technicalDetail: error.localizedDescription
+                ),
+                refreshedActivityProjection: projection
+            )
+        }
+    }
+
+    private func handleContinueWrites() async -> UserCommandResult {
+        guard isRunOrchestratorAvailable() else {
+            let projection = await refreshActivityProjection()
+            return .temporaryUnavailable(
+                message: "Run orchestration is unavailable.",
+                issue: OperationalIssue(
+                    id: "queued-write-orchestrator-unavailable",
+                    category: .temporaryUnavailable,
+                    summary: "Run orchestration unavailable",
+                    technicalDetail: "AppDependencies.runOrchestrator is nil"
+                ),
+                refreshedActivityProjection: projection
+            )
+        }
+        let release = await releaseQueuedWrite()
+        let projection = await refreshActivityProjection()
+        if case let .released(inner) = release {
+            return await makeReleasedResult(inner, projection: projection)
+        }
+        return makeUnreleasedResult(release, projection: projection)
+    }
+
+    private func makeUnreleasedResult(
+        _ release: QueuedWriteRelease,
+        projection: ActivityProjection
+    ) -> UserCommandResult {
+        switch release {
+        case .released:
+            // Handled by the caller; kept for exhaustiveness.
+            .rejectedStale(
+                message: "The queued write is no longer available.",
+                refreshedActivityProjection: projection
+            )
+        case .blocked:
+            .blockedByRecovery(
+                message: "Recovery must be resolved before the queued write continues.",
+                issue: OperationalIssue(
+                    id: "queued-write-blocked",
+                    category: .recoveryRequired,
+                    summary: "Queued write held by recovery",
+                    technicalDetail: nil
+                ),
+                refreshedActivityProjection: projection
+            )
+        case .empty, .superseded:
+            .rejectedStale(
+                message: "The queued write is no longer available.",
+                refreshedActivityProjection: projection
+            )
+        case .stale:
+            .rejectedStale(
+                message: "The plan decision changed. Review the plan and apply it again.",
+                refreshedActivityProjection: projection
+            )
+        case .unverifiable(.sourceMissing):
+            .requiresAttention(
+                message: "The queued write could not be verified.",
+                issue: OperationalIssue(
+                    id: "queued-write-unverifiable",
+                    category: .internalFailure,
+                    summary: "Queued-write consent source unavailable",
+                    technicalDetail: "currentDecisionTarget is not wired"
+                ),
+                refreshedActivityProjection: projection
+            )
+        case .unverifiable(.noCurrentDecision):
+            .requiresAttention(
+                message: "The queued plan could not be verified — it may have been removed. "
+                    + "The queued write is still held.",
+                issue: OperationalIssue(
+                    id: "queued-write-plan-missing",
+                    category: .staleAction,
+                    summary: "Queued plan could not be verified",
+                    technicalDetail: nil
+                ),
+                refreshedActivityProjection: projection
+            )
+        }
+    }
+
+    private func makeReleasedResult(
+        _ inner: RunSubmissionResult,
+        projection: ActivityProjection
+    ) async -> UserCommandResult {
+        switch inner {
+        case let .completed(snapshot):
+            let changeCount = snapshot.syncResult?.changeCount ?? 0
+            return await .accepted(
+                message: "Queued write applied \(changeCount) change\(changeCount == 1 ? "" : "s").",
+                refreshedActivityProjection: refreshActivityProjection()
+            )
+        case .completedNoOp:
+            return await .noOp(
+                message: "Queued changes were already up to date.",
+                refreshedActivityProjection: refreshActivityProjection()
+            )
+        case .queued:
+            return .queued(
+                message: "Queued write will run after the current run.",
+                refreshedActivityProjection: projection
+            )
+        case .alreadyCovered:
+            // The intent was consumed by an equivalent active run; re-offer
+            // from the durable plan if the covering run does not land it.
+            return .alreadyCovered(
+                message: "An equivalent write run is already active.",
+                refreshedActivityProjection: projection
+            )
+        case .recoveryRequired, .recoverable:
+            return await .blockedByRecovery(
+                message: "Recovery re-engaged; the queued write is retained.",
+                issue: OperationalIssue(
+                    id: "queued-write-reheld",
+                    category: .recoveryRequired,
+                    summary: "Queued write held by recovery",
+                    technicalDetail: nil
+                ),
+                refreshedActivityProjection: refreshActivityProjection()
+            )
+        case let .failed(snapshot):
+            return await .requiresAttention(
+                message: "Queued write failed.",
+                issue: OperationalIssue(
+                    id: "queued-write-failed",
+                    category: .internalFailure,
+                    summary: "Queued write failed",
+                    technicalDetail: snapshot.failureMessage
+                ),
+                refreshedActivityProjection: refreshActivityProjection()
+            )
+        case .cancelled:
+            return await .noOp(
+                message: "Queued write cancelled.",
+                refreshedActivityProjection: refreshActivityProjection()
+            )
         }
     }
 

@@ -99,7 +99,9 @@ public struct WorkCheckpoint: Equatable, Sendable {
 
 public typealias WorkCheckpointSink = @Sendable (WorkCheckpoint) async throws -> Void
 
-enum WorkCheckpointError: Error, Equatable {
+/// Public across the package boundary: dismissal and checkpoint APIs throw
+/// it, and the App command layer maps it to typed rejections.
+public enum WorkCheckpointError: Error, Equatable {
     case invalid(CheckpointBoundary, writeAdjacent: Bool, reason: String)
     case persistence(CheckpointBoundary, writeAdjacent: Bool)
     case store(CheckpointStoreFailure)
@@ -115,7 +117,7 @@ enum WorkCheckpointError: Error, Equatable {
 }
 
 extension WorkCheckpointError: LocalizedError {
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case let .invalid(boundary, _, reason):
             "Invalid \(String(describing: boundary)) work checkpoint: \(reason)"

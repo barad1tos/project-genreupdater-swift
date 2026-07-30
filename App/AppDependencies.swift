@@ -540,7 +540,8 @@ final class AppDependencies {
             releasePreview: { configuration in
                 await runtime?.discard(configuration)
             },
-            write: write
+            write: write,
+            currentDecisionTarget: makeCurrentDecisionTarget()
         ))
     }
 

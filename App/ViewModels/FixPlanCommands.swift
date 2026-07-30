@@ -35,6 +35,8 @@ struct FixPlanCommands {
 
     let fixPlanStore: (any FixPlanStore)?
     let submitFixPlanWrite: (FixPlanWriteInput) async throws -> RunSubmissionResult
+    let loadRunRecord: (RunID) async throws -> RunRecord?
+    let submitRunRequest: (RunRequest) async throws -> RunSubmissionResult
     let ensureRecoveryHold: () async -> Bool
     let refreshFixPlanProjection: () async -> FixPlanProjection
     let refreshActivityProjection: () async -> ActivityProjection
@@ -102,6 +104,21 @@ struct FixPlanCommands {
                 store: store
             )
         }
+        if command.kind == .applyRemainingFixes {
+            guard let sourceRunID = command.sourceRunID else {
+                return await invalidTargetResult(
+                    detail: "Missing continuation source run",
+                    projection: projection
+                )
+            }
+            return await applyRemainingFixes(
+                sourceRunID: RunID(rawValue: sourceRunID),
+                target: target,
+                decision: decision,
+                projection: projection,
+                store: store
+            )
+        }
         switch await resolveDecisionUpdate(for: command, current: decision, projection: projection) {
         case let .update(nextDecision):
             return try await recordDecision(nextDecision, in: store)
@@ -122,10 +139,14 @@ struct FixPlanCommands {
         switch kind {
         case .acceptFixPlan,
              .applyFixPlan,
+             .applyRemainingFixes,
              .rejectFixPlan,
              .togglePlanItem:
             true
-        case .reviewChanges,
+        case .continueWrites,
+             .dismissRecoveryItem,
+             .dismissRecoveryItems,
+             .reviewChanges,
              .resumeRecovery,
              .runManually:
             false
@@ -165,6 +186,10 @@ struct FixPlanCommands {
             }
             return .changed(nextDecision)
         case .applyFixPlan,
+             .applyRemainingFixes,
+             .continueWrites,
+             .dismissRecoveryItem,
+             .dismissRecoveryItems,
              .reviewChanges,
              .resumeRecovery,
              .runManually:
@@ -253,6 +278,102 @@ struct FixPlanCommands {
             return await writeResult(result, fallbackAcceptedCount: projection.acceptedCount)
         } catch {
             return await writeFailureResult(error, projection: projection)
+        }
+    }
+
+    /// Re-applies the CURRENT plan and decision (fresh consent) as a NEW run
+    /// linked to the closed source run (ADR 0005). The full accepted set is
+    /// submitted — the write runner validates input against exactly that set
+    /// — and items that already landed verify as no-ops through the absolute
+    /// genre/year writes, matching the Python idempotence contract. True
+    /// remainder scoping needs a runner-level subset contract (ledger).
+    private func applyRemainingFixes(
+        sourceRunID: RunID,
+        target: FixPlanCommandTarget,
+        decision: FixPlanReviewDecision,
+        projection: FixPlanProjection,
+        store: any FixPlanStore
+    ) async -> UserCommandResult {
+        if await ensureRecoveryHold() {
+            return await recoveryHoldResult(target: target, projection: projection)
+        }
+        if let issue = projection.operationalIssues.first(where: { $0.category == .safetyBlocked }) {
+            let activity = await refreshActivityProjection()
+            return .requiresAttention(
+                message: "Fix plan needs attention.",
+                issue: issue,
+                refreshedActivityProjection: activity,
+                refreshedFixPlanProjection: projection
+            )
+        }
+        do {
+            guard let record = try await loadRunRecord(sourceRunID) else {
+                return await staleResult(
+                    message: "The interrupted run is no longer available.",
+                    projection: projection
+                )
+            }
+            guard let plan = try await store.plan(id: target.planID, revision: target.planRevision) else {
+                return await conflictResult()
+            }
+            let items = FixPlanWrite.acceptedWorkItems(in: plan, decision: decision)
+            guard !items.isEmpty else {
+                return await staleResult(
+                    message: "Nothing left to continue.",
+                    projection: projection
+                )
+            }
+            let input = FixPlanWriteInput(
+                target: target.writeTarget,
+                scope: plan.scope,
+                configuration: RunConfig(
+                    capturedAt: now(),
+                    writeAuthority: .reviewedPlan,
+                    automation: .manualOnly,
+                    scopeID: plan.scope.id,
+                    settings: plan.configuration,
+                    hadRecoveryHold: false
+                ),
+                workItems: items
+            )
+            let request = try RunRequest.continuation(of: record, input: input)
+            let result = try await submitRunRequest(request)
+            return await writeResult(result, fallbackAcceptedCount: items.count)
+        } catch let error as RunContinuationError {
+            return await continuationRejection(error, projection: projection)
+        } catch {
+            return await writeFailureResult(error, projection: projection)
+        }
+    }
+
+    private func continuationRejection(
+        _ error: RunContinuationError,
+        projection: FixPlanProjection
+    ) async -> UserCommandResult {
+        switch error {
+        case .sourceRunStillOpen:
+            return await staleResult(
+                message: "The interrupted run is still open. Resolve recovery first.",
+                projection: projection
+            )
+        case .nothingToContinue:
+            return await staleResult(
+                message: "Nothing left to continue.",
+                projection: projection
+            )
+        case .sourceRunNotWrite, .inputWorkNotPrepared:
+            let activity = await refreshActivityProjection()
+            return .rejectedInvalid(
+                message: "The remaining fixes cannot be continued.",
+                issue: OperationalIssue(
+                    id: "continuation-invalid",
+                    category: .staleAction,
+                    summary: "Continuation unavailable",
+                    technicalDetail: String(describing: error)
+                ),
+                refreshedActivityProjection: activity,
+                refreshedFixPlanProjection: projection
+            )
         }
     }
 

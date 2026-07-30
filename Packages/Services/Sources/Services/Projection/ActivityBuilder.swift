@@ -89,6 +89,17 @@ public enum ActivityBuilder {
 
         guard !input.hasRecovery else { return nil }
         guard !input.effectiveSyncState.requiresRecoveryAttention else { return nil }
+        // A retained write outranks a new review: the user's queued intent
+        // resolves first, and only through this explicit command (ADR 0006).
+        if input.queuedWrite != nil, canSurfaceRecovery(input: input) {
+            return ActivityCommandDescriptor(
+                id: "continue-writes",
+                title: "Continue writes",
+                style: .primary,
+                isEnabled: true,
+                commandKind: .continueWrites
+            )
+        }
         guard input.proposedFixCount > 0 else { return nil }
 
         return ActivityCommandDescriptor(

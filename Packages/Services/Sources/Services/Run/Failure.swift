@@ -1,7 +1,8 @@
 import Core
 import Foundation
 
-struct CheckpointStoreFailure: LocalizedError, Equatable, Sendable {
+/// Public only as a thrown-error payload; members stay internal.
+public struct CheckpointStoreFailure: LocalizedError, Equatable, Sendable {
     let checkpoint: WorkCheckpoint
     let candidate: RunLifecycleSnapshot
     let durableSnapshot: RunLifecycleSnapshot
@@ -25,11 +26,11 @@ struct CheckpointStoreFailure: LocalizedError, Equatable, Sendable {
         self.completion = completion
     }
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         "Could not persist \(String(describing: checkpoint.boundary)) work checkpoint: \(reason)"
     }
 
-    static func == (lhs: Self, rhs: Self) -> Bool {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.checkpoint == rhs.checkpoint
             && lhs.candidate == rhs.candidate
             && lhs.durableSnapshot == rhs.durableSnapshot
