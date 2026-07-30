@@ -129,6 +129,33 @@ struct RecoveryClearTests {
         #expect(await setup.processor.recoveryHoldID() == recoveryID)
     }
 
+    @Test("Repeated store failures reuse one synthetic hold and yield to the real one")
+    func syntheticHoldStaysStable() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let realStore = RunRecordDataStore(modelContainer: container)
+        let flaky = FlakyRecoveryStore(base: realStore, failingReads: 2)
+        let setup = try makeRecoverySetup(store: flaky)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = UUID()
+        let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
+        try await realStore.upsert(record)
+        setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
+            isMusicAppRunning: { true },
+            areScriptsInstalled: { true }
+        )))
+        setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: []))
+
+        #expect(await setup.dependencies.ensureRecoveryHold())
+        let firstHold = await setup.processor.recoveryHoldID()
+        #expect(firstHold == SyntheticRecoveryHold.id)
+        #expect(await setup.dependencies.ensureRecoveryHold())
+        #expect(await setup.processor.recoveryHoldID() == firstHold)
+
+        try? await setup.dependencies.clearRecoveryHold(id: SyntheticRecoveryHold.id)
+
+        #expect(await setup.processor.recoveryHoldID() == recoveryID)
+    }
+
     @Test("Verified write closes its run and releases every hold")
     func closesVerifiedWrite() async throws {
         let setup = try makeRecoverySetup()

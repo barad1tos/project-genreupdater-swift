@@ -86,6 +86,64 @@ func uncertainRunRecord(
     return (record, item)
 }
 
+/// Wraps a real store and fails the first N recovery reads, so tests can
+/// drive the synthetic-hold path and then let the store recover.
+actor FlakyRecoveryStore: RunRecordStore {
+    struct StoreDown: Error {}
+
+    private let base: any RunRecordStore
+    private var failingReads: Int
+
+    init(base: any RunRecordStore, failingReads: Int) {
+        self.base = base
+        self.failingReads = failingReads
+    }
+
+    func recoveryRecords() async throws -> RunReportPage {
+        if failingReads > 0 {
+            failingReads -= 1
+            throw StoreDown()
+        }
+        return try await base.recoveryRecords()
+    }
+
+    func upsert(_ record: RunRecord) async throws {
+        try await base.upsert(record)
+    }
+
+    func checkpoint(_ checkpoint: WorkCheckpoint, runID: RunID) async throws {
+        try await base.checkpoint(checkpoint, runID: runID)
+    }
+
+    func loadAll() async throws -> [RunRecord] {
+        try await base.loadAll()
+    }
+
+    func record(for runID: RunID) async throws -> RunRecord? {
+        try await base.record(for: runID)
+    }
+
+    func prune(keepingLatest limit: Int) async throws -> Int {
+        try await base.prune(keepingLatest: limit)
+    }
+
+    func claimRecovery(for runID: RunID, id: UUID, at timestamp: Date) async throws -> UUID? {
+        try await base.claimRecovery(for: runID, id: id, at: timestamp)
+    }
+
+    func closeCorruptedRun(_ runID: RunID, at finishedAt: Date) async throws -> Bool {
+        try await base.closeCorruptedRun(runID, at: finishedAt)
+    }
+
+    func closeReadOnlyCorruption(_ runID: RunID, at finishedAt: Date) async throws -> Bool {
+        try await base.closeReadOnlyCorruption(runID, at: finishedAt)
+    }
+
+    func reports(matching query: RunReportQuery) async throws -> RunReportPage {
+        try await base.reports(matching: query)
+    }
+}
+
 /// Serves canned tracks for recovery observation in app-hosted tests.
 actor RecoveryScriptStub: AppleScriptClient {
     private let tracks: [Track]

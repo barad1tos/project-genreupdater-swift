@@ -161,7 +161,7 @@ public actor BatchProcessor {
             if let failedBatchID {
                 return failedBatchID
             }
-            let recoveryID = activateRecovery(batchID: UUID())
+            let recoveryID = activateRecovery(batchID: SyntheticRecoveryHold.id)
             await persistRecoveryPlaceholder(batchID: recoveryID)
             return recoveryID
         }

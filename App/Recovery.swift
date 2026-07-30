@@ -48,7 +48,7 @@ extension AppDependencies {
             }
             return false
         } catch {
-            await admitRecoveryHold(id: UUID())
+            await admitRecoveryHold(id: SyntheticRecoveryHold.id)
             recoveryLog.error(
                 "Failed to read recovery hold state: \(error.localizedDescription, privacy: .private)"
             )
@@ -409,7 +409,7 @@ extension AppDependencies {
         else { return false }
         guard let runRecordStore else { return true }
 
-        let requestedID = candidate.recoveryID ?? preferredID ?? UUID()
+        let requestedID = candidate.recoveryID ?? preferredID ?? SyntheticRecoveryHold.id
         do {
             guard let recoveryID = try await runRecordStore.claimRecovery(
                 for: candidate.runID,
