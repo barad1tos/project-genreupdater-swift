@@ -16,6 +16,10 @@ public enum RecoveryPreflightAttention: Equatable, Sendable {
 
 public enum RecoveryPreflightBlocker: Equatable, Sendable {
     case storeUnavailable
+    case musicAppUnavailable
+    case automationPermissionDenied
+    case scriptsUnavailable
+    case musicKitUnauthorized
 }
 
 public enum RecoveryPreflightOutcome: Equatable, Sendable {
