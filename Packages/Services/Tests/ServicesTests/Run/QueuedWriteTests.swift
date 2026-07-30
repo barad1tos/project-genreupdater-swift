@@ -167,6 +167,51 @@ struct QueuedWriteTests {
         #expect(await orchestrator.activeLifecycle() == nil)
     }
 
+    @Test("admitting a second hold keeps the queued write")
+    func secondHoldKeepsQueuedWrite() async throws {
+        let orchestrator = makeOrchestrator()
+        await orchestrator.restoreRecoveryHold(id: UUID())
+        let request = RunRequest.manualWrite(input: makeWriteInput())
+        _ = await orchestrator.submit(request)
+
+        await orchestrator.restoreRecoveryHold(id: UUID())
+
+        #expect(await orchestrator.queuedWriteRequest()?.id == request.id)
+    }
+
+    @Test("a continuation request queues with its linkage intact")
+    func queuesContinuationRequest() async throws {
+        let failed = makeWorkItem(state: .outcome(.failed))
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let source = makeRunRecord(
+            startedAt: startedAt,
+            finishedAt: startedAt.addingTimeInterval(10),
+            state: .cancelled,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [failed],
+                includesSyncTransition: false
+            )
+        )
+        let request = try RunRequest.continuation(of: source, input: makeWriteInput())
+        let orchestrator = makeOrchestrator()
+        await orchestrator.restoreRecoveryHold(id: UUID())
+
+        _ = await orchestrator.submit(request)
+
+        let queued = try #require(await orchestrator.queuedWriteRequest())
+        #expect(queued.continuesRunID == source.runID)
+        #expect(queued.trigger == .recovery)
+    }
+
+    @Test("a fresh orchestrator starts with an empty slot")
+    func startsWithEmptySlot() async {
+        let orchestrator = makeOrchestrator()
+
+        #expect(await orchestrator.queuedWriteRequest() == nil)
+    }
+
     private func makeOrchestrator(
         currentDecisionTarget: (@Sendable (FixPlanID) async -> FixPlanWriteTarget?)? = nil
     ) -> RunOrchestrator {
