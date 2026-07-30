@@ -108,7 +108,7 @@ struct WorkItemStoreTests {
             createdAt: startedAt,
             reason: "manualCheck"
         )
-        let payload = WorklessPayload(
+        let payload = ItemlessPayload(
             version: RunRecordPayload.configurationVersion,
             transitions: [
                 RunLifecycleTransition(state: .created, timestamp: startedAt),
@@ -199,7 +199,7 @@ struct WorkItemStoreTests {
         ]
         try insertRunRow(
             runID: runID,
-            transitionsData: JSONEncoder().encode(WorklessPayload(
+            transitionsData: JSONEncoder().encode(ItemlessPayload(
                 version: RunRecordPayload.workItemVersion,
                 transitions: transitions,
                 configuration: makeRunConfiguration(scopeID: scope.id, capturedAt: startedAt)
@@ -251,7 +251,7 @@ struct WorkItemStoreTests {
     }
 }
 
-private struct WorklessPayload: Encodable {
+private struct ItemlessPayload: Encodable {
     let version: Int
     let transitions: [RunLifecycleTransition]
     let configuration: RunConfig
