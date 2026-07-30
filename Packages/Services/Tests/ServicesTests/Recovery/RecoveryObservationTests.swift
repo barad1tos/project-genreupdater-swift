@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import Testing
 @testable import Services
@@ -38,6 +39,81 @@ struct RecoveryObservationTests {
 
         #expect(RecoveryObservation.outcome(for: item, observedValue: "") == .failed)
     }
+}
+
+@Suite("Recovery observation service")
+struct RecoveryObservationServiceTests {
+    @Test("observed live value classifies landed and externally changed items")
+    func observesUncertainItems() async throws {
+        let landed = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
+        let external = makeWorkItem(state: .attempting, oldValue: "Pop", newValue: "Synthpop")
+        let client = MockAppleScriptClient()
+        await client.setFetchedTracks([
+            observedTrack(id: "persistent-1", genre: "Stoner Rock"),
+        ])
+        let service = RecoveryObservationService(scriptClient: client)
+
+        let outcomes = try await service.observeOutcomes(for: [landed, external])
+
+        #expect(outcomes[landed.id] == .written)
+        #expect(outcomes[external.id] == .needsReview)
+    }
+
+    @Test("absent live track needs review")
+    func classifiesAbsentTrack() async throws {
+        let attempted = makeWorkItem(state: .attempted)
+        let client = MockAppleScriptClient()
+        let service = RecoveryObservationService(scriptClient: client)
+
+        let outcomes = try await service.observeOutcomes(for: [attempted])
+
+        #expect(outcomes[attempted.id] == .needsReview)
+    }
+
+    @Test("prepared items skip without observation")
+    func skipsPreparedWithoutFetch() async throws {
+        let prepared = makeWorkItem(state: .prepared)
+        let client = MockAppleScriptClient()
+        let service = RecoveryObservationService(scriptClient: client)
+
+        let outcomes = try await service.observeOutcomes(for: [prepared])
+
+        #expect(outcomes[prepared.id] == .skipped)
+        #expect(await client.fetchTracksByIDsCalls().isEmpty)
+    }
+
+    @Test("terminal items are not observed")
+    func ignoresTerminalItems() async throws {
+        let terminal = makeWorkItem(state: .outcome(.written))
+        let client = MockAppleScriptClient()
+        let service = RecoveryObservationService(scriptClient: client)
+
+        let outcomes = try await service.observeOutcomes(for: [terminal])
+
+        #expect(outcomes.isEmpty)
+    }
+
+    @Test("fetch failure propagates and blocks clearance")
+    func propagatesFetchFailure() async {
+        let attempted = makeWorkItem(state: .attempted)
+        let client = MockAppleScriptClient()
+        await client.setFetchThrowMode(true)
+        let service = RecoveryObservationService(scriptClient: client)
+
+        await #expect(throws: (any Error).self) {
+            _ = try await service.observeOutcomes(for: [attempted])
+        }
+    }
+}
+
+private func observedTrack(id: String, genre: String) -> Track {
+    Track(
+        id: id,
+        name: "Track",
+        artist: "Artist",
+        album: "Album",
+        genre: genre
+    )
 }
 
 @Suite("Work ledger observed outcomes")
