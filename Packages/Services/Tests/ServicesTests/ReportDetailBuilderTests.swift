@@ -586,6 +586,46 @@ struct ReportDetailBuilderTests {
         #expect(detail.hiddenWorkItemCount == 3)
     }
 
+    @Test("prepared item IDs cover the full ledger, not just the display cap")
+    func preparedItemIDsIgnoreDisplayCap() {
+        let items = (0 ..< RunReportDetailBuilder.shownWorkItemLimit + 5).map { _ in
+            makeWorkItem(state: .prepared)
+        }
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: items)
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.preparedItemIDs.count == items.count)
+        #expect(detail.preparedItemIDs == items.map(\.id))
+    }
+
+    @Test("uncertain and closed items never enter the prepared set")
+    func preparedItemIDsExcludeUncertainAndClosed() {
+        let prepared = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [
+                prepared,
+                makeWorkItem(state: .attempting),
+                makeWorkItem(state: .attempted),
+                makeWorkItem(state: .outcome(.failed)),
+            ])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.preparedItemIDs == [prepared.id])
+    }
+
     @Test("dismissed items surface their audit detail")
     func dismissedItemsSurfaceDetail() {
         let dismissed = RunWorkItem(

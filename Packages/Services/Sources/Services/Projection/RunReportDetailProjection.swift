@@ -65,6 +65,9 @@ public struct RunReportDetailProjection: Equatable, Sendable {
     public let workItems: [RunReportWorkItem]
     /// Items beyond the display cap; rendered as a "+N more" caption.
     public let hiddenWorkItemCount: Int
+    /// Every grouped-dismissal-eligible item (.prepared), including items
+    /// beyond the display cap — the view must not re-derive this set.
+    public let preparedItemIDs: [UUID]
     /// Closed write run with continuable work: "Apply remaining fixes".
     public let canApplyRemainingFixes: Bool
     /// Suspended recovery run (recoverable/recovering/blocked, not the
@@ -84,6 +87,7 @@ public struct RunReportDetailProjection: Equatable, Sendable {
         detailMessage: String?,
         workItems: [RunReportWorkItem] = [],
         hiddenWorkItemCount: Int = 0,
+        preparedItemIDs: [UUID] = [],
         canApplyRemainingFixes: Bool = false,
         canDismissItems: Bool = false
     ) {
@@ -99,6 +103,7 @@ public struct RunReportDetailProjection: Equatable, Sendable {
         self.detailMessage = detailMessage
         self.workItems = workItems
         self.hiddenWorkItemCount = hiddenWorkItemCount
+        self.preparedItemIDs = preparedItemIDs
         self.canApplyRemainingFixes = canApplyRemainingFixes
         self.canDismissItems = canDismissItems
     }

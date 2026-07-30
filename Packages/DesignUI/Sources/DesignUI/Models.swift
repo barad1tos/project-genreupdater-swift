@@ -455,6 +455,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
     public let detailMessage: String?
     public let workItems: [RunReportWorkItemRow]
     public let hiddenWorkItemCount: Int
+    public let preparedItemIDs: [String]
     public let canApplyRemainingFixes: Bool
     public let canDismissItems: Bool
     public let unavailableReason: String?
@@ -472,6 +473,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         detailMessage: String? = nil,
         workItems: [RunReportWorkItemRow] = [],
         hiddenWorkItemCount: Int = 0,
+        preparedItemIDs: [String] = [],
         canApplyRemainingFixes: Bool = false,
         canDismissItems: Bool = false
     ) {
@@ -487,6 +489,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         self.detailMessage = detailMessage
         self.workItems = workItems
         self.hiddenWorkItemCount = hiddenWorkItemCount
+        self.preparedItemIDs = preparedItemIDs
         self.canApplyRemainingFixes = canApplyRemainingFixes
         self.canDismissItems = canDismissItems
         unavailableReason = nil
@@ -505,6 +508,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         detailMessage = nil
         workItems = []
         hiddenWorkItemCount = 0
+        preparedItemIDs = []
         canApplyRemainingFixes = false
         canDismissItems = false
         unavailableReason = "This run report is no longer available"

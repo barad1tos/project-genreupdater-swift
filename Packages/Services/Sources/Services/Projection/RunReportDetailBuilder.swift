@@ -26,6 +26,7 @@ public enum RunReportDetailBuilder {
             detailMessage: ReportsRunLabels.detailMessage(state: state, failureMessage: record.failureMessage),
             workItems: record.workItems.prefix(shownWorkItemLimit).map(makeWorkItem),
             hiddenWorkItemCount: max(0, record.workItems.count - shownWorkItemLimit),
+            preparedItemIDs: record.workItems.filter { $0.state == .prepared }.map(\.id),
             canApplyRemainingFixes: record.finishedAt != nil
                 && record.intent == .writeFixes
                 && !record.continuableWork.isEmpty,

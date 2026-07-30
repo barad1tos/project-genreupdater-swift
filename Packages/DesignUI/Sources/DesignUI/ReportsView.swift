@@ -373,7 +373,7 @@ struct ReportsView: View {
 
     @ViewBuilder
     private func runDetailActions(_ detail: RunReportDetailSnapshot) -> some View {
-        let preparedIDs = detail.workItems.filter { $0.isOpen && !$0.isWriteUncertain }.map(\.id)
+        let preparedIDs = detail.preparedItemIDs
         if detail.canApplyRemainingFixes || (detail.canDismissItems && !preparedIDs.isEmpty) {
             HStack(spacing: 10) {
                 if detail.canApplyRemainingFixes {

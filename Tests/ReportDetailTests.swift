@@ -35,6 +35,7 @@ struct ReportDetailTests {
                 ),
             ],
             hiddenWorkItemCount: 4,
+            preparedItemIDs: [itemID],
             canApplyRemainingFixes: true,
             canDismissItems: false
         )
@@ -66,6 +67,7 @@ struct ReportDetailTests {
             ),
         ])
         #expect(snapshot.hiddenWorkItemCount == 4)
+        #expect(snapshot.preparedItemIDs == [itemID.uuidString])
         #expect(snapshot.canApplyRemainingFixes)
         #expect(!snapshot.canDismissItems)
         #expect(snapshot.unavailableReason == nil)
