@@ -3,8 +3,8 @@ import Foundation
 
 public enum RunReportDetailBuilder {
     private static let shownArtistLimit = 3
-    /// Mirrors the bounded-report precedent (ActivitySnapshotAdapter caps at
-    /// 100); full-library write ledgers can hold thousands of items.
+    /// Full-library write ledgers can hold thousands of items; the card
+    /// renders a bounded window and reports the remainder as a count.
     static let shownWorkItemLimit = 100
 
     public static func makeDetail(
@@ -27,12 +27,16 @@ public enum RunReportDetailBuilder {
             workItems: record.workItems.prefix(shownWorkItemLimit).map(makeWorkItem),
             hiddenWorkItemCount: max(0, record.workItems.count - shownWorkItemLimit),
             preparedItemIDs: record.workItems.filter { $0.state == .prepared }.map(\.id),
+            // writeTarget != nil: RunRequest.continuation fails closed on an
+            // unverifiable source plan, so the affordance must hide with it.
             canApplyRemainingFixes: record.finishedAt != nil
                 && record.intent == .writeFixes
+                && record.writeTarget != nil
                 && !record.continuableWork.isEmpty,
-            // Mirrors the domain dismissal gate (requireRecoveryResolution +
-            // the active-run exclusion in dismissRecoveryWork): affordances
-            // must never render where the command categorically rejects.
+            // Strictly narrower than requireRecoveryResolution: the domain
+            // gate alone admits states a dismissal command still rejects
+            // downstream (closed records, the active run), so the card also
+            // requires an open, non-active run with open items.
             canDismissItems: record.finishedAt == nil
                 && record.state.isResolvingRecovery
                 && record.runID != activeRunID

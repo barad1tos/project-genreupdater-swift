@@ -395,13 +395,29 @@ struct ReportDetailBuilderTests {
             finishedAt: startDate.addingTimeInterval(10),
             state: .cancelled,
             syncSummary: nil,
-            input: RecordInput(intent: .writeFixes, workItems: [failed])
+            input: RecordInput(intent: .writeFixes, writeTarget: writeTarget(), workItems: [failed])
         )
 
         let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
 
         #expect(detail.canApplyRemainingFixes)
         #expect(!detail.canDismissItems)
+    }
+
+    @Test("a salvaged run without a recorded plan offers no continuation")
+    func runWithoutRecordedPlanOffersNoContinuation() {
+        let failed = makeWorkItem(state: .outcome(.failed))
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(10),
+            state: .cancelled,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, writeTarget: nil, workItems: [failed])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(!detail.canApplyRemainingFixes)
     }
 
     @Test("a fully landed closed run offers no continuation")
@@ -475,7 +491,11 @@ struct ReportDetailBuilderTests {
             finishedAt: startDate.addingTimeInterval(10),
             state: .failed,
             syncSummary: nil,
-            input: RecordInput(intent: .observeLibrary, workItems: [makeWorkItem(state: .outcome(.failed))])
+            input: RecordInput(
+                intent: .observeLibrary,
+                writeTarget: writeTarget(),
+                workItems: [makeWorkItem(state: .outcome(.failed))]
+            )
         )
 
         let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
@@ -492,6 +512,7 @@ struct ReportDetailBuilderTests {
             syncSummary: nil,
             input: RecordInput(
                 intent: .writeFixes,
+                writeTarget: writeTarget(),
                 workItems: [makeWorkItem(state: .outcome(.failed)), makeWorkItem(state: .prepared)]
             )
         )
@@ -654,6 +675,7 @@ struct ReportDetailBuilderTests {
         var failureMessage: String?
         var scope: ProcessingScopeSnapshot?
         var intent: RunIntent = .observeLibrary
+        var writeTarget: FixPlanWriteTarget?
         var workItems: [RunWorkItem] = []
     }
 
@@ -690,6 +712,7 @@ struct ReportDetailBuilderTests {
                 continuesRunID: nil,
                 startedAt: startedAt
             ),
+            writeTarget: input.writeTarget,
             transitions: transitions,
             workItems: input.workItems,
             status: RunRecord.Status(

@@ -41,6 +41,7 @@ struct DesignRootHostView: View {
     @State private var isReviewBusy = false
     @State private var queuedManualReload: QueuedManualReload?
     @State private var reportNotice: ReportNotice?
+    @State private var reportNoticeID = UUID()
     @State private var isDismissalBusy = false
     @AppStorage(AppStorageKey.defaultUpdateBehavior) private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
@@ -444,7 +445,7 @@ struct DesignRootHostView: View {
 
     private func selectRunReport(_ runID: String?) {
         if runID != selectedRunReport?.runID {
-            reportNotice = nil
+            clearReportNotice()
         }
         // New request ID invalidates any in-flight detail load, so a stale
         // response can neither reopen a closed card nor overwrite a newer pick.
@@ -1018,44 +1019,64 @@ extension DesignRootHostView {
 
     private func runFixPlanCommand(
         _ command: UserIntentCommand,
-        noticeHandler: ((String, Tone) -> Void)? = nil,
+        showNotice: ((String, Tone) -> Void)? = nil,
         onFinished: (() -> Void)? = nil
     ) {
-        let showNotice = noticeHandler ?? { setFixPlanNotice($0, tone: $1) }
+        let notify = showNotice ?? { setFixPlanNotice($0, tone: $1) }
         guard !isReviewBusy else {
-            showNotice("Review update is already in progress.", .info)
+            notify("Review update is already in progress.", .info)
             return
         }
         isReviewBusy = true
-        clearFixPlanNotice()
+        // Clear only the surface that will carry this command's result.
+        if showNotice == nil {
+            clearFixPlanNotice()
+        }
         Task { @MainActor in
             defer { isReviewBusy = false }
             let result = await fixPlanCommands.handle(command)
             FixPlanCommands.showResult(result, handleResult: handleCommandResult) { notice in
-                showNotice(notice.message, commandTone(for: notice.status))
+                notify(notice.message, commandTone(for: notice.status))
             }
             onFinished?()
         }
     }
 
     private func applyRemainingFixes(runID: String) {
+        clearReportNotice()
         guard let sourceRunID = UUID(uuidString: runID) else {
-            setReportNotice("Run report is no longer available.", tone: .warning)
+            setReportNotice("Run report is no longer available.", tone: .warning, forRun: runID)
             return
         }
         guard let target = currentFixPlanTarget() else {
-            setReportNotice("Review a plan before continuing.", tone: .warning)
+            setReportNotice("Review a plan before continuing.", tone: .warning, forRun: runID)
             return
         }
         runFixPlanCommand(
             .applyRemainingFixes(target: target, sourceRunID: sourceRunID),
-            noticeHandler: { message, tone in setReportNotice(message, tone: tone) },
+            showNotice: { message, tone in setReportNotice(message, tone: tone, forRun: runID) },
             onFinished: { refreshSelectedRunReport(runID) }
         )
     }
 
-    private func setReportNotice(_ message: String, tone: Tone) {
+    /// Renders only while the originating run is still selected — a result
+    /// must never appear inside another run's card — and expires after the
+    /// same 8s window as the sibling notice surfaces.
+    private func setReportNotice(_ message: String, tone: Tone, forRun runID: String) {
+        guard selectedRunReport?.runID == runID else { return }
+        let noticeID = UUID()
+        reportNoticeID = noticeID
         reportNotice = ReportNotice(message: message, tone: tone)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(8))
+            guard reportNoticeID == noticeID else { return }
+            clearReportNotice()
+        }
+    }
+
+    private func clearReportNotice() {
+        reportNoticeID = UUID()
+        reportNotice = nil
     }
 
     /// Reload only while the same run is still selected: an unconditional
@@ -1071,7 +1092,7 @@ extension DesignRootHostView {
             itemID: itemID,
             reason: reason
         ) else {
-            setReportNotice("Recovery item is no longer available.", tone: .warning)
+            setReportNotice("Recovery item is no longer available.", tone: .warning, forRun: runID)
             return
         }
         runRecoveryDismissal(command, runID: runID)
@@ -1084,7 +1105,7 @@ extension DesignRootHostView {
             itemIDs: itemIDs,
             reason: reason
         ) else {
-            setReportNotice("Recovery items are no longer available.", tone: .warning)
+            setReportNotice("Recovery items are no longer available.", tone: .warning, forRun: runID)
             return
         }
         runRecoveryDismissal(command, runID: runID)
@@ -1094,17 +1115,19 @@ extension DesignRootHostView {
         // One dismissal at a time: the store path is read-modify-write, so
         // interleaved commands could silently revert each other's outcome.
         guard !isDismissalBusy else {
-            setReportNotice("Dismissal is already in progress.", tone: .info)
+            setReportNotice("Dismissal is already in progress.", tone: .info, forRun: runID)
             return
         }
         isDismissalBusy = true
+        clearReportNotice()
         Task { @MainActor in
             defer { isDismissalBusy = false }
             let result = await activityCommands.handle(command)
             handleCommandResult(result, showsActivityNotice: false)
             setReportNotice(
                 FixPlanCommands.noticeText(for: result),
-                tone: commandTone(for: result.status)
+                tone: commandTone(for: result.status),
+                forRun: runID
             )
             refreshSelectedRunReport(runID)
         }

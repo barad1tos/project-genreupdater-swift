@@ -28,7 +28,7 @@ public enum RunLifecycleState: String, CaseIterable, Codable, Equatable, Sendabl
 
     /// True only while the run is suspended for recovery resolution — the
     /// sole lifecycle window in which dismissal affordances may operate.
-    public var isResolvingRecovery: Bool {
+    var isResolvingRecovery: Bool {
         self == .recoverable || self == .recovering || self == .blocked
     }
 

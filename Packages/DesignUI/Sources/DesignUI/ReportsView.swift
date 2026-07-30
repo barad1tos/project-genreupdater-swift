@@ -233,7 +233,7 @@ struct ReportsView: View {
                         Text(notice.message)
                             .font(.system(size: 12.5))
                             .foregroundStyle(notice.tone == .neutral ? Ayu.fg2 : notice.tone.color)
-                            .accessibilityLabel("Run report action result")
+                            .accessibilityLabel("Run report action result: \(notice.message)")
                     }
                 }
             }
@@ -334,9 +334,11 @@ struct ReportsView: View {
                 }
             }
             if detail.hiddenWorkItemCount > 0 {
-                Text("+\(detail.hiddenWorkItemCount.formatted()) more items")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Ayu.fgMuted)
+                Text(
+                    "+\(detail.hiddenWorkItemCount.formatted()) more item\(detail.hiddenWorkItemCount == 1 ? "" : "s")"
+                )
+                .font(.system(size: 11.5))
+                .foregroundStyle(Ayu.fgMuted)
             }
         }
     }

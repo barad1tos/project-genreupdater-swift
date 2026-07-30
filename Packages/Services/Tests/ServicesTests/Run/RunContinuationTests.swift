@@ -119,6 +119,22 @@ struct RunContinuationTests {
         }
     }
 
+    @Test("advanced revisions of the same plan may still continue the run")
+    func acceptsAdvancedRevisionsOfSamePlan() throws {
+        let executed = writeTarget()
+        let advanced = FixPlanWriteTarget(
+            planID: executed.planID,
+            planRevision: FixPlanRevision(executed.planRevision.value + 1),
+            decisionRevision: ReviewDecisionRevision(executed.decisionRevision.value + 1)
+        )
+        let failed = makeWorkItem(state: .outcome(.failed))
+        let record = makeClosedWriteRecord(workItems: [failed], target: executed)
+
+        let request = try RunRequest.continuation(of: record, input: makeWriteInput(target: advanced))
+
+        #expect(request.continuesRunID == record.runID)
+    }
+
     @Test("a source run without a recorded plan fails closed")
     func rejectsUnverifiableSourcePlan() throws {
         let failed = makeWorkItem(state: .outcome(.failed))
