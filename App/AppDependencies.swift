@@ -540,8 +540,25 @@ final class AppDependencies {
             releasePreview: { configuration in
                 await runtime?.discard(configuration)
             },
-            write: write
+            write: write,
+            currentDecisionTarget: makeCurrentDecisionTarget()
         ))
+    }
+
+    /// The queued-write freshness authority: the currently persisted decision
+    /// triple for a plan. Store errors map to nil, so release fails closed as
+    /// unverifiable and the queued intent is retained.
+    func makeCurrentDecisionTarget() -> @Sendable (FixPlanID) async -> FixPlanWriteTarget? {
+        { [weak self] planID in
+            guard let store = await self?.fixPlanStore,
+                  let decision = try? await store.currentDecision(for: planID)
+            else { return nil }
+            return FixPlanWriteTarget(
+                planID: decision.planID,
+                planRevision: decision.planRevision,
+                decisionRevision: decision.revision
+            )
+        }
     }
 
     func refreshFixPlanProjection() async -> FixPlanProjection {
