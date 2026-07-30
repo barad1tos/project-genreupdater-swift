@@ -17,17 +17,22 @@ struct RunRecoveryTests {
         )
 
         let opened = record.openingRecovery(id: UUID(), at: Date(timeIntervalSince1970: 100))
-        let closed = try opened.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        let closed = try opened.closingRecovery(
+            at: Date(timeIntervalSince1970: 150),
+            observedOutcomes: [
+                workItems[0].id: ObservedWorkOutcome(outcome: .failed, observedValue: "Rock"),
+            ]
+        )
         let previousTime = try #require(record.transitions.last?.timestamp)
 
         #expect(opened.transitions.last?.timestamp == previousTime)
         #expect(closed.transitions.suffix(2).map(\.timestamp) == [previousTime, previousTime])
         #expect(opened.workItems == workItems)
-        #expect(closed.workItems.map(\.state) == [.outcome(.dismissed)])
+        #expect(closed.workItems.map(\.state) == [.outcome(.failed)])
         #expect(closed.finishedAt == previousTime)
     }
 
-    @Test("Recovery closure terminalizes open work")
+    @Test("Recovery closure terminalizes mixed open work with observed outcomes")
     func closesRecoveryWork() throws {
         let workItems = [
             makeWorkItem(state: .prepared),
@@ -42,39 +47,71 @@ struct RunRecoveryTests {
             input: RunRecordInput(intent: .writeFixes, workItems: workItems)
         )
 
-        let closed = try record.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        let closed = try record.closingRecovery(
+            at: Date(timeIntervalSince1970: 150),
+            observedOutcomes: [
+                workItems[0].id: ObservedWorkOutcome(outcome: .skipped, observedValue: nil),
+                workItems[1].id: ObservedWorkOutcome(outcome: .failed, observedValue: "Rock"),
+                workItems[2].id: ObservedWorkOutcome(outcome: .needsReview, observedValue: "Jazz"),
+            ]
+        )
 
         #expect(closed.workItems.map(\.state) == [
-            .outcome(.dismissed),
-            .outcome(.dismissed),
-            .outcome(.dismissed),
+            .outcome(.skipped),
+            .outcome(.failed),
+            .outcome(.needsReview),
             .outcome(.written),
         ])
+        #expect(closed.failureMessage?.contains("1 item(s) need review") == true)
+    }
+
+    @Test("Closing a write-uncertain record without observation is rejected")
+    func rejectsBlindUncertainClosure() {
+        let record = makeRecoveryRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .recoverable,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [makeWorkItem(state: .attempted)]
+            )
+        )
+
+        #expect(throws: WorkCheckpointError.self) {
+            try record.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        }
     }
 
     @Test("Recovery closure persists terminal work")
     func persistsRecoveryClosure() async throws {
         let store = try makeRunStore()
+        let attempted = makeWorkItem(state: .attempted)
         let record = makeRecoveryRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
             state: .writing,
             input: RunRecordInput(
                 intent: .writeFixes,
-                workItems: [makeWorkItem(state: .attempted)]
+                workItems: [attempted]
             )
         )
         try await store.upsert(record)
         let opened = record.openingRecovery(id: UUID(), at: Date(timeIntervalSince1970: 125))
         try await store.upsert(opened)
 
-        let closed = try opened.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        let closed = try opened.closingRecovery(
+            at: Date(timeIntervalSince1970: 150),
+            observedOutcomes: [
+                attempted.id: ObservedWorkOutcome(outcome: .written, observedValue: "Metal"),
+            ]
+        )
         try await store.upsert(closed)
 
         let stored = try #require(try await store.record(for: record.runID))
         #expect(stored.state == .cancelled)
         #expect(stored.finishedAt == Date(timeIntervalSince1970: 150))
-        #expect(stored.workItems.map(\.state) == [.outcome(.dismissed)])
+        #expect(stored.workItems.map(\.state) == [.outcome(.written)])
+        #expect(stored.workItems.first?.detail == "Verified in Music.app: Metal")
     }
 
     @Test("Recovery closure rejects duplicate terminal work")

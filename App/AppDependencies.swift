@@ -7,41 +7,6 @@ import SwiftUI
 
 private let log = AppLogger.make(category: "dependencies")
 private let configurationSaveErrorPrefix = "Failed to save configuration:"
-enum APIAuthReferenceResolver {
-    static func resolve(
-        _ reference: String,
-        fallbackUserDefaultsKey: String? = nil
-    ) -> String {
-        let trimmedReference = reference.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedReference.isEmpty else { return "" }
-
-        if let placeholderName = placeholderName(from: trimmedReference) {
-            return value(forKey: placeholderName)
-                ?? fallbackUserDefaultsKey.flatMap(value(forKey:))
-                ?? ""
-        }
-
-        return value(forKey: trimmedReference) ?? trimmedReference
-    }
-
-    private static func placeholderName(from reference: String) -> String? {
-        guard reference.hasPrefix("${"), reference.hasSuffix("}") else { return nil }
-        return String(reference.dropFirst(2).dropLast())
-    }
-
-    private static func value(forKey key: String) -> String? {
-        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { return nil }
-
-        return ProcessInfo.processInfo.environment[trimmedKey].flatMap(nonEmpty)
-            ?? UserDefaults.standard.string(forKey: trimmedKey).flatMap(nonEmpty)
-    }
-
-    private static func nonEmpty(_ value: String) -> String? {
-        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedValue.isEmpty ? nil : trimmedValue
-    }
-}
 
 // MARK: - App State
 
@@ -95,6 +60,9 @@ final class AppDependencies {
     private(set) var musicReader: MusicLibraryReader?
     private(set) var libraryReadProvider: (any LibraryReadProvider)?
     private(set) var applescriptBridge: AppleScriptBridge?
+    /// Client used to re-read attempted work during recovery clearance;
+    /// production wiring points it at the AppleScript bridge.
+    private(set) var recoveryObservationClient: (any AppleScriptClient)?
     private(set) var subscriptionService: SubscriptionService?
     private(set) var featureGate: FeatureGate?
     private(set) var networkReachabilityMonitor: NetworkReachabilityMonitor?
@@ -198,6 +166,7 @@ final class AppDependencies {
             )
             try await bridge.initialize()
             applescriptBridge = bridge
+            recoveryObservationClient = bridge
 
             let reader = MusicLibraryReader(
                 testArtists: config.development.testArtists
@@ -785,6 +754,10 @@ extension AppDependencies {
 
     func installTestOrchestrator(_ orchestrator: RunOrchestrator) {
         runOrchestrator = orchestrator
+    }
+
+    func installTestObservationClient(_ client: any AppleScriptClient) {
+        recoveryObservationClient = client
     }
 
     func installTrackCountSource(_ source: @escaping @Sendable () async -> Int?) {

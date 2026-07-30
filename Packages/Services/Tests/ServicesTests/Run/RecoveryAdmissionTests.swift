@@ -95,7 +95,9 @@ struct RecoveryAdmissionTests {
                 clearRecoveryHold: { try await holds.clear($0) }
             )
         ))
-        let active = Task { await orchestrator.submit(.manualWrite(input: writeInput())) }
+        let input = writeInput()
+        let liveItemIDs = input.workItems.map(\.id)
+        let active = Task { await orchestrator.submit(.manualWrite(input: input)) }
         await gate.waitUntilPaused()
 
         await orchestrator.restoreRecovery(recovery)
@@ -112,7 +114,8 @@ struct RecoveryAdmissionTests {
         #expect(
             await orchestrator.resolveRecovery(
                 runID: live.runID,
-                at: Date(timeIntervalSince1970: 200)
+                at: Date(timeIntervalSince1970: 200),
+                observedOutcomes: Dictionary(uniqueKeysWithValues: liveItemIDs.map { ($0, ObservedWorkOutcome(outcome: .failed, observedValue: nil)) })
             ) == .resolved
         )
 
@@ -250,6 +253,67 @@ struct RecoveryAdmissionTests {
 }
 
 extension RecoveryAdmissionTests {
+    @Test("observed outcomes close uncertain work on clearance")
+    func resolvesWithObservedOutcomes() async {
+        let attempted = makeWorkItem(state: .attempted)
+        let recovery = recoveryRecord(workItems: [attempted])
+        let holds = HoldProbe()
+        let orchestrator = makeHoldOrchestrator(holds)
+        await orchestrator.restoreRecovery(recovery)
+
+        let outcome = await orchestrator.resolveRecovery(
+            runID: recovery.runID,
+            at: Date(timeIntervalSince1970: 200),
+            observedOutcomes: [attempted.id: ObservedWorkOutcome(outcome: .written, observedValue: "Metal")]
+        )
+
+        #expect(outcome == .resolved)
+        #expect(await holds.clearedIDs.count == 1)
+        switch await orchestrator.submit(.manualWrite(input: writeInput())) {
+        case .recoveryRequired, .recoverable:
+            Issue.record("Expected writes to unblock after observed clearance")
+        default:
+            break
+        }
+    }
+
+    @Test("uncertain work rejects clearance without observed outcomes")
+    func rejectsBlindClearance() async {
+        let attempted = makeWorkItem(state: .attempted)
+        let recovery = recoveryRecord(workItems: [attempted])
+        let holds = HoldProbe()
+        let orchestrator = makeHoldOrchestrator(holds)
+        await orchestrator.restoreRecovery(recovery)
+
+        let outcome = await orchestrator.resolveRecovery(
+            runID: recovery.runID,
+            at: Date(timeIntervalSince1970: 200)
+        )
+
+        #expect(outcome == .rejected)
+        #expect(await holds.clearedIDs.isEmpty)
+        guard case let .recoverable(snapshot, _) = await orchestrator.submit(.manualWrite(input: writeInput())) else {
+            Issue.record("Expected the retained hold to keep blocking writes")
+            return
+        }
+        #expect(snapshot.runID == recovery.runID)
+    }
+
+    @Test("certain work still clears without observation")
+    func clearsCertainWorkWithoutObservation() async {
+        let recovery = recoveryRecord(workItems: [])
+        let holds = HoldProbe()
+        let orchestrator = makeHoldOrchestrator(holds)
+        await orchestrator.restoreRecovery(recovery)
+
+        let outcome = await orchestrator.resolveRecovery(
+            runID: recovery.runID,
+            at: Date(timeIntervalSince1970: 200)
+        )
+
+        #expect(outcome == .resolved)
+    }
+
     @Test("finished and non-write records do not restore recovery")
     func ignoresIneligibleRestores() async {
         let holds = HoldProbe()

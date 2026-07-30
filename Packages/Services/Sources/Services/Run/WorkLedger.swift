@@ -138,6 +138,56 @@ struct WorkLedger: Equatable, Sendable {
         return updated
     }
 
+    /// Closes every open item with its observed physical outcome (ADR 0006).
+    ///
+    /// Unlike `dismissingOpenWork`, callers supply one observed outcome per
+    /// open item; incomplete coverage is rejected so no uncertainty can be
+    /// closed unobserved, and a `.written` observation for a never-dispatched
+    /// `.prepared` item is rejected at the boundary. An `.attempting` item
+    /// observed as `.written` passes through the attempt boundary first,
+    /// because the observation proves the dispatched value is physically
+    /// present. Observed values are retained as item audit details.
+    func applyingObservedOutcomes(_ observed: [UUID: ObservedWorkOutcome]) throws -> Self {
+        let openIDs = Set(items.compactMap { item -> UUID? in
+            if case .outcome = item.state {
+                return nil
+            }
+            return item.id
+        })
+        let uncovered = openIDs.subtracting(observed.keys)
+        guard uncovered.isEmpty else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: true,
+                reason: "observed outcomes missing for \(uncovered.count) open work item(s)"
+            )
+        }
+        let openObserved = observed.filter { openIDs.contains($0.key) }
+        let invalidWritten = items.contains { item in
+            item.state == .prepared && openObserved[item.id]?.outcome == .written
+        }
+        guard !invalidWritten else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: true,
+                reason: "a never-dispatched item cannot carry a written observation"
+            )
+        }
+        let writtenAttempting = items
+            .filter { $0.state == .attempting && openObserved[$0.id]?.outcome == .written }
+            .map(\.id)
+        var ledger = self
+        if !writtenAttempting.isEmpty {
+            ledger = try ledger.applying(.afterAttempt(writtenAttempting))
+        }
+        ledger = try ledger.applying(.afterVerification(openObserved.mapValues(\.outcome)))
+        for (itemID, observation) in openObserved {
+            guard let detail = observation.detail, let current = ledger.itemsByID[itemID] else { continue }
+            ledger.itemsByID[itemID] = current.annotated(detail: detail)
+        }
+        return ledger
+    }
+
     func dismissingOpenWork() throws -> Self {
         var outcomes: [UUID: WorkOutcome] = [:]
         for item in items {

@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import Services
 import Testing
@@ -6,6 +7,56 @@ import Testing
 @Suite("Recovery clear")
 @MainActor
 struct RecoveryClearTests {
+    @Test("Observed clearance closes uncertain work with physical outcomes")
+    func observedClearanceClosesUncertainRun() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let (record, item) = uncertainRunRecord(recoveryID: recoveryID)
+        try await setup.store.upsert(record)
+        setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: [
+            Track(
+                id: "persistent-1",
+                name: "Track",
+                artist: "Artist",
+                album: "Album",
+                genre: "Stoner Rock"
+            ),
+        ]))
+        let stored = try #require(await setup.store.record(for: record.runID))
+        await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
+
+        try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+
+        let closed = try #require(await setup.store.record(for: record.runID))
+        #expect(closed.state == .cancelled)
+        #expect(closed.finishedAt != nil)
+        #expect(closed.workItems.map(\.state) == [.outcome(.written)])
+        #expect(closed.workItems.first?.id == item.id)
+        #expect(closed.workItems.first?.detail == "Verified in Music.app: Stoner Rock")
+        #expect(await setup.processor.recoveryHoldID() == nil)
+    }
+
+    @Test("Clearance without observation keeps the uncertain record open")
+    func blindClearanceKeepsUncertainRecordOpen() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
+        try await setup.store.upsert(record)
+        let stored = try #require(await setup.store.record(for: record.runID))
+        await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
+
+        await #expect(throws: AppDependencyServiceError.recoveryVerificationFailed) {
+            try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+        }
+
+        let retained = try #require(await setup.store.record(for: record.runID))
+        #expect(retained.finishedAt == nil)
+        #expect(retained.workItems.map(\.state) == [.attempted])
+        #expect(await setup.processor.recoveryHoldID() == recoveryID)
+    }
+
     @Test("Verified write closes its run and releases every hold")
     func closesVerifiedWrite() async throws {
         let setup = try makeRecoverySetup()

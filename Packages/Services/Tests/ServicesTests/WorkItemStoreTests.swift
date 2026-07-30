@@ -108,7 +108,7 @@ struct WorkItemStoreTests {
             createdAt: startedAt,
             reason: "manualCheck"
         )
-        let payload = WorklessPayload(
+        let payload = ConfigurationPayload(
             version: RunRecordPayload.configurationVersion,
             transitions: [
                 RunLifecycleTransition(state: .created, timestamp: startedAt),
@@ -199,7 +199,7 @@ struct WorkItemStoreTests {
         ]
         try insertRunRow(
             runID: runID,
-            transitionsData: JSONEncoder().encode(WorklessPayload(
+            transitionsData: JSONEncoder().encode(ConfigurationPayload(
                 version: RunRecordPayload.workItemVersion,
                 transitions: transitions,
                 configuration: makeRunConfiguration(scopeID: scope.id, capturedAt: startedAt)
@@ -251,7 +251,7 @@ struct WorkItemStoreTests {
     }
 }
 
-private struct WorklessPayload: Encodable {
+private struct ConfigurationPayload: Encodable {
     let version: Int
     let transitions: [RunLifecycleTransition]
     let configuration: RunConfig
@@ -264,7 +264,14 @@ struct ItemPayload: Encodable {
     let configuration: RunConfig?
 }
 
-func makeWorkItem(id: UUID = UUID(), state: WorkState, detail: String? = nil) -> RunWorkItem {
+func makeWorkItem(
+    id: UUID = UUID(),
+    state: WorkState,
+    detail: String? = nil,
+    changeType: ChangeType = .genreUpdate,
+    oldValue: String? = "Rock",
+    newValue: String? = "Metal"
+) -> RunWorkItem {
     RunWorkItem(
         id: id,
         target: .track(FixPlanItemIdentity(
@@ -275,9 +282,9 @@ func makeWorkItem(id: UUID = UUID(), state: WorkState, detail: String? = nil) ->
             trackName: "Track"
         )),
         change: WorkChange(
-            changeType: .genreUpdate,
-            oldValue: "Rock",
-            newValue: "Metal",
+            changeType: changeType,
+            oldValue: oldValue,
+            newValue: newValue,
             confidence: 92,
             source: "MusicBrainz"
         ),

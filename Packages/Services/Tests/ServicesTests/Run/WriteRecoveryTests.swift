@@ -53,7 +53,11 @@ struct WriteRecoveryTests {
         }
         #expect(await writer.calls == [firstInput])
 
-        _ = await orchestrator.resolveRecovery(runID: snapshot.runID, at: Date(timeIntervalSince1970: 200))
+        _ = await orchestrator.resolveRecovery(
+            runID: snapshot.runID,
+            at: Date(timeIntervalSince1970: 200),
+            observedOutcomes: Dictionary(uniqueKeysWithValues: firstInput.workItems.map { ($0.id, ObservedWorkOutcome(outcome: .failed, observedValue: nil)) })
+        )
         #expect(await orchestrator.currentLifecycle()?.state == .cancelled)
         guard case .completed = await orchestrator.submit(.manualWrite(input: thirdInput)) else {
             Issue.record("Expected write submission after recovery resolution to complete")
@@ -150,7 +154,7 @@ struct WriteRecoveryTests {
         #expect(await writer.calls.isEmpty)
     }
 
-    @Test("resolved recovery dismisses restored open work")
+    @Test("resolved recovery closes restored work with observed outcomes")
     func closesRestoredWork() async {
         let attempted = makeWorkItem(state: .attempted)
         let recovery = recoveryRecord(workItems: [attempted])
@@ -164,13 +168,14 @@ struct WriteRecoveryTests {
         await orchestrator.restoreRecovery(recovery)
         _ = await orchestrator.resolveRecovery(
             runID: recovery.runID,
-            at: Date(timeIntervalSince1970: 200)
+            at: Date(timeIntervalSince1970: 200),
+            observedOutcomes: [attempted.id: ObservedWorkOutcome(outcome: .written, observedValue: "Metal")]
         )
 
         let resolved = await orchestrator.currentLifecycle()
         #expect(resolved?.state == .cancelled)
         #expect(resolved?.hasOpenItems == false)
-        #expect(resolved?.workItems.first?.state == .outcome(.dismissed))
+        #expect(resolved?.workItems.first?.state == .outcome(.written))
     }
 
     @Test("blocked recovery cannot be resolved")

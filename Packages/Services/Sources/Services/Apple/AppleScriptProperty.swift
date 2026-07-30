@@ -10,6 +10,16 @@ enum AppleScriptTrackProperty: String, CaseIterable {
 
     static let supportedNames = Set(allCases.map(\.rawValue))
 
+    init(changeType: ChangeType) {
+        self = switch changeType {
+        case .genreUpdate: .genre
+        case .yearUpdate, .yearRevert: .year
+        case .trackCleaning: .name
+        case .albumCleaning: .album
+        case .artistRename: .artist
+        }
+    }
+
     func currentValue(in track: Track) -> String? {
         switch self {
         case .genre:
