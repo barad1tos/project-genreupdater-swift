@@ -265,6 +265,62 @@ struct WorkItemTests {
         #expect(decoded.workItems.isEmpty)
     }
 
+    @Test("subset dismissal closes chosen items with detail and timestamp")
+    func dismissesSelectedItems() throws {
+        let prepared = makeWorkItem(state: .prepared)
+        let attempted = makeWorkItem(state: .attempted)
+        let untouched = makeWorkItem(state: .prepared)
+        let ledger = WorkLedger([prepared, attempted, untouched])
+        let dismissedAt = Date(timeIntervalSince1970: 500)
+
+        let updated = try ledger.dismissingItems(
+            [prepared.id, attempted.id],
+            detail: "Dismissed by user: duplicate release",
+            at: dismissedAt
+        )
+
+        let byID = Dictionary(uniqueKeysWithValues: updated.items.map { ($0.id, $0) })
+        #expect(byID[prepared.id]?.state == .outcome(.dismissed))
+        #expect(byID[attempted.id]?.state == .outcome(.dismissed))
+        #expect(byID[prepared.id]?.detail == "Dismissed by user: duplicate release")
+        #expect(byID[prepared.id]?.dismissedAt == dismissedAt)
+        #expect(byID[attempted.id]?.dismissedAt == dismissedAt)
+        #expect(byID[untouched.id] == untouched)
+    }
+
+    @Test("dismissing an unknown item is rejected")
+    func rejectsUnknownDismissal() {
+        let ledger = WorkLedger([makeWorkItem(state: .prepared)])
+
+        #expect(throws: WorkCheckpointError.self) {
+            try ledger.dismissingItems([UUID()], detail: "Dismissed by user: x", at: Date(timeIntervalSince1970: 500))
+        }
+    }
+
+    @Test("dismissing a written item is rejected")
+    func rejectsTerminalDismissal() {
+        let written = makeWorkItem(state: .outcome(.written))
+        let ledger = WorkLedger([written])
+
+        #expect(throws: WorkCheckpointError.self) {
+            try ledger.dismissingItems([written.id], detail: "Dismissed by user: x", at: Date(timeIntervalSince1970: 500))
+        }
+    }
+
+    @Test("legacy work items without dismissedAt decode as undismissed")
+    func decodesMissingDismissedAt() throws {
+        let item = makeWorkItem(state: .prepared)
+        var object = try #require(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(item)) as? [String: Any]
+        )
+        object.removeValue(forKey: "dismissedAt")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(RunWorkItem.self, from: legacyData)
+
+        #expect(decoded.dismissedAt == nil)
+    }
+
     @Test("continuable work keeps only failed and skipped outcomes in order")
     func derivesContinuableWork() throws {
         let written = makeWorkItem(state: .outcome(.written))

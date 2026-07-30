@@ -209,6 +209,19 @@ struct WorkLedger: Equatable, Sendable {
         }
         return try applying(.afterVerification(outcomes))
     }
+
+    /// Dismisses exactly the chosen open items, recording the shared detail
+    /// and the explicit user-decision timestamp (ADR 0006). Unknown or
+    /// already-terminal targets are rejected by the transition machinery.
+    func dismissingItems(_ ids: Set<UUID>, detail: String, at timestamp: Date) throws -> Self {
+        let outcomes = Dictionary(uniqueKeysWithValues: ids.map { ($0, WorkOutcome.dismissed) })
+        var ledger = try applying(.afterVerification(outcomes))
+        for id in ids {
+            guard let current = ledger.itemsByID[id] else { continue }
+            ledger.itemsByID[id] = current.recordingDismissal(detail: detail, at: timestamp)
+        }
+        return ledger
+    }
 }
 
 extension WorkState {
