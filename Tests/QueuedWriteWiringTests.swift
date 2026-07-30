@@ -8,7 +8,7 @@ import Testing
 @MainActor
 struct QueuedWriteWiringTests {
     @Test("the adapter returns the currently persisted decision triple")
-    func returnsCurrentTriple() async throws {
+    func returnsCurrentTriple() async {
         let dependencies = AppDependencies(configurationLoader: { AppConfiguration() })
         let planID = FixPlanID()
         let decision = FixPlanReviewDecision(
@@ -32,7 +32,7 @@ struct QueuedWriteWiringTests {
     }
 
     @Test("a failing store maps to nil so release stays fail-closed")
-    func mapsStoreFailureToNil() async throws {
+    func mapsStoreFailureToNil() async {
         let dependencies = AppDependencies(configurationLoader: { AppConfiguration() })
         dependencies.configureLibraryPersistenceForTesting(
             fixPlanStore: DecisionStubStore(decision: nil, throws: true)
@@ -42,7 +42,7 @@ struct QueuedWriteWiringTests {
     }
 
     @Test("a missing store maps to nil")
-    func mapsMissingStoreToNil() async throws {
+    func mapsMissingStoreToNil() async {
         let dependencies = AppDependencies(configurationLoader: { AppConfiguration() })
 
         #expect(await dependencies.makeCurrentDecisionTarget()(FixPlanID()) == nil)
