@@ -1,6 +1,7 @@
 import Core
 import Foundation
 import Services
+import SwiftData
 import Testing
 @testable import Genre_Updater
 
@@ -71,6 +72,38 @@ struct RecoveryClearTests {
         #expect(history.map(\.trackID) == ["persistent-1"])
         #expect(history.first?.changeType == .genreUpdate)
         #expect(history.first?.newGenre == "Stoner Rock")
+        let durable = try await setup.changeLog.loadAll()
+        #expect(durable.map(\.trackID) == ["persistent-1"])
+    }
+
+    @Test("Checkpointed terminal writes repair history without observation")
+    func terminalWrittenRepairsHistory() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let (record, _) = uncertainRunRecord(
+            recoveryID: recoveryID,
+            itemState: .outcome(.written)
+        )
+        try await setup.store.upsert(record)
+        try await setup.trackStore.saveTracks([Track(
+            id: "persistent-1",
+            name: "Track",
+            artist: "Artist",
+            album: "Album",
+            genre: "Stoner Rock"
+        )])
+        let stored = try #require(await setup.store.record(for: record.runID))
+        await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
+
+        try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+
+        let durable = try await setup.changeLog.loadAll()
+        #expect(durable.map(\.newGenre) == ["Stoner Rock"])
+        let persisted = try ModelContext(setup.persistenceContainer)
+            .fetch(FetchDescriptor<PersistedTrack>())
+        #expect(persisted.map(\.genreUpdated) == [true])
+        #expect(await setup.processor.recoveryHoldID() == nil)
     }
 
     @Test("Blocked availability keeps the hold with an actionable reason")

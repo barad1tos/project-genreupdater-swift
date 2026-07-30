@@ -40,17 +40,30 @@ public enum RecoveryEvidenceRepair {
         return entry
     }
 
-    /// Entries for observed-written items that the existing history does not
-    /// already record, matched by track, change type, and new value so repair
-    /// stays idempotent across retries and partial finalizations.
+    /// Items whose write provably landed: checkpointed terminal `.written`
+    /// (finalization was lost after the durable checkpoint) plus open items
+    /// the live observation classified `.written`.
+    public static func writtenItems(
+        in items: [RunWorkItem],
+        observed: [UUID: ObservedWorkOutcome]?
+    ) -> [RunWorkItem] {
+        items.filter { item in
+            if item.state == .outcome(.written) {
+                return true
+            }
+            return observed?[item.id]?.outcome == .written
+        }
+    }
+
+    /// Entries for written items that the existing history does not already
+    /// record, matched by track, change type, and new value so repair stays
+    /// idempotent across retries and partial finalizations.
     public static func missingEntries(
         for items: [RunWorkItem],
-        observed: [UUID: ObservedWorkOutcome],
         existing: [ChangeLogEntry]
     ) -> [ChangeLogEntry] {
         items.compactMap { item -> ChangeLogEntry? in
-            guard observed[item.id]?.outcome == .written,
-                  let entry = changeLogEntry(for: item),
+            guard let entry = changeLogEntry(for: item),
                   !existing.contains(where: { matches($0, entry) })
             else { return nil }
             return entry

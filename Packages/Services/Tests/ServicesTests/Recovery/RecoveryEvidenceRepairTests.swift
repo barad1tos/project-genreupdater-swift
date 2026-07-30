@@ -34,10 +34,36 @@ struct RecoveryEvidenceRepairTests {
         #expect(entry.newYear == 2001)
     }
 
-    @Test("repair covers only observed-written items missing from history")
+    @Test("written items cover checkpointed terminals and observed writes")
+    func collectsWrittenItems() {
+        let terminal = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
+        let observedWritten = makeWorkItem(state: .attempted, oldValue: "Pop", newValue: "Synthpop")
+        let observedFailed = makeWorkItem(state: .attempted, oldValue: "Ska", newValue: "Dub")
+        let terminalFailed = makeWorkItem(state: .outcome(.failed), oldValue: "Jazz", newValue: "Bebop")
+
+        let written = RecoveryEvidenceRepair.writtenItems(
+            in: [terminal, observedWritten, observedFailed, terminalFailed],
+            observed: [
+                observedWritten.id: ObservedWorkOutcome(outcome: .written, observedValue: "Synthpop"),
+                observedFailed.id: ObservedWorkOutcome(outcome: .failed, observedValue: "Ska"),
+            ]
+        )
+
+        #expect(written.map(\.id) == [terminal.id, observedWritten.id])
+    }
+
+    @Test("terminal written items repair without any observation")
+    func repairsTerminalWithoutObservation() {
+        let terminal = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
+
+        let written = RecoveryEvidenceRepair.writtenItems(in: [terminal], observed: nil)
+
+        #expect(written.map(\.id) == [terminal.id])
+    }
+
+    @Test("repair skips entries the history already records")
     func filtersMissingEntries() throws {
         let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
-        let failed = makeWorkItem(state: .outcome(.failed), oldValue: "Pop", newValue: "Synthpop")
         let recorded = makeWorkItem(
             state: .outcome(.written),
             changeType: .yearUpdate,
@@ -47,12 +73,7 @@ struct RecoveryEvidenceRepairTests {
         let existing = try #require(RecoveryEvidenceRepair.changeLogEntry(for: recorded))
 
         let entries = RecoveryEvidenceRepair.missingEntries(
-            for: [landed, failed, recorded],
-            observed: [
-                landed.id: ObservedWorkOutcome(outcome: .written, observedValue: "Stoner Rock"),
-                failed.id: ObservedWorkOutcome(outcome: .failed, observedValue: "Pop"),
-                recorded.id: ObservedWorkOutcome(outcome: .written, observedValue: "2001"),
-            ],
+            for: [landed, recorded],
             existing: [existing]
         )
 
@@ -60,16 +81,11 @@ struct RecoveryEvidenceRepairTests {
     }
 
     @Test("repair is idempotent across repeated clearance attempts")
-    func staysIdempotent() throws {
+    func staysIdempotent() {
         let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
-        let observed = [landed.id: ObservedWorkOutcome(outcome: .written, observedValue: "Stoner Rock")]
-        let first = RecoveryEvidenceRepair.missingEntries(for: [landed], observed: observed, existing: [])
+        let first = RecoveryEvidenceRepair.missingEntries(for: [landed], existing: [])
 
-        let second = RecoveryEvidenceRepair.missingEntries(
-            for: [landed],
-            observed: observed,
-            existing: first
-        )
+        let second = RecoveryEvidenceRepair.missingEntries(for: [landed], existing: first)
 
         #expect(first.count == 1)
         #expect(second.isEmpty)

@@ -241,22 +241,47 @@ extension AppDependencies {
         }
     }
 
-    /// Rebuilds missing change-history entries for observed-written items so
-    /// undo evidence survives a lost finalization; a repair failure aborts
-    /// clearance and the hold is retained (repaired evidence or a hold).
+    /// Rebuilds missing finalization evidence — durable change history and
+    /// track processing state — for written items, whether the write was
+    /// checkpointed terminal before the loss or confirmed by observation.
+    /// A repair failure aborts clearance and the hold is retained.
     private func repairFinalizationEvidence(
         record: RunRecord,
         observedOutcomes: [UUID: ObservedWorkOutcome]?
     ) async throws {
-        guard let observedOutcomes, let undoCoordinator else { return }
+        guard let undoCoordinator else {
+            recoveryLog.error("Recovery evidence repair skipped: undo coordinator unavailable")
+            return
+        }
+        let writtenItems = RecoveryEvidenceRepair.writtenItems(
+            in: record.workItems,
+            observed: observedOutcomes
+        )
+        guard !writtenItems.isEmpty else { return }
         let existing = await undoCoordinator.getHistory()
         let entries = RecoveryEvidenceRepair.missingEntries(
-            for: record.workItems,
-            observed: observedOutcomes,
+            for: writtenItems,
             existing: existing
         )
-        guard !entries.isEmpty else { return }
-        try await undoCoordinator.recordChanges(entries)
+        if !entries.isEmpty {
+            try await undoCoordinator.recordRepairedChanges(entries)
+        }
+        try await repairProcessingState(for: writtenItems)
+    }
+
+    private func repairProcessingState(for items: [RunWorkItem]) async throws {
+        guard let trackStore else { return }
+        for item in items {
+            guard case let .track(identity) = item.target,
+                  let trackID = identity.appleScriptID
+            else { continue }
+            try await trackStore.updateTrackProcessingState(
+                id: trackID,
+                genreUpdated: item.change.changeType == .genreUpdate ? true : nil,
+                yearUpdated: item.change.changeType == .yearUpdate
+                    || item.change.changeType == .yearRevert ? true : nil
+            )
+        }
     }
 
     /// Finds the open recovery record bound to the hold without mutating it.
@@ -428,7 +453,9 @@ extension AppDependencies {
         else { return false }
         guard let runRecordStore else { return true }
 
-        let requestedID = candidate.recoveryID ?? preferredID ?? SyntheticRecoveryHold.id
+        // A fresh claim persists this ID onto the record, so it must stay
+        // unique: the stable synthetic identity is for in-memory holds only.
+        let requestedID = candidate.recoveryID ?? preferredID ?? UUID()
         do {
             guard let recoveryID = try await runRecordStore.claimRecovery(
                 for: candidate.runID,

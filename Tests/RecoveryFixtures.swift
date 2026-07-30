@@ -9,6 +9,9 @@ struct RecoverySetup {
     let processor: BatchProcessor
     let store: any RunRecordStore
     let undo: UndoCoordinator
+    let changeLog: ChangeLogDataStore
+    let trackStore: TrackDataStore
+    let persistenceContainer: ModelContainer
     let directory: URL
 }
 
@@ -188,11 +191,19 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) throws -> RecoverySet
         featureGate: FeatureGate(fixedTier: .pro)
     )
     let store = try store ?? RunRecordDataStore(modelContainer: ModelContainerFactory.createInMemory())
+    let persistenceContainer = try ModelContainerFactory.createInMemory()
+    let changeLog = ChangeLogDataStore(modelContainer: persistenceContainer)
+    let trackStore = TrackDataStore(modelContainer: persistenceContainer)
     let undo = UndoCoordinator(
         scriptBridge: RecoveryScriptStub(tracks: []),
+        changeLogStore: changeLog,
         directory: directory.appendingPathComponent("undo", isDirectory: true)
     )
     let fixture = try makeFixture(testArtists: [], runRecordStore: store)
+    fixture.dependencies.configureLibraryPersistenceForTesting(
+        trackStore: trackStore,
+        runRecordStore: store
+    )
     fixture.dependencies.installTestWrites(TestWriteServices(
         batchProcessor: processor,
         undoCoordinator: undo,
@@ -215,6 +226,9 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) throws -> RecoverySet
         processor: processor,
         store: store,
         undo: undo,
+        changeLog: changeLog,
+        trackStore: trackStore,
+        persistenceContainer: persistenceContainer,
         directory: directory
     )
 }
