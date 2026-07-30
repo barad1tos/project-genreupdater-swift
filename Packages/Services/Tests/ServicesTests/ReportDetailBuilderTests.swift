@@ -361,10 +361,94 @@ struct ReportDetailBuilderTests {
         #expect(detail.summaryItems.isEmpty)
     }
 
+    @Test("work items map with labels and open flags")
+    func mapsWorkItems() {
+        let prepared = makeWorkItem(state: .prepared, oldValue: "Rock", newValue: "Metal")
+        let attempted = makeWorkItem(state: .attempted)
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [prepared, attempted])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.workItems.count == 2)
+        let first = detail.workItems[0]
+        #expect(first.id == prepared.id)
+        #expect(first.changeLabel.contains("Rock"))
+        #expect(first.changeLabel.contains("Metal"))
+        #expect(first.isOpen)
+        #expect(!first.isWriteUncertain)
+        #expect(detail.workItems[1].isWriteUncertain)
+        #expect(detail.canDismissItems)
+    }
+
+    @Test("a closed write run with failed work can apply remaining fixes")
+    func closedRunWithFailuresCanContinue() {
+        let failed = makeWorkItem(state: .outcome(.failed))
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(10),
+            state: .cancelled,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [failed])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.canApplyRemainingFixes)
+        #expect(!detail.canDismissItems)
+    }
+
+    @Test("a fully landed closed run offers no continuation")
+    func fullyLandedRunOffersNoContinuation() {
+        let written = makeWorkItem(state: .outcome(.written))
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(10),
+            state: .cancelled,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [written])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(!detail.canApplyRemainingFixes)
+        #expect(!detail.canDismissItems)
+    }
+
+    @Test("dismissed items surface their audit detail")
+    func dismissedItemsSurfaceDetail() {
+        let dismissed = RunWorkItem(
+            id: UUID(),
+            target: makeWorkItem(state: .prepared).target,
+            change: makeWorkItem(state: .prepared).change,
+            state: .outcome(.dismissed),
+            detail: "Dismissed by user: duplicate",
+            dismissedAt: Date(timeIntervalSince1970: 500)
+        )
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [dismissed, makeWorkItem(state: .prepared)])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.workItems[0].dismissedLabel == "Dismissed by user: duplicate")
+        #expect(!detail.workItems[0].isOpen)
+    }
+
     private struct RecordInput {
         var failureMessage: String?
         var scope: ProcessingScopeSnapshot?
         var intent: RunIntent = .observeLibrary
+        var workItems: [RunWorkItem] = []
     }
 
     private func makeRunRecord(
@@ -401,6 +485,7 @@ struct ReportDetailBuilderTests {
                 startedAt: startedAt
             ),
             transitions: transitions,
+            workItems: input.workItems,
             status: RunRecord.Status(
                 syncSummary: syncSummary,
                 failureMessage: input.failureMessage,
