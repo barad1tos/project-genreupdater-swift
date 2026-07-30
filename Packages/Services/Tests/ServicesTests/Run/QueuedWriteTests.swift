@@ -95,9 +95,13 @@ struct QueuedWriteTests {
     func releasesFreshQueuedWrite() async {
         let holdID = UUID()
         let input = makeWriteInput()
-        let orchestrator = makeOrchestrator(currentDecisionTarget: { planID in
-            planID == input.target.planID ? input.target : nil
-        })
+        let records = RunRecordSpy()
+        let orchestrator = makeOrchestrator(
+            persistRunRecord: { await records.append($0) },
+            currentDecisionTarget: { planID in
+                planID == input.target.planID ? input.target : nil
+            }
+        )
         await orchestrator.restoreRecoveryHold(id: holdID)
         _ = await orchestrator.submit(RunRequest.manualWrite(input: input))
         _ = await orchestrator.resolveRecovery(id: holdID, runID: nil, at: Date(timeIntervalSince1970: 300))
@@ -109,6 +113,115 @@ struct QueuedWriteTests {
             return
         }
         #expect(await orchestrator.queuedWriteRequest() == nil)
+        // The released run must be THE queued request, not a rebuilt copy.
+        let targets = await records.writeRecords.map(\.writeTarget)
+        #expect(!targets.isEmpty)
+        #expect(targets.allSatisfy { $0 == input.target })
+    }
+
+    @Test("a released continuation keeps its linkage")
+    func releasesContinuationWithLinkage() async throws {
+        let failed = makeWorkItem(state: .outcome(.failed))
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let source = makeRunRecord(
+            startedAt: startedAt,
+            finishedAt: startedAt.addingTimeInterval(10),
+            state: .cancelled,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [failed],
+                includesSyncTransition: false
+            )
+        )
+        let holdID = UUID()
+        let input = makeWriteInput()
+        let request = try RunRequest.continuation(of: source, input: input)
+        let records = RunRecordSpy()
+        let orchestrator = makeOrchestrator(
+            persistRunRecord: { await records.append($0) },
+            currentDecisionTarget: { _ in input.target }
+        )
+        await orchestrator.restoreRecoveryHold(id: holdID)
+        _ = await orchestrator.submit(request)
+        _ = await orchestrator.resolveRecovery(id: holdID, runID: nil, at: Date(timeIntervalSince1970: 300))
+
+        let outcome = await orchestrator.releaseQueuedWrite()
+
+        guard case .released = outcome else {
+            Issue.record("Expected the continuation to be resubmitted, got \(outcome)")
+            return
+        }
+        let linkage = await records.writeRecords.map(\.continuesRunID)
+        #expect(!linkage.isEmpty)
+        #expect(linkage.allSatisfy { $0 == source.runID })
+    }
+
+    @Test("a discard during freshness verification wins over the release")
+    func discardWinsOverInFlightRelease() async {
+        let holdID = UUID()
+        let input = makeWriteInput()
+        let gate = ConsentGate()
+        let records = RunRecordSpy()
+        let orchestrator = makeOrchestrator(
+            persistRunRecord: { await records.append($0) },
+            currentDecisionTarget: { _ in
+                await gate.enter()
+                return input.target
+            }
+        )
+        await orchestrator.restoreRecoveryHold(id: holdID)
+        _ = await orchestrator.submit(RunRequest.manualWrite(input: input))
+        _ = await orchestrator.resolveRecovery(id: holdID, runID: nil, at: Date(timeIntervalSince1970: 300))
+        let release = Task { await orchestrator.releaseQueuedWrite() }
+        await gate.waitUntilEntered()
+
+        await orchestrator.discardQueuedWrite()
+        await gate.open()
+
+        #expect(await release.value == .empty)
+        #expect(await records.writeRecords.isEmpty)
+    }
+
+    @Test("a write retained behind a recoverable run keeps the shipped response")
+    func retainsBehindRecoverableRun() async {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let interrupted = makeRunRecord(
+            startedAt: startedAt,
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [makeWorkItem(state: .attempted)],
+                includesSyncTransition: false
+            )
+        )
+        let orchestrator = makeOrchestrator()
+        await orchestrator.restoreRecovery(interrupted)
+        let request = RunRequest.manualWrite(input: makeWriteInput())
+
+        let result = await orchestrator.submit(request)
+
+        guard case .recoverable = result else {
+            Issue.record("Expected the recoverable run to keep blocking writes, got \(result)")
+            return
+        }
+        #expect(await orchestrator.queuedWriteRequest()?.id == request.id)
+    }
+
+    @Test("an equal-revision resubmission of the same plan wins the slot")
+    func equalRevisionResubmissionWins() async {
+        let orchestrator = makeOrchestrator()
+        await orchestrator.restoreRecoveryHold(id: UUID())
+        let planID = FixPlanID()
+        let first = RunRequest.manualWrite(input: makeWriteInput(planID: planID))
+        let second = RunRequest.manualWrite(input: makeWriteInput(planID: planID))
+        _ = await orchestrator.submit(first)
+
+        _ = await orchestrator.submit(second)
+
+        #expect(await orchestrator.queuedWriteRequest()?.id == second.id)
     }
 
     @Test("stale consent clears the slot without writing")
@@ -120,7 +233,11 @@ struct QueuedWriteTests {
             planRevision: input.target.planRevision.advanced(),
             decisionRevision: input.target.decisionRevision
         )
-        let orchestrator = makeOrchestrator(currentDecisionTarget: { _ in staleTarget })
+        let records = RunRecordSpy()
+        let orchestrator = makeOrchestrator(
+            persistRunRecord: { await records.append($0) },
+            currentDecisionTarget: { _ in staleTarget }
+        )
         await orchestrator.restoreRecoveryHold(id: holdID)
         _ = await orchestrator.submit(RunRequest.manualWrite(input: input))
         _ = await orchestrator.resolveRecovery(id: holdID, runID: nil, at: Date(timeIntervalSince1970: 300))
@@ -129,21 +246,57 @@ struct QueuedWriteTests {
 
         #expect(outcome == .stale)
         #expect(await orchestrator.queuedWriteRequest() == nil)
-        #expect(await orchestrator.activeLifecycle() == nil)
+        #expect(await records.writeRecords.isEmpty)
     }
 
-    @Test("unverifiable consent fails closed")
-    func failsClosedWithoutConsentSource() async {
+    @Test("a changed decision revision alone is stale")
+    func rejectsChangedDecisionRevision() async {
         let holdID = UUID()
-        let orchestrator = makeOrchestrator()
+        let input = makeWriteInput()
+        let reviewedTarget = FixPlanWriteTarget(
+            planID: input.target.planID,
+            planRevision: input.target.planRevision,
+            decisionRevision: input.target.decisionRevision.advanced()
+        )
+        let orchestrator = makeOrchestrator(currentDecisionTarget: { _ in reviewedTarget })
         await orchestrator.restoreRecoveryHold(id: holdID)
-        _ = await orchestrator.submit(RunRequest.manualWrite(input: makeWriteInput()))
+        _ = await orchestrator.submit(RunRequest.manualWrite(input: input))
         _ = await orchestrator.resolveRecovery(id: holdID, runID: nil, at: Date(timeIntervalSince1970: 300))
 
         let outcome = await orchestrator.releaseQueuedWrite()
 
         #expect(outcome == .stale)
         #expect(await orchestrator.queuedWriteRequest() == nil)
+    }
+
+    @Test("a missing consent source refuses the write but keeps the slot")
+    func failsClosedWithoutConsentSource() async {
+        let holdID = UUID()
+        let request = RunRequest.manualWrite(input: makeWriteInput())
+        let orchestrator = makeOrchestrator()
+        await orchestrator.restoreRecoveryHold(id: holdID)
+        _ = await orchestrator.submit(request)
+        _ = await orchestrator.resolveRecovery(id: holdID, runID: nil, at: Date(timeIntervalSince1970: 300))
+
+        let outcome = await orchestrator.releaseQueuedWrite()
+
+        #expect(outcome == .unverifiable(.sourceMissing))
+        #expect(await orchestrator.queuedWriteRequest()?.id == request.id)
+    }
+
+    @Test("a plan without a current decision keeps the slot")
+    func keepsSlotWithoutCurrentDecision() async {
+        let holdID = UUID()
+        let request = RunRequest.manualWrite(input: makeWriteInput())
+        let orchestrator = makeOrchestrator(currentDecisionTarget: { _ in nil })
+        await orchestrator.restoreRecoveryHold(id: holdID)
+        _ = await orchestrator.submit(request)
+        _ = await orchestrator.resolveRecovery(id: holdID, runID: nil, at: Date(timeIntervalSince1970: 300))
+
+        let outcome = await orchestrator.releaseQueuedWrite()
+
+        #expect(outcome == .unverifiable(.noCurrentDecision))
+        #expect(await orchestrator.queuedWriteRequest()?.id == request.id)
     }
 
     @Test("an empty slot reports nothing to release")
@@ -213,13 +366,57 @@ struct QueuedWriteTests {
     }
 
     private func makeOrchestrator(
+        persistRunRecord: @escaping @Sendable (RunRecord) async throws -> Void = { _ in },
         currentDecisionTarget: (@Sendable (FixPlanID) async -> FixPlanWriteTarget?)? = nil
     ) -> RunOrchestrator {
         RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in },
+            persistRunRecord: persistRunRecord,
             currentDecisionTarget: currentDecisionTarget
         ))
+    }
+
+    private actor RunRecordSpy {
+        private var records: [RunRecord] = []
+
+        var writeRecords: [RunRecord] {
+            records.filter { $0.intent == .writeFixes }
+        }
+
+        func append(_ record: RunRecord) {
+            records.append(record)
+        }
+    }
+
+    /// Pauses the consent lookup so tests can interleave actor calls
+    /// deterministically while a release is suspended mid-verification.
+    private actor ConsentGate {
+        private var entered = false
+        private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+        private var openWaiters: [CheckedContinuation<Void, Never>] = []
+
+        func enter() async {
+            entered = true
+            for waiter in enteredWaiters {
+                waiter.resume()
+            }
+            enteredWaiters = []
+            await withCheckedContinuation { openWaiters.append($0) }
+        }
+
+        func waitUntilEntered() async {
+            if entered {
+                return
+            }
+            await withCheckedContinuation { enteredWaiters.append($0) }
+        }
+
+        func open() {
+            for waiter in openWaiters {
+                waiter.resume()
+            }
+            openWaiters = []
+        }
     }
 
     private func makeWriteInput(
