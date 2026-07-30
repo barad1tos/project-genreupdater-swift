@@ -59,7 +59,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     public let configuration: RunConfig?
     public let writeTarget: FixPlanWriteTarget?
     public let recoveryID: UUID?
-    /// The interrupted run this run intentionally continues (ADR 0005/0006).
+    /// The closed write run this run intentionally continues (ADR 0005/0006).
     /// Immutable identity: a continuation is a NEW run with fresh consent,
     /// never a resumed loop.
     public let continuesRunID: RunID?
@@ -224,10 +224,17 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         )
     }
 
+    /// True only while the run is suspended for recovery resolution — the
+    /// sole lifecycle window in which dismissal affordances may operate.
+    private var isResolvingRecovery: Bool {
+        state == .recoverable || state == .recovering || state == .blocked
+    }
+
     /// Grouped dismissal with one shared reason (ADR 0006): never covers
     /// write-uncertain items — those need preflight first or an individual
     /// `dismissingUncertainWork` decision. The record stays open.
     public func dismissingWork(ids: Set<UUID>, reason: String, at timestamp: Date) throws -> Self {
+        try requireRecoveryResolution()
         let uncertainCount = workItems.count { ids.contains($0.id) && $0.state.isWriteUncertain }
         guard uncertainCount == 0 else {
             throw WorkCheckpointError.invalid(
@@ -251,9 +258,11 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     }
 
     /// Individual dismissal (ADR 0006): the one affordance allowed to close
-    /// a write-uncertain item, recording it as an explicit user decision.
+    /// a write-uncertain item WITHOUT observed Music.app state — verification
+    /// and observed-outcome recovery closure are the evidence-backed closures.
     /// The record stays open.
     public func dismissingUncertainWork(id: UUID, reason: String, at timestamp: Date) throws -> Self {
+        try requireRecoveryResolution()
         let isUncertain = workItems.contains { $0.id == id && $0.state.isWriteUncertain }
         let detail = isUncertain
             ? "Dismissed without verification by user decision: \(reason)"
@@ -266,6 +275,16 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
             failureMessage: failureMessage,
             finishedAt: finishedAt
         )
+    }
+
+    private func requireRecoveryResolution() throws {
+        guard isResolvingRecovery else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: true,
+                reason: "dismissal requires a suspended recovery run, not \(state.rawValue)"
+            )
+        }
     }
 
     public func openingRecovery(id: UUID, at timestamp: Date) -> Self {

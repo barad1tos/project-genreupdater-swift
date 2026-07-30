@@ -689,6 +689,35 @@ struct RunRecordDataTests {
         #expect(try await store.record(for: record.runID)?.continuesRunID == sourceRunID)
     }
 
+    @Test("linkage cannot be attached to an existing unlinked run")
+    func rejectsLateLinking() async throws {
+        let store = try makeRunStore()
+        var input = RunRecordInput()
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil,
+            input: input
+        )
+        try await store.upsert(record)
+        input.runID = record.runID
+        input.requestID = record.requestID
+        input.scope = record.scope
+        input.continuesRunID = RunID()
+        let linked = makeRunRecord(
+            startedAt: record.startedAt,
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil,
+            input: input
+        )
+
+        await #expect(throws: RunRecordPersistenceError.self) {
+            try await store.upsert(linked)
+        }
+    }
+
     @Test("continuation linkage is immutable run identity")
     func rejectsContinuationChange() async throws {
         let store = try makeRunStore()

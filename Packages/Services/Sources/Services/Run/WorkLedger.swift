@@ -211,9 +211,26 @@ struct WorkLedger: Equatable, Sendable {
     }
 
     /// Dismisses exactly the chosen open items, recording the shared detail
-    /// and the explicit user-decision timestamp (ADR 0006). Unknown or
-    /// already-terminal targets are rejected by the transition machinery.
+    /// and the explicit user-decision timestamp (ADR 0006). Unknown and
+    /// already-closed targets are rejected before any transition so a stale
+    /// selection can never silently rewrite an existing closure's audit.
     func dismissingItems(_ ids: Set<UUID>, detail: String, at timestamp: Date) throws -> Self {
+        for id in ids {
+            guard let item = itemsByID[id] else {
+                throw WorkCheckpointError.invalid(
+                    .afterVerification,
+                    writeAdjacent: true,
+                    reason: "unknown work item \(id.uuidString)"
+                )
+            }
+            if case .outcome = item.state {
+                throw WorkCheckpointError.invalid(
+                    .afterVerification,
+                    writeAdjacent: false,
+                    reason: "work item \(id.uuidString) is already closed"
+                )
+            }
+        }
         let outcomes = Dictionary(uniqueKeysWithValues: ids.map { ($0, WorkOutcome.dismissed) })
         var ledger = try applying(.afterVerification(outcomes))
         for id in ids {

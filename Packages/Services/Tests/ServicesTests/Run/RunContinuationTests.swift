@@ -43,6 +43,59 @@ struct RunContinuationTests {
         }
     }
 
+    @Test("continuation input must arrive fully prepared")
+    func rejectsUnpreparedInput() throws {
+        let failed = makeWorkItem(state: .outcome(.failed))
+        let record = makeClosedWriteRecord(workItems: [failed])
+        let capturedAt = Date(timeIntervalSince1970: 200)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: capturedAt,
+            reason: "continuation-test"
+        )
+        let terminalInput = FixPlanWriteInput(
+            target: writeTarget(),
+            scope: scope,
+            configuration: makeRunConfiguration(
+                scopeID: scope.id,
+                capturedAt: capturedAt,
+                writeAuthority: .reviewedPlan
+            ),
+            workItems: record.continuableWork
+        )
+
+        #expect(throws: RunContinuationError.inputWorkNotPrepared) {
+            try RunRequest.continuation(of: record, input: terminalInput)
+        }
+    }
+
+    @Test("linkage flows from request through snapshot into the record")
+    func propagatesLinkageThroughLifecycle() throws {
+        let failed = makeWorkItem(state: .outcome(.failed))
+        let source = makeClosedWriteRecord(workItems: [failed])
+        let input = makeWriteInput()
+        let request = try RunRequest.continuation(of: source, input: input)
+        let snapshot = RunLifecycleSnapshot(
+            request: request,
+            scope: input.scope,
+            startedAt: Date(timeIntervalSince1970: 300),
+            phase: .active(.writing)
+        )
+
+        let record = RunRecord(
+            lifecycle: snapshot,
+            transitions: [RunLifecycleTransition(state: .writing, timestamp: snapshot.startedAt)],
+            syncSummary: nil,
+            failureMessage: nil,
+            finishedAt: nil
+        )
+
+        #expect(snapshot.continuesRunID == source.runID)
+        #expect(record.continuesRunID == source.runID)
+        #expect(record.trigger == .recovery)
+    }
+
     @Test("a fully landed source run has nothing to continue")
     func rejectsNothingToContinue() throws {
         let written = makeWorkItem(state: .outcome(.written))

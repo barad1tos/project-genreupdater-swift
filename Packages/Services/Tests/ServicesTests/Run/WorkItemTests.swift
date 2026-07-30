@@ -412,6 +412,175 @@ struct WorkItemTests {
         #expect(reloaded.finishedAt == nil)
     }
 
+    @Test("re-dismissing an already-dismissed item is rejected in memory")
+    func rejectsRepeatedDismissal() throws {
+        let prepared = makeWorkItem(state: .prepared)
+        let record = makeOpenRecoveryRecord(workItems: [prepared])
+        let dismissed = try record.dismissingWork(
+            ids: [prepared.id],
+            reason: "duplicate",
+            at: Date(timeIntervalSince1970: 500)
+        )
+
+        #expect(throws: WorkCheckpointError.self) {
+            try dismissed.dismissingWork(
+                ids: [prepared.id],
+                reason: "changed my mind",
+                at: Date(timeIntervalSince1970: 900)
+            )
+        }
+        let item = try #require(dismissed.workItems.first)
+        #expect(item.detail == "Dismissed by user: duplicate")
+        #expect(item.dismissedAt == Date(timeIntervalSince1970: 500))
+    }
+
+    @Test("dismissal is rejected while the write run is still active")
+    func rejectsDismissalOnActiveRun() throws {
+        let prepared = makeWorkItem(state: .prepared)
+        let attempted = makeWorkItem(state: .attempted)
+        let lifecycle = makeLifecycle(workItems: [prepared, attempted])
+        let active = RunRecord(
+            lifecycle: lifecycle,
+            transitions: [RunLifecycleTransition(state: .writing, timestamp: lifecycle.startedAt)],
+            syncSummary: nil,
+            failureMessage: nil,
+            finishedAt: nil
+        )
+
+        #expect(throws: WorkCheckpointError.self) {
+            try active.dismissingWork(ids: [prepared.id], reason: "cleanup", at: Date(timeIntervalSince1970: 500))
+        }
+        #expect(throws: WorkCheckpointError.self) {
+            try active.dismissingUncertainWork(
+                id: attempted.id,
+                reason: "cleanup",
+                at: Date(timeIntervalSince1970: 500)
+            )
+        }
+    }
+
+    @Test("grouped dismissal rejects attempting items")
+    func groupedDismissalRejectsAttempting() throws {
+        let prepared = makeWorkItem(state: .prepared)
+        let attempting = makeWorkItem(state: .attempting)
+        let record = makeOpenRecoveryRecord(workItems: [prepared, attempting])
+
+        #expect(throws: WorkCheckpointError.self) {
+            try record.dismissingWork(
+                ids: [prepared.id, attempting.id],
+                reason: "cleanup",
+                at: Date(timeIntervalSince1970: 500)
+            )
+        }
+    }
+
+    @Test("individual dismissal marks attempting items as unverified decisions")
+    func individualDismissalMarksAttempting() throws {
+        let attempting = makeWorkItem(state: .attempting)
+        let record = makeOpenRecoveryRecord(workItems: [attempting])
+
+        let updated = try record.dismissingUncertainWork(
+            id: attempting.id,
+            reason: "checked manually",
+            at: Date(timeIntervalSince1970: 500)
+        )
+
+        let item = try #require(updated.workItems.first)
+        #expect(item.detail == "Dismissed without verification by user decision: checked manually")
+    }
+
+    @Test("a dismissal stamp on a non-dismissed closure is rejected by the store")
+    func rejectsStampOnOtherClosure() async throws {
+        let store = try makeRunStore()
+        let item = makeWorkItem(state: .prepared)
+        var input = RunRecordInput(
+            intent: .writeFixes,
+            workItems: [item],
+            includesSyncTransition: false
+        )
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let record = makeRunRecord(
+            startedAt: startedAt,
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: input
+        )
+        try await store.upsert(record)
+        input.runID = record.runID
+        input.requestID = record.requestID
+        input.scope = record.scope
+        input.configuration = record.configuration
+        input.workItems = [RunWorkItem(
+            id: item.id,
+            target: item.target,
+            change: item.change,
+            state: .outcome(.failed),
+            detail: item.detail,
+            dismissedAt: Date(timeIntervalSince1970: 500)
+        )]
+        let mutated = makeRunRecord(
+            startedAt: startedAt,
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: input
+        )
+
+        await #expect(throws: RunRecordPersistenceError.self) {
+            try await store.upsert(mutated)
+        }
+    }
+
+    @Test("a dismissal that tampers with the change payload is rejected")
+    func rejectsTamperedDismissal() async throws {
+        let store = try makeRunStore()
+        let item = makeWorkItem(state: .prepared)
+        var input = RunRecordInput(
+            intent: .writeFixes,
+            workItems: [item],
+            includesSyncTransition: false
+        )
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let record = makeRunRecord(
+            startedAt: startedAt,
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: input
+        )
+        try await store.upsert(record)
+        input.runID = record.runID
+        input.requestID = record.requestID
+        input.scope = record.scope
+        input.configuration = record.configuration
+        input.workItems = [RunWorkItem(
+            id: item.id,
+            target: item.target,
+            change: WorkChange(
+                changeType: item.change.changeType,
+                oldValue: item.change.oldValue,
+                newValue: "Tampered",
+                confidence: item.change.confidence,
+                source: item.change.source
+            ),
+            state: .outcome(.dismissed),
+            detail: "Dismissed by user: cover story",
+            dismissedAt: Date(timeIntervalSince1970: 500)
+        )]
+        let mutated = makeRunRecord(
+            startedAt: startedAt,
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: input
+        )
+
+        await #expect(throws: RunRecordPersistenceError.self) {
+            try await store.upsert(mutated)
+        }
+    }
+
     @Test("a stored dismissal timestamp can never be re-stamped")
     func rejectsDismissalRestamp() async throws {
         let store = try makeRunStore()

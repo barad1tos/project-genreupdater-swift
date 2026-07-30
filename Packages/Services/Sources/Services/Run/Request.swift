@@ -1,10 +1,12 @@
 import Foundation
 
-/// Why a closed run cannot serve as the source of a linked continuation.
+/// Why a run record cannot serve as the source of a linked continuation,
+/// or why the follow-up input cannot seed one.
 public enum RunContinuationError: Error, Equatable {
     case sourceRunStillOpen
     case sourceRunNotWrite
     case nothingToContinue
+    case inputWorkNotPrepared
 }
 
 public enum RunTrigger: String, Codable, Equatable, Sendable {
@@ -190,6 +192,11 @@ public struct RunRequest: Equatable, Sendable {
         }
         guard !record.continuableWork.isEmpty else {
             throw RunContinuationError.nothingToContinue
+        }
+        // Continuable items are terminal on the source; a continuation must
+        // re-prepare them, never carry terminal states into a fresh ledger.
+        guard input.workItems.allSatisfy({ $0.state == .prepared }) else {
+            throw RunContinuationError.inputWorkNotPrepared
         }
         return Self(
             trigger: .recovery,

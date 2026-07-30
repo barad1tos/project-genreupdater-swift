@@ -208,7 +208,8 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         )
     }
 
-    /// Stamps the explicit user dismissal on an already-dismissed item.
+    /// Stamps the user-dismissal timestamp and replaces the detail; callers
+    /// must only invoke it after a transition into `.dismissed`.
     func recordingDismissal(detail: String?, at timestamp: Date) -> Self {
         Self(
             id: id,

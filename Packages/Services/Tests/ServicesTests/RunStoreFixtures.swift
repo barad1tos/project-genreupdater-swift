@@ -268,4 +268,5 @@ struct VersionedPayload: Encodable {
     let version = 2
     let transitions: [RunLifecycleTransition]
     let configuration: RunConfig
+    var continuesRunID: RunID?
 }

@@ -55,7 +55,7 @@ struct RunRecordPayload: Codable {
         configuration: RunConfig?,
         writeTarget: FixPlanWriteTarget?,
         recoveryID: UUID?,
-        continuesRunID: RunID? = nil,
+        continuesRunID: RunID?,
         writeSummary: RunWriteSummary?
     ) {
         self.version = version
@@ -105,12 +105,14 @@ struct RecoveryPayload: Decodable {
     let configuration: RunConfig?
     let writeTarget: FixPlanWriteTarget?
     let recoveryID: UUID?
+    let continuesRunID: RunID?
     let writeSummary: RunWriteSummary?
     let hasMalformedItems: Bool
     let isWriteRecoveryRequired: Bool
 
     private enum CodingKeys: String, CodingKey {
         case version, transitions, workItems, configuration, writeTarget, recoveryID, writeSummary
+        case continuesRunID
     }
 
     init(from decoder: any Decoder) throws {
@@ -121,6 +123,7 @@ struct RecoveryPayload: Decodable {
         let configurationField = Self.decode(RunConfig.self, forKey: .configuration, from: container)
         let writeTargetField = Self.decode(FixPlanWriteTarget.self, forKey: .writeTarget, from: container)
         let recoveryIDField = Self.decode(UUID.self, forKey: .recoveryID, from: container)
+        let continuesRunIDField = Self.decode(RunID.self, forKey: .continuesRunID, from: container)
         let writeSummaryField = Self.decode(RunWriteSummary.self, forKey: .writeSummary, from: container)
 
         let decodedVersion = versionField.value
@@ -139,6 +142,7 @@ struct RecoveryPayload: Decodable {
         configuration = decodedConfiguration
         writeTarget = writeTargetField.value
         recoveryID = recoveryIDField.value
+        continuesRunID = continuesRunIDField.value
         writeSummary = writeSummaryField.value
 
         hasMalformedItems = (supportsWorkItems && (workItemsField.value == nil || workItemsField.isMalformed))
@@ -149,6 +153,7 @@ struct RecoveryPayload: Decodable {
             || configurationField.isMalformed
             || writeTargetField.isMalformed
             || recoveryIDField.isMalformed
+            || continuesRunIDField.isMalformed
             || writeSummaryField.isMalformed
         let hasInvalidVersion = decodedVersion.map {
             $0 < RunRecordPayload.legacyVersion || $0 > RunRecordPayload.currentVersion

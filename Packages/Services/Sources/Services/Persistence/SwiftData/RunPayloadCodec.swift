@@ -87,6 +87,7 @@ enum RunPayloadCodec {
                 configuration: nil,
                 writeTarget: nil,
                 recoveryID: nil,
+                continuesRunID: nil,
                 writeSummary: nil
             )
         } catch {
