@@ -138,6 +138,39 @@ struct WorkLedger: Equatable, Sendable {
         return updated
     }
 
+    /// Closes every open item with its observed physical outcome (ADR 0006).
+    ///
+    /// Unlike `dismissingOpenWork`, callers supply one observed outcome per
+    /// open item; incomplete coverage is rejected so no uncertainty can be
+    /// closed unobserved. An `.attempting` item observed as `.written` passes
+    /// through the attempt boundary first, because the observation proves the
+    /// dispatched value is physically present.
+    func applyingObservedOutcomes(_ outcomes: [UUID: WorkOutcome]) throws -> Self {
+        let openIDs = Set(items.compactMap { item -> UUID? in
+            if case .outcome = item.state {
+                return nil
+            }
+            return item.id
+        })
+        let uncovered = openIDs.subtracting(outcomes.keys)
+        guard uncovered.isEmpty else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: true,
+                reason: "observed outcomes missing for \(uncovered.count) open work item(s)"
+            )
+        }
+        let openOutcomes = outcomes.filter { openIDs.contains($0.key) }
+        let writtenAttempting = items
+            .filter { $0.state == .attempting && openOutcomes[$0.id] == .written }
+            .map(\.id)
+        var ledger = self
+        if !writtenAttempting.isEmpty {
+            ledger = try ledger.applying(.afterAttempt(writtenAttempting))
+        }
+        return try ledger.applying(.afterVerification(openOutcomes))
+    }
+
     func dismissingOpenWork() throws -> Self {
         var outcomes: [UUID: WorkOutcome] = [:]
         for item in items {

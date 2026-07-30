@@ -264,7 +264,13 @@ struct ItemPayload: Encodable {
     let configuration: RunConfig?
 }
 
-func makeWorkItem(id: UUID = UUID(), state: WorkState, detail: String? = nil) -> RunWorkItem {
+func makeWorkItem(
+    id: UUID = UUID(),
+    state: WorkState,
+    detail: String? = nil,
+    oldValue: String? = "Rock",
+    newValue: String? = "Metal"
+) -> RunWorkItem {
     RunWorkItem(
         id: id,
         target: .track(FixPlanItemIdentity(
@@ -276,8 +282,8 @@ func makeWorkItem(id: UUID = UUID(), state: WorkState, detail: String? = nil) ->
         )),
         change: WorkChange(
             changeType: .genreUpdate,
-            oldValue: "Rock",
-            newValue: "Metal",
+            oldValue: oldValue,
+            newValue: newValue,
             confidence: 92,
             source: "MusicBrainz"
         ),
