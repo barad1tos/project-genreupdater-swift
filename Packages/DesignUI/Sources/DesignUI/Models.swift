@@ -401,6 +401,43 @@ public struct RunReportSummaryRow: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct RunReportWorkItemRow: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let changeLabel: String
+    public let stateLabel: String
+    public let isOpen: Bool
+    public let isWriteUncertain: Bool
+    public let dismissedLabel: String?
+
+    public init(
+        id: String,
+        changeLabel: String,
+        stateLabel: String,
+        isOpen: Bool,
+        isWriteUncertain: Bool,
+        dismissedLabel: String? = nil
+    ) {
+        self.id = id
+        self.changeLabel = changeLabel
+        self.stateLabel = stateLabel
+        self.isOpen = isOpen
+        self.isWriteUncertain = isWriteUncertain
+        self.dismissedLabel = dismissedLabel
+    }
+}
+
+/// Transient feedback for an action taken on the run detail card, rendered
+/// on the card itself so Reports-initiated commands answer where they ran.
+public struct ReportNotice: Equatable, Sendable {
+    public let message: String
+    public let tone: Tone
+
+    public init(message: String, tone: Tone) {
+        self.message = message
+        self.tone = tone
+    }
+}
+
 public struct RunReportDetailSnapshot: Equatable, Sendable {
     public static func unavailable(runID: String) -> Self {
         Self(unavailableRunID: runID)
@@ -416,6 +453,11 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
     public let transitions: [RunReportTransitionRow]
     public let summaryItems: [RunReportSummaryRow]
     public let detailMessage: String?
+    public let workItems: [RunReportWorkItemRow]
+    public let hiddenWorkItemCount: Int
+    public let preparedItemIDs: [String]
+    public let canApplyRemainingFixes: Bool
+    public let canDismissItems: Bool
     public let unavailableReason: String?
 
     public init(
@@ -428,7 +470,12 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         scopeLines: [String],
         transitions: [RunReportTransitionRow],
         summaryItems: [RunReportSummaryRow],
-        detailMessage: String? = nil
+        detailMessage: String? = nil,
+        workItems: [RunReportWorkItemRow] = [],
+        hiddenWorkItemCount: Int = 0,
+        preparedItemIDs: [String] = [],
+        canApplyRemainingFixes: Bool = false,
+        canDismissItems: Bool = false
     ) {
         self.runID = runID
         self.stateLabel = stateLabel
@@ -440,6 +487,11 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         self.transitions = transitions
         self.summaryItems = summaryItems
         self.detailMessage = detailMessage
+        self.workItems = workItems
+        self.hiddenWorkItemCount = hiddenWorkItemCount
+        self.preparedItemIDs = preparedItemIDs
+        self.canApplyRemainingFixes = canApplyRemainingFixes
+        self.canDismissItems = canDismissItems
         unavailableReason = nil
     }
 
@@ -454,6 +506,11 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         transitions = []
         summaryItems = []
         detailMessage = nil
+        workItems = []
+        hiddenWorkItemCount = 0
+        preparedItemIDs = []
+        canApplyRemainingFixes = false
+        canDismissItems = false
         unavailableReason = "This run report is no longer available"
     }
 }
@@ -471,9 +528,15 @@ public struct ChartDatum: Identifiable, Equatable, Sendable {
 }
 
 func confidenceTone(_ confidence: Double) -> Tone {
-    confidence >= 0.8 ? .success : confidence >= 0.5 ? .warning : .error
+    if confidence >= 0.8 {
+        return .success
+    }
+    return confidence >= 0.5 ? .warning : .error
 }
 
 func healthTone(_ ratio: Double) -> Tone {
-    ratio >= 0.9 ? .success : ratio >= 0.6 ? .warning : .error
+    if ratio >= 0.9 {
+        return .success
+    }
+    return ratio >= 0.6 ? .warning : .error
 }

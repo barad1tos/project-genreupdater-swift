@@ -806,9 +806,9 @@ struct ActivityCommandsTests {
         #expect(result.status == .accepted)
         #expect(result.message.contains("2 items"))
         #expect(harness.dismissals.count == 1)
-        #expect(harness.dismissals.first?.0 == runID)
-        #expect(harness.dismissals.first?.1 == itemIDs)
-        #expect(harness.dismissals.first?.3 == false)
+        #expect(harness.dismissals.first?.runID == runID)
+        #expect(harness.dismissals.first?.itemIDs == itemIDs)
+        #expect(harness.dismissals.first?.isIndividual == false)
     }
 
     @Test("individual dismissal forwards the explicit-decision flag")
@@ -823,7 +823,7 @@ struct ActivityCommandsTests {
         ))
 
         #expect(result.status == .accepted)
-        #expect(harness.dismissals.first?.3 == true)
+        #expect(harness.dismissals.first?.isIndividual == true)
     }
 
     @Test("a domain gate rejection maps to an invalid dismissal")

@@ -7,6 +7,7 @@ public enum RunContinuationError: Error, Equatable {
     case sourceRunNotWrite
     case nothingToContinue
     case inputWorkNotPrepared
+    case inputPlanMismatch
 }
 
 public enum RunTrigger: String, Codable, Equatable, Sendable {
@@ -197,6 +198,14 @@ public struct RunRequest: Equatable, Sendable {
         // re-prepare them, never carry terminal states into a fresh ledger.
         guard input.workItems.allSatisfy({ $0.state == .prepared }) else {
             throw RunContinuationError.inputWorkNotPrepared
+        }
+        // ADR 0005 lineage: a continuation re-applies the plan the source run
+        // executed. An unverifiable source plan fails closed — stamping
+        // `continuesRunID` onto an unrelated plan's write would forge lineage.
+        guard let executedTarget = record.writeTarget,
+              input.target.planID == executedTarget.planID
+        else {
+            throw RunContinuationError.inputPlanMismatch
         }
         return Self(
             trigger: .recovery,

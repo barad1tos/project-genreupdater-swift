@@ -1,7 +1,11 @@
+import Core
 import Foundation
 
 public enum RunReportDetailBuilder {
     private static let shownArtistLimit = 3
+    /// Full-library write ledgers can hold thousands of items; the card
+    /// renders a bounded window and reports the remainder as a count.
+    static let shownWorkItemLimit = 100
 
     public static func makeDetail(
         from record: RunRecord,
@@ -19,8 +23,85 @@ public enum RunReportDetailBuilder {
             scopeLines: makeScopeLines(from: record.scope),
             transitions: makeTransitions(from: record.transitions, now: now),
             summaryItems: makeSummaryItems(from: record.syncSummary, intent: record.intent),
-            detailMessage: ReportsRunLabels.detailMessage(state: state, failureMessage: record.failureMessage)
+            detailMessage: ReportsRunLabels.detailMessage(state: state, failureMessage: record.failureMessage),
+            workItems: record.workItems.prefix(shownWorkItemLimit).map(makeWorkItem),
+            hiddenWorkItemCount: max(0, record.workItems.count - shownWorkItemLimit),
+            preparedItemIDs: record.workItems.filter { $0.state == .prepared }.map(\.id),
+            // writeTarget != nil: RunRequest.continuation fails closed on an
+            // unverifiable source plan, so the affordance must hide with it.
+            canApplyRemainingFixes: record.finishedAt != nil
+                && record.intent == .writeFixes
+                && record.writeTarget != nil
+                && !record.continuableWork.isEmpty,
+            // Strictly narrower than requireRecoveryResolution: the domain
+            // gate alone admits states a dismissal command still rejects
+            // downstream (closed records, the active run), so the card also
+            // requires an open, non-active run with open items.
+            canDismissItems: record.finishedAt == nil
+                && record.state.isResolvingRecovery
+                && record.runID != activeRunID
+                && record.workItems.contains(where: isOpenItem)
         )
+    }
+
+    private static func makeWorkItem(from item: RunWorkItem) -> RunReportWorkItem {
+        RunReportWorkItem(
+            id: item.id,
+            changeLabel: makeChangeLabel(from: item),
+            stateLabel: makeItemStateLabel(for: item.state),
+            isOpen: isOpenItem(item),
+            isWriteUncertain: item.state.isWriteUncertain,
+            dismissedLabel: item.state == .outcome(.dismissed) ? item.detail : nil
+        )
+    }
+
+    private static func isOpenItem(_ item: RunWorkItem) -> Bool {
+        if case .outcome = item.state {
+            return false
+        }
+        return true
+    }
+
+    private static func makeChangeLabel(from item: RunWorkItem) -> String {
+        let subject = switch item.target {
+        case let .track(identity): identity.trackName
+        case let .album(identity): identity.album
+        }
+        let change = "\(item.change.oldValue ?? "—") → \(item.change.newValue ?? "—")"
+        return "\(makeChangeTypeLabel(for: item.change.changeType)): \(change) — \(subject)"
+    }
+
+    private static func makeChangeTypeLabel(for changeType: ChangeType) -> String {
+        switch changeType {
+        case .genreUpdate: "Genre"
+        case .yearUpdate: "Year"
+        case .yearRevert: "Year revert"
+        case .trackCleaning: "Track name"
+        case .albumCleaning: "Album name"
+        case .artistRename: "Artist"
+        }
+    }
+
+    private static func makeItemStateLabel(for state: WorkState) -> String {
+        switch state {
+        case .prepared: "Prepared"
+        case .attempting: "Attempting"
+        case .attempted: "Attempted"
+        case let .outcome(outcome): makeOutcomeLabel(for: outcome)
+        }
+    }
+
+    private static func makeOutcomeLabel(for outcome: WorkOutcome) -> String {
+        switch outcome {
+        case .written: "Written"
+        case .failed: "Failed"
+        case .skipped: "Skipped"
+        case .dismissed: "Dismissed"
+        case .needsReview: "Needs review"
+        case .deferred: "Deferred"
+        case .noFixNeeded: "No fix needed"
+        case .fixProposed: "Fix proposed"
+        }
     }
 
     private static func makeScopeLines(from scope: ProcessingScopeSnapshot) -> [String] {

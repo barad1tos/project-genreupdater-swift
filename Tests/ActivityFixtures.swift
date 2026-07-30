@@ -96,7 +96,14 @@ enum ActivityFixtures {
         var preflightRunIDs: [RunID] = []
         var queuedReloadBarriers: [RunID] = []
         var releaseCallCount = 0
-        var dismissals: [(UUID, [UUID], String, Bool)] = []
+        struct DismissalRequest: Equatable {
+            let runID: UUID
+            let itemIDs: [UUID]
+            let reason: String
+            let isIndividual: Bool
+        }
+
+        var dismissals: [DismissalRequest] = []
         var dismissalError: Error?
 
         private var projection: ActivityProjection
@@ -139,7 +146,12 @@ enum ActivityFixtures {
                     return self.releaseOutcome
                 },
                 dismissRecoveryWork: { runID, itemIDs, reason, individual in
-                    self.dismissals.append((runID, itemIDs, reason, individual))
+                    self.dismissals.append(DismissalRequest(
+                        runID: runID,
+                        itemIDs: itemIDs,
+                        reason: reason,
+                        isIndividual: individual
+                    ))
                     if let dismissalError = self.dismissalError {
                         throw dismissalError
                     }

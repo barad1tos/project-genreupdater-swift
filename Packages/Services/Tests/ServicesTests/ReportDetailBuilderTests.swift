@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import Testing
 @testable import Services
@@ -361,10 +362,321 @@ struct ReportDetailBuilderTests {
         #expect(detail.summaryItems.isEmpty)
     }
 
+    @Test("work items map with labels and open flags")
+    func mapsWorkItems() {
+        let prepared = makeWorkItem(state: .prepared, oldValue: "Rock", newValue: "Metal")
+        let attempted = makeWorkItem(state: .attempted)
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [prepared, attempted])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.workItems.count == 2)
+        let first = detail.workItems[0]
+        #expect(first.id == prepared.id)
+        #expect(first.changeLabel.contains("Rock"))
+        #expect(first.changeLabel.contains("Metal"))
+        #expect(first.isOpen)
+        #expect(!first.isWriteUncertain)
+        #expect(detail.workItems[1].isWriteUncertain)
+        #expect(detail.canDismissItems)
+    }
+
+    @Test("a closed write run with failed work can apply remaining fixes")
+    func closedRunWithFailuresCanContinue() {
+        let failed = makeWorkItem(state: .outcome(.failed))
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(10),
+            state: .cancelled,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, writeTarget: writeTarget(), workItems: [failed])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.canApplyRemainingFixes)
+        #expect(!detail.canDismissItems)
+    }
+
+    @Test("a salvaged run without a recorded plan offers no continuation")
+    func runWithoutRecordedPlanOffersNoContinuation() {
+        let failed = makeWorkItem(state: .outcome(.failed))
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(10),
+            state: .cancelled,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, writeTarget: nil, workItems: [failed])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(!detail.canApplyRemainingFixes)
+    }
+
+    @Test("a fully landed closed run offers no continuation")
+    func fullyLandedRunOffersNoContinuation() {
+        let written = makeWorkItem(state: .outcome(.written))
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(10),
+            state: .cancelled,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [written])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(!detail.canApplyRemainingFixes)
+        #expect(!detail.canDismissItems)
+    }
+
+    @Test("a live writing run offers no dismissal")
+    func writingRunOffersNoDismissal() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [makeWorkItem(state: .prepared)])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(!detail.canDismissItems)
+    }
+
+    @Test("the active run offers no dismissal even when recoverable")
+    func activeRunOffersNoDismissal() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [makeWorkItem(state: .prepared)])
+        )
+
+        let active = RunReportDetailBuilder.makeDetail(from: record, now: now, activeRunID: record.runID)
+        let inactive = RunReportDetailBuilder.makeDetail(from: record, now: now, activeRunID: RunID())
+
+        #expect(!active.canDismissItems)
+        #expect(inactive.canDismissItems)
+    }
+
+    @Test("an open recovery run without open items offers no dismissal")
+    func recoveryRunWithoutOpenItemsOffersNoDismissal() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [makeWorkItem(state: .outcome(.failed))])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(!detail.canDismissItems)
+    }
+
+    @Test("a closed non-write run with failures offers no continuation")
+    func closedObservationRunOffersNoContinuation() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(10),
+            state: .failed,
+            syncSummary: nil,
+            input: RecordInput(
+                intent: .observeLibrary,
+                writeTarget: writeTarget(),
+                workItems: [makeWorkItem(state: .outcome(.failed))]
+            )
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(!detail.canApplyRemainingFixes)
+    }
+
+    @Test("an open recovery run with failed work offers dismissal, not continuation")
+    func openRecoveryRunOffersNoContinuation() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(
+                intent: .writeFixes,
+                writeTarget: writeTarget(),
+                workItems: [makeWorkItem(state: .outcome(.failed)), makeWorkItem(state: .prepared)]
+            )
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(!detail.canApplyRemainingFixes)
+        #expect(detail.canDismissItems)
+    }
+
+    @Test("open item states stay open and attempting is write-uncertain")
+    func openStatesAndUncertaintyMap() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [
+                makeWorkItem(state: .attempting),
+                makeWorkItem(state: .attempted),
+            ])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.workItems.allSatisfy { $0.isOpen })
+        #expect(detail.workItems.allSatisfy { $0.isWriteUncertain })
+        #expect(detail.workItems.map(\.stateLabel) == ["Attempting", "Attempted"])
+    }
+
+    @Test("album targets label the album and nil values render placeholders")
+    func albumTargetAndPlaceholderLabels() {
+        let albumItem = RunWorkItem(
+            id: UUID(),
+            target: .album(AlbumIdentity(artist: "Artist", album: "Album Title")),
+            change: WorkChange(
+                changeType: .yearUpdate,
+                oldValue: nil,
+                newValue: "1994",
+                confidence: 90,
+                source: "MusicBrainz"
+            ),
+            state: .prepared,
+            detail: nil,
+            dismissedAt: nil
+        )
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [albumItem])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.workItems[0].changeLabel == "Year: — → 1994 — Album Title")
+    }
+
+    @Test("failure detail never leaks into the dismissal audit slot")
+    func failedItemDetailIsNotDismissedLabel() {
+        let failed = makeWorkItem(state: .outcome(.failed), detail: "write timed out")
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [failed, makeWorkItem(state: .prepared)])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.workItems[0].dismissedLabel == nil)
+    }
+
+    @Test("work items beyond the display cap collapse into a hidden count")
+    func workItemsBeyondCapAreCounted() {
+        let items = (0 ..< RunReportDetailBuilder.shownWorkItemLimit + 3).map { _ in
+            makeWorkItem(state: .outcome(.written))
+        }
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(10),
+            state: .completed,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: items)
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.workItems.count == RunReportDetailBuilder.shownWorkItemLimit)
+        #expect(detail.hiddenWorkItemCount == 3)
+    }
+
+    @Test("prepared item IDs cover the full ledger, not just the display cap")
+    func preparedItemIDsIgnoreDisplayCap() {
+        let items = (0 ..< RunReportDetailBuilder.shownWorkItemLimit + 5).map { _ in
+            makeWorkItem(state: .prepared)
+        }
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: items)
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.preparedItemIDs.count == items.count)
+        #expect(detail.preparedItemIDs == items.map(\.id))
+    }
+
+    @Test("uncertain and closed items never enter the prepared set")
+    func preparedItemIDsExcludeUncertainAndClosed() {
+        let prepared = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [
+                prepared,
+                makeWorkItem(state: .attempting),
+                makeWorkItem(state: .attempted),
+                makeWorkItem(state: .outcome(.failed)),
+            ])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.preparedItemIDs == [prepared.id])
+    }
+
+    @Test("dismissed items surface their audit detail")
+    func dismissedItemsSurfaceDetail() {
+        let dismissed = RunWorkItem(
+            id: UUID(),
+            target: makeWorkItem(state: .prepared).target,
+            change: makeWorkItem(state: .prepared).change,
+            state: .outcome(.dismissed),
+            detail: "Dismissed by user: duplicate",
+            dismissedAt: Date(timeIntervalSince1970: 500)
+        )
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [dismissed, makeWorkItem(state: .prepared)])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.workItems[0].dismissedLabel == "Dismissed by user: duplicate")
+        #expect(!detail.workItems[0].isOpen)
+    }
+
     private struct RecordInput {
         var failureMessage: String?
         var scope: ProcessingScopeSnapshot?
         var intent: RunIntent = .observeLibrary
+        var writeTarget: FixPlanWriteTarget?
+        var workItems: [RunWorkItem] = []
     }
 
     private func makeRunRecord(
@@ -400,7 +712,9 @@ struct ReportDetailBuilderTests {
                 continuesRunID: nil,
                 startedAt: startedAt
             ),
+            writeTarget: input.writeTarget,
             transitions: transitions,
+            workItems: input.workItems,
             status: RunRecord.Status(
                 syncSummary: syncSummary,
                 failureMessage: input.failureMessage,

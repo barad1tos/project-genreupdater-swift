@@ -224,12 +224,6 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         )
     }
 
-    /// True only while the run is suspended for recovery resolution — the
-    /// sole lifecycle window in which dismissal affordances may operate.
-    private var isResolvingRecovery: Bool {
-        state == .recoverable || state == .recovering || state == .blocked
-    }
-
     /// Grouped dismissal with one shared reason (ADR 0006): never covers
     /// write-uncertain items — those need preflight first or an individual
     /// `dismissingUncertainWork` decision. The record stays open.
@@ -278,7 +272,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     }
 
     private func requireRecoveryResolution() throws {
-        guard isResolvingRecovery else {
+        guard state.isResolvingRecovery else {
             throw WorkCheckpointError.invalid(
                 .afterVerification,
                 writeAdjacent: true,
