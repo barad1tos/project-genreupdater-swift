@@ -1,9 +1,28 @@
 import Charts
 import SwiftUI
 
+/// Host callbacks for the recovery affordances on the run detail card.
+public struct RecoveryDetailActions {
+    public let applyRemainingFixes: (_ runID: String) -> Void
+    public let dismissItem: (_ runID: String, _ itemID: String, _ reason: String) -> Void
+    public let dismissPreparedItems: (_ runID: String, _ itemIDs: [String], _ reason: String) -> Void
+
+    public init(
+        applyRemainingFixes: @escaping (_ runID: String) -> Void,
+        dismissItem: @escaping (_ runID: String, _ itemID: String, _ reason: String) -> Void,
+        dismissPreparedItems: @escaping (_ runID: String, _ itemIDs: [String], _ reason: String) -> Void
+    ) {
+        self.applyRemainingFixes = applyRemainingFixes
+        self.dismissItem = dismissItem
+        self.dismissPreparedItems = dismissPreparedItems
+    }
+}
+
 struct ReportsView: View {
     @Bindable var model: AppModel
     var runSelectionAction: ((String?) -> Void)?
+    var recoveryActions: RecoveryDetailActions?
+    private static let dismissalReasons = ["Duplicate", "Handled manually", "Not wanted"]
     private let cols = [GridItem(.adaptive(minimum: 260), spacing: 14)]
 
     var body: some View {
@@ -205,6 +224,10 @@ struct ReportsView: View {
                         .foregroundStyle(Ayu.fg2)
                 } else {
                     runDetailBody(detail)
+                    if !detail.workItems.isEmpty {
+                        runWorkItemsSection(detail)
+                    }
+                    runDetailActions(detail)
                 }
             }
         }
@@ -274,6 +297,92 @@ struct ReportsView: View {
                 Text(detailMessage)
                     .font(.system(size: 13))
                     .foregroundStyle(detail.tone == .success || detail.tone == .neutral ? Ayu.info : Ayu.error)
+            }
+        }
+    }
+
+    private func runWorkItemsSection(_ detail: RunReportDetailSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Work items")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Ayu.fg2)
+            ForEach(detail.workItems) { item in
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.changeLabel)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Ayu.fg)
+                            .lineLimit(1)
+                        if let dismissedLabel = item.dismissedLabel {
+                            Text(dismissedLabel)
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(Ayu.fgMuted)
+                        }
+                    }
+                    Spacer()
+                    TagPill(text: item.stateLabel, tone: workItemTone(item))
+                    if detail.canDismissItems, item.isOpen {
+                        dismissItemMenu(runID: detail.runID, item: item)
+                    }
+                }
+            }
+        }
+    }
+
+    private func workItemTone(_ item: RunReportWorkItemRow) -> Tone {
+        if item.isWriteUncertain {
+            return .warning
+        }
+        return item.isOpen ? .info : .neutral
+    }
+
+    private func dismissItemMenu(runID: String, item: RunReportWorkItemRow) -> some View {
+        Menu {
+            Section(
+                item.isWriteUncertain
+                    ? "Write status is uncertain — dismissing records your explicit decision"
+                    : "Dismiss item"
+            ) {
+                ForEach(Self.dismissalReasons, id: \.self) { reason in
+                    Button(reason) {
+                        recoveryActions?.dismissItem(runID, item.id, reason)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "xmark.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(Ayu.fgMuted)
+        }
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel("Dismiss work item")
+    }
+
+    @ViewBuilder
+    private func runDetailActions(_ detail: RunReportDetailSnapshot) -> some View {
+        let preparedIDs = detail.workItems.filter { $0.isOpen && !$0.isWriteUncertain }.map(\.id)
+        if detail.canApplyRemainingFixes || (detail.canDismissItems && !preparedIDs.isEmpty) {
+            HStack(spacing: 10) {
+                if detail.canApplyRemainingFixes {
+                    Button("Apply remaining fixes") {
+                        recoveryActions?.applyRemainingFixes(detail.runID)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+                if detail.canDismissItems, !preparedIDs.isEmpty {
+                    Menu("Dismiss remaining prepared items") {
+                        ForEach(Self.dismissalReasons, id: \.self) { reason in
+                            Button(reason) {
+                                recoveryActions?.dismissPreparedItems(detail.runID, preparedIDs, reason)
+                            }
+                        }
+                    }
+                    .controlSize(.small)
+                    .fixedSize()
+                }
+                Spacer()
             }
         }
     }

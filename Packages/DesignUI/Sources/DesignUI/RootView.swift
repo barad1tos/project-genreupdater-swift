@@ -18,6 +18,7 @@ public struct RootView<UpdateContent: View>: View {
     private let browseAlbumUpdateAction: ((Album, String) -> Void)?
     private let browseAlbumSelectionAction: ((Album?, String?) -> Void)?
     private let reportRunSelectionAction: ((String?) -> Void)?
+    private let recoveryDetailActions: RecoveryDetailActions?
     private let updateContent: () -> UpdateContent
     @State private var model: AppModel
 
@@ -36,6 +37,7 @@ public struct RootView<UpdateContent: View>: View {
         browseAlbumUpdateAction: ((Album, String) -> Void)? = nil,
         browseAlbumSelectionAction: ((Album?, String?) -> Void)? = nil,
         reportRunSelectionAction: ((String?) -> Void)? = nil,
+        recoveryDetailActions: RecoveryDetailActions? = nil,
         @ViewBuilder updateContent: @escaping () -> UpdateContent
     ) {
         self.data = data
@@ -52,6 +54,7 @@ public struct RootView<UpdateContent: View>: View {
         self.browseAlbumUpdateAction = browseAlbumUpdateAction
         self.browseAlbumSelectionAction = browseAlbumSelectionAction
         self.reportRunSelectionAction = reportRunSelectionAction
+        self.recoveryDetailActions = recoveryDetailActions
         self.updateContent = updateContent
         _model = State(initialValue: AppModel(data: data))
     }
@@ -110,7 +113,11 @@ public struct RootView<UpdateContent: View>: View {
                 albumUpdateAction: browseAlbumUpdateAction,
                 albumSelectionAction: browseAlbumSelectionAction
             )
-        case .reports: ReportsView(model: model, runSelectionAction: reportRunSelectionAction)
+        case .reports: ReportsView(
+                model: model,
+                runSelectionAction: reportRunSelectionAction,
+                recoveryActions: recoveryDetailActions
+            )
         case .update: updateContent()
         case .settings:
             SettingsScreen(
