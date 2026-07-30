@@ -59,6 +59,10 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     public let configuration: RunConfig?
     public let writeTarget: FixPlanWriteTarget?
     public let recoveryID: UUID?
+    /// The interrupted run this run intentionally continues (ADR 0005/0006).
+    /// Immutable identity: a continuation is a NEW run with fresh consent,
+    /// never a resumed loop.
+    public let continuesRunID: RunID?
     public let transitions: [RunLifecycleTransition]
     let workLedger: WorkLedger
     public let syncSummary: ActivitySyncSummary?
@@ -90,6 +94,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         configuration: RunConfig? = nil,
         writeTarget: FixPlanWriteTarget? = nil,
         recoveryID: UUID? = nil,
+        continuesRunID: RunID? = nil,
         transitions: [RunLifecycleTransition],
         workItems: [RunWorkItem] = [],
         status: Status
@@ -102,6 +107,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         self.configuration = configuration
         self.writeTarget = writeTarget
         self.recoveryID = recoveryID
+        self.continuesRunID = continuesRunID
         self.transitions = transitions
         workLedger = WorkLedger(workItems)
         syncSummary = status.syncSummary
@@ -128,6 +134,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         configuration = lifecycle.configuration
         writeTarget = lifecycle.writeTarget
         self.recoveryID = recoveryID
+        continuesRunID = lifecycle.continuesRunID
         self.transitions = transitions
         workLedger = lifecycle.workLedger
         self.syncSummary = syncSummary
@@ -153,6 +160,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         configuration = record.configuration
         writeTarget = record.writeTarget
         self.recoveryID = recoveryID
+        continuesRunID = record.continuesRunID
         self.transitions = transitions
         self.workLedger = workLedger
         syncSummary = record.syncSummary
@@ -251,6 +259,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case runID, requestID, trigger, intent, scope, configuration, writeTarget, recoveryID
+        case continuesRunID
         case transitions, workItems, syncSummary, writeSummary, failureMessage, startedAt, finishedAt
     }
 
@@ -264,6 +273,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         configuration = try container.decodeIfPresent(RunConfig.self, forKey: .configuration)
         writeTarget = try container.decodeIfPresent(FixPlanWriteTarget.self, forKey: .writeTarget)
         recoveryID = try container.decodeIfPresent(UUID.self, forKey: .recoveryID)
+        continuesRunID = try container.decodeIfPresent(RunID.self, forKey: .continuesRunID)
         transitions = try container.decode([RunLifecycleTransition].self, forKey: .transitions)
         let workItems: [RunWorkItem] = if container.contains(.workItems) {
             try container.decode([RunWorkItem].self, forKey: .workItems)
@@ -288,6 +298,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         try container.encodeIfPresent(configuration, forKey: .configuration)
         try container.encodeIfPresent(writeTarget, forKey: .writeTarget)
         try container.encodeIfPresent(recoveryID, forKey: .recoveryID)
+        try container.encodeIfPresent(continuesRunID, forKey: .continuesRunID)
         try container.encode(transitions, forKey: .transitions)
         try container.encode(workItems, forKey: .workItems)
         try container.encodeIfPresent(syncSummary, forKey: .syncSummary)

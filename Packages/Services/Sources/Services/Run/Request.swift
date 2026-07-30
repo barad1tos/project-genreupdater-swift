@@ -56,6 +56,8 @@ public struct RunRequest: Equatable, Sendable {
     public let kind: RunRequestKind
     public let requestedTestArtists: [String]
     public let knownTrackCount: Int?
+    /// The closed run this request intentionally continues, if any.
+    public let continuesRunID: RunID?
 
     public var intent: RunIntent {
         kind.intent
@@ -78,13 +80,15 @@ public struct RunRequest: Equatable, Sendable {
         trigger: RunTrigger,
         kind: RunRequestKind,
         requestedTestArtists: [String],
-        knownTrackCount: Int?
+        knownTrackCount: Int?,
+        continuesRunID: RunID? = nil
     ) {
         self.id = id
         self.trigger = trigger
         self.kind = kind
         self.requestedTestArtists = requestedTestArtists
         self.knownTrackCount = knownTrackCount
+        self.continuesRunID = continuesRunID
     }
 
     public static func observation(

@@ -325,6 +325,9 @@ extension RunRecordDataStore {
         if stored.intent != replacement.intent {
             return "intent"
         }
+        if stored.continuesRunID != replacement.continuesRunID {
+            return "continuesRunID"
+        }
         if stored.scope != replacement.scope {
             return "scope"
         }

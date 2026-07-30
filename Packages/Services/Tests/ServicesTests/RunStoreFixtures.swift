@@ -77,6 +77,7 @@ struct RunRecordInput {
     var intent: RunIntent = .observeLibrary
     var writeTarget: FixPlanWriteTarget?
     var recoveryID: UUID?
+    var continuesRunID: RunID?
     var writeSummary: RunWriteSummary?
     var workItems: [RunWorkItem] = []
     var configurationScopeID: UUID?
@@ -131,6 +132,7 @@ func makeRunRecord(
         ),
         writeTarget: input.writeTarget,
         recoveryID: input.recoveryID,
+        continuesRunID: input.continuesRunID,
         transitions: transitions,
         workItems: input.workItems,
         status: RunRecord.Status(

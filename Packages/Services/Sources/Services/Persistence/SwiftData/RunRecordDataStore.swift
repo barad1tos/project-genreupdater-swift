@@ -180,6 +180,7 @@ extension RunRecord {
         configuration = payload.configuration
         writeTarget = payload.writeTarget
         recoveryID = payload.recoveryID
+        continuesRunID = payload.continuesRunID
         transitions = payload.transitions
         self.workLedger = workLedger
         self.syncSummary = syncSummary

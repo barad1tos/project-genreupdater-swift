@@ -34,6 +34,7 @@ struct RunRecordPayload: Codable {
     let configuration: RunConfig?
     let writeTarget: FixPlanWriteTarget?
     let recoveryID: UUID?
+    let continuesRunID: RunID?
     let writeSummary: RunWriteSummary?
 
     init(record: RunRecord) {
@@ -43,6 +44,7 @@ struct RunRecordPayload: Codable {
         configuration = record.configuration
         writeTarget = record.writeTarget
         recoveryID = record.recoveryID
+        continuesRunID = record.continuesRunID
         writeSummary = record.writeSummary
     }
 
@@ -53,6 +55,7 @@ struct RunRecordPayload: Codable {
         configuration: RunConfig?,
         writeTarget: FixPlanWriteTarget?,
         recoveryID: UUID?,
+        continuesRunID: RunID? = nil,
         writeSummary: RunWriteSummary?
     ) {
         self.version = version
@@ -61,6 +64,7 @@ struct RunRecordPayload: Codable {
         self.configuration = configuration
         self.writeTarget = writeTarget
         self.recoveryID = recoveryID
+        self.continuesRunID = continuesRunID
         self.writeSummary = writeSummary
     }
 
@@ -70,6 +74,7 @@ struct RunRecordPayload: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case version, transitions, workItems, configuration, writeTarget, recoveryID, writeSummary
+        case continuesRunID
     }
 
     init(from decoder: any Decoder) throws {
@@ -84,6 +89,7 @@ struct RunRecordPayload: Codable {
         configuration = try container.decodeIfPresent(RunConfig.self, forKey: .configuration)
         writeTarget = try container.decodeIfPresent(FixPlanWriteTarget.self, forKey: .writeTarget)
         recoveryID = try container.decodeIfPresent(UUID.self, forKey: .recoveryID)
+        continuesRunID = try container.decodeIfPresent(RunID.self, forKey: .continuesRunID)
         writeSummary = try container.decodeIfPresent(RunWriteSummary.self, forKey: .writeSummary)
     }
 }
