@@ -1,6 +1,7 @@
 import Core
 import Foundation
 import Services
+import SwiftData
 import Testing
 @testable import Genre_Updater
 
@@ -38,6 +39,70 @@ struct RecoveryClearTests {
         #expect(closed.workItems.map(\.state) == [.outcome(.written)])
         #expect(closed.workItems.first?.id == item.id)
         #expect(closed.workItems.first?.detail == "Verified in Music.app: Stoner Rock")
+        #expect(await setup.processor.recoveryHoldID() == nil)
+    }
+
+    @Test("Observed clearance repairs missing undo history for landed writes")
+    func observedClearanceRepairsHistory() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
+        try await setup.store.upsert(record)
+        setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
+            isMusicAppRunning: { true },
+            areScriptsInstalled: { true }
+        )))
+        setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: [
+            Track(
+                id: "persistent-1",
+                name: "Track",
+                artist: "Artist",
+                album: "Album",
+                genre: "Stoner Rock"
+            ),
+        ]))
+        let stored = try #require(await setup.store.record(for: record.runID))
+        await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
+        #expect(await setup.undo.getHistory().isEmpty)
+
+        try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+
+        let history = await setup.undo.getHistory()
+        #expect(history.map(\.trackID) == ["persistent-1"])
+        #expect(history.first?.changeType == .genreUpdate)
+        #expect(history.first?.newGenre == "Stoner Rock")
+        let durable = try await setup.changeLog.loadAll()
+        #expect(durable.map(\.trackID) == ["persistent-1"])
+    }
+
+    @Test("Checkpointed terminal writes repair history without observation")
+    func terminalWrittenRepairsHistory() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let (record, _) = uncertainRunRecord(
+            recoveryID: recoveryID,
+            itemState: .outcome(.written)
+        )
+        try await setup.store.upsert(record)
+        try await setup.trackStore.saveTracks([Track(
+            id: "persistent-1",
+            name: "Track",
+            artist: "Artist",
+            album: "Album",
+            genre: "Stoner Rock"
+        )])
+        let stored = try #require(await setup.store.record(for: record.runID))
+        await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
+
+        try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+
+        let durable = try await setup.changeLog.loadAll()
+        #expect(durable.map(\.newGenre) == ["Stoner Rock"])
+        let persisted = try ModelContext(setup.persistenceContainer)
+            .fetch(FetchDescriptor<PersistedTrack>())
+        #expect(persisted.map(\.genreUpdated) == [true])
         #expect(await setup.processor.recoveryHoldID() == nil)
     }
 
@@ -127,6 +192,52 @@ struct RecoveryClearTests {
         #expect(retained.finishedAt == nil)
         #expect(retained.workItems.map(\.state) == [.attempted])
         #expect(await setup.processor.recoveryHoldID() == recoveryID)
+    }
+
+    @Test("Repeated store failures reuse one synthetic hold and yield to the real one")
+    func syntheticHoldStaysStable() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let realStore = RunRecordDataStore(modelContainer: container)
+        let flaky = FlakyRecoveryStore(base: realStore, failingReads: 2)
+        let setup = try makeRecoverySetup(store: flaky)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = UUID()
+        let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
+        try await realStore.upsert(record)
+        setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
+            isMusicAppRunning: { true },
+            areScriptsInstalled: { true }
+        )))
+        setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: []))
+
+        #expect(await setup.dependencies.ensureRecoveryHold())
+        let firstHold = await setup.processor.recoveryHoldID()
+        #expect(firstHold == SyntheticRecoveryHold.id)
+        #expect(await setup.dependencies.ensureRecoveryHold())
+        #expect(await setup.processor.recoveryHoldID() == firstHold)
+
+        try? await setup.dependencies.clearRecoveryHold(id: SyntheticRecoveryHold.id)
+
+        #expect(await setup.processor.recoveryHoldID() == recoveryID)
+    }
+
+    @Test("Synthetic hold identity never persists onto an unclaimed record")
+    func syntheticHoldNeverClaimsRecords() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let realStore = RunRecordDataStore(modelContainer: container)
+        let flaky = FlakyRecoveryStore(base: realStore, failingReads: 1)
+        let setup = try makeRecoverySetup(store: flaky)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let (record, _) = uncertainRunRecord(recoveryID: nil)
+        try await realStore.upsert(record)
+
+        #expect(await setup.dependencies.ensureRecoveryHold())
+        #expect(await setup.processor.recoveryHoldID() == SyntheticRecoveryHold.id)
+        #expect(await setup.dependencies.ensureRecoveryHold())
+
+        let claimed = try #require(await realStore.record(for: record.runID))
+        let claimedID = try #require(claimed.recoveryID)
+        #expect(claimedID != SyntheticRecoveryHold.id)
     }
 
     @Test("Verified write closes its run and releases every hold")

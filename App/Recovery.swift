@@ -48,7 +48,7 @@ extension AppDependencies {
             }
             return false
         } catch {
-            await admitRecoveryHold(id: UUID())
+            await admitRecoveryHold(id: SyntheticRecoveryHold.id)
             recoveryLog.error(
                 "Failed to read recovery hold state: \(error.localizedDescription, privacy: .private)"
             )
@@ -187,6 +187,7 @@ extension AppDependencies {
             throw AppDependencyServiceError.recoveryBlocked
         }
         let observedOutcomes = try await observeOutcomes(for: record)
+        try await repairFinalizationEvidence(record: record, observedOutcomes: observedOutcomes)
         if let runOrchestrator {
             guard await runOrchestrator.resolveRecovery(
                 id: id,
@@ -237,6 +238,49 @@ extension AppDependencies {
             }
         } else if await processor.recoveryHoldID() == id {
             try await processor.clearRecovery(batchID: id)
+        }
+    }
+
+    /// Rebuilds missing finalization evidence — durable change history and
+    /// track processing state — for written items, whether the write was
+    /// checkpointed terminal before the loss or confirmed by observation.
+    /// A repair failure aborts clearance and the hold is retained.
+    private func repairFinalizationEvidence(
+        record: RunRecord,
+        observedOutcomes: [UUID: ObservedWorkOutcome]?
+    ) async throws {
+        guard let undoCoordinator else {
+            recoveryLog.error("Recovery evidence repair skipped: undo coordinator unavailable")
+            return
+        }
+        let writtenItems = RecoveryEvidenceRepair.writtenItems(
+            in: record.workItems,
+            observed: observedOutcomes
+        )
+        guard !writtenItems.isEmpty else { return }
+        let existing = await undoCoordinator.getHistory()
+        let entries = RecoveryEvidenceRepair.missingEntries(
+            for: writtenItems,
+            existing: existing
+        )
+        if !entries.isEmpty {
+            try await undoCoordinator.recordRepairedChanges(entries)
+        }
+        try await repairProcessingState(for: writtenItems)
+    }
+
+    private func repairProcessingState(for items: [RunWorkItem]) async throws {
+        guard let trackStore else { return }
+        for item in items {
+            guard case let .track(identity) = item.target,
+                  let trackID = identity.appleScriptID
+            else { continue }
+            try await trackStore.updateTrackProcessingState(
+                id: trackID,
+                genreUpdated: item.change.changeType == .genreUpdate ? true : nil,
+                yearUpdated: item.change.changeType == .yearUpdate
+                    || item.change.changeType == .yearRevert ? true : nil
+            )
         }
     }
 
@@ -409,7 +453,11 @@ extension AppDependencies {
         else { return false }
         guard let runRecordStore else { return true }
 
-        let requestedID = candidate.recoveryID ?? preferredID ?? UUID()
+        // A fresh claim persists this ID onto the record, so it must stay
+        // unique: the stable synthetic identity is for in-memory holds only
+        // and must never flow in as the preferred claim identity either.
+        let uniquePreferredID = preferredID == SyntheticRecoveryHold.id ? nil : preferredID
+        let requestedID = candidate.recoveryID ?? uniquePreferredID ?? UUID()
         do {
             guard let recoveryID = try await runRecordStore.claimRecovery(
                 for: candidate.runID,

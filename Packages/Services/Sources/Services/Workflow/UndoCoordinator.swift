@@ -140,6 +140,19 @@ public actor UndoCoordinator {
         log.info("Recorded \(entries.count, privacy: .public) change(s)")
     }
 
+    /// Records repaired evidence durable-first: the in-memory history gains
+    /// the entries only after the store accepted them, so a failed repair
+    /// stays visible to the next attempt instead of masking itself behind a
+    /// cached phantom (the write-path `recordChanges` deliberately does the
+    /// opposite to retain in-memory undo when persistence fails mid-run).
+    public func recordRepairedChanges(_ entries: [ChangeLogEntry]) async throws {
+        await loadHistoryIfNeeded()
+
+        try await changeLogStore?.saveEntries(entries)
+        history.append(contentsOf: entries)
+        log.info("Repaired \(entries.count, privacy: .public) change history entrie(s)")
+    }
+
     // MARK: Revert Single
 
     /// Revert a single change by writing the old value back to Music.app.
