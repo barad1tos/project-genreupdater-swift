@@ -98,6 +98,7 @@ struct RunRecordSinkTests {
                     createdAt: started,
                     reason: "manualCheck"
                 ),
+                continuesRunID: nil,
                 startedAt: started
             ),
             transitions: transitions,

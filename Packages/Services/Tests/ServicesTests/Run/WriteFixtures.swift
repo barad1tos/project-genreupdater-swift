@@ -269,6 +269,7 @@ func recoveryRecord(
             trigger: .recovery,
             intent: intent,
             scope: writeInput().scope,
+            continuesRunID: nil,
             startedAt: startedAt
         ),
         writeTarget: writeTarget(),

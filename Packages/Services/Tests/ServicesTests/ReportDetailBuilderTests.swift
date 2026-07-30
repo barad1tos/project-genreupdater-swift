@@ -117,6 +117,7 @@ struct ReportDetailBuilderTests {
                     createdAt: startDate,
                     reason: ""
                 ),
+                continuesRunID: nil,
                 startedAt: startDate
             ),
             transitions: transitions,
@@ -396,6 +397,7 @@ struct ReportDetailBuilderTests {
                     createdAt: startedAt,
                     reason: ""
                 ),
+                continuesRunID: nil,
                 startedAt: startedAt
             ),
             transitions: transitions,

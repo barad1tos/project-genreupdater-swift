@@ -48,8 +48,10 @@ struct RunRecordPayload: Codable {
         writeSummary = record.writeSummary
     }
 
+    /// Rebuilds a payload from parts; the schema version is derived from the
+    /// configuration exactly as `init(record:)` does, so callers cannot desync
+    /// version and content.
     init(
-        version: Int,
         transitions: [RunLifecycleTransition],
         workItems: [RunWorkItem],
         configuration: RunConfig?,
@@ -58,7 +60,7 @@ struct RunRecordPayload: Codable {
         continuesRunID: RunID?,
         writeSummary: RunWriteSummary?
     ) {
-        self.version = version
+        version = Self.version(for: configuration)
         self.transitions = transitions
         self.workItems = workItems
         self.configuration = configuration

@@ -341,6 +341,7 @@ private func terminalCopy(of record: RunRecord, workItems: [RunWorkItem]) -> Run
             trigger: record.trigger,
             intent: record.intent,
             scope: record.scope,
+            continuesRunID: record.continuesRunID,
             startedAt: record.startedAt
         ),
         configuration: record.configuration,

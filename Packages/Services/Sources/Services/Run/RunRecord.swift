@@ -29,6 +29,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         let trigger: RunTrigger
         let intent: RunIntent
         let scope: ProcessingScopeSnapshot
+        let continuesRunID: RunID?
         let startedAt: Date
     }
 
@@ -100,7 +101,6 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         configuration: RunConfig? = nil,
         writeTarget: FixPlanWriteTarget? = nil,
         recoveryID: UUID? = nil,
-        continuesRunID: RunID? = nil,
         transitions: [RunLifecycleTransition],
         workItems: [RunWorkItem] = [],
         status: Status
@@ -113,7 +113,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         self.configuration = configuration
         self.writeTarget = writeTarget
         self.recoveryID = recoveryID
-        self.continuesRunID = continuesRunID
+        continuesRunID = header.continuesRunID
         self.transitions = transitions
         workLedger = WorkLedger(workItems)
         syncSummary = status.syncSummary

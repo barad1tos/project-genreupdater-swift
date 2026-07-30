@@ -79,6 +79,7 @@ struct RunHeaderTests {
                 trigger: initial.trigger,
                 intent: initial.intent,
                 scope: initial.scope,
+                continuesRunID: nil,
                 startedAt: initial.startedAt
             ),
             configuration: nil,
@@ -165,6 +166,7 @@ struct RunHeaderTests {
                 trigger: initial.trigger,
                 intent: initial.intent,
                 scope: initial.scope,
+                continuesRunID: nil,
                 startedAt: initial.startedAt
             ),
             configuration: initial.configuration,
@@ -207,6 +209,7 @@ struct RunHeaderTests {
                 trigger: initial.trigger,
                 intent: initial.intent,
                 scope: initial.scope,
+                continuesRunID: nil,
                 startedAt: initial.startedAt
             ),
             configuration: initial.configuration,
@@ -247,6 +250,7 @@ struct RunHeaderTests {
                 trigger: initial.trigger,
                 intent: initial.intent,
                 scope: initial.scope,
+                continuesRunID: nil,
                 startedAt: initial.startedAt
             ),
             configuration: initial.configuration,
@@ -287,6 +291,7 @@ struct RunHeaderTests {
                 trigger: initial.trigger,
                 intent: initial.intent,
                 scope: initial.scope,
+                continuesRunID: nil,
                 startedAt: initial.startedAt
             ),
             configuration: initial.configuration,
@@ -400,6 +405,7 @@ struct RunHeaderTests {
                 trigger: base.trigger,
                 intent: base.intent,
                 scope: base.scope,
+                continuesRunID: nil,
                 startedAt: base.startedAt
             ),
             configuration: base.configuration,
@@ -432,6 +438,7 @@ struct RunHeaderTests {
                 trigger: field == .trigger ? .recovery : record.trigger,
                 intent: field == .intent ? .writeFixes : record.intent,
                 scope: record.scope,
+                continuesRunID: nil,
                 startedAt: field == .startedAt ? record.startedAt.addingTimeInterval(1) : record.startedAt
             ),
             configuration: record.configuration,
@@ -467,6 +474,7 @@ struct RunHeaderTests {
                 trigger: record.trigger,
                 intent: record.intent,
                 scope: record.scope,
+                continuesRunID: nil,
                 startedAt: record.startedAt
             ),
             configuration: record.configuration,

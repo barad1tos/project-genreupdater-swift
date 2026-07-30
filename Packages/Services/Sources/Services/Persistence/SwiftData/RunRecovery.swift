@@ -179,11 +179,9 @@ extension RunRecordDataStore {
         guard workItems.isEmpty || configuration != nil else {
             throw RunRecordPersistenceError.corruptedField(name: "configuration", runID: row.runID)
         }
-        let payloadVersion = RunRecordPayload.version(for: configuration)
         let storedRecoveryID = payload?.recoveryID ?? fallback?.recoveryID
         let recoveryID = isWriteRecovery ? (storedRecoveryID ?? row.runID) : nil
         row.transitionsData = try JSONEncoder().encode(RunRecordPayload(
-            version: payloadVersion,
             transitions: transitions,
             workItems: workItems,
             configuration: configuration,
@@ -223,7 +221,6 @@ extension RunRecordDataStore {
             throw RunRecordPersistenceError.corruptedField(name: "configuration", runID: row.runID)
         }
         row.transitionsData = try JSONEncoder().encode(RunRecordPayload(
-            version: RunRecordPayload.version(for: configuration),
             transitions: transitions,
             workItems: workItems,
             configuration: configuration,

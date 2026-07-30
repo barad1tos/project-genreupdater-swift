@@ -508,6 +508,7 @@ struct ReportsBuilderTests {
                     createdAt: startedAt,
                     reason: "test"
                 ),
+                continuesRunID: nil,
                 startedAt: startedAt
             ),
             recoveryID: input.recoveryID,
@@ -528,6 +529,7 @@ struct ReportsBuilderTests {
                 trigger: .manualCheck,
                 intent: intent,
                 scope: scope,
+                continuesRunID: nil,
                 startedAt: startDate
             ),
             transitions: [

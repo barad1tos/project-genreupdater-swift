@@ -123,6 +123,7 @@ func makeRunRecord(
             trigger: input.trigger,
             intent: input.intent,
             scope: scope,
+            continuesRunID: input.continuesRunID,
             startedAt: startedAt
         ),
         configuration: input.configuration ?? makeRunConfiguration(
@@ -132,7 +133,6 @@ func makeRunRecord(
         ),
         writeTarget: input.writeTarget,
         recoveryID: input.recoveryID,
-        continuesRunID: input.continuesRunID,
         transitions: transitions,
         workItems: input.workItems,
         status: RunRecord.Status(
@@ -156,6 +156,7 @@ func replacing(
             trigger: record.trigger,
             intent: record.intent,
             scope: scope,
+            continuesRunID: record.continuesRunID,
             startedAt: record.startedAt
         ),
         configuration: configuration,

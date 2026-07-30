@@ -303,7 +303,11 @@ struct WorkItemTests {
         let ledger = WorkLedger([written])
 
         #expect(throws: WorkCheckpointError.self) {
-            try ledger.dismissingItems([written.id], detail: "Dismissed by user: x", at: Date(timeIntervalSince1970: 500))
+            try ledger.dismissingItems(
+                [written.id],
+                detail: "Dismissed by user: x",
+                at: Date(timeIntervalSince1970: 500)
+            )
         }
     }
 
@@ -619,7 +623,7 @@ struct WorkItemTests {
     }
 
     @Test("continuable work keeps only failed and skipped outcomes in order")
-    func derivesContinuableWork() throws {
+    func derivesContinuableWork() {
         let written = makeWorkItem(state: .outcome(.written))
         let failed = makeWorkItem(state: .outcome(.failed))
         let dismissed = makeWorkItem(state: .outcome(.dismissed))
