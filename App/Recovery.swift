@@ -108,6 +108,14 @@ extension AppDependencies {
             if let record = page.records.first(where: {
                 $0.runID == runID || $0.recoveryID == runID.rawValue
             }) {
+                let isWriteUncertain = record.workItems.contains {
+                    $0.state == .attempting || $0.state == .attempted
+                }
+                if isWriteUncertain,
+                   let recoveryAvailability,
+                   case let .blocked(blocker) = await recoveryAvailability.status() {
+                    return .blocked(runID: runID, reason: blocker)
+                }
                 return RecoveryPreflight.classify(record)
             }
             if page.recoveryRunIDs.contains(runID) {

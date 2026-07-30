@@ -114,6 +114,56 @@ struct RunRecoveryTests {
         #expect(stored.workItems.first?.detail == "Verified in Music.app: Metal")
     }
 
+    @Test("Read-only closure refuses a terminal record with uncertain work")
+    func refusesUncertainTerminalClosure() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let finishedAt = Date(timeIntervalSince1970: 150)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: startedAt,
+            reason: "manualCheck"
+        )
+        let payload = ItemPayload(
+            version: RunRecordPayload.workItemVersion,
+            transitions: [
+                RunLifecycleTransition(state: .created, timestamp: startedAt),
+                RunLifecycleTransition(state: .writing, timestamp: startedAt),
+                RunLifecycleTransition(state: .cancelled, timestamp: finishedAt),
+            ],
+            workItems: [makeWorkItem(state: .attempted)],
+            configuration: makeRunConfiguration(
+                scopeID: scope.id,
+                capturedAt: startedAt,
+                writeAuthority: .reviewedPlan
+            )
+        )
+        try insertRunRow(
+            runID: runID,
+            transitionsData: JSONEncoder().encode(payload),
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .writeFixes,
+                state: .cancelled,
+                startedAt: startedAt,
+                finishedAt: finishedAt
+            ),
+            into: container
+        )
+        let store = RunRecordDataStore(modelContainer: container)
+
+        let closed = try await store.closeReadOnlyCorruption(
+            RunID(rawValue: runID),
+            at: Date(timeIntervalSince1970: 200)
+        )
+
+        #expect(closed == false)
+        let page = try await store.recoveryRecords()
+        #expect(page.attentionRunIDs.contains(RunID(rawValue: runID)))
+    }
+
     @Test("Recovery closure rejects duplicate terminal work")
     func rejectsDuplicateRecoveryWork() {
         let itemID = UUID()
