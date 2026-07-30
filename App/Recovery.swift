@@ -144,10 +144,15 @@ extension AppDependencies {
         )
 
         if let runOrchestrator {
+            var observedOutcomes: [UUID: WorkOutcome]?
+            if let resolvedRunID {
+                observedOutcomes = try await observeRecoveryOutcomes(runID: resolvedRunID)
+            }
             guard await runOrchestrator.resolveRecovery(
                 id: id,
                 runID: resolvedRunID,
-                at: finishedAt
+                at: finishedAt,
+                observedOutcomes: observedOutcomes
             ) == .resolved else {
                 throw AppDependencyServiceError.recoveryUnavailable
             }
@@ -155,6 +160,23 @@ extension AppDependencies {
             try await batchProcessor.clearRecovery(batchID: id)
         }
         _ = await ensureRecoveryHold()
+    }
+
+    /// Observes the physical Music.app state for the run's open work before
+    /// clearance. A failed observation propagates so the hold is retained
+    /// (ADR 0006: uncertainty cannot be cleared unchecked).
+    private func observeRecoveryOutcomes(runID: RunID) async throws -> [UUID: WorkOutcome]? {
+        guard let runRecordStore, let applescriptBridge else { return nil }
+        guard let record = try? await runRecordStore.record(for: runID) else { return nil }
+        let hasOpenWork = record.workItems.contains { item in
+            if case .outcome = item.state {
+                return false
+            }
+            return true
+        }
+        guard hasOpenWork else { return nil }
+        return try await RecoveryObservationService(scriptClient: applescriptBridge)
+            .observeOutcomes(for: record.workItems)
     }
 
     private func closeRecoveryRun(

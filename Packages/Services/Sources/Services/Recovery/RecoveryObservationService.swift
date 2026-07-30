@@ -9,16 +9,16 @@ import Foundation
 /// AppleScript write identity; absent tracks and missing identities classify
 /// as `.needsReview`. Fetch failures propagate so recovery clearance stays
 /// blocked while the physical state cannot be checked (fail closed).
-actor RecoveryObservationService {
+public actor RecoveryObservationService {
     private let scriptClient: any AppleScriptClient
     private let batchSize: Int
 
-    init(scriptClient: any AppleScriptClient, batchSize: Int = 50) {
+    public init(scriptClient: any AppleScriptClient, batchSize: Int = 50) {
         self.scriptClient = scriptClient
         self.batchSize = batchSize
     }
 
-    func observeOutcomes(for items: [RunWorkItem]) async throws -> [UUID: WorkOutcome] {
+    public func observeOutcomes(for items: [RunWorkItem]) async throws -> [UUID: WorkOutcome] {
         var outcomes: [UUID: WorkOutcome] = [:]
         var observationIDs: [UUID: String] = [:]
         for item in items {
