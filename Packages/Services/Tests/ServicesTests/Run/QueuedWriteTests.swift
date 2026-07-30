@@ -78,10 +78,102 @@ struct QueuedWriteTests {
         #expect(await orchestrator.queuedWriteRequest() == nil)
     }
 
-    private func makeOrchestrator() -> RunOrchestrator {
+    @Test("release is refused while the hold is still engaged")
+    func refusesReleaseUnderHold() async throws {
+        let orchestrator = makeOrchestrator()
+        await orchestrator.restoreRecoveryHold(id: UUID())
+        let request = RunRequest.manualWrite(input: makeWriteInput())
+        _ = await orchestrator.submit(request)
+
+        let outcome = await orchestrator.releaseQueuedWrite()
+
+        #expect(outcome == .blocked)
+        #expect(await orchestrator.queuedWriteRequest()?.id == request.id)
+    }
+
+    @Test("release with current consent resubmits the queued write")
+    func releasesFreshQueuedWrite() async throws {
+        let holdID = UUID()
+        let input = makeWriteInput()
+        let orchestrator = makeOrchestrator(currentDecisionTarget: { planID in
+            planID == input.target.planID ? input.target : nil
+        })
+        await orchestrator.restoreRecoveryHold(id: holdID)
+        _ = await orchestrator.submit(RunRequest.manualWrite(input: input))
+        _ = await orchestrator.resolveRecovery(id: holdID, runID: nil, at: Date(timeIntervalSince1970: 300))
+
+        let outcome = await orchestrator.releaseQueuedWrite()
+
+        guard case .released = outcome else {
+            Issue.record("Expected the queued write to be resubmitted, got \(outcome)")
+            return
+        }
+        #expect(await orchestrator.queuedWriteRequest() == nil)
+    }
+
+    @Test("stale consent clears the slot without writing")
+    func rejectsStaleQueuedWrite() async throws {
+        let holdID = UUID()
+        let input = makeWriteInput()
+        let staleTarget = FixPlanWriteTarget(
+            planID: input.target.planID,
+            planRevision: input.target.planRevision.advanced(),
+            decisionRevision: input.target.decisionRevision
+        )
+        let orchestrator = makeOrchestrator(currentDecisionTarget: { _ in staleTarget })
+        await orchestrator.restoreRecoveryHold(id: holdID)
+        _ = await orchestrator.submit(RunRequest.manualWrite(input: input))
+        _ = await orchestrator.resolveRecovery(id: holdID, runID: nil, at: Date(timeIntervalSince1970: 300))
+
+        let outcome = await orchestrator.releaseQueuedWrite()
+
+        #expect(outcome == .stale)
+        #expect(await orchestrator.queuedWriteRequest() == nil)
+        #expect(await orchestrator.activeLifecycle() == nil)
+    }
+
+    @Test("unverifiable consent fails closed")
+    func failsClosedWithoutConsentSource() async throws {
+        let holdID = UUID()
+        let orchestrator = makeOrchestrator()
+        await orchestrator.restoreRecoveryHold(id: holdID)
+        _ = await orchestrator.submit(RunRequest.manualWrite(input: makeWriteInput()))
+        _ = await orchestrator.resolveRecovery(id: holdID, runID: nil, at: Date(timeIntervalSince1970: 300))
+
+        let outcome = await orchestrator.releaseQueuedWrite()
+
+        #expect(outcome == .stale)
+        #expect(await orchestrator.queuedWriteRequest() == nil)
+    }
+
+    @Test("an empty slot reports nothing to release")
+    func reportsEmptySlot() async throws {
+        let orchestrator = makeOrchestrator()
+
+        #expect(await orchestrator.releaseQueuedWrite() == .empty)
+    }
+
+    @Test("clearing the hold never releases the queued write by itself")
+    func clearanceDoesNotAutoRelease() async throws {
+        let holdID = UUID()
+        let request = RunRequest.manualWrite(input: makeWriteInput())
+        let orchestrator = makeOrchestrator()
+        await orchestrator.restoreRecoveryHold(id: holdID)
+        _ = await orchestrator.submit(request)
+
+        _ = await orchestrator.resolveRecovery(id: holdID, runID: nil, at: Date(timeIntervalSince1970: 300))
+
+        #expect(await orchestrator.queuedWriteRequest()?.id == request.id)
+        #expect(await orchestrator.activeLifecycle() == nil)
+    }
+
+    private func makeOrchestrator(
+        currentDecisionTarget: (@Sendable (FixPlanID) async -> FixPlanWriteTarget?)? = nil
+    ) -> RunOrchestrator {
         RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in }
+            persistRunRecord: { _ in },
+            currentDecisionTarget: currentDecisionTarget
         ))
     }
 
