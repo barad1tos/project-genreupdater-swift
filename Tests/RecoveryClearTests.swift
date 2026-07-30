@@ -240,6 +240,28 @@ struct RecoveryClearTests {
         #expect(claimedID != SyntheticRecoveryHold.id)
     }
 
+    @Test("Dismissal resolves the record by run ID as well as hold ID")
+    func dismissalResolvesByRunID() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let (record, item) = uncertainRunRecord(recoveryID: recoveryID, itemState: .prepared)
+        try await setup.store.upsert(record)
+        let stored = try #require(await setup.store.record(for: record.runID))
+        await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
+
+        // The navigation surface carries run IDs, not hold IDs.
+        try await setup.dependencies.dismissRecoveryWork(
+            id: record.runID.rawValue,
+            itemIDs: [item.id],
+            reason: "duplicate",
+            isIndividual: false
+        )
+
+        let persisted = try #require(await setup.store.record(for: record.runID))
+        #expect(persisted.workItems.first?.state == .outcome(.dismissed))
+    }
+
     @Test("Grouped dismissal persists selected closures and keeps the hold")
     func groupedDismissalPersistsAndKeepsHold() async throws {
         let setup = try makeRecoverySetup()
@@ -254,7 +276,7 @@ struct RecoveryClearTests {
             id: recoveryID,
             itemIDs: [item.id],
             reason: "duplicate",
-            individual: false
+            isIndividual: false
         )
 
         let persisted = try #require(await setup.store.record(for: record.runID))
@@ -279,7 +301,7 @@ struct RecoveryClearTests {
                 id: recoveryID,
                 itemIDs: [item.id],
                 reason: "cleanup",
-                individual: false
+                isIndividual: false
             )
         }
 
@@ -301,7 +323,7 @@ struct RecoveryClearTests {
             id: recoveryID,
             itemIDs: [item.id],
             reason: "checked manually",
-            individual: true
+            isIndividual: true
         )
 
         let persisted = try #require(await setup.store.record(for: record.runID))

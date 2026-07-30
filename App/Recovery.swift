@@ -106,18 +106,23 @@ extension AppDependencies {
         id: UUID,
         itemIDs: [UUID],
         reason: String,
-        individual: Bool
+        isIndividual: Bool
     ) async throws {
         guard let runRecordStore else {
             throw AppDependencyServiceError.runRecordStoreUnavailable
         }
         let activeRunID = await runOrchestrator?.activeLifecycle()?.runID
-        guard let record = try await selectRecoveryRecord(id: id, activeRunID: activeRunID) else {
+        // The command surface carries run IDs (navigation currency) while
+        // holds mint their own UUIDs, so match both keys like preflight does.
+        let page = try await runRecordStore.recoveryRecords()
+        guard let record = page.records.first(where: {
+            ($0.runID.rawValue == id || $0.recoveryID == id) && $0.runID != activeRunID
+        }) else {
             throw AppDependencyServiceError.recoveryUnavailable
         }
         let dismissedAt = Date()
         let updated: RunRecord
-        if individual {
+        if isIndividual {
             guard itemIDs.count == 1, let itemID = itemIDs.first else {
                 throw AppDependencyServiceError.recoveryUnavailable
             }

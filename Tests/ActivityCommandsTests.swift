@@ -776,7 +776,7 @@ struct ActivityCommandsTests {
         #expect(result.issue?.category == .internalFailure)
     }
 
-    @Test("continue writes renders a pruned plan as discard-only guidance")
+    @Test("continue writes reports an unverifiable plan without destructive advice")
     func continueWritesMapsMissingDecision() async {
         let harness = ActivityFixtures.Harness(releaseOutcome: .unverifiable(.noCurrentDecision))
         let commands = harness.makeCommands()
@@ -784,7 +784,10 @@ struct ActivityCommandsTests {
         let result = await commands.handle(.continueWrites())
 
         #expect(result.status == .requiresAttention)
-        #expect(result.message.contains("Discard"))
+        // The slot is retained upstream; the message must not assert absence
+        // as fact nor advise destroying the retained intent.
+        #expect(result.message.contains("still held"))
+        #expect(!result.message.contains("Discard the queued write"))
     }
 
     @Test("grouped dismissal reports the count and forwards the selection")

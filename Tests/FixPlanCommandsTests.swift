@@ -413,7 +413,7 @@ struct FixPlanCommandsTests {
         #expect(await harness.store.verdicts() == [.accepted, .accepted])
     }
 
-    @Test("remaining fixes submit a linked continuation narrowed to continuable work")
+    @Test("remaining fixes submit the full accepted set as a linked continuation")
     func remainingFixesSubmitLinkedContinuation() async {
         let harness = FixPlanCommandHarness(startingVerdict: .accepted)
         let source = makeClosedSourceRecord(readIDs: ["read-00000000-0000-0000-0000-000000000201"])
@@ -430,8 +430,10 @@ struct FixPlanCommandsTests {
         #expect(harness.submittedRequests.count == 1)
         #expect(harness.submittedRequests.first?.continuesRunID == source.runID)
         #expect(harness.submittedRequests.first?.trigger == .recovery)
+        // The write runner validates input against exactly the full accepted
+        // set; already-landed items verify as no-ops downstream.
         let items = harness.submittedRequests.first?.writeInput?.workItems ?? []
-        #expect(items.count == 1)
+        #expect(items.count == 2)
         #expect(items.allSatisfy { $0.state == .prepared })
     }
 
@@ -450,19 +452,23 @@ struct FixPlanCommandsTests {
         #expect(harness.submittedRequests.isEmpty)
     }
 
-    @Test("remaining fixes reject when nothing overlaps the accepted items")
-    func remainingFixesRejectWithoutOverlap() async {
+    @Test("remaining fixes reject a stale decision triple without submitting")
+    func remainingFixesRejectStaleTriple() async throws {
         let harness = FixPlanCommandHarness(startingVerdict: .accepted)
-        harness.sourceRecord = makeClosedSourceRecord(readIDs: ["read-unrelated"])
+        harness.sourceRecord = makeClosedSourceRecord(readIDs: ["read-00000000-0000-0000-0000-000000000201"])
         let commands = harness.makeCommands()
+        let staleTarget = harness.target
+        let current = try #require(await harness.store.currentDecision(for: staleTarget.planID))
+        _ = try await harness.store.recordDecision(
+            FixPlanReviewer.rejectingAll(current, at: Date(timeIntervalSince1970: 1_800_000_300))
+        )
 
         let result = await commands.handle(.applyRemainingFixes(
-            target: harness.target,
+            target: staleTarget,
             sourceRunID: UUID()
         ))
 
         #expect(result.status == .rejectedStale)
-        #expect(result.message == "Nothing left to continue.")
         #expect(harness.submittedRequests.isEmpty)
     }
 

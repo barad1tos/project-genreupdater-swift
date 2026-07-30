@@ -9,7 +9,12 @@ struct ActivityCommands {
     let isRunOrchestratorAvailable: () -> Bool
     let submitManualRun: () async throws -> RunSubmissionResult
     let releaseQueuedWrite: () async -> QueuedWriteRelease
-    let dismissRecoveryWork: (UUID, [UUID], String, Bool) async throws -> Void
+    let dismissRecoveryWork: (
+        _ recoveryID: UUID,
+        _ itemIDs: [UUID],
+        _ reason: String,
+        _ isIndividual: Bool
+    ) async throws -> Void
     let queueManualReload: (RunID) -> Void
     let reloadLibrary: (_ forceRefresh: Bool) async -> Void
     let refreshActivityProjection: () async -> ActivityProjection
@@ -166,13 +171,40 @@ struct ActivityCommands {
     }
 
     private func handleContinueWrites() async -> UserCommandResult {
+        guard isRunOrchestratorAvailable() else {
+            let projection = await refreshActivityProjection()
+            return .temporaryUnavailable(
+                message: "Run orchestration is unavailable.",
+                issue: OperationalIssue(
+                    id: "queued-write-orchestrator-unavailable",
+                    category: .temporaryUnavailable,
+                    summary: "Run orchestration unavailable",
+                    technicalDetail: "AppDependencies.runOrchestrator is nil"
+                ),
+                refreshedActivityProjection: projection
+            )
+        }
         let release = await releaseQueuedWrite()
         let projection = await refreshActivityProjection()
-        switch release {
-        case let .released(inner):
+        if case let .released(inner) = release {
             return await makeReleasedResult(inner, projection: projection)
+        }
+        return makeUnreleasedResult(release, projection: projection)
+    }
+
+    private func makeUnreleasedResult(
+        _ release: QueuedWriteRelease,
+        projection: ActivityProjection
+    ) -> UserCommandResult {
+        switch release {
+        case .released:
+            // Handled by the caller; kept for exhaustiveness.
+            .rejectedStale(
+                message: "The queued write is no longer available.",
+                refreshedActivityProjection: projection
+            )
         case .blocked:
-            return .blockedByRecovery(
+            .blockedByRecovery(
                 message: "Recovery must be resolved before the queued write continues.",
                 issue: OperationalIssue(
                     id: "queued-write-blocked",
@@ -183,17 +215,17 @@ struct ActivityCommands {
                 refreshedActivityProjection: projection
             )
         case .empty, .superseded:
-            return .rejectedStale(
+            .rejectedStale(
                 message: "The queued write is no longer available.",
                 refreshedActivityProjection: projection
             )
         case .stale:
-            return .rejectedStale(
+            .rejectedStale(
                 message: "The plan decision changed. Review the plan and apply it again.",
                 refreshedActivityProjection: projection
             )
         case .unverifiable(.sourceMissing):
-            return .requiresAttention(
+            .requiresAttention(
                 message: "The queued write could not be verified.",
                 issue: OperationalIssue(
                     id: "queued-write-unverifiable",
@@ -204,12 +236,13 @@ struct ActivityCommands {
                 refreshedActivityProjection: projection
             )
         case .unverifiable(.noCurrentDecision):
-            return .requiresAttention(
-                message: "The queued plan no longer exists. Discard the queued write.",
+            .requiresAttention(
+                message: "The queued plan could not be verified — it may have been removed. "
+                    + "The queued write is still held.",
                 issue: OperationalIssue(
                     id: "queued-write-plan-missing",
                     category: .staleAction,
-                    summary: "Queued plan is gone",
+                    summary: "Queued plan could not be verified",
                     technicalDetail: nil
                 ),
                 refreshedActivityProjection: projection

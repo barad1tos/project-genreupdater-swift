@@ -893,13 +893,16 @@ extension DesignRootHostView {
             releaseQueuedWrite: {
                 await dependencies.runOrchestrator?.releaseQueuedWrite() ?? .empty
             },
-            dismissRecoveryWork: { runID, itemIDs, reason, individual in
+            dismissRecoveryWork: { runID, itemIDs, reason, isIndividual in
                 try await dependencies.dismissRecoveryWork(
                     id: runID,
                     itemIDs: itemIDs,
                     reason: reason,
-                    individual: individual
+                    isIndividual: isIndividual
                 )
+                // Item states live in the reports projection; refresh it so
+                // the dismissal is visible without an unrelated lifecycle event.
+                await refreshReportsProjection()
             },
             queueManualReload: { runID in
                 queuedManualReload = .waitingForActive(runID)
@@ -934,7 +937,7 @@ extension DesignRootHostView {
             },
             submitRunRequest: { request in
                 guard let orchestrator = dependencies.runOrchestrator else {
-                    throw AppDependencyServiceError.recoveryUnavailable
+                    throw AppDependencyServiceError.runOrchestratorUnavailable
                 }
                 return await orchestrator.submit(request)
             },

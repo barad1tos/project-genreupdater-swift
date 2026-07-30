@@ -281,10 +281,12 @@ struct FixPlanCommands {
         }
     }
 
-    /// Applies the still-continuable remainder of a closed write run as a
-    /// NEW linked run: items come from the CURRENT plan and decision (fresh
-    /// consent), narrowed to the source run's continuable work, and the
-    /// request carries the source's runID as immutable lineage (ADR 0005).
+    /// Re-applies the CURRENT plan and decision (fresh consent) as a NEW run
+    /// linked to the closed source run (ADR 0005). The full accepted set is
+    /// submitted — the write runner validates input against exactly that set
+    /// — and items that already landed verify as no-ops through the absolute
+    /// genre/year writes, matching the Python idempotence contract. True
+    /// remainder scoping needs a runner-level subset contract (ledger).
     private func applyRemainingFixes(
         sourceRunID: RunID,
         target: FixPlanCommandTarget,
@@ -294,6 +296,15 @@ struct FixPlanCommands {
     ) async -> UserCommandResult {
         if await ensureRecoveryHold() {
             return await recoveryHoldResult(target: target, projection: projection)
+        }
+        if let issue = projection.operationalIssues.first(where: { $0.category == .safetyBlocked }) {
+            let activity = await refreshActivityProjection()
+            return .requiresAttention(
+                message: "Fix plan needs attention.",
+                issue: issue,
+                refreshedActivityProjection: activity,
+                refreshedFixPlanProjection: projection
+            )
         }
         do {
             guard let record = try await loadRunRecord(sourceRunID) else {
@@ -305,14 +316,7 @@ struct FixPlanCommands {
             guard let plan = try await store.plan(id: target.planID, revision: target.planRevision) else {
                 return await conflictResult()
             }
-            let continuableReadIDs = Set(record.continuableWork.compactMap { item -> String? in
-                guard case let .track(identity) = item.target else { return nil }
-                return identity.readID
-            })
-            let items = FixPlanWrite.acceptedWorkItems(in: plan, decision: decision).filter { item in
-                guard case let .track(identity) = item.target else { return false }
-                return continuableReadIDs.contains(identity.readID)
-            }
+            let items = FixPlanWrite.acceptedWorkItems(in: plan, decision: decision)
             guard !items.isEmpty else {
                 return await staleResult(
                     message: "Nothing left to continue.",
