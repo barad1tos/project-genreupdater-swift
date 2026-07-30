@@ -221,6 +221,25 @@ struct RecoveryClearTests {
         #expect(await setup.processor.recoveryHoldID() == recoveryID)
     }
 
+    @Test("Synthetic hold identity never persists onto an unclaimed record")
+    func syntheticHoldNeverClaimsRecords() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let realStore = RunRecordDataStore(modelContainer: container)
+        let flaky = FlakyRecoveryStore(base: realStore, failingReads: 1)
+        let setup = try makeRecoverySetup(store: flaky)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let (record, _) = uncertainRunRecord(recoveryID: nil)
+        try await realStore.upsert(record)
+
+        #expect(await setup.dependencies.ensureRecoveryHold())
+        #expect(await setup.processor.recoveryHoldID() == SyntheticRecoveryHold.id)
+        #expect(await setup.dependencies.ensureRecoveryHold())
+
+        let claimed = try #require(await realStore.record(for: record.runID))
+        let claimedID = try #require(claimed.recoveryID)
+        #expect(claimedID != SyntheticRecoveryHold.id)
+    }
+
     @Test("Verified write closes its run and releases every hold")
     func closesVerifiedWrite() async throws {
         let setup = try makeRecoverySetup()

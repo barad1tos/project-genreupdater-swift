@@ -454,8 +454,10 @@ extension AppDependencies {
         guard let runRecordStore else { return true }
 
         // A fresh claim persists this ID onto the record, so it must stay
-        // unique: the stable synthetic identity is for in-memory holds only.
-        let requestedID = candidate.recoveryID ?? preferredID ?? UUID()
+        // unique: the stable synthetic identity is for in-memory holds only
+        // and must never flow in as the preferred claim identity either.
+        let uniquePreferredID = preferredID == SyntheticRecoveryHold.id ? nil : preferredID
+        let requestedID = candidate.recoveryID ?? uniquePreferredID ?? UUID()
         do {
             guard let recoveryID = try await runRecordStore.claimRecovery(
                 for: candidate.runID,

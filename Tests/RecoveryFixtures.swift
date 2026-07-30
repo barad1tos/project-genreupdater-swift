@@ -17,7 +17,7 @@ struct RecoverySetup {
 
 /// One write-uncertain run record bound to a recovery hold, plus its item.
 func uncertainRunRecord(
-    recoveryID: UUID,
+    recoveryID: UUID?,
     itemState: WorkState = .attempted,
     oldValue: String? = "Rock",
     newValue: String? = "Stoner Rock"
