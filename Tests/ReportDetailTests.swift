@@ -34,6 +34,7 @@ struct ReportDetailTests {
                     dismissedLabel: nil
                 ),
             ],
+            hiddenWorkItemCount: 4,
             canApplyRemainingFixes: true,
             canDismissItems: false
         )
@@ -64,6 +65,7 @@ struct ReportDetailTests {
                 dismissedLabel: nil
             ),
         ])
+        #expect(snapshot.hiddenWorkItemCount == 4)
         #expect(snapshot.canApplyRemainingFixes)
         #expect(!snapshot.canDismissItems)
         #expect(snapshot.unavailableReason == nil)

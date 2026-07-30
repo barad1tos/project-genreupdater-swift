@@ -19,6 +19,7 @@ public struct RootView<UpdateContent: View>: View {
     private let browseAlbumSelectionAction: ((Album?, String?) -> Void)?
     private let reportRunSelectionAction: ((String?) -> Void)?
     private let recoveryDetailActions: RecoveryDetailActions?
+    private let reportNotice: ReportNotice?
     private let updateContent: () -> UpdateContent
     @State private var model: AppModel
 
@@ -38,6 +39,7 @@ public struct RootView<UpdateContent: View>: View {
         browseAlbumSelectionAction: ((Album?, String?) -> Void)? = nil,
         reportRunSelectionAction: ((String?) -> Void)? = nil,
         recoveryDetailActions: RecoveryDetailActions? = nil,
+        reportNotice: ReportNotice? = nil,
         @ViewBuilder updateContent: @escaping () -> UpdateContent
     ) {
         self.data = data
@@ -55,6 +57,7 @@ public struct RootView<UpdateContent: View>: View {
         self.browseAlbumSelectionAction = browseAlbumSelectionAction
         self.reportRunSelectionAction = reportRunSelectionAction
         self.recoveryDetailActions = recoveryDetailActions
+        self.reportNotice = reportNotice
         self.updateContent = updateContent
         _model = State(initialValue: AppModel(data: data))
     }

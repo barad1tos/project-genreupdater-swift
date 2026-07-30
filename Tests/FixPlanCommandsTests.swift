@@ -416,7 +416,10 @@ struct FixPlanCommandsTests {
     @Test("remaining fixes submit the full accepted set as a linked continuation")
     func remainingFixesSubmitLinkedContinuation() async {
         let harness = FixPlanCommandHarness(startingVerdict: .accepted)
-        let source = makeClosedSourceRecord(readIDs: ["read-00000000-0000-0000-0000-000000000201"])
+        let source = makeClosedSourceRecord(
+            readIDs: ["read-00000000-0000-0000-0000-000000000201"],
+            planTarget: harness.target.writeTarget
+        )
         harness.sourceRecord = source
         harness.setWriteResult(.completedNoOp(FixPlanCommandHarness.finishedLifecycle()))
         let commands = harness.makeCommands()
@@ -435,6 +438,24 @@ struct FixPlanCommandsTests {
         let items = harness.submittedRequests.first?.writeInput?.workItems ?? []
         #expect(items.count == 2)
         #expect(items.allSatisfy { $0.state == .prepared })
+    }
+
+    @Test("remaining fixes reject a source run that executed a different plan")
+    func remainingFixesRejectForeignPlan() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        harness.sourceRecord = makeClosedSourceRecord(
+            readIDs: ["read-00000000-0000-0000-0000-000000000201"]
+        )
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.applyRemainingFixes(
+            target: harness.target,
+            sourceRunID: UUID()
+        ))
+
+        #expect(result.status == .rejectedStale)
+        #expect(result.message == "The current review plan does not match the interrupted run.")
+        #expect(harness.submittedRequests.isEmpty)
     }
 
     @Test("remaining fixes reject a vanished source run")
@@ -508,7 +529,11 @@ struct FixPlanCommandsTests {
     }
 }
 
-private func makeClosedSourceRecord(readIDs: [String], finished: Bool = true) -> RunRecord {
+private func makeClosedSourceRecord(
+    readIDs: [String],
+    finished: Bool = true,
+    planTarget: FixPlanWriteTarget? = nil
+) -> RunRecord {
     let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
     let scope = ProcessingScopeSnapshot.capture(
         requestedTestArtists: [],
@@ -538,7 +563,8 @@ private func makeClosedSourceRecord(readIDs: [String], finished: Bool = true) ->
         )
     }
     let input = FixPlanWriteInput(
-        target: FixPlanWriteTarget(planID: FixPlanID(), planRevision: .initial, decisionRevision: .initial),
+        target: planTarget
+            ?? FixPlanWriteTarget(planID: FixPlanID(), planRevision: .initial, decisionRevision: .initial),
         scope: scope,
         configuration: RunConfig(
             capturedAt: startedAt,

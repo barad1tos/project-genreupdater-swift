@@ -361,6 +361,11 @@ struct FixPlanCommands {
                 message: "Nothing left to continue.",
                 projection: projection
             )
+        case .inputPlanMismatch:
+            return await staleResult(
+                message: "The current review plan does not match the interrupted run.",
+                projection: projection
+            )
         case .sourceRunNotWrite, .inputWorkNotPrepared:
             let activity = await refreshActivityProjection()
             return .rejectedInvalid(

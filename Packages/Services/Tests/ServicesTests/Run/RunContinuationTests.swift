@@ -7,9 +7,10 @@ import Testing
 struct RunContinuationTests {
     @Test("a closed write run with failed work produces a linked recovery request")
     func createsLinkedRequest() throws {
+        let target = writeTarget()
         let failed = makeWorkItem(state: .outcome(.failed))
-        let record = makeClosedWriteRecord(workItems: [failed])
-        let input = makeWriteInput()
+        let record = makeClosedWriteRecord(workItems: [failed], target: target)
+        let input = makeWriteInput(target: target)
 
         let request = try RunRequest.continuation(of: record, input: input)
 
@@ -72,9 +73,10 @@ struct RunContinuationTests {
 
     @Test("linkage flows from request through snapshot into the record")
     func propagatesLinkageThroughLifecycle() throws {
+        let target = writeTarget()
         let failed = makeWorkItem(state: .outcome(.failed))
-        let source = makeClosedWriteRecord(workItems: [failed])
-        let input = makeWriteInput()
+        let source = makeClosedWriteRecord(workItems: [failed], target: target)
+        let input = makeWriteInput(target: target)
         let request = try RunRequest.continuation(of: source, input: input)
         let snapshot = RunLifecycleSnapshot(
             request: request,
@@ -107,9 +109,30 @@ struct RunContinuationTests {
         }
     }
 
+    @Test("a plan other than the one the source run executed cannot continue it")
+    func rejectsForeignPlan() throws {
+        let failed = makeWorkItem(state: .outcome(.failed))
+        let record = makeClosedWriteRecord(workItems: [failed], target: writeTarget())
+
+        #expect(throws: RunContinuationError.inputPlanMismatch) {
+            try RunRequest.continuation(of: record, input: makeWriteInput(target: writeTarget()))
+        }
+    }
+
+    @Test("a source run without a recorded plan fails closed")
+    func rejectsUnverifiableSourcePlan() throws {
+        let failed = makeWorkItem(state: .outcome(.failed))
+        let record = makeClosedWriteRecord(workItems: [failed], target: nil)
+
+        #expect(throws: RunContinuationError.inputPlanMismatch) {
+            try RunRequest.continuation(of: record, input: makeWriteInput())
+        }
+    }
+
     private func makeClosedWriteRecord(
         workItems: [RunWorkItem],
-        finished: Bool = true
+        finished: Bool = true,
+        target: FixPlanWriteTarget? = nil
     ) -> RunRecord {
         let startedAt = Date(timeIntervalSince1970: 100)
         return makeRunRecord(
@@ -119,13 +142,14 @@ struct RunContinuationTests {
             syncSummary: nil,
             input: RunRecordInput(
                 intent: .writeFixes,
+                writeTarget: target,
                 workItems: workItems,
                 includesSyncTransition: false
             )
         )
     }
 
-    private func makeWriteInput() -> FixPlanWriteInput {
+    private func makeWriteInput(target: FixPlanWriteTarget? = nil) -> FixPlanWriteInput {
         let capturedAt = Date(timeIntervalSince1970: 200)
         let scope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: [],
@@ -134,7 +158,7 @@ struct RunContinuationTests {
             reason: "continuation-test"
         )
         return FixPlanWriteInput(
-            target: writeTarget(),
+            target: target ?? writeTarget(),
             scope: scope,
             configuration: makeRunConfiguration(
                 scopeID: scope.id,

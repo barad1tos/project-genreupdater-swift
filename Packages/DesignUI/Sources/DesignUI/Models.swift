@@ -426,6 +426,18 @@ public struct RunReportWorkItemRow: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Transient feedback for an action taken on the run detail card, rendered
+/// on the card itself so Reports-initiated commands answer where they ran.
+public struct ReportNotice: Equatable, Sendable {
+    public let message: String
+    public let tone: Tone
+
+    public init(message: String, tone: Tone) {
+        self.message = message
+        self.tone = tone
+    }
+}
+
 public struct RunReportDetailSnapshot: Equatable, Sendable {
     public static func unavailable(runID: String) -> Self {
         Self(unavailableRunID: runID)
@@ -442,6 +454,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
     public let summaryItems: [RunReportSummaryRow]
     public let detailMessage: String?
     public let workItems: [RunReportWorkItemRow]
+    public let hiddenWorkItemCount: Int
     public let canApplyRemainingFixes: Bool
     public let canDismissItems: Bool
     public let unavailableReason: String?
@@ -458,6 +471,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         summaryItems: [RunReportSummaryRow],
         detailMessage: String? = nil,
         workItems: [RunReportWorkItemRow] = [],
+        hiddenWorkItemCount: Int = 0,
         canApplyRemainingFixes: Bool = false,
         canDismissItems: Bool = false
     ) {
@@ -472,6 +486,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         self.summaryItems = summaryItems
         self.detailMessage = detailMessage
         self.workItems = workItems
+        self.hiddenWorkItemCount = hiddenWorkItemCount
         self.canApplyRemainingFixes = canApplyRemainingFixes
         self.canDismissItems = canDismissItems
         unavailableReason = nil
@@ -489,6 +504,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         summaryItems = []
         detailMessage = nil
         workItems = []
+        hiddenWorkItemCount = 0
         canApplyRemainingFixes = false
         canDismissItems = false
         unavailableReason = "This run report is no longer available"
@@ -508,9 +524,15 @@ public struct ChartDatum: Identifiable, Equatable, Sendable {
 }
 
 func confidenceTone(_ confidence: Double) -> Tone {
-    confidence >= 0.8 ? .success : confidence >= 0.5 ? .warning : .error
+    if confidence >= 0.8 {
+        return .success
+    }
+    return confidence >= 0.5 ? .warning : .error
 }
 
 func healthTone(_ ratio: Double) -> Tone {
-    ratio >= 0.9 ? .success : ratio >= 0.6 ? .warning : .error
+    if ratio >= 0.9 {
+        return .success
+    }
+    return ratio >= 0.6 ? .warning : .error
 }

@@ -40,6 +40,8 @@ struct DesignRootHostView: View {
     @State private var fixPlanNoticeID = UUID()
     @State private var isReviewBusy = false
     @State private var queuedManualReload: QueuedManualReload?
+    @State private var reportNotice: ReportNotice?
+    @State private var isDismissalBusy = false
     @AppStorage(AppStorageKey.defaultUpdateBehavior) private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("fastAnimations") private var fastAnimations = false
@@ -64,7 +66,8 @@ struct DesignRootHostView: View {
                 applyRemainingFixes: applyRemainingFixes,
                 dismissItem: dismissRecoveryItem,
                 dismissPreparedItems: dismissRecoveryItems
-            )
+            ),
+            reportNotice: reportNotice
         ) {
             updateContent
         }
@@ -440,6 +443,9 @@ struct DesignRootHostView: View {
     }
 
     private func selectRunReport(_ runID: String?) {
+        if runID != selectedRunReport?.runID {
+            reportNotice = nil
+        }
         // New request ID invalidates any in-flight detail load, so a stale
         // response can neither reopen a closed card nor overwrite a newer pick.
         let requestID = UUID()
@@ -1010,9 +1016,14 @@ extension DesignRootHostView {
         runFixPlanCommand(.togglePlanItem(uuid, target: target))
     }
 
-    private func runFixPlanCommand(_ command: UserIntentCommand, onFinished: (() -> Void)? = nil) {
+    private func runFixPlanCommand(
+        _ command: UserIntentCommand,
+        noticeHandler: ((String, Tone) -> Void)? = nil,
+        onFinished: (() -> Void)? = nil
+    ) {
+        let showNotice = noticeHandler ?? { setFixPlanNotice($0, tone: $1) }
         guard !isReviewBusy else {
-            setFixPlanNotice("Review update is already in progress.", tone: .info)
+            showNotice("Review update is already in progress.", .info)
             return
         }
         isReviewBusy = true
@@ -1021,7 +1032,7 @@ extension DesignRootHostView {
             defer { isReviewBusy = false }
             let result = await fixPlanCommands.handle(command)
             FixPlanCommands.showResult(result, handleResult: handleCommandResult) { notice in
-                setFixPlanNotice(notice.message, tone: commandTone(for: notice.status))
+                showNotice(notice.message, commandTone(for: notice.status))
             }
             onFinished?()
         }
@@ -1029,16 +1040,29 @@ extension DesignRootHostView {
 
     private func applyRemainingFixes(runID: String) {
         guard let sourceRunID = UUID(uuidString: runID) else {
-            setFixPlanNotice("Run report is no longer available.", tone: .warning)
+            setReportNotice("Run report is no longer available.", tone: .warning)
             return
         }
         guard let target = currentFixPlanTarget() else {
-            setFixPlanNotice("Review a plan before continuing.", tone: .warning)
+            setReportNotice("Review a plan before continuing.", tone: .warning)
             return
         }
-        runFixPlanCommand(.applyRemainingFixes(target: target, sourceRunID: sourceRunID)) {
-            selectRunReport(runID)
-        }
+        runFixPlanCommand(
+            .applyRemainingFixes(target: target, sourceRunID: sourceRunID),
+            noticeHandler: { message, tone in setReportNotice(message, tone: tone) },
+            onFinished: { refreshSelectedRunReport(runID) }
+        )
+    }
+
+    private func setReportNotice(_ message: String, tone: Tone) {
+        reportNotice = ReportNotice(message: message, tone: tone)
+    }
+
+    /// Reload only while the same run is still selected: an unconditional
+    /// reload would reopen a closed card or override a newer pick.
+    private func refreshSelectedRunReport(_ runID: String) {
+        guard selectedRunReport?.runID == runID else { return }
+        selectRunReport(runID)
     }
 
     private func dismissRecoveryItem(runID: String, itemID: String, reason: String) {
@@ -1047,7 +1071,7 @@ extension DesignRootHostView {
             itemID: itemID,
             reason: reason
         ) else {
-            setActivityCommandNotice("Recovery item is no longer available.")
+            setReportNotice("Recovery item is no longer available.", tone: .warning)
             return
         }
         runRecoveryDismissal(command, runID: runID)
@@ -1060,16 +1084,29 @@ extension DesignRootHostView {
             itemIDs: itemIDs,
             reason: reason
         ) else {
-            setActivityCommandNotice("Recovery items are no longer available.")
+            setReportNotice("Recovery items are no longer available.", tone: .warning)
             return
         }
         runRecoveryDismissal(command, runID: runID)
     }
 
     private func runRecoveryDismissal(_ command: UserIntentCommand, runID: String) {
+        // One dismissal at a time: the store path is read-modify-write, so
+        // interleaved commands could silently revert each other's outcome.
+        guard !isDismissalBusy else {
+            setReportNotice("Dismissal is already in progress.", tone: .info)
+            return
+        }
+        isDismissalBusy = true
         Task { @MainActor in
-            _ = await runActivityCommand(command)
-            selectRunReport(runID)
+            defer { isDismissalBusy = false }
+            let result = await activityCommands.handle(command)
+            handleCommandResult(result, showsActivityNotice: false)
+            setReportNotice(
+                FixPlanCommands.noticeText(for: result),
+                tone: commandTone(for: result.status)
+            )
+            refreshSelectedRunReport(runID)
         }
     }
 

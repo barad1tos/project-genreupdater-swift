@@ -63,9 +63,12 @@ public struct RunReportDetailProjection: Equatable, Sendable {
     public let summaryItems: [RunReportSummaryItem]
     public let detailMessage: String?
     public let workItems: [RunReportWorkItem]
+    /// Items beyond the display cap; rendered as a "+N more" caption.
+    public let hiddenWorkItemCount: Int
     /// Closed write run with continuable work: "Apply remaining fixes".
     public let canApplyRemainingFixes: Bool
-    /// Open write-recovery run with open items: dismissal affordances.
+    /// Suspended recovery run (recoverable/recovering/blocked, not the
+    /// active run) with open items: dismissal affordances.
     public let canDismissItems: Bool
 
     public init(
@@ -80,6 +83,7 @@ public struct RunReportDetailProjection: Equatable, Sendable {
         summaryItems: [RunReportSummaryItem],
         detailMessage: String?,
         workItems: [RunReportWorkItem] = [],
+        hiddenWorkItemCount: Int = 0,
         canApplyRemainingFixes: Bool = false,
         canDismissItems: Bool = false
     ) {
@@ -94,6 +98,7 @@ public struct RunReportDetailProjection: Equatable, Sendable {
         self.summaryItems = summaryItems
         self.detailMessage = detailMessage
         self.workItems = workItems
+        self.hiddenWorkItemCount = hiddenWorkItemCount
         self.canApplyRemainingFixes = canApplyRemainingFixes
         self.canDismissItems = canDismissItems
     }

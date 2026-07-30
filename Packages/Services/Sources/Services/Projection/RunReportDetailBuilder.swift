@@ -3,6 +3,9 @@ import Foundation
 
 public enum RunReportDetailBuilder {
     private static let shownArtistLimit = 3
+    /// Mirrors the bounded-report precedent (ActivitySnapshotAdapter caps at
+    /// 100); full-library write ledgers can hold thousands of items.
+    static let shownWorkItemLimit = 100
 
     public static func makeDetail(
         from record: RunRecord,
@@ -21,12 +24,17 @@ public enum RunReportDetailBuilder {
             transitions: makeTransitions(from: record.transitions, now: now),
             summaryItems: makeSummaryItems(from: record.syncSummary, intent: record.intent),
             detailMessage: ReportsRunLabels.detailMessage(state: state, failureMessage: record.failureMessage),
-            workItems: record.workItems.map(makeWorkItem),
+            workItems: record.workItems.prefix(shownWorkItemLimit).map(makeWorkItem),
+            hiddenWorkItemCount: max(0, record.workItems.count - shownWorkItemLimit),
             canApplyRemainingFixes: record.finishedAt != nil
                 && record.intent == .writeFixes
                 && !record.continuableWork.isEmpty,
+            // Mirrors the domain dismissal gate (requireRecoveryResolution +
+            // the active-run exclusion in dismissRecoveryWork): affordances
+            // must never render where the command categorically rejects.
             canDismissItems: record.finishedAt == nil
-                && record.state.needsWriteRecovery
+                && record.state.isResolvingRecovery
+                && record.runID != activeRunID
                 && record.workItems.contains(where: isOpenItem)
         )
     }

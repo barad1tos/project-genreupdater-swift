@@ -49,6 +49,7 @@ enum ReportDetailAdapter {
                     dismissedLabel: item.dismissedLabel
                 )
             },
+            hiddenWorkItemCount: detail.hiddenWorkItemCount,
             canApplyRemainingFixes: detail.canApplyRemainingFixes,
             canDismissItems: detail.canDismissItems
         )

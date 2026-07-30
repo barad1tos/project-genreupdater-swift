@@ -22,6 +22,7 @@ struct ReportsView: View {
     @Bindable var model: AppModel
     var runSelectionAction: ((String?) -> Void)?
     var recoveryActions: RecoveryDetailActions?
+    var reportNotice: ReportNotice?
     private static let dismissalReasons = ["Duplicate", "Handled manually", "Not wanted"]
     private let cols = [GridItem(.adaptive(minimum: 260), spacing: 14)]
 
@@ -228,6 +229,12 @@ struct ReportsView: View {
                         runWorkItemsSection(detail)
                     }
                     runDetailActions(detail)
+                    if let notice = reportNotice {
+                        Text(notice.message)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(notice.tone == .neutral ? Ayu.fg2 : notice.tone.color)
+                            .accessibilityLabel("Run report action result")
+                    }
                 }
             }
         }
@@ -325,6 +332,11 @@ struct ReportsView: View {
                         dismissItemMenu(runID: detail.runID, item: item)
                     }
                 }
+            }
+            if detail.hiddenWorkItemCount > 0 {
+                Text("+\(detail.hiddenWorkItemCount.formatted()) more items")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Ayu.fgMuted)
             }
         }
     }

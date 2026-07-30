@@ -123,6 +123,7 @@ struct QueuedWriteTests {
     func releasesContinuationWithLinkage() async throws {
         let failed = makeWorkItem(state: .outcome(.failed))
         let startedAt = Date(timeIntervalSince1970: 100)
+        let input = makeWriteInput()
         let source = makeRunRecord(
             startedAt: startedAt,
             finishedAt: startedAt.addingTimeInterval(10),
@@ -130,12 +131,12 @@ struct QueuedWriteTests {
             syncSummary: nil,
             input: RunRecordInput(
                 intent: .writeFixes,
+                writeTarget: input.target,
                 workItems: [failed],
                 includesSyncTransition: false
             )
         )
         let holdID = UUID()
-        let input = makeWriteInput()
         let request = try RunRequest.continuation(of: source, input: input)
         let records = RunRecordSpy()
         let orchestrator = makeOrchestrator(
@@ -336,6 +337,7 @@ struct QueuedWriteTests {
     func queuesContinuationRequest() async throws {
         let failed = makeWorkItem(state: .outcome(.failed))
         let startedAt = Date(timeIntervalSince1970: 100)
+        let input = makeWriteInput()
         let source = makeRunRecord(
             startedAt: startedAt,
             finishedAt: startedAt.addingTimeInterval(10),
@@ -343,11 +345,12 @@ struct QueuedWriteTests {
             syncSummary: nil,
             input: RunRecordInput(
                 intent: .writeFixes,
+                writeTarget: input.target,
                 workItems: [failed],
                 includesSyncTransition: false
             )
         )
-        let request = try RunRequest.continuation(of: source, input: makeWriteInput())
+        let request = try RunRequest.continuation(of: source, input: input)
         let orchestrator = makeOrchestrator()
         await orchestrator.restoreRecoveryHold(id: UUID())
 
