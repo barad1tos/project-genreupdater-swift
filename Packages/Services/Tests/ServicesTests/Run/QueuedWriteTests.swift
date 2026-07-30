@@ -6,7 +6,7 @@ import Testing
 @Suite("Queued writes behind recovery holds")
 struct QueuedWriteTests {
     @Test("a write submitted under a hold is retained, not executed")
-    func queuesWriteUnderHold() async throws {
+    func queuesWriteUnderHold() async {
         let orchestrator = makeOrchestrator()
         await orchestrator.restoreRecoveryHold(id: UUID())
         let request = RunRequest.manualWrite(input: makeWriteInput())
@@ -22,7 +22,7 @@ struct QueuedWriteTests {
     }
 
     @Test("the slot is bounded to one request")
-    func keepsFirstQueuedWrite() async throws {
+    func keepsFirstQueuedWrite() async {
         let orchestrator = makeOrchestrator()
         await orchestrator.restoreRecoveryHold(id: UUID())
         let first = RunRequest.manualWrite(input: makeWriteInput())
@@ -35,7 +35,7 @@ struct QueuedWriteTests {
     }
 
     @Test("a newer revision of the same plan supersedes the queued request")
-    func replacesWithNewerRevision() async throws {
+    func replacesWithNewerRevision() async {
         let orchestrator = makeOrchestrator()
         await orchestrator.restoreRecoveryHold(id: UUID())
         let planID = FixPlanID()
@@ -55,7 +55,7 @@ struct QueuedWriteTests {
     }
 
     @Test("without a hold the write path is untouched")
-    func submitsNormallyWithoutHold() async throws {
+    func submitsNormallyWithoutHold() async {
         let orchestrator = makeOrchestrator()
         let request = RunRequest.manualWrite(input: makeWriteInput())
 
@@ -68,7 +68,7 @@ struct QueuedWriteTests {
     }
 
     @Test("discarding empties the slot")
-    func discardsQueuedWrite() async throws {
+    func discardsQueuedWrite() async {
         let orchestrator = makeOrchestrator()
         await orchestrator.restoreRecoveryHold(id: UUID())
         _ = await orchestrator.submit(RunRequest.manualWrite(input: makeWriteInput()))
@@ -79,7 +79,7 @@ struct QueuedWriteTests {
     }
 
     @Test("release is refused while the hold is still engaged")
-    func refusesReleaseUnderHold() async throws {
+    func refusesReleaseUnderHold() async {
         let orchestrator = makeOrchestrator()
         await orchestrator.restoreRecoveryHold(id: UUID())
         let request = RunRequest.manualWrite(input: makeWriteInput())
@@ -92,7 +92,7 @@ struct QueuedWriteTests {
     }
 
     @Test("release with current consent resubmits the queued write")
-    func releasesFreshQueuedWrite() async throws {
+    func releasesFreshQueuedWrite() async {
         let holdID = UUID()
         let input = makeWriteInput()
         let orchestrator = makeOrchestrator(currentDecisionTarget: { planID in
@@ -112,7 +112,7 @@ struct QueuedWriteTests {
     }
 
     @Test("stale consent clears the slot without writing")
-    func rejectsStaleQueuedWrite() async throws {
+    func rejectsStaleQueuedWrite() async {
         let holdID = UUID()
         let input = makeWriteInput()
         let staleTarget = FixPlanWriteTarget(
@@ -133,7 +133,7 @@ struct QueuedWriteTests {
     }
 
     @Test("unverifiable consent fails closed")
-    func failsClosedWithoutConsentSource() async throws {
+    func failsClosedWithoutConsentSource() async {
         let holdID = UUID()
         let orchestrator = makeOrchestrator()
         await orchestrator.restoreRecoveryHold(id: holdID)
@@ -147,14 +147,14 @@ struct QueuedWriteTests {
     }
 
     @Test("an empty slot reports nothing to release")
-    func reportsEmptySlot() async throws {
+    func reportsEmptySlot() async {
         let orchestrator = makeOrchestrator()
 
         #expect(await orchestrator.releaseQueuedWrite() == .empty)
     }
 
     @Test("clearing the hold never releases the queued write by itself")
-    func clearanceDoesNotAutoRelease() async throws {
+    func clearanceDoesNotAutoRelease() async {
         let holdID = UUID()
         let request = RunRequest.manualWrite(input: makeWriteInput())
         let orchestrator = makeOrchestrator()
@@ -168,7 +168,7 @@ struct QueuedWriteTests {
     }
 
     @Test("admitting a second hold keeps the queued write")
-    func secondHoldKeepsQueuedWrite() async throws {
+    func secondHoldKeepsQueuedWrite() async {
         let orchestrator = makeOrchestrator()
         await orchestrator.restoreRecoveryHold(id: UUID())
         let request = RunRequest.manualWrite(input: makeWriteInput())
