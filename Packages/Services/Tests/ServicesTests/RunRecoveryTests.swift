@@ -10,37 +10,109 @@ struct RunRecoveryTests {
         let startedAt = Date(timeIntervalSince1970: 200)
         let workItems = [makeWorkItem(state: .attempted)]
         let record = makeRecoveryRecord(
-            intent: .writeFixes,
-            workItems: workItems,
             startedAt: startedAt,
             finishedAt: nil,
-            state: .writing
+            state: .writing,
+            input: RunRecordInput(intent: .writeFixes, workItems: workItems)
         )
 
         let opened = record.openingRecovery(id: UUID(), at: Date(timeIntervalSince1970: 100))
-        let closed = opened.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        let closed = try opened.closingRecovery(at: Date(timeIntervalSince1970: 150))
         let previousTime = try #require(record.transitions.last?.timestamp)
 
         #expect(opened.transitions.last?.timestamp == previousTime)
         #expect(closed.transitions.suffix(2).map(\.timestamp) == [previousTime, previousTime])
         #expect(opened.workItems == workItems)
-        #expect(closed.workItems == workItems)
+        #expect(closed.workItems.map(\.state) == [.outcome(.dismissed)])
         #expect(closed.finishedAt == previousTime)
+    }
+
+    @Test("Recovery closure terminalizes open work")
+    func closesRecoveryWork() throws {
+        let workItems = [
+            makeWorkItem(state: .prepared),
+            makeWorkItem(state: .attempting),
+            makeWorkItem(state: .attempted),
+            makeWorkItem(state: .outcome(.written)),
+        ]
+        let record = makeRecoveryRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .recoverable,
+            input: RunRecordInput(intent: .writeFixes, workItems: workItems)
+        )
+
+        let closed = try record.closingRecovery(at: Date(timeIntervalSince1970: 150))
+
+        #expect(closed.workItems.map(\.state) == [
+            .outcome(.dismissed),
+            .outcome(.dismissed),
+            .outcome(.dismissed),
+            .outcome(.written),
+        ])
+    }
+
+    @Test("Recovery closure persists terminal work")
+    func persistsRecoveryClosure() async throws {
+        let store = try makeRunStore()
+        let record = makeRecoveryRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .writing,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [makeWorkItem(state: .attempted)]
+            )
+        )
+        try await store.upsert(record)
+        let opened = record.openingRecovery(id: UUID(), at: Date(timeIntervalSince1970: 125))
+        try await store.upsert(opened)
+
+        let closed = try opened.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        try await store.upsert(closed)
+
+        let stored = try #require(try await store.record(for: record.runID))
+        #expect(stored.state == .cancelled)
+        #expect(stored.finishedAt == Date(timeIntervalSince1970: 150))
+        #expect(stored.workItems.map(\.state) == [.outcome(.dismissed)])
+    }
+
+    @Test("Recovery closure rejects duplicate terminal work")
+    func rejectsDuplicateRecoveryWork() {
+        let itemID = UUID()
+        let record = makeRecoveryRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .recoverable,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [
+                    makeWorkItem(id: itemID, state: .outcome(.written)),
+                    makeWorkItem(id: itemID, state: .outcome(.failed)),
+                ]
+            )
+        )
+
+        #expect(throws: WorkCheckpointError.self) {
+            try record.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        }
     }
 
     @Test("Legacy run record JSON decodes without recovery fields")
     func decodesLegacyRecordJSON() throws {
         let record = makeRecoveryRecord(
-            writeTarget: FixPlanWriteTarget(
-                planID: FixPlanID(),
-                planRevision: .initial,
-                decisionRevision: .initial
-            ),
-            recoveryID: UUID(),
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
             state: .recoverable,
-            writeSummary: RunWriteSummary(applied: 1, verifiedNoOp: 0, failed: 0)
+            input: RunRecordInput(
+                writeTarget: FixPlanWriteTarget(
+                    planID: FixPlanID(),
+                    planRevision: .initial,
+                    decisionRevision: .initial
+                ),
+                recoveryID: UUID(),
+                writeSummary: RunWriteSummary(applied: 1, verifiedNoOp: 0, failed: 0)
+            )
         )
         let encoded = try JSONEncoder().encode(record)
         var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
@@ -244,10 +316,10 @@ struct RunRecoveryTests {
     func claimsReportingWrite() async throws {
         let store = try makeRunStore()
         let record = makeRecoveryRecord(
-            intent: .writeFixes,
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
-            state: .reporting
+            state: .reporting,
+            input: RunRecordInput(intent: .writeFixes)
         )
         try await store.upsert(record)
         let recoveryID = UUID()
@@ -258,6 +330,41 @@ struct RunRecoveryTests {
         #expect(claimedID == recoveryID)
         #expect(claimed.state == .recoverable)
         #expect(claimed.recoveryID == recoveryID)
+    }
+
+    @Test("Attempted checkpoint keeps its writing parent recoverable")
+    func restoresAttemptedCheckpoint() async throws {
+        let store = try makeRunStore()
+        let input = writeInput()
+        let itemID = try #require(input.workItems.first?.id)
+        let record = makeRecoveryRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .writing,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                writeTarget: input.target,
+                workItems: input.workItems
+            )
+        )
+        try await store.upsert(record)
+        try await store.checkpoint(.beforeAttempt([itemID]), runID: record.runID)
+        try await store.checkpoint(.afterAttempt([itemID]), runID: record.runID)
+
+        let interrupted = try #require(await store.recoveryRecords().records.first)
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in
+                // The test restores the record already persisted above.
+            }
+        ))
+        await orchestrator.restoreRecovery(interrupted)
+        let recoveryID = UUID()
+
+        #expect(interrupted.state == .writing)
+        #expect(interrupted.workItems.first?.state == .attempted)
+        #expect(await orchestrator.currentLifecycle()?.state == .recoverable)
+        #expect(try await store.claimRecovery(for: record.runID, id: recoveryID, at: Date()) == recoveryID)
     }
 
     @Test("Recovery discovery fails closed for an invalid intent")
@@ -286,10 +393,10 @@ struct RunRecoveryTests {
     func excludesReadOnlyRuns() async throws {
         let store = try makeRunStore()
         let record = makeRecoveryRecord(
-            intent: .observeLibrary,
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
-            state: .reporting
+            state: .reporting,
+            input: RunRecordInput(intent: .observeLibrary)
         )
         try await store.upsert(record)
 
@@ -376,10 +483,10 @@ struct RunRecoveryTests {
     func rejectsHealthyClosure() async throws {
         let store = try makeRunStore()
         let record = makeRecoveryRecord(
-            intent: .writeFixes,
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
-            state: .reporting
+            state: .reporting,
+            input: RunRecordInput(intent: .writeFixes)
         )
         try await store.upsert(record)
 
@@ -394,16 +501,16 @@ struct RunRecoveryTests {
         let store = try makeRunStore()
         let startedAt = Date(timeIntervalSince1970: 100)
         let open = makeRecoveryRecord(
-            intent: .writeFixes,
             startedAt: startedAt,
             finishedAt: nil,
-            state: .writing
+            state: .writing,
+            input: RunRecordInput(intent: .writeFixes)
         )
         let terminal = makeRecoveryRecord(
-            intent: .writeFixes,
             startedAt: startedAt,
             finishedAt: Date(timeIntervalSince1970: 104),
-            state: .completed
+            state: .completed,
+            input: RunRecordInput(intent: .writeFixes)
         )
         try await store.upsert(open)
         try await store.upsert(terminal)

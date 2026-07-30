@@ -224,17 +224,44 @@ struct FixPlanCommandsTests {
     func submitsPlanSnapshot() async {
         let harness = FixPlanCommandHarness(startingVerdict: .accepted)
         let commands = harness.makeCommands()
+        let capturedAt = Date(timeIntervalSince1970: 1_800_000_200)
 
         let result = await commands.handle(.applyFixPlan(target: harness.target))
 
         #expect(result.status == .accepted)
         #expect(result.message == "Applied 2 changes.")
         #expect(harness.writeCallCount() == 1)
-        #expect(harness.lastWriteInput() == FixPlanWriteInput(
-            target: harness.target.writeTarget,
-            scope: harness.plan.scope
-        ))
+        guard let input = harness.lastWriteInput() else {
+            Issue.record("Expected a write input")
+            return
+        }
+        #expect(input.target == harness.target.writeTarget)
+        #expect(input.scope == harness.plan.scope)
+        #expect(input.configuration.capturedAt == capturedAt)
+        #expect(input.configuration.writeAuthority == .reviewedPlan)
+        #expect(input.configuration.automation == .manualOnly)
+        #expect(input.configuration.scopeID == harness.plan.scope.id)
+        #expect(input.configuration.settings == harness.plan.configuration)
+        #expect(!input.configuration.hadRecoveryHold)
+        #expect(input.workItems == harness.plan.items.map(RunWorkItem.init(item:)))
         #expect(await harness.store.recordCallCount() == 0)
+    }
+
+    @Test("apply submits only accepted review items")
+    func filtersRejectedItems() async {
+        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        let commands = harness.makeCommands()
+        let rejectedID = harness.plan.items[0].id
+
+        let review = await commands.handle(.togglePlanItem(rejectedID, target: harness.target))
+        #expect(review.status == .accepted)
+
+        let result = await commands.handle(.applyFixPlan(target: harness.target))
+
+        #expect(result.status == .accepted)
+        #expect(result.message == "Applied 1 change.")
+        #expect(harness.writeCallCount() == 1)
+        #expect(harness.lastWriteInput()?.workItems == [RunWorkItem(item: harness.plan.items[1])])
     }
 
     @Test("apply command is a no-op when no items are accepted")
@@ -491,7 +518,7 @@ private final class FixPlanCommandHarness {
             self.writeError = nil
             throw writeError
         }
-        return writeResult ?? .completed(Self.writeLifecycle(changeCount: 2))
+        return writeResult ?? .completed(Self.writeLifecycle(changeCount: input.workItems.count))
     }
 
     private func refreshFixPlanProjection() async -> FixPlanProjection {

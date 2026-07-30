@@ -120,4 +120,178 @@ struct WorkItemTests {
         #expect(work.state == .prepared)
         #expect(work.detail == nil)
     }
+
+    @Test("Write checkpoints advance through every durable boundary")
+    func advancesWriteCheckpoints() throws {
+        let work = makeWorkItem(state: .prepared)
+
+        let attempting = try work.transition(to: .attempting)
+        let attempted = try attempting.transition(to: .attempted)
+        let written = try attempted.transition(to: .outcome(.written))
+
+        #expect(attempting.state == .attempting)
+        #expect(attempted.state == .attempted)
+        #expect(written.state == .outcome(.written))
+        #expect(written.id == work.id)
+        #expect(written.target == work.target)
+        #expect(written.change == work.change)
+    }
+
+    @Test("Write checkpoints reject skipped durable boundaries")
+    func rejectsSkippedCheckpoint() {
+        let work = makeWorkItem(state: .prepared)
+
+        #expect(throws: WorkStateError.self) {
+            try work.transition(to: .attempted)
+        }
+    }
+
+    @Test("A known pre-dispatch failure can close an attempting item")
+    func closesPreDispatchFailure() throws {
+        let attempting = try makeWorkItem(state: .prepared).transition(to: .attempting)
+
+        let failed = try attempting.transition(to: .outcome(.failed))
+
+        #expect(failed.state == .outcome(.failed))
+        #expect(throws: WorkStateError.self) {
+            try attempting.transition(to: .outcome(.written))
+        }
+    }
+
+    @Test("Child hydration preserves terminal outcome identity")
+    func rejectsOutcomeReplacement() {
+        #expect(WorkState.outcome(.written).canFollow(.prepared))
+        #expect(WorkState.outcome(.written).canFollow(.attempting))
+        #expect(WorkState.outcome(.written).canFollow(.attempted))
+        #expect(WorkState.outcome(.written).canFollow(.outcome(.written)))
+        #expect(!WorkState.outcome(.failed).canFollow(.outcome(.written)))
+    }
+
+    @Test("A batch checkpoint advances all matching work items atomically")
+    func appliesBatchCheckpoint() throws {
+        let first = makeWorkItem(state: .prepared)
+        let second = makeWorkItem(state: .prepared)
+        let lifecycle = makeLifecycle(workItems: [first, second])
+
+        let next = try lifecycle.applying(.beforeAttempt([first.id, second.id]))
+
+        #expect(next.workItems.map(\.state) == [.attempting, .attempting])
+        #expect(lifecycle.workItems.map(\.state) == [.prepared, .prepared])
+    }
+
+    @Test("A batch checkpoint rejects unknown work without partial updates")
+    func rejectsUnknownCheckpointWork() {
+        let work = makeWorkItem(state: .prepared)
+        let lifecycle = makeLifecycle(workItems: [work])
+
+        #expect(throws: WorkCheckpointError.self) {
+            try lifecycle.applying(.beforeAttempt([work.id, UUID()]))
+        }
+        #expect(lifecycle.workItems.map(\.state) == [.prepared])
+    }
+
+    @Test("Write checkpoints require captured write authority")
+    func requiresWriteAuthority() {
+        let work = makeWorkItem(state: .prepared)
+        let lifecycle = makeLifecycle(workItems: [work], writeAuthority: .readOnly)
+
+        #expect(throws: WorkCheckpointError.self) {
+            try lifecycle.applying(.beforeAttempt([work.id]))
+        }
+        #expect(lifecycle.workItems.map(\.state) == [.prepared])
+    }
+
+    @Test("Run record checkpoints require writing state")
+    func recordRequiresWriting() {
+        let work = makeWorkItem(state: .prepared)
+        let writing = makeLifecycle(workItems: [work])
+        let recoverable = writing.requiringRecovery()
+        let record = RunRecord(
+            lifecycle: recoverable,
+            transitions: [
+                RunLifecycleTransition(state: .writing, timestamp: writing.startedAt),
+                RunLifecycleTransition(state: .recoverable, timestamp: writing.startedAt),
+            ],
+            syncSummary: nil,
+            failureMessage: nil,
+            finishedAt: nil
+        )
+
+        #expect(throws: WorkCheckpointError.self) {
+            try record.applying(.beforeAttempt([work.id]))
+        }
+        #expect(record.workItems.first?.state == .prepared)
+    }
+
+    @Test("run records keep ordered workItems JSON")
+    func encodesWorkItems() throws {
+        let items = [makeWorkItem(state: .prepared), makeWorkItem(state: .prepared)]
+        let lifecycle = makeLifecycle(workItems: items)
+        let record = RunRecord(
+            lifecycle: lifecycle,
+            transitions: [RunLifecycleTransition(state: .writing, timestamp: lifecycle.startedAt)],
+            syncSummary: nil,
+            failureMessage: nil,
+            finishedAt: nil
+        )
+
+        let data = try JSONEncoder().encode(record)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let encodedItems = try #require(object["workItems"] as? [Any])
+        let decoded = try JSONDecoder().decode(RunRecord.self, from: data)
+
+        #expect(encodedItems.count == 2)
+        #expect(decoded == record)
+        #expect(decoded.workItems == items)
+    }
+
+    @Test("run records without workItems decode as empty")
+    func decodesMissingItems() throws {
+        let lifecycle = makeLifecycle(workItems: [makeWorkItem(state: .prepared)])
+        let record = RunRecord(
+            lifecycle: lifecycle,
+            transitions: [RunLifecycleTransition(state: .writing, timestamp: lifecycle.startedAt)],
+            syncSummary: nil,
+            failureMessage: nil,
+            finishedAt: nil
+        )
+        let encoded = try JSONEncoder().encode(record)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "workItems")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(RunRecord.self, from: legacyData)
+
+        #expect(decoded.workItems.isEmpty)
+    }
+
+    private func makeLifecycle(
+        workItems: [RunWorkItem],
+        writeAuthority: WriteAuthority = .reviewedPlan
+    ) -> RunLifecycleSnapshot {
+        let capturedAt = Date(timeIntervalSince1970: 100)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 2,
+            createdAt: capturedAt,
+            reason: "work-checkpoint-test"
+        )
+        let input = FixPlanWriteInput(
+            target: writeTarget(),
+            scope: scope,
+            configuration: makeRunConfiguration(
+                scopeID: scope.id,
+                capturedAt: capturedAt,
+                writeAuthority: writeAuthority
+            ),
+            workItems: workItems
+        )
+        return RunLifecycleSnapshot(
+            runID: RunID(),
+            request: .manualWrite(input: input),
+            scope: scope,
+            startedAt: capturedAt,
+            phase: .active(.writing)
+        )
+    }
 }

@@ -38,6 +38,98 @@ struct RecoveryRestoreTests {
         #expect(restored.failureMessage == "Write interrupted")
     }
 
+    @Test("Restored hold reaches the mutation gate without a write runner")
+    func restoresHoldWithoutWriter() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let store = setup.store
+        let processor = setup.processor
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await store.upsert($0) },
+            write: setup.dependencies.writeDependencies(
+                store: store,
+                processor: processor,
+                writeFixPlan: nil
+            )
+        ))
+        setup.dependencies.installTestOrchestrator(orchestrator)
+        let record = sampleRunRecord(
+            intent: .writeFixes,
+            state: .writing,
+            failureMessage: "Write interrupted",
+            finishedAt: nil
+        )
+        try await store.upsert(record)
+
+        #expect(await setup.dependencies.ensureRecoveryHold())
+
+        let restored = try #require(await store.record(for: record.runID))
+        let recoveryID = try #require(restored.recoveryID)
+        #expect(await processor.recoveryHoldID() == recoveryID)
+        guard case let .recoverable(snapshot, _) = await orchestrator.submit(.manualWrite(input: emptyWriteInput()))
+        else {
+            Issue.record("Expected restored hold to reach the canonical write gate")
+            return
+        }
+        #expect(snapshot.runID == record.runID)
+    }
+
+    @Test("Orphaned physical hold reaches the canonical write gate")
+    func restoresOrphanedHold() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let orchestrator = try #require(setup.dependencies.runOrchestrator)
+
+        #expect(await setup.dependencies.ensureRecoveryHold())
+
+        #expect(await setup.processor.recoveryHoldID() == recoveryID)
+        guard case .recoveryRequired = await orchestrator.submit(.manualWrite(input: emptyWriteInput())) else {
+            Issue.record("Expected orphaned physical hold to block canonical write admission")
+            return
+        }
+    }
+
+    @Test("active writer defers restored hold activation until quiescence")
+    func defersActiveWriterHold() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let gate = AppWriteGate()
+        let store = setup.store
+        let processor = setup.processor
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await store.upsert($0) },
+            write: .init(
+                writeFixPlan: { _, _ in await gate.run() },
+                beginRecoveryHold: { await processor.beginRecoveryHold() },
+                restoreRecoveryHold: { await processor.beginRecoveryHold(id: $0) }
+            )
+        ))
+        setup.dependencies.installTestOrchestrator(orchestrator)
+        let active = Task { await orchestrator.submit(.manualWrite(input: emptyWriteInput())) }
+        await gate.waitUntilEntered()
+        let record = sampleRunRecord(
+            intent: .writeFixes,
+            state: .writing,
+            failureMessage: "Write interrupted",
+            finishedAt: nil
+        )
+        try await setup.store.upsert(record)
+
+        #expect(await setup.dependencies.ensureRecoveryHold())
+
+        #expect(await setup.processor.recoveryHoldID() == nil)
+        let restored = try #require(await setup.store.record(for: record.runID))
+        let recoveryID = try #require(restored.recoveryID)
+        await gate.release()
+        _ = await active.value
+
+        #expect(await setup.processor.recoveryHoldID() == recoveryID)
+        #expect(await orchestrator.currentLifecycle()?.runID == record.runID)
+    }
+
     @Test("Corrupted interrupted write restores a fail-closed hold")
     func restoresCorruptedWrite() async throws {
         let container = try ModelContainerFactory.createInMemory()
@@ -176,4 +268,65 @@ private struct ConflictingRecoveryPayload: Encodable {
     let transitions: [RunLifecycleTransition]
     let configuration: RunConfig
     let writeSummary = "invalid"
+}
+
+private func emptyWriteInput() -> FixPlanWriteInput {
+    let capturedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: [],
+        knownTrackCount: nil,
+        createdAt: capturedAt,
+        reason: "test"
+    )
+    return FixPlanWriteInput(
+        target: FixPlanWriteTarget(
+            planID: FixPlanID(),
+            planRevision: .initial,
+            decisionRevision: .initial
+        ),
+        scope: scope,
+        configuration: RunConfig(
+            capturedAt: capturedAt,
+            writeAuthority: .reviewedPlan,
+            automation: .manualOnly,
+            scopeID: scope.id,
+            settings: FixPlanConfig.capture(
+                configuration: AppConfiguration(),
+                options: UpdateOptions(),
+                capturedAt: capturedAt
+            ),
+            hadRecoveryHold: false
+        ),
+        workItems: []
+    )
+}
+
+private actor AppWriteGate {
+    private var isEntered = false
+    private var isReleased = false
+    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
+
+    func run() async -> BatchUpdateResult {
+        isEntered = true
+        entryWaiters.forEach { $0.resume() }
+        entryWaiters = []
+        if !isReleased {
+            await withCheckedContinuation { releaseWaiter = $0 }
+        }
+        return BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
+    }
+
+    func waitUntilEntered() async {
+        if isEntered {
+            return
+        }
+        await withCheckedContinuation { entryWaiters.append($0) }
+    }
+
+    func release() {
+        isReleased = true
+        releaseWaiter?.resume()
+        releaseWaiter = nil
+    }
 }

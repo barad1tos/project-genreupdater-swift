@@ -8,7 +8,9 @@ import Testing
 struct WorkflowRecoveryTests {
     @Test("Unknown write blocks alternate scopes until recovery clearance")
     func unknownWriteBlocks() async {
-        let fixture = makeWorkflowFixture(outcomeWriteTrackIDs: ["unknown"])
+        let fixture = makeWorkflowFixture(configure: { options in
+            options.outcomeTrackIDs = ["unknown"]
+        })
         let viewModel = fixture.viewModel
         viewModel.phase = .review
         viewModel.previewOnly = false
@@ -52,15 +54,15 @@ struct WorkflowRecoveryTests {
         let suiteName = "WorkflowRecoveryTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let firstFixture = makeWorkflowFixture(
-            checkpointDirectory: checkpointRoot,
-            recoverySuiteName: suiteName
-        )
+        let firstFixture = makeWorkflowFixture(configure: { options in
+            options.checkpointDirectory = checkpointRoot
+            options.recoverySuiteName = suiteName
+        })
         let recoveryID = await firstFixture.batchProcessor.beginRecoveryHold()
-        let restarted = makeWorkflowFixture(
-            checkpointDirectory: checkpointRoot,
-            recoverySuiteName: suiteName
-        )
+        let restarted = makeWorkflowFixture(configure: { options in
+            options.checkpointDirectory = checkpointRoot
+            options.recoverySuiteName = suiteName
+        })
         let viewModel = restarted.viewModel
         viewModel.phase = .review
         viewModel.previewOnly = false

@@ -210,9 +210,9 @@ struct YearScorerScoringTests {
 
     @Test("Year diff uses MB release group first year as reference")
     func yearDiffUsesRGYear() {
-        let candidate = makeCandidate(
+        let candidate = releaseGroupCandidate(
             artist: "X", album: "X", year: 2020,
-            mbReleaseGroupFirstYear: 2000
+            releaseGroupFirstYear: 2000
         )
         let result = scorer.scoreRelease(
             candidate,
@@ -281,41 +281,6 @@ struct YearScorerScoringTests {
         #expect(scoreArtistPeriod(forYear: 2000, period: (start: nil, end: Int.max)) == 0)
     }
 
-    // MARK: - Country
-
-    @Test("Country artist match gives bonus")
-    func countryArtistMatch() {
-        let candidate = makeCandidate(artist: "X", album: "X", year: 2000, country: "GB")
-        let result = scorer.scoreRelease(
-            candidate,
-            queryArtist: "X",
-            queryAlbum: "X",
-            artistCountry: "GB"
-        )
-        #expect(result.breakdown.country == scorer.config.countryArtistMatchBonus)
-    }
-
-    @Test("Major market country gives smaller bonus")
-    func countryMajorMarket() {
-        let candidate = makeCandidate(artist: "X", album: "X", year: 2000, country: "US")
-        let result = scorer.scoreRelease(
-            candidate,
-            queryArtist: "X",
-            queryAlbum: "X",
-            artistCountry: "JP"
-        )
-        #expect(result.breakdown.country == scorer.config.countryMajorMarketBonus)
-    }
-
-    @Test("Unknown country gives no bonus")
-    func countryNone() {
-        let candidate = makeCandidate(artist: "X", album: "X", year: 2000, country: nil)
-        let result = scorer.scoreRelease(
-            candidate, queryArtist: "X", queryAlbum: "X"
-        )
-        #expect(result.breakdown.country == 0)
-    }
-
     // MARK: - Source Reliability
 
     @Test("MusicBrainz source gives highest bonus")
@@ -340,10 +305,10 @@ struct YearScorerScoringTests {
 
     @Test("MB release group with matching first year gives full bonus")
     func releaseGroupMatchFull() {
-        let candidate = makeCandidate(
+        let candidate = releaseGroupCandidate(
             artist: "X", album: "X", year: 1997,
-            mbReleaseGroupID: "abc-123",
-            mbReleaseGroupFirstYear: 1997
+            releaseGroupID: "abc-123",
+            releaseGroupFirstYear: 1997
         )
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
         #expect(result.breakdown.releaseGroupMatch == scorer.config.mbReleaseGroupMatchBonus)
@@ -351,10 +316,10 @@ struct YearScorerScoringTests {
 
     @Test("MB release group with different first year gives no bonus")
     func releaseGroupMatchDiff() {
-        let candidate = makeCandidate(
+        let candidate = releaseGroupCandidate(
             artist: "X", album: "X", year: 2017,
-            mbReleaseGroupID: "abc-123",
-            mbReleaseGroupFirstYear: 1997
+            releaseGroupID: "abc-123",
+            releaseGroupFirstYear: 1997
         )
         let result = scorer.scoreRelease(candidate, queryArtist: "X", queryAlbum: "X")
         // Python parity: RG bonus only when year matches RG first year exactly
@@ -432,23 +397,6 @@ struct YearScorerScoringTests {
         let candidate = makeCandidate(artist: "X", album: "Album", year: 2000, releaseType: .album)
         let result = scorer.scoreRelease(candidate, queryArtist: "Y", queryAlbum: "Album")
         #expect(result.breakdown.soundtrackCompensation == 0)
-    }
-}
-
-@Suite("YearScorer — Country Parity")
-struct YearScorerCountryParityTests {
-    let scorer = YearScorer()
-
-    @Test("UK country alias matches GB artist region")
-    func countryAliasMatch() {
-        let candidate = makeCandidate(artist: "X", album: "X", year: 2000, country: "UK")
-        let result = scorer.scoreRelease(
-            candidate,
-            queryArtist: "X",
-            queryAlbum: "X",
-            artistCountry: "GB"
-        )
-        #expect(result.breakdown.country == scorer.config.countryArtistMatchBonus)
     }
 }
 
@@ -603,20 +551,20 @@ struct YearScorerResolutionTests {
 
     @Test("Official original release beats newer promotional candidate")
     func officialOriginalReleaseBeatsNewerPromotionalCandidate() {
-        let officialOriginal = makeCandidate(
+        let officialOriginal = releaseGroupCandidate(
             artist: "Test Artist",
             album: "Test Album",
             year: 1998,
             status: .official,
-            mbReleaseGroupFirstYear: 1998
+            releaseGroupFirstYear: 1998
         )
-        let promotionalReissue = makeCandidate(
+        let promotionalReissue = releaseGroupCandidate(
             artist: "Test Artist",
             album: "Test Album",
             year: 1999,
             status: .promotional,
             isReissue: true,
-            mbReleaseGroupFirstYear: 1998
+            releaseGroupFirstYear: 1998
         )
 
         let officialScore = scorer.scoreRelease(
@@ -790,10 +738,7 @@ private func makeCandidate(
     source: APISource = .musicBrainz,
     releaseType: ReleaseType = .album,
     status: ReleaseStatus = .official,
-    country: String? = nil,
-    isReissue: Bool = false,
-    mbReleaseGroupID: String? = nil,
-    mbReleaseGroupFirstYear: Int? = nil
+    isReissue: Bool = false
 ) -> ReleaseCandidate {
     ReleaseCandidate(
         artist: artist,
@@ -802,10 +747,28 @@ private func makeCandidate(
         source: source,
         releaseType: releaseType,
         status: status,
-        country: country,
+        isReissue: isReissue
+    )
+}
+
+private func releaseGroupCandidate(
+    artist: String,
+    album: String,
+    year: Int,
+    status: ReleaseStatus = .official,
+    isReissue: Bool = false,
+    releaseGroupID: String? = nil,
+    releaseGroupFirstYear: Int
+) -> ReleaseCandidate {
+    ReleaseCandidate(
+        artist: artist,
+        album: album,
+        year: year,
+        source: .musicBrainz,
+        status: status,
         isReissue: isReissue,
-        mbReleaseGroupID: mbReleaseGroupID,
-        mbReleaseGroupFirstYear: mbReleaseGroupFirstYear
+        mbReleaseGroupID: releaseGroupID,
+        mbReleaseGroupFirstYear: releaseGroupFirstYear
     )
 }
 

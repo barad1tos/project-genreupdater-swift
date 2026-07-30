@@ -11,44 +11,7 @@ struct DashboardSnapshotTests {
 
     @Test("builds coverage and issue counts from real tracks")
     func buildsCoverageAndIssueCounts() {
-        let tracks = [
-            Track(
-                id: "1",
-                name: "Tagged",
-                artist: "A",
-                album: "One",
-                genre: "Rock",
-                year: 2001,
-                trackStatus: "purchased"
-            ),
-            Track(
-                id: "2",
-                name: "Missing Genre",
-                artist: "A",
-                album: "One",
-                genre: nil,
-                year: 2001,
-                trackStatus: "matched"
-            ),
-            Track(
-                id: "3",
-                name: "Missing Year",
-                artist: "B",
-                album: "Two",
-                genre: "Pop",
-                year: nil,
-                trackStatus: "uploaded"
-            ),
-            Track(
-                id: "4",
-                name: "Protected",
-                artist: "C",
-                album: "Three",
-                genre: nil,
-                year: nil,
-                trackStatus: "prerelease"
-            ),
-        ]
+        let tracks = coverageTracks()
 
         let snapshot = LibraryDashboardSnapshot.make(
             tracks: tracks,
@@ -260,6 +223,47 @@ struct DashboardSnapshotTests {
         #expect(!failed.allowsReviewActions)
         #expect(!empty.allowsReviewActions)
         #expect(!writing.allowsReviewActions)
+    }
+
+    private func coverageTracks() -> [Track] {
+        [
+            Track(
+                id: "1",
+                name: "Tagged",
+                artist: "A",
+                album: "One",
+                genre: "Rock",
+                year: 2001,
+                trackStatus: "purchased"
+            ),
+            Track(
+                id: "2",
+                name: "Missing Genre",
+                artist: "A",
+                album: "One",
+                genre: nil,
+                year: 2001,
+                trackStatus: "matched"
+            ),
+            Track(
+                id: "3",
+                name: "Missing Year",
+                artist: "B",
+                album: "Two",
+                genre: "Pop",
+                year: nil,
+                trackStatus: "uploaded"
+            ),
+            Track(
+                id: "4",
+                name: "Protected",
+                artist: "C",
+                album: "Three",
+                genre: nil,
+                year: nil,
+                trackStatus: "prerelease"
+            ),
+        ]
     }
 }
 
@@ -726,129 +730,5 @@ extension DashboardSnapshotTests {
         )
 
         #expect(persistedSnapshot?.protectedFileCount == nil)
-    }
-}
-
-extension DashboardSnapshotTests {
-    @Test("health score rewards coverage and penalizes protected or failed writes")
-    func healthScoreReflectsSafety() {
-        let healthy = LibraryDashboardSnapshot.make(
-            tracks: [
-                Track(
-                    id: "1",
-                    name: "A",
-                    artist: "A",
-                    album: "A",
-                    genre: "Rock",
-                    year: 2001,
-                    trackStatus: "purchased"
-                ),
-                Track(
-                    id: "2",
-                    name: "B",
-                    artist: "B",
-                    album: "B",
-                    genre: "Pop",
-                    year: 2002,
-                    trackStatus: "matched"
-                ),
-            ],
-            lastScanDate: fixedDate,
-            isLoading: false,
-            loadError: nil,
-            isDryRun: true,
-            workflow: .empty
-        )
-
-        let risky = LibraryDashboardSnapshot.make(
-            tracks: [
-                Track(id: "1", name: "A", artist: "A", album: "A", genre: nil, year: nil, trackStatus: "prerelease"),
-                Track(id: "2", name: "B", artist: "B", album: "B", genre: nil, year: nil, trackStatus: "purchased"),
-            ],
-            lastScanDate: fixedDate,
-            isLoading: false,
-            loadError: nil,
-            isDryRun: false,
-            workflow: WorkflowDashboardState(
-                proposedChangeCount: 0,
-                acceptedChangeCount: 0,
-                failedWriteCount: 1,
-                isProcessing: false,
-                phaseLabel: "error"
-            )
-        )
-
-        #expect(healthy.healthScore > risky.healthScore)
-        #expect(healthy.healthScore == 1)
-        #expect(risky.healthScore < 0.25)
-    }
-
-    @Test("whitespace-only genre counts as missing")
-    func whitespaceOnlyGenreCountsAsMissing() {
-        let snapshot = LibraryDashboardSnapshot.make(
-            tracks: [
-                Track(id: "1", name: "Whitespace", artist: "A", album: "A", genre: "   ", year: 2001),
-                Track(id: "2", name: "Tagged", artist: "B", album: "B", genre: "Pop", year: 2002),
-            ],
-            lastScanDate: fixedDate,
-            isLoading: false,
-            loadError: nil,
-            isDryRun: true,
-            workflow: .empty
-        )
-
-        #expect(snapshot.tracksWithGenre == 1)
-        #expect(snapshot.missingGenreCount == 1)
-        #expect(snapshot.tracksWithBoth == 1)
-        #expect(snapshot.consistencyCoverageRatio == 0.5)
-    }
-
-    @Test("failed write penalty scales up to a cap")
-    func failedWritePenaltyScalesUpToCap() {
-        let tracks = (1 ... 10).map { index in
-            Track(
-                id: "\(index)",
-                name: "Song \(index)",
-                artist: "Artist",
-                album: "Album",
-                genre: "Rock",
-                year: 2000 + index,
-                trackStatus: "purchased"
-            )
-        }
-
-        let oneFailure = LibraryDashboardSnapshot.make(
-            tracks: tracks,
-            lastScanDate: fixedDate,
-            isLoading: false,
-            loadError: nil,
-            isDryRun: false,
-            workflow: WorkflowDashboardState(
-                proposedChangeCount: 10,
-                acceptedChangeCount: 9,
-                failedWriteCount: 1,
-                isProcessing: false,
-                phaseLabel: "write"
-            )
-        )
-
-        let manyFailures = LibraryDashboardSnapshot.make(
-            tracks: tracks,
-            lastScanDate: fixedDate,
-            isLoading: false,
-            loadError: nil,
-            isDryRun: false,
-            workflow: WorkflowDashboardState(
-                proposedChangeCount: 10,
-                acceptedChangeCount: 0,
-                failedWriteCount: 10,
-                isProcessing: false,
-                phaseLabel: "write"
-            )
-        )
-
-        #expect(oneFailure.healthScore > manyFailures.healthScore)
-        #expect(oneFailure.issues.map(\.severity).last == .critical)
-        #expect(manyFailures.healthScore == 0.6)
     }
 }

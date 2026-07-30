@@ -319,17 +319,15 @@ struct ActivityCommands {
                 message: copy.cancelled,
                 refreshedActivityProjection: projection
             )
+        case .recoveryRequired:
+            return await manualRecoveryResult(
+                summary: "Recovery blocks this run",
+                detail: "An unresolved recovery hold rejected write admission."
+            )
         case let .recoverable(_, reason):
-            let projection = await refreshActivityProjection()
-            return .blockedByRecovery(
-                message: "Recovery must be resolved before writes continue.",
-                issue: OperationalIssue(
-                    id: "run-recovery-required",
-                    category: .recoveryRequired,
-                    summary: "Run outcome needs recovery",
-                    technicalDetail: reason
-                ),
-                refreshedActivityProjection: projection
+            return await manualRecoveryResult(
+                summary: "Run outcome needs recovery",
+                detail: reason
             )
         case let .failed(snapshot):
             let projection = await refreshActivityProjection()
@@ -344,6 +342,20 @@ struct ActivityCommands {
                 refreshedActivityProjection: projection
             )
         }
+    }
+
+    private func manualRecoveryResult(summary: String, detail: String) async -> UserCommandResult {
+        let projection = await refreshActivityProjection()
+        return .blockedByRecovery(
+            message: "Recovery must be resolved before writes continue.",
+            issue: OperationalIssue(
+                id: "run-recovery-required",
+                category: .recoveryRequired,
+                summary: summary,
+                technicalDetail: detail
+            ),
+            refreshedActivityProjection: projection
+        )
     }
 
     private func runCommandCopy(for variant: ActivityCommandVariant) -> RunCommandCopy {

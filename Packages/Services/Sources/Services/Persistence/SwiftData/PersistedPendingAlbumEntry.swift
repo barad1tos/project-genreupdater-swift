@@ -18,24 +18,15 @@ public final class PersistedPendingAlbumEntry {
     public var recheckInterval: TimeInterval
     public var metadataData: Data?
 
-    public init(
-        entryID: String,
-        artist: String,
-        album: String,
-        reason: String,
-        attemptCount: Int,
-        lastAttempt: Date,
-        recheckInterval: TimeInterval,
-        metadataData: Data? = nil
-    ) {
-        self.entryID = entryID
-        self.artist = artist
-        self.album = album
-        self.reason = reason
-        self.attemptCount = attemptCount
-        self.lastAttempt = lastAttempt
-        self.recheckInterval = recheckInterval
-        self.metadataData = metadataData
+    public init(from entry: Core.PendingAlbumEntry) {
+        entryID = entry.id
+        artist = entry.artist
+        album = entry.album
+        reason = entry.reason
+        attemptCount = entry.attemptCount
+        lastAttempt = entry.lastAttempt
+        recheckInterval = entry.recheckInterval
+        metadataData = Self.encodeMetadata(entry.metadata)
     }
 }
 
@@ -59,19 +50,6 @@ public final class PersistedPendingVerificationMetadata {
 // MARK: - Conversion to/from Core.PendingAlbumEntry
 
 extension PersistedPendingAlbumEntry {
-    public convenience init(from entry: Core.PendingAlbumEntry) {
-        self.init(
-            entryID: entry.id,
-            artist: entry.artist,
-            album: entry.album,
-            reason: entry.reason,
-            attemptCount: entry.attemptCount,
-            lastAttempt: entry.lastAttempt,
-            recheckInterval: entry.recheckInterval,
-            metadataData: Self.encodeMetadata(entry.metadata)
-        )
-    }
-
     public func update(from entry: Core.PendingAlbumEntry) {
         artist = entry.artist
         album = entry.album
@@ -88,9 +66,11 @@ extension PersistedPendingAlbumEntry {
             artist: artist,
             album: album,
             reason: reason,
-            attemptCount: attemptCount,
-            lastAttempt: lastAttempt,
-            recheckInterval: recheckInterval,
+            retry: .init(
+                attemptCount: attemptCount,
+                lastAttempt: lastAttempt,
+                recheckInterval: recheckInterval
+            ),
             metadata: Self.decodeMetadata(metadataData)
         )
     }

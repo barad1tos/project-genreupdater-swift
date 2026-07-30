@@ -104,7 +104,7 @@ struct FixPlanIdentityTests {
         let service = MockAPIService(yearResult: result)
         let cache = MockCacheService()
         return UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: makeAPIOrchestrator(
                     musicBrainz: service,
                     discogs: service,
@@ -112,9 +112,11 @@ struct FixPlanIdentityTests {
                     cache: cache
                 ),
                 scriptBridge: bridge,
-                trackStore: MockTrackStore(),
-                cache: cache,
-                undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: directory),
+                stores: .init(trackStore: MockTrackStore(), cache: cache),
+                undoCoordinator: UndoCoordinator(
+                    scriptBridge: bridge,
+                    directory: directory
+                ),
                 idMapper: mapper
             ),
             genreDeterminator: GenreDeterminator()

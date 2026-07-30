@@ -167,12 +167,17 @@ struct PrereleasePreflightTests {
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("PrereleasePreflightTests-\(UUID().uuidString)")
         return UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: api,
                 scriptBridge: bridge,
-                trackStore: MockTrackStore(),
-                cache: cache,
-                undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: undoDirectory),
+                stores: .init(
+                    trackStore: MockTrackStore(),
+                    cache: cache
+                ),
+                undoCoordinator: UndoCoordinator(
+                    scriptBridge: bridge,
+                    directory: undoDirectory
+                ),
                 idMapper: idMapper,
                 pendingVerificationService: pendingVerificationService
             ),

@@ -280,8 +280,7 @@ struct PendingAlbumEntryTests {
             artist: "Metallica",
             album: "Ride the Lightning",
             reason: "Year mismatch",
-            attemptCount: 3,
-            recheckInterval: 604_800,
+            retry: .init(attemptCount: 3, recheckInterval: 604_800),
             metadata: ["source": "discogs"]
         )
         #expect(entry.attemptCount == 3)
@@ -296,9 +295,11 @@ struct PendingAlbumEntryTests {
             artist: "A",
             album: "B",
             reason: "R",
-            attemptCount: 5,
-            lastAttempt: Date(timeIntervalSince1970: 1_700_000_000),
-            recheckInterval: 3600,
+            retry: .init(
+                attemptCount: 5,
+                lastAttempt: Date(timeIntervalSince1970: 1_700_000_000),
+                recheckInterval: 3600
+            ),
             metadata: ["key": "value"]
         )
         let data = try JSONEncoder().encode(original)

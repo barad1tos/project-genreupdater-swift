@@ -128,15 +128,14 @@ struct ArtistRenameTests {
         )
 
         let coordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: makeAPIOrchestrator(
                     musicBrainz: apiService,
                     discogs: apiService,
                     appleMusic: apiService
                 ),
                 scriptBridge: bridge,
-                trackStore: MockTrackStore(),
-                cache: cache,
+                stores: .init(trackStore: MockTrackStore(), cache: cache),
                 undoCoordinator: UndoCoordinator(
                     scriptBridge: bridge,
                     directory: FileManager.default.temporaryDirectory

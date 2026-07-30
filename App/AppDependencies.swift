@@ -437,11 +437,10 @@ final class AppDependencies {
         undoCoordinator = undo
 
         updateCoordinator = UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
                 scriptBridge: bridge,
-                trackStore: store,
-                cache: cache,
+                stores: .init(trackStore: store, cache: cache),
                 undoCoordinator: undo,
                 idMapper: mapper,
                 librarySnapshotService: librarySnapshotService,
@@ -502,6 +501,31 @@ final class AppDependencies {
         )
     }
 
+    func writeDependencies(
+        store: any RunRecordStore,
+        processor: BatchProcessor,
+        writeFixPlan: (@Sendable (
+            FixPlanWriteInput,
+            @escaping WorkCheckpointSink
+        ) async throws -> BatchUpdateResult)?
+    ) -> RunOrchestrator.WriteDependencies {
+        RunOrchestrator.WriteDependencies(
+            persistCheckpoint: { runID, checkpoint in
+                try await store.checkpoint(checkpoint, runID: runID)
+            },
+            writeFixPlan: writeFixPlan,
+            beginRecoveryHold: {
+                await processor.beginRecoveryHold()
+            },
+            restoreRecoveryHold: { id in
+                await processor.beginRecoveryHold(id: id)
+            },
+            clearRecoveryHold: { id in
+                try await processor.clearRecovery(batchID: id)
+            }
+        )
+    }
+
     private func makeRunOrchestrator(
         syncService: LibrarySyncService,
         runRecordStore: any RunRecordStore,
@@ -522,6 +546,11 @@ final class AppDependencies {
         } else {
             nil
         }
+        let write = writeDependencies(
+            store: runRecordStore,
+            processor: processor,
+            writeFixPlan: makeWriteRunner(runtime: runtime)
+        )
 
         return RunOrchestrator(dependencies: RunOrchestrator.Dependencies(
             synchronizeLibrary: { [syncService] in
@@ -538,10 +567,7 @@ final class AppDependencies {
             releasePreview: { configuration in
                 await runtime?.discard(configuration)
             },
-            writeFixPlan: makeWriteRunner(runtime: runtime),
-            beginRecoveryHold: {
-                await processor.beginRecoveryHold()
-            }
+            write: write
         ))
     }
 

@@ -32,23 +32,15 @@ struct FixPlanFactoryTests {
         try await fixture.processor.clearRecovery(batchID: recoveryID)
     }
 
-    @Test("Fix plan writer rejects altered queued scope")
+    @Test(
+        "Fix plan writer rejects every stale write contract",
+        arguments: StaleInputMutation.allCases
+    )
     @MainActor
-    func rejectsAlteredScope() async {
+    fileprivate func rejectsStaleInput(_ mutation: StaleInputMutation) async {
         let fixture = await makeWriteFixture(hasInitialRecovery: false)
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        let planScope = fixture.input.scope
-        let alteredScope = ProcessingScopeSnapshot(
-            id: planScope.id,
-            createdAt: planScope.createdAt,
-            source: .testArtists,
-            normalizedTestArtists: ["Other Artist"],
-            matchingRule: planScope.matchingRule,
-            knownTrackCount: planScope.knownTrackCount,
-            fingerprint: "altered-scope",
-            reason: planScope.reason
-        )
-        let input = FixPlanWriteInput(target: fixture.input.target, scope: alteredScope)
+        let input = mutation.applying(to: fixture.input)
 
         do {
             _ = try await fixture.run(input)
@@ -64,6 +56,108 @@ struct FixPlanFactoryTests {
         #expect(await fixture.runtime.callCount == 0)
         #expect(await fixture.script.fetchCalls.isEmpty)
     }
+
+    @Test("orchestrator closes work when the real writer rejects stale input")
+    @MainActor
+    func closesStaleWork() async {
+        let fixture = await makeWriteFixture(hasInitialRecovery: false)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let input = StaleInputMutation.scope.applying(to: fixture.input)
+        let capture = RunCapture()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await capture.append($0) },
+            write: .init(writeFixPlan: fixture.write),
+            now: { Date(timeIntervalSince1970: 120) }
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case let .failed(snapshot) = result else {
+            Issue.record("Expected failed run for stale write input")
+            return
+        }
+        #expect(snapshot.finishedAt != nil)
+        #expect(snapshot.workItems.allSatisfy { $0.state == .outcome(.failed) })
+        #expect(await capture.last?.workItems.allSatisfy {
+            $0.state == .outcome(.failed)
+        } == true)
+        #expect(await fixture.runtime.callCount == 0)
+        #expect(await fixture.script.fetchCalls.isEmpty)
+    }
+}
+
+private enum StaleInputMutation: CaseIterable, Equatable {
+    case scope
+    case authority
+    case scopeID
+    case settings
+    case workItems
+
+    func applying(to input: FixPlanWriteInput) -> FixPlanWriteInput {
+        let scope = switch self {
+        case .scope: alteredScope(input.scope)
+        case .authority, .scopeID, .settings, .workItems: input.scope
+        }
+        let configuration = switch self {
+        case .authority:
+            alteredConfiguration(input.configuration, writeAuthority: .readOnly)
+        case .scopeID:
+            alteredConfiguration(input.configuration, scopeID: UUID())
+        case .settings:
+            alteredConfiguration(input.configuration, settings: alteredSettings(input.configuration.settings))
+        case .scope, .workItems:
+            input.configuration
+        }
+        let workItems = self == .workItems ? [] : input.workItems
+        return FixPlanWriteInput(
+            target: input.target,
+            scope: scope,
+            configuration: configuration,
+            workItems: workItems
+        )
+    }
+
+    private func alteredScope(_ scope: ProcessingScopeSnapshot) -> ProcessingScopeSnapshot {
+        ProcessingScopeSnapshot(
+            id: scope.id,
+            createdAt: scope.createdAt,
+            source: .testArtists,
+            normalizedTestArtists: ["Other Artist"],
+            matchingRule: scope.matchingRule,
+            knownTrackCount: scope.knownTrackCount,
+            fingerprint: "altered-scope",
+            reason: scope.reason
+        )
+    }
+
+    private func alteredConfiguration(
+        _ configuration: RunConfig,
+        writeAuthority: WriteAuthority? = nil,
+        scopeID: UUID? = nil,
+        settings: FixPlanConfig? = nil
+    ) -> RunConfig {
+        RunConfig(
+            id: configuration.id,
+            capturedAt: configuration.capturedAt,
+            writeAuthority: writeAuthority ?? configuration.writeAuthority,
+            automation: configuration.automation,
+            scopeID: scopeID ?? configuration.scopeID,
+            settings: settings ?? configuration.settings,
+            hadRecoveryHold: configuration.hadRecoveryHold
+        )
+    }
+
+    private func alteredSettings(_ settings: FixPlanConfig) -> FixPlanConfig {
+        var configuration = settings.appConfiguration
+        configuration.applescript.batchProcessing.idsBatchSize += 1
+        return FixPlanConfig.capture(
+            configuration: configuration,
+            options: settings.determinationOptions,
+            capturedAt: settings.capturedAt,
+            hasDiscogsAccess: settings.hasDiscogsAccess
+        )
+    }
 }
 
 private struct WriteFixture {
@@ -71,170 +165,16 @@ private struct WriteFixture {
     let script: ScriptSpy
     let processor: BatchProcessor
     let runtime: RuntimeProbe
-    let run: @Sendable (FixPlanWriteInput) async throws -> BatchUpdateResult
+    let write: @Sendable (
+        FixPlanWriteInput,
+        @escaping WorkCheckpointSink
+    ) async throws -> BatchUpdateResult
     let directory: URL
-}
 
-private actor RecoveryProbe {
-    private var isHeld: Bool
-
-    init(isHeld: Bool) {
-        self.isHeld = isHeld
-    }
-
-    func check() -> Bool {
-        defer { isHeld = false }
-        return isHeld
-    }
-}
-
-private actor RuntimeProbe {
-    private(set) var callCount = 0
-
-    func record() {
-        callCount += 1
-    }
-}
-
-private actor ScriptSpy: AppleScriptClient {
-    private var tracksByID: [String: Track] = [:]
-    private(set) var fetchCalls: [(trackIDs: [String], batchSize: Int, timeout: Duration?)] = []
-    private var shouldReturnUnknown = false
-
-    func setTracks(_ tracks: [Track]) {
-        tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
-    }
-
-    func initialize() async throws {
-        // This in-memory client requires no setup.
-    }
-
-    func runScript(name _: String, arguments _: [String], timeout _: Duration?) async throws -> String? {
-        nil
-    }
-
-    func fetchTracksByIDs(
-        _ trackIDs: [String],
-        batchSize: Int,
-        timeout: Duration?
-    ) async throws -> [Track] {
-        fetchCalls.append((trackIDs, batchSize, timeout))
-        return trackIDs.compactMap { tracksByID[$0] }
-    }
-
-    func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
-        Array(tracksByID.keys)
-    }
-
-    func updateTrackProperty(trackID _: String, property _: String, value _: String) async throws
-        -> AppleScriptWriteResult {
-        if shouldReturnUnknown {
-            throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
+    func run(_ input: FixPlanWriteInput) async throws -> BatchUpdateResult {
+        try await write(input) { _ in
+            // Direct writer tests assert results; Services checkpoint tests own checkpoint assertions.
         }
-        return .noChange
-    }
-
-    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
-        // Factory tests only exercise single-track writes.
-    }
-
-    func returnUnknownOutcome() {
-        shouldReturnUnknown = true
-    }
-}
-
-private actor FactoryPlanStore: FixPlanStore {
-    let storedPlan: FixPlan
-    let storedDecision: FixPlanReviewDecision
-
-    init(plan: FixPlan, decision: FixPlanReviewDecision) {
-        storedPlan = plan
-        storedDecision = decision
-    }
-
-    func savePlan(_: FixPlan, initialDecision _: FixPlanReviewDecision) async throws {
-        // The fixture is immutable after construction.
-    }
-    func plan(id: FixPlanID, revision: FixPlanRevision) async throws -> FixPlan? {
-        storedPlan.id == id && storedPlan.revision == revision ? storedPlan : nil
-    }
-    func latestPlan() async throws -> FixPlan? {
-        storedPlan
-    }
-    func currentDecision(for planID: FixPlanID) async throws -> FixPlanReviewDecision? {
-        storedPlan.id == planID ? storedDecision : nil
-    }
-    func recordDecision(_ decision: FixPlanReviewDecision) async throws -> FixPlanDecisionWriteResult {
-        .saved(decision)
-    }
-}
-
-private actor FactoryTrackStore: TrackStateStore {
-    func initialize() async throws {
-        // This in-memory store requires no setup.
-    }
-    func loadAllTracks() async throws -> [Track] {
-        []
-    }
-    func saveTracks(_: [Track]) async throws {
-        // Factory tests do not persist track state.
-    }
-    func deleteTrackIDs(_: [String]) async throws -> Int {
-        0
-    }
-    func getTrack(byID _: String) async throws -> Track? {
-        nil
-    }
-    func updateTrackProcessingState(id _: String, genreUpdated _: Bool?, yearUpdated _: Bool?) async throws {
-        // Factory tests do not persist processing state.
-    }
-    func getUnprocessedTracks() async throws -> [Track] {
-        []
-    }
-    func trackCount() async throws -> Int {
-        0
-    }
-}
-
-private actor FactoryCache: CacheService {
-    func initialize() async throws {
-        // This in-memory cache requires no setup.
-    }
-    func get<T: Codable & Sendable>(key _: String) async -> T? {
-        nil
-    }
-    func set(key _: String, value _: some Codable & Sendable, ttl _: TimeInterval?) async {
-        // Factory tests do not persist generic cache values.
-    }
-    func invalidate(key _: String) async {
-        // Factory tests do not persist generic cache values.
-    }
-    func clear() async {
-        // Factory tests do not persist generic cache values.
-    }
-    func getAlbumYear(artist _: String, album _: String) async -> AlbumCacheEntry? {
-        nil
-    }
-    func storeAlbumYear(artist _: String, album _: String, year _: Int, confidence _: Int) async {
-        // Factory tests do not persist album-year cache values.
-    }
-    func invalidateAlbum(artist _: String, album _: String) async {
-        // Factory tests do not persist album-year cache values.
-    }
-    func invalidateAllAlbumYears() async {
-        // Factory tests do not persist album-year cache values.
-    }
-    func getCachedAPIResult(artist _: String, album _: String, source _: String) async -> CachedAPIResult? {
-        nil
-    }
-    func setCachedAPIResult(_: CachedAPIResult) async {
-        // Factory tests do not persist API cache values.
-    }
-    func invalidateCachedAPIResults(artist _: String, album _: String) async {
-        // Factory tests do not persist API cache values.
-    }
-    func syncToDisk() async throws {
-        // This in-memory cache has no disk state.
     }
 }
 
@@ -262,7 +202,7 @@ private func makeWriteFixture(hasInitialRecovery: Bool) async -> WriteFixture {
     let coordinator = makeCoordinator(script: script, mapper: mapper, directory: directory)
     let recovery = RecoveryProbe(isHeld: hasInitialRecovery)
     let runtime = RuntimeProbe()
-    let run = FixPlanWrite.makeRunner(FixPlanWrite.RunnerDependencies(
+    let write = FixPlanWrite.makeRunner(FixPlanWrite.RunnerDependencies(
         fixPlanStore: store,
         mapper: mapper,
         batchProcessor: processor,
@@ -274,18 +214,34 @@ private func makeWriteFixture(hasInitialRecovery: Bool) async -> WriteFixture {
         },
         hasRunRecovery: { await recovery.check() }
     ))
-    let target = FixPlanWriteTarget(
-        planID: plan.id,
-        planRevision: plan.revision,
-        decisionRevision: decision.revision
-    )
+    let input = makeWriteInput(plan: plan, decision: decision)
     return WriteFixture(
-        input: FixPlanWriteInput(target: target, scope: plan.scope),
+        input: input,
         script: script,
         processor: processor,
         runtime: runtime,
-        run: run,
+        write: write,
         directory: directory
+    )
+}
+
+private func makeWriteInput(plan: FixPlan, decision: FixPlanReviewDecision) -> FixPlanWriteInput {
+    FixPlanWriteInput(
+        target: FixPlanWriteTarget(
+            planID: plan.id,
+            planRevision: plan.revision,
+            decisionRevision: decision.revision
+        ),
+        scope: plan.scope,
+        configuration: RunConfig(
+            capturedAt: decision.decidedAt,
+            writeAuthority: .reviewedPlan,
+            automation: .manualOnly,
+            scopeID: plan.scope.id,
+            settings: plan.configuration,
+            hadRecoveryHold: false
+        ),
+        workItems: plan.items.map(RunWorkItem.init(item:))
     )
 }
 
@@ -296,16 +252,18 @@ private func makeCoordinator(
 ) -> UpdateCoordinator {
     let api = DashboardStateAPIService()
     return UpdateCoordinator(
-        dependencies: UpdateCoordinatorDependencies(
+        dependencies: UpdateDependencies(
             apiOrchestrator: APIOrchestrator(services: APIOrchestratorServices(
                 musicBrainz: api,
                 discogs: api,
                 appleMusic: api
             )),
             scriptBridge: script,
-            trackStore: FactoryTrackStore(),
-            cache: FactoryCache(),
-            undoCoordinator: UndoCoordinator(scriptBridge: script, directory: directory),
+            stores: .init(trackStore: FactoryTrackStore(), cache: FactoryCache()),
+            undoCoordinator: UndoCoordinator(
+                scriptBridge: script,
+                directory: directory
+            ),
             idMapper: mapper
         ),
         genreDeterminator: GenreDeterminator(),

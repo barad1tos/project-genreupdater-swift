@@ -209,12 +209,10 @@ extension AppDependencies {
         runOrchestrator != nil
     }
 
-    func runLifecycleUpdates() async -> AsyncStream<RunLifecycleSnapshot> {
+    func runLifecycleUpdates() async -> LifecycleUpdates {
         guard let runOrchestrator else {
             libraryServicesLog.warning("Run lifecycle updates requested before run orchestrator is available")
-            return AsyncStream { continuation in
-                continuation.finish()
-            }
+            return .finished
         }
 
         return await runOrchestrator.lifecycleUpdates()

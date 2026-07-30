@@ -152,6 +152,92 @@ struct WriteOutcomeTests {
         #expect(await client.writeAttempts == 1)
     }
 
+    @Test("Checkpoint failure stops the reviewed write loop")
+    func stopsOnCheckpointFailure() async {
+        let tracks = [
+            makeTrack(id: "T1", name: "First", year: 1969),
+            makeTrack(id: "T2", name: "Second", year: 1969)
+        ]
+        let client = MockAppleScriptClient()
+        await client.setFetchedTracks(tracks)
+        let coordinator = makeCoordinator(client)
+        var failedTrackIDs: [String] = []
+        var errorDescriptions: [String] = []
+
+        await #expect(throws: WorkCheckpointError.self) {
+            _ = try await coordinator.applyReviewedChangeGroup(
+                [makeGenreChange(tracks[0]), makeGenreChange(tracks[1])],
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions,
+                checkpoint: { _ in
+                    throw WorkCheckpointError.persistence(.beforeAttempt, writeAdjacent: false)
+                }
+            )
+        }
+        #expect(await client.writtenProperties.isEmpty)
+    }
+
+    @Test("Finalization failure stops the reviewed write loop")
+    func stopsOnFinalizationFailure() async {
+        let tracks = [
+            makeTrack(id: "T1", name: "First", year: 1969),
+            makeTrack(id: "T2", name: "Second", year: 1969)
+        ]
+        let client = MockAppleScriptClient()
+        await client.setFetchedTracks(tracks)
+        let store = MockChangeLogStore()
+        await store.failSaves()
+        let coordinator = makeCoordinator(client, changeLogStore: store)
+        var failedTrackIDs: [String] = []
+        var errorDescriptions: [String] = []
+
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await coordinator.applyReviewedChangeGroup(
+                [makeGenreChange(tracks[0]), makeGenreChange(tracks[1])],
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            )
+        }
+        #expect(await client.writtenProperties.count == 1)
+    }
+
+    @Test("Batch finalization failure preserves verified outcomes")
+    func batchFinalizationPreservesOutcomes() async {
+        let tracks = [
+            makeTrack(id: "T1", name: "First", year: 1969),
+            makeTrack(id: "T2", name: "Second", year: 1969)
+        ]
+        let client = MockAppleScriptClient()
+        await client.setFetchedTracks(tracks)
+        let store = MockChangeLogStore()
+        await store.failSaves()
+        let coordinator = makeCoordinator(
+            client,
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            ),
+            changeLogStore: store
+        )
+        let checkpoints = CheckpointProbe()
+        var failedTrackIDs: [String] = []
+        var errorDescriptions: [String] = []
+        let changes = [makeGenreChange(tracks[0]), makeGenreChange(tracks[1])]
+
+        await #expect(throws: UpdateCoordinatorError.self) {
+            _ = try await coordinator.applyReviewedChangeGroup(
+                changes,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions,
+                checkpoint: { await checkpoints.append($0) }
+            )
+        }
+
+        let verifications = await checkpoints.values.filter { $0.boundary == .afterVerification }
+        #expect(verifications.count == 1)
+        #expect(verifications.first?.states.count == changes.count)
+    }
+
     @Test("CSV restore stops after cancellation")
     func cancellationStopsCSVRestore() async {
         let tracks = [makeTrack(id: "T1", name: "First"), makeTrack(id: "T2", name: "Second")]
@@ -184,19 +270,27 @@ private final class ProgressRecorder: @unchecked Sendable {
     }
 }
 
-private actor OutcomeScriptClient: AppleScriptClient {
+actor OutcomeScriptClient: AppleScriptClient {
     enum Failure {
         case unknown
         case cancellation
+        case plain
     }
 
     private let tracksByID: [String: Track]
     private let failure: Failure
+    private let completion: ScriptCompletion?
     private(set) var writeAttempts = 0
+    private(set) var batchAttempts = 0
 
-    init(tracks: [Track], failure: Failure = .unknown) {
+    init(
+        tracks: [Track],
+        failure: Failure = .unknown,
+        completion: ScriptCompletion? = nil
+    ) {
         tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
         self.failure = failure
+        self.completion = completion
     }
 
     func initialize() async throws {
@@ -220,55 +314,110 @@ private actor OutcomeScriptClient: AppleScriptClient {
         writeAttempts += 1
         switch failure {
         case .unknown:
-            throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
+            throw unknownOutcome(scriptName: "update_property")
         case .cancellation:
             throw CancellationError()
+        case .plain:
+            throw PlainWriteError()
         }
     }
 
-    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
-        Issue.record("Outcome tests do not expect batch writes")
-        throw AppleScriptBatchVerificationError(
-            updateCount: 1,
-            failedCount: 1,
-            reason: "unexpected batch write"
+    func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
+        batchAttempts += 1
+        switch failure {
+        case .unknown:
+            throw unknownOutcome(scriptName: "batch_update_tracks")
+        case .cancellation:
+            throw CancellationError()
+        case .plain:
+            throw PlainWriteError()
+        }
+    }
+
+    private func unknownOutcome(scriptName: String) -> AppleScriptOutcomeError {
+        guard let completion else {
+            return AppleScriptOutcomeError(scriptName: scriptName, duration: .seconds(3))
+        }
+        return AppleScriptOutcomeError(
+            scriptName: scriptName,
+            duration: .seconds(3),
+            completion: completion
         )
     }
 }
 
-private func makeCoordinator(
+private struct PlainWriteError: Error {}
+
+func makeStoreFailure(itemIDs: [UUID]) throws -> CheckpointStoreFailure {
+    let input = writeInput(workItems: itemIDs.map { makeWorkItem(id: $0, state: .prepared) })
+    let initial = RunLifecycleSnapshot(
+        request: .manualWrite(input: input),
+        scope: input.scope,
+        startedAt: Date(timeIntervalSince1970: 100),
+        phase: .active(.writing)
+    )
+    let durable = try initial.applying(.beforeAttempt(itemIDs))
+    let checkpoint = WorkCheckpoint.afterAttempt(itemIDs)
+    return try CheckpointStoreFailure(
+        checkpoint: checkpoint,
+        candidate: durable.applying(checkpoint),
+        durableSnapshot: durable,
+        isWriteAdjacent: true,
+        reason: "checkpoint store unavailable"
+    )
+}
+
+func expectStoredCompletion(
+    _ completion: ScriptCompletion,
+    operation: () async throws -> Void
+) async {
+    do {
+        try await operation()
+        Issue.record("Expected the checkpoint store failure")
+    } catch let WorkCheckpointError.store(failure) {
+        #expect(failure.completion === completion)
+    } catch {
+        Issue.record("Expected a checkpoint store failure, got \(type(of: error))")
+    }
+}
+
+func makeCoordinator(
     _ client: any AppleScriptClient,
     year: Int? = nil,
     cache: any CacheService = MockCacheService(),
-    snapshot: (any LibrarySnapshotService)? = nil
+    snapshot: (any LibrarySnapshotService)? = nil,
+    runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
+    changeLogStore: (any ChangeLogStore)? = nil
 ) -> UpdateCoordinator {
     let scores = year.map { [$0: 90] } ?? [:]
     let api = MockAPIService(yearResult: YearResult(year: year, confidence: 90, yearScores: scores))
-    let undo = makeUndoCoordinator(client, cache: cache, snapshot: snapshot)
+    let undo = makeUndoCoordinator(client, cache: cache, snapshot: snapshot, changeLogStore: changeLogStore)
     return UpdateCoordinator(
-        dependencies: UpdateCoordinatorDependencies(
+        dependencies: UpdateDependencies(
             apiOrchestrator: makeAPIOrchestrator(
                 musicBrainz: api,
                 discogs: api,
                 appleMusic: api
             ),
             scriptBridge: client,
-            trackStore: MockTrackStore(),
-            cache: cache,
+            stores: .init(trackStore: MockTrackStore(), cache: cache),
             undoCoordinator: undo,
             librarySnapshotService: snapshot
         ),
-        genreDeterminator: GenreDeterminator()
+        genreDeterminator: GenreDeterminator(),
+        runtimeConfiguration: runtimeConfiguration
     )
 }
 
 private func makeUndoCoordinator(
     _ client: any AppleScriptClient,
     cache: (any CacheService)? = nil,
-    snapshot: (any LibrarySnapshotService)? = nil
+    snapshot: (any LibrarySnapshotService)? = nil,
+    changeLogStore: (any ChangeLogStore)? = nil
 ) -> UndoCoordinator {
     UndoCoordinator(
         scriptBridge: client,
+        changeLogStore: changeLogStore,
         cache: cache,
         librarySnapshotService: snapshot,
         directory: FileManager.default.temporaryDirectory
@@ -276,7 +425,7 @@ private func makeUndoCoordinator(
     )
 }
 
-private func makeTrack(
+func makeTrack(
     id: String,
     name: String = "Track",
     year: Int? = 2000,
@@ -293,7 +442,7 @@ private func makeTrack(
     )
 }
 
-private func makeGenreChange(_ track: Track) -> ProposedChange {
+func makeGenreChange(_ track: Track) -> ProposedChange {
     ProposedChange(
         track: track,
         changeType: .genreUpdate,
@@ -305,7 +454,7 @@ private func makeGenreChange(_ track: Track) -> ProposedChange {
     )
 }
 
-private func makeYearChange(_ track: Track) -> ProposedChange {
+func makeYearChange(_ track: Track) -> ProposedChange {
     ProposedChange(
         track: track,
         changeType: .yearUpdate,

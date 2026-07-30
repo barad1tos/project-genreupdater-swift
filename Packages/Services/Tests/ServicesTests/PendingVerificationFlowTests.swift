@@ -66,11 +66,10 @@ private func makePendingCoordinator(
         configuration.reachability = reachability
     }
     let coordinator = UpdateCoordinator(
-        dependencies: UpdateCoordinatorDependencies(
+        dependencies: UpdateDependencies(
             apiOrchestrator: orchestrator,
             scriptBridge: bridge,
-            trackStore: store,
-            cache: cache,
+            stores: .init(trackStore: store, cache: cache),
             undoCoordinator: undo,
             pendingVerificationService: pendingVerification
         ),

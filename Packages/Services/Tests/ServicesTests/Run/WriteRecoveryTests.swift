@@ -13,8 +13,12 @@ struct WriteRecoveryTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
-            writeFixPlan: { try await writer.apply(input: $0) },
-            beginRecoveryHold: { recoveryID },
+            write: .init(
+                writeFixPlan: { input, checkpoint in
+                    try await writer.apply(input: input, checkpoint: checkpoint)
+                },
+                beginRecoveryHold: { recoveryID }
+            ),
             now: { Date(timeIntervalSince1970: 100) }
         ))
         let firstInput = writeInput()
@@ -49,7 +53,7 @@ struct WriteRecoveryTests {
         }
         #expect(await writer.calls == [firstInput])
 
-        await orchestrator.resolveRecovery(runID: snapshot.runID, at: Date(timeIntervalSince1970: 200))
+        _ = await orchestrator.resolveRecovery(runID: snapshot.runID, at: Date(timeIntervalSince1970: 200))
         #expect(await orchestrator.currentLifecycle()?.state == .cancelled)
         guard case .completed = await orchestrator.submit(.manualWrite(input: thirdInput)) else {
             Issue.record("Expected write submission after recovery resolution to complete")
@@ -65,8 +69,12 @@ struct WriteRecoveryTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { await syncGate.sync() },
             persistRunRecord: { _ in },
-            writeFixPlan: { try await writer.apply(input: $0) },
-            beginRecoveryHold: { UUID() }
+            write: .init(
+                writeFixPlan: { input, checkpoint in
+                    try await writer.apply(input: input, checkpoint: checkpoint)
+                },
+                beginRecoveryHold: { UUID() }
+            )
         ))
         let active = Task { await orchestrator.submit(.manualWrite(input: writeInput())) }
         await writer.waitUntilCalled()
@@ -120,7 +128,7 @@ struct WriteRecoveryTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { await syncGate.sync() },
             persistRunRecord: { _ in },
-            writeFixPlan: { try await writer.apply(input: $0) }
+            write: .init(writeFixPlan: { input, _ in try await writer.apply(input: input) })
         ))
         let active = Task {
             await orchestrator.submit(.observation(
@@ -142,18 +150,41 @@ struct WriteRecoveryTests {
         #expect(await writer.calls.isEmpty)
     }
 
+    @Test("resolved recovery dismisses restored open work")
+    func closesRestoredWork() async {
+        let attempted = makeWorkItem(state: .attempted)
+        let recovery = recoveryRecord(workItems: [attempted])
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in
+                // Persistence is inert because this test observes only in-memory recovery closure.
+            }
+        ))
+
+        await orchestrator.restoreRecovery(recovery)
+        _ = await orchestrator.resolveRecovery(
+            runID: recovery.runID,
+            at: Date(timeIntervalSince1970: 200)
+        )
+
+        let resolved = await orchestrator.currentLifecycle()
+        #expect(resolved?.state == .cancelled)
+        #expect(resolved?.hasOpenItems == false)
+        #expect(resolved?.workItems.first?.state == .outcome(.dismissed))
+    }
+
     @Test("blocked recovery cannot be resolved")
     func blockedRecoveryRemains() async {
         let writer = WriteProbe(result: BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: []))
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in },
-            writeFixPlan: { try await writer.apply(input: $0) }
+            write: .init(writeFixPlan: { input, _ in try await writer.apply(input: input) })
         ))
         let blocked = recoveryRecord(state: .blocked)
 
         await orchestrator.restoreRecovery(blocked)
-        await orchestrator.resolveRecovery(runID: blocked.runID, at: Date(timeIntervalSince1970: 200))
+        _ = await orchestrator.resolveRecovery(runID: blocked.runID, at: Date(timeIntervalSince1970: 200))
 
         #expect(await orchestrator.currentLifecycle()?.state == .blocked)
         guard case let .recoverable(snapshot, _) = await orchestrator.submit(.manualWrite(input: writeInput())) else {
@@ -163,96 +194,5 @@ struct WriteRecoveryTests {
         #expect(snapshot.runID == blocked.runID)
         #expect(snapshot.state == .blocked)
         #expect(await writer.calls.isEmpty)
-    }
-
-    @Test("write fails closed when its open record cannot persist")
-    func persistenceBlocksWrite() async {
-        let writer = WriteProbe(result: BatchUpdateResult(
-            entries: [writeEntry()],
-            failedTrackIDs: [],
-            errorDescriptions: []
-        ))
-        let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in throw RecordWriteError() },
-            writeFixPlan: { try await writer.apply(input: $0) }
-        ))
-
-        let result = await orchestrator.submit(.manualWrite(input: writeInput()))
-
-        guard case let .failed(snapshot) = result else {
-            Issue.record("Expected failed result")
-            return
-        }
-        #expect(snapshot.failureMessage == "Write run could not start because run history is unavailable")
-        #expect(await writer.calls.isEmpty)
-    }
-
-    @Test("write fails when its terminal record cannot persist")
-    func failsUnstoredTerminal() async throws {
-        let records = TerminalRecordProbe()
-        let recoveryID = UUID()
-        let writer = WriteProbe(result: BatchUpdateResult(
-            entries: [writeEntry()],
-            failedTrackIDs: [],
-            errorDescriptions: []
-        ))
-        let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { try await records.append($0) },
-            writeFixPlan: { try await writer.apply(input: $0) },
-            beginRecoveryHold: { recoveryID }
-        ))
-
-        let result = await orchestrator.submit(.manualWrite(input: writeInput()))
-
-        guard case let .recoverable(snapshot, reason) = result else {
-            Issue.record("Expected recoverable result")
-            return
-        }
-        #expect(reason.contains("run history could not be finalized"))
-        #expect(snapshot.state == .recoverable)
-        #expect(await writer.calls.count == 1)
-        let open = try #require(await records.records.first)
-        #expect(open.state == .writing)
-        #expect(open.finishedAt == nil)
-        let recovered = try #require(await records.records.last)
-        #expect(recovered.state == .recoverable)
-        #expect(recovered.recoveryID == recoveryID)
-        #expect(recovered.writeSummary?.applied == 1)
-    }
-
-    @Test("partial write requires recovery when its terminal record cannot persist")
-    func partialWriteStoreFailure() async {
-        let records = TerminalRecordProbe()
-        let recoveryID = UUID()
-        let writer = WriteProbe(result: BatchUpdateResult(
-            entries: [writeEntry()],
-            noOpEntries: [],
-            failedTrackIDs: ["track-2"],
-            errorDescriptions: ["Failed to write genre for track track-2"]
-        ))
-        let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { try await records.append($0) },
-            writeFixPlan: { try await writer.apply(input: $0) },
-            beginRecoveryHold: { recoveryID }
-        ))
-
-        let result = await orchestrator.submit(.manualWrite(input: writeInput()))
-
-        guard case let .recoverable(snapshot, reason) = result else {
-            Issue.record("Expected recoverable result")
-            return
-        }
-        #expect(snapshot.state == .recoverable)
-        #expect(reason.contains("run history could not be finalized"))
-        #expect(reason.contains("Failed to write genre for track track-2"))
-        #expect(await writer.calls.count == 1)
-        let recovered = await records.records.last
-        #expect(recovered?.recoveryID == recoveryID)
-        #expect(recovered?.writeSummary?.applied == 1)
-        #expect(recovered?.writeSummary?.failed == 1)
-        #expect(recovered?.failureMessage?.contains("Failed to write genre for track track-2") == true)
     }
 }

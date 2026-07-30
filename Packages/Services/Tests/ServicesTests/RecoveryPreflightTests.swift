@@ -1,6 +1,6 @@
 import Foundation
-import Services
 import Testing
+@testable import Services
 
 @Suite("RecoveryPreflight")
 struct RecoveryPreflightTests {
@@ -177,21 +177,25 @@ private func makeRecord(
     }
 
     return RunRecord(
-        runID: runID,
-        requestID: RunRequestID(),
-        trigger: .manualCheck,
-        intent: intent,
-        scope: ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: 1,
-            createdAt: startedAt,
-            reason: "test"
+        header: RunRecord.Header(
+            runID: runID,
+            requestID: RunRequestID(),
+            trigger: .manualCheck,
+            intent: intent,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: 1,
+                createdAt: startedAt,
+                reason: "test"
+            ),
+            startedAt: startedAt
         ),
         transitions: transitions,
-        syncSummary: nil,
-        failureMessage: nil,
-        startedAt: startedAt,
-        finishedAt: finishedAt
+        status: RunRecord.Status(
+            syncSummary: nil,
+            failureMessage: nil,
+            finishedAt: finishedAt
+        )
     )
 }
 

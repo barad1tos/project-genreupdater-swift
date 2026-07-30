@@ -115,13 +115,26 @@ enum ScriptDispatch {
                     completion?.finish()
                 },
                 start: { finish in
+                    let resolve: @Sendable (Result<Value, any Error>) -> Void = { result in
+                        guard call.intent == .mutation,
+                              case let .failure(error) = result,
+                              !(error is AppleScriptOutcomeError)
+                        else {
+                            finish(result)
+                            return
+                        }
+                        finish(.failure(AppleScriptOutcomeError(
+                            scriptName: call.name,
+                            reason: "returned an error after dispatch: \(error.localizedDescription)"
+                        )))
+                    }
                     if let lease {
-                        guard lease.dispatch({ start(finish) }) else {
+                        guard lease.dispatch({ start(resolve) }) else {
                             finish(.failure(call.dispatchError))
                             return
                         }
                     } else {
-                        start(finish)
+                        start(resolve)
                     }
                 }
             )
@@ -156,7 +169,7 @@ enum ScriptDispatch {
         let intentLabel = String(describing: call.intent)
         let onDeadline: @Sendable (Duration) -> Void = { overdue in
             dispatchLog.error(
-                "Pending \(intentLabel, privacy: .public): \(call.name, privacy: .public), overdue \(overdue, privacy: .public)"
+                "\(call.name, privacy: .public) \(intentLabel, privacy: .public) overdue \(overdue, privacy: .public)"
             )
         }
 

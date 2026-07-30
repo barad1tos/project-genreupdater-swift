@@ -10,6 +10,8 @@ public final class PersistedRunRecord {
     /// Denormalized state column used by report-query predicates; reads still
     /// derive the canonical state from transitions (see RunRecord.state).
     public var stateRaw: String
+    /// Denormalized write gate used by checkpoints so they do not decode the full run payload.
+    public var writeAuthorityRaw: String?
     public var scopeData: Data
     public var transitionsData: Data
     public var syncNewCount: Int?
@@ -21,36 +23,48 @@ public final class PersistedRunRecord {
     public var startedAt: Date
     public var finishedAt: Date?
 
+    init(record: RunRecord, scopeData: Data, payloadData: Data) {
+        runID = record.runID.rawValue
+        requestID = record.requestID.rawValue
+        triggerRaw = record.trigger.rawValue
+        intentRaw = record.intent.rawValue
+        stateRaw = record.state.rawValue
+        writeAuthorityRaw = record.configuration?.writeAuthority.rawValue
+        self.scopeData = scopeData
+        transitionsData = payloadData
+        syncNewCount = record.syncSummary?.new
+        syncModifiedCount = record.syncSummary?.modified
+        syncIdentityChangedCount = record.syncSummary?.identityChanged
+        syncRefreshedCount = record.syncSummary?.refreshed
+        syncRemovedCount = record.syncSummary?.removed
+        failureMessage = record.failureMessage
+        startedAt = record.startedAt
+        finishedAt = record.finishedAt
+    }
+
     public init(
         runID: UUID,
-        requestID: UUID,
-        triggerRaw: String,
         intentRaw: String,
         stateRaw: String,
         scopeData: Data,
         transitionsData: Data,
-        syncNewCount: Int?,
-        syncModifiedCount: Int?,
-        syncIdentityChangedCount: Int?,
-        syncRefreshedCount: Int?,
-        syncRemovedCount: Int?,
-        failureMessage: String?,
         startedAt: Date,
         finishedAt: Date?
     ) {
         self.runID = runID
-        self.requestID = requestID
-        self.triggerRaw = triggerRaw
+        requestID = UUID()
+        triggerRaw = RunTrigger.manualCheck.rawValue
         self.intentRaw = intentRaw
         self.stateRaw = stateRaw
+        writeAuthorityRaw = nil
         self.scopeData = scopeData
         self.transitionsData = transitionsData
-        self.syncNewCount = syncNewCount
-        self.syncModifiedCount = syncModifiedCount
-        self.syncIdentityChangedCount = syncIdentityChangedCount
-        self.syncRefreshedCount = syncRefreshedCount
-        self.syncRemovedCount = syncRemovedCount
-        self.failureMessage = failureMessage
+        syncNewCount = nil
+        syncModifiedCount = nil
+        syncIdentityChangedCount = nil
+        syncRefreshedCount = nil
+        syncRemovedCount = nil
+        failureMessage = nil
         self.startedAt = startedAt
         self.finishedAt = finishedAt
     }

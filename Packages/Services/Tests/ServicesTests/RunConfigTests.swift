@@ -17,11 +17,14 @@ struct RunConfigStoreTests {
             reason: "manualCheck"
         )
         let record = RunRecord(
-            runID: RunID(),
-            requestID: RunRequestID(),
-            trigger: .manualCheck,
-            intent: .previewFixes,
-            scope: scope,
+            header: RunRecord.Header(
+                runID: RunID(),
+                requestID: RunRequestID(),
+                trigger: .manualCheck,
+                intent: .previewFixes,
+                scope: scope,
+                startedAt: startedAt
+            ),
             configuration: RunConfig(
                 capturedAt: startedAt,
                 writeAuthority: .readOnly,
@@ -41,10 +44,11 @@ struct RunConfigStoreTests {
                 RunLifecycleTransition(state: .reporting, timestamp: startedAt.addingTimeInterval(3)),
                 RunLifecycleTransition(state: .completed, timestamp: finishedAt),
             ],
-            syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 0),
-            failureMessage: nil,
-            startedAt: startedAt,
-            finishedAt: finishedAt
+            status: RunRecord.Status(
+                syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 0),
+                failureMessage: nil,
+                finishedAt: finishedAt
+            )
         )
 
         try await store.upsert(record)
@@ -265,19 +269,23 @@ struct RunConfigStoreTests {
         )
         let finishedAt = startedAt.addingTimeInterval(2)
         let final = RunRecord(
-            runID: open.runID,
-            requestID: open.requestID,
-            trigger: open.trigger,
-            intent: open.intent,
-            scope: open.scope,
+            header: RunRecord.Header(
+                runID: open.runID,
+                requestID: open.requestID,
+                trigger: open.trigger,
+                intent: open.intent,
+                scope: open.scope,
+                startedAt: open.startedAt
+            ),
             configuration: open.configuration,
             transitions: open.transitions + [
                 RunLifecycleTransition(state: .completedNoOp, timestamp: finishedAt),
             ],
-            syncSummary: open.syncSummary,
-            failureMessage: nil,
-            startedAt: open.startedAt,
-            finishedAt: finishedAt
+            status: RunRecord.Status(
+                syncSummary: open.syncSummary,
+                failureMessage: nil,
+                finishedAt: finishedAt
+            )
         )
 
         try await store.upsert(open)

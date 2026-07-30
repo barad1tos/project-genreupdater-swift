@@ -85,11 +85,13 @@ struct GenreRepairTests {
         let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
 
         return UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
                 scriptBridge: bridge,
-                trackStore: MockTrackStore(),
-                cache: MockCacheService(),
+                stores: .init(
+                    trackStore: MockTrackStore(),
+                    cache: MockCacheService()
+                ),
                 undoCoordinator: undo
             ),
             genreDeterminator: GenreDeterminator(),

@@ -97,9 +97,11 @@ struct OperationalReportTests {
             artist: "Artist",
             album: "Album",
             reason: "prerelease",
-            attemptCount: 5,
-            lastAttempt: lastAttempt,
-            recheckInterval: 3600,
+            retry: .init(
+                attemptCount: 5,
+                lastAttempt: lastAttempt,
+                recheckInterval: 3600
+            ),
             metadata: ["last_error": "Still prerelease"]
         )
         let problematicAlbum = ProblematicPendingAlbum(
@@ -144,9 +146,11 @@ struct OperationalReportTests {
                 artist: "Clutch",
                 album: "Pure Rock Fury",
                 reason: "no_year_found",
-                attemptCount: 3,
-                lastAttempt: lastAttempt,
-                recheckInterval: 86400,
+                retry: .init(
+                    attemptCount: 3,
+                    lastAttempt: lastAttempt,
+                    recheckInterval: 86400
+                ),
                 metadata: ["last_error": "API timeout"]
             ),
             totalAttempts: 3,

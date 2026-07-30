@@ -9,7 +9,7 @@ struct LibrarySyncRemovalTests {
     func keepsConfirmedUnmappedRemovalsWhenMappedVerificationIsEmpty() async throws {
         let bridge = QueuedFetchAllTrackIDsScriptClient(
             fetchAllTrackIDsResults: [
-                [],
+                []
             ],
             tracksByID: [
                 "AS-other": Track(
@@ -18,7 +18,7 @@ struct LibrarySyncRemovalTests {
                     artist: "A",
                     album: "B",
                     appleScriptID: "AS-other"
-                ),
+                )
             ]
         )
         let store = SyncMockTrackStore()
@@ -26,7 +26,7 @@ struct LibrarySyncRemovalTests {
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
-            Track(id: "MK-current", name: "Current", artist: "A", album: "B"),
+            Track(id: "MK-current", name: "Current", artist: "A", album: "B")
         ])
         await store.setStored([
             Track(id: "MK-current", name: "Current", artist: "A", album: "B"),
@@ -37,7 +37,7 @@ struct LibrarySyncRemovalTests {
                 artist: "A",
                 album: "B",
                 appleScriptID: "AS-mapped"
-            ),
+            )
         ])
 
         let service = LibrarySyncService(
@@ -104,7 +104,7 @@ private actor QueuedFetchAllTrackIDsScriptClient: AppleScriptClient {
         .changed
     }
 
-    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
+    func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
         // Removal tests never exercise write batching.
     }
 
@@ -125,7 +125,7 @@ private actor QueuedFetchAllTrackIDsScriptClient: AppleScriptClient {
             track.trackStatus ?? "",
             track.year.map(String.init) ?? "",
             track.releaseYear.map(String.init) ?? "",
-            "",
+            ""
         ].joined(separator: String(Track.fieldSeparator))
     }
 }

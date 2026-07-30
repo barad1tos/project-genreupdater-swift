@@ -84,9 +84,9 @@ struct PreviewTests {
         }
 
         let call = try #require(await producer.calls.first)
-        #expect(call.runID == result.lifecycle.runID)
-        #expect(call.scope == result.lifecycle.scope)
-        #expect(call.configuration == result.lifecycle.previewConfiguration)
+        #expect(call.runID == result.lifecycle?.runID)
+        #expect(call.scope == result.lifecycle?.scope)
+        #expect(call.configuration == result.lifecycle?.previewConfiguration)
 
         let final = try #require(await probe.records.last)
         #expect(final.intent == .previewFixes)
@@ -98,7 +98,7 @@ struct PreviewTests {
             .completed,
         ])
         #expect(final.syncSummary?.changeCount == 0)
-        #expect(final.finishedAt == result.lifecycle.finishedAt)
+        #expect(final.finishedAt == result.lifecycle?.finishedAt)
     }
 
     @Test("preview run with an empty production finishes no-op even when sync changed")

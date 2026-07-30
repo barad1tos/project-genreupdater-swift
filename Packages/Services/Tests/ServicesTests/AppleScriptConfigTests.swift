@@ -86,17 +86,17 @@ struct AppleScriptConfigTests {
 
     @Test("Single update output rejects errors, empty response, and unknown text")
     func singleUpdateOutputRejectsFailures() throws {
-        #expect(throws: AppleScriptBridgeError.self) {
+        #expect(throws: AppleScriptOutcomeError.self) {
             try AppleScriptBridge.validateUpdatePropertyOutput(
                 "Error: Track 10 not found",
                 trackID: "10",
                 property: "genre"
             )
         }
-        #expect(throws: AppleScriptBridgeError.self) {
+        #expect(throws: AppleScriptOutcomeError.self) {
             try AppleScriptBridge.validateUpdatePropertyOutput(nil, trackID: "10", property: "genre")
         }
-        #expect(throws: AppleScriptBridgeError.self) {
+        #expect(throws: AppleScriptOutcomeError.self) {
             try AppleScriptBridge.validateUpdatePropertyOutput(
                 "Updated track 10",
                 trackID: "10",
@@ -139,7 +139,7 @@ struct AppleScriptConfigTests {
             // Value contains a reserved separator that would make makeBatchUpdateArgument throw
             // if it ran before the script check. The script check must run first.
             try await bridge.batchUpdateTracks([
-                (trackID: "101", property: "genre", value: "Metal\(Track.fieldSeparator)Jazz"),
+                TrackPropertyUpdate(trackID: "101", property: "genre", value: "Metal\(Track.fieldSeparator)Jazz")
             ])
             Issue.record("Expected missing batch script to fail before AppleScript execution")
         } catch let error as AppleScriptBridgeError {
@@ -164,7 +164,7 @@ struct AppleScriptConfigTests {
 
         do {
             try await bridge.batchUpdateTracks([
-                (trackID: "101", property: "genre", value: "Stoner Rock"),
+                TrackPropertyUpdate(trackID: "101", property: "genre", value: "Stoner Rock")
             ])
             Issue.record("Expected missing batch script to fail before AppleScript execution")
         } catch let error as AppleScriptBridgeError {
@@ -176,24 +176,27 @@ struct AppleScriptConfigTests {
             Issue.record("Expected AppleScriptBridgeError, got \(error)")
         }
     }
+}
 
+@Suite("AppleScriptBridge - batch payloads and track parsing")
+struct AppleScriptPayloadTests {
     @Test("Batch update verification rejects stale or missing refreshed tracks")
     func batchUpdateVerificationRejectsStaleOrMissingRefreshedTracks() throws {
         let updates = [
-            (trackID: "101", property: "genre", value: "Stoner Rock"),
-            (trackID: "102", property: "year", value: "2001"),
+            TrackPropertyUpdate(trackID: "101", property: "genre", value: "Stoner Rock"),
+            TrackPropertyUpdate(trackID: "102", property: "year", value: "2001")
         ]
         let staleTracks = [
             Track(id: "101", name: "American Sleep", artist: "Clutch", album: "Pure Rock Fury", genre: "Rock"),
-            Track(id: "102", name: "Pure Rock Fury", artist: "Clutch", album: "Pure Rock Fury", year: 2001),
+            Track(id: "102", name: "Pure Rock Fury", artist: "Clutch", album: "Pure Rock Fury", year: 2001)
         ]
         let missingTracks = [
-            Track(id: "101", name: "American Sleep", artist: "Clutch", album: "Pure Rock Fury", genre: "Stoner Rock"),
+            Track(id: "101", name: "American Sleep", artist: "Clutch", album: "Pure Rock Fury", genre: "Stoner Rock")
         ]
         let duplicateTracks = [
             Track(id: "101", name: "American Sleep", artist: "Clutch", album: "Pure Rock Fury", genre: "Stoner Rock"),
             Track(id: "101", name: "American Sleep", artist: "Clutch", album: "Pure Rock Fury", genre: "Rock"),
-            Track(id: "102", name: "Pure Rock Fury", artist: "Clutch", album: "Pure Rock Fury", year: 2001),
+            Track(id: "102", name: "Pure Rock Fury", artist: "Clutch", album: "Pure Rock Fury", year: 2001)
         ]
 
         #expect(throws: AppleScriptBatchVerificationError.self) {
@@ -208,7 +211,7 @@ struct AppleScriptConfigTests {
     @Test("Batch update verification maps album artist property")
     func batchUpdateVerificationMapsAlbumArtistProperty() throws {
         let updates = [
-            (trackID: "101", property: "album_artist", value: "Clutch"),
+            TrackPropertyUpdate(trackID: "101", property: "album_artist", value: "Clutch")
         ]
         let refreshedTracks = [
             Track(
@@ -217,7 +220,7 @@ struct AppleScriptConfigTests {
                 artist: "Clutch",
                 album: "Pure Rock Fury",
                 albumArtist: "Clutch"
-            ),
+            )
         ]
         let staleTracks = [
             Track(
@@ -226,7 +229,7 @@ struct AppleScriptConfigTests {
                 artist: "Clutch",
                 album: "Pure Rock Fury",
                 albumArtist: nil
-            ),
+            )
         ]
 
         try AppleScriptBridge.verifyBatchUpdateValues(updates, in: refreshedTracks)
@@ -239,7 +242,7 @@ struct AppleScriptConfigTests {
     func batchUpdateArgvPreservesDirectMetadataPayloads() throws {
         let value = #"Паліндром / Альбом, Частина & "Live"\Raw (EP) [Single]"#
         let argument = try AppleScriptBridge.makeBatchUpdateArgument([
-            (trackID: #"T"1"#, property: "genre", value: value),
+            TrackPropertyUpdate(trackID: #"T"1"#, property: "genre", value: value)
         ])
         let fields = argument
             .split(separator: Track.fieldSeparator, omittingEmptySubsequences: false)
@@ -252,17 +255,17 @@ struct AppleScriptConfigTests {
     func batchUpdateArgvRejectsReservedSeparatorsAndUnknownProperties() {
         #expect(throws: AppleScriptBridgeError.self) {
             _ = try AppleScriptBridge.makeBatchUpdateArgument([
-                (trackID: "T1", property: "genre", value: "Metal\(Track.fieldSeparator)Jazz"),
+                TrackPropertyUpdate(trackID: "T1", property: "genre", value: "Metal\(Track.fieldSeparator)Jazz")
             ])
         }
         #expect(throws: AppleScriptBridgeError.self) {
             _ = try AppleScriptBridge.makeBatchUpdateArgument([
-                (trackID: "T1\(Track.recordSeparator)", property: "genre", value: "Metal"),
+                TrackPropertyUpdate(trackID: "T1\(Track.recordSeparator)", property: "genre", value: "Metal")
             ])
         }
         #expect(throws: AppleScriptBridgeError.self) {
             _ = try AppleScriptBridge.makeBatchUpdateArgument([
-                (trackID: "T1", property: "genre;stop", value: "Metal"),
+                TrackPropertyUpdate(trackID: "T1", property: "genre;stop", value: "Metal")
             ])
         }
     }
@@ -359,7 +362,7 @@ private func appleScriptTrackOutput(
     [
         id, name, artist, artist, album,
         "Rock", "2024-02-21 13:45:00", "2024-03-01 10:00:00",
-        status, year, releaseYear, "",
+        status, year, releaseYear, ""
     ].joined(separator: String(Track.fieldSeparator))
 }
 

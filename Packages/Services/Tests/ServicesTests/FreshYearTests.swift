@@ -131,12 +131,17 @@ struct FreshYearTests {
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("FreshYearTests-\(UUID().uuidString)")
         return UpdateCoordinator(
-            dependencies: UpdateCoordinatorDependencies(
+            dependencies: UpdateDependencies(
                 apiOrchestrator: api,
                 scriptBridge: bridge,
-                trackStore: MockTrackStore(),
-                cache: cache,
-                undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: undoDirectory),
+                stores: .init(
+                    trackStore: MockTrackStore(),
+                    cache: cache
+                ),
+                undoCoordinator: UndoCoordinator(
+                    scriptBridge: bridge,
+                    directory: undoDirectory
+                ),
                 librarySnapshotService: nil,
                 pendingVerificationService: pendingVerificationService
             ),

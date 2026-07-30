@@ -275,6 +275,122 @@ struct WorkItemRecoveryTests {
         #expect(rows.first?.transitionsData == storedData)
     }
 
+    @Test("Read-only recovery cannot discard a write-adjacent child checkpoint")
+    func holdsUnsafeChildState() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let item = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .reporting,
+            syncSummary: nil,
+            input: RunRecordInput(
+                workItems: [item],
+                includesSyncTransition: false
+            )
+        )
+        try await store.upsert(record)
+
+        let context = ModelContext(container)
+        let child = try #require(context.fetch(FetchDescriptor<PersistedRunWorkItem>()).first)
+        child.itemData = try JSONEncoder().encode(
+            item.transition(to: .attempting).transition(to: .attempted)
+        )
+        try context.save()
+        let freshStore = RunRecordDataStore(modelContainer: container)
+
+        let page = try await freshStore.reports(matching: RunReportQuery())
+        let didClose = try await freshStore.closeReadOnlyCorruption(
+            record.runID,
+            at: Date(timeIntervalSince1970: 200)
+        )
+
+        #expect(page.closableRunIDs.isEmpty)
+        #expect(page.attentionRunIDs == [record.runID])
+        #expect(didClose == false)
+    }
+
+    @Test("Recovery preserves the latest valid child checkpoint")
+    func preservesLatestChildState() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let item = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [item],
+                includesSyncTransition: false
+            )
+        )
+        try await store.upsert(record)
+
+        let context = ModelContext(container)
+        let child = try #require(context.fetch(FetchDescriptor<PersistedRunWorkItem>()).first)
+        child.itemData = try JSONEncoder().encode(
+            item.transition(to: .attempting)
+                .transition(to: .attempted)
+                .transition(to: .outcome(.written))
+        )
+        let row = try #require(context.fetch(FetchDescriptor<PersistedRunRecord>()).first)
+        row.stateRaw = "invalid"
+        try context.save()
+        let freshStore = RunRecordDataStore(modelContainer: container)
+
+        let didClose = try await freshStore.closeCorruptedRun(
+            record.runID,
+            at: Date(timeIntervalSince1970: 200)
+        )
+        let repaired = try #require(await freshStore.record(for: record.runID))
+
+        #expect(didClose)
+        #expect(repaired.workItems.first?.state == .outcome(.written))
+    }
+
+    @Test("Recovery dismisses open child checkpoints")
+    func dismissesOpenChildState() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let item = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [item],
+                includesSyncTransition: false
+            )
+        )
+        try await store.upsert(record)
+
+        let context = ModelContext(container)
+        let child = try #require(context.fetch(FetchDescriptor<PersistedRunWorkItem>()).first)
+        child.itemData = try JSONEncoder().encode(
+            item.transition(to: .attempting).transition(to: .attempted)
+        )
+        let row = try #require(context.fetch(FetchDescriptor<PersistedRunRecord>()).first)
+        row.stateRaw = "invalid"
+        try context.save()
+        let freshStore = RunRecordDataStore(modelContainer: container)
+
+        let didClose = try await freshStore.closeCorruptedRun(
+            record.runID,
+            at: Date(timeIntervalSince1970: 200)
+        )
+        let repaired = try #require(await freshStore.record(for: record.runID))
+
+        #expect(didClose)
+        #expect(repaired.state == .cancelled)
+        #expect(repaired.finishedAt == Date(timeIntervalSince1970: 200))
+        #expect(repaired.workItems.first?.state == .outcome(.dismissed))
+    }
+
     @Test("Scope-detached item audit requires attention")
     func holdsDetachedScope() async throws {
         let container = try ModelContainerFactory.createInMemory()
@@ -337,6 +453,33 @@ struct WorkItemRecoveryTests {
         #expect(try await store.prune(keepingLatest: 1) == 0)
         let page = try await store.reports(matching: RunReportQuery())
         #expect(page.attentionRunIDs == [RunID(rawValue: unsafeRunID)])
+        let rows = try ModelContext(container).fetch(FetchDescriptor<PersistedRunRecord>())
+        #expect(Set(rows.map(\.runID)) == [unsafeRunID, safeRunID])
+    }
+
+    @Test("Prune preserves terminal audits with open work")
+    func holdsOpenHistory() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let unsafeRunID = UUID()
+        let safeRunID = UUID()
+        try insertTerminalAudit(
+            runID: unsafeRunID,
+            startedAt: Date(timeIntervalSince1970: 100),
+            workItems: [makeWorkItem(state: .prepared)],
+            isDetached: false,
+            into: container
+        )
+        try insertTerminalAudit(
+            runID: safeRunID,
+            startedAt: Date(timeIntervalSince1970: 200),
+            workItems: [],
+            isDetached: false,
+            into: container
+        )
+        let store = RunRecordDataStore(modelContainer: container)
+
+        try await expectAttention(unsafeRunID, in: store)
+        #expect(try await store.prune(keepingLatest: 1) == 0)
         let rows = try ModelContext(container).fetch(FetchDescriptor<PersistedRunRecord>())
         #expect(Set(rows.map(\.runID)) == [unsafeRunID, safeRunID])
     }

@@ -432,22 +432,44 @@ struct ArbiterTests {
         previewConfiguration: FixPlanConfig? = nil
     ) -> RunLifecycleSnapshot {
         let startedAt = Date(timeIntervalSince1970: 100)
-        return RunLifecycleSnapshot(
-            runID: RunID(),
-            requestID: RunRequestID(),
-            trigger: trigger,
-            intent: intent,
-            scope: .capture(
-                requestedTestArtists: requestedTestArtists,
-                knownTrackCount: knownTrackCount,
-                createdAt: startedAt,
-                reason: trigger.rawValue
-            ),
-            previewConfiguration: intent == .previewFixes ? previewConfiguration ?? previewConfig() : nil,
-            writeTarget: writeTarget,
-            startedAt: startedAt,
-            phase: .active(.syncingLibrary)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: requestedTestArtists,
+            knownTrackCount: knownTrackCount,
+            createdAt: startedAt,
+            reason: trigger.rawValue
         )
+        switch intent {
+        case .observeLibrary:
+            return RunLifecycleSnapshot(
+                runID: RunID(),
+                requestID: RunRequestID(),
+                trigger: trigger,
+                intent: intent,
+                scope: scope,
+                startedAt: startedAt,
+                phase: .active(.syncingLibrary)
+            )
+        case .previewFixes:
+            return RunLifecycleSnapshot(
+                runID: RunID(),
+                requestID: RunRequestID(),
+                trigger: trigger,
+                scope: scope,
+                previewConfiguration: previewConfiguration ?? previewConfig(),
+                startedAt: startedAt,
+                phase: .active(.syncingLibrary)
+            )
+        case .writeFixes:
+            return RunLifecycleSnapshot(
+                runID: RunID(),
+                requestID: RunRequestID(),
+                trigger: trigger,
+                scope: scope,
+                writeTarget: writeTarget ?? Self.writeTarget("00000000-0000-0000-0000-000000000999"),
+                startedAt: startedAt,
+                phase: .active(.syncingLibrary)
+            )
+        }
     }
 
     private static func writeTarget(_ rawPlanID: String) -> FixPlanWriteTarget {
@@ -467,14 +489,21 @@ struct ArbiterTests {
         knownTrackCount: Int? = nil
     ) -> FixPlanWriteInput {
         let capturedAt = Date(timeIntervalSince1970: 50)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: artists,
+            knownTrackCount: knownTrackCount,
+            createdAt: capturedAt,
+            reason: "arbiter-test"
+        )
         return FixPlanWriteInput(
             target: target,
-            scope: .capture(
-                requestedTestArtists: artists,
-                knownTrackCount: knownTrackCount,
-                createdAt: capturedAt,
-                reason: "arbiter-test"
-            )
+            scope: scope,
+            configuration: makeRunConfiguration(
+                scopeID: scope.id,
+                capturedAt: capturedAt,
+                writeAuthority: .reviewedPlan
+            ),
+            workItems: [makeWorkItem(state: .prepared)]
         )
     }
 }

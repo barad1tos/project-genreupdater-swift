@@ -13,28 +13,18 @@ import Testing
 struct PersistedTrackTests {
     private let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-    private func sampleTrack(
-        id: String = "T1",
-        name: String = "Song",
-        artist: String = "Artist",
-        album: String = "Album",
-        genre: String? = "Rock",
-        year: Int? = 2020,
-        albumArtist: String? = "AlbumArtist",
-        trackStatus: String? = "matched",
-        releaseYear: Int? = 2019
-    ) -> Core.Track {
+    private func sampleTrack() -> Core.Track {
         Core.Track(
-            id: id,
-            name: name,
-            artist: artist,
-            album: album,
-            genre: genre,
-            year: year,
+            id: "T1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 2020,
             dateAdded: fixedDate,
-            trackStatus: trackStatus,
-            releaseYear: releaseYear,
-            albumArtist: albumArtist
+            trackStatus: "matched",
+            releaseYear: 2019,
+            albumArtist: "AlbumArtist"
         )
     }
 
@@ -316,9 +306,11 @@ struct PersistedPendingAlbumEntryTests {
             artist: "Massive Attack",
             album: "Mezzanine",
             reason: "missing_year",
-            attemptCount: 2,
-            lastAttempt: fixedDate,
-            recheckInterval: 604_800,
+            retry: .init(
+                attemptCount: 2,
+                lastAttempt: fixedDate,
+                recheckInterval: 604_800
+            ),
             metadata: ["source": "musicbrainz"]
         )
 
@@ -341,9 +333,11 @@ struct PersistedPendingAlbumEntryTests {
             artist: "Low",
             album: "HEY WHAT",
             reason: "low_confidence",
-            attemptCount: 3,
-            lastAttempt: fixedDate,
-            recheckInterval: 1_209_600,
+            retry: .init(
+                attemptCount: 3,
+                lastAttempt: fixedDate,
+                recheckInterval: 1_209_600
+            ),
             metadata: ["confidence": "42"]
         )
 
@@ -366,9 +360,11 @@ struct PersistedPendingAlbumEntryTests {
             artist: "Old",
             album: "Old Album",
             reason: "old_reason",
-            attemptCount: 1,
-            lastAttempt: fixedDate,
-            recheckInterval: 604_800,
+            retry: .init(
+                attemptCount: 1,
+                lastAttempt: fixedDate,
+                recheckInterval: 604_800
+            ),
             metadata: [:]
         ))
         let updated = PendingAlbumEntry(
@@ -376,9 +372,11 @@ struct PersistedPendingAlbumEntryTests {
             artist: "New",
             album: "New Album",
             reason: "new_reason",
-            attemptCount: 4,
-            lastAttempt: fixedDate.addingTimeInterval(60),
-            recheckInterval: 86400,
+            retry: .init(
+                attemptCount: 4,
+                lastAttempt: fixedDate.addingTimeInterval(60),
+                recheckInterval: 86400
+            ),
             metadata: ["source": "discogs"]
         )
 

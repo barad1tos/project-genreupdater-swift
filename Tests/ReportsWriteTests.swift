@@ -125,7 +125,7 @@ private actor ReportsScriptClient: AppleScriptClient {
         return .changed
     }
 
-    func batchUpdateTracks(_: [(trackID: String, property: String, value: String)]) async throws {
+    func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
         // Reports tests only exercise single-track writes.
     }
 

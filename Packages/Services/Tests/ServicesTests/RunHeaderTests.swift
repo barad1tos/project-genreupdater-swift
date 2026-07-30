@@ -73,19 +73,23 @@ struct RunHeaderTests {
         let initial = replacing(configured, scope: configured.scope, configuration: nil)
         let finishedAt = Date(timeIntervalSince1970: 101)
         let final = RunRecord(
-            runID: initial.runID,
-            requestID: initial.requestID,
-            trigger: initial.trigger,
-            intent: initial.intent,
-            scope: initial.scope,
+            header: RunRecord.Header(
+                runID: initial.runID,
+                requestID: initial.requestID,
+                trigger: initial.trigger,
+                intent: initial.intent,
+                scope: initial.scope,
+                startedAt: initial.startedAt
+            ),
             configuration: nil,
             transitions: initial.transitions + [
                 RunLifecycleTransition(state: .completedNoOp, timestamp: finishedAt),
             ],
-            syncSummary: initial.syncSummary,
-            failureMessage: nil,
-            startedAt: initial.startedAt,
-            finishedAt: finishedAt
+            status: RunRecord.Status(
+                syncSummary: initial.syncSummary,
+                failureMessage: nil,
+                finishedAt: finishedAt
+            )
         )
         try await store.upsert(initial)
 
@@ -155,20 +159,24 @@ struct RunHeaderTests {
             input: RunRecordInput(intent: .writeFixes, recoveryID: UUID())
         )
         let replacement = RunRecord(
-            runID: initial.runID,
-            requestID: initial.requestID,
-            trigger: initial.trigger,
-            intent: initial.intent,
-            scope: initial.scope,
+            header: RunRecord.Header(
+                runID: initial.runID,
+                requestID: initial.requestID,
+                trigger: initial.trigger,
+                intent: initial.intent,
+                scope: initial.scope,
+                startedAt: initial.startedAt
+            ),
             configuration: initial.configuration,
             writeTarget: initial.writeTarget,
             recoveryID: nil,
             transitions: initial.transitions,
-            syncSummary: initial.syncSummary,
-            writeSummary: initial.writeSummary,
-            failureMessage: initial.failureMessage,
-            startedAt: initial.startedAt,
-            finishedAt: initial.finishedAt
+            status: RunRecord.Status(
+                syncSummary: initial.syncSummary,
+                writeSummary: initial.writeSummary,
+                failureMessage: initial.failureMessage,
+                finishedAt: initial.finishedAt
+            )
         )
         try await store.upsert(initial)
 
@@ -193,20 +201,24 @@ struct RunHeaderTests {
             input: RunRecordInput(intent: .writeFixes)
         )
         let stale = RunRecord(
-            runID: initial.runID,
-            requestID: initial.requestID,
-            trigger: initial.trigger,
-            intent: initial.intent,
-            scope: initial.scope,
+            header: RunRecord.Header(
+                runID: initial.runID,
+                requestID: initial.requestID,
+                trigger: initial.trigger,
+                intent: initial.intent,
+                scope: initial.scope,
+                startedAt: initial.startedAt
+            ),
             configuration: initial.configuration,
             writeTarget: initial.writeTarget,
             recoveryID: initial.recoveryID,
             transitions: Array(initial.transitions.dropLast()),
-            syncSummary: initial.syncSummary,
-            writeSummary: initial.writeSummary,
-            failureMessage: initial.failureMessage,
-            startedAt: initial.startedAt,
-            finishedAt: nil
+            status: RunRecord.Status(
+                syncSummary: initial.syncSummary,
+                writeSummary: initial.writeSummary,
+                failureMessage: initial.failureMessage,
+                finishedAt: nil
+            )
         )
         try await store.upsert(initial)
 
@@ -229,20 +241,24 @@ struct RunHeaderTests {
             syncSummary: nil
         )
         let reopened = RunRecord(
-            runID: initial.runID,
-            requestID: initial.requestID,
-            trigger: initial.trigger,
-            intent: initial.intent,
-            scope: initial.scope,
+            header: RunRecord.Header(
+                runID: initial.runID,
+                requestID: initial.requestID,
+                trigger: initial.trigger,
+                intent: initial.intent,
+                scope: initial.scope,
+                startedAt: initial.startedAt
+            ),
             configuration: initial.configuration,
             writeTarget: initial.writeTarget,
             recoveryID: initial.recoveryID,
             transitions: initial.transitions,
-            syncSummary: initial.syncSummary,
-            writeSummary: initial.writeSummary,
-            failureMessage: initial.failureMessage,
-            startedAt: initial.startedAt,
-            finishedAt: nil
+            status: RunRecord.Status(
+                syncSummary: initial.syncSummary,
+                writeSummary: initial.writeSummary,
+                failureMessage: initial.failureMessage,
+                finishedAt: nil
+            )
         )
         try await store.upsert(initial)
 
@@ -265,22 +281,26 @@ struct RunHeaderTests {
             syncSummary: nil
         )
         let replacement = RunRecord(
-            runID: initial.runID,
-            requestID: initial.requestID,
-            trigger: initial.trigger,
-            intent: initial.intent,
-            scope: initial.scope,
+            header: RunRecord.Header(
+                runID: initial.runID,
+                requestID: initial.requestID,
+                trigger: initial.trigger,
+                intent: initial.intent,
+                scope: initial.scope,
+                startedAt: initial.startedAt
+            ),
             configuration: initial.configuration,
             writeTarget: initial.writeTarget,
             recoveryID: initial.recoveryID,
             transitions: initial.transitions + [
                 RunLifecycleTransition(state: .failed, timestamp: Date(timeIntervalSince1970: 103)),
             ],
-            syncSummary: initial.syncSummary,
-            writeSummary: initial.writeSummary,
-            failureMessage: initial.failureMessage,
-            startedAt: initial.startedAt,
-            finishedAt: initial.finishedAt
+            status: RunRecord.Status(
+                syncSummary: initial.syncSummary,
+                writeSummary: initial.writeSummary,
+                failureMessage: initial.failureMessage,
+                finishedAt: initial.finishedAt
+            )
         )
         try await store.upsert(initial)
 
@@ -374,11 +394,14 @@ struct RunHeaderTests {
             syncSummary: nil
         )
         let record = RunRecord(
-            runID: base.runID,
-            requestID: base.requestID,
-            trigger: base.trigger,
-            intent: base.intent,
-            scope: base.scope,
+            header: RunRecord.Header(
+                runID: base.runID,
+                requestID: base.requestID,
+                trigger: base.trigger,
+                intent: base.intent,
+                scope: base.scope,
+                startedAt: base.startedAt
+            ),
             configuration: base.configuration,
             writeTarget: base.writeTarget,
             recoveryID: base.recoveryID,
@@ -387,11 +410,12 @@ struct RunHeaderTests {
                 RunLifecycleTransition(state: .completed, timestamp: startedAt.addingTimeInterval(1)),
                 RunLifecycleTransition(state: .cancelled, timestamp: startedAt.addingTimeInterval(2)),
             ],
-            syncSummary: base.syncSummary,
-            writeSummary: base.writeSummary,
-            failureMessage: base.failureMessage,
-            startedAt: base.startedAt,
-            finishedAt: base.finishedAt
+            status: RunRecord.Status(
+                syncSummary: base.syncSummary,
+                writeSummary: base.writeSummary,
+                failureMessage: base.failureMessage,
+                finishedAt: base.finishedAt
+            )
         )
 
         await #expect(throws: RunRecordPersistenceError.self) {
@@ -402,11 +426,14 @@ struct RunHeaderTests {
 
     private func headerReplacement(for record: RunRecord, changing field: ImmutableRunField) -> RunRecord {
         RunRecord(
-            runID: record.runID,
-            requestID: field == .requestID ? RunRequestID() : record.requestID,
-            trigger: field == .trigger ? .recovery : record.trigger,
-            intent: field == .intent ? .writeFixes : record.intent,
-            scope: record.scope,
+            header: RunRecord.Header(
+                runID: record.runID,
+                requestID: field == .requestID ? RunRequestID() : record.requestID,
+                trigger: field == .trigger ? .recovery : record.trigger,
+                intent: field == .intent ? .writeFixes : record.intent,
+                scope: record.scope,
+                startedAt: field == .startedAt ? record.startedAt.addingTimeInterval(1) : record.startedAt
+            ),
             configuration: record.configuration,
             writeTarget: field == .writeTarget
                 ? FixPlanWriteTarget(
@@ -417,11 +444,12 @@ struct RunHeaderTests {
                 : record.writeTarget,
             recoveryID: record.recoveryID,
             transitions: record.transitions,
-            syncSummary: record.syncSummary,
-            writeSummary: record.writeSummary,
-            failureMessage: record.failureMessage,
-            startedAt: field == .startedAt ? record.startedAt.addingTimeInterval(1) : record.startedAt,
-            finishedAt: record.finishedAt
+            status: RunRecord.Status(
+                syncSummary: record.syncSummary,
+                writeSummary: record.writeSummary,
+                failureMessage: record.failureMessage,
+                finishedAt: record.finishedAt
+            )
         )
     }
 
@@ -433,20 +461,24 @@ struct RunHeaderTests {
         failureMessage: String? = nil
     ) -> RunRecord {
         RunRecord(
-            runID: record.runID,
-            requestID: record.requestID,
-            trigger: record.trigger,
-            intent: record.intent,
-            scope: record.scope,
+            header: RunRecord.Header(
+                runID: record.runID,
+                requestID: record.requestID,
+                trigger: record.trigger,
+                intent: record.intent,
+                scope: record.scope,
+                startedAt: record.startedAt
+            ),
             configuration: record.configuration,
             writeTarget: record.writeTarget,
             recoveryID: recoveryID ?? record.recoveryID,
             transitions: record.transitions,
-            syncSummary: syncSummary ?? record.syncSummary,
-            writeSummary: writeSummary ?? record.writeSummary,
-            failureMessage: failureMessage ?? record.failureMessage,
-            startedAt: record.startedAt,
-            finishedAt: record.finishedAt
+            status: RunRecord.Status(
+                syncSummary: syncSummary ?? record.syncSummary,
+                writeSummary: writeSummary ?? record.writeSummary,
+                failureMessage: failureMessage ?? record.failureMessage,
+                finishedAt: record.finishedAt
+            )
         )
     }
 }

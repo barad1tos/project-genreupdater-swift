@@ -11,6 +11,10 @@ let package = Package(
     dependencies: [
         .package(path: "../Core"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
+        .package(
+            url: "https://github.com/apple/swift-collections.git",
+            exact: "1.2.1"
+        ),
     ],
     targets: [
         .target(
@@ -18,6 +22,7 @@ let package = Package(
             dependencies: [
                 "Core",
                 .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "HashTreeCollections", package: "swift-collections"),
             ],
             path: "Sources/Services",
             swiftSettings: [
@@ -26,7 +31,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ServicesTests",
-            dependencies: ["Services"],
+            dependencies: ["Core", "Services"],
             path: "Tests/ServicesTests"
         ),
     ]
