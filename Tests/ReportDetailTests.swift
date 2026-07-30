@@ -1,4 +1,5 @@
 import DesignUI
+import Foundation
 import Services
 import Testing
 @testable import Genre_Updater
@@ -7,6 +8,7 @@ import Testing
 struct ReportDetailTests {
     @Test("maps detail projection fields to snapshot")
     func mapsDetailProjectionToSnapshot() {
+        let itemID = UUID()
         let projection = RunReportDetailProjection(
             runID: "run-1",
             state: .completed,
@@ -21,7 +23,19 @@ struct ReportDetailTests {
             summaryItems: [
                 RunReportSummaryItem(id: "summary-total", label: "Total changes", value: "6"),
             ],
-            detailMessage: nil
+            detailMessage: nil,
+            workItems: [
+                RunReportWorkItem(
+                    id: itemID,
+                    changeLabel: "Genre: Rock → Metal — Track A",
+                    stateLabel: "Failed",
+                    isOpen: false,
+                    isWriteUncertain: true,
+                    dismissedLabel: nil
+                ),
+            ],
+            canApplyRemainingFixes: true,
+            canDismissItems: false
         )
 
         let snapshot = ReportDetailAdapter.makeSnapshot(from: projection)
@@ -40,6 +54,18 @@ struct ReportDetailTests {
         #expect(snapshot.summaryItems.map(\.label) == ["Total changes"])
         #expect(snapshot.summaryItems.map(\.value) == ["6"])
         #expect(snapshot.detailMessage == nil)
+        #expect(snapshot.workItems == [
+            RunReportWorkItemRow(
+                id: itemID.uuidString,
+                changeLabel: "Genre: Rock → Metal — Track A",
+                stateLabel: "Failed",
+                isOpen: false,
+                isWriteUncertain: true,
+                dismissedLabel: nil
+            ),
+        ])
+        #expect(snapshot.canApplyRemainingFixes)
+        #expect(!snapshot.canDismissItems)
         #expect(snapshot.unavailableReason == nil)
     }
 

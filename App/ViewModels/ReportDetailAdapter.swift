@@ -21,7 +21,19 @@ enum ReportDetailAdapter {
             summaryItems: detail.summaryItems.map { item in
                 RunReportSummaryRow(id: item.id, label: item.label, value: item.value)
             },
-            detailMessage: detail.detailMessage
+            detailMessage: detail.detailMessage,
+            workItems: detail.workItems.map { item in
+                RunReportWorkItemRow(
+                    id: item.id.uuidString,
+                    changeLabel: item.changeLabel,
+                    stateLabel: item.stateLabel,
+                    isOpen: item.isOpen,
+                    isWriteUncertain: item.isWriteUncertain,
+                    dismissedLabel: item.dismissedLabel
+                )
+            },
+            canApplyRemainingFixes: detail.canApplyRemainingFixes,
+            canDismissItems: detail.canDismissItems
         )
     }
 }
