@@ -3,13 +3,7 @@ import Foundation
 
 extension UpdateCoordinator {
     static func appleScriptProperty(for changeType: ChangeType) -> String {
-        switch changeType {
-        case .genreUpdate: "genre"
-        case .yearUpdate, .yearRevert: "year"
-        case .trackCleaning: "name"
-        case .albumCleaning: "album"
-        case .artistRename: "artist"
-        }
+        AppleScriptTrackProperty(changeType: changeType).rawValue
     }
 
     static func value(forAppleScriptProperty property: String, in track: Track) -> String? {

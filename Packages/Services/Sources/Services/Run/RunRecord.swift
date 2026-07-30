@@ -156,15 +156,37 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         self.finishedAt = finishedAt
     }
 
-    public func closingRecovery(at finishedAt: Date) throws -> Self {
+    public func closingRecovery(
+        at finishedAt: Date,
+        observedOutcomes: [UUID: ObservedWorkOutcome]? = nil
+    ) throws -> Self {
         var transitions = transitions
         let auditTime = max(finishedAt, transitions.last?.timestamp ?? startedAt)
         if state != .recovering {
             transitions.append(RunLifecycleTransition(state: .recovering, timestamp: auditTime))
         }
         transitions.append(RunLifecycleTransition(state: .cancelled, timestamp: auditTime))
-        let closedWork = try workLedger.dismissingOpenWork()
-        let closure = "Recovery closed after Music.app verification; interrupted writes were not resumed."
+        let closedWork: WorkLedger
+        let closure: String
+        if let observedOutcomes {
+            closedWork = try workLedger.applyingObservedOutcomes(observedOutcomes)
+            let reviewCount = observedOutcomes.values.count { $0.outcome == .needsReview }
+            closure = reviewCount > 0
+                ? "Recovery closed after Music.app verification; \(reviewCount) item(s) need review."
+                : "Recovery closed after Music.app verification; observed outcomes recorded."
+        } else {
+            // ADR 0006: the durable record mirrors the in-memory gate — write
+            // uncertainty may never be finalized by a blind grouped dismissal.
+            guard !workLedger.hasUncertainty else {
+                throw WorkCheckpointError.invalid(
+                    .afterVerification,
+                    writeAdjacent: true,
+                    reason: "closing a write-uncertain recovery record requires observed outcomes"
+                )
+            }
+            closedWork = try workLedger.dismissingOpenWork()
+            closure = "Recovery closed after Music.app verification; interrupted writes were not resumed."
+        }
         let message = failureMessage.map { "\($0) \(closure)" } ?? closure
         return Self(
             copying: self,

@@ -190,6 +190,18 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         try transition(to: nextState, detail: detail)
     }
 
+    /// Replaces the audit note without a state transition. Terminal outcome
+    /// immutability is untouched — only the human-facing detail changes.
+    func annotated(detail: String?) -> Self {
+        Self(
+            id: id,
+            target: target,
+            change: change,
+            state: state,
+            detail: detail
+        )
+    }
+
     func transition(to nextState: WorkState, detail: String?) throws -> Self {
         guard Self.canTransition(from: state, to: nextState) else {
             throw WorkStateError.invalid(current: state, next: nextState)

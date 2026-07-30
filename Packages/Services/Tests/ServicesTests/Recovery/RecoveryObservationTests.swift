@@ -9,35 +9,61 @@ struct RecoveryObservationTests {
     func classifiesWritten() {
         let item = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
 
-        #expect(RecoveryObservation.outcome(for: item, observedValue: "Stoner Rock") == .written)
+        let observed = RecoveryObservation.outcome(for: item, observedValue: "Stoner Rock")
+
+        #expect(observed.outcome == .written)
+        #expect(observed.observedValue == "Stoner Rock")
     }
 
     @Test("observed prior value classifies failed without retry")
     func classifiesFailed() {
         let item = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
 
-        #expect(RecoveryObservation.outcome(for: item, observedValue: "Rock") == .failed)
+        #expect(RecoveryObservation.outcome(for: item, observedValue: "Rock").outcome == .failed)
     }
 
-    @Test("observed external value needs review")
+    @Test("observed external value needs review and keeps the evidence")
     func classifiesExternalChange() {
         let item = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
 
-        #expect(RecoveryObservation.outcome(for: item, observedValue: "Jazz") == .needsReview)
+        let observed = RecoveryObservation.outcome(for: item, observedValue: "Jazz")
+
+        #expect(observed.outcome == .needsReview)
+        #expect(observed.observedValue == "Jazz")
+        #expect(observed.detail == "Observed Music.app value: Jazz")
     }
 
-    @Test("absent track needs review")
+    @Test("absent track needs review with a missing-track note")
     func classifiesAbsentTrack() {
         let item = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
 
-        #expect(RecoveryObservation.outcome(for: item, observedValue: nil) == .needsReview)
+        let observed = RecoveryObservation.outcome(for: item, observedValue: nil)
+
+        #expect(observed.outcome == .needsReview)
+        #expect(observed.detail == "Track not found in Music.app")
     }
 
     @Test("empty observed value matches a nil prior value as failed")
     func treatsEmptyAsNilPrior() {
         let item = makeWorkItem(state: .attempted, oldValue: nil, newValue: "1999")
 
-        #expect(RecoveryObservation.outcome(for: item, observedValue: "") == .failed)
+        #expect(RecoveryObservation.outcome(for: item, observedValue: "").outcome == .failed)
+    }
+
+    @Test("every change type observes its own AppleScript property")
+    func mapsChangeTypesToProperties() {
+        let expectations: [(ChangeType, AppleScriptTrackProperty)] = [
+            (.genreUpdate, .genre),
+            (.yearUpdate, .year),
+            (.yearRevert, .year),
+            (.trackCleaning, .name),
+            (.albumCleaning, .album),
+            (.artistRename, .artist),
+        ]
+        for (changeType, property) in expectations {
+            #expect(AppleScriptTrackProperty(changeType: changeType) == property)
+            #expect(UpdateCoordinator.appleScriptProperty(for: changeType) == property.rawValue)
+        }
     }
 }
 
@@ -55,19 +81,30 @@ struct RecoveryObservationServiceTests {
 
         let outcomes = try await service.observeOutcomes(for: [landed, external])
 
-        #expect(outcomes[landed.id] == .written)
-        #expect(outcomes[external.id] == .needsReview)
+        #expect(outcomes[landed.id]?.outcome == .written)
+        #expect(outcomes[external.id]?.outcome == .needsReview)
+        #expect(outcomes[external.id]?.observedValue == "Stoner Rock")
     }
 
-    @Test("absent live track needs review")
-    func classifiesAbsentTrack() async throws {
-        let attempted = makeWorkItem(state: .attempted)
+    @Test("two properties of one track classify independently")
+    func classifiesTwoPropertiesOfOneTrack() async throws {
+        let genreItem = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
+        let yearItem = makeWorkItem(
+            state: .attempted,
+            changeType: .yearUpdate,
+            oldValue: "1999",
+            newValue: "2001"
+        )
         let client = MockAppleScriptClient()
+        await client.setFetchedTracks([
+            observedTrack(id: "persistent-1", genre: "Stoner Rock", year: 1999),
+        ])
         let service = RecoveryObservationService(scriptClient: client)
 
-        let outcomes = try await service.observeOutcomes(for: [attempted])
+        let outcomes = try await service.observeOutcomes(for: [genreItem, yearItem])
 
-        #expect(outcomes[attempted.id] == .needsReview)
+        #expect(outcomes[genreItem.id]?.outcome == .written)
+        #expect(outcomes[yearItem.id]?.outcome == .failed)
     }
 
     @Test("prepared items skip without observation")
@@ -78,7 +115,7 @@ struct RecoveryObservationServiceTests {
 
         let outcomes = try await service.observeOutcomes(for: [prepared])
 
-        #expect(outcomes[prepared.id] == .skipped)
+        #expect(outcomes[prepared.id]?.outcome == .skipped)
         #expect(await client.fetchTracksByIDsCalls().isEmpty)
     }
 
@@ -100,36 +137,49 @@ struct RecoveryObservationServiceTests {
         await client.setFetchThrowMode(true)
         let service = RecoveryObservationService(scriptClient: client)
 
-        await #expect(throws: (any Error).self) {
+        await #expect(throws: MockScriptError.self) {
+            _ = try await service.observeOutcomes(for: [attempted])
+        }
+    }
+
+    @Test("a response with none of the requested tracks is inconclusive")
+    func rejectsEmptyFetchResponse() async {
+        let attempted = makeWorkItem(state: .attempted)
+        let client = MockAppleScriptClient()
+        let service = RecoveryObservationService(scriptClient: client)
+
+        await #expect(throws: RecoveryObservationError.noTracksObserved(requested: 1)) {
             _ = try await service.observeOutcomes(for: [attempted])
         }
     }
 }
 
-private func observedTrack(id: String, genre: String) -> Track {
+private func observedTrack(id: String, genre: String, year: Int? = nil) -> Track {
     Track(
         id: id,
         name: "Track",
         artist: "Artist",
         album: "Album",
-        genre: genre
+        genre: genre,
+        year: year
     )
 }
 
 @Suite("Work ledger observed outcomes")
 struct ObservedOutcomeLedgerTests {
-    @Test("observed outcomes close every open item")
+    @Test("observed outcomes close every open item and keep the evidence")
     func closesOpenItems() throws {
         let attempted = makeWorkItem(state: .attempted)
         let prepared = makeWorkItem(state: .prepared)
         let ledger = WorkLedger([attempted, prepared])
 
         let closed = try ledger.applyingObservedOutcomes([
-            attempted.id: .written,
-            prepared.id: .skipped,
+            attempted.id: ObservedWorkOutcome(outcome: .written, observedValue: "Metal"),
+            prepared.id: ObservedWorkOutcome(outcome: .skipped, observedValue: nil),
         ])
 
         #expect(closed.items.map(\.state) == [.outcome(.written), .outcome(.skipped)])
+        #expect(closed.items.first?.detail == "Observed Music.app value: Metal")
         #expect(!closed.hasOpenItems)
         #expect(!closed.hasUncertainty)
     }
@@ -139,7 +189,9 @@ struct ObservedOutcomeLedgerTests {
         let attempting = makeWorkItem(state: .attempting)
         let ledger = WorkLedger([attempting])
 
-        let closed = try ledger.applyingObservedOutcomes([attempting.id: .written])
+        let closed = try ledger.applyingObservedOutcomes([
+            attempting.id: ObservedWorkOutcome(outcome: .written, observedValue: "Metal"),
+        ])
 
         #expect(closed.items.map(\.state) == [.outcome(.written)])
     }
@@ -151,7 +203,21 @@ struct ObservedOutcomeLedgerTests {
         let ledger = WorkLedger([attempted, prepared])
 
         #expect(throws: WorkCheckpointError.self) {
-            _ = try ledger.applyingObservedOutcomes([attempted.id: .written])
+            _ = try ledger.applyingObservedOutcomes([
+                attempted.id: ObservedWorkOutcome(outcome: .written, observedValue: nil),
+            ])
+        }
+    }
+
+    @Test("a written observation for a never-dispatched item is rejected")
+    func rejectsPreparedWritten() {
+        let prepared = makeWorkItem(state: .prepared)
+        let ledger = WorkLedger([prepared])
+
+        #expect(throws: WorkCheckpointError.self) {
+            _ = try ledger.applyingObservedOutcomes([
+                prepared.id: ObservedWorkOutcome(outcome: .written, observedValue: "Metal"),
+            ])
         }
     }
 
@@ -161,7 +227,9 @@ struct ObservedOutcomeLedgerTests {
         let attempted = makeWorkItem(state: .attempted)
         let ledger = WorkLedger([written, attempted])
 
-        let closed = try ledger.applyingObservedOutcomes([attempted.id: .noFixNeeded])
+        let closed = try ledger.applyingObservedOutcomes([
+            attempted.id: ObservedWorkOutcome(outcome: .noFixNeeded, observedValue: nil),
+        ])
 
         #expect(closed.items.map(\.state) == [.outcome(.failed), .outcome(.noFixNeeded)])
     }

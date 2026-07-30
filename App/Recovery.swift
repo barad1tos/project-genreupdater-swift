@@ -136,38 +136,114 @@ extension AppDependencies {
 
         let activeRunID = await runOrchestrator?.activeLifecycle()?.runID
         let finishedAt = Date()
+        let targetRecord = try await selectRecoveryRecord(id: id, activeRunID: activeRunID)
+
+        if let targetRecord {
+            try await clearObservedRecovery(
+                id: id,
+                record: targetRecord,
+                activeRunID: activeRunID,
+                activeHoldID: activeHoldID,
+                at: finishedAt
+            )
+        } else {
+            try await clearUnobservedRecovery(
+                id: id,
+                activeRunID: activeRunID,
+                activeHoldID: activeHoldID,
+                at: finishedAt
+            )
+        }
+        _ = await ensureRecoveryHold()
+    }
+
+    /// Observation precedes every durable mutation: the close persists the
+    /// observed outcomes, and resolving first means a failed close leaves an
+    /// open record that ensureRecoveryHold re-offers on the next pass.
+    private func clearObservedRecovery(
+        id: UUID,
+        record: RunRecord,
+        activeRunID: RunID?,
+        activeHoldID: UUID?,
+        at finishedAt: Date
+    ) async throws {
+        guard let processor = batchProcessor else {
+            throw AppDependencyServiceError.recoveryUnavailable
+        }
+        guard record.state != .blocked else {
+            throw AppDependencyServiceError.recoveryBlocked
+        }
+        let observedOutcomes = try await observeOutcomes(for: record)
+        if let runOrchestrator {
+            guard await runOrchestrator.resolveRecovery(
+                id: id,
+                runID: record.runID,
+                at: finishedAt,
+                observedOutcomes: observedOutcomes
+            ) == .resolved else {
+                throw AppDependencyServiceError.recoveryVerificationFailed
+            }
+        }
+        _ = try await closeRecoveryRun(
+            id: id,
+            activeRunID: activeRunID,
+            allowsUnbound: activeHoldID != nil,
+            at: finishedAt,
+            observedOutcomes: observedOutcomes
+        )
+        if runOrchestrator == nil, await processor.recoveryHoldID() == id {
+            try await processor.clearRecovery(batchID: id)
+        }
+    }
+
+    /// Corrupted, unsupported, attention, and unbound targets keep the
+    /// close-first order: their validation and attention routing live in the
+    /// close path and no open record exists to observe.
+    private func clearUnobservedRecovery(
+        id: UUID,
+        activeRunID: RunID?,
+        activeHoldID: UUID?,
+        at finishedAt: Date
+    ) async throws {
+        guard let processor = batchProcessor else {
+            throw AppDependencyServiceError.recoveryUnavailable
+        }
         let resolvedRunID = try await closeRecoveryRun(
             id: id,
             activeRunID: activeRunID,
             allowsUnbound: activeHoldID != nil,
             at: finishedAt
         )
-
         if let runOrchestrator {
-            var observedOutcomes: [UUID: WorkOutcome]?
-            if let resolvedRunID {
-                observedOutcomes = try await observeRecoveryOutcomes(runID: resolvedRunID)
-            }
             guard await runOrchestrator.resolveRecovery(
                 id: id,
                 runID: resolvedRunID,
-                at: finishedAt,
-                observedOutcomes: observedOutcomes
+                at: finishedAt
             ) == .resolved else {
                 throw AppDependencyServiceError.recoveryUnavailable
             }
-        } else if await batchProcessor.recoveryHoldID() == id {
-            try await batchProcessor.clearRecovery(batchID: id)
+        } else if await processor.recoveryHoldID() == id {
+            try await processor.clearRecovery(batchID: id)
         }
-        _ = await ensureRecoveryHold()
+    }
+
+    /// Finds the open recovery record bound to the hold without mutating it.
+    /// Store failures propagate: clearance must not degrade to a blind close.
+    private func selectRecoveryRecord(id: UUID, activeRunID: RunID?) async throws -> RunRecord? {
+        guard let runRecordStore else {
+            throw AppDependencyServiceError.runRecordStoreUnavailable
+        }
+        let page = try await runRecordStore.recoveryRecords()
+        return page.records.first { $0.recoveryID == id && $0.runID != activeRunID }
     }
 
     /// Observes the physical Music.app state for the run's open work before
-    /// clearance. A failed observation propagates so the hold is retained
-    /// (ADR 0006: uncertainty cannot be cleared unchecked).
-    private func observeRecoveryOutcomes(runID: RunID) async throws -> [UUID: WorkOutcome]? {
-        guard let runRecordStore, let applescriptBridge else { return nil }
-        guard let record = try? await runRecordStore.record(for: runID) else { return nil }
+    /// clearance. Observation failures propagate so the hold is retained
+    /// (ADR 0006: uncertainty cannot be cleared unchecked). A missing bridge
+    /// is logged and degrades to the orchestrator gate, which rejects
+    /// uncertain work without outcomes; PR B owns the blocked-recovery state.
+    private func observeOutcomes(for record: RunRecord?) async throws -> [UUID: ObservedWorkOutcome]? {
+        guard let record else { return nil }
         let hasOpenWork = record.workItems.contains { item in
             if case .outcome = item.state {
                 return false
@@ -175,7 +251,11 @@ extension AppDependencies {
             return true
         }
         guard hasOpenWork else { return nil }
-        return try await RecoveryObservationService(scriptClient: applescriptBridge)
+        guard let recoveryObservationClient else {
+            recoveryLog.error("Recovery observation skipped: no observation client available")
+            return nil
+        }
+        return try await RecoveryObservationService(scriptClient: recoveryObservationClient)
             .observeOutcomes(for: record.workItems)
     }
 
@@ -183,7 +263,8 @@ extension AppDependencies {
         id: UUID,
         activeRunID: RunID?,
         allowsUnbound: Bool,
-        at finishedAt: Date
+        at finishedAt: Date,
+        observedOutcomes: [UUID: ObservedWorkOutcome]? = nil
     ) async throws -> RunID? {
         guard let runRecordStore else {
             throw AppDependencyServiceError.runRecordStoreUnavailable
@@ -219,7 +300,9 @@ extension AppDependencies {
             guard record.state != .blocked else {
                 throw AppDependencyServiceError.recoveryBlocked
             }
-            try await runRecordStore.upsert(record.closingRecovery(at: finishedAt))
+            try await runRecordStore.upsert(
+                record.closingRecovery(at: finishedAt, observedOutcomes: observedOutcomes)
+            )
             return record.runID
         }
         return try await closeCorruptedTarget(

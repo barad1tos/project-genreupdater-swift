@@ -115,7 +115,7 @@ struct RecoveryAdmissionTests {
             await orchestrator.resolveRecovery(
                 runID: live.runID,
                 at: Date(timeIntervalSince1970: 200),
-                observedOutcomes: Dictionary(uniqueKeysWithValues: liveItemIDs.map { ($0, WorkOutcome.failed) })
+                observedOutcomes: Dictionary(uniqueKeysWithValues: liveItemIDs.map { ($0, ObservedWorkOutcome(outcome: .failed, observedValue: nil)) })
             ) == .resolved
         )
 
@@ -264,7 +264,7 @@ extension RecoveryAdmissionTests {
         let outcome = await orchestrator.resolveRecovery(
             runID: recovery.runID,
             at: Date(timeIntervalSince1970: 200),
-            observedOutcomes: [attempted.id: .written]
+            observedOutcomes: [attempted.id: ObservedWorkOutcome(outcome: .written, observedValue: "Metal")]
         )
 
         #expect(outcome == .resolved)

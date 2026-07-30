@@ -56,7 +56,7 @@ struct WriteRecoveryTests {
         _ = await orchestrator.resolveRecovery(
             runID: snapshot.runID,
             at: Date(timeIntervalSince1970: 200),
-            observedOutcomes: Dictionary(uniqueKeysWithValues: firstInput.workItems.map { ($0.id, WorkOutcome.failed) })
+            observedOutcomes: Dictionary(uniqueKeysWithValues: firstInput.workItems.map { ($0.id, ObservedWorkOutcome(outcome: .failed, observedValue: nil)) })
         )
         #expect(await orchestrator.currentLifecycle()?.state == .cancelled)
         guard case .completed = await orchestrator.submit(.manualWrite(input: thirdInput)) else {
@@ -169,7 +169,7 @@ struct WriteRecoveryTests {
         _ = await orchestrator.resolveRecovery(
             runID: recovery.runID,
             at: Date(timeIntervalSince1970: 200),
-            observedOutcomes: [attempted.id: .written]
+            observedOutcomes: [attempted.id: ObservedWorkOutcome(outcome: .written, observedValue: "Metal")]
         )
 
         let resolved = await orchestrator.currentLifecycle()

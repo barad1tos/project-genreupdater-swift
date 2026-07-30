@@ -142,17 +142,19 @@ struct WorkLedger: Equatable, Sendable {
     ///
     /// Unlike `dismissingOpenWork`, callers supply one observed outcome per
     /// open item; incomplete coverage is rejected so no uncertainty can be
-    /// closed unobserved. An `.attempting` item observed as `.written` passes
-    /// through the attempt boundary first, because the observation proves the
-    /// dispatched value is physically present.
-    func applyingObservedOutcomes(_ outcomes: [UUID: WorkOutcome]) throws -> Self {
+    /// closed unobserved, and a `.written` observation for a never-dispatched
+    /// `.prepared` item is rejected at the boundary. An `.attempting` item
+    /// observed as `.written` passes through the attempt boundary first,
+    /// because the observation proves the dispatched value is physically
+    /// present. Observed values are retained as item audit details.
+    func applyingObservedOutcomes(_ observed: [UUID: ObservedWorkOutcome]) throws -> Self {
         let openIDs = Set(items.compactMap { item -> UUID? in
             if case .outcome = item.state {
                 return nil
             }
             return item.id
         })
-        let uncovered = openIDs.subtracting(outcomes.keys)
+        let uncovered = openIDs.subtracting(observed.keys)
         guard uncovered.isEmpty else {
             throw WorkCheckpointError.invalid(
                 .afterVerification,
@@ -160,15 +162,30 @@ struct WorkLedger: Equatable, Sendable {
                 reason: "observed outcomes missing for \(uncovered.count) open work item(s)"
             )
         }
-        let openOutcomes = outcomes.filter { openIDs.contains($0.key) }
+        let openObserved = observed.filter { openIDs.contains($0.key) }
+        let invalidWritten = items.contains { item in
+            item.state == .prepared && openObserved[item.id]?.outcome == .written
+        }
+        guard !invalidWritten else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: true,
+                reason: "a never-dispatched item cannot carry a written observation"
+            )
+        }
         let writtenAttempting = items
-            .filter { $0.state == .attempting && openOutcomes[$0.id] == .written }
+            .filter { $0.state == .attempting && openObserved[$0.id]?.outcome == .written }
             .map(\.id)
         var ledger = self
         if !writtenAttempting.isEmpty {
             ledger = try ledger.applying(.afterAttempt(writtenAttempting))
         }
-        return try ledger.applying(.afterVerification(openOutcomes))
+        ledger = try ledger.applying(.afterVerification(openObserved.mapValues(\.outcome)))
+        for (itemID, observation) in openObserved {
+            guard let detail = observation.detail, let current = ledger.itemsByID[itemID] else { continue }
+            ledger.itemsByID[itemID] = current.annotated(detail: detail)
+        }
+        return ledger
     }
 
     func dismissingOpenWork() throws -> Self {

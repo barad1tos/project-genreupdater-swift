@@ -460,8 +460,8 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     }
 
     /// Closes every open item with its observed physical outcome (ADR 0006).
-    func applyingObservedOutcomes(_ outcomes: [UUID: WorkOutcome]) throws -> Self {
-        try withWorkLedger(workLedger.applyingObservedOutcomes(outcomes))
+    func applyingObservedOutcomes(_ observed: [UUID: ObservedWorkOutcome]) throws -> Self {
+        try withWorkLedger(workLedger.applyingObservedOutcomes(observed))
     }
 
     /// assertionFailure alone compiles to a no-op in Release, so a violated

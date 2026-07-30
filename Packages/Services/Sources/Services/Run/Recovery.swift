@@ -85,7 +85,7 @@ extension RunOrchestrator {
     public func resolveRecovery(
         runID: RunID,
         at finishedAt: Date,
-        observedOutcomes: [UUID: WorkOutcome]? = nil
+        observedOutcomes: [UUID: ObservedWorkOutcome]? = nil
     ) async -> RecoveryResolutionOutcome {
         guard let current = recoveryState.current,
               current.run?.snapshot.runID == runID
@@ -97,7 +97,7 @@ extension RunOrchestrator {
         id: UUID,
         runID: RunID?,
         at finishedAt: Date,
-        observedOutcomes: [UUID: WorkOutcome]? = nil
+        observedOutcomes: [UUID: ObservedWorkOutcome]? = nil
     ) async -> RecoveryResolutionOutcome {
         guard let current = recoveryState.current, current.holdID == id else {
             return .rejected
@@ -109,7 +109,7 @@ extension RunOrchestrator {
         _ candidate: RecoveryCandidate,
         runID: RunID?,
         at finishedAt: Date,
-        observedOutcomes: [UUID: WorkOutcome]?
+        observedOutcomes: [UUID: ObservedWorkOutcome]?
     ) async -> RecoveryResolutionOutcome {
         let resolved: RunLifecycleSnapshot?
         switch candidate {
@@ -158,7 +158,7 @@ extension RunOrchestrator {
         _ run: RecoveryRun,
         matching runID: RunID?,
         at finishedAt: Date,
-        observedOutcomes: [UUID: WorkOutcome]?
+        observedOutcomes: [UUID: ObservedWorkOutcome]?
     ) -> RunLifecycleSnapshot? {
         guard runID == nil || run.snapshot.runID == runID else { return nil }
         guard case .suspended(.recoverable) = run.snapshot.phase else { return nil }

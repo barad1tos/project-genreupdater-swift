@@ -1,39 +1,55 @@
 import Core
 import Foundation
 
+/// The observation could not produce trustworthy evidence; recovery clearance
+/// must stay blocked rather than classify uncertainty from missing data.
+public enum RecoveryObservationError: Error, LocalizedError, Equatable {
+    case noTracksObserved(requested: Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .noTracksObserved(requested):
+            "Music.app returned none of the \(requested) requested tracks; observation is inconclusive"
+        }
+    }
+}
+
 /// Re-reads uncertain work items from Music.app and classifies each against
 /// its planned change (ADR 0006: observed state wins).
 ///
 /// `.prepared` items were never dispatched, so they close as `.skipped`
 /// without observation. `.attempting`/`.attempted` items are re-read by their
 /// AppleScript write identity; absent tracks and missing identities classify
-/// as `.needsReview`. Fetch failures propagate so recovery clearance stays
-/// blocked while the physical state cannot be checked (fail closed).
-public actor RecoveryObservationService {
+/// as `.needsReview`. Fetch failures — including a response with none of the
+/// requested tracks — propagate so recovery clearance stays blocked while the
+/// physical state cannot be checked (fail closed).
+public struct RecoveryObservationService: Sendable {
     private let scriptClient: any AppleScriptClient
     private let batchSize: Int
 
+    /// - Parameter batchSize: forwarded to the bridge's batched lookup; the
+    ///   bridge clamps oversized values, so the default only bounds one call.
     public init(scriptClient: any AppleScriptClient, batchSize: Int = 50) {
         self.scriptClient = scriptClient
         self.batchSize = batchSize
     }
 
-    public func observeOutcomes(for items: [RunWorkItem]) async throws -> [UUID: WorkOutcome] {
-        var outcomes: [UUID: WorkOutcome] = [:]
+    public func observeOutcomes(for items: [RunWorkItem]) async throws -> [UUID: ObservedWorkOutcome] {
+        var outcomes: [UUID: ObservedWorkOutcome] = [:]
         var observationIDs: [UUID: String] = [:]
         for item in items {
             switch item.state {
             case .outcome:
                 continue
             case .prepared:
-                outcomes[item.id] = .skipped
+                outcomes[item.id] = ObservedWorkOutcome(outcome: .skipped, observedValue: nil)
             case .attempting, .attempted:
                 if case let .track(identity) = item.target,
                    let appleScriptID = identity.appleScriptID,
                    !appleScriptID.isEmpty {
                     observationIDs[item.id] = appleScriptID
                 } else {
-                    outcomes[item.id] = .needsReview
+                    outcomes[item.id] = ObservedWorkOutcome(outcome: .needsReview, observedValue: nil)
                 }
             }
         }
@@ -47,11 +63,18 @@ public actor RecoveryObservationService {
             batchSize: batchSize,
             timeout: nil
         )
-        let tracksByID = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        guard !tracks.isEmpty else {
+            throw RecoveryObservationError.noTracksObserved(requested: uniqueIDs.count)
+        }
+        let tracksByID = Dictionary(
+            tracks.map { ($0.appleScriptID ?? $0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let itemsByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for (itemID, scriptID) in observationIDs {
-            guard let item = items.first(where: { $0.id == itemID }) else { continue }
+            guard let item = itemsByID[itemID] else { continue }
             guard let track = tracksByID[scriptID] else {
-                outcomes[itemID] = .needsReview
+                outcomes[itemID] = ObservedWorkOutcome(outcome: .needsReview, observedValue: nil)
                 continue
             }
             let property = AppleScriptTrackProperty(changeType: item.change.changeType)
