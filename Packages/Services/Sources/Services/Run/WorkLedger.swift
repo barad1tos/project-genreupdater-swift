@@ -188,6 +188,15 @@ struct WorkLedger: Equatable, Sendable {
         return ledger
     }
 
+    /// Terminal items eligible for a linked continuation run: definite
+    /// non-landings only. `.written` landed, `.dismissed` is a user decision,
+    /// and `.needsReview` requires review before any re-application.
+    var continuableItems: [RunWorkItem] {
+        items.filter { item in
+            item.state == .outcome(.failed) || item.state == .outcome(.skipped)
+        }
+    }
+
     func dismissingOpenWork() throws -> Self {
         var outcomes: [UUID: WorkOutcome] = [:]
         for item in items {

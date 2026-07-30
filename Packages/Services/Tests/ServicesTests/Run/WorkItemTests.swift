@@ -265,6 +265,30 @@ struct WorkItemTests {
         #expect(decoded.workItems.isEmpty)
     }
 
+    @Test("continuable work keeps only failed and skipped outcomes in order")
+    func derivesContinuableWork() throws {
+        let written = makeWorkItem(state: .outcome(.written))
+        let failed = makeWorkItem(state: .outcome(.failed))
+        let dismissed = makeWorkItem(state: .outcome(.dismissed))
+        let skipped = makeWorkItem(state: .outcome(.skipped))
+        let needsReview = makeWorkItem(state: .outcome(.needsReview))
+        let lifecycle = makeLifecycle(workItems: [written, failed, dismissed, skipped, needsReview])
+        let record = RunRecord(
+            lifecycle: lifecycle,
+            transitions: [
+                RunLifecycleTransition(state: .writing, timestamp: lifecycle.startedAt),
+                RunLifecycleTransition(state: .cancelled, timestamp: lifecycle.startedAt),
+            ],
+            syncSummary: nil,
+            failureMessage: nil,
+            finishedAt: lifecycle.startedAt
+        )
+
+        // Written landed, dismissed is a user decision, needsReview must be
+        // reviewed before any re-application — only failed and skipped remain.
+        #expect(record.continuableWork.map(\.id) == [failed.id, skipped.id])
+    }
+
     private func makeLifecycle(
         workItems: [RunWorkItem],
         writeAuthority: WriteAuthority = .reviewedPlan

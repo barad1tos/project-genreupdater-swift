@@ -89,6 +89,12 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         workLedger.hasUncertainty
     }
 
+    /// Work a linked continuation run may re-apply: items whose write
+    /// definitively did not land (`.failed`, `.skipped`), in plan order.
+    public var continuableWork: [RunWorkItem] {
+        workLedger.continuableItems
+    }
+
     init(
         header: Header,
         configuration: RunConfig? = nil,
