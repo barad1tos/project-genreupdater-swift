@@ -787,6 +787,78 @@ struct ActivityCommandsTests {
         #expect(result.message.contains("Discard"))
     }
 
+    @Test("grouped dismissal reports the count and forwards the selection")
+    func dismissalForwardsSelection() async {
+        let harness = ActivityFixtures.Harness()
+        let commands = harness.makeCommands()
+        let runID = UUID()
+        let itemIDs = [UUID(), UUID()]
+
+        let result = await commands.handle(.dismissRecoveryItems(
+            runID: runID,
+            itemIDs: itemIDs,
+            reason: "duplicates"
+        ))
+
+        #expect(result.status == .accepted)
+        #expect(result.message.contains("2 items"))
+        #expect(harness.dismissals.count == 1)
+        #expect(harness.dismissals.first?.0 == runID)
+        #expect(harness.dismissals.first?.1 == itemIDs)
+        #expect(harness.dismissals.first?.3 == false)
+    }
+
+    @Test("individual dismissal forwards the explicit-decision flag")
+    func individualDismissalForwardsFlag() async {
+        let harness = ActivityFixtures.Harness()
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.dismissRecoveryItem(
+            runID: UUID(),
+            itemID: UUID(),
+            reason: "checked manually"
+        ))
+
+        #expect(result.status == .accepted)
+        #expect(harness.dismissals.first?.3 == true)
+    }
+
+    @Test("a domain gate rejection maps to an invalid dismissal")
+    func dismissalMapsGateRejection() async {
+        let harness = ActivityFixtures.Harness()
+        harness.dismissalError = WorkCheckpointError.invalid(
+            .afterVerification,
+            writeAdjacent: true,
+            reason: "grouped dismissal cannot cover 1 write-uncertain item(s)"
+        )
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.dismissRecoveryItems(
+            runID: UUID(),
+            itemIDs: [UUID()],
+            reason: "cleanup"
+        ))
+
+        #expect(result.status == .rejectedInvalid)
+        #expect(result.issue?.category == .safetyBlocked)
+    }
+
+    @Test("an infrastructure failure maps dismissal to attention")
+    func dismissalMapsInfrastructureFailure() async {
+        let harness = ActivityFixtures.Harness()
+        harness.dismissalError = TestError(errorDescription: "store offline")
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.dismissRecoveryItem(
+            runID: UUID(),
+            itemID: UUID(),
+            reason: "cleanup"
+        ))
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.issue?.category == .internalFailure)
+    }
+
     @Test("continue writes maps a failed released run to attention")
     func continueWritesMapsFailedRelease() async {
         let snapshot = ActivityFixtures.lifecycle(

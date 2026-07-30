@@ -893,6 +893,14 @@ extension DesignRootHostView {
             releaseQueuedWrite: {
                 await dependencies.runOrchestrator?.releaseQueuedWrite() ?? .empty
             },
+            dismissRecoveryWork: { runID, itemIDs, reason, individual in
+                try await dependencies.dismissRecoveryWork(
+                    id: runID,
+                    itemIDs: itemIDs,
+                    reason: reason,
+                    individual: individual
+                )
+            },
             queueManualReload: { runID in
                 queuedManualReload = .waitingForActive(runID)
             },

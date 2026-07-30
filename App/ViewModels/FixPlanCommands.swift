@@ -144,6 +144,8 @@ struct FixPlanCommands {
              .togglePlanItem:
             true
         case .continueWrites,
+             .dismissRecoveryItem,
+             .dismissRecoveryItems,
              .reviewChanges,
              .resumeRecovery,
              .runManually:
@@ -186,6 +188,8 @@ struct FixPlanCommands {
         case .applyFixPlan,
              .applyRemainingFixes,
              .continueWrites,
+             .dismissRecoveryItem,
+             .dismissRecoveryItems,
              .reviewChanges,
              .resumeRecovery,
              .runManually:

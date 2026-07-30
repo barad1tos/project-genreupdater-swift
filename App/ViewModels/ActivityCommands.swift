@@ -9,6 +9,7 @@ struct ActivityCommands {
     let isRunOrchestratorAvailable: () -> Bool
     let submitManualRun: () async throws -> RunSubmissionResult
     let releaseQueuedWrite: () async -> QueuedWriteRelease
+    let dismissRecoveryWork: (UUID, [UUID], String, Bool) async throws -> Void
     let queueManualReload: (RunID) -> Void
     let reloadLibrary: (_ forceRefresh: Bool) async -> Void
     let refreshActivityProjection: () async -> ActivityProjection
@@ -31,6 +32,10 @@ struct ActivityCommands {
             return .resumeRecovery()
         case .continueWrites:
             return .continueWrites()
+        case .dismissRecoveryItem,
+             .dismissRecoveryItems:
+            // The recovery surface constructs dismissal commands directly.
+            return nil
         case .runManually:
             return .runManually()
         }
@@ -46,27 +51,7 @@ struct ActivityCommands {
             // Defensive only: Activity descriptors never construct fix-plan commands.
             return await unavailableFixPlanCommand(command)
         case .reviewChanges:
-            let projection = await refreshActivityProjection()
-            if let issue = recoveryIssue(in: projection) {
-                return .blockedByRecovery(
-                    message: "Previous run needs recovery before writes continue.",
-                    issue: issue,
-                    refreshedActivityProjection: projection
-                )
-            }
-            guard projection.primaryCommand?.commandKind == .reviewChanges,
-                  projection.primaryCommand?.isEnabled == true
-            else {
-                return .rejectedStale(
-                    message: "Review plan is no longer available.",
-                    refreshedActivityProjection: projection
-                )
-            }
-            return UserCommandResult.navigated(
-                message: "Opening review.",
-                navigationTarget: .fixPlan(id: currentFixPlanID() ?? "current"),
-                refreshedActivityProjection: projection
-            )
+            return await handleReviewChanges()
         case .resumeRecovery:
             let projection = await refreshActivityProjection()
             if let blocker = libraryBlocker(in: projection) {
@@ -92,8 +77,91 @@ struct ActivityCommands {
             return makeRecoveryResult(outcome, projection: projection)
         case .continueWrites:
             return await handleContinueWrites()
+        case .dismissRecoveryItem,
+             .dismissRecoveryItems:
+            return await handleDismissal(command)
         case .runManually:
             return await handleRunManually()
+        }
+    }
+
+    private func handleReviewChanges() async -> UserCommandResult {
+        let projection = await refreshActivityProjection()
+        if let issue = recoveryIssue(in: projection) {
+            return .blockedByRecovery(
+                message: "Previous run needs recovery before writes continue.",
+                issue: issue,
+                refreshedActivityProjection: projection
+            )
+        }
+        guard projection.primaryCommand?.commandKind == .reviewChanges,
+              projection.primaryCommand?.isEnabled == true
+        else {
+            return .rejectedStale(
+                message: "Review plan is no longer available.",
+                refreshedActivityProjection: projection
+            )
+        }
+        return UserCommandResult.navigated(
+            message: "Opening review.",
+            navigationTarget: .fixPlan(id: currentFixPlanID() ?? "current"),
+            refreshedActivityProjection: projection
+        )
+    }
+
+    private func handleDismissal(_ command: UserIntentCommand) async -> UserCommandResult {
+        guard let target = command.recoveryDismissal else {
+            let projection = await refreshActivityProjection()
+            return .rejectedInvalid(
+                message: "Dismissal target is missing.",
+                issue: OperationalIssue(
+                    id: "recovery-dismissal-target",
+                    category: .staleAction,
+                    summary: "Dismissal target missing",
+                    technicalDetail: nil
+                ),
+                refreshedActivityProjection: projection
+            )
+        }
+        do {
+            try await dismissRecoveryWork(
+                target.runID,
+                target.itemIDs,
+                target.reason,
+                command.kind == .dismissRecoveryItem
+            )
+            let projection = await refreshActivityProjection()
+            let count = target.itemIDs.count
+            return .accepted(
+                message: "Dismissed \(count) item\(count == 1 ? "" : "s"). Recovery stays open.",
+                refreshedActivityProjection: projection
+            )
+        } catch let error as WorkCheckpointError {
+            // Domain gate rejections (uncertain-in-grouped, closed targets,
+            // wrong lifecycle) — typed, never routed through the run loop.
+            let projection = await refreshActivityProjection()
+            return .rejectedInvalid(
+                message: "The selection cannot be dismissed.",
+                issue: OperationalIssue(
+                    id: "recovery-dismissal-rejected",
+                    category: .safetyBlocked,
+                    summary: "Dismissal rejected",
+                    technicalDetail: error.localizedDescription
+                ),
+                refreshedActivityProjection: projection
+            )
+        } catch {
+            let projection = await refreshActivityProjection()
+            return .requiresAttention(
+                message: "Dismissal failed.",
+                issue: OperationalIssue(
+                    id: "recovery-dismissal-failed",
+                    category: .internalFailure,
+                    summary: "Dismissal failed",
+                    technicalDetail: error.localizedDescription
+                ),
+                refreshedActivityProjection: projection
+            )
         }
     }
 

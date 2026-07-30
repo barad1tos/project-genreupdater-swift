@@ -96,6 +96,8 @@ enum ActivityFixtures {
         var preflightRunIDs: [RunID] = []
         var queuedReloadBarriers: [RunID] = []
         var releaseCallCount = 0
+        var dismissals: [(UUID, [UUID], String, Bool)] = []
+        var dismissalError: Error?
 
         private var projection: ActivityProjection
         private let preflightOutcome: RecoveryPreflightOutcome?
@@ -135,6 +137,12 @@ enum ActivityFixtures {
                 releaseQueuedWrite: {
                     self.releaseCallCount += 1
                     return self.releaseOutcome
+                },
+                dismissRecoveryWork: { runID, itemIDs, reason, individual in
+                    self.dismissals.append((runID, itemIDs, reason, individual))
+                    if let dismissalError = self.dismissalError {
+                        throw dismissalError
+                    }
                 },
                 queueManualReload: { runID in
                     self.queuedReloadBarriers.append(runID)

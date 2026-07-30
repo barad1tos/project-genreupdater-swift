@@ -98,6 +98,36 @@ extension AppDependencies {
         try await task.value
     }
 
+    /// Dismisses selected recovery work and persists the still-open record;
+    /// the hold is deliberately retained (ADR 0006 — dismissal resolves
+    /// items, clearance resolves the run). Domain gates throw here and are
+    /// mapped by the command layer, never routed through the run loop.
+    func dismissRecoveryWork(
+        id: UUID,
+        itemIDs: [UUID],
+        reason: String,
+        individual: Bool
+    ) async throws {
+        guard let runRecordStore else {
+            throw AppDependencyServiceError.runRecordStoreUnavailable
+        }
+        let activeRunID = await runOrchestrator?.activeLifecycle()?.runID
+        guard let record = try await selectRecoveryRecord(id: id, activeRunID: activeRunID) else {
+            throw AppDependencyServiceError.recoveryUnavailable
+        }
+        let dismissedAt = Date()
+        let updated: RunRecord
+        if individual {
+            guard itemIDs.count == 1, let itemID = itemIDs.first else {
+                throw AppDependencyServiceError.recoveryUnavailable
+            }
+            updated = try record.dismissingUncertainWork(id: itemID, reason: reason, at: dismissedAt)
+        } else {
+            updated = try record.dismissingWork(ids: Set(itemIDs), reason: reason, at: dismissedAt)
+        }
+        try await runRecordStore.upsert(updated)
+    }
+
     func runRecoveryPreflight(runID: RunID) async -> RecoveryPreflightOutcome {
         guard let runRecordStore else {
             return .blocked(runID: runID, reason: .storeUnavailable)

@@ -148,6 +148,9 @@ enum ActivityDesignAdapter {
             "shield.checkerboard"
         case .continueWrites:
             "play.circle"
+        case .dismissRecoveryItem,
+             .dismissRecoveryItems:
+            "xmark.bin"
         case .togglePlanItem:
             "arrow.triangle.2.circlepath"
         case .runManually:
