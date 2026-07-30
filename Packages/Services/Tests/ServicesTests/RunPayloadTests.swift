@@ -79,6 +79,7 @@ struct RunPayloadTests {
                     createdAt: startedAt,
                     reason: "manualCheck"
                 ),
+                continuesRunID: nil,
                 startedAt: startedAt
             ),
             transitions: [

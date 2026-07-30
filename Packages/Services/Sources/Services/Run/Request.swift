@@ -1,5 +1,14 @@
 import Foundation
 
+/// Why a run record cannot serve as the source of a linked continuation,
+/// or why the follow-up input cannot seed one.
+public enum RunContinuationError: Error, Equatable {
+    case sourceRunStillOpen
+    case sourceRunNotWrite
+    case nothingToContinue
+    case inputWorkNotPrepared
+}
+
 public enum RunTrigger: String, Codable, Equatable, Sendable {
     case manualCheck
     case backgroundSync
@@ -56,6 +65,8 @@ public struct RunRequest: Equatable, Sendable {
     public let kind: RunRequestKind
     public let requestedTestArtists: [String]
     public let knownTrackCount: Int?
+    /// The closed run this request intentionally continues, if any.
+    public let continuesRunID: RunID?
 
     public var intent: RunIntent {
         kind.intent
@@ -78,13 +89,15 @@ public struct RunRequest: Equatable, Sendable {
         trigger: RunTrigger,
         kind: RunRequestKind,
         requestedTestArtists: [String],
-        knownTrackCount: Int?
+        knownTrackCount: Int?,
+        continuesRunID: RunID? = nil
     ) {
         self.id = id
         self.trigger = trigger
         self.kind = kind
         self.requestedTestArtists = requestedTestArtists
         self.knownTrackCount = knownTrackCount
+        self.continuesRunID = continuesRunID
     }
 
     public static func observation(
@@ -160,6 +173,37 @@ public struct RunRequest: Equatable, Sendable {
         write(
             trigger: .manualCheck,
             input: input
+        )
+    }
+
+    /// A linked continuation of a closed write run (ADR 0005/0006): a NEW
+    /// run with fresh consent carried by `input`, never a resumed loop.
+    /// The source must be finished, be a write run, and still hold
+    /// continuable work.
+    public static func continuation(
+        of record: RunRecord,
+        input: FixPlanWriteInput
+    ) throws -> Self {
+        guard record.intent == .writeFixes else {
+            throw RunContinuationError.sourceRunNotWrite
+        }
+        guard record.finishedAt != nil else {
+            throw RunContinuationError.sourceRunStillOpen
+        }
+        guard !record.continuableWork.isEmpty else {
+            throw RunContinuationError.nothingToContinue
+        }
+        // Continuable items are terminal on the source; a continuation must
+        // re-prepare them, never carry terminal states into a fresh ledger.
+        guard input.workItems.allSatisfy({ $0.state == .prepared }) else {
+            throw RunContinuationError.inputWorkNotPrepared
+        }
+        return Self(
+            trigger: .recovery,
+            kind: .writeFixes(input),
+            requestedTestArtists: input.scope.normalizedTestArtists,
+            knownTrackCount: input.scope.knownTrackCount,
+            continuesRunID: record.runID
         )
     }
 }

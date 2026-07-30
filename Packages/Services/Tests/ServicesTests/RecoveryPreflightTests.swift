@@ -188,6 +188,7 @@ private func makeRecord(
                 createdAt: startedAt,
                 reason: "test"
             ),
+            continuesRunID: nil,
             startedAt: startedAt
         ),
         transitions: transitions,

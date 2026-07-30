@@ -179,16 +179,15 @@ extension RunRecordDataStore {
         guard workItems.isEmpty || configuration != nil else {
             throw RunRecordPersistenceError.corruptedField(name: "configuration", runID: row.runID)
         }
-        let payloadVersion = RunRecordPayload.version(for: configuration)
         let storedRecoveryID = payload?.recoveryID ?? fallback?.recoveryID
         let recoveryID = isWriteRecovery ? (storedRecoveryID ?? row.runID) : nil
         row.transitionsData = try JSONEncoder().encode(RunRecordPayload(
-            version: payloadVersion,
             transitions: transitions,
             workItems: workItems,
             configuration: configuration,
             writeTarget: payload?.writeTarget ?? fallback?.writeTarget,
             recoveryID: recoveryID,
+            continuesRunID: payload?.continuesRunID ?? fallback?.continuesRunID,
             writeSummary: payload?.writeSummary ?? fallback?.writeSummary
         ))
         row.failureMessage = Self.corruptedRecoveryMessage(
@@ -222,12 +221,12 @@ extension RunRecordDataStore {
             throw RunRecordPersistenceError.corruptedField(name: "configuration", runID: row.runID)
         }
         row.transitionsData = try JSONEncoder().encode(RunRecordPayload(
-            version: RunRecordPayload.version(for: configuration),
             transitions: transitions,
             workItems: workItems,
             configuration: configuration,
             writeTarget: payload?.writeTarget ?? fallback?.writeTarget,
             recoveryID: payload?.recoveryID ?? fallback?.recoveryID,
+            continuesRunID: payload?.continuesRunID ?? fallback?.continuesRunID,
             writeSummary: payload?.writeSummary ?? fallback?.writeSummary
         ))
         row.finishedAt = max(storedFinish ?? finishedAt, terminalTime)

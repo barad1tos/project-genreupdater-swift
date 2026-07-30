@@ -115,7 +115,10 @@ struct RecoveryAdmissionTests {
             await orchestrator.resolveRecovery(
                 runID: live.runID,
                 at: Date(timeIntervalSince1970: 200),
-                observedOutcomes: Dictionary(uniqueKeysWithValues: liveItemIDs.map { ($0, ObservedWorkOutcome(outcome: .failed, observedValue: nil)) })
+                observedOutcomes: Dictionary(uniqueKeysWithValues: liveItemIDs.map { (
+                    $0,
+                    ObservedWorkOutcome(outcome: .failed, observedValue: nil)
+                ) })
             ) == .resolved
         )
 

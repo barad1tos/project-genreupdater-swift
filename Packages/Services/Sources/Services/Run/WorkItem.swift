@@ -157,19 +157,24 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
     public let change: WorkChange
     public let state: WorkState
     public let detail: String?
+    /// When the user explicitly dismissed this item (ADR 0006); nil for
+    /// every other closure. Optional so legacy payloads decode unchanged.
+    public let dismissedAt: Date?
 
     public init(
         id: UUID,
         target: WorkTarget,
         change: WorkChange,
         state: WorkState = .prepared,
-        detail: String? = nil
+        detail: String? = nil,
+        dismissedAt: Date? = nil
     ) {
         self.id = id
         self.target = target
         self.change = change
         self.state = state
         self.detail = detail
+        self.dismissedAt = dismissedAt
     }
 
     public init(item: FixPlanItem) {
@@ -198,7 +203,21 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             target: target,
             change: change,
             state: state,
-            detail: detail
+            detail: detail,
+            dismissedAt: dismissedAt
+        )
+    }
+
+    /// Stamps the user-dismissal timestamp and replaces the detail; callers
+    /// must only invoke it after a transition into `.dismissed`.
+    func recordingDismissal(detail: String?, at timestamp: Date) -> Self {
+        Self(
+            id: id,
+            target: target,
+            change: change,
+            state: state,
+            detail: detail,
+            dismissedAt: timestamp
         )
     }
 
@@ -211,7 +230,8 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             target: target,
             change: change,
             state: nextState,
-            detail: detail
+            detail: detail,
+            dismissedAt: dismissedAt
         )
     }
 

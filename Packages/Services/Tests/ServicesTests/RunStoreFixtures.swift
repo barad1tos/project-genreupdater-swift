@@ -77,6 +77,7 @@ struct RunRecordInput {
     var intent: RunIntent = .observeLibrary
     var writeTarget: FixPlanWriteTarget?
     var recoveryID: UUID?
+    var continuesRunID: RunID?
     var writeSummary: RunWriteSummary?
     var workItems: [RunWorkItem] = []
     var configurationScopeID: UUID?
@@ -122,6 +123,7 @@ func makeRunRecord(
             trigger: input.trigger,
             intent: input.intent,
             scope: scope,
+            continuesRunID: input.continuesRunID,
             startedAt: startedAt
         ),
         configuration: input.configuration ?? makeRunConfiguration(
@@ -154,6 +156,7 @@ func replacing(
             trigger: record.trigger,
             intent: record.intent,
             scope: scope,
+            continuesRunID: record.continuesRunID,
             startedAt: record.startedAt
         ),
         configuration: configuration,
@@ -266,4 +269,5 @@ struct VersionedPayload: Encodable {
     let version = 2
     let transitions: [RunLifecycleTransition]
     let configuration: RunConfig
+    var continuesRunID: RunID?
 }

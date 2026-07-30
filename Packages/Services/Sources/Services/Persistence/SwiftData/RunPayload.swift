@@ -34,6 +34,7 @@ struct RunRecordPayload: Codable {
     let configuration: RunConfig?
     let writeTarget: FixPlanWriteTarget?
     let recoveryID: UUID?
+    let continuesRunID: RunID?
     let writeSummary: RunWriteSummary?
 
     init(record: RunRecord) {
@@ -43,24 +44,29 @@ struct RunRecordPayload: Codable {
         configuration = record.configuration
         writeTarget = record.writeTarget
         recoveryID = record.recoveryID
+        continuesRunID = record.continuesRunID
         writeSummary = record.writeSummary
     }
 
+    /// Rebuilds a payload from parts; the schema version is derived from the
+    /// configuration exactly as `init(record:)` does, so callers cannot desync
+    /// version and content.
     init(
-        version: Int,
         transitions: [RunLifecycleTransition],
         workItems: [RunWorkItem],
         configuration: RunConfig?,
         writeTarget: FixPlanWriteTarget?,
         recoveryID: UUID?,
+        continuesRunID: RunID?,
         writeSummary: RunWriteSummary?
     ) {
-        self.version = version
+        version = Self.version(for: configuration)
         self.transitions = transitions
         self.workItems = workItems
         self.configuration = configuration
         self.writeTarget = writeTarget
         self.recoveryID = recoveryID
+        self.continuesRunID = continuesRunID
         self.writeSummary = writeSummary
     }
 
@@ -70,6 +76,7 @@ struct RunRecordPayload: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case version, transitions, workItems, configuration, writeTarget, recoveryID, writeSummary
+        case continuesRunID
     }
 
     init(from decoder: any Decoder) throws {
@@ -84,6 +91,7 @@ struct RunRecordPayload: Codable {
         configuration = try container.decodeIfPresent(RunConfig.self, forKey: .configuration)
         writeTarget = try container.decodeIfPresent(FixPlanWriteTarget.self, forKey: .writeTarget)
         recoveryID = try container.decodeIfPresent(UUID.self, forKey: .recoveryID)
+        continuesRunID = try container.decodeIfPresent(RunID.self, forKey: .continuesRunID)
         writeSummary = try container.decodeIfPresent(RunWriteSummary.self, forKey: .writeSummary)
     }
 }
@@ -99,12 +107,14 @@ struct RecoveryPayload: Decodable {
     let configuration: RunConfig?
     let writeTarget: FixPlanWriteTarget?
     let recoveryID: UUID?
+    let continuesRunID: RunID?
     let writeSummary: RunWriteSummary?
     let hasMalformedItems: Bool
     let isWriteRecoveryRequired: Bool
 
     private enum CodingKeys: String, CodingKey {
         case version, transitions, workItems, configuration, writeTarget, recoveryID, writeSummary
+        case continuesRunID
     }
 
     init(from decoder: any Decoder) throws {
@@ -115,6 +125,7 @@ struct RecoveryPayload: Decodable {
         let configurationField = Self.decode(RunConfig.self, forKey: .configuration, from: container)
         let writeTargetField = Self.decode(FixPlanWriteTarget.self, forKey: .writeTarget, from: container)
         let recoveryIDField = Self.decode(UUID.self, forKey: .recoveryID, from: container)
+        let continuesRunIDField = Self.decode(RunID.self, forKey: .continuesRunID, from: container)
         let writeSummaryField = Self.decode(RunWriteSummary.self, forKey: .writeSummary, from: container)
 
         let decodedVersion = versionField.value
@@ -133,6 +144,7 @@ struct RecoveryPayload: Decodable {
         configuration = decodedConfiguration
         writeTarget = writeTargetField.value
         recoveryID = recoveryIDField.value
+        continuesRunID = continuesRunIDField.value
         writeSummary = writeSummaryField.value
 
         hasMalformedItems = (supportsWorkItems && (workItemsField.value == nil || workItemsField.isMalformed))
@@ -143,6 +155,7 @@ struct RecoveryPayload: Decodable {
             || configurationField.isMalformed
             || writeTargetField.isMalformed
             || recoveryIDField.isMalformed
+            || continuesRunIDField.isMalformed
             || writeSummaryField.isMalformed
         let hasInvalidVersion = decodedVersion.map {
             $0 < RunRecordPayload.legacyVersion || $0 > RunRecordPayload.currentVersion

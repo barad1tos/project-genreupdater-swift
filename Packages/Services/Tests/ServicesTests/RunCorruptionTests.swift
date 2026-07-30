@@ -256,6 +256,78 @@ struct RunCorruptionTests {
         #expect(audit.finishedAt == startedAt.addingTimeInterval(50))
     }
 
+    @Test("Corrupted-row repair preserves continuation linkage")
+    func repairKeepsContinuationLink() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        let linked = RunID()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let configuration = makeRunConfiguration(scopeID: UUID(), capturedAt: startedAt)
+        try insertRunRow(
+            runID: runID,
+            transitionsData: JSONEncoder().encode(VersionedPayload(
+                transitions: [
+                    RunLifecycleTransition(state: .created, timestamp: startedAt),
+                    RunLifecycleTransition(state: .syncingLibrary, timestamp: startedAt.addingTimeInterval(50)),
+                ],
+                configuration: configuration,
+                continuesRunID: linked
+            )),
+            input: RunRowInput(
+                scopeData: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+                intent: .observeLibrary,
+                state: .blocked
+            ),
+            into: container
+        )
+        let store = RunRecordDataStore(modelContainer: container)
+        _ = try await store.recoveryRecords()
+
+        #expect(try await store.closeReadOnlyCorruption(RunID(rawValue: runID), at: startedAt.addingTimeInterval(60)))
+
+        let audit = try #require(await store.record(for: RunID(rawValue: runID)))
+        #expect(audit.continuesRunID == linked)
+    }
+
+    @Test("Terminal-audit repair preserves continuation linkage")
+    func terminalRepairKeepsContinuationLink() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        let linked = RunID()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: startedAt,
+            reason: "manualCheck"
+        )
+        try insertRunRow(
+            runID: runID,
+            transitionsData: JSONEncoder().encode(VersionedPayload(
+                transitions: [
+                    RunLifecycleTransition(state: .created, timestamp: startedAt),
+                    RunLifecycleTransition(state: .cancelled, timestamp: startedAt.addingTimeInterval(5)),
+                ],
+                configuration: makeRunConfiguration(scopeID: scope.id, capturedAt: startedAt),
+                continuesRunID: linked
+            )),
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .observeLibrary,
+                state: .cancelled
+            ),
+            into: container
+        )
+        let store = RunRecordDataStore(modelContainer: container)
+        _ = try await store.recoveryRecords()
+
+        #expect(try await store.closeReadOnlyCorruption(RunID(rawValue: runID), at: startedAt.addingTimeInterval(10)))
+
+        let audit = try #require(await store.record(for: RunID(rawValue: runID)))
+        #expect(audit.continuesRunID == linked)
+        #expect(audit.transitions.map(\.state) == [.created, .cancelled])
+    }
+
     @Test("Invalid blocked history cannot be dismissed")
     func holdsInvalidBlockedTail() async throws {
         let container = try ModelContainerFactory.createInMemory()

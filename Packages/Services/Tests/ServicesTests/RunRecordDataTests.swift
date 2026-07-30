@@ -635,6 +635,117 @@ struct RunRecordDataTests {
         #expect(page.records.count == 1)
         #expect(page.skippedCorruptedCount == 1)
     }
+
+    @Test("legacy records without continuation linkage decode as unlinked")
+    func decodesMissingContinuation() throws {
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completed,
+            syncSummary: nil
+        )
+        var payload = try #require(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any]
+        )
+        payload.removeValue(forKey: "continuesRunID")
+        let legacyData = try JSONSerialization.data(withJSONObject: payload)
+
+        let decoded = try JSONDecoder().decode(RunRecord.self, from: legacyData)
+
+        #expect(decoded.continuesRunID == nil)
+    }
+
+    @Test("continuation linkage survives the codable roundtrip")
+    func continuationRoundTrips() throws {
+        let sourceRunID = RunID()
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil,
+            input: RunRecordInput(continuesRunID: sourceRunID)
+        )
+
+        let decoded = try JSONDecoder().decode(RunRecord.self, from: JSONEncoder().encode(record))
+
+        #expect(decoded.continuesRunID == sourceRunID)
+        #expect(decoded == record)
+    }
+
+    @Test("continuation linkage survives the store roundtrip")
+    func continuationPersists() async throws {
+        let store = try makeRunStore()
+        let sourceRunID = RunID()
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil,
+            input: RunRecordInput(continuesRunID: sourceRunID)
+        )
+
+        try await store.upsert(record)
+
+        #expect(try await store.record(for: record.runID)?.continuesRunID == sourceRunID)
+    }
+
+    @Test("linkage cannot be attached to an existing unlinked run")
+    func rejectsLateLinking() async throws {
+        let store = try makeRunStore()
+        var input = RunRecordInput()
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil,
+            input: input
+        )
+        try await store.upsert(record)
+        input.runID = record.runID
+        input.requestID = record.requestID
+        input.scope = record.scope
+        input.continuesRunID = RunID()
+        let linked = makeRunRecord(
+            startedAt: record.startedAt,
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil,
+            input: input
+        )
+
+        await #expect(throws: RunRecordPersistenceError.self) {
+            try await store.upsert(linked)
+        }
+    }
+
+    @Test("continuation linkage is immutable run identity")
+    func rejectsContinuationChange() async throws {
+        let store = try makeRunStore()
+        var input = RunRecordInput(continuesRunID: RunID())
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil,
+            input: input
+        )
+        try await store.upsert(record)
+        input.runID = record.runID
+        input.requestID = record.requestID
+        input.continuesRunID = RunID()
+        input.scope = record.scope
+        let mutated = makeRunRecord(
+            startedAt: record.startedAt,
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil,
+            input: input
+        )
+
+        await #expect(throws: RunRecordPersistenceError.self) {
+            try await store.upsert(mutated)
+        }
+    }
 }
 
 private func runPayload(runID: RunID, in container: ModelContainer) throws -> Data {

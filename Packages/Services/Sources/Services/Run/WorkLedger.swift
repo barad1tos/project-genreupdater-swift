@@ -188,6 +188,15 @@ struct WorkLedger: Equatable, Sendable {
         return ledger
     }
 
+    /// Terminal items eligible for a linked continuation run: definite
+    /// non-landings only. `.written` landed, `.dismissed` is a user decision,
+    /// and `.needsReview` requires review before any re-application.
+    var continuableItems: [RunWorkItem] {
+        items.filter { item in
+            item.state == .outcome(.failed) || item.state == .outcome(.skipped)
+        }
+    }
+
     func dismissingOpenWork() throws -> Self {
         var outcomes: [UUID: WorkOutcome] = [:]
         for item in items {
@@ -200,10 +209,40 @@ struct WorkLedger: Equatable, Sendable {
         }
         return try applying(.afterVerification(outcomes))
     }
+
+    /// Dismisses exactly the chosen open items, recording the shared detail
+    /// and the explicit user-decision timestamp (ADR 0006). Unknown and
+    /// already-closed targets are rejected before any transition so a stale
+    /// selection can never silently rewrite an existing closure's audit.
+    func dismissingItems(_ ids: Set<UUID>, detail: String, at timestamp: Date) throws -> Self {
+        for id in ids {
+            guard let item = itemsByID[id] else {
+                throw WorkCheckpointError.invalid(
+                    .afterVerification,
+                    writeAdjacent: true,
+                    reason: "unknown work item \(id.uuidString)"
+                )
+            }
+            if case .outcome = item.state {
+                throw WorkCheckpointError.invalid(
+                    .afterVerification,
+                    writeAdjacent: false,
+                    reason: "work item \(id.uuidString) is already closed"
+                )
+            }
+        }
+        let outcomes = Dictionary(uniqueKeysWithValues: ids.map { ($0, WorkOutcome.dismissed) })
+        var ledger = try applying(.afterVerification(outcomes))
+        for id in ids {
+            guard let current = ledger.itemsByID[id] else { continue }
+            ledger.itemsByID[id] = current.recordingDismissal(detail: detail, at: timestamp)
+        }
+        return ledger
+    }
 }
 
 extension WorkState {
-    fileprivate var isWriteUncertain: Bool {
+    var isWriteUncertain: Bool {
         self == .attempting || self == .attempted
     }
 }

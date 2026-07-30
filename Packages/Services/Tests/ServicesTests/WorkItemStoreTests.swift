@@ -301,6 +301,7 @@ private func replacing(_ record: RunRecord, workItems: [RunWorkItem]) -> RunReco
             trigger: record.trigger,
             intent: record.intent,
             scope: record.scope,
+            continuesRunID: record.continuesRunID,
             startedAt: record.startedAt
         ),
         configuration: record.configuration,

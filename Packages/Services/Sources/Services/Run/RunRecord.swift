@@ -29,6 +29,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         let trigger: RunTrigger
         let intent: RunIntent
         let scope: ProcessingScopeSnapshot
+        let continuesRunID: RunID?
         let startedAt: Date
     }
 
@@ -59,6 +60,10 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     public let configuration: RunConfig?
     public let writeTarget: FixPlanWriteTarget?
     public let recoveryID: UUID?
+    /// The closed write run this run intentionally continues (ADR 0005/0006).
+    /// Immutable identity: a continuation is a NEW run with fresh consent,
+    /// never a resumed loop.
+    public let continuesRunID: RunID?
     public let transitions: [RunLifecycleTransition]
     let workLedger: WorkLedger
     public let syncSummary: ActivitySyncSummary?
@@ -85,6 +90,12 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         workLedger.hasUncertainty
     }
 
+    /// Work a linked continuation run may re-apply: items whose write
+    /// definitively did not land (`.failed`, `.skipped`), in plan order.
+    public var continuableWork: [RunWorkItem] {
+        workLedger.continuableItems
+    }
+
     init(
         header: Header,
         configuration: RunConfig? = nil,
@@ -102,6 +113,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         self.configuration = configuration
         self.writeTarget = writeTarget
         self.recoveryID = recoveryID
+        continuesRunID = header.continuesRunID
         self.transitions = transitions
         workLedger = WorkLedger(workItems)
         syncSummary = status.syncSummary
@@ -128,6 +140,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         configuration = lifecycle.configuration
         writeTarget = lifecycle.writeTarget
         self.recoveryID = recoveryID
+        continuesRunID = lifecycle.continuesRunID
         self.transitions = transitions
         workLedger = lifecycle.workLedger
         self.syncSummary = syncSummary
@@ -153,6 +166,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         configuration = record.configuration
         writeTarget = record.writeTarget
         self.recoveryID = recoveryID
+        continuesRunID = record.continuesRunID
         self.transitions = transitions
         self.workLedger = workLedger
         syncSummary = record.syncSummary
@@ -210,6 +224,69 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         )
     }
 
+    /// True only while the run is suspended for recovery resolution — the
+    /// sole lifecycle window in which dismissal affordances may operate.
+    private var isResolvingRecovery: Bool {
+        state == .recoverable || state == .recovering || state == .blocked
+    }
+
+    /// Grouped dismissal with one shared reason (ADR 0006): never covers
+    /// write-uncertain items — those need preflight first or an individual
+    /// `dismissingUncertainWork` decision. The record stays open.
+    public func dismissingWork(ids: Set<UUID>, reason: String, at timestamp: Date) throws -> Self {
+        try requireRecoveryResolution()
+        let uncertainCount = workItems.count { ids.contains($0.id) && $0.state.isWriteUncertain }
+        guard uncertainCount == 0 else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: true,
+                reason: "grouped dismissal cannot cover \(uncertainCount) write-uncertain item(s)"
+            )
+        }
+        return try Self(
+            copying: self,
+            recoveryID: recoveryID,
+            transitions: transitions,
+            workLedger: workLedger.dismissingItems(
+                ids,
+                detail: "Dismissed by user: \(reason)",
+                at: timestamp
+            ),
+            failureMessage: failureMessage,
+            finishedAt: finishedAt
+        )
+    }
+
+    /// Individual dismissal (ADR 0006): the one affordance allowed to close
+    /// a write-uncertain item WITHOUT observed Music.app state — verification
+    /// and observed-outcome recovery closure are the evidence-backed closures.
+    /// The record stays open.
+    public func dismissingUncertainWork(id: UUID, reason: String, at timestamp: Date) throws -> Self {
+        try requireRecoveryResolution()
+        let isUncertain = workItems.contains { $0.id == id && $0.state.isWriteUncertain }
+        let detail = isUncertain
+            ? "Dismissed without verification by user decision: \(reason)"
+            : "Dismissed by user: \(reason)"
+        return try Self(
+            copying: self,
+            recoveryID: recoveryID,
+            transitions: transitions,
+            workLedger: workLedger.dismissingItems([id], detail: detail, at: timestamp),
+            failureMessage: failureMessage,
+            finishedAt: finishedAt
+        )
+    }
+
+    private func requireRecoveryResolution() throws {
+        guard isResolvingRecovery else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: true,
+                reason: "dismissal requires a suspended recovery run, not \(state.rawValue)"
+            )
+        }
+    }
+
     public func openingRecovery(id: UUID, at timestamp: Date) -> Self {
         var transitions = transitions
         let auditTime = max(timestamp, transitions.last?.timestamp ?? startedAt)
@@ -251,6 +328,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case runID, requestID, trigger, intent, scope, configuration, writeTarget, recoveryID
+        case continuesRunID
         case transitions, workItems, syncSummary, writeSummary, failureMessage, startedAt, finishedAt
     }
 
@@ -264,6 +342,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         configuration = try container.decodeIfPresent(RunConfig.self, forKey: .configuration)
         writeTarget = try container.decodeIfPresent(FixPlanWriteTarget.self, forKey: .writeTarget)
         recoveryID = try container.decodeIfPresent(UUID.self, forKey: .recoveryID)
+        continuesRunID = try container.decodeIfPresent(RunID.self, forKey: .continuesRunID)
         transitions = try container.decode([RunLifecycleTransition].self, forKey: .transitions)
         let workItems: [RunWorkItem] = if container.contains(.workItems) {
             try container.decode([RunWorkItem].self, forKey: .workItems)
@@ -288,6 +367,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         try container.encodeIfPresent(configuration, forKey: .configuration)
         try container.encodeIfPresent(writeTarget, forKey: .writeTarget)
         try container.encodeIfPresent(recoveryID, forKey: .recoveryID)
+        try container.encodeIfPresent(continuesRunID, forKey: .continuesRunID)
         try container.encode(transitions, forKey: .transitions)
         try container.encode(workItems, forKey: .workItems)
         try container.encodeIfPresent(syncSummary, forKey: .syncSummary)

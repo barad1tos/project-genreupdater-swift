@@ -23,6 +23,7 @@ struct RunConfigStoreTests {
                 trigger: .manualCheck,
                 intent: .previewFixes,
                 scope: scope,
+                continuesRunID: nil,
                 startedAt: startedAt
             ),
             configuration: RunConfig(
@@ -275,6 +276,7 @@ struct RunConfigStoreTests {
                 trigger: open.trigger,
                 intent: open.intent,
                 scope: open.scope,
+                continuesRunID: nil,
                 startedAt: open.startedAt
             ),
             configuration: open.configuration,

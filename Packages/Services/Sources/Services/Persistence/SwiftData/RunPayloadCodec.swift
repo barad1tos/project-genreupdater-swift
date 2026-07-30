@@ -81,12 +81,12 @@ enum RunPayloadCodec {
         do {
             let transitions = try JSONDecoder().decode([RunLifecycleTransition].self, from: persisted.transitionsData)
             return RunRecordPayload(
-                version: RunRecordPayload.legacyVersion,
                 transitions: transitions,
                 workItems: [],
                 configuration: nil,
                 writeTarget: nil,
                 recoveryID: nil,
+                continuesRunID: nil,
                 writeSummary: nil
             )
         } catch {

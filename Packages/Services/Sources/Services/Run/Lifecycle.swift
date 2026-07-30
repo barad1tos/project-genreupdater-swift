@@ -115,6 +115,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     public let previewConfiguration: FixPlanConfig?
     public let writeTarget: FixPlanWriteTarget?
     public let configuration: RunConfig?
+    public let continuesRunID: RunID?
     let workLedger: WorkLedger
     public let startedAt: Date
     public let phase: RunPhase
@@ -205,6 +206,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         previewConfiguration = nil
         writeTarget = nil
         configuration = nil
+        continuesRunID = nil
         workLedger = WorkLedger([])
         self.startedAt = startedAt
         self.phase = phase
@@ -225,6 +227,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         previewConfiguration = request.previewConfiguration
         writeTarget = request.writeTarget
         configuration = request.writeInput?.configuration
+        continuesRunID = request.continuesRunID
         workLedger = WorkLedger(request.writeInput?.workItems ?? [])
         self.startedAt = startedAt
         self.phase = phase
@@ -247,6 +250,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         self.previewConfiguration = previewConfiguration
         writeTarget = nil
         configuration = nil
+        continuesRunID = nil
         workLedger = WorkLedger([])
         self.startedAt = startedAt
         self.phase = phase
@@ -269,6 +273,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         previewConfiguration = nil
         self.writeTarget = writeTarget
         configuration = nil
+        continuesRunID = nil
         workLedger = WorkLedger([])
         self.startedAt = startedAt
         self.phase = phase
@@ -283,6 +288,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         previewConfiguration = nil
         writeTarget = record.writeTarget
         configuration = record.configuration
+        continuesRunID = record.continuesRunID
         workLedger = record.workLedger
         startedAt = record.startedAt
         phase = record.state == .blocked ? .suspended(.blocked) : .suspended(.recoverable)
@@ -301,6 +307,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         previewConfiguration = snapshot.previewConfiguration
         writeTarget = snapshot.writeTarget
         configuration = snapshot.configuration
+        continuesRunID = snapshot.continuesRunID
         self.workLedger = workLedger ?? snapshot.workLedger
         startedAt = snapshot.startedAt
         self.phase = phase ?? snapshot.phase
