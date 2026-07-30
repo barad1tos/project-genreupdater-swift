@@ -35,6 +35,8 @@ struct FixPlanCommands {
 
     let fixPlanStore: (any FixPlanStore)?
     let submitFixPlanWrite: (FixPlanWriteInput) async throws -> RunSubmissionResult
+    let loadRunRecord: (RunID) async throws -> RunRecord?
+    let submitRunRequest: (RunRequest) async throws -> RunSubmissionResult
     let ensureRecoveryHold: () async -> Bool
     let refreshFixPlanProjection: () async -> FixPlanProjection
     let refreshActivityProjection: () async -> ActivityProjection
@@ -102,6 +104,21 @@ struct FixPlanCommands {
                 store: store
             )
         }
+        if command.kind == .applyRemainingFixes {
+            guard let sourceRunID = command.sourceRunID else {
+                return await invalidTargetResult(
+                    detail: "Missing continuation source run",
+                    projection: projection
+                )
+            }
+            return await applyRemainingFixes(
+                sourceRunID: RunID(rawValue: sourceRunID),
+                target: target,
+                decision: decision,
+                projection: projection,
+                store: store
+            )
+        }
         switch await resolveDecisionUpdate(for: command, current: decision, projection: projection) {
         case let .update(nextDecision):
             return try await recordDecision(nextDecision, in: store)
@@ -122,6 +139,7 @@ struct FixPlanCommands {
         switch kind {
         case .acceptFixPlan,
              .applyFixPlan,
+             .applyRemainingFixes,
              .rejectFixPlan,
              .togglePlanItem:
             true
@@ -166,6 +184,7 @@ struct FixPlanCommands {
             }
             return .changed(nextDecision)
         case .applyFixPlan,
+             .applyRemainingFixes,
              .continueWrites,
              .reviewChanges,
              .resumeRecovery,
@@ -255,6 +274,98 @@ struct FixPlanCommands {
             return await writeResult(result, fallbackAcceptedCount: projection.acceptedCount)
         } catch {
             return await writeFailureResult(error, projection: projection)
+        }
+    }
+
+    /// Applies the still-continuable remainder of a closed write run as a
+    /// NEW linked run: items come from the CURRENT plan and decision (fresh
+    /// consent), narrowed to the source run's continuable work, and the
+    /// request carries the source's runID as immutable lineage (ADR 0005).
+    private func applyRemainingFixes(
+        sourceRunID: RunID,
+        target: FixPlanCommandTarget,
+        decision: FixPlanReviewDecision,
+        projection: FixPlanProjection,
+        store: any FixPlanStore
+    ) async -> UserCommandResult {
+        if await ensureRecoveryHold() {
+            return await recoveryHoldResult(target: target, projection: projection)
+        }
+        do {
+            guard let record = try await loadRunRecord(sourceRunID) else {
+                return await staleResult(
+                    message: "The interrupted run is no longer available.",
+                    projection: projection
+                )
+            }
+            guard let plan = try await store.plan(id: target.planID, revision: target.planRevision) else {
+                return await conflictResult()
+            }
+            let continuableReadIDs = Set(record.continuableWork.compactMap { item -> String? in
+                guard case let .track(identity) = item.target else { return nil }
+                return identity.readID
+            })
+            let items = FixPlanWrite.acceptedWorkItems(in: plan, decision: decision).filter { item in
+                guard case let .track(identity) = item.target else { return false }
+                return continuableReadIDs.contains(identity.readID)
+            }
+            guard !items.isEmpty else {
+                return await staleResult(
+                    message: "Nothing left to continue.",
+                    projection: projection
+                )
+            }
+            let input = FixPlanWriteInput(
+                target: target.writeTarget,
+                scope: plan.scope,
+                configuration: RunConfig(
+                    capturedAt: now(),
+                    writeAuthority: .reviewedPlan,
+                    automation: .manualOnly,
+                    scopeID: plan.scope.id,
+                    settings: plan.configuration,
+                    hadRecoveryHold: false
+                ),
+                workItems: items
+            )
+            let request = try RunRequest.continuation(of: record, input: input)
+            let result = try await submitRunRequest(request)
+            return await writeResult(result, fallbackAcceptedCount: items.count)
+        } catch let error as RunContinuationError {
+            return await continuationRejection(error, projection: projection)
+        } catch {
+            return await writeFailureResult(error, projection: projection)
+        }
+    }
+
+    private func continuationRejection(
+        _ error: RunContinuationError,
+        projection: FixPlanProjection
+    ) async -> UserCommandResult {
+        switch error {
+        case .sourceRunStillOpen:
+            return await staleResult(
+                message: "The interrupted run is still open. Resolve recovery first.",
+                projection: projection
+            )
+        case .nothingToContinue:
+            return await staleResult(
+                message: "Nothing left to continue.",
+                projection: projection
+            )
+        case .sourceRunNotWrite, .inputWorkNotPrepared:
+            let activity = await refreshActivityProjection()
+            return .rejectedInvalid(
+                message: "The remaining fixes cannot be continued.",
+                issue: OperationalIssue(
+                    id: "continuation-invalid",
+                    category: .staleAction,
+                    summary: "Continuation unavailable",
+                    technicalDetail: String(describing: error)
+                ),
+                refreshedActivityProjection: activity,
+                refreshedFixPlanProjection: projection
+            )
         }
     }
 

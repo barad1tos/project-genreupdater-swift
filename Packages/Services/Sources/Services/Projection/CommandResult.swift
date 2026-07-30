@@ -3,6 +3,7 @@ import Foundation
 public enum UserIntentCommandKind: String, Equatable, Sendable {
     case acceptFixPlan
     case applyFixPlan
+    case applyRemainingFixes
     case continueWrites
     case rejectFixPlan
     case reviewChanges
@@ -43,17 +44,21 @@ public struct UserIntentCommand: Equatable, Sendable {
     public let kind: UserIntentCommandKind
     public let fixPlanTarget: FixPlanCommandTarget?
     public let targetItemID: UUID?
+    /// The closed run a remaining-fixes application continues.
+    public let sourceRunID: UUID?
 
     private init(
         id: UUID,
         kind: UserIntentCommandKind,
         fixPlanTarget: FixPlanCommandTarget? = nil,
-        targetItemID: UUID? = nil
+        targetItemID: UUID? = nil,
+        sourceRunID: UUID? = nil
     ) {
         self.id = id
         self.kind = kind
         self.fixPlanTarget = fixPlanTarget
         self.targetItemID = targetItemID
+        self.sourceRunID = sourceRunID
     }
 
     public static func acceptFixPlan(target: FixPlanCommandTarget, id: UUID = UUID()) -> Self {
@@ -62,6 +67,14 @@ public struct UserIntentCommand: Equatable, Sendable {
 
     public static func applyFixPlan(target: FixPlanCommandTarget, id: UUID = UUID()) -> Self {
         Self(id: id, kind: .applyFixPlan, fixPlanTarget: target)
+    }
+
+    public static func applyRemainingFixes(
+        target: FixPlanCommandTarget,
+        sourceRunID: UUID,
+        id: UUID = UUID()
+    ) -> Self {
+        Self(id: id, kind: .applyRemainingFixes, fixPlanTarget: target, sourceRunID: sourceRunID)
     }
 
     public static func rejectFixPlan(target: FixPlanCommandTarget, id: UUID = UUID()) -> Self {

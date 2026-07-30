@@ -20,6 +20,7 @@ struct ActivityCommands {
         switch descriptor.commandKind {
         case .acceptFixPlan,
              .applyFixPlan,
+             .applyRemainingFixes,
              .rejectFixPlan,
              .togglePlanItem:
             // Fix-plan actions route through FixPlanCommands; Activity keeps these cases exhaustive.
@@ -39,6 +40,7 @@ struct ActivityCommands {
         switch command.kind {
         case .acceptFixPlan,
              .applyFixPlan,
+             .applyRemainingFixes,
              .rejectFixPlan,
              .togglePlanItem:
             // Defensive only: Activity descriptors never construct fix-plan commands.

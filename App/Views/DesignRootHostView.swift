@@ -921,6 +921,15 @@ extension DesignRootHostView {
             submitFixPlanWrite: { input in
                 try await dependencies.submitFixPlanWrite(input: input)
             },
+            loadRunRecord: { runID in
+                try await dependencies.runRecordStore?.record(for: runID)
+            },
+            submitRunRequest: { request in
+                guard let orchestrator = dependencies.runOrchestrator else {
+                    throw AppDependencyServiceError.recoveryUnavailable
+                }
+                return await orchestrator.submit(request)
+            },
             ensureRecoveryHold: {
                 await dependencies.ensureRecoveryHold()
             },

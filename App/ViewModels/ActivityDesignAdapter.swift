@@ -138,6 +138,8 @@ enum ActivityDesignAdapter {
             "checkmark.circle"
         case .applyFixPlan:
             "square.and.arrow.down"
+        case .applyRemainingFixes:
+            "arrow.uturn.forward.circle"
         case .rejectFixPlan:
             "xmark.circle"
         case .reviewChanges:
@@ -149,12 +151,16 @@ enum ActivityDesignAdapter {
         case .togglePlanItem:
             "arrow.triangle.2.circlepath"
         case .runManually:
-            switch command.variant {
-            case .standard:
-                "arrow.clockwise"
-            case .libraryCheck:
-                "magnifyingglass"
-            }
+            manualSymbol(for: command.variant)
+        }
+    }
+
+    private static func manualSymbol(for variant: ActivityCommandVariant) -> String {
+        switch variant {
+        case .standard:
+            "arrow.clockwise"
+        case .libraryCheck:
+            "magnifyingglass"
         }
     }
 }
