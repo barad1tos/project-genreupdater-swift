@@ -59,7 +59,12 @@ struct DesignRootHostView: View {
             setFastAnimationsAction: setFastAnimationsEnabled,
             browseAlbumUpdateAction: prepareAlbumUpdate,
             browseAlbumSelectionAction: setSelectedBrowseAlbum,
-            reportRunSelectionAction: selectRunReport
+            reportRunSelectionAction: selectRunReport,
+            recoveryDetailActions: RecoveryDetailActions(
+                applyRemainingFixes: applyRemainingFixes,
+                dismissItem: dismissRecoveryItem,
+                dismissPreparedItems: dismissRecoveryItems
+            )
         ) {
             updateContent
         }
@@ -1005,7 +1010,7 @@ extension DesignRootHostView {
         runFixPlanCommand(.togglePlanItem(uuid, target: target))
     }
 
-    private func runFixPlanCommand(_ command: UserIntentCommand) {
+    private func runFixPlanCommand(_ command: UserIntentCommand, onFinished: (() -> Void)? = nil) {
         guard !isReviewBusy else {
             setFixPlanNotice("Review update is already in progress.", tone: .info)
             return
@@ -1018,6 +1023,53 @@ extension DesignRootHostView {
             FixPlanCommands.showResult(result, handleResult: handleCommandResult) { notice in
                 setFixPlanNotice(notice.message, tone: commandTone(for: notice.status))
             }
+            onFinished?()
+        }
+    }
+
+    private func applyRemainingFixes(runID: String) {
+        guard let sourceRunID = UUID(uuidString: runID) else {
+            setFixPlanNotice("Run report is no longer available.", tone: .warning)
+            return
+        }
+        guard let target = currentFixPlanTarget() else {
+            setFixPlanNotice("Review a plan before continuing.", tone: .warning)
+            return
+        }
+        runFixPlanCommand(.applyRemainingFixes(target: target, sourceRunID: sourceRunID)) {
+            selectRunReport(runID)
+        }
+    }
+
+    private func dismissRecoveryItem(runID: String, itemID: String, reason: String) {
+        guard let command = ReportDetailAdapter.dismissItemCommand(
+            runID: runID,
+            itemID: itemID,
+            reason: reason
+        ) else {
+            setActivityCommandNotice("Recovery item is no longer available.")
+            return
+        }
+        runRecoveryDismissal(command, runID: runID)
+    }
+
+    private func dismissRecoveryItems(runID: String, itemIDs: [String], reason: String) {
+        guard !itemIDs.isEmpty else { return }
+        guard let command = ReportDetailAdapter.dismissPreparedItemsCommand(
+            runID: runID,
+            itemIDs: itemIDs,
+            reason: reason
+        ) else {
+            setActivityCommandNotice("Recovery items are no longer available.")
+            return
+        }
+        runRecoveryDismissal(command, runID: runID)
+    }
+
+    private func runRecoveryDismissal(_ command: UserIntentCommand, runID: String) {
+        Task { @MainActor in
+            _ = await runActivityCommand(command)
+            selectRunReport(runID)
         }
     }
 
