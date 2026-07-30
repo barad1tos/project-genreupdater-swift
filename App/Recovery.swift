@@ -259,6 +259,9 @@ extension AppDependencies {
             return true
         }
         guard hasOpenWork else { return nil }
+        if let recoveryAvailability, case let .blocked(blocker) = await recoveryAvailability.status() {
+            throw AppDependencyServiceError.recoveryObservationBlocked(blocker)
+        }
         guard let recoveryObservationClient else {
             recoveryLog.error("Recovery observation skipped: no observation client available")
             return nil

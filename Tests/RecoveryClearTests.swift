@@ -37,6 +37,31 @@ struct RecoveryClearTests {
         #expect(await setup.processor.recoveryHoldID() == nil)
     }
 
+    @Test("Blocked availability keeps the hold with an actionable reason")
+    func blockedAvailabilityKeepsHold() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
+        try await setup.store.upsert(record)
+        setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
+            isMusicAppRunning: { false },
+            automationPermission: { .granted },
+            areScriptsInstalled: { true }
+        )))
+        let stored = try #require(await setup.store.record(for: record.runID))
+        await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
+
+        await #expect(throws: AppDependencyServiceError.recoveryObservationBlocked(.musicAppUnavailable)) {
+            try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+        }
+
+        let retained = try #require(await setup.store.record(for: record.runID))
+        #expect(retained.finishedAt == nil)
+        #expect(retained.workItems.map(\.state) == [.attempted])
+        #expect(await setup.processor.recoveryHoldID() == recoveryID)
+    }
+
     @Test("Clearance without observation keeps the uncertain record open")
     func blindClearanceKeepsUncertainRecordOpen() async throws {
         let setup = try makeRecoverySetup()
