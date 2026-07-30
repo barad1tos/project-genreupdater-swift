@@ -43,6 +43,11 @@ extension RunOrchestrator {
         ) async throws -> FixPlanProduction)?
         public let releasePreview: (@Sendable (FixPlanConfig) async -> Void)?
         public let write: WriteDependencies?
+        /// The currently authoritative write target for a plan, used to prove
+        /// a queued write's consent is still fresh before release. nil result
+        /// means no current decision; a nil closure makes freshness
+        /// unverifiable and release fails closed.
+        public let currentDecisionTarget: (@Sendable (FixPlanID) async -> FixPlanWriteTarget?)?
         public let now: @Sendable () -> Date
 
         public init(
@@ -59,6 +64,7 @@ extension RunOrchestrator {
             ) async throws -> FixPlanProduction)? = nil,
             releasePreview: (@Sendable (FixPlanConfig) async -> Void)? = nil,
             write: WriteDependencies? = nil,
+            currentDecisionTarget: (@Sendable (FixPlanID) async -> FixPlanWriteTarget?)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
             self.synchronizeLibrary = synchronizeLibrary
@@ -67,6 +73,7 @@ extension RunOrchestrator {
             self.produceFixPlan = produceFixPlan
             self.releasePreview = releasePreview
             self.write = write
+            self.currentDecisionTarget = currentDecisionTarget
             self.now = now
         }
     }
