@@ -352,8 +352,17 @@ extension RunRecordDataStore {
                 continue
             }
             guard item.state != next.state,
-                  let advanced = try? item.transition(to: next.state, detail: next.detail),
-                  advanced == next
+                  let advanced = try? item.transition(to: next.state, detail: next.detail)
+            else { return "workItems" }
+            if advanced == next {
+                continue
+            }
+            // The dismissal timestamp may only appear together with a legal
+            // transition into `.dismissed`; it can never mutate afterwards.
+            guard next.state == .outcome(.dismissed),
+                  item.dismissedAt == nil,
+                  let stamp = next.dismissedAt,
+                  advanced.recordingDismissal(detail: next.detail, at: stamp) == next
             else { return "workItems" }
         }
         return nil

@@ -224,6 +224,50 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         )
     }
 
+    /// Grouped dismissal with one shared reason (ADR 0006): never covers
+    /// write-uncertain items — those need preflight first or an individual
+    /// `dismissingUncertainWork` decision. The record stays open.
+    public func dismissingWork(ids: Set<UUID>, reason: String, at timestamp: Date) throws -> Self {
+        let uncertainCount = workItems.count { ids.contains($0.id) && $0.state.isWriteUncertain }
+        guard uncertainCount == 0 else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: true,
+                reason: "grouped dismissal cannot cover \(uncertainCount) write-uncertain item(s)"
+            )
+        }
+        return try Self(
+            copying: self,
+            recoveryID: recoveryID,
+            transitions: transitions,
+            workLedger: workLedger.dismissingItems(
+                ids,
+                detail: "Dismissed by user: \(reason)",
+                at: timestamp
+            ),
+            failureMessage: failureMessage,
+            finishedAt: finishedAt
+        )
+    }
+
+    /// Individual dismissal (ADR 0006): the one affordance allowed to close
+    /// a write-uncertain item, recording it as an explicit user decision.
+    /// The record stays open.
+    public func dismissingUncertainWork(id: UUID, reason: String, at timestamp: Date) throws -> Self {
+        let isUncertain = workItems.contains { $0.id == id && $0.state.isWriteUncertain }
+        let detail = isUncertain
+            ? "Dismissed without verification by user decision: \(reason)"
+            : "Dismissed by user: \(reason)"
+        return try Self(
+            copying: self,
+            recoveryID: recoveryID,
+            transitions: transitions,
+            workLedger: workLedger.dismissingItems([id], detail: detail, at: timestamp),
+            failureMessage: failureMessage,
+            finishedAt: finishedAt
+        )
+    }
+
     public func openingRecovery(id: UUID, at timestamp: Date) -> Self {
         var transitions = transitions
         let auditTime = max(timestamp, transitions.last?.timestamp ?? startedAt)

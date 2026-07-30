@@ -321,6 +321,134 @@ struct WorkItemTests {
         #expect(decoded.dismissedAt == nil)
     }
 
+    @Test("grouped dismissal of prepared work keeps the record open")
+    func groupedDismissalKeepsRecordOpen() throws {
+        let first = makeWorkItem(state: .prepared)
+        let second = makeWorkItem(state: .prepared)
+        let record = makeOpenRecoveryRecord(workItems: [first, second])
+        let dismissedAt = Date(timeIntervalSince1970: 500)
+
+        let updated = try record.dismissingWork(
+            ids: [first.id],
+            reason: "duplicate release",
+            at: dismissedAt
+        )
+
+        let byID = Dictionary(uniqueKeysWithValues: updated.workItems.map { ($0.id, $0) })
+        #expect(updated.finishedAt == nil)
+        #expect(byID[first.id]?.state == .outcome(.dismissed))
+        #expect(byID[first.id]?.detail == "Dismissed by user: duplicate release")
+        #expect(byID[first.id]?.dismissedAt == dismissedAt)
+        #expect(byID[second.id]?.state == .prepared)
+    }
+
+    @Test("grouped dismissal cannot cover write-uncertain items")
+    func groupedDismissalRejectsUncertain() throws {
+        let prepared = makeWorkItem(state: .prepared)
+        let attempted = makeWorkItem(state: .attempted)
+        let record = makeOpenRecoveryRecord(workItems: [prepared, attempted])
+
+        #expect(throws: WorkCheckpointError.self) {
+            try record.dismissingWork(
+                ids: [prepared.id, attempted.id],
+                reason: "cleanup",
+                at: Date(timeIntervalSince1970: 500)
+            )
+        }
+    }
+
+    @Test("individual dismissal of an uncertain item is an explicit decision")
+    func individualDismissalAllowsUncertain() throws {
+        let attempted = makeWorkItem(state: .attempted)
+        let record = makeOpenRecoveryRecord(workItems: [attempted])
+        let dismissedAt = Date(timeIntervalSince1970: 500)
+
+        let updated = try record.dismissingUncertainWork(
+            id: attempted.id,
+            reason: "verified manually in Music.app",
+            at: dismissedAt
+        )
+
+        let item = try #require(updated.workItems.first)
+        #expect(item.state == .outcome(.dismissed))
+        #expect(item.detail == "Dismissed without verification by user decision: verified manually in Music.app")
+        #expect(item.dismissedAt == dismissedAt)
+        #expect(updated.finishedAt == nil)
+    }
+
+    @Test("individual dismissal also covers certain open items")
+    func individualDismissalCoversPrepared() throws {
+        let prepared = makeWorkItem(state: .prepared)
+        let record = makeOpenRecoveryRecord(workItems: [prepared])
+
+        let updated = try record.dismissingUncertainWork(
+            id: prepared.id,
+            reason: "not wanted",
+            at: Date(timeIntervalSince1970: 500)
+        )
+
+        let item = try #require(updated.workItems.first)
+        #expect(item.state == .outcome(.dismissed))
+        #expect(item.detail == "Dismissed by user: not wanted")
+    }
+
+    @Test("dismissed subsets survive the store roundtrip on open records")
+    func dismissalPersistsOnOpenRecord() async throws {
+        let store = try makeRunStore()
+        let first = makeWorkItem(state: .prepared)
+        let second = makeWorkItem(state: .prepared)
+        let record = makeOpenRecoveryRecord(workItems: [first, second])
+        try await store.upsert(record)
+        let dismissedAt = Date(timeIntervalSince1970: 500)
+
+        let updated = try record.dismissingWork(ids: [first.id], reason: "duplicate", at: dismissedAt)
+        try await store.upsert(updated)
+
+        let reloaded = try #require(await store.record(for: record.runID))
+        let byID = Dictionary(uniqueKeysWithValues: reloaded.workItems.map { ($0.id, $0) })
+        #expect(byID[first.id]?.state == .outcome(.dismissed))
+        #expect(byID[first.id]?.dismissedAt == dismissedAt)
+        #expect(byID[second.id]?.state == .prepared)
+        #expect(reloaded.finishedAt == nil)
+    }
+
+    @Test("a stored dismissal timestamp can never be re-stamped")
+    func rejectsDismissalRestamp() async throws {
+        let store = try makeRunStore()
+        let item = makeWorkItem(state: .prepared)
+        let record = makeOpenRecoveryRecord(workItems: [item])
+        try await store.upsert(record)
+        let dismissed = try record.dismissingWork(
+            ids: [item.id],
+            reason: "duplicate",
+            at: Date(timeIntervalSince1970: 500)
+        )
+        try await store.upsert(dismissed)
+        let restamped = try record.dismissingWork(
+            ids: [item.id],
+            reason: "duplicate",
+            at: Date(timeIntervalSince1970: 900)
+        )
+
+        await #expect(throws: RunRecordPersistenceError.self) {
+            try await store.upsert(restamped)
+        }
+    }
+
+    private func makeOpenRecoveryRecord(workItems: [RunWorkItem]) -> RunRecord {
+        let lifecycle = makeLifecycle(workItems: workItems)
+        return RunRecord(
+            lifecycle: lifecycle,
+            transitions: [
+                RunLifecycleTransition(state: .writing, timestamp: lifecycle.startedAt),
+                RunLifecycleTransition(state: .recoverable, timestamp: lifecycle.startedAt),
+            ],
+            syncSummary: nil,
+            failureMessage: "Unknown write outcome",
+            finishedAt: nil
+        )
+    }
+
     @Test("continuable work keeps only failed and skipped outcomes in order")
     func derivesContinuableWork() throws {
         let written = makeWorkItem(state: .outcome(.written))

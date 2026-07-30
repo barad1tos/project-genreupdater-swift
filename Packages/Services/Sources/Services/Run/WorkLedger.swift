@@ -225,7 +225,7 @@ struct WorkLedger: Equatable, Sendable {
 }
 
 extension WorkState {
-    fileprivate var isWriteUncertain: Bool {
+    var isWriteUncertain: Bool {
         self == .attempting || self == .attempted
     }
 }
