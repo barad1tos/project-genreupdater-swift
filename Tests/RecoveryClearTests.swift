@@ -65,6 +65,30 @@ struct RecoveryClearTests {
         #expect(await setup.processor.recoveryHoldID() == recoveryID)
     }
 
+    @Test("Prepared-only records clear locally while Music.app is closed")
+    func preparedOnlyClearsWhileBlocked() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let (record, item) = uncertainRunRecord(recoveryID: recoveryID, itemState: .prepared)
+        try await setup.store.upsert(record)
+        setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
+            isMusicAppRunning: { false },
+            areScriptsInstalled: { true }
+        )))
+        setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: []))
+        let stored = try #require(await setup.store.record(for: record.runID))
+        await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
+
+        try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+
+        let closed = try #require(await setup.store.record(for: record.runID))
+        #expect(closed.finishedAt != nil)
+        #expect(closed.workItems.map(\.state) == [.outcome(.skipped)])
+        #expect(closed.workItems.first?.id == item.id)
+        #expect(await setup.processor.recoveryHoldID() == nil)
+    }
+
     @Test("Preflight reports the blocker for uncertain records")
     func preflightReportsBlocker() async throws {
         let setup = try makeRecoverySetup()
