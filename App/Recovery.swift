@@ -108,6 +108,11 @@ extension AppDependencies {
             if let record = page.records.first(where: {
                 $0.runID == runID || $0.recoveryID == runID.rawValue
             }) {
+                if record.hasWriteUncertainty,
+                   let recoveryAvailability,
+                   case let .blocked(blocker) = await recoveryAvailability.status() {
+                    return .blocked(runID: runID, reason: blocker)
+                }
                 return RecoveryPreflight.classify(record)
             }
             if page.recoveryRunIDs.contains(runID) {
@@ -259,6 +264,13 @@ extension AppDependencies {
             return true
         }
         guard hasOpenWork else { return nil }
+        // Only write-uncertain work needs live observation; prepared-only
+        // records close locally and must not block on Music.app availability.
+        if record.hasWriteUncertainty,
+           let recoveryAvailability,
+           case let .blocked(blocker) = await recoveryAvailability.status() {
+            throw AppDependencyServiceError.recoveryObservationBlocked(blocker)
+        }
         guard let recoveryObservationClient else {
             recoveryLog.error("Recovery observation skipped: no observation client available")
             return nil

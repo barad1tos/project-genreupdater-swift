@@ -63,6 +63,9 @@ final class AppDependencies {
     /// Client used to re-read attempted work during recovery clearance;
     /// production wiring points it at the AppleScript bridge.
     private(set) var recoveryObservationClient: (any AppleScriptClient)?
+    /// Availability probe consulted before recovery observation so a blocked
+    /// environment surfaces an actionable reason instead of a generic failure.
+    private(set) var recoveryAvailability: RecoveryAvailability?
     private(set) var subscriptionService: SubscriptionService?
     private(set) var featureGate: FeatureGate?
     private(set) var networkReachabilityMonitor: NetworkReachabilityMonitor?
@@ -167,6 +170,7 @@ final class AppDependencies {
             try await bridge.initialize()
             applescriptBridge = bridge
             recoveryObservationClient = bridge
+            recoveryAvailability = RecoveryAvailability(checks: .live(installer: installer))
 
             let reader = MusicLibraryReader(
                 testArtists: config.development.testArtists
@@ -758,6 +762,10 @@ extension AppDependencies {
 
     func installTestObservationClient(_ client: any AppleScriptClient) {
         recoveryObservationClient = client
+    }
+
+    func installTestAvailability(_ availability: RecoveryAvailability) {
+        recoveryAvailability = availability
     }
 
     func installTrackCountSource(_ source: @escaping @Sendable () async -> Int?) {

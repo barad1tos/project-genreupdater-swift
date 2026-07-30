@@ -162,17 +162,28 @@ struct ActivityCommands {
                 ),
                 refreshedActivityProjection: projection
             )
-        case .blocked:
+        case let .blocked(runID, reason):
             return .requiresAttention(
-                message: "Recovery preflight is unavailable.",
+                message: reason.userGuidance + ".",
                 issue: OperationalIssue(
                     id: "recovery-preflight-blocked",
-                    category: .temporaryUnavailable,
-                    summary: "Recovery preflight unavailable",
-                    technicalDetail: nil
+                    category: Self.blockedRecoveryCategory(for: reason),
+                    summary: "Recovery blocked",
+                    technicalDetail: "\(reason) run \(runID.rawValue.uuidString)"
                 ),
                 refreshedActivityProjection: projection
             )
+        }
+    }
+
+    private static func blockedRecoveryCategory(for reason: RecoveryPreflightBlocker) -> OperationalIssueCategory {
+        switch reason {
+        case .storeUnavailable:
+            .temporaryUnavailable
+        case .musicAppUnavailable:
+            .musicUnavailable
+        case .scriptsUnavailable:
+            .applicationScriptsUnavailable
         }
     }
 

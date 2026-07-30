@@ -16,6 +16,21 @@ public enum RecoveryPreflightAttention: Equatable, Sendable {
 
 public enum RecoveryPreflightBlocker: Equatable, Sendable {
     case storeUnavailable
+    case musicAppUnavailable
+    case scriptsUnavailable
+
+    /// One user-facing action per blocker, shared by every surface that
+    /// renders a blocked recovery so the copy cannot drift.
+    public var userGuidance: String {
+        switch self {
+        case .storeUnavailable:
+            "Run history is unavailable; interrupted writes cannot be verified yet"
+        case .musicAppUnavailable:
+            "Open Music.app to verify interrupted writes"
+        case .scriptsUnavailable:
+            "Reinstall the GenreUpdater scripts before verifying interrupted writes"
+        }
+    }
 }
 
 public enum RecoveryPreflightOutcome: Equatable, Sendable {

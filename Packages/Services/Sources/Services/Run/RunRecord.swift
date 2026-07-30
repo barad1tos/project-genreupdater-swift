@@ -79,6 +79,12 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         workLedger.items
     }
 
+    /// True while any item may have physically reached Music.app
+    /// (`.attempting`/`.attempted`) — the only work live observation gates on.
+    public var hasWriteUncertainty: Bool {
+        workLedger.hasUncertainty
+    }
+
     init(
         header: Header,
         configuration: RunConfig? = nil,
