@@ -1,28 +1,16 @@
 import Core
 import Foundation
 
-/// The observation could not produce trustworthy evidence; recovery clearance
-/// must stay blocked rather than classify uncertainty from missing data.
-public enum RecoveryObservationError: Error, LocalizedError, Equatable {
-    case noTracksObserved(requested: Int)
-
-    public var errorDescription: String? {
-        switch self {
-        case let .noTracksObserved(requested):
-            "Music.app returned none of the \(requested) requested tracks; observation is inconclusive"
-        }
-    }
-}
-
 /// Re-reads uncertain work items from Music.app and classifies each against
 /// its planned change (ADR 0006: observed state wins).
 ///
 /// `.prepared` items were never dispatched, so they close as `.skipped`
 /// without observation. `.attempting`/`.attempted` items are re-read by their
-/// AppleScript write identity; absent tracks and missing identities classify
-/// as `.needsReview`. Fetch failures — including a response with none of the
-/// requested tracks — propagate so recovery clearance stays blocked while the
-/// physical state cannot be checked (fail closed).
+/// AppleScript write identity; absent tracks — including a whole deleted
+/// selection — classify as `.needsReview` with a durable missing-track note,
+/// so clearance stays possible while the evidence survives in the audit
+/// trail. Fetch failures propagate so recovery clearance stays blocked while
+/// the physical state cannot be checked (fail closed).
 public struct RecoveryObservationService: Sendable {
     private let scriptClient: any AppleScriptClient
     private let batchSize: Int
@@ -63,9 +51,6 @@ public struct RecoveryObservationService: Sendable {
             batchSize: batchSize,
             timeout: nil
         )
-        guard !tracks.isEmpty else {
-            throw RecoveryObservationError.noTracksObserved(requested: uniqueIDs.count)
-        }
         let tracksByID = Dictionary(
             tracks.map { ($0.appleScriptID ?? $0.id, $0) },
             uniquingKeysWith: { first, _ in first }

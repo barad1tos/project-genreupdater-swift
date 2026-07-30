@@ -170,7 +170,13 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         let closure: String
         if let observedOutcomes {
             closedWork = try workLedger.applyingObservedOutcomes(observedOutcomes)
-            let reviewCount = observedOutcomes.values.count { $0.outcome == .needsReview }
+            let openIDs = Set(workLedger.items.compactMap { item -> UUID? in
+                if case .outcome = item.state {
+                    return nil
+                }
+                return item.id
+            })
+            let reviewCount = observedOutcomes.count { openIDs.contains($0.key) && $0.value.outcome == .needsReview }
             closure = reviewCount > 0
                 ? "Recovery closed after Music.app verification; \(reviewCount) item(s) need review."
                 : "Recovery closed after Music.app verification; observed outcomes recorded."

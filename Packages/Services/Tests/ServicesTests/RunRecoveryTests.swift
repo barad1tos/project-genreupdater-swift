@@ -111,7 +111,7 @@ struct RunRecoveryTests {
         #expect(stored.state == .cancelled)
         #expect(stored.finishedAt == Date(timeIntervalSince1970: 150))
         #expect(stored.workItems.map(\.state) == [.outcome(.written)])
-        #expect(stored.workItems.first?.detail == "Observed Music.app value: Metal")
+        #expect(stored.workItems.first?.detail == "Verified in Music.app: Metal")
     }
 
     @Test("Recovery closure rejects duplicate terminal work")

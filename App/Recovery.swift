@@ -138,21 +138,29 @@ extension AppDependencies {
         let finishedAt = Date()
         let targetRecord = try await selectRecoveryRecord(id: id, activeRunID: activeRunID)
 
-        if let targetRecord {
-            try await clearObservedRecovery(
-                id: id,
-                record: targetRecord,
-                activeRunID: activeRunID,
-                activeHoldID: activeHoldID,
-                at: finishedAt
-            )
-        } else {
-            try await clearUnobservedRecovery(
-                id: id,
-                activeRunID: activeRunID,
-                activeHoldID: activeHoldID,
-                at: finishedAt
-            )
+        do {
+            if let targetRecord {
+                try await clearObservedRecovery(
+                    id: id,
+                    record: targetRecord,
+                    activeRunID: activeRunID,
+                    activeHoldID: activeHoldID,
+                    at: finishedAt
+                )
+            } else {
+                try await clearUnobservedRecovery(
+                    id: id,
+                    activeRunID: activeRunID,
+                    activeHoldID: activeHoldID,
+                    at: finishedAt
+                )
+            }
+        } catch {
+            // A failure after the in-memory hold cleared must re-admit the
+            // hold immediately, or every retry rejects until the next write
+            // attempt or relaunch rediscovers the still-open record.
+            _ = await ensureRecoveryHold()
+            throw error
         }
         _ = await ensureRecoveryHold()
     }

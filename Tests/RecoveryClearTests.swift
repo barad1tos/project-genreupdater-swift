@@ -32,7 +32,8 @@ struct RecoveryClearTests {
         #expect(closed.state == .cancelled)
         #expect(closed.finishedAt != nil)
         #expect(closed.workItems.map(\.state) == [.outcome(.written)])
-        #expect(closed.workItems.first?.detail == "Observed Music.app value: Stoner Rock")
+        #expect(closed.workItems.first?.id == item.id)
+        #expect(closed.workItems.first?.detail == "Verified in Music.app: Stoner Rock")
         #expect(await setup.processor.recoveryHoldID() == nil)
     }
 

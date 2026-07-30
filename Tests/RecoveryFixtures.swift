@@ -112,7 +112,7 @@ actor RecoveryScriptStub: AppleScriptClient {
 
     func updateTrackProperty(trackID _: String, property _: String, value _: String) async throws
         -> AppleScriptWriteResult {
-        .changed
+        throw AppleScriptBridgeError.scriptNotFound(name: "update_property", searchPath: URL(filePath: "/dev/null"))
     }
 
     func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {

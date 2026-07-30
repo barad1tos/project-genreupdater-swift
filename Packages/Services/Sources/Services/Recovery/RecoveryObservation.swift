@@ -12,10 +12,15 @@ public struct ObservedWorkOutcome: Equatable, Sendable {
         self.observedValue = observedValue
     }
 
-    /// Audit note recorded on the closed work item.
+    /// Audit note recorded on the closed work item, phrased per outcome so a
+    /// closed ledger reads unambiguously.
     var detail: String? {
         switch outcome {
-        case .written, .failed, .needsReview:
+        case .written:
+            observedValue.map { "Verified in Music.app: \($0)" }
+        case .failed:
+            observedValue.map { "Unchanged in Music.app: \($0)" }
+        case .needsReview:
             observedValue.map { "Observed Music.app value: \($0)" }
                 ?? "Track not found in Music.app"
         case .skipped, .dismissed, .noFixNeeded, .fixProposed, .deferred:

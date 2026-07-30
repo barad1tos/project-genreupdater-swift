@@ -142,15 +142,16 @@ struct RecoveryObservationServiceTests {
         }
     }
 
-    @Test("a response with none of the requested tracks is inconclusive")
-    func rejectsEmptyFetchResponse() async {
+    @Test("a fully deleted selection classifies as reviewable, not blocked")
+    func classifiesDeletedSelection() async throws {
         let attempted = makeWorkItem(state: .attempted)
         let client = MockAppleScriptClient()
         let service = RecoveryObservationService(scriptClient: client)
 
-        await #expect(throws: RecoveryObservationError.noTracksObserved(requested: 1)) {
-            _ = try await service.observeOutcomes(for: [attempted])
-        }
+        let outcomes = try await service.observeOutcomes(for: [attempted])
+
+        #expect(outcomes[attempted.id]?.outcome == .needsReview)
+        #expect(outcomes[attempted.id]?.detail == "Track not found in Music.app")
     }
 }
 
@@ -179,7 +180,7 @@ struct ObservedOutcomeLedgerTests {
         ])
 
         #expect(closed.items.map(\.state) == [.outcome(.written), .outcome(.skipped)])
-        #expect(closed.items.first?.detail == "Observed Music.app value: Metal")
+        #expect(closed.items.first?.detail == "Verified in Music.app: Metal")
         #expect(!closed.hasOpenItems)
         #expect(!closed.hasUncertainty)
     }
