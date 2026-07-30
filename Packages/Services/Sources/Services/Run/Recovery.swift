@@ -82,33 +82,44 @@ extension RunOrchestrator {
     }
 
     /// Resolves only recoverable holds; blocked records require a separate repair path.
-    public func resolveRecovery(runID: RunID, at finishedAt: Date) async -> RecoveryResolutionOutcome {
+    public func resolveRecovery(
+        runID: RunID,
+        at finishedAt: Date,
+        observedOutcomes: [UUID: WorkOutcome]? = nil
+    ) async -> RecoveryResolutionOutcome {
         guard let current = recoveryState.current,
               current.run?.snapshot.runID == runID
         else { return .rejected }
-        return await resolveRecovery(current, runID: runID, at: finishedAt)
+        return await resolveRecovery(current, runID: runID, at: finishedAt, observedOutcomes: observedOutcomes)
     }
 
     public func resolveRecovery(
         id: UUID,
         runID: RunID?,
-        at finishedAt: Date
+        at finishedAt: Date,
+        observedOutcomes: [UUID: WorkOutcome]? = nil
     ) async -> RecoveryResolutionOutcome {
         guard let current = recoveryState.current, current.holdID == id else {
             return .rejected
         }
-        return await resolveRecovery(current, runID: runID, at: finishedAt)
+        return await resolveRecovery(current, runID: runID, at: finishedAt, observedOutcomes: observedOutcomes)
     }
 
     private func resolveRecovery(
         _ candidate: RecoveryCandidate,
         runID: RunID?,
-        at finishedAt: Date
+        at finishedAt: Date,
+        observedOutcomes: [UUID: WorkOutcome]?
     ) async -> RecoveryResolutionOutcome {
         let resolved: RunLifecycleSnapshot?
         switch candidate {
         case let .run(run):
-            guard let closure = recoveryClosure(run, matching: runID, at: finishedAt) else {
+            guard let closure = recoveryClosure(
+                run,
+                matching: runID,
+                at: finishedAt,
+                observedOutcomes: observedOutcomes
+            ) else {
                 return .rejected
             }
             resolved = closure
@@ -146,19 +157,29 @@ extension RunOrchestrator {
     private func recoveryClosure(
         _ run: RecoveryRun,
         matching runID: RunID?,
-        at finishedAt: Date
+        at finishedAt: Date,
+        observedOutcomes: [UUID: WorkOutcome]?
     ) -> RunLifecycleSnapshot? {
         guard runID == nil || run.snapshot.runID == runID else { return nil }
         guard case .suspended(.recoverable) = run.snapshot.phase else { return nil }
 
         do {
-            return try run.snapshot
-                .beginningRecovery()
-                .dismissingOpenWork()
-                .cancelling(
-                    message: "Recovery closed after Music.app verification.",
-                    at: finishedAt
-                )
+            let recovering = run.snapshot.beginningRecovery()
+            let closed: RunLifecycleSnapshot
+            if let observedOutcomes {
+                closed = try recovering.applyingObservedOutcomes(observedOutcomes)
+            } else if recovering.hasWriteUncertainty {
+                // ADR 0006: write-uncertain items may only close from observed
+                // Music.app state, never through a blind grouped dismissal.
+                log.error("Recovery closure rejected: uncertain work requires observed outcomes")
+                return nil
+            } else {
+                closed = try recovering.dismissingOpenWork()
+            }
+            return closed.cancelling(
+                message: "Recovery closed after Music.app verification.",
+                at: finishedAt
+            )
         } catch {
             log.error("Recovery work closure failed: \(error.localizedDescription, privacy: .private)")
             return nil

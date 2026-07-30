@@ -459,6 +459,11 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         try withWorkLedger(workLedger.dismissingOpenWork())
     }
 
+    /// Closes every open item with its observed physical outcome (ADR 0006).
+    func applyingObservedOutcomes(_ outcomes: [UUID: WorkOutcome]) throws -> Self {
+        try withWorkLedger(workLedger.applyingObservedOutcomes(outcomes))
+    }
+
     /// assertionFailure alone compiles to a no-op in Release, so a violated
     /// invariant would leave no trail in shipped builds; the log line keeps the
     /// evidence. Only the wire-state name is logged: interpolating the full
