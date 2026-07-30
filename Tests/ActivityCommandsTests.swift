@@ -706,6 +706,101 @@ struct ActivityCommandsTests {
             operationalIssues: []
         )
     }
+
+    @Test("continue writes maps a completed release to accepted")
+    func continueWritesMapsCompleted() async {
+        let snapshot = ActivityFixtures.lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate),
+            intent: .writeFixes
+        )
+        let harness = ActivityFixtures.Harness(releaseOutcome: .released(.completed(snapshot)))
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.continueWrites())
+
+        #expect(result.status == .accepted)
+        #expect(harness.releaseCallCount == 1)
+    }
+
+    @Test("continue writes reports a re-engaged hold as blocked")
+    func continueWritesMapsReheldRelease() async {
+        let harness = ActivityFixtures.Harness(releaseOutcome: .released(.recoveryRequired))
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.continueWrites())
+
+        #expect(result.status == .blockedByRecovery)
+        #expect(result.issue?.id == "queued-write-reheld")
+    }
+
+    @Test("continue writes maps a blocked release without consuming intent")
+    func continueWritesMapsBlocked() async {
+        let harness = ActivityFixtures.Harness(releaseOutcome: .blocked)
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.continueWrites())
+
+        #expect(result.status == .blockedByRecovery)
+        #expect(result.issue?.id == "queued-write-blocked")
+    }
+
+    @Test("continue writes maps an empty slot to stale")
+    func continueWritesMapsEmpty() async {
+        let harness = ActivityFixtures.Harness(releaseOutcome: .empty)
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.continueWrites())
+
+        #expect(result.status == .rejectedStale)
+    }
+
+    @Test("continue writes maps stale consent to a re-review prompt")
+    func continueWritesMapsStale() async {
+        let harness = ActivityFixtures.Harness(releaseOutcome: .stale)
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.continueWrites())
+
+        #expect(result.status == .rejectedStale)
+        #expect(result.message.contains("Review the plan"))
+    }
+
+    @Test("continue writes surfaces a missing consent source as internal failure")
+    func continueWritesMapsSourceMissing() async {
+        let harness = ActivityFixtures.Harness(releaseOutcome: .unverifiable(.sourceMissing))
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.continueWrites())
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.issue?.category == .internalFailure)
+    }
+
+    @Test("continue writes renders a pruned plan as discard-only guidance")
+    func continueWritesMapsMissingDecision() async {
+        let harness = ActivityFixtures.Harness(releaseOutcome: .unverifiable(.noCurrentDecision))
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.continueWrites())
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.message.contains("Discard"))
+    }
+
+    @Test("continue writes maps a failed released run to attention")
+    func continueWritesMapsFailedRelease() async {
+        let snapshot = ActivityFixtures.lifecycle(
+            phase: .finished(.failed(message: "Write failed"), finishedAt: ActivityFixtures.finishDate),
+            intent: .writeFixes
+        )
+        let harness = ActivityFixtures.Harness(releaseOutcome: .released(.failed(snapshot)))
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.continueWrites())
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.issue?.id == "queued-write-failed")
+    }
 }
 
 private func makeActiveProjection(

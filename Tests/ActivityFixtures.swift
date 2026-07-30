@@ -95,11 +95,13 @@ enum ActivityFixtures {
         var refreshCallCount = 0
         var preflightRunIDs: [RunID] = []
         var queuedReloadBarriers: [RunID] = []
+        var releaseCallCount = 0
 
         private var projection: ActivityProjection
         private let preflightOutcome: RecoveryPreflightOutcome?
         private let runResult: RunSubmissionResult
         private let runError: Error?
+        private let releaseOutcome: QueuedWriteRelease
 
         init(
             currentRevision: ProjectionRevision = ProjectionRevision(1),
@@ -107,7 +109,8 @@ enum ActivityFixtures {
             isRunOrchestratorAvailable: Bool = true,
             preflightOutcome: RecoveryPreflightOutcome? = nil,
             runResult: RunSubmissionResult? = nil,
-            runError: Error? = nil
+            runError: Error? = nil,
+            releaseOutcome: QueuedWriteRelease = .empty
         ) {
             self.projection = projection ?? makeManualProjection(revision: currentRevision, isEnabled: true)
             self.isRunOrchestratorAvailable = isRunOrchestratorAvailable
@@ -116,6 +119,7 @@ enum ActivityFixtures {
                 phase: .finished(.completedNoOp(SyncResult()), finishedAt: finishDate)
             ))
             self.runError = runError
+            self.releaseOutcome = releaseOutcome
         }
 
         func makeCommands() -> ActivityCommands {
@@ -127,6 +131,10 @@ enum ActivityFixtures {
                         throw runError
                     }
                     return self.runResult
+                },
+                releaseQueuedWrite: {
+                    self.releaseCallCount += 1
+                    return self.releaseOutcome
                 },
                 queueManualReload: { runID in
                     self.queuedReloadBarriers.append(runID)

@@ -12,6 +12,7 @@ struct ActivityInputContext {
     let workflow: WorkflowDashboardState
     let fixPlanProjection: FixPlanProjection
     let reportsProjection: ReportsProjection
+    let queuedWrite: ActivityQueuedWriteSummary?
     let pendingVerification: UpdateRunPendingVerificationSummary?
     let runLifecycle: RunLifecycleSnapshot?
     let isLibrarySyncAvailable: Bool
@@ -34,6 +35,7 @@ enum ActivityInputBuilder {
             workflow: makeWorkflowState(from: context.workflow),
             fixPlan: makeFixPlanSummary(from: context.fixPlanProjection),
             recovery: makeRecoverySummary(from: context.reportsProjection),
+            queuedWrite: context.queuedWrite,
             pendingVerification: makePendingVerification(from: context.pendingVerification),
             runLifecycle: context.runLifecycle,
             isLibrarySyncAvailable: context.isLibrarySyncAvailable,

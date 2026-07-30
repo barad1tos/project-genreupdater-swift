@@ -125,7 +125,8 @@ struct FixPlanCommands {
              .rejectFixPlan,
              .togglePlanItem:
             true
-        case .reviewChanges,
+        case .continueWrites,
+             .reviewChanges,
              .resumeRecovery,
              .runManually:
             false
@@ -165,6 +166,7 @@ struct FixPlanCommands {
             }
             return .changed(nextDecision)
         case .applyFixPlan,
+             .continueWrites,
              .reviewChanges,
              .resumeRecovery,
              .runManually:

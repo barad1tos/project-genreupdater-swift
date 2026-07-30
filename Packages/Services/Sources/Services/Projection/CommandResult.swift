@@ -3,6 +3,7 @@ import Foundation
 public enum UserIntentCommandKind: String, Equatable, Sendable {
     case acceptFixPlan
     case applyFixPlan
+    case continueWrites
     case rejectFixPlan
     case reviewChanges
     case resumeRecovery
@@ -73,6 +74,10 @@ public struct UserIntentCommand: Equatable, Sendable {
 
     public static func resumeRecovery(id: UUID = UUID()) -> Self {
         Self(id: id, kind: .resumeRecovery)
+    }
+
+    public static func continueWrites(id: UUID = UUID()) -> Self {
+        Self(id: id, kind: .continueWrites)
     }
 
     public static func runManually(id: UUID = UUID()) -> Self {

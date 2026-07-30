@@ -150,6 +150,7 @@ struct ActivityInputBuilderTests {
             workflow: .empty,
             fixPlanProjection: fixPlanProjection,
             reportsProjection: reportsProjection,
+            queuedWrite: nil,
             pendingVerification: nil,
             runLifecycle: nil,
             isLibrarySyncAvailable: true,

@@ -352,6 +352,7 @@ struct ActivityBuilderTests {
         workflow: ActivityWorkflowState = .empty,
         fixPlan: ActivityFixPlanSummary? = nil,
         recovery: ActivityRecoverySummary? = nil,
+        queuedWrite: ActivityQueuedWriteSummary? = nil,
         pendingVerification: ActivityPendingVerificationSummary? = nil,
         environment: InputEnvironment = InputEnvironment()
     ) -> ActivityProjectionInput {
@@ -364,12 +365,55 @@ struct ActivityBuilderTests {
             workflow: workflow,
             fixPlan: fixPlan,
             recovery: recovery,
+            queuedWrite: queuedWrite,
             pendingVerification: pendingVerification,
             runLifecycle: environment.runLifecycle,
             isLibrarySyncAvailable: environment.isLibrarySyncAvailable,
             isAutoSyncRunning: false,
             now: environment.now ?? self.now
         )
+    }
+
+    @Test("a queued write surfaces the continue-writes primary command")
+    func surfacesContinueWrites() {
+        let input = makeInput(
+            queuedWrite: ActivityQueuedWriteSummary(planID: "plan-1", isContinuation: false)
+        )
+
+        let projection = ActivityBuilder.makeProjection(from: input)
+
+        #expect(projection.primaryCommand?.commandKind == .continueWrites)
+        #expect(projection.primaryCommand?.isEnabled == true)
+    }
+
+    @Test("an active recovery outranks the queued-write command")
+    func recoveryOutranksContinueWrites() {
+        let input = makeInput(
+            recovery: ActivityRecoverySummary(unresolvedRunCount: 1, latestRecoveryRunID: UUID().uuidString),
+            queuedWrite: ActivityQueuedWriteSummary(planID: "plan-1", isContinuation: false)
+        )
+
+        let projection = ActivityBuilder.makeProjection(from: input)
+
+        #expect(projection.primaryCommand?.commandKind == .resumeRecovery)
+    }
+
+    @Test("a queued write outranks the review-changes command")
+    func continueWritesOutranksReview() {
+        let input = makeInput(
+            workflow: ActivityWorkflowState(
+                proposedChangeCount: 3,
+                acceptedChangeCount: 0,
+                failedWriteCount: 0,
+                isProcessing: false,
+                phaseLabel: ""
+            ),
+            queuedWrite: ActivityQueuedWriteSummary(planID: "plan-1", isContinuation: true)
+        )
+
+        let projection = ActivityBuilder.makeProjection(from: input)
+
+        #expect(projection.primaryCommand?.commandKind == .continueWrites)
     }
 
     private struct InputEnvironment {

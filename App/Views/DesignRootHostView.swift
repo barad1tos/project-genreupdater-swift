@@ -28,6 +28,7 @@ struct DesignRootHostView: View {
     @State private var selectedBrowseAlbum: (album: DesignUI.Album, artist: String)?
     @State private var selectedRoute: Route? = .activity
     @State private var activityProjection: ActivityProjection = .empty()
+    @State private var queuedWriteSummary: ActivityQueuedWriteSummary?
     @State private var reportsProjection: ReportsProjection = .empty()
     @State private var fixPlanProjection: FixPlanProjection = .empty()
     @State private var selectedRunReport: RunReportDetailSnapshot?
@@ -217,6 +218,7 @@ struct DesignRootHostView: View {
             workflow: workflowDashboardState,
             fixPlanProjection: fixPlanProjection,
             reportsProjection: reportsProjection,
+            queuedWrite: queuedWriteSummary,
             pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
             runLifecycle: currentRunLifecycle,
             isLibrarySyncAvailable: dependencies.isManualRunAvailable,
@@ -699,6 +701,7 @@ struct DesignRootHostView: View {
     @discardableResult
     private func refreshActivityProjection() async -> ActivityProjection {
         let inputGeneration = await dependencies.projectionStore.nextActivityProjectionInputGeneration()
+        queuedWriteSummary = await dependencies.queuedWriteSummary()
         let projectionInput = activityProjectionInput
         let projection = ActivityBuilder.makeProjection(from: projectionInput)
         let storedProjection = await dependencies.projectionStore.replaceActivityProjection(
@@ -886,6 +889,9 @@ extension DesignRootHostView {
             isRunOrchestratorAvailable: { dependencies.runOrchestrator != nil },
             submitManualRun: {
                 try await dependencies.submitManualRun()
+            },
+            releaseQueuedWrite: {
+                await dependencies.runOrchestrator?.releaseQueuedWrite() ?? .empty
             },
             queueManualReload: { runID in
                 queuedManualReload = .waitingForActive(runID)

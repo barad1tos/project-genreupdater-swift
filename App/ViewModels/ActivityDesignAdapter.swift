@@ -144,6 +144,8 @@ enum ActivityDesignAdapter {
             "checklist"
         case .resumeRecovery:
             "shield.checkerboard"
+        case .continueWrites:
+            "play.circle"
         case .togglePlanItem:
             "arrow.triangle.2.circlepath"
         case .runManually:
