@@ -19,14 +19,6 @@ struct RecoveryAvailabilityTests {
         #expect(await RecoveryAvailability(checks: checks).status() == .blocked(.musicAppUnavailable))
     }
 
-    @Test("denied automation permission blocks recovery")
-    func blocksOnDeniedAutomation() async {
-        var checks = RecoveryAvailability.Checks.passing
-        checks.automationPermission = { .denied }
-
-        #expect(await RecoveryAvailability(checks: checks).status() == .blocked(.automationPermissionDenied))
-    }
-
     @Test("missing scripts block recovery")
     func blocksOnMissingScripts() async {
         var checks = RecoveryAvailability.Checks.passing
@@ -35,27 +27,18 @@ struct RecoveryAvailabilityTests {
         #expect(await RecoveryAvailability(checks: checks).status() == .blocked(.scriptsUnavailable))
     }
 
-    @Test("an undetermined automation permission stays available for prompting")
-    func staysAvailableWhenUndetermined() async {
-        var checks = RecoveryAvailability.Checks.passing
-        checks.automationPermission = { .undetermined }
-
-        #expect(await RecoveryAvailability(checks: checks).status() == .available)
-    }
-
-    @Test("a probe timeout fails open for the command gate")
-    func probeTimeoutFailsOpen() async {
+    @Test("an unanswerable probe fails open for the command gate")
+    func unanswerableProbeFailsOpen() async {
         var checks = RecoveryAvailability.Checks.passing
         checks.isMusicAppRunning = { nil }
 
         #expect(await RecoveryAvailability(checks: checks).status() == .available)
     }
 
-    @Test("blockers rank Music.app before permission before scripts")
+    @Test("blockers rank Music.app before scripts")
     func ranksBlockers() async {
         var checks = RecoveryAvailability.Checks.passing
         checks.isMusicAppRunning = { false }
-        checks.automationPermission = { .denied }
         checks.areScriptsInstalled = { false }
 
         #expect(await RecoveryAvailability(checks: checks).status() == .blocked(.musicAppUnavailable))
@@ -66,7 +49,6 @@ extension RecoveryAvailability.Checks {
     static var passing: Self {
         Self(
             isMusicAppRunning: { true },
-            automationPermission: { .granted },
             areScriptsInstalled: { true }
         )
     }

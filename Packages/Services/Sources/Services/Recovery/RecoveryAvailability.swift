@@ -1,12 +1,5 @@
 import Foundation
 
-/// Automation (Apple Events) permission state toward Music.app.
-public enum AutomationPermission: Equatable, Sendable {
-    case granted
-    case denied
-    case undetermined
-}
-
 public enum RecoveryAvailabilityStatus: Equatable, Sendable {
     case available
     case blocked(RecoveryPreflightBlocker)
@@ -14,25 +7,22 @@ public enum RecoveryAvailabilityStatus: Equatable, Sendable {
 
 /// Probes whether live Music.app observation is currently possible.
 ///
-/// Ranked: a stopped Music.app blocks first, then a denied automation
-/// permission, then missing scripts. An undetermined permission stays
-/// available so the system prompt can appear on first use, and a probe that
-/// cannot answer (nil) fails open — the clearance path itself remains
+/// Ranked: a stopped Music.app blocks first, then missing scripts. An
+/// unanswerable probe (nil) fails open — the clearance path itself remains
 /// fail-closed on real observation errors, mirroring the Python contract
-/// where only the availability probe is optimistic.
+/// where only the availability probe is optimistic. Automation permission is
+/// deliberately not probed: writes run through `NSUserAppleScriptTask`
+/// scripts the user installed, which carry their own consent.
 public struct RecoveryAvailability: Sendable {
     public struct Checks: Sendable {
         public var isMusicAppRunning: @Sendable () async -> Bool?
-        public var automationPermission: @Sendable () async -> AutomationPermission
         public var areScriptsInstalled: @Sendable () async -> Bool
 
         public init(
             isMusicAppRunning: @escaping @Sendable () async -> Bool?,
-            automationPermission: @escaping @Sendable () async -> AutomationPermission,
             areScriptsInstalled: @escaping @Sendable () async -> Bool
         ) {
             self.isMusicAppRunning = isMusicAppRunning
-            self.automationPermission = automationPermission
             self.areScriptsInstalled = areScriptsInstalled
         }
     }
@@ -46,9 +36,6 @@ public struct RecoveryAvailability: Sendable {
     public func status() async -> RecoveryAvailabilityStatus {
         if await checks.isMusicAppRunning() == false {
             return .blocked(.musicAppUnavailable)
-        }
-        if await checks.automationPermission() == .denied {
-            return .blocked(.automationPermissionDenied)
         }
         if await checks.areScriptsInstalled() == false {
             return .blocked(.scriptsUnavailable)

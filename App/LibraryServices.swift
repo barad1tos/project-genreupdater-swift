@@ -53,18 +53,7 @@ enum AppDependencyServiceError: LocalizedError, Equatable {
         case .recoveryVerificationFailed:
             "Interrupted writes could not be verified against Music.app; the recovery hold was kept"
         case let .recoveryObservationBlocked(blocker):
-            switch blocker {
-            case .musicAppUnavailable:
-                "Open Music.app to verify interrupted writes"
-            case .automationPermissionDenied:
-                "Allow GenreUpdater to control Music.app in System Settings > Privacy & Security > Automation"
-            case .scriptsUnavailable:
-                "Reinstall the GenreUpdater scripts before verifying interrupted writes"
-            case .musicKitUnauthorized:
-                "Grant Music library access before verifying interrupted writes"
-            case .storeUnavailable:
-                "Run history is unavailable; interrupted writes cannot be verified yet"
-            }
+            blocker.userGuidance
         case .runRecordStoreUnavailable:
             "Run record store is unavailable"
         case .runOrchestratorUnavailable:

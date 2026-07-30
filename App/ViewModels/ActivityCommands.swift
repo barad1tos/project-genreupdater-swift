@@ -162,32 +162,17 @@ struct ActivityCommands {
                 ),
                 refreshedActivityProjection: projection
             )
-        case let .blocked(_, reason):
+        case let .blocked(runID, reason):
             return .requiresAttention(
-                message: Self.blockedRecoveryMessage(for: reason),
+                message: reason.userGuidance + ".",
                 issue: OperationalIssue(
                     id: "recovery-preflight-blocked",
                     category: Self.blockedRecoveryCategory(for: reason),
                     summary: "Recovery blocked",
-                    technicalDetail: nil
+                    technicalDetail: "\(reason) run \(runID.rawValue.uuidString)"
                 ),
                 refreshedActivityProjection: projection
             )
-        }
-    }
-
-    private static func blockedRecoveryMessage(for reason: RecoveryPreflightBlocker) -> String {
-        switch reason {
-        case .storeUnavailable:
-            "Recovery preflight is unavailable."
-        case .musicAppUnavailable:
-            "Open Music.app to verify interrupted writes."
-        case .automationPermissionDenied:
-            "Allow GenreUpdater to control Music.app in System Settings > Privacy & Security > Automation."
-        case .scriptsUnavailable:
-            "Reinstall the GenreUpdater scripts before verifying interrupted writes."
-        case .musicKitUnauthorized:
-            "Grant Music library access before verifying interrupted writes."
         }
     }
 
@@ -197,12 +182,8 @@ struct ActivityCommands {
             .temporaryUnavailable
         case .musicAppUnavailable:
             .musicUnavailable
-        case .automationPermissionDenied:
-            .automationPermissionRequired
         case .scriptsUnavailable:
             .applicationScriptsUnavailable
-        case .musicKitUnauthorized:
-            .musicKitUnavailable
         }
     }
 

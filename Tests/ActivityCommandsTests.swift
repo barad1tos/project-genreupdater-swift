@@ -300,11 +300,42 @@ struct ActivityCommandsTests {
         let result = await commands.handle(.resumeRecovery())
 
         #expect(result.status == .requiresAttention)
-        #expect(result.message == "Recovery preflight is unavailable.")
+        #expect(result.message == "Run history is unavailable; interrupted writes cannot be verified yet.")
         #expect(result.issue?.id == "recovery-preflight-blocked")
         #expect(result.issue?.category == .temporaryUnavailable)
         #expect(result.navigationTarget == nil)
         #expect(harness.preflightRunIDs == [ActivityFixtures.recoveryRunID])
+    }
+
+    @Test("resume recovery maps a stopped Music.app to its category")
+    func blockedMusicAppMapping() async {
+        let harness = ActivityFixtures.Harness(
+            projection: ActivityFixtures.makeRecoveryProjection(revision: ProjectionRevision(2)),
+            preflightOutcome: .blocked(runID: ActivityFixtures.recoveryRunID, reason: .musicAppUnavailable)
+        )
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.resumeRecovery())
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.message == "Open Music.app to verify interrupted writes.")
+        #expect(result.issue?.category == .musicUnavailable)
+        #expect(result.issue?.technicalDetail?.contains("musicAppUnavailable") == true)
+    }
+
+    @Test("resume recovery maps missing scripts to their category")
+    func blockedScriptsMapping() async {
+        let harness = ActivityFixtures.Harness(
+            projection: ActivityFixtures.makeRecoveryProjection(revision: ProjectionRevision(2)),
+            preflightOutcome: .blocked(runID: ActivityFixtures.recoveryRunID, reason: .scriptsUnavailable)
+        )
+        let commands = harness.makeCommands()
+
+        let result = await commands.handle(.resumeRecovery())
+
+        #expect(result.status == .requiresAttention)
+        #expect(result.message == "Reinstall the GenreUpdater scripts before verifying interrupted writes.")
+        #expect(result.issue?.category == .applicationScriptsUnavailable)
     }
 
     @Test("resume recovery rejects malformed run id before preflight")

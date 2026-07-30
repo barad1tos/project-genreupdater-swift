@@ -14,6 +14,10 @@ struct RecoveryClearTests {
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, item) = uncertainRunRecord(recoveryID: recoveryID)
         try await setup.store.upsert(record)
+        setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
+            isMusicAppRunning: { true },
+            areScriptsInstalled: { true }
+        )))
         setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: [
             Track(
                 id: "persistent-1",
@@ -46,7 +50,6 @@ struct RecoveryClearTests {
         try await setup.store.upsert(record)
         setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
             isMusicAppRunning: { false },
-            automationPermission: { .granted },
             areScriptsInstalled: { true }
         )))
         let stored = try #require(await setup.store.record(for: record.runID))
@@ -60,6 +63,26 @@ struct RecoveryClearTests {
         #expect(retained.finishedAt == nil)
         #expect(retained.workItems.map(\.state) == [.attempted])
         #expect(await setup.processor.recoveryHoldID() == recoveryID)
+    }
+
+    @Test("Preflight reports the blocker for uncertain records")
+    func preflightReportsBlocker() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
+        try await setup.store.upsert(record)
+        setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
+            isMusicAppRunning: { false },
+            areScriptsInstalled: { true }
+        )))
+
+        let outcome = await setup.dependencies.runRecoveryPreflight(runID: record.runID)
+
+        guard case .blocked(record.runID, .musicAppUnavailable) = outcome else {
+            Issue.record("Expected a musicAppUnavailable blocker, got \(outcome)")
+            return
+        }
     }
 
     @Test("Clearance without observation keeps the uncertain record open")
