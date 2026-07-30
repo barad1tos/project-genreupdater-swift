@@ -10,6 +10,9 @@ public actor RunOrchestrator {
     var activeRun: RunLifecycleSnapshot?
     var latestRun: RunLifecycleSnapshot?
     var recoveryState = RecoveryState.clear
+    /// The one write request retained while a recovery hold blocks writes.
+    /// Managed exclusively by the QueuedWrite extension.
+    var queuedWrite: RunRequest?
     private var activeTransitions: [RunLifecycleTransition] = []
     private var pendingTriggers: [PendingTrigger] = []
     private var subscribers: [UUID: LifecycleUpdateBuffer]
@@ -49,6 +52,9 @@ public actor RunOrchestrator {
 
     public func submit(_ request: RunRequest) async -> RunSubmissionResult {
         if request.intent == .writeFixes, recoveryState.hasWriteBlock {
+            // The response shape stays as shipped; retention is additive so
+            // existing consumers keep their recovery routing untouched.
+            retainWriteBehindRecovery(request)
             if let run = recoveryState.current?.run {
                 return .recoverable(run.snapshot, reason: run.reason)
             }
