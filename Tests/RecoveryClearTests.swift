@@ -41,6 +41,38 @@ struct RecoveryClearTests {
         #expect(await setup.processor.recoveryHoldID() == nil)
     }
 
+    @Test("Observed clearance repairs missing undo history for landed writes")
+    func observedClearanceRepairsHistory() async throws {
+        let setup = try makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
+        try await setup.store.upsert(record)
+        setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
+            isMusicAppRunning: { true },
+            areScriptsInstalled: { true }
+        )))
+        setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: [
+            Track(
+                id: "persistent-1",
+                name: "Track",
+                artist: "Artist",
+                album: "Album",
+                genre: "Stoner Rock"
+            ),
+        ]))
+        let stored = try #require(await setup.store.record(for: record.runID))
+        await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
+        #expect(await setup.undo.getHistory().isEmpty)
+
+        try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+
+        let history = await setup.undo.getHistory()
+        #expect(history.map(\.trackID) == ["persistent-1"])
+        #expect(history.first?.changeType == .genreUpdate)
+        #expect(history.first?.newGenre == "Stoner Rock")
+    }
+
     @Test("Blocked availability keeps the hold with an actionable reason")
     func blockedAvailabilityKeepsHold() async throws {
         let setup = try makeRecoverySetup()

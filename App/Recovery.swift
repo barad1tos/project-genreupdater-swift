@@ -187,6 +187,7 @@ extension AppDependencies {
             throw AppDependencyServiceError.recoveryBlocked
         }
         let observedOutcomes = try await observeOutcomes(for: record)
+        try await repairFinalizationEvidence(record: record, observedOutcomes: observedOutcomes)
         if let runOrchestrator {
             guard await runOrchestrator.resolveRecovery(
                 id: id,
@@ -238,6 +239,24 @@ extension AppDependencies {
         } else if await processor.recoveryHoldID() == id {
             try await processor.clearRecovery(batchID: id)
         }
+    }
+
+    /// Rebuilds missing change-history entries for observed-written items so
+    /// undo evidence survives a lost finalization; a repair failure aborts
+    /// clearance and the hold is retained (repaired evidence or a hold).
+    private func repairFinalizationEvidence(
+        record: RunRecord,
+        observedOutcomes: [UUID: ObservedWorkOutcome]?
+    ) async throws {
+        guard let observedOutcomes, let undoCoordinator else { return }
+        let existing = await undoCoordinator.getHistory()
+        let entries = RecoveryEvidenceRepair.missingEntries(
+            for: record.workItems,
+            observed: observedOutcomes,
+            existing: existing
+        )
+        guard !entries.isEmpty else { return }
+        try await undoCoordinator.recordChanges(entries)
     }
 
     /// Finds the open recovery record bound to the hold without mutating it.

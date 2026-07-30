@@ -8,6 +8,7 @@ struct RecoverySetup {
     let dependencies: AppDependencies
     let processor: BatchProcessor
     let store: any RunRecordStore
+    let undo: UndoCoordinator
     let directory: URL
 }
 
@@ -187,9 +188,14 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) throws -> RecoverySet
         featureGate: FeatureGate(fixedTier: .pro)
     )
     let store = try store ?? RunRecordDataStore(modelContainer: ModelContainerFactory.createInMemory())
+    let undo = UndoCoordinator(
+        scriptBridge: RecoveryScriptStub(tracks: []),
+        directory: directory.appendingPathComponent("undo", isDirectory: true)
+    )
     let fixture = try makeFixture(testArtists: [], runRecordStore: store)
     fixture.dependencies.installTestWrites(TestWriteServices(
         batchProcessor: processor,
+        undoCoordinator: undo,
         runRecordStore: store
     ))
     let orchestrator = RunOrchestrator(dependencies: .init(
@@ -208,6 +214,7 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) throws -> RecoverySet
         dependencies: fixture.dependencies,
         processor: processor,
         store: store,
+        undo: undo,
         directory: directory
     )
 }
