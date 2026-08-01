@@ -226,7 +226,9 @@ public struct DurationThresholdsConfig: Sendable, Codable {
 public struct ReportingConfig: Sendable, Codable {
     public var minAttemptsForReport: Double = 3
     public var changeDisplayMode: ChangeDisplayMode = .compact
-    /// Maximum number of terminal run records kept in history. Open (interrupted) records are never pruned.
+    /// Keeps the newest N prunable terminal run records. Open (interrupted)
+    /// records, records with unresolved evidence, and continuation sources
+    /// referenced by retained runs are kept on top and do not consume slots.
     public var runHistoryLimit: Int = 500
 
     public init() {}

@@ -391,12 +391,14 @@ public protocol RunRecordStore: Sendable {
     func loadAll() async throws -> [RunRecord]
     func record(for runID: RunID) async throws -> RunRecord?
 
-    /// Deletes the oldest terminal records beyond `limit`. Open records
-    /// (`finishedAt == nil`) are never pruned: unresolved runs are recovery
-    /// evidence, not disposable history. Unreadable terminal rows are pruned
-    /// only when their header and salvage route prove they are read-only;
-    /// write or unsupported-schema evidence is retained. A `limit` below 1
-    /// is a no-op. Returns the number of deleted rows.
+    /// Deletes the oldest prunable terminal records beyond `limit`; protected
+    /// records ride on top, so the total kept may exceed `limit`. Never
+    /// pruned: open records (`finishedAt == nil`), terminal records with
+    /// unresolved evidence (`hasUnresolvedEvidence`), and records referenced
+    /// by any retained or open run's `continuesRunID`. Unreadable terminal
+    /// rows are pruned only when their header and salvage route prove they
+    /// are read-only; write or unsupported-schema evidence is retained. A
+    /// `limit` below 1 is a no-op. Returns the number of deleted rows.
     func prune(keepingLatest limit: Int) async throws -> Int
 
     /// Lists open recovery candidates plus corrupted terminal audits that need

@@ -53,23 +53,50 @@ public actor RunRecordDataStore: RunRecordStore {
         // limit < 1 is a no-op: an unclamped config value must not wipe the whole history.
         guard limit >= 1 else { return 0 }
 
+        // Open rows are never deletion candidates, but they contribute
+        // continuation references, so the pass walks every record. References
+        // flow newer -> older (a continuation starts after its source closed),
+        // so one descending pass sees every referencer before its source.
         let descriptor = FetchDescriptor<PersistedRunRecord>(
-            predicate: #Predicate { $0.finishedAt != nil },
             sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
         )
-        let terminalRecords = try modelContext.fetch(descriptor).filter(isPrunable)
-        guard terminalRecords.count > limit else { return 0 }
-
-        let excess = terminalRecords[limit...]
-        for row in excess {
-            modelContext.delete(row)
+        var referencedRunIDs = Set<UUID>()
+        var retainedPrunableCount = 0
+        var deletedCount = 0
+        for row in try modelContext.fetch(descriptor) {
+            let record = try? makeRecord(from: row)
+            let isDeletionCandidate = row.finishedAt != nil
+                && !referencedRunIDs.contains(row.runID)
+                && isPrunable(row, record: record)
+            if isDeletionCandidate, retainedPrunableCount >= limit {
+                try deleteWorkItems(for: row.runID)
+                modelContext.delete(row)
+                deletedCount += 1
+                continue
+            }
+            if isDeletionCandidate {
+                retainedPrunableCount += 1
+            }
+            if let reference = continuationReference(of: row, record: record) {
+                referencedRunIDs.insert(reference)
+            }
         }
+        guard deletedCount > 0 else { return 0 }
+
         try saveOrRollback()
         log.info("""
-        Pruned \(excess.count, privacy: .public) run records beyond the history limit of \
+        Pruned \(deletedCount, privacy: .public) run records beyond the history limit of \
         \(limit, privacy: .public)
         """)
-        return excess.count
+        return deletedCount
+    }
+
+    private func continuationReference(of row: PersistedRunRecord, record: RunRecord?) -> UUID? {
+        if let record {
+            return record.continuesRunID?.rawValue
+        }
+        guard let decoded = try? RunPayloadCodec.decodeForRecovery(from: row) else { return nil }
+        return (decoded.payload?.continuesRunID ?? decoded.fallback?.continuesRunID)?.rawValue
     }
 
     private func makePersisted(from record: RunRecord) throws -> PersistedRunRecord {
