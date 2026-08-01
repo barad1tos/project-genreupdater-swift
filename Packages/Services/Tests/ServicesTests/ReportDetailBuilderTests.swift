@@ -538,8 +538,10 @@ struct ReportDetailBuilderTests {
 
         let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
 
-        #expect(detail.workItems.allSatisfy { $0.isOpen })
-        #expect(detail.workItems.allSatisfy { $0.isWriteUncertain })
+        let allOpen = detail.workItems.allSatisfy(\.isOpen)
+        let allUncertain = detail.workItems.allSatisfy(\.isWriteUncertain)
+        #expect(allOpen)
+        #expect(allUncertain)
         #expect(detail.workItems.map(\.stateLabel) == ["Attempting", "Attempted"])
     }
 

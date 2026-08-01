@@ -99,7 +99,8 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     /// Evidence retention must never delete: unresolved item outcomes or an
     /// unconsumed continuation precondition (mirrors the report detail's
     /// continuation gate minus the finished check — prune only ever sees
-    /// terminal records).
+    /// terminal records). Pre-work-item rows (payload v1/v2) are always
+    /// evidence-free: both evidence classes postdate the work-item ledger.
     public var hasUnresolvedEvidence: Bool {
         workItems.contains { $0.state == .outcome(.needsReview) || $0.state == .outcome(.deferred) }
             || (intent == .writeFixes && writeTarget != nil && !continuableWork.isEmpty)
@@ -397,8 +398,11 @@ public protocol RunRecordStore: Sendable {
     /// unresolved evidence (`hasUnresolvedEvidence`), and records referenced
     /// by any retained or open run's `continuesRunID`. Unreadable terminal
     /// rows are pruned only when their header and salvage route prove they
-    /// are read-only; write or unsupported-schema evidence is retained. A
-    /// `limit` below 1 is a no-op. Returns the number of deleted rows.
+    /// are read-only; write or unsupported-schema evidence is retained.
+    /// References are extracted best-effort from salvageable payloads: a
+    /// fully unreadable referencer is itself retained but cannot protect its
+    /// source (logged loudly). A `limit` below 1 is a no-op. Returns the
+    /// number of deleted rows.
     func prune(keepingLatest limit: Int) async throws -> Int
 
     /// Lists open recovery candidates plus corrupted terminal audits that need

@@ -55,48 +55,98 @@ public actor RunRecordDataStore: RunRecordStore {
 
         // Open rows are never deletion candidates, but they contribute
         // continuation references, so the pass walks every record. References
-        // flow newer -> older (a continuation starts after its source closed),
-        // so one descending pass sees every referencer before its source.
+        // flow newer -> older (a continuation is constructible only after its
+        // source closed), so one descending pass sees every referencer before
+        // its source; the disjointness guard below fails closed if a clock
+        // step ever breaks that ordering.
         let descriptor = FetchDescriptor<PersistedRunRecord>(
-            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
+            sortBy: [
+                SortDescriptor(\.startedAt, order: .reverse),
+                SortDescriptor(\.runID),
+            ]
         )
         var referencedRunIDs = Set<UUID>()
+        var deletedRunIDs = Set<UUID>()
         var retainedPrunableCount = 0
-        var deletedCount = 0
-        for row in try modelContext.fetch(descriptor) {
-            let record = try? makeRecord(from: row)
-            let isDeletionCandidate = row.finishedAt != nil
-                && !referencedRunIDs.contains(row.runID)
-                && isPrunable(row, record: record)
-            if isDeletionCandidate, retainedPrunableCount >= limit {
-                try deleteWorkItems(for: row.runID)
-                modelContext.delete(row)
-                deletedCount += 1
-                continue
+        var retainedProtectedCount = 0
+        // Mirrors upsert: any throw after the first delete must roll back,
+        // or the pending deletions would silently commit with the next
+        // unrelated save on this actor's long-lived context.
+        do {
+            for row in try modelContext.fetch(descriptor) {
+                let record = try? makeRecord(from: row)
+                let isDeletionCandidate = row.finishedAt != nil
+                    && !referencedRunIDs.contains(row.runID)
+                    && isPrunable(row, record: record)
+                if isDeletionCandidate, retainedPrunableCount >= limit {
+                    try deleteWorkItems(for: row.runID)
+                    modelContext.delete(row)
+                    deletedRunIDs.insert(row.runID)
+                    continue
+                }
+                if isDeletionCandidate {
+                    retainedPrunableCount += 1
+                } else if row.finishedAt != nil {
+                    retainedProtectedCount += 1
+                }
+                if let reference = continuationReference(of: row, record: record) {
+                    referencedRunIDs.insert(reference)
+                }
             }
-            if isDeletionCandidate {
-                retainedPrunableCount += 1
+            guard referencedRunIDs.isDisjoint(with: deletedRunIDs) else {
+                modelContext.rollback()
+                log.error("""
+                Run history pruning aborted: a retained run references a run \
+                scheduled for deletion — startedAt ordering no longer matches \
+                continuation lineage. Nothing was deleted.
+                """)
+                return 0
             }
-            if let reference = continuationReference(of: row, record: record) {
-                referencedRunIDs.insert(reference)
+            guard !deletedRunIDs.isEmpty else {
+                logProtectedOverflow(retainedProtectedCount)
+                return 0
             }
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
         }
-        guard deletedCount > 0 else { return 0 }
-
-        try saveOrRollback()
+        logProtectedOverflow(retainedProtectedCount)
         log.info("""
-        Pruned \(deletedCount, privacy: .public) run records beyond the history limit of \
+        Pruned \(deletedRunIDs.count, privacy: .public) run records beyond the history limit of \
         \(limit, privacy: .public)
         """)
-        return deletedCount
+        return deletedRunIDs.count
+    }
+
+    private func logProtectedOverflow(_ retainedProtectedCount: Int) {
+        guard retainedProtectedCount > 0 else { return }
+        log.info("""
+        Retention kept \(retainedProtectedCount, privacy: .public) protected run record(s) on top of \
+        the history limit (open, unresolved evidence, or referenced by a retained continuation)
+        """)
     }
 
     private func continuationReference(of row: PersistedRunRecord, record: RunRecord?) -> UUID? {
         if let record {
             return record.continuesRunID?.rawValue
         }
-        guard let decoded = try? RunPayloadCodec.decodeForRecovery(from: row) else { return nil }
-        return (decoded.payload?.continuesRunID ?? decoded.fallback?.continuesRunID)?.rawValue
+        do {
+            let decoded = try RunPayloadCodec.decodeForRecovery(from: row)
+            return (decoded.payload?.continuesRunID ?? decoded.fallback?.continuesRunID)?.rawValue
+        } catch {
+            // Forward-schema payloads still salvage per-field: a v(N+1) row is
+            // retained fail-closed, but its reference must keep protecting the
+            // source it continues. A fully unreadable payload can only be loud.
+            if let salvage = try? JSONDecoder().decode(RecoveryPayload.self, from: row.transitionsData) {
+                return salvage.continuesRunID?.rawValue
+            }
+            log.error("""
+            Run \(row.runID, privacy: .public) payload is unreadable; its continuation reference \
+            (if any) cannot protect a source record from pruning
+            """)
+            return nil
+        }
     }
 
     private func makePersisted(from record: RunRecord) throws -> PersistedRunRecord {
@@ -177,15 +227,6 @@ public actor RunRecordDataStore: RunRecordStore {
             workLedger: workLedger,
             syncSummary: syncSummary
         )
-    }
-
-    private func saveOrRollback() throws {
-        do {
-            try modelContext.save()
-        } catch {
-            modelContext.rollback()
-            throw error
-        }
     }
 }
 

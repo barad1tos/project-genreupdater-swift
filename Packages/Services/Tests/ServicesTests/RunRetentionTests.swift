@@ -167,9 +167,9 @@ struct RunRetentionTests {
             createdAt: baseDate,
             reason: "manualCheck"
         )
-        // Read-only intent with a reviewed-plan configuration cannot decode as
-        // a healthy record, but salvage-decodes cleanly — the prunable
-        // corrupted shape (readOnlyClosure route, no write evidence).
+        /// Read-only intent with a reviewed-plan configuration cannot decode as
+        /// a healthy record, but salvage-decodes cleanly — the prunable
+        /// corrupted shape (readOnlyClosure route, no write evidence).
         func insertCorruptedRow(runID: UUID) throws {
             try insertRunRow(
                 runID: runID,
@@ -196,11 +196,11 @@ struct RunRetentionTests {
         try insertCorruptedRow(runID: parentedRunID)
         let context = ModelContext(container)
         let orphanItem = makeWorkItem(state: .prepared)
-        context.insert(PersistedRunWorkItem(
+        try context.insert(PersistedRunWorkItem(
             runID: parentedRunID,
             itemID: orphanItem.id,
             position: 0,
-            itemData: try JSONEncoder().encode(orphanItem)
+            itemData: JSONEncoder().encode(orphanItem)
         ))
         try context.save()
         let store = RunRecordDataStore(modelContainer: container)
@@ -222,6 +222,138 @@ struct RunRetentionTests {
             FetchDescriptor<PersistedRunWorkItem>()
         )
         #expect(remainingChildren.count == 1)
+    }
+
+    @Test("a protected corrupted referencer keeps its source alive")
+    func corruptedReferencerProtectsSource() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let source = writeRecord(at: 0, items: [makeWorkItem(state: .outcome(.written))])
+        try await store.upsert(source)
+        try await store.upsert(writeRecord(at: 1, items: [makeWorkItem(state: .outcome(.written))]))
+        let corruptedRunID = UUID()
+        let corruptedStart = baseDate.addingTimeInterval(20)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: corruptedStart,
+            reason: "manualCheck"
+        )
+        // Finished header over a payload that ends mid-write: interrupted
+        // write evidence — a protected corrupted row that references source.
+        try insertRunRow(
+            runID: corruptedRunID,
+            transitionsData: JSONEncoder().encode(VersionedPayload(
+                transitions: [
+                    RunLifecycleTransition(state: .created, timestamp: corruptedStart),
+                    RunLifecycleTransition(state: .writing, timestamp: corruptedStart.addingTimeInterval(1)),
+                ],
+                configuration: makeRunConfiguration(scopeID: scope.id, capturedAt: corruptedStart),
+                continuesRunID: source.runID
+            )),
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .writeFixes,
+                state: .writing,
+                startedAt: corruptedStart,
+                finishedAt: corruptedStart.addingTimeInterval(2)
+            ),
+            into: container
+        )
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        #expect(deleted == 0)
+        #expect(try await store.record(for: source.runID) != nil)
+    }
+
+    @Test("an unreadable forward-schema referencer still protects its source")
+    func forwardSchemaReferencerProtectsSource() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let source = writeRecord(at: 0, items: [makeWorkItem(state: .outcome(.written))])
+        try await store.upsert(source)
+        try await store.upsert(writeRecord(at: 1, items: [makeWorkItem(state: .outcome(.written))]))
+        let forwardStart = baseDate.addingTimeInterval(20)
+        try insertRunRow(
+            runID: UUID(),
+            transitionsData: JSONEncoder().encode(ForwardRunPayload(
+                transitions: [RunLifecycleTransition(state: .cancelled, timestamp: forwardStart)],
+                continuesRunID: source.runID
+            )),
+            input: RunRowInput(
+                state: .cancelled,
+                startedAt: forwardStart,
+                finishedAt: forwardStart.addingTimeInterval(1)
+            ),
+            into: container
+        )
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        // The forward-version row is retained fail-closed; its reference is
+        // salvaged per-field and must keep protecting the source.
+        #expect(deleted == 0)
+        #expect(try await store.record(for: source.runID) != nil)
+    }
+
+    @Test("pruning a healthy record deletes its child work-item rows")
+    func prunedHealthyRecordDeletesChildRows() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let landedItem = makeWorkItem(state: .outcome(.written))
+        let prunable = writeRecord(at: 0, items: [landedItem])
+        try await store.upsert(prunable)
+        try await store.upsert(writeRecord(at: 1, items: [makeWorkItem(state: .outcome(.written))]))
+        let context = ModelContext(container)
+        try context.insert(PersistedRunWorkItem(
+            runID: prunable.runID.rawValue,
+            itemID: landedItem.id,
+            position: 0,
+            itemData: JSONEncoder().encode(landedItem)
+        ))
+        try context.save()
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        #expect(deleted == 1)
+        #expect(try await store.record(for: prunable.runID) == nil)
+        let remainingChildren = try ModelContext(container).fetch(
+            FetchDescriptor<PersistedRunWorkItem>()
+        )
+        #expect(remainingChildren.isEmpty)
+    }
+
+    @Test("an ordering violation aborts the pass instead of deleting a source")
+    func orderingViolationFailsClosed() async throws {
+        let store = try makeStore()
+        // The continuation deliberately starts BEFORE its source — the shape
+        // only a backward clock step can produce. Prune must delete nothing.
+        let source = writeRecord(at: 5, items: [makeWorkItem(state: .outcome(.written))])
+        let continuation = makeRunRecord(
+            startedAt: baseDate,
+            finishedAt: baseDate.addingTimeInterval(1),
+            state: .cancelled,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                writeTarget: writeTarget(),
+                continuesRunID: source.runID,
+                workItems: [makeWorkItem(state: .outcome(.needsReview))],
+                includesSyncTransition: false
+            )
+        )
+        let newestA = writeRecord(at: 6, items: [makeWorkItem(state: .outcome(.written))])
+        let newestB = writeRecord(at: 7, items: [makeWorkItem(state: .outcome(.written))])
+        for record in [source, continuation, newestA, newestB] {
+            try await store.upsert(record)
+        }
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        #expect(deleted == 0)
+        #expect(try await store.record(for: source.runID) != nil)
+        #expect(try await store.record(for: continuation.runID) != nil)
     }
 
     private func makeStore() throws -> RunRecordDataStore {
@@ -249,4 +381,10 @@ struct RunRetentionTests {
             )
         )
     }
+}
+
+private struct ForwardRunPayload: Encodable {
+    let version = RunRecordPayload.currentVersion + 1
+    let transitions: [RunLifecycleTransition]
+    let continuesRunID: RunID?
 }
