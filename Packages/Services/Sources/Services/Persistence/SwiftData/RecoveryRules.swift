@@ -148,10 +148,16 @@ extension RunRecordDataStore {
                 || !isBlocked(row, payload: payload, fallback: fallback))
     }
 
-    func isPrunable(_ row: PersistedRunRecord, record: RunRecord?) -> Bool {
+    func isPrunable(_ row: PersistedRunRecord, record: RunRecord?, isEvidenceConsumed: Bool) -> Bool {
         // Healthy records: prunable exactly when their report is no longer
         // load-bearing — unresolved evidence never falls off the history.
+        // A source whose continuation precondition was consumed by a
+        // successfully landed continuation keeps only user-facing outcomes
+        // (needsReview/deferred) as protection.
         if let record {
+            if isEvidenceConsumed {
+                return !record.hasUnresolvedOutcomes
+            }
             return !record.hasUnresolvedEvidence
         }
         guard let state = RunLifecycleState(rawValue: row.stateRaw),

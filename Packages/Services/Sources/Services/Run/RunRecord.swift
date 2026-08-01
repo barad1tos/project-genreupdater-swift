@@ -96,13 +96,18 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         workLedger.continuableItems
     }
 
+    /// Item outcomes only a user can resolve; no continuation consumes them.
+    public var hasUnresolvedOutcomes: Bool {
+        workItems.contains { $0.state == .outcome(.needsReview) || $0.state == .outcome(.deferred) }
+    }
+
     /// Evidence retention must never delete: unresolved item outcomes or an
     /// unconsumed continuation precondition (mirrors the report detail's
     /// continuation gate minus the finished check — prune only ever sees
     /// terminal records). Pre-work-item rows (payload v1/v2) are always
     /// evidence-free: both evidence classes postdate the work-item ledger.
     public var hasUnresolvedEvidence: Bool {
-        workItems.contains { $0.state == .outcome(.needsReview) || $0.state == .outcome(.deferred) }
+        hasUnresolvedOutcomes
             || (intent == .writeFixes && writeTarget != nil && !continuableWork.isEmpty)
     }
 

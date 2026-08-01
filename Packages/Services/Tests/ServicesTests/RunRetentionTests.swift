@@ -324,6 +324,109 @@ struct RunRetentionTests {
         #expect(remainingChildren.isEmpty)
     }
 
+    @Test("a landed continuation consumes its source's continuation evidence")
+    func landedContinuationConsumesSourceEvidence() async throws {
+        let store = try makeStore()
+        let source = writeRecord(at: 0, items: [makeWorkItem(state: .outcome(.failed))])
+        let landedContinuation = writeRecord(
+            at: 1,
+            continues: source.runID,
+            items: [makeWorkItem(state: .outcome(.written))]
+        )
+        let newestA = writeRecord(at: 2, items: [makeWorkItem(state: .outcome(.written))])
+        let newestB = writeRecord(at: 3, items: [makeWorkItem(state: .outcome(.written))])
+        for record in [source, landedContinuation, newestA, newestB] {
+            try await store.upsert(record)
+        }
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        // The continuation landed everything, so the source's failed items
+        // are re-applied history, not current evidence — once the pruned
+        // continuation stops referencing it, the whole chain dissolves.
+        #expect(deleted == 3)
+        #expect(try await store.record(for: newestB.runID) != nil)
+        #expect(try await store.record(for: source.runID) == nil)
+        #expect(try await store.record(for: landedContinuation.runID) == nil)
+    }
+
+    @Test("a failed continuation does not consume its source's evidence")
+    func failedContinuationKeepsSourceEvidence() async throws {
+        let store = try makeStore()
+        let source = writeRecord(at: 0, items: [makeWorkItem(state: .outcome(.failed))])
+        let failedContinuation = writeRecord(
+            at: 1,
+            continues: source.runID,
+            items: [makeWorkItem(state: .outcome(.failed))]
+        )
+        let newest = writeRecord(at: 2, items: [makeWorkItem(state: .outcome(.written))])
+        for record in [source, failedContinuation, newest] {
+            try await store.upsert(record)
+        }
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        #expect(deleted == 0)
+        #expect(try await store.record(for: source.runID) != nil)
+        #expect(try await store.record(for: failedContinuation.runID) != nil)
+    }
+
+    @Test("an open continuation does not consume its source's evidence")
+    func openContinuationDoesNotConsumeEvidence() async throws {
+        let store = try makeStore()
+        let source = writeRecord(at: 0, items: [makeWorkItem(state: .outcome(.failed))])
+        let openContinuation = makeRunRecord(
+            startedAt: baseDate.addingTimeInterval(10),
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                writeTarget: writeTarget(),
+                continuesRunID: source.runID,
+                workItems: [makeWorkItem(state: .prepared)],
+                includesSyncTransition: false
+            )
+        )
+        let newest = writeRecord(at: 2, items: [makeWorkItem(state: .outcome(.written))])
+        for record in [source, openContinuation, newest] {
+            try await store.upsert(record)
+        }
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        // In-flight work consumes nothing; the source keeps both its own
+        // evidence protection and the open run's reference.
+        #expect(deleted == 0)
+        #expect(try await store.record(for: source.runID) != nil)
+    }
+
+    @Test("consumption never covers review or deferral outcomes")
+    func consumptionSparesUnresolvedOutcomes() async throws {
+        let store = try makeStore()
+        let source = writeRecord(at: 0, items: [
+            makeWorkItem(state: .outcome(.failed)),
+            makeWorkItem(state: .outcome(.needsReview)),
+        ])
+        let landedContinuation = writeRecord(
+            at: 1,
+            continues: source.runID,
+            items: [makeWorkItem(state: .outcome(.written))]
+        )
+        let newestA = writeRecord(at: 2, items: [makeWorkItem(state: .outcome(.written))])
+        let newestB = writeRecord(at: 3, items: [makeWorkItem(state: .outcome(.written))])
+        for record in [source, landedContinuation, newestA, newestB] {
+            try await store.upsert(record)
+        }
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        // needsReview is a user decision; no continuation can consume it.
+        #expect(deleted == 2)
+        #expect(try await store.record(for: source.runID) != nil)
+        #expect(try await store.record(for: landedContinuation.runID) == nil)
+    }
+
     @Test("a fully unreadable referencer cannot protect its source")
     func unreadableReferencerCannotProtectSource() async throws {
         let container = try ModelContainerFactory.createInMemory()

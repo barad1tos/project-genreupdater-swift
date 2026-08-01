@@ -65,35 +65,12 @@ public actor RunRecordDataStore: RunRecordStore {
                 SortDescriptor(\.runID),
             ]
         )
-        var referencedRunIDs = Set<UUID>()
-        var deletedRunIDs = Set<UUID>()
-        var retainedPrunableCount = 0
-        var retainedProtectedCount = 0
         // Mirrors upsert: any throw after the first delete must roll back,
         // or the pending deletions would silently commit with the next
         // unrelated save on this actor's long-lived context.
         do {
-            for row in try modelContext.fetch(descriptor) {
-                let record = try? makeRecord(from: row)
-                let isDeletionCandidate = row.finishedAt != nil
-                    && !referencedRunIDs.contains(row.runID)
-                    && isPrunable(row, record: record)
-                if isDeletionCandidate, retainedPrunableCount >= limit {
-                    try deleteWorkItems(for: row.runID)
-                    modelContext.delete(row)
-                    deletedRunIDs.insert(row.runID)
-                    continue
-                }
-                if isDeletionCandidate {
-                    retainedPrunableCount += 1
-                } else if row.finishedAt != nil {
-                    retainedProtectedCount += 1
-                }
-                if let reference = continuationReference(of: row, record: record) {
-                    referencedRunIDs.insert(reference)
-                }
-            }
-            let collidedRunIDs = referencedRunIDs.intersection(deletedRunIDs)
+            let pass = try stageDeletions(keepingLatest: limit, descriptor: descriptor)
+            let collidedRunIDs = pass.referencedRunIDs.intersection(pass.deletedRunIDs)
             guard collidedRunIDs.isEmpty else {
                 modelContext.rollback()
                 let collided = collidedRunIDs.map(\.uuidString).sorted().joined(separator: ", ")
@@ -105,21 +82,69 @@ public actor RunRecordDataStore: RunRecordStore {
                 """)
                 return 0
             }
-            guard !deletedRunIDs.isEmpty else {
-                logProtectedOverflow(retainedProtectedCount)
+            guard !pass.deletedRunIDs.isEmpty else {
+                logProtectedOverflow(pass.retainedProtectedCount)
                 return 0
             }
             try modelContext.save()
+            logProtectedOverflow(pass.retainedProtectedCount)
+            log.info("""
+            Pruned \(pass.deletedRunIDs.count, privacy: .public) run records beyond the history limit of \
+            \(limit, privacy: .public)
+            """)
+            return pass.deletedRunIDs.count
         } catch {
             modelContext.rollback()
             throw error
         }
-        logProtectedOverflow(retainedProtectedCount)
-        log.info("""
-        Pruned \(deletedRunIDs.count, privacy: .public) run records beyond the history limit of \
-        \(limit, privacy: .public)
-        """)
-        return deletedRunIDs.count
+    }
+
+    private struct PrunePass {
+        var referencedRunIDs = Set<UUID>()
+        var consumedSourceIDs = Set<UUID>()
+        var deletedRunIDs = Set<UUID>()
+        var retainedPrunableCount = 0
+        var retainedProtectedCount = 0
+    }
+
+    private func stageDeletions(
+        keepingLatest limit: Int,
+        descriptor: FetchDescriptor<PersistedRunRecord>
+    ) throws -> PrunePass {
+        var pass = PrunePass()
+        for row in try modelContext.fetch(descriptor) {
+            let record = try? makeRecord(from: row)
+            // A terminal continuation that landed with nothing unresolved
+            // has consumed its source's continuation precondition — the
+            // source's failed/skipped items were re-applied (visited
+            // before the source in descending order).
+            if let record, row.finishedAt != nil, let consumed = record.continuesRunID,
+               !record.hasUnresolvedEvidence {
+                pass.consumedSourceIDs.insert(consumed.rawValue)
+            }
+            let isDeletionCandidate = row.finishedAt != nil
+                && !pass.referencedRunIDs.contains(row.runID)
+                && isPrunable(
+                    row,
+                    record: record,
+                    isEvidenceConsumed: pass.consumedSourceIDs.contains(row.runID)
+                )
+            if isDeletionCandidate, pass.retainedPrunableCount >= limit {
+                try deleteWorkItems(for: row.runID)
+                modelContext.delete(row)
+                pass.deletedRunIDs.insert(row.runID)
+                continue
+            }
+            if isDeletionCandidate {
+                pass.retainedPrunableCount += 1
+            } else if row.finishedAt != nil {
+                pass.retainedProtectedCount += 1
+            }
+            if let reference = continuationReference(of: row, record: record) {
+                pass.referencedRunIDs.insert(reference)
+            }
+        }
+        return pass
     }
 
     private func logProtectedOverflow(_ retainedProtectedCount: Int) {
