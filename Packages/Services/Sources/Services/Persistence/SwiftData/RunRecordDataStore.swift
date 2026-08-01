@@ -93,12 +93,15 @@ public actor RunRecordDataStore: RunRecordStore {
                     referencedRunIDs.insert(reference)
                 }
             }
-            guard referencedRunIDs.isDisjoint(with: deletedRunIDs) else {
+            let collidedRunIDs = referencedRunIDs.intersection(deletedRunIDs)
+            guard collidedRunIDs.isEmpty else {
                 modelContext.rollback()
+                let collided = collidedRunIDs.map(\.uuidString).sorted().joined(separator: ", ")
                 log.error("""
-                Run history pruning aborted: a retained run references a run \
-                scheduled for deletion — startedAt ordering no longer matches \
-                continuation lineage. Nothing was deleted.
+                Run history pruning aborted: retained runs reference run(s) \
+                scheduled for deletion [\(collided, privacy: .public)] — \
+                startedAt ordering no longer matches continuation lineage. \
+                Nothing was deleted.
                 """)
                 return 0
             }
@@ -122,8 +125,9 @@ public actor RunRecordDataStore: RunRecordStore {
     private func logProtectedOverflow(_ retainedProtectedCount: Int) {
         guard retainedProtectedCount > 0 else { return }
         log.info("""
-        Retention kept \(retainedProtectedCount, privacy: .public) protected run record(s) on top of \
-        the history limit (open, unresolved evidence, or referenced by a retained continuation)
+        Retention kept \(retainedProtectedCount, privacy: .public) protected terminal run record(s) on \
+        top of the history limit (unresolved evidence, corrupted fail-closed retention, or referenced \
+        by a retained run)
         """)
     }
 
@@ -133,20 +137,30 @@ public actor RunRecordDataStore: RunRecordStore {
         }
         do {
             let decoded = try RunPayloadCodec.decodeForRecovery(from: row)
+            guard decoded.payload != nil || decoded.fallback != nil else {
+                // Garbage bytes: decodeForRecovery returns (nil, nil) without
+                // throwing — the genuinely unreadable path.
+                logUnreadableReference(of: row)
+                return nil
+            }
             return (decoded.payload?.continuesRunID ?? decoded.fallback?.continuesRunID)?.rawValue
         } catch {
             // Forward-schema payloads still salvage per-field: a v(N+1) row is
             // retained fail-closed, but its reference must keep protecting the
-            // source it continues. A fully unreadable payload can only be loud.
+            // source it continues.
             if let salvage = try? JSONDecoder().decode(RecoveryPayload.self, from: row.transitionsData) {
                 return salvage.continuesRunID?.rawValue
             }
-            log.error("""
-            Run \(row.runID, privacy: .public) payload is unreadable; its continuation reference \
-            (if any) cannot protect a source record from pruning
-            """)
+            logUnreadableReference(of: row)
             return nil
         }
+    }
+
+    private func logUnreadableReference(of row: PersistedRunRecord) {
+        log.error("""
+        Run \(row.runID, privacy: .public) payload is unreadable; its continuation reference \
+        (if any) cannot protect a source record from pruning
+        """)
     }
 
     private func makePersisted(from record: RunRecord) throws -> PersistedRunRecord {

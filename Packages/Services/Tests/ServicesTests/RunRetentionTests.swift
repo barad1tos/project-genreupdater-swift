@@ -324,6 +324,33 @@ struct RunRetentionTests {
         #expect(remainingChildren.isEmpty)
     }
 
+    @Test("a fully unreadable referencer cannot protect its source")
+    func unreadableReferencerCannotProtectSource() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let source = writeRecord(at: 0, items: [makeWorkItem(state: .outcome(.written))])
+        try await store.upsert(source)
+        try await store.upsert(writeRecord(at: 1, items: [makeWorkItem(state: .outcome(.written))]))
+        try insertRunRow(
+            runID: UUID(),
+            transitionsData: Data("not-json".utf8),
+            input: RunRowInput(
+                state: .cancelled,
+                startedAt: baseDate.addingTimeInterval(20),
+                finishedAt: baseDate.addingTimeInterval(21)
+            ),
+            into: container
+        )
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        // The garbage row itself is retained fail-closed, but its reference
+        // (if it ever had one) is unrecoverable — the source is plain history.
+        // Documented best-effort trade; the loss is logged.
+        #expect(deleted == 1)
+        #expect(try await store.record(for: source.runID) == nil)
+    }
+
     @Test("an ordering violation aborts the pass instead of deleting a source")
     func orderingViolationFailsClosed() async throws {
         let store = try makeStore()

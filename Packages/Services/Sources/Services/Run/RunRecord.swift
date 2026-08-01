@@ -401,7 +401,9 @@ public protocol RunRecordStore: Sendable {
     /// are read-only; write or unsupported-schema evidence is retained.
     /// References are extracted best-effort from salvageable payloads: a
     /// fully unreadable referencer is itself retained but cannot protect its
-    /// source (logged loudly). A `limit` below 1 is a no-op. Returns the
+    /// source (logged loudly). If lineage ordering is ever violated (a
+    /// retained run referencing a run staged for deletion), the pass aborts
+    /// without deleting anything. A `limit` below 1 is a no-op. Returns the
     /// number of deleted rows.
     func prune(keepingLatest limit: Int) async throws -> Int
 
