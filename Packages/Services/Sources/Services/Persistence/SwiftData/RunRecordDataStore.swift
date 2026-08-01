@@ -123,13 +123,17 @@ public actor RunRecordDataStore: RunRecordStore {
                !record.hasUnresolvedEvidence {
                 pass.consumedSourceIDs.insert(consumed.rawValue)
             }
-            let isDeletionCandidate = row.finishedAt != nil
-                && !pass.referencedRunIDs.contains(row.runID)
-                && isPrunable(
+            // Explicit statements, not a `&&` chain: the operator's autoclosure
+            // would capture the non-Sendable row and trip strict concurrency
+            // on newer toolchains (CI-only).
+            var isDeletionCandidate = false
+            if row.finishedAt != nil, !pass.referencedRunIDs.contains(row.runID) {
+                isDeletionCandidate = isPrunable(
                     row,
                     record: record,
                     isEvidenceConsumed: pass.consumedSourceIDs.contains(row.runID)
                 )
+            }
             if isDeletionCandidate, pass.retainedPrunableCount >= limit {
                 try deleteWorkItems(for: row.runID)
                 modelContext.delete(row)
