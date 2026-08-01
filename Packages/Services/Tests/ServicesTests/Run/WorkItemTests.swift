@@ -646,6 +646,39 @@ struct WorkItemTests {
         #expect(record.continuableWork.map(\.id) == [failed.id, skipped.id])
     }
 
+    @Test("unresolved evidence covers review, deferral, and continuable work")
+    func derivesUnresolvedEvidence() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        func record(
+            intent: RunIntent = .writeFixes,
+            target: FixPlanWriteTarget? = writeTarget(),
+            items: [RunWorkItem]
+        ) -> RunRecord {
+            makeRunRecord(
+                startedAt: startedAt,
+                finishedAt: startedAt.addingTimeInterval(10),
+                state: .cancelled,
+                syncSummary: nil,
+                input: RunRecordInput(
+                    intent: intent,
+                    writeTarget: target,
+                    workItems: items,
+                    includesSyncTransition: false
+                )
+            )
+        }
+
+        #expect(record(items: [makeWorkItem(state: .outcome(.needsReview))]).hasUnresolvedEvidence)
+        #expect(record(items: [makeWorkItem(state: .outcome(.deferred))]).hasUnresolvedEvidence)
+        #expect(record(items: [makeWorkItem(state: .outcome(.failed))]).hasUnresolvedEvidence)
+        #expect(!record(target: nil, items: [makeWorkItem(state: .outcome(.failed))]).hasUnresolvedEvidence)
+        #expect(!record(items: [makeWorkItem(state: .outcome(.written))]).hasUnresolvedEvidence)
+        #expect(!record(
+            intent: .observeLibrary,
+            items: [makeWorkItem(state: .outcome(.failed))]
+        ).hasUnresolvedEvidence)
+    }
+
     private func makeLifecycle(
         workItems: [RunWorkItem],
         writeAuthority: WriteAuthority = .reviewedPlan

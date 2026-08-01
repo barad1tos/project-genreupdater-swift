@@ -31,7 +31,9 @@ public struct PathsConfig: Sendable, Codable {
         case legacyApiCacheFile = "api_cache_file"
     }
 
-    public init() {}
+    public init() {
+        // Defaults are declared inline on each property.
+    }
 
     public init(from decoder: any Decoder) throws {
         let defaults = Self()
@@ -54,7 +56,9 @@ public struct PathsConfig: Sendable, Codable {
 public struct PythonSettingsConfig: Sendable, Codable {
     public var preventBytecode: Bool = true
 
-    public init() {}
+    public init() {
+        // Defaults are declared inline on each property.
+    }
 }
 
 public struct RuntimeConfig: Sendable, Codable {
@@ -75,7 +79,9 @@ public struct RuntimeConfig: Sendable, Codable {
         case legacyCacheTTLSeconds = "cache_ttl_seconds"
     }
 
-    public init() {}
+    public init() {
+        // Defaults are declared inline on each property.
+    }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: DecodingKeys.self)
@@ -118,7 +124,9 @@ public struct CachingConfig: Sendable, Codable {
         case legacyLibrarySnapshot = "library_snapshot"
     }
 
-    public init() {}
+    public init() {
+        // Defaults are declared inline on each property.
+    }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: DecodingKeys.self)
@@ -166,7 +174,9 @@ public struct LibrarySnapshotConfig: Sendable, Codable {
         case legacyCompressLevel = "compress_level"
     }
 
-    public init() {}
+    public init() {
+        // Defaults are declared inline on each property.
+    }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: DecodingKeys.self)
@@ -197,7 +207,9 @@ public struct AnalyticsConfig: Sendable, Codable {
         case enabled, durationThresholds, maxEvents, compactTime, timeFormat, enableGarbageCollection
     }
 
-    public init() {}
+    public init() {
+        // Defaults are declared inline on each property.
+    }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -218,7 +230,9 @@ public struct DurationThresholdsConfig: Sendable, Codable {
     public var mediumMax: Double = 20
     public var longMax: Double = 50
 
-    public init() {}
+    public init() {
+        // Defaults are declared inline on each property.
+    }
 }
 
 // MARK: - Reporting Configuration
@@ -226,10 +240,14 @@ public struct DurationThresholdsConfig: Sendable, Codable {
 public struct ReportingConfig: Sendable, Codable {
     public var minAttemptsForReport: Double = 3
     public var changeDisplayMode: ChangeDisplayMode = .compact
-    /// Maximum number of terminal run records kept in history. Open (interrupted) records are never pruned.
+    /// Keeps the newest N prunable terminal run records. Open (interrupted)
+    /// records, records with unresolved evidence, and continuation sources
+    /// referenced by retained runs are kept on top and do not consume slots.
     public var runHistoryLimit: Int = 500
 
-    public init() {}
+    public init() {
+        // Defaults are declared inline on each property.
+    }
 
     private enum CodingKeys: String, CodingKey {
         case minAttemptsForReport
@@ -263,7 +281,9 @@ public struct LoggingConfig: Sendable, Codable {
     public var lastDatabaseVerifyLog: String = "main/last_db_verify.log"
     public var levels = LogLevelsConfig()
 
-    public init() {}
+    public init() {
+        // Defaults are declared inline on each property.
+    }
 }
 
 public struct LogLevelsConfig: Sendable, Codable {
@@ -271,7 +291,9 @@ public struct LogLevelsConfig: Sendable, Codable {
     public var mainFile: String = "DEBUG"
     public var analyticsFile: String = "INFO"
 
-    public init() {}
+    public init() {
+        // Defaults are declared inline on each property.
+    }
 }
 
 // MARK: - Development Configuration
@@ -284,7 +306,9 @@ public struct DevelopmentConfig: Sendable, Codable {
         case testArtists, debugMode
     }
 
-    public init() {}
+    public init() {
+        // Defaults are declared inline on each property.
+    }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

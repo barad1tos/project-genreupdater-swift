@@ -96,6 +96,21 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         workLedger.continuableItems
     }
 
+    /// Item outcomes only a user can resolve; no continuation consumes them.
+    public var hasUnresolvedOutcomes: Bool {
+        workItems.contains { $0.state == .outcome(.needsReview) || $0.state == .outcome(.deferred) }
+    }
+
+    /// Evidence retention must never delete: unresolved item outcomes or an
+    /// unconsumed continuation precondition (mirrors the report detail's
+    /// continuation gate minus the finished check — prune only ever sees
+    /// terminal records). Pre-work-item rows (payload v1/v2) are always
+    /// evidence-free: both evidence classes postdate the work-item ledger.
+    public var hasUnresolvedEvidence: Bool {
+        hasUnresolvedOutcomes
+            || (intent == .writeFixes && writeTarget != nil && !continuableWork.isEmpty)
+    }
+
     init(
         header: Header,
         configuration: RunConfig? = nil,
@@ -382,12 +397,19 @@ public protocol RunRecordStore: Sendable {
     func loadAll() async throws -> [RunRecord]
     func record(for runID: RunID) async throws -> RunRecord?
 
-    /// Deletes the oldest terminal records beyond `limit`. Open records
-    /// (`finishedAt == nil`) are never pruned: unresolved runs are recovery
-    /// evidence, not disposable history. Unreadable terminal rows are pruned
-    /// only when their header and salvage route prove they are read-only;
-    /// write or unsupported-schema evidence is retained. A `limit` below 1
-    /// is a no-op. Returns the number of deleted rows.
+    /// Deletes the oldest prunable terminal records beyond `limit`; protected
+    /// records ride on top, so the total kept may exceed `limit`. Never
+    /// pruned: open records (`finishedAt == nil`), terminal records with
+    /// unresolved evidence (`hasUnresolvedEvidence`), and records referenced
+    /// by any retained or open run's `continuesRunID`. Unreadable terminal
+    /// rows are pruned only when their header and salvage route prove they
+    /// are read-only; write or unsupported-schema evidence is retained.
+    /// References are extracted best-effort from salvageable payloads: a
+    /// fully unreadable referencer is itself retained but cannot protect its
+    /// source (logged loudly). If lineage ordering is ever violated (a
+    /// retained run referencing a run staged for deletion), the pass aborts
+    /// without deleting anything. A `limit` below 1 is a no-op. Returns the
+    /// number of deleted rows.
     func prune(keepingLatest limit: Int) async throws -> Int
 
     /// Lists open recovery candidates plus corrupted terminal audits that need

@@ -53,23 +53,144 @@ public actor RunRecordDataStore: RunRecordStore {
         // limit < 1 is a no-op: an unclamped config value must not wipe the whole history.
         guard limit >= 1 else { return 0 }
 
+        // Open rows are never deletion candidates, but they contribute
+        // continuation references, so the pass walks every record. References
+        // flow newer -> older (a continuation is constructible only after its
+        // source closed), so one descending pass sees every referencer before
+        // its source; the disjointness guard below fails closed if a clock
+        // step ever breaks that ordering.
         let descriptor = FetchDescriptor<PersistedRunRecord>(
-            predicate: #Predicate { $0.finishedAt != nil },
-            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
+            sortBy: [
+                SortDescriptor(\.startedAt, order: .reverse),
+                SortDescriptor(\.runID),
+            ]
         )
-        let terminalRecords = try modelContext.fetch(descriptor).filter(isPrunable)
-        guard terminalRecords.count > limit else { return 0 }
-
-        let excess = terminalRecords[limit...]
-        for row in excess {
-            modelContext.delete(row)
+        // Mirrors upsert: any throw after the first delete must roll back,
+        // or the pending deletions would silently commit with the next
+        // unrelated save on this actor's long-lived context.
+        do {
+            let pass = try stageDeletions(keepingLatest: limit, descriptor: descriptor)
+            let collidedRunIDs = pass.referencedRunIDs.intersection(pass.deletedRunIDs)
+            guard collidedRunIDs.isEmpty else {
+                modelContext.rollback()
+                let collided = collidedRunIDs.map(\.uuidString).sorted().joined(separator: ", ")
+                log.error("""
+                Run history pruning aborted: retained runs reference run(s) \
+                scheduled for deletion [\(collided, privacy: .public)] — \
+                startedAt ordering no longer matches continuation lineage. \
+                Nothing was deleted.
+                """)
+                return 0
+            }
+            guard !pass.deletedRunIDs.isEmpty else {
+                logProtectedOverflow(pass.retainedProtectedCount)
+                return 0
+            }
+            try modelContext.save()
+            logProtectedOverflow(pass.retainedProtectedCount)
+            log.info("""
+            Pruned \(pass.deletedRunIDs.count, privacy: .public) run records beyond the history limit of \
+            \(limit, privacy: .public)
+            """)
+            return pass.deletedRunIDs.count
+        } catch {
+            modelContext.rollback()
+            throw error
         }
-        try saveOrRollback()
+    }
+
+    private struct PrunePass {
+        var referencedRunIDs = Set<UUID>()
+        var consumedSourceIDs = Set<UUID>()
+        var deletedRunIDs = Set<UUID>()
+        var retainedPrunableCount = 0
+        var retainedProtectedCount = 0
+    }
+
+    private func stageDeletions(
+        keepingLatest limit: Int,
+        descriptor: FetchDescriptor<PersistedRunRecord>
+    ) throws -> PrunePass {
+        var pass = PrunePass()
+        for row in try modelContext.fetch(descriptor) {
+            let record = try? makeRecord(from: row)
+            // A terminal continuation that finished with nothing unresolved
+            // has consumed its source's continuation precondition — the
+            // source's failed/skipped items were re-applied or explicitly
+            // closed by the user (visited before the source in descending
+            // order).
+            if let record, row.finishedAt != nil, let consumed = record.continuesRunID,
+               !record.hasUnresolvedEvidence {
+                pass.consumedSourceIDs.insert(consumed.rawValue)
+            }
+            // Explicit statements, not a `&&` chain: the operator's autoclosure
+            // would capture the non-Sendable row and trip strict concurrency
+            // on newer toolchains (CI-only).
+            var isDeletionCandidate = false
+            if row.finishedAt != nil, !pass.referencedRunIDs.contains(row.runID) {
+                isDeletionCandidate = isPrunable(
+                    row,
+                    record: record,
+                    isEvidenceConsumed: pass.consumedSourceIDs.contains(row.runID)
+                )
+            }
+            if isDeletionCandidate, pass.retainedPrunableCount >= limit {
+                try deleteWorkItems(for: row.runID)
+                modelContext.delete(row)
+                pass.deletedRunIDs.insert(row.runID)
+                continue
+            }
+            if isDeletionCandidate {
+                pass.retainedPrunableCount += 1
+            } else if row.finishedAt != nil {
+                pass.retainedProtectedCount += 1
+            }
+            if let reference = continuationReference(of: row, record: record) {
+                pass.referencedRunIDs.insert(reference)
+            }
+        }
+        return pass
+    }
+
+    private func logProtectedOverflow(_ retainedProtectedCount: Int) {
+        guard retainedProtectedCount > 0 else { return }
         log.info("""
-        Pruned \(excess.count, privacy: .public) run records beyond the history limit of \
-        \(limit, privacy: .public)
+        Retention kept \(retainedProtectedCount, privacy: .public) protected terminal run record(s) on \
+        top of the history limit (unresolved evidence, corrupted fail-closed retention, or referenced \
+        by a retained run)
         """)
-        return excess.count
+    }
+
+    private func continuationReference(of row: PersistedRunRecord, record: RunRecord?) -> UUID? {
+        if let record {
+            return record.continuesRunID?.rawValue
+        }
+        do {
+            let decoded = try RunPayloadCodec.decodeForRecovery(from: row)
+            guard decoded.payload != nil || decoded.fallback != nil else {
+                // Garbage bytes: decodeForRecovery returns (nil, nil) without
+                // throwing — the genuinely unreadable path.
+                logUnreadableReference(of: row)
+                return nil
+            }
+            return (decoded.payload?.continuesRunID ?? decoded.fallback?.continuesRunID)?.rawValue
+        } catch {
+            // Forward-schema payloads still salvage per-field: a v(N+1) row is
+            // retained fail-closed, but its reference must keep protecting the
+            // source it continues.
+            if let salvage = try? JSONDecoder().decode(RecoveryPayload.self, from: row.transitionsData) {
+                return salvage.continuesRunID?.rawValue
+            }
+            logUnreadableReference(of: row)
+            return nil
+        }
+    }
+
+    private func logUnreadableReference(of row: PersistedRunRecord) {
+        log.error("""
+        Run \(row.runID, privacy: .public) payload is unreadable; its continuation reference \
+        (if any) cannot protect a source record from pruning
+        """)
     }
 
     private func makePersisted(from record: RunRecord) throws -> PersistedRunRecord {
@@ -150,15 +271,6 @@ public actor RunRecordDataStore: RunRecordStore {
             workLedger: workLedger,
             syncSummary: syncSummary
         )
-    }
-
-    private func saveOrRollback() throws {
-        do {
-            try modelContext.save()
-        } catch {
-            modelContext.rollback()
-            throw error
-        }
     }
 }
 
