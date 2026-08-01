@@ -96,6 +96,15 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         workLedger.continuableItems
     }
 
+    /// Evidence retention must never delete: unresolved item outcomes or an
+    /// unconsumed continuation precondition (mirrors the report detail's
+    /// continuation gate minus the finished check — prune only ever sees
+    /// terminal records).
+    public var hasUnresolvedEvidence: Bool {
+        workItems.contains { $0.state == .outcome(.needsReview) || $0.state == .outcome(.deferred) }
+            || (intent == .writeFixes && writeTarget != nil && !continuableWork.isEmpty)
+    }
+
     init(
         header: Header,
         configuration: RunConfig? = nil,
