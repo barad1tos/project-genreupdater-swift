@@ -114,10 +114,11 @@ public actor RunRecordDataStore: RunRecordStore {
         var pass = PrunePass()
         for row in try modelContext.fetch(descriptor) {
             let record = try? makeRecord(from: row)
-            // A terminal continuation that landed with nothing unresolved
+            // A terminal continuation that finished with nothing unresolved
             // has consumed its source's continuation precondition — the
-            // source's failed/skipped items were re-applied (visited
-            // before the source in descending order).
+            // source's failed/skipped items were re-applied or explicitly
+            // closed by the user (visited before the source in descending
+            // order).
             if let record, row.finishedAt != nil, let consumed = record.continuesRunID,
                !record.hasUnresolvedEvidence {
                 pass.consumedSourceIDs.insert(consumed.rawValue)

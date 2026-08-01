@@ -371,6 +371,38 @@ struct RunRetentionTests {
         #expect(try await store.record(for: failedContinuation.runID) != nil)
     }
 
+    @Test("a failed link in a chain blocks consumption of the root source")
+    func failedChainLinkBlocksRootConsumption() async throws {
+        let store = try makeStore()
+        // S <- failed C1 <- landed C2: C2 consumes C1 (its failed work was
+        // re-applied), so C1 prunes with the fillers — but C1, having failed,
+        // consumed NOTHING of S. S must survive on its own evidence. A mutant
+        // that lets failed continuations register consumption deletes S.
+        let source = writeRecord(at: 0, items: [makeWorkItem(state: .outcome(.failed))])
+        let failedLink = writeRecord(
+            at: 1,
+            continues: source.runID,
+            items: [makeWorkItem(state: .outcome(.failed))]
+        )
+        let landedHead = writeRecord(
+            at: 2,
+            continues: failedLink.runID,
+            items: [makeWorkItem(state: .outcome(.written))]
+        )
+        let newestA = writeRecord(at: 3, items: [makeWorkItem(state: .outcome(.written))])
+        let newestB = writeRecord(at: 4, items: [makeWorkItem(state: .outcome(.written))])
+        for record in [source, failedLink, landedHead, newestA, newestB] {
+            try await store.upsert(record)
+        }
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        #expect(try await store.record(for: source.runID) != nil)
+        #expect(try await store.record(for: newestB.runID) != nil)
+        #expect(try await store.record(for: failedLink.runID) == nil)
+        #expect(deleted == 3)
+    }
+
     @Test("an open continuation does not consume its source's evidence")
     func openContinuationDoesNotConsumeEvidence() async throws {
         let store = try makeStore()
