@@ -534,7 +534,10 @@ final class AppDependencies {
                 store: runRecordStore,
                 // nil after container teardown: the sink skips pruning rather
                 // than deleting against a guessed default limit.
-                historyLimit: { [weak self] in await self?.runHistoryLimit() }
+                historyLimit: { [weak self] in await self?.runHistoryLimit() },
+                pruneFixPlans: { [weak self] in
+                    await self?.pruneFixPlans(runRecordStore: runRecordStore)
+                }
             ),
             produceFixPlan: makePreviewProducer(runtime: runtime),
             releasePreview: { configuration in

@@ -116,6 +116,34 @@ public actor FixPlanDataStore: FixPlanStore {
         return .saved(decision)
     }
 
+    public func deletePlans(notIn keeping: Set<UUID>) async throws -> Int {
+        // Mirrors the run store's prune contract: any throw after the first
+        // delete must roll back, or pending deletions would silently commit
+        // with the next unrelated save on this actor's long-lived context.
+        do {
+            var deletedPlanIDs = Set<UUID>()
+            for row in try modelContext.fetch(FetchDescriptor<PersistedFixPlan>())
+                where !keeping.contains(row.planID) {
+                deletedPlanIDs.insert(row.planID)
+                modelContext.delete(row)
+            }
+            for row in try modelContext.fetch(FetchDescriptor<PersistedFixPlanDecision>())
+                where !keeping.contains(row.planID) {
+                modelContext.delete(row)
+            }
+            guard !deletedPlanIDs.isEmpty else { return 0 }
+            try modelContext.save()
+            log.info("""
+            Fix-plan retention deleted \(deletedPlanIDs.count, privacy: .public) plan(s) with \
+            their decisions
+            """)
+            return deletedPlanIDs.count
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
+    }
+
     private func fetchPlanItems(planID: UUID, revision: Int) throws -> [FixPlanItem] {
         var descriptor = FetchDescriptor<PersistedFixPlan>(
             predicate: #Predicate { $0.planID == planID && $0.revision == revision }

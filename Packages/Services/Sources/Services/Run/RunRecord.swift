@@ -437,6 +437,12 @@ public protocol RunRecordStore: Sendable {
     /// `skippedCorruptedCount` covers only the fetched window.
     func reports(matching query: RunReportQuery) async throws -> RunReportPage
 
+    /// Plan IDs referenced by any persisted run's write target, readable from
+    /// a healthy record or a structurally valid payload on a rule-failing
+    /// row. Returns nil when any row's plan reference is unreadable — the
+    /// caller must then skip plan pruning entirely (fail closed).
+    func retainedPlanIDs() async throws -> Set<UUID>?
+
     /// Returns the newest terminal run carrying this recovery claim, or nil
     /// while the claim is unresolved or unknown. Served from the denormalized
     /// recovery column with a bounded fetch; rows persisted before that

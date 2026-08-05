@@ -82,4 +82,8 @@ private struct DecisionStubStore: FixPlanStore {
     func recordDecision(_: FixPlanReviewDecision) async throws -> FixPlanDecisionWriteResult {
         throw StubStoreFailure()
     }
+
+    func deletePlans(notIn _: Set<UUID>) async throws -> Int {
+        0
+    }
 }

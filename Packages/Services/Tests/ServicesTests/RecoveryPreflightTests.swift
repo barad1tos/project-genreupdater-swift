@@ -168,6 +168,10 @@ private actor RunRecordStoreProbe: RunRecordStore {
     func resolvedRecoveryRun(recoveryID _: UUID) async throws -> RunID? {
         nil
     }
+
+    func retainedPlanIDs() async throws -> Set<UUID>? {
+        []
+    }
 }
 
 private func makeRecord(

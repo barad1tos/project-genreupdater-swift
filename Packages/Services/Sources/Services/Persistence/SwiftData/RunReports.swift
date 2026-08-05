@@ -34,6 +34,34 @@ extension RunRecordDataStore {
         return try makePage(from: modelContext.fetch(descriptor))
     }
 
+    public func retainedPlanIDs() async throws -> Set<UUID>? {
+        var planIDs = Set<UUID>()
+        for row in try modelContext.fetch(FetchDescriptor<PersistedRunRecord>()) {
+            if let record = try? makeRecord(from: row) {
+                if let planID = record.writeTarget?.planID.rawValue {
+                    planIDs.insert(planID)
+                }
+                continue
+            }
+            // A structurally valid payload on a rule-failing row still names
+            // its plan; anything less readable may reference a plan invisibly,
+            // so the caller must skip plan pruning entirely.
+            guard let decoded = try? RunPayloadCodec.decodeForRecovery(from: row),
+                  let payload = decoded.payload
+            else {
+                log.error("""
+                Fix-plan retention fails closed: run \(row.runID, privacy: .public) has an \
+                unreadable plan reference
+                """)
+                return nil
+            }
+            if let planID = payload.writeTarget?.planID.rawValue {
+                planIDs.insert(planID)
+            }
+        }
+        return planIDs
+    }
+
     public func resolvedRecoveryRun(recoveryID: UUID) async throws -> RunID? {
         var descriptor = FetchDescriptor<PersistedRunRecord>(
             predicate: #Predicate { $0.recoveryIDRaw == recoveryID && $0.finishedAt != nil },

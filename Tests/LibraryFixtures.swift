@@ -126,6 +126,10 @@ actor RunRecordStoreStub: RunRecordStore {
         nil
     }
 
+    func retainedPlanIDs() async throws -> Set<UUID>? {
+        []
+    }
+
     func reports(matching query: RunReportQuery) async throws -> RunReportPage {
         receivedReportQueries.append(query)
         if let reportsError {

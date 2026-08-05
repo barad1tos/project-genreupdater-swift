@@ -163,6 +163,10 @@ actor FlakyRecoveryStore: RunRecordStore {
     func resolvedRecoveryRun(recoveryID: UUID) async throws -> RunID? {
         try await base.resolvedRecoveryRun(recoveryID: recoveryID)
     }
+
+    func retainedPlanIDs() async throws -> Set<UUID>? {
+        try await base.retainedPlanIDs()
+    }
 }
 
 /// Serves canned tracks for recovery observation in app-hosted tests.
