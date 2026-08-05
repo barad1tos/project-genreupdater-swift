@@ -34,6 +34,22 @@ extension RunRecordDataStore {
         return try makePage(from: modelContext.fetch(descriptor))
     }
 
+    public func resolvedRecoveryRun(recoveryID: UUID) async throws -> RunID? {
+        var descriptor = FetchDescriptor<PersistedRunRecord>(
+            predicate: #Predicate { $0.recoveryIDRaw == recoveryID && $0.finishedAt != nil },
+            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        if let row = try modelContext.fetch(descriptor).first {
+            return RunID(rawValue: row.runID)
+        }
+        // Rows persisted before the recovery column existed carry nil there;
+        // the payload scan keeps them resolvable and is removable once no
+        // pre-column rows remain in the wild.
+        let history = try await reports(matching: RunReportQuery())
+        return history.records.first { $0.recoveryID == recoveryID && $0.finishedAt != nil }?.runID
+    }
+
     public func reportItems(matching query: RunReportItemQuery) async throws -> RunReportItemPage {
         let after = query.startedAfter ?? Date.distantPast
         let before = query.startedBefore ?? Date.distantFuture

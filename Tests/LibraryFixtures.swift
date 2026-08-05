@@ -122,6 +122,10 @@ actor RunRecordStoreStub: RunRecordStore {
         RunReportItemPage(items: [], skippedCorruptedCount: 0)
     }
 
+    func resolvedRecoveryRun(recoveryID _: UUID) async throws -> RunID? {
+        nil
+    }
+
     func reports(matching query: RunReportQuery) async throws -> RunReportPage {
         receivedReportQueries.append(query)
         if let reportsError {

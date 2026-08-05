@@ -437,6 +437,12 @@ public protocol RunRecordStore: Sendable {
     /// `skippedCorruptedCount` covers only the fetched window.
     func reports(matching query: RunReportQuery) async throws -> RunReportPage
 
+    /// Returns the newest terminal run carrying this recovery claim, or nil
+    /// while the claim is unresolved or unknown. Served from the denormalized
+    /// recovery column with a bounded fetch; rows persisted before that
+    /// column existed resolve through a payload-scan fallback.
+    func resolvedRecoveryRun(recoveryID: UUID) async throws -> RunID?
+
     /// Lists work items of terminalized runs, newest run first and in ledger
     /// order within a run. Rows exist only for runs closed after report-item
     /// storage shipped: older runs stay fully explainable through

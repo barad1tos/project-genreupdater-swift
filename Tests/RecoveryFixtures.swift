@@ -159,6 +159,10 @@ actor FlakyRecoveryStore: RunRecordStore {
     func reportItems(matching query: RunReportItemQuery) async throws -> RunReportItemPage {
         try await base.reportItems(matching: query)
     }
+
+    func resolvedRecoveryRun(recoveryID: UUID) async throws -> RunID? {
+        try await base.resolvedRecoveryRun(recoveryID: recoveryID)
+    }
 }
 
 /// Serves canned tracks for recovery observation in app-hosted tests.

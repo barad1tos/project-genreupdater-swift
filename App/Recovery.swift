@@ -378,7 +378,7 @@ extension AppDependencies {
             + (attentionRunID == nil ? 0 : 1)
             + (unsupportedRunID == nil ? 0 : 1)
         if targetCount == 0 {
-            if let resolvedRunID = try await resolvedRecoveryRun(id: id, store: runRecordStore) {
+            if let resolvedRunID = try await runRecordStore.resolvedRecoveryRun(recoveryID: id) {
                 return resolvedRunID
             }
             guard allowsUnbound else {
@@ -467,11 +467,6 @@ extension AppDependencies {
             store: store,
             at: finishedAt
         )
-    }
-
-    private func resolvedRecoveryRun(id: UUID, store: any RunRecordStore) async throws -> RunID? {
-        let history = try await store.reports(matching: RunReportQuery())
-        return history.records.first { $0.recoveryID == id && $0.finishedAt != nil }?.runID
     }
 
     private func admitRecoveryHold(id: UUID) async {

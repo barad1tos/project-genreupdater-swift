@@ -215,6 +215,7 @@ public actor RunRecordDataStore: RunRecordStore {
         persisted.intentRaw = record.intent.rawValue
         persisted.stateRaw = record.state.rawValue
         persisted.writeAuthorityRaw = record.configuration?.writeAuthority.rawValue
+        persisted.recoveryIDRaw = record.recoveryID
         persisted.scopeData = try JSONEncoder().encode(record.scope)
         persisted.transitionsData = try JSONEncoder().encode(RunRecordPayload(record: record))
         persisted.syncNewCount = record.syncSummary?.new
