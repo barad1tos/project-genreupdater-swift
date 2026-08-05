@@ -436,6 +436,14 @@ public protocol RunRecordStore: Sendable {
     /// fewer than `limit` records while older valid rows exist beyond it;
     /// `skippedCorruptedCount` covers only the fetched window.
     func reports(matching query: RunReportQuery) async throws -> RunReportPage
+
+    /// Lists work items of terminalized runs, newest run first and in ledger
+    /// order within a run. Rows exist only for runs closed after report-item
+    /// storage shipped: older runs stay fully explainable through
+    /// `reports(matching:)` payloads but are invisible to item queries.
+    /// Undecodable rows are skipped and counted, never thrown, though they
+    /// still consume `limit` slots of the fetch window.
+    func reportItems(matching query: RunReportItemQuery) async throws -> RunReportItemPage
 }
 
 extension RunRecordStore {

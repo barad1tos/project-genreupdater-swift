@@ -257,6 +257,115 @@ struct RunReportItemTests {
         #expect(rows.first?.runID == newest.runID.rawValue)
     }
 
+    @Test("item query filters by outcome across runs, newest run first")
+    func queryFiltersByOutcomeAcrossRuns() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let reviewA = makeWorkItem(state: .outcome(.needsReview))
+        let reviewB = makeWorkItem(state: .outcome(.needsReview))
+        let older = terminalWriteRecord(at: 0, items: [reviewA, makeWorkItem(state: .outcome(.written))])
+        let newer = terminalWriteRecord(at: 1, items: [reviewB])
+        try await store.upsert(older)
+        try await store.upsert(newer)
+
+        let page = try await store.reportItems(matching: RunReportItemQuery(outcomes: [.needsReview]))
+
+        #expect(page.items.count == 2)
+        #expect(page.items.map(\.runID) == [newer.runID, older.runID])
+        #expect(page.items.map(\.item) == [reviewB, reviewA])
+        #expect(page.items.first?.runStartedAt == newer.startedAt)
+        #expect(page.skippedCorruptedCount == 0)
+    }
+
+    @Test("item query filters by change type")
+    func queryFiltersByChangeType() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let genre = makeWorkItem(state: .outcome(.written), changeType: .genreUpdate)
+        let year = makeWorkItem(state: .outcome(.written), changeType: .yearUpdate)
+        try await store.upsert(terminalWriteRecord(at: 0, items: [genre, year]))
+
+        let page = try await store.reportItems(matching: RunReportItemQuery(changeTypes: [.yearUpdate]))
+
+        #expect(page.items.map(\.item) == [year])
+    }
+
+    @Test("item query filters by run")
+    func queryFiltersByRun() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let targetItem = makeWorkItem(state: .outcome(.written))
+        let target = terminalWriteRecord(at: 0, items: [targetItem])
+        let other = terminalWriteRecord(at: 1, items: [makeWorkItem(state: .outcome(.written))])
+        try await store.upsert(target)
+        try await store.upsert(other)
+
+        let page = try await store.reportItems(matching: RunReportItemQuery(runID: target.runID))
+
+        #expect(page.items.map(\.item) == [targetItem])
+        #expect(page.items.first?.runID == target.runID)
+    }
+
+    @Test("item query date bounds are inclusive")
+    func queryDateBoundsAreInclusive() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let early = terminalWriteRecord(at: 0, items: [makeWorkItem(state: .outcome(.written))])
+        let late = terminalWriteRecord(at: 1, items: [makeWorkItem(state: .outcome(.written))])
+        try await store.upsert(early)
+        try await store.upsert(late)
+
+        let fromLate = try await store.reportItems(
+            matching: RunReportItemQuery(startedAfter: late.startedAt)
+        )
+        let untilEarly = try await store.reportItems(
+            matching: RunReportItemQuery(startedBefore: early.startedAt)
+        )
+
+        #expect(fromLate.items.map(\.runID) == [late.runID])
+        #expect(untilEarly.items.map(\.runID) == [early.runID])
+    }
+
+    @Test("item query limit bounds the fetch window")
+    func queryLimitBoundsWindow() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        for index in 0 ..< 3 {
+            try await store.upsert(terminalWriteRecord(
+                at: index,
+                items: [makeWorkItem(state: .outcome(.written))]
+            ))
+        }
+
+        let page = try await store.reportItems(matching: RunReportItemQuery(limit: 2))
+
+        #expect(page.items.count == 2)
+        let starts = page.items.map(\.runStartedAt)
+        #expect(starts == starts.sorted(by: >))
+    }
+
+    @Test("corrupted item rows are counted and skipped, never thrown")
+    func queryCountsAndSkipsCorruptedRows() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let healthy = makeWorkItem(state: .outcome(.written))
+        let doomed = makeWorkItem(state: .outcome(.failed))
+        try await store.upsert(terminalWriteRecord(at: 0, items: [healthy, doomed]))
+
+        let context = ModelContext(container)
+        let doomedID = doomed.id
+        let row = try #require(context.fetch(FetchDescriptor<PersistedRunReportItem>(
+            predicate: #Predicate { $0.itemID == doomedID }
+        )).first)
+        row.itemData = Data([0xDE, 0xAD, 0xBE, 0xEF])
+        try context.save()
+
+        let page = try await store.reportItems(matching: RunReportItemQuery())
+
+        #expect(page.items.map(\.item) == [healthy])
+        #expect(page.skippedCorruptedCount == 1)
+    }
+
     private func terminalWriteRecord(at index: Int, items: [RunWorkItem]) -> RunRecord {
         let startedAt = baseDate.addingTimeInterval(Double(index) * 10)
         return makeRunRecord(

@@ -15,21 +15,13 @@ struct RecoverySetup {
     let directory: URL
 }
 
-/// One write-uncertain run record bound to a recovery hold, plus its item.
-func uncertainRunRecord(
-    recoveryID: UUID?,
-    itemState: WorkState = .attempted,
-    oldValue: String? = "Rock",
-    newValue: String? = "Stoner Rock"
-) -> (record: RunRecord, item: RunWorkItem) {
-    let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
-    let scope = ProcessingScopeSnapshot.capture(
-        requestedTestArtists: [],
-        knownTrackCount: 1,
-        createdAt: startedAt,
-        reason: "recovery-test"
-    )
-    let item = RunWorkItem(
+/// One write-uncertain track item for the recovery fixtures below.
+private func uncertainWorkItem(
+    state: WorkState,
+    oldValue: String?,
+    newValue: String?
+) -> RunWorkItem {
+    RunWorkItem(
         id: UUID(),
         target: .track(FixPlanItemIdentity(
             readID: "read-1",
@@ -45,9 +37,26 @@ func uncertainRunRecord(
             confidence: 90,
             source: "Library"
         ),
-        state: itemState,
+        state: state,
         detail: nil
     )
+}
+
+/// One write-uncertain run record bound to a recovery hold, plus its item.
+func uncertainRunRecord(
+    recoveryID: UUID?,
+    itemState: WorkState = .attempted,
+    oldValue: String? = "Rock",
+    newValue: String? = "Stoner Rock"
+) -> (record: RunRecord, item: RunWorkItem) {
+    let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: [],
+        knownTrackCount: 1,
+        createdAt: startedAt,
+        reason: "recovery-test"
+    )
+    let item = uncertainWorkItem(state: itemState, oldValue: oldValue, newValue: newValue)
     let input = FixPlanWriteInput(
         target: FixPlanWriteTarget(
             planID: FixPlanID(),
@@ -145,6 +154,10 @@ actor FlakyRecoveryStore: RunRecordStore {
 
     func reports(matching query: RunReportQuery) async throws -> RunReportPage {
         try await base.reports(matching: query)
+    }
+
+    func reportItems(matching query: RunReportItemQuery) async throws -> RunReportItemPage {
+        try await base.reportItems(matching: query)
     }
 }
 

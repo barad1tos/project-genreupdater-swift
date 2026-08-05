@@ -164,6 +164,10 @@ private actor PruneCountingStore: RunRecordStore {
         RunReportPage(records: upserted, skippedCorruptedCount: 0)
     }
 
+    func reportItems(matching _: RunReportItemQuery) async throws -> RunReportItemPage {
+        RunReportItemPage(items: [], skippedCorruptedCount: 0)
+    }
+
     func upsertedCount() -> Int {
         upserted.count
     }
@@ -206,6 +210,10 @@ private actor PruneThrowingStore: RunRecordStore {
 
     func reports(matching _: RunReportQuery) async throws -> RunReportPage {
         RunReportPage(records: upserted, skippedCorruptedCount: 0)
+    }
+
+    func reportItems(matching _: RunReportItemQuery) async throws -> RunReportItemPage {
+        RunReportItemPage(items: [], skippedCorruptedCount: 0)
     }
 
     func upsertedCount() -> Int {

@@ -34,6 +34,58 @@ extension RunRecordDataStore {
         return try makePage(from: modelContext.fetch(descriptor))
     }
 
+    public func reportItems(matching query: RunReportItemQuery) async throws -> RunReportItemPage {
+        let after = query.startedAfter ?? Date.distantPast
+        let before = query.startedBefore ?? Date.distantFuture
+        let outcomeFilter = Set((query.outcomes ?? []).map {
+            PersistedRunReportItem.stateRaw(for: .outcome($0))
+        })
+        let filtersOutcome = !outcomeFilter.isEmpty
+        let changeTypeFilter = Set((query.changeTypes ?? []).map(\.rawValue))
+        let filtersChangeType = !changeTypeFilter.isEmpty
+        let filtersRun = query.runID != nil
+        // Dead operand when filtersRun is false; a fresh UUID can never
+        // collide into accidental matches.
+        let runFilter = query.runID?.rawValue ?? UUID()
+
+        var descriptor = FetchDescriptor<PersistedRunReportItem>(
+            predicate: #Predicate { row in
+                row.runStartedAt >= after && row.runStartedAt <= before
+                    && (!filtersRun || row.runID == runFilter)
+                    && (!filtersOutcome || outcomeFilter.contains(row.stateRaw))
+                    && (!filtersChangeType || changeTypeFilter.contains(row.changeTypeRaw))
+            },
+            sortBy: [
+                SortDescriptor(\.runStartedAt, order: .reverse),
+                SortDescriptor(\.runID),
+                SortDescriptor(\.position),
+            ]
+        )
+        if let limit = query.limit, limit > 0 {
+            descriptor.fetchLimit = limit
+        }
+
+        var items: [RunReportItem] = []
+        var skippedCorruptedCount = 0
+        for row in try modelContext.fetch(descriptor) {
+            guard let item = try? JSONDecoder().decode(RunWorkItem.self, from: row.itemData),
+                  item.id == row.itemID
+            else {
+                skippedCorruptedCount += 1
+                log.error("""
+                Skipping corrupted report item row \(row.key, privacy: .public) in item query
+                """)
+                continue
+            }
+            items.append(RunReportItem(
+                runID: RunID(rawValue: row.runID),
+                runStartedAt: row.runStartedAt,
+                item: item
+            ))
+        }
+        return RunReportItemPage(items: items, skippedCorruptedCount: skippedCorruptedCount)
+    }
+
     func makePage(
         from rows: [PersistedRunRecord],
         including shouldInclude: (PersistedRunRecord) -> Bool = { _ in true }
