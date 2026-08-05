@@ -235,7 +235,9 @@ actor MemoryFixPlanStore: FixPlanStore {
         self.decision = decision
     }
 
-    func savePlan(_: FixPlan, initialDecision _: FixPlanReviewDecision) async throws {}
+    func savePlan(_: FixPlan, initialDecision _: FixPlanReviewDecision) async throws {
+        // Mock: command tests seed the plan via init, saving is a no-op.
+    }
 
     func plan(id: FixPlanID, revision: FixPlanRevision) async throws -> FixPlan? {
         guard plan.id == id, plan.revision == revision else { return nil }
@@ -278,7 +280,7 @@ actor MemoryFixPlanStore: FixPlanStore {
         return .saved(decision)
     }
 
-    func deletePlans(notIn _: Set<UUID>) async throws -> Int {
+    func deletePlans(notIn _: Set<FixPlanID>) async throws -> Int {
         0
     }
 

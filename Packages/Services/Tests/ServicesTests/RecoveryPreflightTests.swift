@@ -169,7 +169,7 @@ private actor RunRecordStoreProbe: RunRecordStore {
         nil
     }
 
-    func retainedPlanIDs() async throws -> Set<UUID>? {
+    func retainedPlanIDs() async throws -> Set<FixPlanID>? {
         []
     }
 }

@@ -366,6 +366,83 @@ struct RunReportItemTests {
         #expect(page.skippedCorruptedCount == 1)
     }
 
+    @Test("items of one run return in ledger order")
+    func itemsReturnInLedgerOrder() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let first = makeWorkItem(state: .outcome(.written))
+        let second = makeWorkItem(state: .outcome(.failed))
+        let third = makeWorkItem(state: .outcome(.needsReview))
+        try await store.upsert(terminalWriteRecord(at: 0, items: [first, second, third]))
+
+        let page = try await store.reportItems(matching: RunReportItemQuery())
+
+        #expect(page.items.map(\.item) == [first, second, third])
+    }
+
+    @Test("an id-mismatched row is counted and skipped")
+    func idMismatchedRowSkipped() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let item = makeWorkItem(state: .outcome(.written))
+        try await store.upsert(terminalWriteRecord(at: 0, items: [item]))
+
+        let context = ModelContext(container)
+        let row = try #require(context.fetch(FetchDescriptor<PersistedRunReportItem>()).first)
+        row.itemID = UUID()
+        try context.save()
+
+        let page = try await store.reportItems(matching: RunReportItemQuery())
+
+        #expect(page.items.isEmpty)
+        #expect(page.skippedCorruptedCount == 1)
+    }
+
+    @Test("persisted raw values are pinned to the on-disk schema")
+    func persistedRawValuesArePinned() {
+        // These strings are query-index schema: renaming an enum case would
+        // silently exclude every pre-rename row from filtered item queries.
+        #expect(ChangeType.allCases.map(\.rawValue) == [
+            "genre_update", "year_update", "track_cleaning",
+            "album_cleaning", "artist_rename", "year_revert",
+        ])
+        #expect(WorkOutcome.allCases.map(\.rawValue) == [
+            "noFixNeeded", "fixProposed", "written", "needsReview",
+            "skipped", "failed", "deferred", "dismissed",
+        ])
+        #expect(PersistedRunReportItem.stateRaw(for: .outcome(.needsReview)) == "outcome:needsReview")
+        #expect(PersistedRunReportItem.stateRaw(for: .prepared) == "prepared")
+    }
+
+    @Test("a failed corruption closure emits no report rows")
+    func failedClosureEmitsNoRows() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let record = makeRunRecord(
+            startedAt: baseDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                writeTarget: writeTarget(),
+                workItems: [makeWorkItem(state: .attempted)],
+                includesSyncTransition: false
+            )
+        )
+        try await store.upsert(record)
+
+        let context = ModelContext(container)
+        let child = try #require(context.fetch(FetchDescriptor<PersistedRunWorkItem>()).first)
+        child.itemData = Data([0xDE, 0xAD, 0xBE, 0xEF])
+        try context.save()
+
+        let didClose = try await store.closeCorruptedRun(record.runID, at: baseDate.addingTimeInterval(9))
+
+        #expect(didClose == false)
+        #expect(try fetchReportRows(container).isEmpty)
+    }
+
     private func terminalWriteRecord(at index: Int, items: [RunWorkItem]) -> RunRecord {
         let startedAt = baseDate.addingTimeInterval(Double(index) * 10)
         return makeRunRecord(

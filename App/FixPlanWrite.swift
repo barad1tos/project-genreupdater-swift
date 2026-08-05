@@ -222,20 +222,21 @@ enum FixPlanWrite {
 
 extension AppDependencies {
     /// Housekeeping after a successful run prune: deletes plans no persisted
-    /// run references anymore. The newest plan and a queued write's target
-    /// ride on top of the run-referenced set; a nil reference set (unreadable
-    /// payload) skips deletion entirely. Failures are logged, never thrown —
-    /// the run record is already persisted.
+    /// run references anymore. The newest plan and every in-flight write
+    /// target (queued slot, parked pending requests, active run) ride on top
+    /// of the run-referenced set; a nil reference set (unreadable payload)
+    /// skips deletion entirely. Failures are logged, never thrown — the run
+    /// record is already persisted.
     func pruneFixPlans(runRecordStore: any RunRecordStore) async {
         guard let fixPlanStore else { return }
         do {
             guard let retained = try await runRecordStore.retainedPlanIDs() else { return }
             var keeping = retained
-            if let currentPlanID = try await fixPlanStore.latestPlan()?.id.rawValue {
+            if let currentPlanID = try await fixPlanStore.latestPlan()?.id {
                 keeping.insert(currentPlanID)
             }
-            if let queuedPlanID = await runOrchestrator?.queuedWriteRequest()?.writeTarget?.planID.rawValue {
-                keeping.insert(queuedPlanID)
+            if let runOrchestrator {
+                await keeping.formUnion(runOrchestrator.inFlightWritePlanIDs())
             }
             _ = try await fixPlanStore.deletePlans(notIn: keeping)
         } catch {

@@ -15,7 +15,7 @@ public final class PersistedRunRecord {
     /// Denormalized recovery claim used by resolution lookups so they do not
     /// decode every payload; nil on rows persisted before the column existed
     /// (those resolve through the payload-scan fallback).
-    public var recoveryIDRaw: UUID?
+    public var recoveryID: UUID?
     public var scopeData: Data
     public var transitionsData: Data
     public var syncNewCount: Int?
@@ -34,7 +34,7 @@ public final class PersistedRunRecord {
         intentRaw = record.intent.rawValue
         stateRaw = record.state.rawValue
         writeAuthorityRaw = record.configuration?.writeAuthority.rawValue
-        recoveryIDRaw = record.recoveryID
+        recoveryID = record.recoveryID
         self.scopeData = scopeData
         transitionsData = payloadData
         syncNewCount = record.syncSummary?.new
@@ -62,7 +62,7 @@ public final class PersistedRunRecord {
         self.intentRaw = intentRaw
         self.stateRaw = stateRaw
         writeAuthorityRaw = nil
-        recoveryIDRaw = nil
+        recoveryID = nil
         self.scopeData = scopeData
         self.transitionsData = transitionsData
         syncNewCount = nil

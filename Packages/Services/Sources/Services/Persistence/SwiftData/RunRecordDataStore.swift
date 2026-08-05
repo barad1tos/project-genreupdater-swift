@@ -130,7 +130,7 @@ public actor RunRecordDataStore: RunRecordStore {
                !record.hasUnresolvedEvidence {
                 pass.consumedSourceIDs.insert(consumed.rawValue)
             }
-            // Explicit statements, not a `&&` chain: the operator's autoclosure
+            // Explicit statements, not a `&&` chain: the operator's auto closure
             // would capture the non-Sendable row and trip strict concurrency
             // on newer toolchains (CI-only).
             var isDeletionCandidate = false
@@ -215,7 +215,7 @@ public actor RunRecordDataStore: RunRecordStore {
         persisted.intentRaw = record.intent.rawValue
         persisted.stateRaw = record.state.rawValue
         persisted.writeAuthorityRaw = record.configuration?.writeAuthority.rawValue
-        persisted.recoveryIDRaw = record.recoveryID
+        persisted.recoveryID = record.recoveryID
         persisted.scopeData = try JSONEncoder().encode(record.scope)
         persisted.transitionsData = try JSONEncoder().encode(RunRecordPayload(record: record))
         persisted.syncNewCount = record.syncSummary?.new

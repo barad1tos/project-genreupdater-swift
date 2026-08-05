@@ -31,7 +31,7 @@ struct RecoveryLookupTests {
 
         let context = ModelContext(container)
         let row = try #require(context.fetch(FetchDescriptor<PersistedRunRecord>()).first)
-        row.recoveryIDRaw = nil
+        row.recoveryID = nil
         try context.save()
 
         let runID = try await store.resolvedRecoveryRun(recoveryID: claimID)
@@ -62,6 +62,63 @@ struct RecoveryLookupTests {
         let runID = try await store.resolvedRecoveryRun(recoveryID: claimID)
 
         #expect(runID == nil)
+    }
+
+    @Test("the newest decodable claim carrier wins")
+    func newestDecodableCarrierWins() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let claimID = UUID()
+        let older = terminalRecoveryRecord(at: 0, recoveryID: claimID)
+        let newer = terminalRecoveryRecord(at: 1, recoveryID: claimID)
+        try await store.upsert(older)
+        try await store.upsert(newer)
+
+        let runID = try await store.resolvedRecoveryRun(recoveryID: claimID)
+
+        #expect(runID == newer.runID)
+    }
+
+    @Test("a corrupted claim carrier never resolves the claim")
+    func corruptedCarrierDoesNotResolve() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let claimID = UUID()
+        try await store.upsert(terminalRecoveryRecord(at: 0, recoveryID: claimID))
+
+        let context = ModelContext(container)
+        let row = try #require(context.fetch(FetchDescriptor<PersistedRunRecord>()).first)
+        row.scopeData = Data("garbage".utf8)
+        try context.save()
+
+        // The replaced full-history scan never let an undecodable row resolve
+        // a claim; the column arm must keep that filter.
+        let runID = try await store.resolvedRecoveryRun(recoveryID: claimID)
+
+        #expect(runID == nil)
+    }
+
+    @Test("a newer legacy carrier beats an older column carrier")
+    func legacyNewerCarrierBeatsColumnOlder() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let claimID = UUID()
+        let older = terminalRecoveryRecord(at: 0, recoveryID: claimID)
+        let newer = terminalRecoveryRecord(at: 1, recoveryID: claimID)
+        try await store.upsert(older)
+        try await store.upsert(newer)
+
+        let context = ModelContext(container)
+        let newerRunID = newer.runID.rawValue
+        let newerRow = try #require(context.fetch(FetchDescriptor<PersistedRunRecord>(
+            predicate: #Predicate { $0.runID == newerRunID }
+        )).first)
+        newerRow.recoveryID = nil
+        try context.save()
+
+        let runID = try await store.resolvedRecoveryRun(recoveryID: claimID)
+
+        #expect(runID == newer.runID)
     }
 
     @Test("an unknown claim resolves to nil")

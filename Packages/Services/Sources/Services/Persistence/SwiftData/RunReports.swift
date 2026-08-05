@@ -34,48 +34,102 @@ extension RunRecordDataStore {
         return try makePage(from: modelContext.fetch(descriptor))
     }
 
-    public func retainedPlanIDs() async throws -> Set<UUID>? {
-        var planIDs = Set<UUID>()
+    public func retainedPlanIDs() async throws -> Set<FixPlanID>? {
+        var planIDs = Set<FixPlanID>()
         for row in try modelContext.fetch(FetchDescriptor<PersistedRunRecord>()) {
             if let record = try? makeRecord(from: row) {
-                if let planID = record.writeTarget?.planID.rawValue {
+                if let planID = record.writeTarget?.planID {
                     planIDs.insert(planID)
                 }
                 continue
             }
-            // A structurally valid payload on a rule-failing row still names
-            // its plan; anything less readable may reference a plan invisibly,
-            // so the caller must skip plan pruning entirely.
-            guard let decoded = try? RunPayloadCodec.decodeForRecovery(from: row),
-                  let payload = decoded.payload
-            else {
+            switch planReference(of: row) {
+            case let .plan(planID):
+                planIDs.insert(planID)
+            case .none:
+                continue
+            case .unreadable:
                 log.error("""
                 Fix-plan retention fails closed: run \(row.runID, privacy: .public) has an \
                 unreadable plan reference
                 """)
                 return nil
             }
-            if let planID = payload.writeTarget?.planID.rawValue {
-                planIDs.insert(planID)
-            }
         }
         return planIDs
     }
 
+    private enum PlanReference {
+        case none
+        case plan(FixPlanID)
+        case unreadable
+    }
+
+    /// Best-effort plan reference of a row `makeRecord` rejected, mirroring
+    /// `continuationReference`: a strict payload, a per-field salvage, or a
+    /// forward-schema salvage all name their plan trustworthily — the repair
+    /// paths rebuild payloads from the same sources. Only garbage bytes and
+    /// unsalvageable rows are unreadable.
+    private func planReference(of row: PersistedRunRecord) -> PlanReference {
+        do {
+            let decoded = try RunPayloadCodec.decodeForRecovery(from: row)
+            if let payload = decoded.payload {
+                return payload.writeTarget.map { .plan($0.planID) } ?? .none
+            }
+            if let fallback = decoded.fallback {
+                return fallback.writeTarget.map { .plan($0.planID) } ?? .none
+            }
+            return .unreadable
+        } catch {
+            if let salvage = try? JSONDecoder().decode(RecoveryPayload.self, from: row.transitionsData) {
+                return salvage.writeTarget.map { .plan($0.planID) } ?? .none
+            }
+            return .unreadable
+        }
+    }
+
     public func resolvedRecoveryRun(recoveryID: UUID) async throws -> RunID? {
-        var descriptor = FetchDescriptor<PersistedRunRecord>(
-            predicate: #Predicate { $0.recoveryIDRaw == recoveryID && $0.finishedAt != nil },
+        // The newest DECODABLE terminal claim-carrier wins — the exact filter
+        // the replaced full-history scan applied: a row whose payload no
+        // longer decodes never resolves a claim, it surfaces for repair
+        // instead. The column arm narrows to stamped claim rows; the legacy
+        // arm covers pre-column rows (nil column, claim only in the payload)
+        // and shrinks to nothing as those rows age out of retention.
+        let columnHit = try resolvedClaimCarrier(
+            matching: #Predicate { $0.recoveryID == recoveryID && $0.finishedAt != nil },
+            claim: recoveryID
+        )
+        let legacyHit = try resolvedClaimCarrier(
+            matching: #Predicate { $0.recoveryID == nil && $0.finishedAt != nil },
+            claim: recoveryID
+        )
+        switch (columnHit, legacyHit) {
+        case let (column?, legacy?):
+            return legacy.startedAt > column.startedAt ? legacy.runID : column.runID
+        case let (column?, nil):
+            return column.runID
+        case let (nil, legacy?):
+            return legacy.runID
+        case (nil, nil):
+            return nil
+        }
+    }
+
+    private func resolvedClaimCarrier(
+        matching predicate: Predicate<PersistedRunRecord>,
+        claim recoveryID: UUID
+    ) throws -> (runID: RunID, startedAt: Date)? {
+        let descriptor = FetchDescriptor<PersistedRunRecord>(
+            predicate: predicate,
             sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
         )
-        descriptor.fetchLimit = 1
-        if let row = try modelContext.fetch(descriptor).first {
-            return RunID(rawValue: row.runID)
+        for row in try modelContext.fetch(descriptor) {
+            guard let record = try? makeRecord(from: row) else { continue }
+            if record.recoveryID == recoveryID, record.finishedAt != nil {
+                return (record.runID, record.startedAt)
+            }
         }
-        // Rows persisted before the recovery column existed carry nil there;
-        // the payload scan keeps them resolvable and is removable once no
-        // pre-column rows remain in the wild.
-        let history = try await reports(matching: RunReportQuery())
-        return history.records.first { $0.recoveryID == recoveryID && $0.finishedAt != nil }?.runID
+        return nil
     }
 
     public func reportItems(matching query: RunReportItemQuery) async throws -> RunReportItemPage {

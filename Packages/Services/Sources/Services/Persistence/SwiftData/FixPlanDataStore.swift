@@ -116,23 +116,30 @@ public actor FixPlanDataStore: FixPlanStore {
         return .saved(decision)
     }
 
-    public func deletePlans(notIn keeping: Set<UUID>) async throws -> Int {
+    public func deletePlans(notIn keeping: Set<FixPlanID>) async throws -> Int {
         // Mirrors the run store's prune contract: any throw after the first
         // delete must roll back, or pending deletions would silently commit
         // with the next unrelated save on this actor's long-lived context.
+        // The early return below must likewise never leave staged deletions
+        // pending — an orphaned decision (store corruption) still saves.
+        let keepingRaw = Set(keeping.map(\.rawValue))
         do {
             var deletedPlanIDs = Set<UUID>()
+            var hasStagedDeletions = false
             for row in try modelContext.fetch(FetchDescriptor<PersistedFixPlan>())
-                where !keeping.contains(row.planID) {
+                where !keepingRaw.contains(row.planID) {
                 deletedPlanIDs.insert(row.planID)
                 modelContext.delete(row)
+                hasStagedDeletions = true
             }
             for row in try modelContext.fetch(FetchDescriptor<PersistedFixPlanDecision>())
-                where !keeping.contains(row.planID) {
+                where !keepingRaw.contains(row.planID) {
                 modelContext.delete(row)
+                hasStagedDeletions = true
             }
-            guard !deletedPlanIDs.isEmpty else { return 0 }
+            guard hasStagedDeletions else { return 0 }
             try modelContext.save()
+            guard !deletedPlanIDs.isEmpty else { return 0 }
             log.info("""
             Fix-plan retention deleted \(deletedPlanIDs.count, privacy: .public) plan(s) with \
             their decisions

@@ -67,6 +67,30 @@ extension RunOrchestrator {
         queuedWrite
     }
 
+    /// Every plan a write request currently holds in flight: the queued-write
+    /// slot, a release in progress, requests parked behind the active run,
+    /// and the active run's own target. Fix-plan retention must keep all of
+    /// them — a parked write's plan is referenced by no persisted record
+    /// until its run starts.
+    public func inFlightWritePlanIDs() -> Set<FixPlanID> {
+        var planIDs = Set<FixPlanID>()
+        if let queued = queuedWrite?.writeTarget?.planID {
+            planIDs.insert(queued)
+        }
+        if let releasing = releasingWrite?.writeTarget?.planID {
+            planIDs.insert(releasing)
+        }
+        for pending in pendingTriggers {
+            if let planID = pending.request.writeTarget?.planID {
+                planIDs.insert(planID)
+            }
+        }
+        if let active = activeRun?.writeTarget?.planID {
+            planIDs.insert(active)
+        }
+        return planIDs
+    }
+
     public func discardQueuedWrite() {
         if let target = queuedWrite?.writeTarget {
             log.info("Queued write discarded for plan \(target.planID.rawValue.uuidString, privacy: .public)")
@@ -112,6 +136,10 @@ extension RunOrchestrator {
         }
         queuedWrite = nil
         log.info("Queued write released for plan \(target.planID.rawValue.uuidString, privacy: .public)")
+        // Keep the plan visible to retention while the request is neither in
+        // the slot nor yet parked/started by submit.
+        releasingWrite = request
+        defer { releasingWrite = nil }
         return await .released(submit(request))
     }
 }

@@ -294,7 +294,7 @@ private actor StoredFixPlanStore: FixPlanStore {
         return .saved(decision)
     }
 
-    func deletePlans(notIn _: Set<UUID>) async throws -> Int {
+    func deletePlans(notIn _: Set<FixPlanID>) async throws -> Int {
         0
     }
 }

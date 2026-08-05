@@ -42,6 +42,7 @@ public protocol FixPlanStore: Sendable {
     func recordDecision(_ decision: FixPlanReviewDecision) async throws -> FixPlanDecisionWriteResult
     /// Deletes plans and their decisions whose planID is outside `keeping`;
     /// returns the number of deleted plans. Retention housekeeping — callers
-    /// compose `keeping` from run-referenced, current and queued plan IDs.
-    func deletePlans(notIn keeping: Set<UUID>) async throws -> Int
+    /// compose `keeping` from run-referenced, current and in-flight write
+    /// plan IDs.
+    func deletePlans(notIn keeping: Set<FixPlanID>) async throws -> Int
 }

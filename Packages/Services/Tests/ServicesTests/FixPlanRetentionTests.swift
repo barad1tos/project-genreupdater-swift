@@ -25,7 +25,7 @@ struct FixPlanRetentionTests {
 
         let retained = try await runStore.retainedPlanIDs()
 
-        #expect(retained == [planA.rawValue, planB.rawValue])
+        #expect(retained == [planA, planB])
     }
 
     @Test("an unreadable run payload fails plan retention closed")
@@ -49,6 +49,89 @@ struct FixPlanRetentionTests {
         #expect(retained == nil)
     }
 
+    @Test("a rule-failing row with a decodable payload still names its plan")
+    func ruleFailingRowNamesItsPlan() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runStore = RunRecordDataStore(modelContainer: container)
+        let planID = FixPlanID()
+        let startedAt = baseDate
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: startedAt,
+            reason: "manualCheck"
+        )
+        try insertRunRow(
+            runID: UUID(),
+            transitionsData: JSONEncoder().encode(RunRecordPayload(
+                transitions: [
+                    RunLifecycleTransition(state: .created, timestamp: startedAt),
+                    RunLifecycleTransition(state: .cancelled, timestamp: startedAt.addingTimeInterval(1)),
+                ],
+                workItems: [],
+                configuration: makeRunConfiguration(
+                    scopeID: scope.id,
+                    capturedAt: startedAt,
+                    writeAuthority: .reviewedPlan
+                ),
+                writeTarget: FixPlanWriteTarget(
+                    planID: planID,
+                    planRevision: .initial,
+                    decisionRevision: .initial
+                ),
+                recoveryID: nil,
+                continuesRunID: nil,
+                writeSummary: nil
+            )),
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                rawIntent: "invalid",
+                state: .cancelled,
+                startedAt: startedAt,
+                finishedAt: startedAt.addingTimeInterval(1)
+            ),
+            into: container
+        )
+
+        // Exactly the rows PR #137 protects (unresolved evidence): degrading
+        // this branch to a skip would delete the plan behind an unresolved
+        // recovery; degrading to fail-closed would silently stop retention.
+        let retained = try await runStore.retainedPlanIDs()
+
+        #expect(retained == [planID])
+    }
+
+    @Test("a forward-schema row's plan reference is salvaged")
+    func forwardSchemaRowPlanSalvaged() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runStore = RunRecordDataStore(modelContainer: container)
+        let planID = FixPlanID()
+        try insertRunRow(
+            runID: UUID(),
+            transitionsData: JSONEncoder().encode(ForwardPlanPayload(
+                transitions: [
+                    RunLifecycleTransition(state: .created, timestamp: baseDate),
+                    RunLifecycleTransition(state: .cancelled, timestamp: baseDate.addingTimeInterval(1)),
+                ],
+                writeTarget: FixPlanWriteTarget(
+                    planID: planID,
+                    planRevision: .initial,
+                    decisionRevision: .initial
+                )
+            )),
+            input: RunRowInput(
+                state: .cancelled,
+                startedAt: baseDate,
+                finishedAt: baseDate.addingTimeInterval(1)
+            ),
+            into: container
+        )
+
+        let retained = try await runStore.retainedPlanIDs()
+
+        #expect(retained == [planID])
+    }
+
     @Test("plans outside the keeping set are deleted with their decisions")
     func deletePlansRemovesOrphansWithDecisions() async throws {
         let container = try ModelContainerFactory.createInMemory()
@@ -61,7 +144,7 @@ struct FixPlanRetentionTests {
             initialDecision: FixPlanReviewer.initialDecision(for: orphan, at: baseDate)
         )
 
-        let deleted = try await planStore.deletePlans(notIn: [kept.id.rawValue])
+        let deleted = try await planStore.deletePlans(notIn: [kept.id])
 
         let context = ModelContext(container)
         let planRows = try context.fetch(FetchDescriptor<PersistedFixPlan>())
@@ -87,7 +170,7 @@ struct FixPlanRetentionTests {
             initialDecision: FixPlanReviewer.initialDecision(for: queued, at: baseDate)
         )
 
-        let deleted = try await planStore.deletePlans(notIn: [current.id.rawValue, queued.id.rawValue])
+        let deleted = try await planStore.deletePlans(notIn: [current.id, queued.id])
 
         #expect(deleted == 0)
         #expect(try await planStore.plan(id: current.id, revision: current.revision) != nil)
@@ -121,6 +204,12 @@ struct FixPlanRetentionTests {
         #expect(deleted == 1)
         #expect(try await planStore.plan(id: newPlan.id, revision: newPlan.revision) != nil)
         #expect(try await planStore.plan(id: oldPlan.id, revision: oldPlan.revision) == nil)
+    }
+
+    private struct ForwardPlanPayload: Encodable {
+        let version = RunRecordPayload.currentVersion + 1
+        let transitions: [RunLifecycleTransition]
+        let writeTarget: FixPlanWriteTarget
     }
 
     private func writeRecord(at index: Int, planID: FixPlanID) -> RunRecord {
