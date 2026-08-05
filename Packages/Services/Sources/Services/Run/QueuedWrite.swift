@@ -11,9 +11,10 @@ public enum QueuedWriteConsentGap: Equatable, Sendable {
 /// How an explicit attempt to release the queued write concluded.
 public enum QueuedWriteRelease: Equatable, Sendable {
     /// The queued request was handed to the normal submit path; the wrapped
-    /// result carries what actually happened — it may be `.recoverable` or
-    /// `.recoveryRequired` (a hold re-engaged and the request re-queued),
-    /// or `.alreadyCovered`/`.queued` while another run is active.
+    /// result carries what actually happened — `.alreadyCovered`/`.queued`
+    /// while another run is active, or the started run's own result. (No
+    /// suspension separates the hold re-validation from submit, so a
+    /// re-engaged hold cannot surface here.)
     case released(RunSubmissionResult)
     /// A recovery hold still blocks writes; nothing was released. Returned
     /// whether or not anything is queued.

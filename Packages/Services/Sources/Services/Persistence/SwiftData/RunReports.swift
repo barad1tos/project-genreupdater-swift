@@ -92,16 +92,23 @@ extension RunRecordDataStore {
         // The newest DECODABLE terminal claim-carrier wins — the exact filter
         // the replaced full-history scan applied: a row whose payload no
         // longer decodes never resolves a claim, it surfaces for repair
-        // instead. The column arm narrows to stamped claim rows; the legacy
-        // arm covers pre-column rows (nil column, claim only in the payload)
-        // and shrinks to nothing as those rows age out of retention.
+        // instead. The column arm narrows to stamped claim rows. The legacy
+        // arm covers pre-column rows (nil column, claim only in the payload):
+        // every non-recovery run also persists a nil column, so the predicate
+        // additionally narrows to write intent — claims are only ever
+        // persisted on writeFixes runs — and the scan stops once rows are no
+        // newer than the column hit, which already wins ties.
+        let writeIntent = RunIntent.writeFixes.rawValue
         let columnHit = try resolvedClaimCarrier(
             matching: #Predicate { $0.recoveryID == recoveryID && $0.finishedAt != nil },
             claim: recoveryID
         )
         let legacyHit = try resolvedClaimCarrier(
-            matching: #Predicate { $0.recoveryID == nil && $0.finishedAt != nil },
-            claim: recoveryID
+            matching: #Predicate {
+                $0.recoveryID == nil && $0.finishedAt != nil && $0.intentRaw == writeIntent
+            },
+            claim: recoveryID,
+            newerThan: columnHit?.startedAt
         )
         switch (columnHit, legacyHit) {
         case let (column?, legacy?):
@@ -117,13 +124,17 @@ extension RunRecordDataStore {
 
     private func resolvedClaimCarrier(
         matching predicate: Predicate<PersistedRunRecord>,
-        claim recoveryID: UUID
+        claim recoveryID: UUID,
+        newerThan cutoff: Date? = nil
     ) throws -> (runID: RunID, startedAt: Date)? {
         let descriptor = FetchDescriptor<PersistedRunRecord>(
             predicate: predicate,
             sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
         )
         for row in try modelContext.fetch(descriptor) {
+            if let cutoff, row.startedAt <= cutoff {
+                return nil
+            }
             guard let record = try? makeRecord(from: row) else { continue }
             if record.recoveryID == recoveryID, record.finishedAt != nil {
                 return (record.runID, record.startedAt)

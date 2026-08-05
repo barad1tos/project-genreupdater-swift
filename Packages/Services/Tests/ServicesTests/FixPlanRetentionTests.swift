@@ -101,6 +101,52 @@ struct FixPlanRetentionTests {
         #expect(retained == [planID])
     }
 
+    @Test("a partially corrupted payload's plan is salvaged per-field")
+    func partiallyCorruptedPayloadPlanSalvaged() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runStore = RunRecordDataStore(modelContainer: container)
+        let planID = FixPlanID()
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: baseDate,
+            reason: "manualCheck"
+        )
+        try insertRunRow(
+            runID: UUID(),
+            transitionsData: JSONEncoder().encode(MangledSummaryPayload(
+                transitions: [
+                    RunLifecycleTransition(state: .created, timestamp: baseDate),
+                    RunLifecycleTransition(state: .cancelled, timestamp: baseDate.addingTimeInterval(1)),
+                ],
+                configuration: makeRunConfiguration(
+                    scopeID: scope.id,
+                    capturedAt: baseDate,
+                    writeAuthority: .reviewedPlan
+                ),
+                writeTarget: FixPlanWriteTarget(
+                    planID: planID,
+                    planRevision: .initial,
+                    decisionRevision: .initial
+                )
+            )),
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .writeFixes,
+                state: .cancelled,
+                startedAt: baseDate,
+                finishedAt: baseDate.addingTimeInterval(1)
+            ),
+            into: container
+        )
+
+        // The strict decode rejects the mangled writeSummary; the per-field
+        // salvage still names the plan — retention must not fail closed here.
+        let retained = try await runStore.retainedPlanIDs()
+
+        #expect(retained == [planID])
+    }
+
     @Test("a forward-schema row's plan reference is salvaged")
     func forwardSchemaRowPlanSalvaged() async throws {
         let container = try ModelContainerFactory.createInMemory()
@@ -210,6 +256,14 @@ struct FixPlanRetentionTests {
         let version = RunRecordPayload.currentVersion + 1
         let transitions: [RunLifecycleTransition]
         let writeTarget: FixPlanWriteTarget
+    }
+
+    private struct MangledSummaryPayload: Encodable {
+        let version = RunRecordPayload.currentVersion
+        let transitions: [RunLifecycleTransition]
+        let configuration: RunConfig
+        let writeTarget: FixPlanWriteTarget
+        let writeSummary = "invalid"
     }
 
     private func writeRecord(at index: Int, planID: FixPlanID) -> RunRecord {

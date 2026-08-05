@@ -100,6 +100,11 @@ struct RunPayloadVersion: Decodable {
     let version: Int
 }
 
+/// Per-field tolerant salvage decode for rows the strict payload rejects.
+/// Its coding keys are a durable cross-version contract: forward-schema
+/// salvage (continuation references, plan retention) reads THESE names, so
+/// renaming a payload field silently breaks salvage for rows written by the
+/// other version — keep old keys decodable when evolving the schema.
 struct RecoveryPayload: Decodable {
     let version: Int?
     let transitions: [RunLifecycleTransition]?
