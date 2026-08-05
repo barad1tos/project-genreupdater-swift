@@ -167,4 +167,38 @@ extension RunRecordDataStore {
         )
         try modelContext.fetch(descriptor).forEach(modelContext.delete)
     }
+
+    /// Mirrors the run's final work-item ledger into queryable report rows.
+    /// Idempotent by unique key: repair paths may re-terminalize a run, and a
+    /// post-terminal ledger update (item dismissal) must flow into the rows —
+    /// they never diverge from the payload ledger.
+    func upsertReportItems(runID: UUID, startedAt: Date, items: [RunWorkItem]) throws {
+        let descriptor = FetchDescriptor<PersistedRunReportItem>(
+            predicate: #Predicate { $0.runID == runID }
+        )
+        let existing = try modelContext.fetch(descriptor)
+        var rows = Dictionary(uniqueKeysWithValues: existing.map { ($0.itemID, $0) })
+        for (position, item) in items.enumerated() {
+            let data = try JSONEncoder().encode(item)
+            if let row = rows.removeValue(forKey: item.id) {
+                row.apply(position: position, runStartedAt: startedAt, item: item, itemData: data)
+            } else {
+                modelContext.insert(PersistedRunReportItem(
+                    runID: runID,
+                    position: position,
+                    runStartedAt: startedAt,
+                    item: item,
+                    itemData: data
+                ))
+            }
+        }
+        rows.values.forEach(modelContext.delete)
+    }
+
+    func deleteReportItems(for runID: UUID) throws {
+        let descriptor = FetchDescriptor<PersistedRunReportItem>(
+            predicate: #Predicate { $0.runID == runID }
+        )
+        try modelContext.fetch(descriptor).forEach(modelContext.delete)
+    }
 }

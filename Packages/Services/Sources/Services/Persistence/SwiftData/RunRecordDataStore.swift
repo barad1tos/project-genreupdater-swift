@@ -26,6 +26,13 @@ public actor RunRecordDataStore: RunRecordStore {
                 try modelContext.insert(makePersisted(from: record))
             }
             try synchronizeWorkItems(for: record)
+            if record.finishedAt != nil {
+                try upsertReportItems(
+                    runID: record.runID.rawValue,
+                    startedAt: record.startedAt,
+                    items: record.workItems
+                )
+            }
             try modelContext.save()
         } catch {
             modelContext.rollback()
@@ -136,6 +143,7 @@ public actor RunRecordDataStore: RunRecordStore {
             }
             if isDeletionCandidate, pass.retainedPrunableCount >= limit {
                 try deleteWorkItems(for: row.runID)
+                try deleteReportItems(for: row.runID)
                 modelContext.delete(row)
                 pass.deletedRunIDs.insert(row.runID)
                 continue

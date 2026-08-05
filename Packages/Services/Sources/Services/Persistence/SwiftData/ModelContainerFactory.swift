@@ -42,6 +42,7 @@ public enum ModelContainerFactory {
             PersistedPendingVerificationMetadata.self,
             PersistedRunRecord.self,
             PersistedRunWorkItem.self,
+            PersistedRunReportItem.self,
             PersistedFixPlan.self,
             PersistedFixPlanDecision.self
         ])

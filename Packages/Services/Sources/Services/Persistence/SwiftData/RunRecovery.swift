@@ -196,6 +196,7 @@ extension RunRecordDataStore {
         )
         row.finishedAt = auditTime
         try deleteWorkItems(for: row.runID)
+        try upsertReportItems(runID: row.runID, startedAt: row.startedAt, items: workItems)
     }
 
     private func repairTerminalRow(
@@ -239,6 +240,7 @@ extension RunRecordDataStore {
             return false
         }
         try deleteWorkItems(for: row.runID)
+        try upsertReportItems(runID: row.runID, startedAt: row.startedAt, items: workItems)
         row.failureMessage = Self.corruptedRecoveryMessage(
             existing: row.failureMessage,
             isWriteRecovery: route == .writeRecovery
