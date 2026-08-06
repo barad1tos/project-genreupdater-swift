@@ -23,6 +23,12 @@ import Foundation
 /// Python CLI configuration values are represented as Codable Swift settings.
 /// Runtime secrets are stored in Keychain.
 public struct AppConfiguration: Sendable, Codable {
+    /// Global settings revision (ADR 0011/0022): the CAS anchor every
+    /// settings command validates against. Bumped only by an accepted,
+    /// persisted mutation; 0 on legacy files persisted before the field.
+    /// Deliberately excluded from the fix-plan fingerprint — a revision
+    /// bump alone must never stale a produced plan.
+    public var revision: UInt64 = 0
     public var paths = PathsConfig()
     public var pythonSettings = PythonSettingsConfig()
     public var runtime = RuntimeConfig()
@@ -44,6 +50,7 @@ public struct AppConfiguration: Sendable, Codable {
     public var development = DevelopmentConfig()
 
     private enum CodingKeys: String, CodingKey {
+        case revision
         case paths, pythonSettings, runtime, applescript, yearRetrieval, genreUpdate, caching
         case processing, analytics, cleaning, exceptions, artistRenamer, databaseVerification
         case pendingVerification, reporting, logging
@@ -51,6 +58,7 @@ public struct AppConfiguration: Sendable, Codable {
     }
 
     private enum DecodingKeys: String, CodingKey {
+        case revision
         case paths, pythonSettings, runtime, applescript, yearRetrieval, genreUpdate, caching
         case processing, analytics, cleaning, exceptions, artistRenamer, databaseVerification
         case pendingVerification, reporting, logging
@@ -82,10 +90,13 @@ public struct AppConfiguration: Sendable, Codable {
         case concurrency, rateLimit, timeouts, retry, batchProcessing
     }
 
-    public init() {}
+    public init() {
+        // All domains carry inline defaults; nothing to initialize.
+    }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: DecodingKeys.self)
+        revision = try container.decodeIfPresent(UInt64.self, forKey: .revision) ?? 0
         paths = try container.decodeIfPresent(PathsConfig.self, forKey: .paths) ?? PathsConfig()
         pythonSettings = try container
             .decodeIfPresent(PythonSettingsConfig.self, forKey: .pythonSettings) ?? PythonSettingsConfig()

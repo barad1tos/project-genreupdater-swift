@@ -230,6 +230,14 @@ final class AppDependencies {
 
     /// Save current state (called on scene phase change to inactive).
     func saveState() async {
+        // A failed load left in-memory DEFAULTS here; persisting them on
+        // scene-inactive would silently overwrite the user's config.json.
+        // Only a conscious settings save (any successful persistConfiguration
+        // until the channels migrate onto the command path) repairs this.
+        guard configurationLoadIssue == nil else {
+            log.error("Skipping state save: configuration failed to load and was not explicitly repaired")
+            return
+        }
         do {
             try configurationSaver(config)
             log.debug("App state saved")
@@ -240,9 +248,20 @@ final class AppDependencies {
 
     @discardableResult
     func saveConfigurationAndApplyRuntime() -> Bool {
+        guard persistConfiguration() else { return false }
+        applyRuntimeConfiguration()
+        return true
+    }
+
+    /// Persists the configuration WITHOUT applying runtime effects — the
+    /// settings command path awaits its own apply after this succeeds.
+    /// An explicit successful save also repairs a failed initial load: the
+    /// user has consciously accepted the current values.
+    @discardableResult
+    func persistConfiguration() -> Bool {
         do {
             try configurationSaver(config)
-            applyRuntimeConfiguration()
+            configurationLoadIssue = nil
             clearConfigurationSaveIssue()
             return true
         } catch {
@@ -252,6 +271,15 @@ final class AppDependencies {
             appState = .error(message)
             return false
         }
+    }
+
+    /// The configuration-save failure message when the app is in that
+    /// error state; nil otherwise.
+    var configurationSaveErrorMessage: String? {
+        guard case let .error(message) = appState, isConfigurationSaveIssue(appState) else {
+            return nil
+        }
+        return message
     }
 
     private func rememberConfigurationSaveRecoveryState() {
@@ -616,7 +644,7 @@ final class AppDependencies {
 }
 
 extension AppDependencies {
-    func applyRuntimeConfiguration() {
+    func applyRuntimeConfigurationHead() -> RuntimeApplyHandoff {
         let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
         incrementalRunTracker = Self.makeIncrementalRunTracker(configuration: config)
         let pendingVerificationStore = modelContainer.map {
@@ -653,38 +681,18 @@ extension AppDependencies {
             snapshotService = nil
         }
 
-        let runtimeConfiguration = UpdateRuntimeConfiguration(configuration: config)
-        let appleScriptConfiguration = config.applescript
-        let librarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: config)
-        let batchProcessingConfiguration = BatchProcessingConfiguration(configuration: config)
-        let libraryPath = config.paths.musicLibraryPath
-        Task {
-            try? await pendingVerificationStore?.initialize()
-            await applescriptBridge?.updateConfiguration(appleScriptConfiguration)
-            await applescriptBridge?.updateLibraryPath(libraryPath)
-            await musicReader?.updateTestArtists(config.development.testArtists)
-            await librarySyncService?.updateRuntimeConfiguration(
-                librarySyncRuntimeConfiguration,
-                librarySnapshotService: snapshotService,
-                pendingVerificationService: pendingVerificationStore
-            )
-            await batchProcessor?.updateProcessingConfiguration(batchProcessingConfiguration)
-            await analyticsService?.updateConfiguration(config.analytics)
-            await updateCoordinator?.updateRuntimeConfiguration(
-                runtimeConfiguration,
-                yearDeterminator: configuredYearDeterminator,
-                apiOrchestrator: configuredAPIOrchestrator,
-                librarySnapshotService: snapshotService
-            )
-            await updateUndoRuntimeDependencies(librarySnapshotService: snapshotService)
-        }
-    }
-
-    private func updateUndoRuntimeDependencies(
-        librarySnapshotService: (any LibrarySnapshotService)?
-    ) async {
-        await undoCoordinator?.updateRuntimeDependencies(
-            librarySnapshotService: librarySnapshotService,
+        return RuntimeApplyHandoff(
+            pendingVerificationStore: pendingVerificationStore,
+            snapshotService: snapshotService,
+            yearDeterminator: configuredYearDeterminator,
+            apiOrchestrator: configuredAPIOrchestrator,
+            runtimeConfiguration: UpdateRuntimeConfiguration(configuration: config),
+            appleScriptConfiguration: config.applescript,
+            librarySyncRuntimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config),
+            batchProcessingConfiguration: BatchProcessingConfiguration(configuration: config),
+            libraryPath: config.paths.musicLibraryPath,
+            testArtists: config.development.testArtists,
+            analytics: config.analytics,
             cleaning: config.cleaning
         )
     }
