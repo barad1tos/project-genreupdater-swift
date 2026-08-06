@@ -230,6 +230,13 @@ final class AppDependencies {
 
     /// Save current state (called on scene phase change to inactive).
     func saveState() async {
+        // A failed load left in-memory DEFAULTS here; persisting them on
+        // scene-inactive would silently overwrite the user's config.json.
+        // Only an explicit settings command may save (and clear the issue).
+        guard configurationLoadIssue == nil else {
+            log.error("Skipping state save: configuration failed to load and was not explicitly repaired")
+            return
+        }
         do {
             try configurationSaver(config)
             log.debug("App state saved")
@@ -247,10 +254,13 @@ final class AppDependencies {
 
     /// Persists the configuration WITHOUT applying runtime effects — the
     /// settings command path awaits its own apply after this succeeds.
+    /// An explicit successful save also repairs a failed initial load: the
+    /// user has consciously accepted the current values.
     @discardableResult
     func persistConfiguration() -> Bool {
         do {
             try configurationSaver(config)
+            configurationLoadIssue = nil
             clearConfigurationSaveIssue()
             return true
         } catch {
@@ -564,24 +574,6 @@ final class AppDependencies {
             write: write,
             currentDecisionTarget: makeCurrentDecisionTarget()
         ))
-    }
-
-    /// Publishes the current configuration as the settings projection; the
-    /// settings command path is the only writer, so the projection always
-    /// reflects the last accepted (or rolled-back) state.
-    @discardableResult
-    func publishSettingsProjection(saveErrorMessage: String? = nil) async -> SettingsProjection {
-        let inputGeneration = await projectionStore.nextSettingsInputGeneration()
-        let projection = SettingsProjection(
-            revision: .initial,
-            settingsRevision: config.revision,
-            configuration: config,
-            saveErrorMessage: saveErrorMessage
-        )
-        return await projectionStore.replaceSettingsProjection(
-            projection,
-            inputGeneration: inputGeneration
-        )
     }
 
     func refreshFixPlanProjection() async -> FixPlanProjection {

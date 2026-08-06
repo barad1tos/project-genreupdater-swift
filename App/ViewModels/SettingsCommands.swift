@@ -52,3 +52,23 @@ enum SettingsCommands {
         )
     }
 }
+
+extension AppDependencies {
+    /// Publishes the current configuration as the settings projection; the
+    /// settings command path is the only writer, so the projection always
+    /// reflects the last accepted (or rolled-back) state.
+    @discardableResult
+    func publishSettingsProjection(saveErrorMessage: String? = nil) async -> SettingsProjection {
+        let inputGeneration = await projectionStore.nextSettingsInputGeneration()
+        let projection = SettingsProjection(
+            revision: .initial,
+            settingsRevision: config.revision,
+            configuration: config,
+            saveErrorMessage: saveErrorMessage
+        )
+        return await projectionStore.replaceSettingsProjection(
+            projection,
+            inputGeneration: inputGeneration
+        )
+    }
+}
