@@ -31,6 +31,32 @@ struct ChangeLogDataTests {
         return entry
     }
 
+    @Test("Round trip preserves the run attribution")
+    func roundTripPreservesRunID() async throws {
+        let store = try makeStore()
+        let runID = UUID()
+        var entry = makeEntry()
+        entry.runID = runID
+
+        try await store.saveEntry(entry)
+        let loaded = try await store.loadAll()
+
+        #expect(loaded.first?.runID == runID)
+    }
+
+    @Test("Legacy JSON without a run key decodes with nil attribution")
+    func legacyJSONDecodesWithoutRunID() throws {
+        let legacy = Data("""
+        {"id":"6F1E9E7A-2A9B-4A46-9B04-000000000001","timestamp":0,
+        "changeType":"genre_update","trackID":"T1","artist":"Artist",
+        "trackName":"Track","albumName":"Album"}
+        """.utf8)
+
+        let entry = try JSONDecoder().decode(ChangeLogEntry.self, from: legacy)
+
+        #expect(entry.runID == nil)
+    }
+
     @Test("Save and load single entry")
     func saveAndLoadSingle() async throws {
         let store = try makeStore()

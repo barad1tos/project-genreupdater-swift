@@ -144,6 +144,7 @@ public actor RunRecordDataStore: RunRecordStore {
             if isDeletionCandidate, pass.retainedPrunableCount >= limit {
                 try deleteWorkItems(for: row.runID)
                 try deleteReportItems(for: row.runID)
+                try deleteChangeLogEntries(for: row.runID)
                 modelContext.delete(row)
                 pass.deletedRunIDs.insert(row.runID)
                 continue

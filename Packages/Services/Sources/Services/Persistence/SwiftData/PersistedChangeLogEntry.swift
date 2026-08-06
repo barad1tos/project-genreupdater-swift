@@ -40,6 +40,9 @@ public final class PersistedChangeLogEntry {
     public var oldArtist: String?
     public var newArtist: String?
 
+    /// Run attribution for retention; nil on legacy and out-of-run entries.
+    public var runID: UUID?
+
     /// Relationship to PersistedTrack (set in H3)
     public var track: PersistedTrack?
 
@@ -79,6 +82,7 @@ public final class PersistedChangeLogEntry {
         self.newAlbumName = newAlbumName
         self.oldArtist = oldArtist
         self.newArtist = newArtist
+        runID = nil
     }
 }
 
@@ -105,11 +109,12 @@ extension PersistedChangeLogEntry {
             oldArtist: entry.oldArtist,
             newArtist: entry.newArtist
         )
+        runID = entry.runID
     }
 
     public func toChangeLogEntry() -> Core.ChangeLogEntry {
         let changeType = Core.ChangeType(rawValue: changeTypeRaw) ?? .genreUpdate
-        return Core.ChangeLogEntry(
+        var entry = Core.ChangeLogEntry(
             id: entryID,
             timestamp: timestamp,
             changeType: changeType,
@@ -128,5 +133,7 @@ extension PersistedChangeLogEntry {
             oldArtist: oldArtist,
             newArtist: newArtist
         )
+        entry.runID = runID
+        return entry
     }
 }

@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import SwiftData
 import Testing
@@ -156,6 +157,30 @@ struct RunRetentionTests {
         #expect(try await store.record(for: protected.runID) != nil)
         #expect(try await store.record(for: middle.runID) != nil)
         #expect(try await store.record(for: oldest.runID) == nil)
+    }
+
+    @Test("pruned runs take their change-log entries; legacy entries survive")
+    func prunedRunDeletesItsChangeLogEntries() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let changeLog = ChangeLogDataStore(modelContainer: container)
+        let doomed = writeRecord(at: 0, items: [makeWorkItem(state: .outcome(.written))])
+        let kept = writeRecord(at: 1, items: [makeWorkItem(state: .outcome(.written))])
+        try await store.upsert(doomed)
+        try await store.upsert(kept)
+
+        var doomedEntry = ChangeLogEntry(changeType: .genreUpdate, trackID: "T1", artist: "Artist")
+        doomedEntry.runID = doomed.runID.rawValue
+        var keptEntry = ChangeLogEntry(changeType: .genreUpdate, trackID: "T2", artist: "Artist")
+        keptEntry.runID = kept.runID.rawValue
+        let legacyEntry = ChangeLogEntry(changeType: .genreUpdate, trackID: "T3", artist: "Artist")
+        try await changeLog.saveEntries([doomedEntry, keptEntry, legacyEntry])
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        let remaining = try await changeLog.loadAll()
+        #expect(deleted == 1)
+        #expect(Set(remaining.map(\.id)) == [keptEntry.id, legacyEntry.id])
     }
 
     @Test("a prunable corrupted row prunes; orphaned child rows protect it")

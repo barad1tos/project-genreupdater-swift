@@ -220,6 +220,13 @@ public struct ChangeLogEntry: Sendable, Codable, Identifiable, Equatable {
     public var oldArtist: String?
     public var newArtist: String?
 
+    /// The run that produced this change; nil for entries recorded before
+    /// run attribution existed and for changes made outside a run (undo
+    /// reverts). Optional keeps legacy JSON history decoding unchanged.
+    /// Retention: entries with a run follow that run's retention; nil
+    /// entries are never pruned by run retention.
+    public var runID: UUID?
+
     public init(
         changeType: ChangeType,
         trackID: String,
