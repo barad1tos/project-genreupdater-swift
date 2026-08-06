@@ -140,7 +140,7 @@ extension UpdateCoordinator {
             switch Self.batchWorkOutcome(at: writeIndex, write: preparedWrite, batch: batch) {
             case .noFixNeeded:
                 await invalidateCaches(for: preparedWrite.change)
-                noOpEntries.append(attributed(Self.noOpLogEntry(preparedWrite.change)))
+                noOpEntries.append(Self.noOpLogEntry(preparedWrite.change))
                 continue
             case .failed:
                 if let error = batch.preflightFailures[writeIndex] {

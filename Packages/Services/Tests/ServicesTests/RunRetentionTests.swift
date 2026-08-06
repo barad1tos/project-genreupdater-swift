@@ -535,12 +535,19 @@ struct RunRetentionTests {
         for record in [source, continuation, newestA, newestB] {
             try await store.upsert(record)
         }
+        // Entries staged for deletion alongside a run must roll back with the
+        // aborted pass, or a later unrelated save silently commits them.
+        var sourceEntry = ChangeLogEntry(changeType: .genreUpdate, trackID: "T1", artist: "Artist")
+        sourceEntry.runID = source.runID.rawValue
+        let changeLog = ChangeLogDataStore(modelContainer: store.modelContainer)
+        try await changeLog.saveEntry(sourceEntry)
 
         let deleted = try await store.prune(keepingLatest: 1)
 
         #expect(deleted == 0)
         #expect(try await store.record(for: source.runID) != nil)
         #expect(try await store.record(for: continuation.runID) != nil)
+        #expect(try await changeLog.loadAll().map(\.id) == [sourceEntry.id])
     }
 
     private func makeStore() throws -> RunRecordDataStore {

@@ -74,6 +74,9 @@ struct RecoveryClearTests {
         #expect(history.first?.newGenre == "Stoner Rock")
         let durable = try await setup.changeLog.loadAll()
         #expect(durable.map(\.trackID) == ["persistent-1"])
+        // Repaired evidence must attribute to the repaired run, or the entry
+        // becomes a permanent nil-runID row that run retention never prunes.
+        #expect(durable.first?.runID == record.runID.rawValue)
     }
 
     @Test("Checkpointed terminal writes repair history without observation")
@@ -100,6 +103,7 @@ struct RecoveryClearTests {
 
         let durable = try await setup.changeLog.loadAll()
         #expect(durable.map(\.newGenre) == ["Stoner Rock"])
+        #expect(durable.first?.runID == record.runID.rawValue)
         let persisted = try ModelContext(setup.persistenceContainer)
             .fetch(FetchDescriptor<PersistedTrack>())
         #expect(persisted.map(\.genreUpdated) == [true])

@@ -105,8 +105,16 @@ public actor UpdateCoordinator {
         runAttributionID = runID
     }
 
+    /// Test seam: the attribution is otherwise observable only through
+    /// persisted entries, which need a landed write to exist.
+    public func runAttribution() -> RunID? {
+        runAttributionID
+    }
+
     /// Stamps the active run onto a freshly built change-log entry; entries
-    /// already carrying an attribution keep it.
+    /// already carrying an attribution keep it. Only entries that reach the
+    /// change-log store are stamped — no-op entries feed summary counts and
+    /// are never persisted.
     func attributed(_ entry: ChangeLogEntry) -> ChangeLogEntry {
         guard entry.runID == nil, let runAttributionID else { return entry }
         var stamped = entry

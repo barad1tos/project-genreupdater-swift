@@ -221,10 +221,12 @@ public struct ChangeLogEntry: Sendable, Codable, Identifiable, Equatable {
     public var newArtist: String?
 
     /// The run that produced this change; nil for entries recorded before
-    /// run attribution existed and for changes made outside a run (undo
-    /// reverts). Optional keeps legacy JSON history decoding unchanged.
-    /// Retention: entries with a run follow that run's retention; nil
-    /// entries are never pruned by run retention.
+    /// run attribution existed, for changes made outside a run (undo
+    /// reverts, backup-CSV restores), and for the legacy workflow write
+    /// paths that predate the run orchestrator (Full Library batch, manual
+    /// apply) until those move under runs. Optional keeps legacy JSON
+    /// history decoding unchanged. Retention: entries with a run follow
+    /// that run's retention; nil entries are never pruned by run retention.
     public var runID: UUID?
 
     public init(

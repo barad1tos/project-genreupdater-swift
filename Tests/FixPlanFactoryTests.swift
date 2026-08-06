@@ -57,6 +57,24 @@ struct FixPlanFactoryTests {
         #expect(await fixture.script.fetchCalls.isEmpty)
     }
 
+    @Test("a landed write attributes its entries to the run it received")
+    @MainActor
+    func attributesEntriesToTheReceivedRun() async throws {
+        let fixture = await makeWriteFixture(hasInitialRecovery: false)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        await fixture.script.returnChangedOutcome()
+        let runID = RunID()
+
+        let result = try await fixture.write(fixture.input, runID) { _ in
+            // Attribution pin; checkpoint assertions live in Services tests.
+        }
+
+        // Pins the makeRunner glue: the received run reaches the coordinator
+        // BEFORE changes apply, so persisted entries carry it.
+        #expect(result.entries.first?.runID == runID.rawValue)
+        #expect(await fixture.coordinator.runAttribution() == runID)
+    }
+
     @Test("orchestrator closes work when the real writer rejects stale input")
     @MainActor
     func closesStaleWork() async {
@@ -165,6 +183,7 @@ private struct WriteFixture {
     let script: ScriptSpy
     let processor: BatchProcessor
     let runtime: RuntimeProbe
+    let coordinator: UpdateCoordinator
     let write: @Sendable (
         FixPlanWriteInput,
         RunID,
@@ -221,6 +240,7 @@ private func makeWriteFixture(hasInitialRecovery: Bool) async -> WriteFixture {
         script: script,
         processor: processor,
         runtime: runtime,
+        coordinator: coordinator,
         write: write,
         directory: directory
     )

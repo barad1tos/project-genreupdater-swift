@@ -108,7 +108,7 @@ extension UpdateCoordinator {
             await invalidateCaches(for: write.change)
             try await checkpoint?(.afterVerification([write.change.id: .noFixNeeded]))
             logNoOp(write.change)
-            return (nil, attributed(Self.noOpLogEntry(write.change)))
+            return (nil, Self.noOpLogEntry(write.change))
         }
 
         // Checkpoint the verified outcome before finalization (same contract as
@@ -209,7 +209,7 @@ extension UpdateCoordinator {
                 \(change.track.id, privacy: .private) after write preflight
                 """
             )
-            return .noOp(attributed(Self.noOpLogEntry(change)))
+            return .noOp(Self.noOpLogEntry(change))
         }
 
         let writeID = try await writeID(for: mutationTrack)

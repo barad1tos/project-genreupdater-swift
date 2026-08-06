@@ -44,6 +44,55 @@ struct ReportsBuilderTests {
         #expect(sourceItem.lineageLabel == "Continued by \(continuation.runID.rawValue.uuidString.prefix(8))")
     }
 
+    @Test("a middle chain link joins both marker parts")
+    func middleChainLinkJoinsBothParts() throws {
+        let head = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .completed,
+            syncSummary: nil
+        )
+        let middle = makeRunRecord(
+            startedAt: startDate.addingTimeInterval(60),
+            finishedAt: startDate.addingTimeInterval(105),
+            state: .completed,
+            syncSummary: nil,
+            input: RecordInput(continuesRunID: head.runID)
+        )
+        let tail = makeRunRecord(
+            startedAt: startDate.addingTimeInterval(120),
+            finishedAt: startDate.addingTimeInterval(165),
+            state: .completed,
+            syncSummary: nil,
+            input: RecordInput(continuesRunID: middle.runID)
+        )
+
+        let projection = makeProjection(records: [tail, middle, head])
+
+        let middleItem = try #require(projection.runs.first {
+            $0.id == middle.runID.rawValue.uuidString
+        })
+        let headShort = head.runID.rawValue.uuidString.prefix(8)
+        let tailShort = tail.runID.rawValue.uuidString.prefix(8)
+        #expect(middleItem.lineageLabel == "Continues \(headShort) · Continued by \(tailShort)")
+    }
+
+    @Test("a continuation whose source is beyond the page still marks itself")
+    func crossPageContinuationStillMarksItself() throws {
+        let source = RunID()
+        let continuation = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .completed,
+            syncSummary: nil,
+            input: RecordInput(continuesRunID: source)
+        )
+
+        let item = try #require(makeProjection(records: [continuation]).runs.first)
+
+        #expect(item.lineageLabel == "Continues \(source.rawValue.uuidString.prefix(8))")
+    }
+
     @Test("unlinked runs carry no lineage marker")
     func unlinkedRunsCarryNoLineageMarker() throws {
         let record = makeRunRecord(

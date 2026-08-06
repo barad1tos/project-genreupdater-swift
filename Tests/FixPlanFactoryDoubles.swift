@@ -39,6 +39,7 @@ actor ScriptSpy: AppleScriptClient {
     private var tracksByID: [String: Track] = [:]
     private(set) var fetchCalls: [ScriptFetchCall] = []
     private var shouldReturnUnknown = false
+    private var shouldReturnChanged = false
 
     func setTracks(_ tracks: [Track]) {
         tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
@@ -70,7 +71,7 @@ actor ScriptSpy: AppleScriptClient {
         if shouldReturnUnknown {
             throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
         }
-        return .noChange
+        return shouldReturnChanged ? .changed : .noChange
     }
 
     func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
@@ -79,6 +80,10 @@ actor ScriptSpy: AppleScriptClient {
 
     func returnUnknownOutcome() {
         shouldReturnUnknown = true
+    }
+
+    func returnChangedOutcome() {
+        shouldReturnChanged = true
     }
 }
 

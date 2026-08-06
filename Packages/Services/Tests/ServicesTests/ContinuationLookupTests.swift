@@ -94,6 +94,33 @@ struct ContinuationLookupTests {
         #expect(continuations == [open.runID])
     }
 
+    @Test("column and payload carriers merge in start order")
+    func mixedArmCarriersMergeInStartOrder() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let source = writeRecord(at: 0)
+        let oldest = writeRecord(at: 1, continues: source.runID)
+        let middle = writeRecord(at: 2, continues: source.runID)
+        let newest = writeRecord(at: 3, continues: source.runID)
+        for record in [source, oldest, middle, newest] {
+            try await store.upsert(record)
+        }
+
+        // The middle carrier loses its column (pre-column shape); the merge
+        // must interleave it between the column hits, not append it.
+        let context = ModelContext(container)
+        let middleRunID = middle.runID.rawValue
+        let row = try #require(context.fetch(FetchDescriptor<PersistedRunRecord>(
+            predicate: #Predicate { $0.runID == middleRunID }
+        )).first)
+        row.continuesRunID = nil
+        try context.save()
+
+        let continuations = try await store.continuations(of: source.runID)
+
+        #expect(continuations == [newest.runID, middle.runID, oldest.runID])
+    }
+
     @Test("a run without continuations lists none")
     func unknownRunListsNone() async throws {
         let store = try RunRecordDataStore(modelContainer: ModelContainerFactory.createInMemory())

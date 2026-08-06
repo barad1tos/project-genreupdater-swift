@@ -3,6 +3,8 @@ import Foundation
 @testable import Genre_Updater
 @testable import Services
 
+struct ContinuationsProbeFailure: Error {}
+
 struct LibraryPersistenceFixture {
     let dependencies: AppDependencies
     let trackStore: TrackDataStore
@@ -42,6 +44,7 @@ actor RunRecordStoreStub: RunRecordStore {
     private let reportsError: (any Error)?
     private let recordError: (any Error)?
     private let claimError: (any Error)?
+    var continuationsError: (any Error)?
     private var storedRecord: RunRecord?
     private let reportPages: [RunReportPage]
     private let recoveryPage: RunReportPage?
@@ -127,7 +130,14 @@ actor RunRecordStoreStub: RunRecordStore {
     }
 
     func continuations(of _: RunID) async throws -> [RunID] {
-        []
+        if let continuationsError {
+            throw continuationsError
+        }
+        return []
+    }
+
+    func failContinuations() {
+        continuationsError = ContinuationsProbeFailure()
     }
 
     func retainedPlanIDs() async throws -> Set<FixPlanID>? {
