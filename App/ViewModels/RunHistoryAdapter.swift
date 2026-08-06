@@ -31,7 +31,8 @@ enum RunHistoryAdapter {
                 scopeLabel: run.scopeLabel,
                 durationLabel: run.durationLabel,
                 changeCountLabel: run.changeCountLabel,
-                failureSummary: run.failureSummary
+                failureSummary: run.failureSummary,
+                lineageLabel: run.lineageLabel
             )
         }
     }

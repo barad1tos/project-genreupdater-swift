@@ -351,6 +351,8 @@ public struct RunReportRow: Identifiable, Equatable, Sendable {
     public let durationLabel: String?
     public let changeCountLabel: String?
     public let failureSummary: String?
+    /// "Continues …" / "Continued by …" marker; nil for unlinked runs.
+    public let lineageLabel: String?
 
     public init(
         id: String,
@@ -362,7 +364,8 @@ public struct RunReportRow: Identifiable, Equatable, Sendable {
         scopeLabel: String? = nil,
         durationLabel: String? = nil,
         changeCountLabel: String? = nil,
-        failureSummary: String? = nil
+        failureSummary: String? = nil,
+        lineageLabel: String? = nil
     ) {
         self.id = id
         self.stateLabel = stateLabel
@@ -374,6 +377,7 @@ public struct RunReportRow: Identifiable, Equatable, Sendable {
         self.durationLabel = durationLabel
         self.changeCountLabel = changeCountLabel
         self.failureSummary = failureSummary
+        self.lineageLabel = lineageLabel
     }
 }
 

@@ -49,10 +49,10 @@ public enum RunReportDetailBuilder {
     private static func makeLineageLines(from record: RunRecord, continuedBy: [RunID]) -> [String] {
         var lines: [String] = []
         if let source = record.continuesRunID {
-            lines.append("Continues run \(shortRunID(source))")
+            lines.append("Continues run \(ReportsRunLabels.shortRunID(source))")
         }
         if !continuedBy.isEmpty {
-            let list = continuedBy.map(shortRunID).joined(separator: ", ")
+            let list = continuedBy.map(ReportsRunLabels.shortRunID).joined(separator: ", ")
             lines.append("Continued by \(list)")
         }
         if let target = record.writeTarget {
@@ -67,10 +67,6 @@ public enum RunReportDetailBuilder {
             )
         }
         return lines
-    }
-
-    private static func shortRunID(_ runID: RunID) -> String {
-        String(runID.rawValue.uuidString.prefix(8))
     }
 
     private static func makeWorkItem(from item: RunWorkItem) -> RunReportWorkItem {

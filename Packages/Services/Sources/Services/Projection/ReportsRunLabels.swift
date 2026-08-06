@@ -1,6 +1,12 @@
 import Foundation
 
 enum ReportsRunLabels {
+    /// Display convention for run identity in lineage labels: the first
+    /// eight characters of the UUID — enough to correlate rows on screen.
+    static func shortRunID(_ runID: RunID) -> String {
+        String(runID.rawValue.uuidString.prefix(8))
+    }
+
     static func runState(from record: RunRecord, activeRunID: RunID? = nil) -> ReportsRunState {
         let state = runState(from: record.state)
         guard record.finishedAt == nil, record.runID != activeRunID else {

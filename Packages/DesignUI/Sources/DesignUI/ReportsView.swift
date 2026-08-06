@@ -189,6 +189,12 @@ struct ReportsView: View {
                             .foregroundStyle(Ayu.fgMuted)
                             .lineLimit(1)
                     }
+                    if let lineageLabel = run.lineageLabel {
+                        Text(lineageLabel)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Ayu.fgMuted)
+                            .lineLimit(1)
+                    }
                     if let failureSummary = run.failureSummary {
                         Text(failureSummary)
                             .font(.system(size: 11.5))

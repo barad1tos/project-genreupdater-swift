@@ -16,6 +16,48 @@ struct ReportsBuilderTests {
         #expect(projection.revision == .initial)
     }
 
+    @Test("continuation lineage markers surface on linked runs")
+    func lineageMarkersSurfaceOnLinkedRuns() throws {
+        let source = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .completed,
+            syncSummary: nil
+        )
+        let continuation = makeRunRecord(
+            startedAt: startDate.addingTimeInterval(60),
+            finishedAt: startDate.addingTimeInterval(105),
+            state: .completed,
+            syncSummary: nil,
+            input: RecordInput(continuesRunID: source.runID)
+        )
+
+        let projection = makeProjection(records: [continuation, source])
+
+        let continuationItem = try #require(projection.runs.first {
+            $0.id == continuation.runID.rawValue.uuidString
+        })
+        let sourceItem = try #require(projection.runs.first {
+            $0.id == source.runID.rawValue.uuidString
+        })
+        #expect(continuationItem.lineageLabel == "Continues \(source.runID.rawValue.uuidString.prefix(8))")
+        #expect(sourceItem.lineageLabel == "Continued by \(continuation.runID.rawValue.uuidString.prefix(8))")
+    }
+
+    @Test("unlinked runs carry no lineage marker")
+    func unlinkedRunsCarryNoLineageMarker() throws {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .completed,
+            syncSummary: nil
+        )
+
+        let item = try #require(makeProjection(records: [record]).runs.first)
+
+        #expect(item.lineageLabel == nil)
+    }
+
     @Test("empty projection preserves revision")
     func emptyProjectionPreservesRevision() {
         let projection = ReportsProjection.empty(revision: ProjectionRevision(7))
@@ -476,6 +518,7 @@ struct ReportsBuilderTests {
         var failureMessage: String?
         var intent: RunIntent = .observeLibrary
         var recoveryID: UUID?
+        var continuesRunID: RunID?
     }
 
     private func makeRunRecord(
@@ -508,7 +551,7 @@ struct ReportsBuilderTests {
                     createdAt: startedAt,
                     reason: "test"
                 ),
-                continuesRunID: nil,
+                continuesRunID: input.continuesRunID,
                 startedAt: startedAt
             ),
             recoveryID: input.recoveryID,
