@@ -90,7 +90,9 @@ public struct AppConfiguration: Sendable, Codable {
         case concurrency, rateLimit, timeouts, retry, batchProcessing
     }
 
-    public init() {}
+    public init() {
+        // All domains carry inline defaults; nothing to initialize.
+    }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: DecodingKeys.self)

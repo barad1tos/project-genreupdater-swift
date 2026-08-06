@@ -43,6 +43,61 @@ public struct SettingsProjection: Sendable {
     }
 }
 
+/// CAS target every settings mutation carries (ADR 0011): the settings
+/// revision the caller last saw plus the projection revision it rendered.
+public struct SettingsCommandTarget: Equatable, Sendable {
+    public let expectedSettingsRevision: UInt64
+    public let projectionRevision: ProjectionRevision
+
+    public init(expectedSettingsRevision: UInt64, projectionRevision: ProjectionRevision) {
+        self.expectedSettingsRevision = expectedSettingsRevision
+        self.projectionRevision = projectionRevision
+    }
+}
+
+/// Typed result of a settings command (ADR 0014): the refreshed settings
+/// projection always rides along; a fingerprint-relevant accept also
+/// carries the refreshed fix-plan projection (ADR 0022 staleness push).
+public struct SettingsCommandResult: Sendable {
+    public let status: CommandResultStatus
+    public let message: String
+    public let refreshedSettings: SettingsProjection
+    public let refreshedFixPlan: FixPlanProjection?
+
+    private init(
+        status: CommandResultStatus,
+        message: String,
+        refreshedSettings: SettingsProjection,
+        refreshedFixPlan: FixPlanProjection? = nil
+    ) {
+        self.status = status
+        self.message = message
+        self.refreshedSettings = refreshedSettings
+        self.refreshedFixPlan = refreshedFixPlan
+    }
+
+    public static func accepted(
+        message: String,
+        refreshedSettings: SettingsProjection,
+        refreshedFixPlan: FixPlanProjection? = nil
+    ) -> Self {
+        Self(
+            status: .accepted,
+            message: message,
+            refreshedSettings: refreshedSettings,
+            refreshedFixPlan: refreshedFixPlan
+        )
+    }
+
+    public static func rejectedStale(message: String, refreshedSettings: SettingsProjection) -> Self {
+        Self(status: .rejectedStale, message: message, refreshedSettings: refreshedSettings)
+    }
+
+    public static func temporaryUnavailable(message: String, refreshedSettings: SettingsProjection) -> Self {
+        Self(status: .temporaryUnavailable, message: message, refreshedSettings: refreshedSettings)
+    }
+}
+
 extension SettingsProjection: Equatable {
     /// `AppConfiguration` carries no synthesized equality; canonical
     /// sorted-keys bytes stand in (the RunConfig precedent), falling back
