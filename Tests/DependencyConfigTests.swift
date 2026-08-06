@@ -293,6 +293,10 @@ private actor StoredFixPlanStore: FixPlanStore {
         self.decision = decision
         return .saved(decision)
     }
+
+    func deletePlans(notIn _: Set<FixPlanID>) async throws -> Int {
+        0
+    }
 }
 
 private func makeStoredFixPlan(configuration: FixPlanConfig) -> FixPlan? {

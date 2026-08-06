@@ -13,8 +13,17 @@ public actor RunOrchestrator {
     /// The one write request retained while a recovery hold blocks writes.
     /// Managed exclusively by the QueuedWrite extension.
     var queuedWrite: RunRequest?
+    /// A released queued write between leaving the slot and being parked or
+    /// started by `submit` — kept visible so plan retention never treats its
+    /// plan as orphaned inside that window. Defensive, not load-bearing:
+    /// submit registers the request synchronously on this actor before any
+    /// suspension, and the single marker is not reentrancy-safe, so coverage
+    /// must keep resting on slot/pending/activeRun.
+    var releasingWrite: RunRequest?
     private var activeTransitions: [RunLifecycleTransition] = []
-    private var pendingTriggers: [PendingTrigger] = []
+    /// Internal for the QueuedWrite extension's in-flight visibility only;
+    /// mutation stays in this file.
+    var pendingTriggers: [PendingTrigger] = []
     private var subscribers: [UUID: LifecycleUpdateBuffer]
 
     public init(dependencies: Dependencies) {

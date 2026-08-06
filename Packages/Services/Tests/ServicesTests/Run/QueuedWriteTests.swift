@@ -369,11 +369,12 @@ struct QueuedWriteTests {
     }
 
     private func makeOrchestrator(
+        synchronizeLibrary: @escaping @Sendable () async throws -> SyncResult = { SyncResult() },
         persistRunRecord: @escaping @Sendable (RunRecord) async throws -> Void = { _ in },
         currentDecisionTarget: (@Sendable (FixPlanID) async -> FixPlanWriteTarget?)? = nil
     ) -> RunOrchestrator {
         RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: synchronizeLibrary,
             persistRunRecord: persistRunRecord,
             currentDecisionTarget: currentDecisionTarget
         ))
@@ -389,6 +390,53 @@ struct QueuedWriteTests {
         func append(_ record: RunRecord) {
             records.append(record)
         }
+    }
+
+    @Test("in-flight write plans cover the queued slot")
+    func inFlightPlansCoverQueuedSlot() async {
+        let orchestrator = makeOrchestrator()
+        await orchestrator.restoreRecoveryHold(id: UUID())
+        let planID = FixPlanID()
+        _ = await orchestrator.submit(RunRequest.manualWrite(input: makeWriteInput(planID: planID)))
+
+        #expect(await orchestrator.inFlightWritePlanIDs() == [planID])
+    }
+
+    @Test("a write parked behind an active run stays in the in-flight plans")
+    func inFlightPlansCoverParkedWrites() async {
+        let gate = ConsentGate()
+        let orchestrator = makeOrchestrator(synchronizeLibrary: {
+            await gate.enter()
+            return SyncResult()
+        })
+        async let observation = orchestrator.submit(.manualObservation(
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        ))
+        await gate.waitUntilEntered()
+        let planID = FixPlanID()
+        let result = await orchestrator.submit(
+            RunRequest.manualWrite(input: makeWriteInput(planID: planID))
+        )
+
+        // The parked plan is referenced by no persisted record yet; retention
+        // must still see it (the exact hole behind the wave-1 F1 finding).
+        #expect(await orchestrator.inFlightWritePlanIDs() == [planID])
+        guard case .queued = result else {
+            Issue.record("Expected the write to park behind the active run, got \(result)")
+            await gate.open()
+            _ = await observation
+            return
+        }
+        await gate.open()
+        _ = await observation
+    }
+
+    @Test("in-flight write plans are empty without write requests")
+    func inFlightPlansEmptyWhenIdle() async {
+        let orchestrator = makeOrchestrator()
+
+        #expect(await orchestrator.inFlightWritePlanIDs().isEmpty)
     }
 
     /// Pauses the consent lookup so tests can interleave actor calls

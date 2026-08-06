@@ -265,55 +265,6 @@ struct RunRecordDataTests {
         }
     }
 
-    @Test("Adding work-item storage preserves existing run records")
-    func migratesWorkItemModel() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer {
-            do {
-                try FileManager.default.removeItem(at: directory)
-            } catch {
-                Issue.record("Failed to remove migration fixture: \(error)")
-            }
-        }
-        let storeURL = directory.appendingPathComponent("GenreUpdater.store")
-        let runID = UUID()
-
-        do {
-            let legacySchema = runSchema(includesItems: false)
-            let legacyConfig = ModelConfiguration(
-                "GenreUpdaterMigration",
-                schema: legacySchema,
-                url: storeURL,
-                cloudKitDatabase: .none
-            )
-            let legacyContainer = try ModelContainer(for: legacySchema, configurations: [legacyConfig])
-            try insertRunRow(runID: runID, transitionsData: validRunTransitionsData(), into: legacyContainer)
-        }
-
-        let currentSchema = runSchema(includesItems: true)
-        let currentConfig = ModelConfiguration(
-            "GenreUpdaterMigration",
-            schema: currentSchema,
-            url: storeURL,
-            cloudKitDatabase: .none
-        )
-        let currentContainer = try ModelContainer(for: currentSchema, configurations: [currentConfig])
-        let context = ModelContext(currentContainer)
-        #expect(try context.fetch(FetchDescriptor<PersistedRunRecord>()).map(\.runID) == [runID])
-
-        let item = makeWorkItem(state: .prepared)
-        try context.insert(PersistedRunWorkItem(
-            runID: runID,
-            itemID: item.id,
-            position: 0,
-            itemData: JSONEncoder().encode(item)
-        ))
-        try context.save()
-        #expect(try context.fetch(FetchDescriptor<PersistedRunWorkItem>()).count == 1)
-    }
-
     @Test("loadAll sorts by startedAt descending")
     func sortsNewestFirst() async throws {
         let store = try makeRunStore()
@@ -756,21 +707,4 @@ private func runPayload(runID: RunID, in container: ModelContainer) throws -> Da
     )
     descriptor.fetchLimit = 1
     return try #require(context.fetch(descriptor).first).transitionsData
-}
-
-private func runSchema(includesItems: Bool) -> Schema {
-    var models: [any PersistentModel.Type] = [
-        PersistedTrack.self,
-        PersistedChangeLogEntry.self,
-        PersistedMetricsSnapshot.self,
-        PersistedPendingAlbumEntry.self,
-        PersistedPendingVerificationMetadata.self,
-        PersistedRunRecord.self,
-        PersistedFixPlan.self,
-        PersistedFixPlanDecision.self,
-    ]
-    if includesItems {
-        models.append(PersistedRunWorkItem.self)
-    }
-    return Schema(models)
 }

@@ -26,6 +26,13 @@ public actor RunRecordDataStore: RunRecordStore {
                 try modelContext.insert(makePersisted(from: record))
             }
             try synchronizeWorkItems(for: record)
+            if record.finishedAt != nil {
+                try upsertReportItems(
+                    runID: record.runID.rawValue,
+                    startedAt: record.startedAt,
+                    items: record.workItems
+                )
+            }
             try modelContext.save()
         } catch {
             modelContext.rollback()
@@ -123,7 +130,7 @@ public actor RunRecordDataStore: RunRecordStore {
                !record.hasUnresolvedEvidence {
                 pass.consumedSourceIDs.insert(consumed.rawValue)
             }
-            // Explicit statements, not a `&&` chain: the operator's autoclosure
+            // Explicit statements, not a `&&` chain: the operator's auto closure
             // would capture the non-Sendable row and trip strict concurrency
             // on newer toolchains (CI-only).
             var isDeletionCandidate = false
@@ -136,6 +143,7 @@ public actor RunRecordDataStore: RunRecordStore {
             }
             if isDeletionCandidate, pass.retainedPrunableCount >= limit {
                 try deleteWorkItems(for: row.runID)
+                try deleteReportItems(for: row.runID)
                 modelContext.delete(row)
                 pass.deletedRunIDs.insert(row.runID)
                 continue
@@ -207,6 +215,7 @@ public actor RunRecordDataStore: RunRecordStore {
         persisted.intentRaw = record.intent.rawValue
         persisted.stateRaw = record.state.rawValue
         persisted.writeAuthorityRaw = record.configuration?.writeAuthority.rawValue
+        persisted.recoveryID = record.recoveryID
         persisted.scopeData = try JSONEncoder().encode(record.scope)
         persisted.transitionsData = try JSONEncoder().encode(RunRecordPayload(record: record))
         persisted.syncNewCount = record.syncSummary?.new

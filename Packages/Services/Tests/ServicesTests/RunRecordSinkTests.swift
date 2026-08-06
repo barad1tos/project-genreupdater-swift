@@ -68,6 +68,66 @@ struct RunRecordSinkTests {
         #expect(await store.upsertedCount() == 1)
     }
 
+    @Test("fix-plan retention runs after a successful terminal prune")
+    func fixPlanRetentionRunsAfterTerminalPrune() async throws {
+        let store = PruneCountingStore()
+        let hookCalls = CallCounter()
+        let sink = RunRecordSink.make(
+            store: store,
+            historyLimit: { 1 },
+            pruneFixPlans: { await hookCalls.increment() }
+        )
+
+        try await sink(makeRecord(startedAt: 100, finishedAt: 150))
+
+        #expect(await hookCalls.count() == 1)
+    }
+
+    @Test("fix-plan retention is skipped for open records")
+    func fixPlanRetentionSkippedForOpenRecords() async throws {
+        let store = PruneCountingStore()
+        let hookCalls = CallCounter()
+        let sink = RunRecordSink.make(
+            store: store,
+            historyLimit: { 1 },
+            pruneFixPlans: { await hookCalls.increment() }
+        )
+
+        try await sink(makeRecord(startedAt: 100, finishedAt: nil))
+
+        #expect(await hookCalls.count() == 0)
+    }
+
+    @Test("fix-plan retention is skipped when run pruning fails")
+    func fixPlanRetentionSkippedWhenPruneFails() async throws {
+        let store = PruneThrowingStore()
+        let hookCalls = CallCounter()
+        let sink = RunRecordSink.make(
+            store: store,
+            historyLimit: { 1 },
+            pruneFixPlans: { await hookCalls.increment() }
+        )
+
+        try await sink(makeRecord(startedAt: 100, finishedAt: 150))
+
+        #expect(await hookCalls.count() == 0)
+    }
+
+    @Test("fix-plan retention is skipped when no history limit is available")
+    func fixPlanRetentionSkippedWithoutHistoryLimit() async throws {
+        let store = PruneCountingStore()
+        let hookCalls = CallCounter()
+        let sink = RunRecordSink.make(
+            store: store,
+            historyLimit: { nil },
+            pruneFixPlans: { await hookCalls.increment() }
+        )
+
+        try await sink(makeRecord(startedAt: 100, finishedAt: 150))
+
+        #expect(await hookCalls.count() == 0)
+    }
+
     private func makeStore() throws -> RunRecordDataStore {
         let container = try ModelContainerFactory.createInMemory()
         return RunRecordDataStore(modelContainer: container)
@@ -108,6 +168,18 @@ struct RunRecordSinkTests {
                 finishedAt: finishedAt.map(Date.init(timeIntervalSince1970:))
             )
         )
+    }
+}
+
+private actor CallCounter {
+    private var value = 0
+
+    func increment() {
+        value += 1
+    }
+
+    func count() -> Int {
+        value
     }
 }
 
@@ -164,6 +236,18 @@ private actor PruneCountingStore: RunRecordStore {
         RunReportPage(records: upserted, skippedCorruptedCount: 0)
     }
 
+    func reportItems(matching _: RunReportItemQuery) async throws -> RunReportItemPage {
+        RunReportItemPage(items: [], skippedCorruptedCount: 0)
+    }
+
+    func resolvedRecoveryRun(recoveryID _: UUID) async throws -> RunID? {
+        nil
+    }
+
+    func retainedPlanIDs() async throws -> Set<FixPlanID>? {
+        []
+    }
+
     func upsertedCount() -> Int {
         upserted.count
     }
@@ -206,6 +290,18 @@ private actor PruneThrowingStore: RunRecordStore {
 
     func reports(matching _: RunReportQuery) async throws -> RunReportPage {
         RunReportPage(records: upserted, skippedCorruptedCount: 0)
+    }
+
+    func reportItems(matching _: RunReportItemQuery) async throws -> RunReportItemPage {
+        RunReportItemPage(items: [], skippedCorruptedCount: 0)
+    }
+
+    func resolvedRecoveryRun(recoveryID _: UUID) async throws -> RunID? {
+        nil
+    }
+
+    func retainedPlanIDs() async throws -> Set<FixPlanID>? {
+        []
     }
 
     func upsertedCount() -> Int {

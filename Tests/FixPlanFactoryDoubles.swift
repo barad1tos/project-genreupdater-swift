@@ -110,6 +110,10 @@ actor FactoryPlanStore: FixPlanStore {
     func recordDecision(_ decision: FixPlanReviewDecision) async throws -> FixPlanDecisionWriteResult {
         .saved(decision)
     }
+
+    func deletePlans(notIn _: Set<FixPlanID>) async throws -> Int {
+        0
+    }
 }
 
 actor FactoryTrackStore: TrackStateStore {

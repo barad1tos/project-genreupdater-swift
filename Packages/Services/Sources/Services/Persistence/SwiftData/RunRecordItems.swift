@@ -167,4 +167,51 @@ extension RunRecordDataStore {
         )
         try modelContext.fetch(descriptor).forEach(modelContext.delete)
     }
+
+    /// Mirrors the run's final work-item ledger into queryable report rows.
+    /// Idempotent by unique key: a repair path may re-terminalize a run with
+    /// a rebuilt ledger and the rows must follow — they never diverge from
+    /// the payload ledger. (Plain upserts cannot change a terminal record's
+    /// items — `changedTerminalField` rejects that — so refresh only ever
+    /// comes from repairs.)
+    func upsertReportItems(runID: UUID, startedAt: Date, items: [RunWorkItem]) throws {
+        let descriptor = FetchDescriptor<PersistedRunReportItem>(
+            predicate: #Predicate { $0.runID == runID }
+        )
+        var rows: [UUID: PersistedRunReportItem] = [:]
+        for row in try modelContext.fetch(descriptor) {
+            if rows[row.itemID] == nil {
+                rows[row.itemID] = row
+            } else {
+                // Unrepresentable while the unique key holds; drop the
+                // duplicate instead of trapping on an externally tampered store.
+                log.error("""
+                Dropping duplicate report item row \(row.key, privacy: .public)
+                """)
+                modelContext.delete(row)
+            }
+        }
+        for (position, item) in items.enumerated() {
+            let data = try JSONEncoder().encode(item)
+            if let row = rows.removeValue(forKey: item.id) {
+                row.apply(position: position, runStartedAt: startedAt, item: item, itemData: data)
+            } else {
+                modelContext.insert(PersistedRunReportItem(
+                    runID: runID,
+                    position: position,
+                    runStartedAt: startedAt,
+                    item: item,
+                    itemData: data
+                ))
+            }
+        }
+        rows.values.forEach(modelContext.delete)
+    }
+
+    func deleteReportItems(for runID: UUID) throws {
+        let descriptor = FetchDescriptor<PersistedRunReportItem>(
+            predicate: #Predicate { $0.runID == runID }
+        )
+        try modelContext.fetch(descriptor).forEach(modelContext.delete)
+    }
 }

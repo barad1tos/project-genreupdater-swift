@@ -9,10 +9,14 @@ public enum RunRecordSink {
     /// current limit. Prune failures are logged and never fail the persist:
     /// the record is already written; retention is housekeeping. A nil limit
     /// (torn-down provider) skips pruning — deletion never runs on a guessed
-    /// default below the user's configured value.
+    /// default below the user's configured value. `pruneFixPlans` runs only
+    /// after a successful run prune, so plan retention never acts on a
+    /// reference set the failed prune left stale; the hook owns its own
+    /// failure handling and must not throw the persist away.
     public static func make(
         store: any RunRecordStore,
-        historyLimit: @escaping @Sendable () async -> Int?
+        historyLimit: @escaping @Sendable () async -> Int?,
+        pruneFixPlans: (@Sendable () async -> Void)? = nil
     ) -> @Sendable (RunRecord) async throws -> Void {
         { record in
             try await store.upsert(record)
@@ -27,7 +31,9 @@ public enum RunRecordSink {
                 \(String(describing: type(of: error)), privacy: .public): \
                 \(error.localizedDescription, privacy: .private)
                 """)
+                return
             }
+            await pruneFixPlans?()
         }
     }
 }

@@ -11,9 +11,10 @@ public enum QueuedWriteConsentGap: Equatable, Sendable {
 /// How an explicit attempt to release the queued write concluded.
 public enum QueuedWriteRelease: Equatable, Sendable {
     /// The queued request was handed to the normal submit path; the wrapped
-    /// result carries what actually happened — it may be `.recoverable` or
-    /// `.recoveryRequired` (a hold re-engaged and the request re-queued),
-    /// or `.alreadyCovered`/`.queued` while another run is active.
+    /// result carries what actually happened — `.alreadyCovered`/`.queued`
+    /// while another run is active, or the started run's own result. (No
+    /// suspension separates the hold re-validation from submit, so a
+    /// re-engaged hold cannot surface here.)
     case released(RunSubmissionResult)
     /// A recovery hold still blocks writes; nothing was released. Returned
     /// whether or not anything is queued.
@@ -67,6 +68,30 @@ extension RunOrchestrator {
         queuedWrite
     }
 
+    /// Every plan a write request currently holds in flight: the queued-write
+    /// slot, a release in progress, requests parked behind the active run,
+    /// and the active run's own target. Fix-plan retention must keep all of
+    /// them — a parked write's plan is referenced by no persisted record
+    /// until its run starts.
+    public func inFlightWritePlanIDs() -> Set<FixPlanID> {
+        var planIDs = Set<FixPlanID>()
+        if let queued = queuedWrite?.writeTarget?.planID {
+            planIDs.insert(queued)
+        }
+        if let releasing = releasingWrite?.writeTarget?.planID {
+            planIDs.insert(releasing)
+        }
+        for pending in pendingTriggers {
+            if let planID = pending.request.writeTarget?.planID {
+                planIDs.insert(planID)
+            }
+        }
+        if let active = activeRun?.writeTarget?.planID {
+            planIDs.insert(active)
+        }
+        return planIDs
+    }
+
     public func discardQueuedWrite() {
         if let target = queuedWrite?.writeTarget {
             log.info("Queued write discarded for plan \(target.planID.rawValue.uuidString, privacy: .public)")
@@ -112,6 +137,10 @@ extension RunOrchestrator {
         }
         queuedWrite = nil
         log.info("Queued write released for plan \(target.planID.rawValue.uuidString, privacy: .public)")
+        // Keep the plan visible to retention while the request is neither in
+        // the slot nor yet parked/started by submit.
+        releasingWrite = request
+        defer { releasingWrite = nil }
         return await .released(submit(request))
     }
 }

@@ -181,6 +181,7 @@ extension RunRecordDataStore {
         }
         let storedRecoveryID = payload?.recoveryID ?? fallback?.recoveryID
         let recoveryID = isWriteRecovery ? (storedRecoveryID ?? row.runID) : nil
+        row.recoveryID = recoveryID
         row.transitionsData = try JSONEncoder().encode(RunRecordPayload(
             transitions: transitions,
             workItems: workItems,
@@ -196,6 +197,7 @@ extension RunRecordDataStore {
         )
         row.finishedAt = auditTime
         try deleteWorkItems(for: row.runID)
+        try upsertReportItems(runID: row.runID, startedAt: row.startedAt, items: workItems)
     }
 
     private func repairTerminalRow(
@@ -210,6 +212,7 @@ extension RunRecordDataStore {
         let storedData = row.transitionsData
         let storedFinish = row.finishedAt
         let storedWriteAuthority = row.writeAuthorityRaw
+        let storedRecoveryIDRaw = row.recoveryID
         let transitions = Self.recoveryTransitions(row, payload: payload, fallback: fallback)
         guard Self.hasTerminalAudit(row, transitions: transitions),
               let terminalTime = transitions.last?.timestamp
@@ -220,12 +223,14 @@ extension RunRecordDataStore {
         guard workItems.isEmpty || configuration != nil else {
             throw RunRecordPersistenceError.corruptedField(name: "configuration", runID: row.runID)
         }
+        let recoveryID = payload?.recoveryID ?? fallback?.recoveryID
+        row.recoveryID = recoveryID
         row.transitionsData = try JSONEncoder().encode(RunRecordPayload(
             transitions: transitions,
             workItems: workItems,
             configuration: configuration,
             writeTarget: payload?.writeTarget ?? fallback?.writeTarget,
-            recoveryID: payload?.recoveryID ?? fallback?.recoveryID,
+            recoveryID: recoveryID,
             continuesRunID: payload?.continuesRunID ?? fallback?.continuesRunID,
             writeSummary: payload?.writeSummary ?? fallback?.writeSummary
         ))
@@ -236,9 +241,11 @@ extension RunRecordDataStore {
             row.transitionsData = storedData
             row.finishedAt = storedFinish
             row.writeAuthorityRaw = storedWriteAuthority
+            row.recoveryID = storedRecoveryIDRaw
             return false
         }
         try deleteWorkItems(for: row.runID)
+        try upsertReportItems(runID: row.runID, startedAt: row.startedAt, items: workItems)
         row.failureMessage = Self.corruptedRecoveryMessage(
             existing: row.failureMessage,
             isWriteRecovery: route == .writeRecovery

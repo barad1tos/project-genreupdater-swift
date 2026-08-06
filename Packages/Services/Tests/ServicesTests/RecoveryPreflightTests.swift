@@ -160,6 +160,18 @@ private actor RunRecordStoreProbe: RunRecordStore {
     func reports(matching _: RunReportQuery) async throws -> RunReportPage {
         RunReportPage(records: record.map { [$0] } ?? [], skippedCorruptedCount: 0)
     }
+
+    func reportItems(matching _: RunReportItemQuery) async throws -> RunReportItemPage {
+        RunReportItemPage(items: [], skippedCorruptedCount: 0)
+    }
+
+    func resolvedRecoveryRun(recoveryID _: UUID) async throws -> RunID? {
+        nil
+    }
+
+    func retainedPlanIDs() async throws -> Set<FixPlanID>? {
+        []
+    }
 }
 
 private func makeRecord(

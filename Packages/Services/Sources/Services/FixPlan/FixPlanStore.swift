@@ -40,4 +40,9 @@ public protocol FixPlanStore: Sendable {
     /// decision.revision == stored.revision.advanced(); else .conflict(current),
     /// no mutation. Missing plan throws missingPlan.
     func recordDecision(_ decision: FixPlanReviewDecision) async throws -> FixPlanDecisionWriteResult
+    /// Deletes plans and their decisions whose planID is outside `keeping`;
+    /// returns the number of deleted plans. Retention housekeeping — callers
+    /// compose `keeping` from run-referenced, current and in-flight write
+    /// plan IDs.
+    func deletePlans(notIn keeping: Set<FixPlanID>) async throws -> Int
 }
