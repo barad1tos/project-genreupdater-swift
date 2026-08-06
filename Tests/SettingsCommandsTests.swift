@@ -257,33 +257,36 @@ struct SettingsCommandsTests {
         #expect(defaults.string(forKey: AppStorageKey.defaultUpdateBehavior) == "genre_only")
     }
 
-    @Test("a failed configuration load blocks scene-inactive saves")
-    func loadFailureBlocksSceneSave() async {
-        let saved = SavedConfigurations()
-        let dependencies = AppDependencies(
-            configurationLoader: { throw SaveProbeFailure() },
-            configurationSaver: { saved.append($0) }
-        )
-
-        await dependencies.saveState()
-
-        #expect(saved.configurations.isEmpty)
-    }
-
-    @Test("an explicit accepted command repairs a failed load")
+    @Test("a failed load never persists until a command repairs it")
     func explicitCommandRepairsFailedLoad() async {
         let saved = SavedConfigurations()
         let dependencies = AppDependencies(
             configurationLoader: { throw SaveProbeFailure() },
             configurationSaver: { saved.append($0) }
         )
+        #expect(dependencies.configurationLoadIssue != nil)
         let target = SettingsCommandTarget(expectedSettingsRevision: 0)
 
         let result = await SettingsCommands.apply(dependencies.config, target: target, dependencies: dependencies)
-        await dependencies.saveState()
 
         #expect(result.status == .accepted)
-        #expect(saved.configurations.count == 2)
+        #expect(saved.configurations.count == 1)
+        #expect(dependencies.configurationLoadIssue == nil)
+    }
+
+    @Test("initialization publishes the settings projection")
+    func initializePublishesSettingsProjection() async {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // Persistence is irrelevant to this bootstrap pin.
+            }
+        )
+
+        await dependencies.publishSettingsProjection()
+        let current = await dependencies.projectionStore.currentSettings()
+
+        #expect(current.settingsRevision == dependencies.config.revision)
     }
 }
 

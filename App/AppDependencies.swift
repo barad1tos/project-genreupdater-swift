@@ -139,10 +139,14 @@ final class AppDependencies {
     func initialize() async {
         if let configurationLoadIssue {
             appState = .error(configurationLoadIssue)
+            await publishSettingsProjection()
             return
         }
 
         migrateDefaultUpdateBehaviorIfNeeded()
+        // Bootstrap the settings projection so the store never serves the
+        // `.empty` default state once the app is running.
+        await publishSettingsProjection()
         appState = .loading
 
         do {
@@ -226,24 +230,6 @@ final class AppDependencies {
             log.info("Library refresh triggered")
         } catch {
             log.error("Library refresh failed: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    /// Save current state (called on scene phase change to inactive).
-    func saveState() async {
-        // A failed load left in-memory DEFAULTS here; persisting them on
-        // scene-inactive would silently overwrite the user's config.json.
-        // Only a conscious settings save (any successful persistConfiguration
-        // until the channels migrate onto the command path) repairs this.
-        guard configurationLoadIssue == nil else {
-            log.error("Skipping state save: configuration failed to load and was not explicitly repaired")
-            return
-        }
-        do {
-            try configurationSaver(config)
-            log.debug("App state saved")
-        } catch {
-            log.error("Failed to save state: \(error.localizedDescription, privacy: .public)")
         }
     }
 
