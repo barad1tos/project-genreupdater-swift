@@ -21,6 +21,10 @@ public final class PersistedRunReportItem {
     public var album: String
     /// Empty for album-level targets.
     public var trackName: String
+    /// `"track"` / `"album"`; nil only on rows persisted before the column
+    /// existed. Explicit so target filters never have to read the
+    /// empty-trackName sentinel as "album" — Music.app allows unnamed tracks.
+    public var targetKindRaw: String?
     /// Full-fidelity `RunWorkItem` JSON.
     public var itemData: Data
 
@@ -38,6 +42,7 @@ public final class PersistedRunReportItem {
         artist = identity.artist
         album = identity.album
         trackName = identity.trackName
+        targetKindRaw = item.target.reportKindRaw
         self.itemData = itemData
     }
 
@@ -52,6 +57,7 @@ public final class PersistedRunReportItem {
         artist = identity.artist
         album = identity.album
         trackName = identity.trackName
+        targetKindRaw = item.target.reportKindRaw
         self.itemData = itemData
     }
 
@@ -81,6 +87,15 @@ extension WorkTarget {
             (identity.artist, identity.album, identity.trackName)
         case let .album(identity):
             (identity.artist, identity.album, "")
+        }
+    }
+
+    var reportKindRaw: String {
+        switch self {
+        case .track:
+            "track"
+        case .album:
+            "album"
         }
     }
 }
