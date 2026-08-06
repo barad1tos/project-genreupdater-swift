@@ -16,6 +16,11 @@ public actor ProjectionStore {
     private var appliedFixPlanGeneration: UInt64
     private var fixPlanContinuations: [UUID: AsyncStream<FixPlanProjection>.Continuation]
 
+    private var currentSettingsProjection: SettingsProjection
+    private var issuedSettingsGeneration: UInt64
+    private var appliedSettingsGeneration: UInt64
+    private var settingsContinuations: [UUID: AsyncStream<SettingsProjection>.Continuation]
+
     public init() {
         currentActivityProjection = .empty()
         latestIssuedActivityProjectionInputGeneration = 0
@@ -31,6 +36,11 @@ public actor ProjectionStore {
         issuedFixPlanGeneration = 0
         appliedFixPlanGeneration = 0
         fixPlanContinuations = [:]
+
+        currentSettingsProjection = .empty()
+        issuedSettingsGeneration = 0
+        appliedSettingsGeneration = 0
+        settingsContinuations = [:]
     }
 
     public func activityProjection() -> ActivityProjection {
@@ -294,5 +304,88 @@ public actor ProjectionStore {
 
     private func removeFixPlanContinuation(id: UUID) {
         fixPlanContinuations[id] = nil
+    }
+
+    public func currentSettings() -> SettingsProjection {
+        currentSettingsProjection
+    }
+
+    public func settingsUpdates() -> AsyncStream<SettingsProjection> {
+        let subscriptionID = UUID()
+        let (stream, continuation) = AsyncStream<SettingsProjection>.makeStream(bufferingPolicy: .bufferingNewest(1))
+
+        registerSettingsContinuation(continuation, id: subscriptionID)
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.removeSettingsContinuation(id: subscriptionID)
+            }
+        }
+
+        return stream
+    }
+
+    public func nextSettingsInputGeneration() -> UInt64 {
+        issuedSettingsGeneration += 1
+        return issuedSettingsGeneration
+    }
+
+    /// Replaces the settings projection when the optional input generation is newer.
+    @discardableResult
+    public func replaceSettingsProjection(
+        _ projection: SettingsProjection,
+        inputGeneration: UInt64? = nil
+    ) -> SettingsProjection {
+        if let inputGeneration {
+            guard inputGeneration > appliedSettingsGeneration else {
+                return currentSettingsProjection
+            }
+            issuedSettingsGeneration = max(issuedSettingsGeneration, inputGeneration)
+            appliedSettingsGeneration = inputGeneration
+        }
+
+        let comparableProjection = projection.withRevision(currentSettingsProjection.revision)
+        guard comparableProjection != currentSettingsProjection else {
+            return currentSettingsProjection
+        }
+
+        let storedProjection = projection.withRevision(currentSettingsProjection.revision.advanced())
+
+        currentSettingsProjection = storedProjection
+        broadcastSettingsProjection(storedProjection)
+
+        return storedProjection
+    }
+
+    private func registerSettingsContinuation(
+        _ continuation: AsyncStream<SettingsProjection>.Continuation,
+        id: UUID
+    ) {
+        if case .terminated = continuation.yield(currentSettingsProjection) {
+            return
+        }
+        settingsContinuations[id] = continuation
+    }
+
+    private func broadcastSettingsProjection(_ projection: SettingsProjection) {
+        var terminatedContinuationIDs: [UUID] = []
+
+        for (id, continuation) in settingsContinuations {
+            switch continuation.yield(projection) {
+            case .enqueued, .dropped:
+                break
+            case .terminated:
+                terminatedContinuationIDs.append(id)
+            @unknown default:
+                break
+            }
+        }
+
+        for id in terminatedContinuationIDs {
+            settingsContinuations[id] = nil
+        }
+    }
+
+    private func removeSettingsContinuation(id: UUID) {
+        settingsContinuations[id] = nil
     }
 }
