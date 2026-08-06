@@ -52,7 +52,8 @@ enum ReportDetailAdapter {
             hiddenWorkItemCount: detail.hiddenWorkItemCount,
             preparedItemIDs: detail.preparedItemIDs.map(\.uuidString),
             canApplyRemainingFixes: detail.canApplyRemainingFixes,
-            canDismissItems: detail.canDismissItems
+            canDismissItems: detail.canDismissItems,
+            lineageLines: detail.lineageLines
         )
     }
 }

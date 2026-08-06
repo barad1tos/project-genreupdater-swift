@@ -35,6 +35,56 @@ struct ReportDetailBuilderTests {
         ])
     }
 
+    @Test("lineage lines surface continuation, plan and write evidence")
+    func lineageLinesSurfaceEvidence() {
+        let source = RunID()
+        let planID = FixPlanID()
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .cancelled,
+            syncSummary: nil,
+            input: RecordInput(
+                intent: .writeFixes,
+                writeTarget: FixPlanWriteTarget(
+                    planID: planID,
+                    planRevision: .initial,
+                    decisionRevision: .initial
+                ),
+                continuesRunID: source,
+                writeSummary: RunWriteSummary(applied: 3, verifiedNoOp: 1, failed: 2)
+            )
+        )
+        let continuedBy = RunID()
+
+        let detail = RunReportDetailBuilder.makeDetail(
+            from: record,
+            now: now,
+            continuedBy: [continuedBy]
+        )
+
+        #expect(detail.lineageLines == [
+            "Continues run \(source.rawValue.uuidString.prefix(8))",
+            "Continued by \(continuedBy.rawValue.uuidString.prefix(8))",
+            "Plan \(planID.rawValue.uuidString.prefix(8)) · rev 1.1",
+            "Writes: 3 applied · 1 no-op · 2 failed",
+        ])
+    }
+
+    @Test("an unlinked observation run has no lineage lines")
+    func unlinkedRunHasNoLineageLines() {
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: startDate.addingTimeInterval(45),
+            state: .completed,
+            syncSummary: nil
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        #expect(detail.lineageLines.isEmpty)
+    }
+
     @Test("preview no-op omits library delta from detail summary")
     func previewHidesDelta() {
         let record = makeRunRecord(
@@ -678,6 +728,8 @@ struct ReportDetailBuilderTests {
         var scope: ProcessingScopeSnapshot?
         var intent: RunIntent = .observeLibrary
         var writeTarget: FixPlanWriteTarget?
+        var continuesRunID: RunID?
+        var writeSummary: RunWriteSummary?
         var workItems: [RunWorkItem] = []
     }
 
@@ -711,7 +763,7 @@ struct ReportDetailBuilderTests {
                     createdAt: startedAt,
                     reason: ""
                 ),
-                continuesRunID: nil,
+                continuesRunID: input.continuesRunID,
                 startedAt: startedAt
             ),
             writeTarget: input.writeTarget,
@@ -719,6 +771,7 @@ struct ReportDetailBuilderTests {
             workItems: input.workItems,
             status: RunRecord.Status(
                 syncSummary: syncSummary,
+                writeSummary: input.writeSummary,
                 failureMessage: input.failureMessage,
                 finishedAt: finishedAt
             )

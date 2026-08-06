@@ -278,6 +278,11 @@ struct ReportsView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(Ayu.fg2)
             }
+            ForEach(detail.lineageLines, id: \.self) { line in
+                Text(line)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Ayu.fg2)
+            }
             ForEach(detail.transitions) { transition in
                 HStack(spacing: 10) {
                     Text(transition.timeLabel)

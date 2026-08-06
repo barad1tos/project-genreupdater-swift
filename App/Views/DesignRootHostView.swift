@@ -460,18 +460,6 @@ struct DesignRootHostView: View {
         }
     }
 
-    private func loadRunReportDetail(runID: String, requestID: UUID) async {
-        let record = await dependencies.loadRunReportRecord(id: runID)
-        guard runReportDetailRequestID == requestID else { return }
-
-        guard let record else {
-            selectedRunReport = .unavailable(runID: runID)
-            return
-        }
-        let detail = RunReportDetailBuilder.makeDetail(from: record, now: Date(), activeRunID: activeRunID)
-        selectedRunReport = ReportDetailAdapter.makeSnapshot(from: detail)
-    }
-
     private func configureSelectedUpdateScope(_ configuration: SelectedUpdateScopeConfiguration) {
         selectedRoute = .update
         ensureWorkflowViewModel()
@@ -1178,6 +1166,25 @@ extension DesignRootHostView {
 }
 
 extension DesignRootHostView {
+    private func loadRunReportDetail(runID: String, requestID: UUID) async {
+        let record = await dependencies.loadRunReportRecord(id: runID)
+        guard runReportDetailRequestID == requestID else { return }
+
+        guard let record else {
+            selectedRunReport = .unavailable(runID: runID)
+            return
+        }
+        let continuedBy = await dependencies.loadRunContinuations(id: runID)
+        guard runReportDetailRequestID == requestID else { return }
+        let detail = RunReportDetailBuilder.makeDetail(
+            from: record,
+            now: Date(),
+            activeRunID: activeRunID,
+            continuedBy: continuedBy
+        )
+        selectedRunReport = ReportDetailAdapter.makeSnapshot(from: detail)
+    }
+
     private func applyNavigationTarget(_ target: CommandNavigationTarget?) {
         switch target {
         case .fixPlan:
