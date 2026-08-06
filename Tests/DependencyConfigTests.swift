@@ -122,7 +122,8 @@ struct DependencyConfigTests {
         dependencies.config.paths.logsBaseDirectory = logsDirectory.path
         dependencies.config.logging.lastIncrementalRunFile = "state/last_incremental_run.log"
 
-        #expect(dependencies.saveConfigurationAndApplyRuntime())
+        #expect(dependencies.persistConfiguration())
+        await dependencies.applyRuntimeConfigurationAndWait()
         #expect(didSaveConfiguration)
 
         await dependencies.incrementalRunTracker?.updateLastRunTimestamp()
@@ -134,7 +135,7 @@ struct DependencyConfigTests {
     }
 
     @Test("Runtime apply wires cleaning edition keywords into year scoring")
-    func appliesScoringKeywords() {
+    func appliesScoringKeywords() async {
         var didSaveConfiguration = false
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
@@ -145,7 +146,8 @@ struct DependencyConfigTests {
         dependencies.config.cleaning.remasterKeywords = ["Anniversary", "Deluxe"]
         dependencies.config.yearRetrieval.logic.definitiveScoreDiff = 15
 
-        #expect(dependencies.saveConfigurationAndApplyRuntime())
+        #expect(dependencies.persistConfiguration())
+        await dependencies.applyRuntimeConfigurationAndWait()
         #expect(didSaveConfiguration)
         #expect(dependencies.yearDeterminator?.scorer.editionKeywords == ["Anniversary", "Deluxe"])
 

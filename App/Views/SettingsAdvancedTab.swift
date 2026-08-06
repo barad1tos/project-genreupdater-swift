@@ -176,6 +176,7 @@ struct AdvancedTab: View {
                 }
 
                 Button { formatJSON() } label: {
+                    // noinspection SpellCheckingInspection — canonical SF Symbol identifier
                     Label("Format", systemImage: "text.alignleft")
                 }
 
@@ -213,7 +214,9 @@ struct AdvancedTab: View {
                 titleVisibility: .visible
             ) {
                 Button("Reset", role: .destructive) { resetConfiguration() }
-                Button("Cancel", role: .cancel) {}
+                Button("Cancel", role: .cancel) {
+                    // Dismissal is the whole action.
+                }
             }
         }
     }
@@ -292,12 +295,11 @@ struct AdvancedTab: View {
                     target: SettingsCommandTarget(expectedSettingsRevision: dependencies.config.revision),
                     dependencies: dependencies
                 )
-                switch result.status {
-                case .accepted:
+                if result.status == .accepted {
                     configurationJSON = (try? Self.encodeConfiguration(dependencies.config)) ?? configurationJSON
                     jsonEditorState = .saved
                     jsonStatusMessage = "Saved"
-                default:
+                } else {
                     jsonEditorState = .invalid
                     jsonStatusMessage = result.message
                 }

@@ -246,13 +246,6 @@ final class AppDependencies {
         }
     }
 
-    @discardableResult
-    func saveConfigurationAndApplyRuntime() -> Bool {
-        guard persistConfiguration() else { return false }
-        applyRuntimeConfiguration()
-        return true
-    }
-
     /// Persists the configuration WITHOUT applying runtime effects — the
     /// settings command path awaits its own apply after this succeeds.
     /// An explicit successful save also repairs a failed initial load: the
