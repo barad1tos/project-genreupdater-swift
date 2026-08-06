@@ -167,12 +167,13 @@ private struct WriteFixture {
     let runtime: RuntimeProbe
     let write: @Sendable (
         FixPlanWriteInput,
+        RunID,
         @escaping WorkCheckpointSink
     ) async throws -> BatchUpdateResult
     let directory: URL
 
     func run(_ input: FixPlanWriteInput) async throws -> BatchUpdateResult {
-        try await write(input) { _ in
+        try await write(input, RunID()) { _ in
             // Direct writer tests assert results; Services checkpoint tests own checkpoint assertions.
         }
     }

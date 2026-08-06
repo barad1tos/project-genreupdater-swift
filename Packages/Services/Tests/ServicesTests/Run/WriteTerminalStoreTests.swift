@@ -18,7 +18,7 @@ struct WriteTerminalStoreTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { input, checkpoint in
+                writeFixPlan: { input, _, checkpoint in
                     try await checkpointWrite(input, using: checkpoint)
                     return try await writer.apply(input: input)
                 },
@@ -54,7 +54,7 @@ struct WriteTerminalStoreTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.afterVerification([itemID: .noFixNeeded]))
                     return BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
                 },
@@ -90,7 +90,7 @@ struct WriteTerminalStoreTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.afterVerification([itemID: .noFixNeeded]))
                     return BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
                 },
@@ -127,7 +127,7 @@ struct WriteTerminalStoreTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { submittedInput, checkpoint in
+                writeFixPlan: { submittedInput, _, checkpoint in
                     try await checkpoint(.afterVerification([itemID: .failed]))
                     return try await writer.apply(input: submittedInput)
                 },
@@ -171,7 +171,7 @@ struct WriteTerminalStoreTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { submittedInput, checkpoint in
+                writeFixPlan: { submittedInput, _, checkpoint in
                     try await checkpoint(.afterVerification([itemID: .failed]))
                     return try await writer.apply(input: submittedInput)
                 },
@@ -208,7 +208,7 @@ struct WriteTerminalStoreTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { input, checkpoint in
+                writeFixPlan: { input, _, checkpoint in
                     try await checkpointWrite(input, using: checkpoint)
                     return try await writer.apply(input: input)
                 },

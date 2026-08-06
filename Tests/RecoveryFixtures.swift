@@ -236,7 +236,7 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) throws -> RecoverySet
         write: fixture.dependencies.writeDependencies(
             store: store,
             processor: processor,
-            writeFixPlan: { _, _ in
+            writeFixPlan: { _, _, _ in
                 BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
             }
         )

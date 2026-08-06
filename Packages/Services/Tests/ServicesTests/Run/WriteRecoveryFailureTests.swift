@@ -17,7 +17,7 @@ struct WriteRecoveryFailureTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in throw RecordWriteError() },
             write: .init(
-                writeFixPlan: { input, _ in try await writer.apply(input: input) },
+                writeFixPlan: { input, _, _ in try await writer.apply(input: input) },
                 beginRecoveryHold: { recoveryID }
             )
         ))
@@ -50,7 +50,7 @@ struct WriteRecoveryFailureTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     try await checkpoint(.afterAttempt([itemID]))
                     throw UpdateCoordinatorError.writeFinalizationFailed(
@@ -88,7 +88,7 @@ struct WriteRecoveryFailureTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     try await checkpoint(.afterAttempt([itemID]))
                     throw RecordWriteError()
@@ -123,7 +123,7 @@ struct WriteRecoveryFailureTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { input, _ in try await writer.apply(input: input) },
+                writeFixPlan: { input, _, _ in try await writer.apply(input: input) },
                 beginRecoveryHold: { recoveryID }
             )
         ))
@@ -149,7 +149,7 @@ struct WriteRecoveryFailureTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     try await checkpoint(.afterAttempt([itemID]))
                     try await checkpoint(.afterVerification([itemID: .written]))
@@ -185,7 +185,7 @@ struct WriteRecoveryFailureTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     try await checkpoint(.afterAttempt([itemID]))
                     throw RecordWriteError()
@@ -221,7 +221,7 @@ struct WriteRecoveryFailureTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { input, checkpoint in
+                writeFixPlan: { input, _, checkpoint in
                     try await checkpointWrite(input, using: checkpoint)
                     throw RecordWriteError()
                 },
@@ -249,7 +249,7 @@ struct WriteRecoveryFailureTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { input, checkpoint in
+                writeFixPlan: { input, _, checkpoint in
                     try await checkpointWrite(input, using: checkpoint)
                     throw CancellationError()
                 },

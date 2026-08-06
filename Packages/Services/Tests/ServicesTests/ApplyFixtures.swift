@@ -1,3 +1,5 @@
+import Core
+import Foundation
 @testable import Services
 
 struct AcceptedApplyFixture {
@@ -24,4 +26,69 @@ actor CheckpointProbe {
 struct CheckpointEffects: Sendable {
     let historyCount: Int
     let processingCount: Int
+}
+
+func makeCoordinator(
+    runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
+    idMapper: (any TrackIDMapping)? = nil
+) async -> AcceptedApplyFixture {
+    let bridge = MockAppleScriptClient()
+    let apiService = MockAPIService()
+    let orchestrator = makeAPIOrchestrator(
+        musicBrainz: apiService,
+        discogs: apiService,
+        appleMusic: apiService
+    )
+    let undoDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ApplyAcceptedTests-\(UUID().uuidString)")
+    let cache = MockCacheService()
+    let snapshot = MockLibrarySnapshotService()
+    let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
+    let trackStore = MockTrackStore()
+    let coordinator = UpdateCoordinator(
+        dependencies: UpdateDependencies(
+            apiOrchestrator: orchestrator,
+            scriptBridge: bridge,
+            stores: .init(
+                trackStore: trackStore,
+                cache: cache
+            ),
+            undoCoordinator: undo,
+            idMapper: idMapper,
+            librarySnapshotService: snapshot
+        ),
+        genreDeterminator: GenreDeterminator(),
+        yearDeterminator: YearDeterminator(),
+        runtimeConfiguration: runtimeConfiguration
+    )
+
+    return AcceptedApplyFixture(
+        coordinator: coordinator,
+        bridge: bridge,
+        cache: cache,
+        snapshot: snapshot,
+        trackStore: trackStore,
+        undo: undo
+    )
+}
+
+func makeEditableTrack(
+    id: String,
+    genre: String?,
+    year: Int?,
+    album: String = "Abbey Road"
+) -> Track {
+    Track(
+        id: id,
+        name: "Come Together",
+        artist: "Beatles",
+        album: album,
+        genre: genre,
+        year: year,
+        trackStatus: nil
+    )
+}
+
+func ignoreAcceptedChangeProgress(_ update: ProgressUpdate) {
+    _ = update
 }

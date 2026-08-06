@@ -122,7 +122,7 @@ struct BatchWriteTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await coordinator.applyAcceptedChanges(
                         proposals,
                         progressHandler: ignoreProgress,

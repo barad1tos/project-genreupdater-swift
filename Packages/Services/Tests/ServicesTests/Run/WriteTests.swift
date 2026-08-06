@@ -24,7 +24,7 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { await sync.run() },
             persistRunRecord: { try await probe.append($0) },
-            write: .init(writeFixPlan: { submittedInput, checkpoint in
+            write: .init(writeFixPlan: { submittedInput, _, checkpoint in
                 try await checkpoint(.beforeAttempt([itemID]))
                 try await checkpoint(.afterAttempt([itemID]))
                 try await checkpoint(.afterVerification([itemID: .written]))
@@ -80,7 +80,7 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
-            write: .init(writeFixPlan: { input, checkpoint in
+            write: .init(writeFixPlan: { input, _, checkpoint in
                 try await checkpointWrite(input, using: checkpoint)
                 return try await writer.apply(input: input)
             }),
@@ -147,7 +147,7 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { await syncGate.sync() },
             persistRunRecord: { _ in },
-            write: .init(writeFixPlan: { input, checkpoint in
+            write: .init(writeFixPlan: { input, _, checkpoint in
                 try await checkpointWrite(input, using: checkpoint)
                 return try await writer.apply(input: input)
             }),

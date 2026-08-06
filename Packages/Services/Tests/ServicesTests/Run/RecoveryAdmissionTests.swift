@@ -15,7 +15,7 @@ struct RecoveryAdmissionTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: skipPersistence,
             write: .init(
-                writeFixPlan: { input, checkpoint in
+                writeFixPlan: { input, _, checkpoint in
                     try await gate.run(input: input, checkpoint: checkpoint)
                 },
                 beginRecoveryHold: { await holds.beginLive() },
@@ -53,7 +53,7 @@ struct RecoveryAdmissionTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: skipPersistence,
             write: .init(
-                writeFixPlan: { input, checkpoint in
+                writeFixPlan: { input, _, checkpoint in
                     try await gate.run(input: input, checkpoint: checkpoint)
                 },
                 beginRecoveryHold: { await holds.beginLive() },
@@ -87,7 +87,7 @@ struct RecoveryAdmissionTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: skipPersistence,
             write: .init(
-                writeFixPlan: { input, checkpoint in
+                writeFixPlan: { input, _, checkpoint in
                     try await gate.run(input: input, checkpoint: checkpoint)
                 },
                 beginRecoveryHold: { await holds.beginLive() },
@@ -118,7 +118,8 @@ struct RecoveryAdmissionTests {
                 observedOutcomes: Dictionary(uniqueKeysWithValues: liveItemIDs.map { (
                     $0,
                     ObservedWorkOutcome(outcome: .failed, observedValue: nil)
-                ) })
+                )
+                })
             ) == .resolved
         )
 
@@ -136,7 +137,7 @@ struct RecoveryAdmissionTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: skipPersistence,
             write: .init(
-                writeFixPlan: { input, checkpoint in
+                writeFixPlan: { input, _, checkpoint in
                     try await gate.run(input: input, checkpoint: checkpoint)
                 },
                 beginRecoveryHold: { await holds.beginLive() },

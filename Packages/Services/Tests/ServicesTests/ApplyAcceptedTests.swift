@@ -5,6 +5,54 @@ import Testing
 
 @Suite("UpdateCoordinator — accepted review application")
 struct ApplyAcceptedTests {
+    @Test("Run attribution stamps recorded change entries")
+    func runAttributionStampsEntries() async throws {
+        let fixture = await makeCoordinator()
+        let runID = RunID()
+        await fixture.coordinator.setRunAttribution(runID)
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1969)
+        let proposal = ProposedChange(
+            track: track,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Electronic",
+            confidence: 80,
+            source: "Library",
+            isAccepted: true
+        )
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            [proposal],
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        #expect(result.entries.first?.runID == runID.rawValue)
+        let history = await fixture.undo.getHistory()
+        #expect(history.first?.runID == runID.rawValue)
+    }
+
+    @Test("Entries recorded without attribution stay unattributed")
+    func entriesWithoutAttributionStayUnattributed() async throws {
+        let fixture = await makeCoordinator()
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1969)
+        let proposal = ProposedChange(
+            track: track,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Electronic",
+            confidence: 80,
+            source: "Library",
+            isAccepted: true
+        )
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            [proposal],
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        #expect(result.entries.first?.runID == nil)
+    }
+
     @Test("Applying reviewed changes writes only accepted proposals")
     func applyingReviewedChangesWritesOnlyAcceptedProposals() async throws {
         let fixture = await makeCoordinator()
@@ -686,50 +734,6 @@ struct ApplyAcceptedTests {
         #expect(written.isEmpty)
     }
 
-    func makeCoordinator(
-        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
-        idMapper: (any TrackIDMapping)? = nil
-    ) async -> AcceptedApplyFixture {
-        let bridge = MockAppleScriptClient()
-        let apiService = MockAPIService()
-        let orchestrator = makeAPIOrchestrator(
-            musicBrainz: apiService,
-            discogs: apiService,
-            appleMusic: apiService
-        )
-        let undoDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ApplyAcceptedTests-\(UUID().uuidString)")
-        let cache = MockCacheService()
-        let snapshot = MockLibrarySnapshotService()
-        let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
-        let trackStore = MockTrackStore()
-        let coordinator = UpdateCoordinator(
-            dependencies: UpdateDependencies(
-                apiOrchestrator: orchestrator,
-                scriptBridge: bridge,
-                stores: .init(
-                    trackStore: trackStore,
-                    cache: cache
-                ),
-                undoCoordinator: undo,
-                idMapper: idMapper,
-                librarySnapshotService: snapshot
-            ),
-            genreDeterminator: GenreDeterminator(),
-            yearDeterminator: YearDeterminator(),
-            runtimeConfiguration: runtimeConfiguration
-        )
-
-        return AcceptedApplyFixture(
-            coordinator: coordinator,
-            bridge: bridge,
-            cache: cache,
-            snapshot: snapshot,
-            trackStore: trackStore,
-            undo: undo
-        )
-    }
-
     private func acceptedProposals(for track: Track) -> [ProposedChange] {
         [
             ProposedChange(
@@ -751,26 +755,5 @@ struct ApplyAcceptedTests {
                 isAccepted: true
             ),
         ]
-    }
-
-    func makeEditableTrack(
-        id: String,
-        genre: String?,
-        year: Int?,
-        album: String = "Abbey Road"
-    ) -> Track {
-        Track(
-            id: id,
-            name: "Come Together",
-            artist: "Beatles",
-            album: album,
-            genre: genre,
-            year: year,
-            trackStatus: nil
-        )
-    }
-
-    func ignoreAcceptedChangeProgress(_ update: ProgressUpdate) {
-        _ = update
     }
 }

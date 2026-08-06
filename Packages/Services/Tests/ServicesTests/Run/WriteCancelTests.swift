@@ -15,7 +15,7 @@ struct WriteCancelTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     try await checkpoint(.afterAttempt([itemID]))
                     throw CancellationError()
@@ -45,7 +45,7 @@ struct WriteCancelTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     throw CancellationError()
                 },
@@ -73,7 +73,7 @@ struct WriteCancelTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, _ in throw CancellationError() },
+                writeFixPlan: { _, _, _ in throw CancellationError() },
                 beginRecoveryHold: {
                     Issue.record("Cancellation before an attempt must not open recovery")
                     return UUID()
@@ -100,7 +100,7 @@ struct WriteCancelTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, _ in throw CancellationError() },
+                writeFixPlan: { _, _, _ in throw CancellationError() },
                 beginRecoveryHold: {
                     Issue.record("A pre-attempt cancellation must not open recovery")
                     return UUID()
@@ -129,7 +129,7 @@ struct WriteCancelTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, _ in throw CancellationError() },
+                writeFixPlan: { _, _, _ in throw CancellationError() },
                 beginRecoveryHold: { recoveryID }
             )
         ))
@@ -160,7 +160,7 @@ struct WriteCancelTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.beforeAttempt([first.id]))
                     throw CancellationError()
                 },
@@ -191,7 +191,7 @@ struct WriteCancelTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     throw CancellationError()
                 },
@@ -224,7 +224,7 @@ struct WriteCancelTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     try await checkpoint(.afterVerification([itemID: .noFixNeeded]))
                     return BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
@@ -254,7 +254,7 @@ struct WriteCancelTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.afterVerification([itemID: .skipped]))
                     throw CancellationError()
                 },

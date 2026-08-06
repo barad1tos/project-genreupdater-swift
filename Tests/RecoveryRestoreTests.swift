@@ -102,7 +102,7 @@ struct RecoveryRestoreTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await store.upsert($0) },
             write: .init(
-                writeFixPlan: { _, _ in await gate.run() },
+                writeFixPlan: { _, _, _ in await gate.run() },
                 beginRecoveryHold: { await processor.beginRecoveryHold() },
                 restoreRecoveryHold: { await processor.beginRecoveryHold(id: $0) }
             )

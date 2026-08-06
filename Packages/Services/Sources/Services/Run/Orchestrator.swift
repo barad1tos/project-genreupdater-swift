@@ -333,7 +333,7 @@ public actor RunOrchestrator {
         guard let writeFixPlan = dependencies.write?.writeFixPlan else {
             throw RunWorkError.missingWriteRunner
         }
-        let result = try await writeFixPlan(input) { [weak self] checkpoint in
+        let result = try await writeFixPlan(input, lifecycle.runID) { [weak self] checkpoint in
             guard let self else {
                 throw WorkCheckpointError.persistence(
                     checkpoint.boundary,

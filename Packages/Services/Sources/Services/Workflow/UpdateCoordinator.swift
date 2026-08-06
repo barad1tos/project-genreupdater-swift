@@ -77,6 +77,9 @@ public actor UpdateCoordinator {
     private let genreDeterminator: GenreDeterminator
     var yearDeterminator: YearDeterminator
     var runtimeConfiguration: UpdateRuntimeConfiguration
+    /// The run whose change-log entries this coordinator currently produces;
+    /// nil outside a run-attributed write (entries then stay unattributed).
+    private var runAttributionID: RunID?
     let log = Logger(subsystem: "com.genreupdater", category: "UpdateCoordinator")
 
     public init(
@@ -96,6 +99,19 @@ public actor UpdateCoordinator {
         self.genreDeterminator = genreDeterminator
         self.yearDeterminator = yearDeterminator
         self.runtimeConfiguration = runtimeConfiguration
+    }
+
+    public func setRunAttribution(_ runID: RunID?) {
+        runAttributionID = runID
+    }
+
+    /// Stamps the active run onto a freshly built change-log entry; entries
+    /// already carrying an attribution keep it.
+    func attributed(_ entry: ChangeLogEntry) -> ChangeLogEntry {
+        guard entry.runID == nil, let runAttributionID else { return entry }
+        var stamped = entry
+        stamped.runID = runAttributionID.rawValue
+        return stamped
     }
 
     public func updateRuntimeConfiguration(

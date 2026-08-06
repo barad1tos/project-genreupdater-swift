@@ -279,10 +279,6 @@ struct WritePreflightTests {
     }
 }
 
-private func ignoreAcceptedChangeProgress(_ update: ProgressUpdate) {
-    _ = update
-}
-
 private struct PreflightFixture {
     let coordinator: UpdateCoordinator
     let bridge: MockAppleScriptClient
