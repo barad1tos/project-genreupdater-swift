@@ -9,15 +9,17 @@ import SwiftUI
 
 struct GeneralTab: View {
     @Environment(AppDependencies.self) private var dependencies
-    @AppStorage(AppStorageKey.defaultUpdateBehavior) private var updateBehavior: String = UpdateBehavior.both.rawValue
     @AppStorage("showNotifications") private var showNotifications = true
 
     var body: some View {
         Form {
             Section("Update Behavior") {
-                Picker("Default update behavior", selection: $updateBehavior) {
+                Picker(
+                    "Default update behavior",
+                    selection: configBinding(dependencies, \.processing.defaultUpdateBehavior)
+                ) {
                     ForEach(UpdateBehavior.allCases) { behavior in
-                        Text(behavior.displayName).tag(behavior.rawValue)
+                        Text(behavior.displayName).tag(behavior)
                     }
                 }
                 .pickerStyle(.segmented)

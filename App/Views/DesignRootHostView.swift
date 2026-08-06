@@ -43,7 +43,6 @@ struct DesignRootHostView: View {
     @State private var reportNotice: ReportNotice?
     @State private var reportNoticeID = UUID()
     @State private var isDismissalBusy = false
-    @AppStorage(AppStorageKey.defaultUpdateBehavior) private var defaultUpdateBehavior = UpdateBehavior.both.rawValue
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("fastAnimations") private var fastAnimations = false
 
@@ -80,7 +79,7 @@ struct DesignRootHostView: View {
         .task { await observeReportsProjectionUpdates() }
         .task { await observeFixPlanUpdates() }
         .task { await observeRunLifecycleUpdates() }
-        .onChange(of: defaultUpdateBehavior) {
+        .onChange(of: dependencies.config.processing.defaultUpdateBehavior) {
             applyWorkflowDefaults()
             scheduleActivityProjectionRefresh()
         }
@@ -190,7 +189,7 @@ struct DesignRootHostView: View {
     }
 
     private var configuredUpdateSelection: (updateGenre: Bool, updateYear: Bool) {
-        UpdateBehavior.resolved(from: defaultUpdateBehavior).enabledTargets
+        dependencies.config.processing.defaultUpdateBehavior.enabledTargets
     }
 
     private var configuredPreviewOnly: Bool {
@@ -205,7 +204,9 @@ struct DesignRootHostView: View {
 
     private var settingsSnapshot: DesignSettingsSnapshot {
         DesignSettingsSnapshot(
-            updateBehavior: DesignUpdateBehavior(rawValue: defaultUpdateBehavior) ?? .both,
+            updateBehavior: DesignUpdateBehavior(
+                rawValue: dependencies.config.processing.defaultUpdateBehavior.rawValue
+            ) ?? .both,
             minimumConfidencePercent: dependencies.config.yearRetrieval.logic.minConfidenceForNewYear,
             releaseYearRestoreThresholdYears: dependencies.config.processing.releaseYearRestoreThreshold,
             testArtists: ArtistAllowList.normalized(dependencies.config.development.testArtists),
@@ -316,64 +317,6 @@ struct DesignRootHostView: View {
             minConfidence: configuredMinConfidence,
             releaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
         )
-    }
-
-    private func setDryRunMode(_ isDryRun: Bool) -> Bool {
-        Task {
-            let result = await mutateConfiguration(dependencies) { configuration in
-                configuration.runtime.dryRun = isDryRun
-            }
-            if result.status == .accepted {
-                applyWorkflowDefaults()
-            }
-        }
-        return true
-    }
-
-    private func setDefaultUpdateBehavior(_ behavior: DesignUpdateBehavior) -> Bool {
-        defaultUpdateBehavior = behavior.rawValue
-        applyWorkflowDefaults()
-        return true
-    }
-
-    private func setMinimumConfidence(_ percent: Double) -> Bool {
-        let normalizedPercent = min(max(percent, 30), 100)
-        Task {
-            await mutateConfiguration(dependencies) { configuration in
-                configuration.yearRetrieval.logic.minConfidenceForNewYear = normalizedPercent
-            }
-        }
-        return true
-    }
-
-    private func setReleaseYearRestoreThreshold(_ years: Int) -> Bool {
-        let normalizedYears = min(max(years, 0), 100)
-        Task {
-            await mutateConfiguration(dependencies) { configuration in
-                configuration.processing.releaseYearRestoreThreshold = normalizedYears
-            }
-        }
-        return true
-    }
-
-    private func setTestArtists(_ artists: [String]) -> Bool {
-        let normalizedArtists = ArtistAllowList.normalized(artists)
-        Task {
-            await mutateConfiguration(dependencies) { configuration in
-                configuration.development.testArtists = normalizedArtists
-            }
-        }
-        return true
-    }
-
-    private func setAppearanceMode(_ mode: DesignAppearanceMode) -> Bool {
-        appearanceMode = appAppearanceMode(from: mode)
-        return true
-    }
-
-    private func setFastAnimationsEnabled(_ isEnabled: Bool) -> Bool {
-        fastAnimations = isEnabled
-        return true
     }
 
     private func prepareDefaultUpdateForReview() {
@@ -890,6 +833,75 @@ struct DesignRootHostView: View {
         if category == .update {
             ensureWorkflowViewModel()
         }
+    }
+}
+
+// MARK: - Settings command dispatch
+
+extension DesignRootHostView {
+    private func setDryRunMode(_ isDryRun: Bool) -> Bool {
+        Task {
+            let result = await mutateConfiguration(dependencies) { configuration in
+                configuration.runtime.dryRun = isDryRun
+            }
+            if result.status == .accepted {
+                applyWorkflowDefaults()
+            }
+        }
+        return true
+    }
+
+    private func setDefaultUpdateBehavior(_ behavior: DesignUpdateBehavior) -> Bool {
+        let resolved = UpdateBehavior.resolved(from: behavior.rawValue)
+        Task {
+            let result = await mutateConfiguration(dependencies) { configuration in
+                configuration.processing.defaultUpdateBehavior = resolved
+            }
+            if result.status == .accepted {
+                applyWorkflowDefaults()
+            }
+        }
+        return true
+    }
+
+    private func setMinimumConfidence(_ percent: Double) -> Bool {
+        let normalizedPercent = min(max(percent, 30), 100)
+        Task {
+            await mutateConfiguration(dependencies) { configuration in
+                configuration.yearRetrieval.logic.minConfidenceForNewYear = normalizedPercent
+            }
+        }
+        return true
+    }
+
+    private func setReleaseYearRestoreThreshold(_ years: Int) -> Bool {
+        let normalizedYears = min(max(years, 0), 100)
+        Task {
+            await mutateConfiguration(dependencies) { configuration in
+                configuration.processing.releaseYearRestoreThreshold = normalizedYears
+            }
+        }
+        return true
+    }
+
+    private func setTestArtists(_ artists: [String]) -> Bool {
+        let normalizedArtists = ArtistAllowList.normalized(artists)
+        Task {
+            await mutateConfiguration(dependencies) { configuration in
+                configuration.development.testArtists = normalizedArtists
+            }
+        }
+        return true
+    }
+
+    private func setAppearanceMode(_ mode: DesignAppearanceMode) -> Bool {
+        appearanceMode = appAppearanceMode(from: mode)
+        return true
+    }
+
+    private func setFastAnimationsEnabled(_ isEnabled: Bool) -> Bool {
+        fastAnimations = isEnabled
+        return true
     }
 }
 

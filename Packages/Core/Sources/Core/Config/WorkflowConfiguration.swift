@@ -9,7 +9,44 @@ public struct GenreUpdateConfig: Sendable, Codable {
     public var concurrentLimit: Int = 5
     public var overrideExisting: Bool = false
 
-    public init() {}
+    public init() { /* memberwise defaults are the whole initial state */ }
+}
+
+// MARK: - Update Behavior
+
+/// Which metadata targets a default run updates. Persisted in
+/// `ProcessingConfig`; raw values are shared with the DesignUI mirror.
+public enum UpdateBehavior: String, Sendable, Codable, CaseIterable, Identifiable {
+    case genreOnly = "genre_only"
+    case yearOnly = "year_only"
+    case both
+
+    public var id: String {
+        rawValue
+    }
+
+    public var displayName: String {
+        switch self {
+        case .genreOnly: "Genre only"
+        case .yearOnly: "Year only"
+        case .both: "Both"
+        }
+    }
+
+    public var enabledTargets: (updateGenre: Bool, updateYear: Bool) {
+        switch self {
+        case .genreOnly:
+            (true, false)
+        case .yearOnly:
+            (false, true)
+        case .both:
+            (true, true)
+        }
+    }
+
+    public static func resolved(from rawValue: String?) -> Self {
+        rawValue.flatMap(Self.init(rawValue:)) ?? .both
+    }
 }
 
 // MARK: - Processing Configuration
@@ -29,23 +66,24 @@ public struct ProcessingConfig: Sendable, Codable {
     public var minConfidenceToCache: Int = 50
     public var suspiciousAlbumMinLen: Int = 3
     public var suspiciousManyYears: Int = 3
+    public var defaultUpdateBehavior: UpdateBehavior = .both
 
     private enum CodingKeys: String, CodingKey {
         case batchSize, delayBetweenBatches, adaptiveDelay, cacheTTLDays, pendingVerificationIntervalDays
         case skipPrerelease, futureYearThreshold, prereleaseRecheckDays, prereleaseHandling
         case releaseYearRestoreThreshold, incrementalIntervalMinutes, minConfidenceToCache, suspiciousAlbumMinLen
-        case suspiciousManyYears
+        case suspiciousManyYears, defaultUpdateBehavior
     }
 
     private enum DecodingKeys: String, CodingKey {
         case batchSize, delayBetweenBatches, adaptiveDelay, cacheTTLDays, pendingVerificationIntervalDays
         case skipPrerelease, futureYearThreshold, prereleaseRecheckDays, prereleaseHandling
         case releaseYearRestoreThreshold, incrementalIntervalMinutes, minConfidenceToCache, suspiciousAlbumMinLen
-        case suspiciousManyYears
+        case suspiciousManyYears, defaultUpdateBehavior
         case cacheTtlDays
     }
 
-    public init() {}
+    public init() { /* memberwise defaults are the whole initial state */ }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: DecodingKeys.self)
@@ -72,6 +110,8 @@ public struct ProcessingConfig: Sendable, Codable {
         minConfidenceToCache = try container.decodeIfPresent(Int.self, forKey: .minConfidenceToCache) ?? 50
         suspiciousAlbumMinLen = try container.decodeIfPresent(Int.self, forKey: .suspiciousAlbumMinLen) ?? 3
         suspiciousManyYears = try container.decodeIfPresent(Int.self, forKey: .suspiciousManyYears) ?? 3
+        defaultUpdateBehavior = try container
+            .decodeIfPresent(UpdateBehavior.self, forKey: .defaultUpdateBehavior) ?? .both
     }
 }
 
@@ -113,7 +153,7 @@ public struct CleaningConfig: Sendable, Codable, Equatable {
         case legacyGenreMappings = "genre_mappings"
     }
 
-    public init() {}
+    public init() { /* memberwise defaults are the whole initial state */ }
 
     public init(from decoder: any Decoder) throws {
         let defaults = Self()
@@ -166,7 +206,7 @@ public struct ExceptionsConfig: Sendable, Codable {
         case legacyTrackCleaning = "track_cleaning"
     }
 
-    public init() {}
+    public init() { /* memberwise defaults are the whole initial state */ }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -190,7 +230,7 @@ public struct ArtistRenamerConfig: Sendable, Codable, Equatable {
         case mappings
     }
 
-    public init() {}
+    public init() { /* memberwise defaults are the whole initial state */ }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -209,13 +249,13 @@ public struct DatabaseVerificationConfig: Sendable, Codable {
     public var autoVerifyDays: Int = 7
     public var batchSize: Int = 10
 
-    public init() {}
+    public init() { /* memberwise defaults are the whole initial state */ }
 }
 
 public struct PendingVerificationConfig: Sendable, Codable {
     public var autoVerifyDays: Int = 14
 
-    public init() {}
+    public init() { /* memberwise defaults are the whole initial state */ }
 }
 
 // MARK: - Album Type Detection Configuration
@@ -231,7 +271,7 @@ public struct AlbumTypeDetectionConfig: Sendable, Codable, Equatable {
         "Various Artists", "Various", "VA", "Різні виконавці",
     ]
 
-    public init() {}
+    public init() { /* memberwise defaults are the whole initial state */ }
 }
 
 // MARK: - Experimental Configuration
@@ -240,5 +280,5 @@ public struct ExperimentalConfig: Sendable, Codable {
     public var batchUpdatesEnabled: Bool = false
     public var maxBatchSize: Int = 5
 
-    public init() {}
+    public init() { /* memberwise defaults are the whole initial state */ }
 }

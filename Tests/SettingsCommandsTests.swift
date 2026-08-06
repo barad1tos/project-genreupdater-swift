@@ -222,6 +222,41 @@ struct SettingsCommandsTests {
         #expect(result.refreshedFixPlan?.revision == baseline.revision)
     }
 
+    @Test("a stored UserDefaults behavior migrates into the configuration once")
+    func userDefaultsBehaviorMigratesOnce() {
+        let defaults = UserDefaults.standard
+        defaults.set("genre_only", forKey: AppStorageKey.defaultUpdateBehavior)
+        defer { defaults.removeObject(forKey: AppStorageKey.defaultUpdateBehavior) }
+        let saved = SavedConfigurations()
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { saved.append($0) }
+        )
+
+        dependencies.migrateDefaultUpdateBehaviorIfNeeded()
+
+        #expect(dependencies.config.processing.defaultUpdateBehavior == .genreOnly)
+        #expect(defaults.string(forKey: AppStorageKey.defaultUpdateBehavior) == nil)
+        #expect(saved.configurations.count == 1)
+    }
+
+    @Test("the behavior migration never runs on a failed configuration load")
+    func behaviorMigrationSkipsFailedLoad() {
+        let defaults = UserDefaults.standard
+        defaults.set("genre_only", forKey: AppStorageKey.defaultUpdateBehavior)
+        defer { defaults.removeObject(forKey: AppStorageKey.defaultUpdateBehavior) }
+        let saved = SavedConfigurations()
+        let dependencies = AppDependencies(
+            configurationLoader: { throw SaveProbeFailure() },
+            configurationSaver: { saved.append($0) }
+        )
+
+        dependencies.migrateDefaultUpdateBehaviorIfNeeded()
+
+        #expect(saved.configurations.isEmpty)
+        #expect(defaults.string(forKey: AppStorageKey.defaultUpdateBehavior) == "genre_only")
+    }
+
     @Test("a failed configuration load blocks scene-inactive saves")
     func loadFailureBlocksSceneSave() async {
         let saved = SavedConfigurations()

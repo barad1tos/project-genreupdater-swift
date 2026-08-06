@@ -162,6 +162,26 @@ struct AppConfigurationTests {
         #expect(reporting.runHistoryLimit == 200)
     }
 
+    @Test("Persisted processing section without defaultUpdateBehavior decodes with both")
+    func persistedProcessingWithoutDefaultUpdateBehaviorDecodesWithBoth() throws {
+        let json = Data(#"{"batchSize": 40}"#.utf8)
+
+        let processing = try JSONDecoder().decode(ProcessingConfig.self, from: json)
+
+        #expect(processing.batchSize == 40)
+        #expect(processing.defaultUpdateBehavior == .both)
+    }
+
+    @Test("Explicit defaultUpdateBehavior value decodes")
+    func explicitDefaultUpdateBehaviorValueDecodes() throws {
+        let json = Data(#"{"defaultUpdateBehavior": "genre_only"}"#.utf8)
+
+        let processing = try JSONDecoder().decode(ProcessingConfig.self, from: json)
+
+        #expect(processing.defaultUpdateBehavior == .genreOnly)
+        #expect(processing.defaultUpdateBehavior.enabledTargets == (updateGenre: true, updateYear: false))
+    }
+
     @Test("Legacy temporary logs path maps to sandbox-safe app support logs")
     func legacyTemporaryLogsPathUsesAppSupportEffectivePath() {
         var paths = PathsConfig()

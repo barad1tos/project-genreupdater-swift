@@ -5,39 +5,6 @@ import Services
 import SharedUI
 import SwiftUI
 
-enum UpdateBehavior: String, CaseIterable, Identifiable {
-    case genreOnly = "genre_only"
-    case yearOnly = "year_only"
-    case both
-
-    var id: String {
-        rawValue
-    }
-
-    var displayName: String {
-        switch self {
-        case .genreOnly: "Genre only"
-        case .yearOnly: "Year only"
-        case .both: "Both"
-        }
-    }
-
-    var enabledTargets: (updateGenre: Bool, updateYear: Bool) {
-        switch self {
-        case .genreOnly:
-            (true, false)
-        case .yearOnly:
-            (false, true)
-        case .both:
-            (true, true)
-        }
-    }
-
-    static func resolved(from rawValue: String?) -> Self {
-        rawValue.flatMap(Self.init(rawValue:)) ?? .both
-    }
-}
-
 // MARK: - JSON Editor State
 
 enum JSONEditorState {

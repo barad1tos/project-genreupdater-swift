@@ -142,6 +142,7 @@ final class AppDependencies {
             return
         }
 
+        migrateDefaultUpdateBehaviorIfNeeded()
         appState = .loading
 
         do {
@@ -244,6 +245,19 @@ final class AppDependencies {
         } catch {
             log.error("Failed to save state: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// One-time UserDefaults → AppConfiguration migration (slice 7). Never
+    /// runs on a failed load: seeding defaults plus the behavior would
+    /// persist over the user's config.json. A persist failure keeps the
+    /// key so the migration retries on the next launch.
+    func migrateDefaultUpdateBehaviorIfNeeded() {
+        guard configurationLoadIssue == nil,
+              let raw = UserDefaults.standard.string(forKey: AppStorageKey.defaultUpdateBehavior)
+        else { return }
+        config.processing.defaultUpdateBehavior = UpdateBehavior.resolved(from: raw)
+        guard persistConfiguration() else { return }
+        UserDefaults.standard.removeObject(forKey: AppStorageKey.defaultUpdateBehavior)
     }
 
     /// Persists the configuration WITHOUT applying runtime effects — the

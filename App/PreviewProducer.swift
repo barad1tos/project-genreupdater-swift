@@ -66,9 +66,7 @@ extension AppDependencies {
     }
 
     func previewRunOptions() -> UpdateOptions {
-        let selection = UpdateBehavior
-            .resolved(from: UserDefaults.standard.string(forKey: AppStorageKey.defaultUpdateBehavior))
-            .enabledTargets
+        let selection = config.processing.defaultUpdateBehavior.enabledTargets
         return PreviewRunOptions.make(
             configuration: config,
             updateGenre: selection.updateGenre,
