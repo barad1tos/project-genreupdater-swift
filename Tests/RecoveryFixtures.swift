@@ -164,6 +164,10 @@ actor FlakyRecoveryStore: RunRecordStore {
         try await base.resolvedRecoveryRun(recoveryID: recoveryID)
     }
 
+    func continuations(of runID: RunID) async throws -> [RunID] {
+        try await base.continuations(of: runID)
+    }
+
     func retainedPlanIDs() async throws -> Set<FixPlanID>? {
         try await base.retainedPlanIDs()
     }

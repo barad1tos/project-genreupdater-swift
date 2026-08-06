@@ -143,6 +143,44 @@ extension RunRecordDataStore {
         return nil
     }
 
+    public func continuations(of runID: RunID) async throws -> [RunID] {
+        // Reverse lineage over decodable rows only — the recovery-lookup
+        // pattern. Continuations are write runs by construction (the
+        // continuation request factory is the only producer of
+        // `continuesRunID`), so the legacy arm narrows to write intent.
+        let sourceID = runID.rawValue
+        let writeIntent = RunIntent.writeFixes.rawValue
+        let columnHits = try continuationCarriers(
+            matching: #Predicate { $0.continuesRunID == sourceID },
+            source: runID
+        )
+        let legacyHits = try continuationCarriers(
+            matching: #Predicate { $0.continuesRunID == nil && $0.intentRaw == writeIntent },
+            source: runID
+        )
+        return (columnHits + legacyHits)
+            .sorted { $0.startedAt > $1.startedAt }
+            .map(\.runID)
+    }
+
+    private func continuationCarriers(
+        matching predicate: Predicate<PersistedRunRecord>,
+        source runID: RunID
+    ) throws -> [(runID: RunID, startedAt: Date)] {
+        let descriptor = FetchDescriptor<PersistedRunRecord>(
+            predicate: predicate,
+            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
+        )
+        var carriers: [(runID: RunID, startedAt: Date)] = []
+        for row in try modelContext.fetch(descriptor) {
+            guard let record = try? makeRecord(from: row) else { continue }
+            if record.continuesRunID == runID {
+                carriers.append((record.runID, record.startedAt))
+            }
+        }
+        return carriers
+    }
+
     public func reportItems(matching query: RunReportItemQuery) async throws -> RunReportItemPage {
         let after = query.startedAfter ?? Date.distantPast
         let before = query.startedBefore ?? Date.distantFuture

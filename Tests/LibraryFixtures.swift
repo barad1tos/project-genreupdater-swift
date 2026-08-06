@@ -126,6 +126,10 @@ actor RunRecordStoreStub: RunRecordStore {
         nil
     }
 
+    func continuations(of _: RunID) async throws -> [RunID] {
+        []
+    }
+
     func retainedPlanIDs() async throws -> Set<FixPlanID>? {
         []
     }
