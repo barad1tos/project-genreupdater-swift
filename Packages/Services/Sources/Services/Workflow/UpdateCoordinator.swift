@@ -107,7 +107,7 @@ public actor UpdateCoordinator {
 
     /// Test seam: the attribution is otherwise observable only through
     /// persisted entries, which need a landed write to exist.
-    public func runAttribution() -> RunID? {
+    func runAttribution() -> RunID? {
         runAttributionID
     }
 

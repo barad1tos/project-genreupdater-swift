@@ -1,8 +1,8 @@
 import Core
 import Foundation
-import Services
 import Testing
 @testable import Genre_Updater
+@testable import Services
 
 @Suite("Fix plan write factory")
 struct FixPlanFactoryTests {

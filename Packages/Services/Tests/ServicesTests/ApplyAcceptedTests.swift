@@ -27,6 +27,7 @@ struct ApplyAcceptedTests {
         )
 
         #expect(result.entries.first?.runID == runID.rawValue)
+        #expect(await fixture.coordinator.runAttribution() == runID)
         let history = await fixture.undo.getHistory()
         #expect(history.first?.runID == runID.rawValue)
     }

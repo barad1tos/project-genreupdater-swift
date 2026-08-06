@@ -437,6 +437,7 @@ struct LibraryServicesTests {
         #expect(message.contains("First failure: Missing AppleScript ID mapping for a track."))
         #expect(!message.contains("MK1"))
     }
+
     @Test("Continuation lookup failures degrade to an empty lineage")
     func continuationLookupFailureDegradesToEmpty() async throws {
         let store = RunRecordStoreStub()

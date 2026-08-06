@@ -44,7 +44,7 @@ actor RunRecordStoreStub: RunRecordStore {
     private let reportsError: (any Error)?
     private let recordError: (any Error)?
     private let claimError: (any Error)?
-    var continuationsError: (any Error)?
+    private var continuationsError: (any Error)?
     private var storedRecord: RunRecord?
     private let reportPages: [RunReportPage]
     private let recoveryPage: RunReportPage?

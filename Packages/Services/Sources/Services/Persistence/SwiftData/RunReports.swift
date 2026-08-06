@@ -135,7 +135,13 @@ extension RunRecordDataStore {
             if let cutoff, row.startedAt <= cutoff {
                 return nil
             }
-            guard let record = try? makeRecord(from: row) else { continue }
+            guard let record = try? makeRecord(from: row) else {
+                log.error("""
+                Skipping undecodable run record \(row.runID, privacy: .public) in recovery \
+                resolution lookup; it cannot resolve a claim
+                """)
+                continue
+            }
             if record.recoveryID == recoveryID, record.finishedAt != nil {
                 return (record.runID, record.startedAt)
             }
