@@ -393,12 +393,14 @@ struct ScriptAPIPrioritySection: View {
         Binding(
             get: { scriptPriorityOrder(for: key)[slot.index] },
             set: { newValue in
-                updateScriptPriority(key, slot: slot, api: newValue)
+                Task {
+                    await updateScriptPriority(key, slot: slot, api: newValue)
+                }
             }
         )
     }
 
-    func updateScriptPriority(_ key: String, slot: ScriptPrioritySlot, api: PreferredAPI) {
+    func updateScriptPriority(_ key: String, slot: ScriptPrioritySlot, api: PreferredAPI) async {
         var order = scriptPriorityOrder(for: key)
         order.removeAll { $0 == api }
         order.insert(api, at: min(slot.index, order.count))
@@ -407,7 +409,7 @@ struct ScriptAPIPrioritySection: View {
             primary: order.prefix(2).map { apiConfigurationValue(for: $0) },
             fallback: order.dropFirst(2).prefix(1).map { apiConfigurationValue(for: $0) }
         )
-        mutateConfiguration(dependencies) { configuration in
+        await mutateConfiguration(dependencies) { configuration in
             configuration.yearRetrieval.scriptAPIPriorities[key] = newPriority
         }
     }

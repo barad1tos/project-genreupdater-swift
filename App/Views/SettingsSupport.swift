@@ -1,6 +1,7 @@
 // SettingsSupport.swift — shared settings bindings and display helpers.
 
 import Core
+import Services
 import SharedUI
 import SwiftUI
 
@@ -71,32 +72,28 @@ func configBinding<Value>(
     Binding(
         get: { dependencies.config[keyPath: keyPath] },
         set: { newValue in
-            mutateConfiguration(dependencies) { configuration in
-                configuration[keyPath: keyPath] = newValue
+            Task {
+                await mutateConfiguration(dependencies) { configuration in
+                    configuration[keyPath: keyPath] = newValue
+                }
             }
         }
     )
 }
 
+/// The one write path for UI settings mutations: copy-with-edit against
+/// the LIVE config at execution time (sequential dispatches compose),
+/// CAS target from the live revision, dispatched through the command.
 @MainActor
 @discardableResult
 func mutateConfiguration(
     _ dependencies: AppDependencies,
-    _ mutation: (inout AppConfiguration) -> Void
-) -> Bool {
-    let previousConfiguration = dependencies.config
-    mutation(&dependencies.config)
-    guard saveConfiguration(dependencies) else {
-        dependencies.config = previousConfiguration
-        return false
-    }
-    return true
-}
-
-@MainActor
-@discardableResult
-func saveConfiguration(_ dependencies: AppDependencies) -> Bool {
-    dependencies.saveConfigurationAndApplyRuntime()
+    _ mutation: @escaping (inout AppConfiguration) -> Void
+) async -> SettingsCommandResult {
+    var edited = dependencies.config
+    mutation(&edited)
+    let target = SettingsCommandTarget(expectedSettingsRevision: dependencies.config.revision)
+    return await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
 }
 
 // MARK: - Display Names

@@ -43,8 +43,11 @@ struct GeneralTab: View {
             let confidenceBinding = Binding<Double>(
                 get: { Double(dependencies.config.yearRetrieval.logic.minConfidenceForNewYear) },
                 set: { newValue in
-                    dependencies.config.yearRetrieval.logic.minConfidenceForNewYear = newValue
-                    saveConfig()
+                    Task {
+                        await mutateConfiguration(dependencies) {
+                            $0.yearRetrieval.logic.minConfidenceForNewYear = newValue
+                        }
+                    }
                 }
             )
 
@@ -56,8 +59,11 @@ struct GeneralTab: View {
             let definitiveBinding = Binding<Double>(
                 get: { Double(dependencies.config.yearRetrieval.logic.definitiveScoreThreshold) },
                 set: { newValue in
-                    dependencies.config.yearRetrieval.logic.definitiveScoreThreshold = Int(newValue)
-                    saveConfig()
+                    Task {
+                        await mutateConfiguration(dependencies) {
+                            $0.yearRetrieval.logic.definitiveScoreThreshold = Int(newValue)
+                        }
+                    }
                 }
             )
 
@@ -217,10 +223,6 @@ struct GeneralTab: View {
             }
         }
     }
-
-    private func saveConfig() {
-        saveConfiguration(dependencies)
-    }
 }
 
 private struct MusicAppScriptingSection: View {
@@ -274,8 +276,10 @@ private struct IDLookupSettings: View {
         Binding(
             get: { batchSize },
             set: { newValue in
-                mutateConfiguration(dependencies) {
-                    $0.applescript.batchProcessing.idsBatchSize = newValue
+                Task {
+                    await mutateConfiguration(dependencies) {
+                        $0.applescript.batchProcessing.idsBatchSize = newValue
+                    }
                 }
             }
         )
@@ -412,8 +416,11 @@ private struct AppleScriptTimeoutSettings: View {
                 max(1, Int(dependencies.config.applescript.timeouts[keyPath: keyPath].timeInterval))
             },
             set: { newValue in
-                dependencies.config.applescript.timeouts[keyPath: keyPath] = .seconds(max(1, newValue))
-                saveConfiguration(dependencies)
+                Task {
+                    await mutateConfiguration(dependencies) {
+                        $0.applescript.timeouts[keyPath: keyPath] = .seconds(max(1, newValue))
+                    }
+                }
             }
         )
     }

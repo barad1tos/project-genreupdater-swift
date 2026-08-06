@@ -2,6 +2,7 @@
 
 import AppKit
 import Core
+import Services
 import SharedUI
 import SwiftUI
 
@@ -57,8 +58,7 @@ struct AdvancedTab: View {
             mappings: Binding(
                 get: { dependencies.config.cleaning.genreMappings },
                 set: { newValue in
-                    dependencies.config.cleaning.genreMappings = newValue
-                    saveConfig()
+                    applyMutation { $0.cleaning.genreMappings = newValue }
                 }
             ),
             newSource: $newMappingSource,
@@ -74,8 +74,7 @@ struct AdvancedTab: View {
             mappings: Binding(
                 get: { dependencies.config.artistRenamer.mappings },
                 set: { newValue in
-                    dependencies.config.artistRenamer.mappings = newValue
-                    saveConfig()
+                    applyMutation { $0.artistRenamer.mappings = newValue }
                 }
             ),
             newSource: $newArtistRenameSource,
@@ -89,8 +88,7 @@ struct AdvancedTab: View {
                 Text(keyword)
             }
             .onDelete { offsets in
-                dependencies.config.cleaning.remasterKeywords.remove(atOffsets: offsets)
-                saveConfig()
+                applyMutation { $0.cleaning.remasterKeywords.remove(atOffsets: offsets) }
             }
 
             HStack {
@@ -108,8 +106,7 @@ struct AdvancedTab: View {
                 Text(suffix)
             }
             .onDelete { offsets in
-                dependencies.config.cleaning.albumSuffixesToRemove.remove(atOffsets: offsets)
-                saveConfig()
+                applyMutation { $0.cleaning.albumSuffixesToRemove.remove(atOffsets: offsets) }
             }
 
             HStack {
@@ -139,15 +136,13 @@ struct AdvancedTab: View {
             let penaltyScaleBinding = Binding<Double>(
                 get: { Double(abs(dependencies.config.yearRetrieval.scoring.yearDiffPenaltyScale)) },
                 set: { newValue in
-                    dependencies.config.yearRetrieval.scoring.yearDiffPenaltyScale = -Int(newValue)
-                    saveConfig()
+                    applyMutation { $0.yearRetrieval.scoring.yearDiffPenaltyScale = -Int(newValue) }
                 }
             )
             let maxPenaltyBinding = Binding<Double>(
                 get: { Double(abs(dependencies.config.yearRetrieval.scoring.yearDiffMaxPenalty)) },
                 set: { newValue in
-                    dependencies.config.yearRetrieval.scoring.yearDiffMaxPenalty = -Int(newValue)
-                    saveConfig()
+                    applyMutation { $0.yearRetrieval.scoring.yearDiffMaxPenalty = -Int(newValue) }
                 }
             )
 
@@ -227,27 +222,35 @@ struct AdvancedTab: View {
     private func addRemasterKeyword() {
         let trimmed = newRemasterKeyword.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        dependencies.config.cleaning.remasterKeywords.append(trimmed)
         newRemasterKeyword = ""
-        saveConfig()
+        applyMutation { $0.cleaning.remasterKeywords.append(trimmed) }
     }
 
     private func addAlbumSuffix() {
         let trimmed = newAlbumSuffix.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        dependencies.config.cleaning.albumSuffixesToRemove.append(trimmed)
         newAlbumSuffix = ""
-        saveConfig()
+        applyMutation { $0.cleaning.albumSuffixesToRemove.append(trimmed) }
     }
 
-    private func saveConfig() {
-        saveConfiguration(dependencies)
-        reloadJSON()
+    /// Dispatches a settings command and refreshes the JSON preview once
+    /// the command settles (accepted or not — the preview mirrors truth).
+    private func applyMutation(_ mutation: @escaping (inout AppConfiguration) -> Void) {
+        Task {
+            await mutateConfiguration(dependencies, mutation)
+            reloadJSON()
+        }
     }
 
     private func resetConfiguration() {
-        dependencies.config = AppConfiguration()
-        saveConfig()
+        Task {
+            _ = await SettingsCommands.apply(
+                AppConfiguration(),
+                target: SettingsCommandTarget(expectedSettingsRevision: dependencies.config.revision),
+                dependencies: dependencies
+            )
+            reloadJSON()
+        }
     }
 
     private func reloadJSON() {
@@ -283,12 +286,22 @@ struct AdvancedTab: View {
     private func applyJSON() {
         do {
             let decoded = try Self.decodeConfiguration(configurationJSON)
-            dependencies.config = decoded
-            try dependencies.config.save()
-            dependencies.applyRuntimeConfiguration()
-            configurationJSON = try Self.encodeConfiguration(decoded)
-            jsonEditorState = .saved
-            jsonStatusMessage = "Saved"
+            Task {
+                let result = await SettingsCommands.apply(
+                    decoded,
+                    target: SettingsCommandTarget(expectedSettingsRevision: dependencies.config.revision),
+                    dependencies: dependencies
+                )
+                switch result.status {
+                case .accepted:
+                    configurationJSON = (try? Self.encodeConfiguration(dependencies.config)) ?? configurationJSON
+                    jsonEditorState = .saved
+                    jsonStatusMessage = "Saved"
+                default:
+                    jsonEditorState = .invalid
+                    jsonStatusMessage = result.message
+                }
+            }
         } catch {
             jsonEditorState = .invalid
             jsonStatusMessage = "Apply failed: \(error.localizedDescription)"
@@ -325,8 +338,7 @@ extension AdvancedTab {
                 }
             }
             .onDelete { offsets in
-                dependencies.config.cleaning.trackCleaningExceptions.remove(atOffsets: offsets)
-                saveConfig()
+                applyMutation { $0.cleaning.trackCleaningExceptions.remove(atOffsets: offsets) }
             }
 
             HStack {
@@ -369,13 +381,11 @@ extension AdvancedTab {
             return
         }
 
-        dependencies.config.cleaning.trackCleaningExceptions.append(TrackCleaningException(
-            artist: artist,
-            album: album
-        ))
         newExceptionArtist = ""
         newExceptionAlbum = ""
-        saveConfig()
+        applyMutation {
+            $0.cleaning.trackCleaningExceptions.append(TrackCleaningException(artist: artist, album: album))
+        }
     }
 }
 

@@ -319,13 +319,15 @@ struct DesignRootHostView: View {
     }
 
     private func setDryRunMode(_ isDryRun: Bool) -> Bool {
-        let didSave = mutateConfiguration(dependencies) { configuration in
-            configuration.runtime.dryRun = isDryRun
+        Task {
+            let result = await mutateConfiguration(dependencies) { configuration in
+                configuration.runtime.dryRun = isDryRun
+            }
+            if result.status == .accepted {
+                applyWorkflowDefaults()
+            }
         }
-        if didSave {
-            applyWorkflowDefaults()
-        }
-        return didSave
+        return true
     }
 
     private func setDefaultUpdateBehavior(_ behavior: DesignUpdateBehavior) -> Bool {
@@ -336,24 +338,32 @@ struct DesignRootHostView: View {
 
     private func setMinimumConfidence(_ percent: Double) -> Bool {
         let normalizedPercent = min(max(percent, 30), 100)
-        return mutateConfiguration(dependencies) { configuration in
-            configuration.yearRetrieval.logic.minConfidenceForNewYear = normalizedPercent
+        Task {
+            await mutateConfiguration(dependencies) { configuration in
+                configuration.yearRetrieval.logic.minConfidenceForNewYear = normalizedPercent
+            }
         }
+        return true
     }
 
     private func setReleaseYearRestoreThreshold(_ years: Int) -> Bool {
         let normalizedYears = min(max(years, 0), 100)
-        return mutateConfiguration(dependencies) { configuration in
-            configuration.processing.releaseYearRestoreThreshold = normalizedYears
+        Task {
+            await mutateConfiguration(dependencies) { configuration in
+                configuration.processing.releaseYearRestoreThreshold = normalizedYears
+            }
         }
+        return true
     }
 
     private func setTestArtists(_ artists: [String]) -> Bool {
         let normalizedArtists = ArtistAllowList.normalized(artists)
-
-        return mutateConfiguration(dependencies) { configuration in
-            configuration.development.testArtists = normalizedArtists
+        Task {
+            await mutateConfiguration(dependencies) { configuration in
+                configuration.development.testArtists = normalizedArtists
+            }
         }
+        return true
     }
 
     private func setAppearanceMode(_ mode: DesignAppearanceMode) -> Bool {

@@ -34,8 +34,10 @@ struct CountryScoringSection: View {
                 Text(code.uppercased())
             }
             .onDelete { offsets in
-                mutateConfiguration(dependencies) { configuration in
-                    configuration.yearRetrieval.logic.majorMarketCodes.remove(atOffsets: offsets)
+                Task {
+                    await mutateConfiguration(dependencies) { configuration in
+                        configuration.yearRetrieval.logic.majorMarketCodes.remove(atOffsets: offsets)
+                    }
                 }
             }
 
@@ -59,10 +61,13 @@ struct CountryScoringSection: View {
             newMajorMarketCode = ""
             return
         }
-        if mutateConfiguration(dependencies, { configuration in
-            configuration.yearRetrieval.logic.majorMarketCodes.append(code)
-        }) {
-            newMajorMarketCode = ""
+        Task {
+            let result = await mutateConfiguration(dependencies) { configuration in
+                configuration.yearRetrieval.logic.majorMarketCodes.append(code)
+            }
+            if result.status == .accepted {
+                newMajorMarketCode = ""
+            }
         }
     }
 }

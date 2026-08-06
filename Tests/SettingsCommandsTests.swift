@@ -91,6 +91,40 @@ struct SettingsCommandsTests {
         #expect(saved.configurations.count == 1)
     }
 
+    @Test("sequential mutations compose through the command dispatcher")
+    func sequentialMutationsCompose() async {
+        let saved = SavedConfigurations()
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { saved.append($0) }
+        )
+
+        _ = await mutateConfiguration(dependencies) { $0.development.testArtists = ["Clutch"] }
+        let second = await mutateConfiguration(dependencies) { $0.runtime.dryRun.toggle() }
+
+        #expect(second.status == .accepted)
+        #expect(dependencies.config.revision == 2)
+        #expect(dependencies.config.development.testArtists == ["Clutch"])
+    }
+
+    @Test("a whole-config command discards the submitted revision")
+    func wholeConfigCommandDiscardsSubmittedRevision() async {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // Persistence is irrelevant to this revision pin.
+            }
+        )
+        var submitted = dependencies.config
+        submitted.revision = 999
+        let target = SettingsCommandTarget(expectedSettingsRevision: 0)
+
+        let result = await SettingsCommands.apply(submitted, target: target, dependencies: dependencies)
+
+        #expect(result.status == .accepted)
+        #expect(dependencies.config.revision == 1)
+    }
+
     @Test("a revision at the UInt64 maximum conflicts instead of trapping")
     func maxRevisionConflictsInsteadOfTrapping() async {
         let saved = SavedConfigurations()

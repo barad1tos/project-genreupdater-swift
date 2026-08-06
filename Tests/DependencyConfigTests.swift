@@ -40,7 +40,7 @@ struct DependencyConfigTests {
             configurationSaver: { _ in throw StubConfigurationError.saveFailed }
         )
 
-        let didSave = saveConfiguration(dependencies)
+        let didSave = dependencies.persistConfiguration()
 
         #expect(didSave == false)
         #expect(isAppError(dependencies.appState, containing: "test configuration save failed"))
@@ -59,34 +59,34 @@ struct DependencyConfigTests {
             }
         )
 
-        #expect(saveConfiguration(dependencies) == false)
+        #expect(dependencies.persistConfiguration() == false)
         #expect(isAppError(dependencies.appState, containing: "test configuration save failed"))
 
         shouldFailSave = false
 
-        #expect(saveConfiguration(dependencies))
+        #expect(dependencies.persistConfiguration())
         #expect(isAppLoading(dependencies.appState))
     }
 
     @Test("Configuration mutation save failure rolls back in-memory config")
-    func configurationMutationSaveFailureRollsBackInMemoryConfig() {
+    func configurationMutationSaveFailureRollsBackInMemoryConfig() async {
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
             configurationSaver: { _ in throw StubConfigurationError.saveFailed }
         )
         let originalBaseScore = dependencies.config.yearRetrieval.scoring.baseScore
 
-        let didSave = mutateConfiguration(dependencies) { configuration in
+        let result = await mutateConfiguration(dependencies) { configuration in
             configuration.yearRetrieval.scoring.baseScore = originalBaseScore + 10
         }
 
-        #expect(didSave == false)
+        #expect(result.status == .temporaryUnavailable)
         #expect(dependencies.config.yearRetrieval.scoring.baseScore == originalBaseScore)
         #expect(isAppError(dependencies.appState, containing: "test configuration save failed"))
     }
 
     @Test("Script API priority save failure rolls back in-memory config")
-    func scriptAPIPrioritySaveFailureRollsBackInMemoryConfig() {
+    func scriptAPIPrioritySaveFailureRollsBackInMemoryConfig() async {
         let originalPriority = ScriptAPIPriority(
             primary: ["musicbrainz", "discogs"],
             fallback: ["itunes"]
@@ -101,7 +101,7 @@ struct DependencyConfigTests {
         )
         let section = ScriptAPIPrioritySection(dependencies: dependencies)
 
-        section.updateScriptPriority("default", slot: .first, api: .itunes)
+        await section.updateScriptPriority("default", slot: .first, api: .itunes)
 
         let storedPriority = dependencies.config.yearRetrieval.scriptAPIPriorities["default"]
         #expect(storedPriority?.primary == originalPriority.primary)

@@ -56,8 +56,10 @@ struct AlbumTypeDetectionSection: View {
                 Text(value)
             }
             .onDelete { offsets in
-                mutateConfiguration(dependencies) { configuration in
-                    configuration.albumTypeDetection[keyPath: keyPath].remove(atOffsets: offsets)
+                Task {
+                    await mutateConfiguration(dependencies) { configuration in
+                        configuration.albumTypeDetection[keyPath: keyPath].remove(atOffsets: offsets)
+                    }
                 }
             }
 
@@ -82,10 +84,13 @@ struct AlbumTypeDetectionSection: View {
     ) {
         let trimmed = newValue.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        if mutateConfiguration(dependencies, { configuration in
-            configuration.albumTypeDetection[keyPath: keyPath].append(trimmed)
-        }) {
-            newValue.wrappedValue = ""
+        Task {
+            let result = await mutateConfiguration(dependencies) { configuration in
+                configuration.albumTypeDetection[keyPath: keyPath].append(trimmed)
+            }
+            if result.status == .accepted {
+                newValue.wrappedValue = ""
+            }
         }
     }
 }
