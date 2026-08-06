@@ -90,6 +90,35 @@ struct RunReportItemTests {
         let rows = try fetchReportRows(container)
 
         #expect(rows.count == 2)
+        let kinds = Set(rows.compactMap(\.targetKindRaw))
+        #expect(kinds == ["track"])
+    }
+
+    @Test("rows carry the target kind")
+    func rowsCarryTargetKind() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let trackItem = makeWorkItem(state: .outcome(.written))
+        let albumItem = RunWorkItem(
+            id: UUID(),
+            target: .album(AlbumIdentity(artist: "Album Artist", album: "Album Title")),
+            change: WorkChange(
+                changeType: .yearUpdate,
+                oldValue: "1999",
+                newValue: "2001",
+                confidence: 88,
+                source: "Discogs"
+            ),
+            state: .outcome(.needsReview)
+        )
+        try await store.upsert(terminalWriteRecord(at: 0, items: [trackItem, albumItem]))
+
+        let rows = try fetchReportRows(container)
+
+        // The kind column exists so future target filters never have to
+        // read the empty-trackName sentinel as "album".
+        #expect(rows.first { $0.itemID == trackItem.id }?.targetKindRaw == "track")
+        #expect(rows.first { $0.itemID == albumItem.id }?.targetKindRaw == "album")
     }
 
     @Test("rows appear when an open run closes, replacing checkpoint rows")

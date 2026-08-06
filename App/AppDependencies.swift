@@ -479,6 +479,7 @@ final class AppDependencies {
         processor: BatchProcessor,
         writeFixPlan: (@Sendable (
             FixPlanWriteInput,
+            RunID,
             @escaping WorkCheckpointSink
         ) async throws -> BatchUpdateResult)?
     ) -> RunOrchestrator.WriteDependencies {

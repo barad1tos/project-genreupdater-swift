@@ -182,13 +182,15 @@ extension RunRecordDataStore {
         let storedRecoveryID = payload?.recoveryID ?? fallback?.recoveryID
         let recoveryID = isWriteRecovery ? (storedRecoveryID ?? row.runID) : nil
         row.recoveryID = recoveryID
+        let continuesRunID = payload?.continuesRunID ?? fallback?.continuesRunID
+        row.continuesRunID = continuesRunID?.rawValue
         row.transitionsData = try JSONEncoder().encode(RunRecordPayload(
             transitions: transitions,
             workItems: workItems,
             configuration: configuration,
             writeTarget: payload?.writeTarget ?? fallback?.writeTarget,
             recoveryID: recoveryID,
-            continuesRunID: payload?.continuesRunID ?? fallback?.continuesRunID,
+            continuesRunID: continuesRunID,
             writeSummary: payload?.writeSummary ?? fallback?.writeSummary
         ))
         row.failureMessage = Self.corruptedRecoveryMessage(
@@ -212,7 +214,8 @@ extension RunRecordDataStore {
         let storedData = row.transitionsData
         let storedFinish = row.finishedAt
         let storedWriteAuthority = row.writeAuthorityRaw
-        let storedRecoveryIDRaw = row.recoveryID
+        let storedRecoveryID = row.recoveryID
+        let storedContinuesRunID = row.continuesRunID
         let transitions = Self.recoveryTransitions(row, payload: payload, fallback: fallback)
         guard Self.hasTerminalAudit(row, transitions: transitions),
               let terminalTime = transitions.last?.timestamp
@@ -225,13 +228,15 @@ extension RunRecordDataStore {
         }
         let recoveryID = payload?.recoveryID ?? fallback?.recoveryID
         row.recoveryID = recoveryID
+        let continuesRunID = payload?.continuesRunID ?? fallback?.continuesRunID
+        row.continuesRunID = continuesRunID?.rawValue
         row.transitionsData = try JSONEncoder().encode(RunRecordPayload(
             transitions: transitions,
             workItems: workItems,
             configuration: configuration,
             writeTarget: payload?.writeTarget ?? fallback?.writeTarget,
             recoveryID: recoveryID,
-            continuesRunID: payload?.continuesRunID ?? fallback?.continuesRunID,
+            continuesRunID: continuesRunID,
             writeSummary: payload?.writeSummary ?? fallback?.writeSummary
         ))
         row.finishedAt = max(storedFinish ?? finishedAt, terminalTime)
@@ -241,7 +246,8 @@ extension RunRecordDataStore {
             row.transitionsData = storedData
             row.finishedAt = storedFinish
             row.writeAuthorityRaw = storedWriteAuthority
-            row.recoveryID = storedRecoveryIDRaw
+            row.recoveryID = storedRecoveryID
+            row.continuesRunID = storedContinuesRunID
             return false
         }
         try deleteWorkItems(for: row.runID)

@@ -437,4 +437,24 @@ struct LibraryServicesTests {
         #expect(message.contains("First failure: Missing AppleScript ID mapping for a track."))
         #expect(!message.contains("MK1"))
     }
+
+    @Test("Continuation lookup failures degrade to an empty lineage")
+    func continuationLookupFailureDegradesToEmpty() async throws {
+        let store = RunRecordStoreStub()
+        await store.failContinuations()
+        let fixture = try makeFixture(testArtists: [], runRecordStore: store)
+
+        let continuations = await fixture.dependencies.loadRunContinuations(id: UUID().uuidString)
+
+        #expect(continuations.isEmpty)
+    }
+
+    @Test("A malformed run id yields no continuations")
+    func malformedRunIDYieldsNoContinuations() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+
+        let continuations = await fixture.dependencies.loadRunContinuations(id: "not-a-uuid")
+
+        #expect(continuations.isEmpty)
+    }
 }

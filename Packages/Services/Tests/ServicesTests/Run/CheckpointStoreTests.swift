@@ -18,7 +18,7 @@ struct CheckpointStoreTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
-            write: .init(writeFixPlan: { submittedInput, checkpoint in
+            write: .init(writeFixPlan: { submittedInput, _, checkpoint in
                 try await checkpoint(.beforeAttempt([itemID]))
                 return try await writer.apply(input: submittedInput)
             })
@@ -52,7 +52,7 @@ struct CheckpointStoreTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { submittedInput, checkpoint in
+                writeFixPlan: { submittedInput, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     let result = try await writer.apply(input: submittedInput)
                     try await checkpoint(.afterAttempt([itemID]))
@@ -92,7 +92,7 @@ struct CheckpointStoreTests {
             persistRunRecord: { _ in },
             write: .init(
                 persistCheckpoint: { _, _ in throw RecordWriteError() },
-                writeFixPlan: { submittedInput, checkpoint in
+                writeFixPlan: { submittedInput, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     return try await writer.apply(input: submittedInput)
                 }
@@ -140,7 +140,7 @@ struct CheckpointStoreTests {
                         .state
                     await checkpoints.append(runID: runID, state: state)
                 },
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     try await checkpoint(.afterAttempt([itemID]))
                     try await checkpoint(.afterVerification([itemID: .written]))
@@ -173,7 +173,7 @@ struct CheckpointStoreTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
-            write: .init(writeFixPlan: { _, _ in throw RecordWriteError() })
+            write: .init(writeFixPlan: { _, _, _ in throw RecordWriteError() })
         ))
 
         let result = await orchestrator.submit(.manualWrite(input: writeInput()))
@@ -205,7 +205,7 @@ struct CheckpointStoreTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { submittedInput, checkpoint in
+                writeFixPlan: { submittedInput, _, checkpoint in
                     await attempts.record()
                     try await checkpoint(.beforeAttempt(submittedInput.workItems.map(\.id)))
                     return try await writer.apply(input: submittedInput)
@@ -236,7 +236,7 @@ struct CheckpointStoreTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     try await checkpoint(.afterVerification([itemID: .failed]))
                     return BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
@@ -272,7 +272,7 @@ struct CheckpointStoreTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { submittedInput, checkpoint in
+                writeFixPlan: { submittedInput, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     let result = try await writer.apply(input: submittedInput)
                     try await checkpoint(.afterAttempt([itemID]))
@@ -310,7 +310,7 @@ struct CheckpointStoreTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
-            write: .init(writeFixPlan: { submittedInput, checkpoint in
+            write: .init(writeFixPlan: { submittedInput, _, checkpoint in
                 try await checkpoint(.beforeAttempt([itemID]))
                 let result = try await writer.apply(input: submittedInput)
                 try await checkpoint(.afterAttempt([itemID]))
@@ -356,7 +356,7 @@ struct CheckpointStoreTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
-                writeFixPlan: { _, checkpoint in
+                writeFixPlan: { _, _, checkpoint in
                     try await checkpoint(.beforeAttempt([itemID]))
                     try await checkpoint(.afterVerification([itemID: .failed]))
                     return BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
@@ -391,7 +391,7 @@ struct CheckpointStoreTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await records.append($0) },
-            write: .init(writeFixPlan: { submittedInput, checkpoint in
+            write: .init(writeFixPlan: { submittedInput, _, checkpoint in
                 try await checkpoint(.beforeAttempt([itemID]))
                 let result = try await writer.apply(input: submittedInput)
                 try await checkpoint(.afterAttempt([itemID]))

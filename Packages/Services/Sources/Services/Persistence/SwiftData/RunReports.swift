@@ -135,12 +135,75 @@ extension RunRecordDataStore {
             if let cutoff, row.startedAt <= cutoff {
                 return nil
             }
-            guard let record = try? makeRecord(from: row) else { continue }
+            guard let record = try? makeRecord(from: row) else {
+                log.error("""
+                Skipping undecodable run record \(row.runID, privacy: .public) in recovery \
+                resolution lookup; it cannot resolve a claim
+                """)
+                continue
+            }
             if record.recoveryID == recoveryID, record.finishedAt != nil {
                 return (record.runID, record.startedAt)
             }
         }
         return nil
+    }
+
+    public func continuations(of runID: RunID) async throws -> [RunID] {
+        // Reverse lineage over decodable rows only. A nil column means BOTH
+        // "pre-column row" and "unlinked run", so the payload arm scans every
+        // unlinked write run forever — it does NOT shrink over time. The scan
+        // is user-action-bound (one call per detail-card open), skips the
+        // per-row child-item fetch, and narrows to write intent (the
+        // continuation request factory is the only producer of
+        // `continuesRunID` and always writes). Removing the arm behind a
+        // one-shot column backfill is ledgered.
+        let sourceID = runID.rawValue
+        let writeIntent = RunIntent.writeFixes.rawValue
+        let columnHits = try continuationCarriers(
+            matching: #Predicate { $0.continuesRunID == sourceID },
+            source: runID
+        )
+        let payloadHits = try continuationCarriers(
+            matching: #Predicate { $0.continuesRunID == nil && $0.intentRaw == writeIntent },
+            source: runID
+        )
+        return (columnHits + payloadHits)
+            .sorted { left, right in
+                if left.startedAt != right.startedAt {
+                    return left.startedAt > right.startedAt
+                }
+                // Deterministic tie order: the detail is an immutable
+                // projection and must not flip between opens.
+                return left.runID.rawValue.uuidString < right.runID.rawValue.uuidString
+            }
+            .map(\.runID)
+    }
+
+    private func continuationCarriers(
+        matching predicate: Predicate<PersistedRunRecord>,
+        source runID: RunID
+    ) throws -> [(runID: RunID, startedAt: Date)] {
+        let descriptor = FetchDescriptor<PersistedRunRecord>(
+            predicate: predicate,
+            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
+        )
+        var carriers: [(runID: RunID, startedAt: Date)] = []
+        for row in try modelContext.fetch(descriptor) {
+            // Lineage needs identity fields only; skipping the stored
+            // work-item reconciliation avoids a child fetch per row.
+            guard let record = try? makeRecord(from: row, loadsStoredWorkItems: false) else {
+                log.error("""
+                Skipping undecodable run record \(row.runID, privacy: .public) in continuation \
+                lookup; its lineage (if any) is not listed
+                """)
+                continue
+            }
+            if record.continuesRunID == runID {
+                carriers.append((record.runID, record.startedAt))
+            }
+        }
+        return carriers
     }
 
     public func reportItems(matching query: RunReportItemQuery) async throws -> RunReportItemPage {

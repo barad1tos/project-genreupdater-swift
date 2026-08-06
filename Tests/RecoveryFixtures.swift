@@ -164,6 +164,10 @@ actor FlakyRecoveryStore: RunRecordStore {
         try await base.resolvedRecoveryRun(recoveryID: recoveryID)
     }
 
+    func continuations(of runID: RunID) async throws -> [RunID] {
+        try await base.continuations(of: runID)
+    }
+
     func retainedPlanIDs() async throws -> Set<FixPlanID>? {
         try await base.retainedPlanIDs()
     }
@@ -236,7 +240,7 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) throws -> RecoverySet
         write: fixture.dependencies.writeDependencies(
             store: store,
             processor: processor,
-            writeFixPlan: { _, _ in
+            writeFixPlan: { _, _, _ in
                 BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
             }
         )

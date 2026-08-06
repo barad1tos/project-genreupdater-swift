@@ -134,8 +134,8 @@ enum FixPlanWrite {
 
     static func makeRunner(
         _ dependencies: RunnerDependencies
-    ) -> @Sendable (FixPlanWriteInput, @escaping WorkCheckpointSink) async throws -> BatchUpdateResult {
-        { input, checkpoint in
+    ) -> @Sendable (FixPlanWriteInput, RunID, @escaping WorkCheckpointSink) async throws -> BatchUpdateResult {
+        { input, runID, checkpoint in
             if await dependencies.hasRunRecovery() {
                 throw WriteAdmissionError.recoveryRequired
             }
@@ -173,6 +173,9 @@ enum FixPlanWrite {
                     batchSize: scriptConfiguration.batchProcessing.idsBatchSize,
                     timeout: scriptConfiguration.timeouts.idsBatchFetch
                 )
+                // The runtime coordinator is created per write; attribution
+                // stays set for its whole lifetime.
+                await runtime.coordinator.setRunAttribution(runID)
                 return try await runtime.coordinator.applyAcceptedChanges(
                     changes,
                     progressHandler: ignoreProgress,
@@ -250,7 +253,7 @@ extension AppDependencies {
 
     func makeWriteRunner(
         runtime: RunRuntimeFactory?
-    ) -> (@Sendable (FixPlanWriteInput, @escaping WorkCheckpointSink) async throws -> BatchUpdateResult)? {
+    ) -> (@Sendable (FixPlanWriteInput, RunID, @escaping WorkCheckpointSink) async throws -> BatchUpdateResult)? {
         guard let runtime,
               let fixPlanStore,
               let mapper = trackIDMapper,

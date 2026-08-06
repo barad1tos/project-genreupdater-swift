@@ -3,8 +3,10 @@ import Foundation
 extension RunOrchestrator {
     public struct WriteDependencies: Sendable {
         public let persistCheckpoint: (@Sendable (RunID, WorkCheckpoint) async throws -> Void)?
+        /// The run ID attributes change-log entries the write produces.
         public let writeFixPlan: (@Sendable (
             FixPlanWriteInput,
+            RunID,
             @escaping WorkCheckpointSink
         ) async throws -> BatchUpdateResult)?
         public let beginRecoveryHold: (@Sendable () async -> UUID)?
@@ -15,6 +17,7 @@ extension RunOrchestrator {
             persistCheckpoint: (@Sendable (RunID, WorkCheckpoint) async throws -> Void)? = nil,
             writeFixPlan: (@Sendable (
                 FixPlanWriteInput,
+                RunID,
                 @escaping WorkCheckpointSink
             ) async throws -> BatchUpdateResult)? = nil,
             beginRecoveryHold: (@Sendable () async -> UUID)? = nil,

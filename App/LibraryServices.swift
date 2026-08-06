@@ -315,6 +315,24 @@ extension AppDependencies {
         }
     }
 
+    /// Runs continuing the given run for the detail's "Continued by" line;
+    /// lookup failures degrade to an empty lineage, never a broken detail.
+    func loadRunContinuations(id: String) async -> [RunID] {
+        guard let runRecordStore, let runID = UUID(uuidString: id) else { return [] }
+        do {
+            return try await runRecordStore.continuations(of: RunID(rawValue: runID))
+        } catch {
+            libraryServicesLog.error(
+                """
+                Failed to load continuations of run \(runID.uuidString, privacy: .public): \
+                \(String(describing: type(of: error)), privacy: .public): \
+                \(error.localizedDescription, privacy: .private)
+                """
+            )
+            return []
+        }
+    }
+
     func refreshAutoSyncStatus() async {
         isAutoSyncRunning = await librarySyncService?.isAutoSyncRunning ?? false
     }

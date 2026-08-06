@@ -10,7 +10,8 @@ public enum RunReportDetailBuilder {
     public static func makeDetail(
         from record: RunRecord,
         now: Date,
-        activeRunID: RunID? = nil
+        activeRunID: RunID? = nil,
+        continuedBy: [RunID] = []
     ) -> RunReportDetailProjection {
         let state = ReportsRunLabels.runState(from: record, activeRunID: activeRunID)
         return RunReportDetailProjection(
@@ -40,8 +41,32 @@ public enum RunReportDetailBuilder {
             canDismissItems: record.finishedAt == nil
                 && record.state.isResolvingRecovery
                 && record.runID != activeRunID
-                && record.workItems.contains(where: isOpenItem)
+                && record.workItems.contains(where: isOpenItem),
+            lineageLines: makeLineageLines(from: record, continuedBy: continuedBy)
         )
+    }
+
+    private static func makeLineageLines(from record: RunRecord, continuedBy: [RunID]) -> [String] {
+        var lines: [String] = []
+        if let source = record.continuesRunID {
+            lines.append("Continues run \(ReportsRunLabels.shortRunID(source))")
+        }
+        if !continuedBy.isEmpty {
+            let list = continuedBy.map(ReportsRunLabels.shortRunID).joined(separator: ", ")
+            lines.append("Continued by \(list)")
+        }
+        if let target = record.writeTarget {
+            let planID = target.planID.rawValue.uuidString.prefix(8)
+            lines.append(
+                "Plan \(planID) · rev \(target.planRevision.value).\(target.decisionRevision.value)"
+            )
+        }
+        if let summary = record.writeSummary {
+            lines.append(
+                "Writes: \(summary.applied) applied · \(summary.verifiedNoOp) no-op · \(summary.failed) failed"
+            )
+        }
+        return lines
     }
 
     private static func makeWorkItem(from item: RunWorkItem) -> RunReportWorkItem {

@@ -47,7 +47,7 @@ struct LifecycleBufferTests {
             persistRunRecord: { _ in
                 // Record persistence is outside this in-memory buffer test.
             },
-            write: .init(writeFixPlan: { _, checkpoint in
+            write: .init(writeFixPlan: { _, _, checkpoint in
                 for _ in 0 ..< RunOrchestrator.lifecycleBufferLimit * 2 {
                     try await checkpoint(.beforeAttempt([itemID]))
                 }

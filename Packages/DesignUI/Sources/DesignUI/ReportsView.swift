@@ -189,6 +189,12 @@ struct ReportsView: View {
                             .foregroundStyle(Ayu.fgMuted)
                             .lineLimit(1)
                     }
+                    if let lineageLabel = run.lineageLabel {
+                        Text(lineageLabel)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Ayu.fgMuted)
+                            .lineLimit(1)
+                    }
                     if let failureSummary = run.failureSummary {
                         Text(failureSummary)
                             .font(.system(size: 11.5))
@@ -274,6 +280,11 @@ struct ReportsView: View {
     private func runDetailBody(_ detail: RunReportDetailSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(detail.scopeLines, id: \.self) { line in
+                Text(line)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Ayu.fg2)
+            }
+            ForEach(detail.lineageLines, id: \.self) { line in
                 Text(line)
                     .font(.system(size: 13))
                     .foregroundStyle(Ayu.fg2)

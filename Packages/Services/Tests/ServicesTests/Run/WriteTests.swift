@@ -24,7 +24,7 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { await sync.run() },
             persistRunRecord: { try await probe.append($0) },
-            write: .init(writeFixPlan: { submittedInput, checkpoint in
+            write: .init(writeFixPlan: { submittedInput, _, checkpoint in
                 try await checkpoint(.beforeAttempt([itemID]))
                 try await checkpoint(.afterAttempt([itemID]))
                 try await checkpoint(.afterVerification([itemID: .written]))
@@ -66,6 +66,44 @@ struct WriteTests {
         ])
     }
 
+    @Test("the write runner receives the executing run's identity")
+    func writeRunnerReceivesRunIdentity() async throws {
+        let probe = WriteRecordProbe()
+        let receivedRunIDs = ReceivedRunIDs()
+        let target = writeTarget()
+        let input = writeInput(target: target, artists: ["Björk"], knownTrackCount: 12)
+        let itemID = try #require(input.workItems.first?.id)
+        let writer = WriteProbe(result: BatchUpdateResult(
+            entries: [writeEntry()],
+            failedTrackIDs: [],
+            errorDescriptions: []
+        ))
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await probe.append($0) },
+            write: .init(writeFixPlan: { submittedInput, runID, checkpoint in
+                await receivedRunIDs.append(runID)
+                try await checkpoint(.beforeAttempt([itemID]))
+                try await checkpoint(.afterAttempt([itemID]))
+                try await checkpoint(.afterVerification([itemID: .written]))
+                return try await writer.apply(input: submittedInput)
+            }),
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let result = await orchestrator.submit(.manualWrite(input: input))
+
+        guard case .completed = result else {
+            Issue.record("Expected completed, got \(result)")
+            return
+        }
+        // The single load-bearing link for change-log retention: entries are
+        // attributed to THIS id, and prune matches entries by it — any other
+        // id silently reverts the change log to unbounded growth.
+        let persisted = try #require(await probe.records.last)
+        #expect(await receivedRunIDs.values == [persisted.runID])
+    }
+
     @Test("write run fails when reviewed writes partially fail")
     func writeFailsPartialFailure() async throws {
         let probe = WriteRecordProbe()
@@ -80,7 +118,7 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
-            write: .init(writeFixPlan: { input, checkpoint in
+            write: .init(writeFixPlan: { input, _, checkpoint in
                 try await checkpointWrite(input, using: checkpoint)
                 return try await writer.apply(input: input)
             }),
@@ -147,7 +185,7 @@ struct WriteTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { await syncGate.sync() },
             persistRunRecord: { _ in },
-            write: .init(writeFixPlan: { input, checkpoint in
+            write: .init(writeFixPlan: { input, _, checkpoint in
                 try await checkpointWrite(input, using: checkpoint)
                 return try await writer.apply(input: input)
             }),
@@ -181,5 +219,13 @@ struct WriteTests {
 
         #expect(await writer.calls == [firstInput, secondInput])
         #expect(await syncGate.callCount == 1)
+    }
+}
+
+private actor ReceivedRunIDs {
+    private(set) var values: [RunID] = []
+
+    func append(_ runID: RunID) {
+        values.append(runID)
     }
 }

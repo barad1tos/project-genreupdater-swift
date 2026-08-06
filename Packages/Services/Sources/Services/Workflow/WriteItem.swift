@@ -262,7 +262,7 @@ extension UpdateCoordinator {
     }
 
     func recordAppliedChange(_ change: ProposedChange) async throws -> ChangeLogEntry {
-        let entry = Self.changeToLogEntry(change)
+        let entry = attributed(Self.changeToLogEntry(change))
         var failedEffects: [String] = []
         do {
             try await undoCoordinator.recordChange(entry)

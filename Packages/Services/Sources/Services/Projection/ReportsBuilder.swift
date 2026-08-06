@@ -38,15 +38,38 @@ public enum ReportsBuilder {
             seenRecoveryIDs.insert($0).inserted
         }
 
+        // In-page lineage edges only: `continuesRunID` travels on the records
+        // themselves, so markers need no store call; a source outside the
+        // fetched page still gets its "Continues …" text, just without an
+        // in-page counterpart row.
+        var continuedBy: [RunID: [RunID]] = [:]
+        for record in input.records {
+            if let source = record.continuesRunID {
+                continuedBy[source, default: []].append(record.runID)
+            }
+        }
+
         return ReportsProjection(
             revision: .initial,
-            runs: input.records.map { makeRunItem(from: $0, now: input.now, activeRunID: input.activeRunID) },
+            runs: input.records.map { record in
+                makeRunItem(
+                    from: record,
+                    now: input.now,
+                    activeRunID: input.activeRunID,
+                    continuedBy: continuedBy[record.runID] ?? []
+                )
+            },
             skippedCorruptedCount: input.skippedCorruptedCount,
             recoveryRunIDs: recoveryRunIDs
         )
     }
 
-    private static func makeRunItem(from record: RunRecord, now: Date, activeRunID: RunID?) -> ReportsRunItem {
+    private static func makeRunItem(
+        from record: RunRecord,
+        now: Date,
+        activeRunID: RunID?,
+        continuedBy: [RunID]
+    ) -> ReportsRunItem {
         let state = ReportsRunLabels.runState(from: record, activeRunID: activeRunID)
         return ReportsRunItem(
             id: record.runID.rawValue.uuidString,
@@ -58,7 +81,20 @@ public enum ReportsBuilder {
             scopeLabel: ReportsRunLabels.scopeLabel(for: record.scope),
             durationLabel: ReportsRunLabels.durationLabel(startedAt: record.startedAt, finishedAt: record.finishedAt),
             changeCountLabel: ReportsRunLabels.changeCountLabel(for: record.syncSummary, intent: record.intent),
-            failureSummary: ReportsRunLabels.failureSummary(state: state, failureMessage: record.failureMessage)
+            failureSummary: ReportsRunLabels.failureSummary(state: state, failureMessage: record.failureMessage),
+            lineageLabel: makeLineageLabel(from: record, continuedBy: continuedBy)
         )
+    }
+
+    private static func makeLineageLabel(from record: RunRecord, continuedBy: [RunID]) -> String? {
+        var parts: [String] = []
+        if let source = record.continuesRunID {
+            parts.append("Continues \(ReportsRunLabels.shortRunID(source))")
+        }
+        if !continuedBy.isEmpty {
+            let list = continuedBy.map(ReportsRunLabels.shortRunID).joined(separator: ", ")
+            parts.append("Continued by \(list)")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

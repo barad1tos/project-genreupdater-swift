@@ -444,6 +444,14 @@ public protocol RunRecordStore: Sendable {
     /// pruning entirely (fail closed).
     func retainedPlanIDs() async throws -> Set<FixPlanID>?
 
+    /// Runs that continue the given run, newest first, open runs included.
+    /// Payload-decodable rows only (stored work-item reconciliation is
+    /// skipped — lineage needs identity fields, not the ledger); served from
+    /// the denormalized continuation column with a payload-scan arm for
+    /// nil-column rows (write intent only — continuations are write runs by
+    /// construction).
+    func continuations(of runID: RunID) async throws -> [RunID]
+
     /// Returns the newest terminal run carrying this recovery claim, or nil
     /// while the claim is unresolved or unknown. Served from the denormalized
     /// recovery column with a bounded fetch; rows persisted before that

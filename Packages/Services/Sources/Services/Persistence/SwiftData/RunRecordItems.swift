@@ -214,4 +214,14 @@ extension RunRecordDataStore {
         )
         try modelContext.fetch(descriptor).forEach(modelContext.delete)
     }
+
+    /// Change-log entries follow their run's retention (user decision
+    /// 2026-08-06): undo depth equals retained run history. Nil-runID rows
+    /// (legacy and undo-revert entries) are never touched here.
+    func deleteChangeLogEntries(for runID: UUID) throws {
+        let descriptor = FetchDescriptor<PersistedChangeLogEntry>(
+            predicate: #Predicate { $0.runID == runID }
+        )
+        try modelContext.fetch(descriptor).forEach(modelContext.delete)
+    }
 }

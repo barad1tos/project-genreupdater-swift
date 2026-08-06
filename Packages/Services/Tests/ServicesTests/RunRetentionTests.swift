@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import SwiftData
 import Testing
@@ -156,6 +157,30 @@ struct RunRetentionTests {
         #expect(try await store.record(for: protected.runID) != nil)
         #expect(try await store.record(for: middle.runID) != nil)
         #expect(try await store.record(for: oldest.runID) == nil)
+    }
+
+    @Test("pruned runs take their change-log entries; legacy entries survive")
+    func prunedRunDeletesItsChangeLogEntries() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let changeLog = ChangeLogDataStore(modelContainer: container)
+        let doomed = writeRecord(at: 0, items: [makeWorkItem(state: .outcome(.written))])
+        let kept = writeRecord(at: 1, items: [makeWorkItem(state: .outcome(.written))])
+        try await store.upsert(doomed)
+        try await store.upsert(kept)
+
+        var doomedEntry = ChangeLogEntry(changeType: .genreUpdate, trackID: "T1", artist: "Artist")
+        doomedEntry.runID = doomed.runID.rawValue
+        var keptEntry = ChangeLogEntry(changeType: .genreUpdate, trackID: "T2", artist: "Artist")
+        keptEntry.runID = kept.runID.rawValue
+        let legacyEntry = ChangeLogEntry(changeType: .genreUpdate, trackID: "T3", artist: "Artist")
+        try await changeLog.saveEntries([doomedEntry, keptEntry, legacyEntry])
+
+        let deleted = try await store.prune(keepingLatest: 1)
+
+        let remaining = try await changeLog.loadAll()
+        #expect(deleted == 1)
+        #expect(Set(remaining.map(\.id)) == [keptEntry.id, legacyEntry.id])
     }
 
     @Test("a prunable corrupted row prunes; orphaned child rows protect it")
@@ -510,12 +535,19 @@ struct RunRetentionTests {
         for record in [source, continuation, newestA, newestB] {
             try await store.upsert(record)
         }
+        // Entries staged for deletion alongside a run must roll back with the
+        // aborted pass, or a later unrelated save silently commits them.
+        var sourceEntry = ChangeLogEntry(changeType: .genreUpdate, trackID: "T1", artist: "Artist")
+        sourceEntry.runID = source.runID.rawValue
+        let changeLog = ChangeLogDataStore(modelContainer: store.modelContainer)
+        try await changeLog.saveEntry(sourceEntry)
 
         let deleted = try await store.prune(keepingLatest: 1)
 
         #expect(deleted == 0)
         #expect(try await store.record(for: source.runID) != nil)
         #expect(try await store.record(for: continuation.runID) != nil)
+        #expect(try await changeLog.loadAll().map(\.id) == [sourceEntry.id])
     }
 
     private func makeStore() throws -> RunRecordDataStore {

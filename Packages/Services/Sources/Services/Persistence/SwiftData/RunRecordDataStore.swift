@@ -144,6 +144,7 @@ public actor RunRecordDataStore: RunRecordStore {
             if isDeletionCandidate, pass.retainedPrunableCount >= limit {
                 try deleteWorkItems(for: row.runID)
                 try deleteReportItems(for: row.runID)
+                try deleteChangeLogEntries(for: row.runID)
                 modelContext.delete(row)
                 pass.deletedRunIDs.insert(row.runID)
                 continue
@@ -216,6 +217,7 @@ public actor RunRecordDataStore: RunRecordStore {
         persisted.stateRaw = record.state.rawValue
         persisted.writeAuthorityRaw = record.configuration?.writeAuthority.rawValue
         persisted.recoveryID = record.recoveryID
+        persisted.continuesRunID = record.continuesRunID?.rawValue
         persisted.scopeData = try JSONEncoder().encode(record.scope)
         persisted.transitionsData = try JSONEncoder().encode(RunRecordPayload(record: record))
         persisted.syncNewCount = record.syncSummary?.new

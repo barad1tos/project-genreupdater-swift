@@ -340,7 +340,7 @@ struct OrchestratorTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: ignoreRunRecord,
-            write: .init(writeFixPlan: { _, checkpoint in
+            write: .init(writeFixPlan: { _, _, checkpoint in
                 for _ in 0 ..< RunOrchestrator.lifecycleBufferLimit * 2 {
                     try await checkpoint(.beforeAttempt([itemID]))
                 }

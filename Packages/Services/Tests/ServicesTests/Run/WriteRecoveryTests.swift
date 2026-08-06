@@ -14,7 +14,7 @@ struct WriteRecoveryTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { try await probe.append($0) },
             write: .init(
-                writeFixPlan: { input, checkpoint in
+                writeFixPlan: { input, _, checkpoint in
                     try await writer.apply(input: input, checkpoint: checkpoint)
                 },
                 beginRecoveryHold: { recoveryID }
@@ -77,7 +77,7 @@ struct WriteRecoveryTests {
             synchronizeLibrary: { await syncGate.sync() },
             persistRunRecord: { _ in },
             write: .init(
-                writeFixPlan: { input, checkpoint in
+                writeFixPlan: { input, _, checkpoint in
                     try await writer.apply(input: input, checkpoint: checkpoint)
                 },
                 beginRecoveryHold: { UUID() }
@@ -135,7 +135,7 @@ struct WriteRecoveryTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { await syncGate.sync() },
             persistRunRecord: { _ in },
-            write: .init(writeFixPlan: { input, _ in try await writer.apply(input: input) })
+            write: .init(writeFixPlan: { input, _, _ in try await writer.apply(input: input) })
         ))
         let active = Task {
             await orchestrator.submit(.observation(
@@ -187,7 +187,7 @@ struct WriteRecoveryTests {
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in },
-            write: .init(writeFixPlan: { input, _ in try await writer.apply(input: input) })
+            write: .init(writeFixPlan: { input, _, _ in try await writer.apply(input: input) })
         ))
         let blocked = recoveryRecord(state: .blocked)
 

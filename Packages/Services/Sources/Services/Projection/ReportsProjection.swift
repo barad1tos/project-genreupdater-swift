@@ -22,6 +22,9 @@ public struct ReportsRunItem: Identifiable, Equatable, Sendable {
     public let durationLabel: String?
     public let changeCountLabel: String?
     public let failureSummary: String?
+    /// "Continues …" / "Continued by …" marker built from in-page lineage
+    /// edges; nil for unlinked runs.
+    public let lineageLabel: String?
 
     public init(
         id: String,
@@ -33,7 +36,8 @@ public struct ReportsRunItem: Identifiable, Equatable, Sendable {
         scopeLabel: String,
         durationLabel: String?,
         changeCountLabel: String?,
-        failureSummary: String?
+        failureSummary: String?,
+        lineageLabel: String? = nil
     ) {
         self.id = id
         self.state = state
@@ -45,6 +49,7 @@ public struct ReportsRunItem: Identifiable, Equatable, Sendable {
         self.durationLabel = durationLabel
         self.changeCountLabel = changeCountLabel
         self.failureSummary = failureSummary
+        self.lineageLabel = lineageLabel
     }
 }
 

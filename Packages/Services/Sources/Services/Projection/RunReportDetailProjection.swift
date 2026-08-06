@@ -73,6 +73,9 @@ public struct RunReportDetailProjection: Equatable, Sendable {
     /// Suspended recovery run (recoverable/recovering/blocked, not the
     /// active run) with open items: dismissal affordances.
     public let canDismissItems: Bool
+    /// Lineage and write evidence ("Continues run …", "Continued by …",
+    /// plan reference, write summary); empty for unlinked observation runs.
+    public let lineageLines: [String]
 
     public init(
         runID: String,
@@ -89,7 +92,8 @@ public struct RunReportDetailProjection: Equatable, Sendable {
         hiddenWorkItemCount: Int = 0,
         preparedItemIDs: [UUID] = [],
         canApplyRemainingFixes: Bool = false,
-        canDismissItems: Bool = false
+        canDismissItems: Bool = false,
+        lineageLines: [String] = []
     ) {
         self.runID = runID
         self.state = state
@@ -106,5 +110,6 @@ public struct RunReportDetailProjection: Equatable, Sendable {
         self.preparedItemIDs = preparedItemIDs
         self.canApplyRemainingFixes = canApplyRemainingFixes
         self.canDismissItems = canDismissItems
+        self.lineageLines = lineageLines
     }
 }

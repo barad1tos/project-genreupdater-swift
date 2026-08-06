@@ -351,6 +351,8 @@ public struct RunReportRow: Identifiable, Equatable, Sendable {
     public let durationLabel: String?
     public let changeCountLabel: String?
     public let failureSummary: String?
+    /// "Continues …" / "Continued by …" marker; nil for unlinked runs.
+    public let lineageLabel: String?
 
     public init(
         id: String,
@@ -362,7 +364,8 @@ public struct RunReportRow: Identifiable, Equatable, Sendable {
         scopeLabel: String? = nil,
         durationLabel: String? = nil,
         changeCountLabel: String? = nil,
-        failureSummary: String? = nil
+        failureSummary: String? = nil,
+        lineageLabel: String? = nil
     ) {
         self.id = id
         self.stateLabel = stateLabel
@@ -374,6 +377,7 @@ public struct RunReportRow: Identifiable, Equatable, Sendable {
         self.durationLabel = durationLabel
         self.changeCountLabel = changeCountLabel
         self.failureSummary = failureSummary
+        self.lineageLabel = lineageLabel
     }
 }
 
@@ -458,6 +462,8 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
     public let preparedItemIDs: [String]
     public let canApplyRemainingFixes: Bool
     public let canDismissItems: Bool
+    /// Lineage and write evidence lines; empty for unlinked runs.
+    public let lineageLines: [String]
     public let unavailableReason: String?
 
     public init(
@@ -475,7 +481,8 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         hiddenWorkItemCount: Int = 0,
         preparedItemIDs: [String] = [],
         canApplyRemainingFixes: Bool = false,
-        canDismissItems: Bool = false
+        canDismissItems: Bool = false,
+        lineageLines: [String] = []
     ) {
         self.runID = runID
         self.stateLabel = stateLabel
@@ -492,6 +499,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         self.preparedItemIDs = preparedItemIDs
         self.canApplyRemainingFixes = canApplyRemainingFixes
         self.canDismissItems = canDismissItems
+        self.lineageLines = lineageLines
         unavailableReason = nil
     }
 
@@ -511,6 +519,7 @@ public struct RunReportDetailSnapshot: Equatable, Sendable {
         preparedItemIDs = []
         canApplyRemainingFixes = false
         canDismissItems = false
+        lineageLines = []
         unavailableReason = "This run report is no longer available"
     }
 }

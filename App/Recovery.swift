@@ -297,7 +297,11 @@ extension AppDependencies {
         let entries = RecoveryEvidenceRepair.missingEntries(
             for: writtenItems,
             existing: existing
-        )
+        ).map { entry in
+            var attributed = entry
+            attributed.runID = record.runID.rawValue
+            return attributed
+        }
         if !entries.isEmpty {
             try await undoCoordinator.recordRepairedChanges(entries)
         }

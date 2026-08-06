@@ -244,6 +244,10 @@ private actor PruneCountingStore: RunRecordStore {
         nil
     }
 
+    func continuations(of _: RunID) async throws -> [RunID] {
+        []
+    }
+
     func retainedPlanIDs() async throws -> Set<FixPlanID>? {
         []
     }
@@ -298,6 +302,10 @@ private actor PruneThrowingStore: RunRecordStore {
 
     func resolvedRecoveryRun(recoveryID _: UUID) async throws -> RunID? {
         nil
+    }
+
+    func continuations(of _: RunID) async throws -> [RunID] {
+        []
     }
 
     func retainedPlanIDs() async throws -> Set<FixPlanID>? {

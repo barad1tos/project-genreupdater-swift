@@ -16,6 +16,10 @@ public final class PersistedRunRecord {
     /// decode every payload; nil on rows persisted before the column existed
     /// (those resolve through the payload-scan fallback).
     public var recoveryID: UUID?
+    /// Denormalized continuation source used by reverse-lineage lookups; nil
+    /// on unlinked runs and on rows persisted before the column existed
+    /// (those resolve through the payload-scan fallback).
+    public var continuesRunID: UUID?
     public var scopeData: Data
     public var transitionsData: Data
     public var syncNewCount: Int?
@@ -35,6 +39,7 @@ public final class PersistedRunRecord {
         stateRaw = record.state.rawValue
         writeAuthorityRaw = record.configuration?.writeAuthority.rawValue
         recoveryID = record.recoveryID
+        continuesRunID = record.continuesRunID?.rawValue
         self.scopeData = scopeData
         transitionsData = payloadData
         syncNewCount = record.syncSummary?.new
@@ -63,6 +68,7 @@ public final class PersistedRunRecord {
         self.stateRaw = stateRaw
         writeAuthorityRaw = nil
         recoveryID = nil
+        continuesRunID = nil
         self.scopeData = scopeData
         self.transitionsData = transitionsData
         syncNewCount = nil
