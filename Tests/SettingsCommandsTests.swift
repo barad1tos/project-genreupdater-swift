@@ -115,7 +115,9 @@ struct SettingsCommandsTests {
     func fingerprintChangeMarksPlanStale() async {
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { _ in /* persistence is irrelevant to this staleness pin */ }
+            configurationSaver: { _ in
+                // Persistence is irrelevant to this staleness pin.
+            }
         )
         // Settle runtime side effects (discogs availability) with one
         // accepted no-diff cycle before capturing the plan's baseline.
@@ -151,7 +153,9 @@ struct SettingsCommandsTests {
     func presentationChangeLeavesPlanUntouched() async {
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { _ in /* persistence is irrelevant to this staleness pin */ }
+            configurationSaver: { _ in
+                // Persistence is irrelevant to this staleness pin.
+            }
         )
         // Settle runtime side effects (discogs availability) with one
         // accepted no-diff cycle before capturing the plan's baseline.
