@@ -13,6 +13,10 @@ enum SettingsCommands {
         target: SettingsCommandTarget,
         dependencies: AppDependencies
     ) async -> SettingsCommandResult {
+        // CAS correctness relies on the accept path staying synchronous:
+        // no await may sit between the revision read here and the
+        // persistConfiguration call below — MainActor reentrancy would
+        // break the compare-and-set otherwise.
         let currentRevision = dependencies.config.revision
         guard target.expectedSettingsRevision == currentRevision else {
             let refreshed = await dependencies.publishSettingsProjection()
@@ -22,9 +26,21 @@ enum SettingsCommands {
             )
         }
 
+        // A revision at UInt64.max can only come from a hand-edited
+        // config.json; conflict instead of trapping (the FixPlanDataStore
+        // corrupted-row precedent).
+        let (bumpedRevision, overflowed) = currentRevision.addingReportingOverflow(1)
+        guard !overflowed else {
+            let refreshed = await dependencies.publishSettingsProjection()
+            return .rejectedStale(
+                message: "The stored settings revision is invalid. Restore or reset the configuration file.",
+                refreshedSettings: refreshed
+            )
+        }
+
         let previousConfiguration = dependencies.config
         var accepted = configuration
-        accepted.revision = currentRevision + 1
+        accepted.revision = bumpedRevision
         dependencies.config = accepted
 
         guard dependencies.persistConfiguration() else {
@@ -59,13 +75,16 @@ extension AppDependencies {
     /// reflects the last accepted (or rolled-back) state.
     @discardableResult
     func publishSettingsProjection(saveErrorMessage: String? = nil) async -> SettingsProjection {
-        let inputGeneration = await projectionStore.nextSettingsInputGeneration()
+        // Snapshot before the generation claim's suspension: a publisher
+        // holding an older generation must never carry a newer config, or
+        // the store's stale-generation guard would drop the fresher state.
         let projection = SettingsProjection(
             revision: .initial,
             settingsRevision: config.revision,
             configuration: config,
             saveErrorMessage: saveErrorMessage
         )
+        let inputGeneration = await projectionStore.nextSettingsInputGeneration()
         return await projectionStore.replaceSettingsProjection(
             projection,
             inputGeneration: inputGeneration

@@ -44,20 +44,22 @@ public struct SettingsProjection: Sendable {
 }
 
 /// CAS target every settings mutation carries (ADR 0011): the settings
-/// revision the caller last saw plus the projection revision it rendered.
+/// revision the caller last saw. The projection revision is deliberately
+/// absent — it bumps on every publish, including the error republish
+/// after a rolled-back save, so validating it would reject a legitimate
+/// retry at an unchanged settings revision.
 public struct SettingsCommandTarget: Equatable, Sendable {
     public let expectedSettingsRevision: UInt64
-    public let projectionRevision: ProjectionRevision
 
-    public init(expectedSettingsRevision: UInt64, projectionRevision: ProjectionRevision) {
+    public init(expectedSettingsRevision: UInt64) {
         self.expectedSettingsRevision = expectedSettingsRevision
-        self.projectionRevision = projectionRevision
     }
 }
 
 /// Typed result of a settings command (ADR 0014): the refreshed settings
-/// projection always rides along; a fingerprint-relevant accept also
-/// carries the refreshed fix-plan projection (ADR 0022 staleness push).
+/// projection always rides along; an accept also carries the refreshed
+/// fix-plan projection (ADR 0022 staleness push) — the staleness
+/// evaluation, not the command, decides whether the change mattered.
 public struct SettingsCommandResult: Sendable {
     public let status: CommandResultStatus
     public let message: String
@@ -100,8 +102,9 @@ public struct SettingsCommandResult: Sendable {
 
 extension SettingsProjection: Equatable {
     /// `AppConfiguration` carries no synthesized equality; canonical
-    /// sorted-keys bytes stand in (the RunConfig precedent), falling back
-    /// to the revision fields when encoding fails.
+    /// sorted-keys bytes stand in (the RunConfig precedent). An encoding
+    /// failure reports inequality so the projection is published anyway —
+    /// fail open toward an extra broadcast, never a swallowed change.
     public static func == (left: Self, right: Self) -> Bool {
         guard left.revision == right.revision,
               left.settingsRevision == right.settingsRevision,
@@ -109,6 +112,11 @@ extension SettingsProjection: Equatable {
         else { return false }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
+        encoder.nonConformingFloatEncodingStrategy = .convertToString(
+            positiveInfinity: "Infinity",
+            negativeInfinity: "-Infinity",
+            nan: "NaN"
+        )
         guard let leftData = try? encoder.encode(left.configuration),
               let rightData = try? encoder.encode(right.configuration)
         else { return false }

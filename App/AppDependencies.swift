@@ -232,7 +232,8 @@ final class AppDependencies {
     func saveState() async {
         // A failed load left in-memory DEFAULTS here; persisting them on
         // scene-inactive would silently overwrite the user's config.json.
-        // Only an explicit settings command may save (and clear the issue).
+        // Only a conscious settings save (any successful persistConfiguration
+        // until the channels migrate onto the command path) repairs this.
         guard configurationLoadIssue == nil else {
             log.error("Skipping state save: configuration failed to load and was not explicitly repaired")
             return
@@ -275,9 +276,9 @@ final class AppDependencies {
     /// The configuration-save failure message when the app is in that
     /// error state; nil otherwise.
     var configurationSaveErrorMessage: String? {
-        guard case let .error(message) = appState,
-              message.hasPrefix(configurationSaveErrorPrefix)
-        else { return nil }
+        guard case let .error(message) = appState, isConfigurationSaveIssue(appState) else {
+            return nil
+        }
         return message
     }
 
@@ -689,7 +690,10 @@ extension AppDependencies {
             appleScriptConfiguration: config.applescript,
             librarySyncRuntimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config),
             batchProcessingConfiguration: BatchProcessingConfiguration(configuration: config),
-            libraryPath: config.paths.musicLibraryPath
+            libraryPath: config.paths.musicLibraryPath,
+            testArtists: config.development.testArtists,
+            analytics: config.analytics,
+            cleaning: config.cleaning
         )
     }
 

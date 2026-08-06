@@ -16,7 +16,7 @@ struct SettingsCommandsTests {
         )
         var edited = dependencies.config
         edited.development.testArtists = ["Clutch"]
-        let target = SettingsCommandTarget(expectedSettingsRevision: 0, projectionRevision: .initial)
+        let target = SettingsCommandTarget(expectedSettingsRevision: 0)
 
         let result = await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
 
@@ -37,7 +37,7 @@ struct SettingsCommandsTests {
         )
         var edited = dependencies.config
         edited.development.testArtists = ["Clutch"]
-        let target = SettingsCommandTarget(expectedSettingsRevision: 9, projectionRevision: .initial)
+        let target = SettingsCommandTarget(expectedSettingsRevision: 9)
 
         let result = await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
 
@@ -56,7 +56,7 @@ struct SettingsCommandsTests {
         )
         var edited = dependencies.config
         edited.development.testArtists = ["Clutch"]
-        let target = SettingsCommandTarget(expectedSettingsRevision: 0, projectionRevision: .initial)
+        let target = SettingsCommandTarget(expectedSettingsRevision: 0)
 
         let result = await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
 
@@ -81,7 +81,7 @@ struct SettingsCommandsTests {
         )
         var edited = dependencies.config
         edited.development.testArtists = ["Clutch"]
-        let target = SettingsCommandTarget(expectedSettingsRevision: 0, projectionRevision: .initial)
+        let target = SettingsCommandTarget(expectedSettingsRevision: 0)
 
         _ = await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
         let retry = await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
@@ -90,17 +90,40 @@ struct SettingsCommandsTests {
         #expect(dependencies.config.revision == 1)
         #expect(saved.configurations.count == 1)
     }
+
+    @Test("a revision at the UInt64 maximum conflicts instead of trapping")
+    func maxRevisionConflictsInsteadOfTrapping() async {
+        let saved = SavedConfigurations()
+        let dependencies = AppDependencies(
+            configurationLoader: {
+                var configuration = AppConfiguration()
+                configuration.revision = .max
+                return configuration
+            },
+            configurationSaver: { saved.append($0) }
+        )
+        let target = SettingsCommandTarget(expectedSettingsRevision: .max)
+
+        let result = await SettingsCommands.apply(dependencies.config, target: target, dependencies: dependencies)
+
+        #expect(result.status == .rejectedStale)
+        #expect(dependencies.config.revision == .max)
+        #expect(saved.configurations.isEmpty)
+    }
+
     @Test("a fingerprint-relevant change marks the current plan stale")
     func fingerprintChangeMarksPlanStale() async {
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { _ in }
+            configurationSaver: { _ in /* persistence is irrelevant to this staleness pin */ }
         )
         // Settle runtime side effects (discogs availability) with one
         // accepted no-diff cycle before capturing the plan's baseline.
+        // Test-only artifact: these dependencies never ran initialize(),
+        // which probes discogs availability at launch in production.
         _ = await SettingsCommands.apply(
             dependencies.config,
-            target: SettingsCommandTarget(expectedSettingsRevision: 0, projectionRevision: .initial),
+            target: SettingsCommandTarget(expectedSettingsRevision: 0),
             dependencies: dependencies
         )
         let planConfig = dependencies.capturePreviewConfig(
@@ -116,7 +139,7 @@ struct SettingsCommandsTests {
         #expect(baseline.stalenessReasons.isEmpty)
         var edited = dependencies.config
         edited.cleaning.remasterKeywords.append("Deluxe Probe Edition")
-        let target = SettingsCommandTarget(expectedSettingsRevision: 1, projectionRevision: .initial)
+        let target = SettingsCommandTarget(expectedSettingsRevision: 1)
 
         let result = await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
 
@@ -128,13 +151,15 @@ struct SettingsCommandsTests {
     func presentationChangeLeavesPlanUntouched() async {
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { _ in }
+            configurationSaver: { _ in /* persistence is irrelevant to this staleness pin */ }
         )
         // Settle runtime side effects (discogs availability) with one
         // accepted no-diff cycle before capturing the plan's baseline.
+        // Test-only artifact: these dependencies never ran initialize(),
+        // which probes discogs availability at launch in production.
         _ = await SettingsCommands.apply(
             dependencies.config,
-            target: SettingsCommandTarget(expectedSettingsRevision: 0, projectionRevision: .initial),
+            target: SettingsCommandTarget(expectedSettingsRevision: 0),
             dependencies: dependencies
         )
         let planConfig = dependencies.capturePreviewConfig(
@@ -150,7 +175,7 @@ struct SettingsCommandsTests {
         #expect(baseline.stalenessReasons.isEmpty)
         var edited = dependencies.config
         edited.analytics.enabled.toggle()
-        let target = SettingsCommandTarget(expectedSettingsRevision: 1, projectionRevision: .initial)
+        let target = SettingsCommandTarget(expectedSettingsRevision: 1)
 
         let result = await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
 
@@ -179,7 +204,7 @@ struct SettingsCommandsTests {
             configurationLoader: { throw SaveProbeFailure() },
             configurationSaver: { saved.append($0) }
         )
-        let target = SettingsCommandTarget(expectedSettingsRevision: 0, projectionRevision: .initial)
+        let target = SettingsCommandTarget(expectedSettingsRevision: 0)
 
         let result = await SettingsCommands.apply(dependencies.config, target: target, dependencies: dependencies)
         await dependencies.saveState()
@@ -193,7 +218,7 @@ struct SettingsCommandsTests {
 private final class SavedConfigurations {
     private(set) var configurations: [AppConfiguration] = []
 
-    nonisolated init() {}
+    nonisolated init() { /* no setup: storage starts empty */ }
 
     func append(_ configuration: AppConfiguration) {
         configurations.append(configuration)
