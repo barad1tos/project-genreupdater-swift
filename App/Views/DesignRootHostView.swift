@@ -45,6 +45,7 @@ struct DesignRootHostView: View {
     @State private var isDismissalBusy = false
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("fastAnimations") private var fastAnimations = false
+    @AppStorage(AppStorageKey.experienceLevel) private var experienceLevel: ExperienceLevel = .default
 
     var body: some View {
         RootView(
@@ -213,7 +214,8 @@ struct DesignRootHostView: View {
             appearanceMode: designAppearanceMode(from: appearanceMode),
             isFastAnimationsEnabled: fastAnimations,
             // Writes must always be verified before the app reports them as complete.
-            isPostWriteVerificationRequired: true
+            isPostWriteVerificationRequired: true,
+            isAdvancedExperience: experienceLevel != .casual
         )
     }
 

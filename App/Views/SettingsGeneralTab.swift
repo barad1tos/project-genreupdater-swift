@@ -10,14 +10,14 @@ import SwiftUI
 struct GeneralTab: View {
     @Environment(AppDependencies.self) private var dependencies
     @AppStorage("showNotifications") private var showNotifications = true
-    @AppStorage(AppStorageKey.experienceLevel) private var experienceLevelRaw = ExperienceLevel.advanced.rawValue
+    @AppStorage(AppStorageKey.experienceLevel) private var experienceLevel: ExperienceLevel = .default
 
     var body: some View {
         Form {
             Section("Experience") {
-                Picker("Experience level", selection: $experienceLevelRaw) {
+                Picker("Experience level", selection: $experienceLevel) {
                     ForEach(ExperienceLevel.allCases) { level in
-                        Text(level.displayName).tag(level.rawValue)
+                        Text(level.displayName).tag(level)
                     }
                 }
                 .pickerStyle(.segmented)

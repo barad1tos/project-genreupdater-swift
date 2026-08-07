@@ -7,6 +7,10 @@ enum ExperienceLevel: String, CaseIterable, Identifiable {
     case casual
     case advanced
 
+    /// The single source of the storage default (URLSessionConfiguration
+    /// precedent for the keyword name).
+    static let `default` = Self.advanced
+
     var id: String {
         rawValue
     }

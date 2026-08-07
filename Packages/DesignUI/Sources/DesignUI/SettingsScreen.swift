@@ -23,7 +23,9 @@ struct SettingsScreen: View {
                 Picker("", selection: $tab) {
                     Text("General").tag("general")
                     Text("API & Cache").tag("api")
-                    Text("Advanced").tag("advanced")
+                    if settings.isAdvancedExperience {
+                        Text("Advanced").tag("advanced")
+                    }
                     Text("Appearance").tag("appearance")
                 }
                 .pickerStyle(.segmented)
@@ -34,10 +36,10 @@ struct SettingsScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     switch tab {
-                    case "general": general
                     case "api": api
                     case "appearance": appearance
-                    default: advanced
+                    case "advanced" where settings.isAdvancedExperience: advanced
+                    default: general
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -50,6 +52,11 @@ struct SettingsScreen: View {
         .navigationTitle("Settings")
         .onDisappear {
             commitStagedMinimumConfidence(force: true)
+        }
+        .onChange(of: settings.isAdvancedExperience) { _, isAdvanced in
+            if !isAdvanced, tab == "advanced" {
+                tab = "general"
+            }
         }
     }
 

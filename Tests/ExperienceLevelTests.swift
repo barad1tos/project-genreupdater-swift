@@ -31,17 +31,21 @@ struct ExperienceLevelTests {
         let baselineRevision = dependencies.config.revision
         let baselineProjection = await dependencies.projectionStore.currentSettings()
 
+        // Measure WHILE casual is in effect, and force a republish so a
+        // level-derived projection field could not slip through unnoticed.
         defaults.set(ExperienceLevel.casual.rawValue, forKey: AppStorageKey.experienceLevel)
-        defaults.set(ExperienceLevel.advanced.rawValue, forKey: AppStorageKey.experienceLevel)
 
-        let flippedFingerprint = dependencies.capturePreviewConfig(
+        let casualFingerprint = dependencies.capturePreviewConfig(
             at: Date(timeIntervalSince1970: 100),
             hasDiscogsAccess: true
         ).fingerprint
-        #expect(flippedFingerprint == baselineFingerprint)
+        let casualProjection = await dependencies.publishSettingsProjection()
+
+        #expect(casualFingerprint == baselineFingerprint)
         #expect(dependencies.config.revision == baselineRevision)
-        let flippedProjection = await dependencies.projectionStore.currentSettings()
-        #expect(flippedProjection == baselineProjection)
+        // SettingsProjection equality includes canonical configuration
+        // bytes; the store's dedup keeps the revision when nothing changed.
+        #expect(casualProjection == baselineProjection)
     }
 
     @Test("persisted raw values stay stable")
