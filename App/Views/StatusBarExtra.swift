@@ -15,6 +15,19 @@ enum StatusBarSymbol {
     }
 }
 
+/// The status item's label: the severity read happens inside this view's
+/// body so observation tracking re-renders the icon on chrome changes.
+struct StatusBarLabel: View {
+    let dependencies: AppDependencies
+
+    var body: some View {
+        Label(
+            "Genre Updater",
+            systemImage: StatusBarSymbol.name(for: dependencies.chrome.syncStatus.severity)
+        )
+    }
+}
+
 /// The status item's menu content (ADR 0006: recovery must be visible
 /// without an open window; ADR 0012: everything rendered here is the
 /// shared chrome truth, never derived locally).
@@ -34,7 +47,9 @@ struct StatusBarMenu: View {
             Text("Scope: \(scope.sourceLabel)")
         }
 
-        Divider()
+        if !chrome.commands.isEmpty {
+            Divider()
+        }
 
         if let runCommand = chrome.commands.first(where: { $0.commandKind == .runManually }) {
             Button(runCommand.title) {
@@ -53,7 +68,7 @@ struct StatusBarMenu: View {
 
         Button("Open Genre Updater") {
             openWindow(id: "main")
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
         }
     }
 }

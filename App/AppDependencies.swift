@@ -104,6 +104,7 @@ final class AppDependencies {
     private(set) var isDiscogsAccessAvailable: Bool?
     @ObservationIgnored var trackCountSource: (@Sendable () async -> Int?)?
     @ObservationIgnored var recoveryClearTasks: [UUID: Task<Void, Error>] = [:]
+    @ObservationIgnored private var isInitializing = false
 
     func setDiscogsIssue(_ issue: DiscogsCredentialIssue?) {
         discogsCredentialIssue = issue
@@ -139,15 +140,23 @@ final class AppDependencies {
 
     // MARK: - Lifecycle
 
-    /// Initialize all services and determine app state.
-    ///
-    /// Called once from the app's `.task` modifier on launch.
-    func initialize() async {
+    private func beginInitialization() -> Bool {
+        guard !isInitializing else { return false }
+        if case .ready = appState {
+            return false
+        }
+        isInitializing = true
+        return true
+    }
+
+    /// Publishes the launch-time projections; false means a failed load
+    /// blocks service initialization until an accepted command repairs it.
+    private func bootstrapProjectionsForLaunch() async -> Bool {
         if let configurationLoadIssue {
             appState = .error(configurationLoadIssue)
             await publishSettingsProjection()
             await refreshChromeProjection()
-            return
+            return false
         }
 
         migrateDefaultUpdateBehaviorIfNeeded()
@@ -158,6 +167,19 @@ final class AppDependencies {
         // appState is about to become .loading.
         await publishSettingsProjection(saveErrorMessage: configurationSaveErrorMessage)
         await refreshChromeProjection()
+        return true
+    }
+
+    /// Initialize all services and determine app state.
+    ///
+    /// Re-entry safe: a window re-creation re-fires the launch task, and
+    /// initializing twice would rebuild live services mid-flight. The
+    /// onboarding-complete and error-retry paths still pass the guard.
+    func initialize() async {
+        guard beginInitialization() else { return }
+        defer { isInitializing = false }
+
+        guard await bootstrapProjectionsForLaunch() else { return }
         appState = .loading
 
         do {

@@ -19,7 +19,9 @@ struct GenreUpdaterApp: App {
     @AppStorage("fastAnimations") private var fastAnimations = false
 
     var body: some Scene {
-        WindowGroup(id: "main") {
+        // Single-instance window: openWindow(id:) from the status item
+        // brings this one forward instead of creating a second shell.
+        Window("Genre Updater", id: "main") {
             ContentView()
                 .environment(dependencies)
                 .environment(\.motionScale, fastAnimations ? 0.5 : 1.0)
@@ -84,12 +86,14 @@ struct GenreUpdaterApp: App {
 
         // ADR 0006: recovery must be visible without an open window; the
         // status item renders the same chrome truth as every shell zone.
-        MenuBarExtra(
-            "Genre Updater",
-            systemImage: StatusBarSymbol.name(for: dependencies.chrome.syncStatus.severity)
-        ) {
+        MenuBarExtra {
             StatusBarMenu()
                 .environment(dependencies)
+        } label: {
+            // The severity read lives in a view BODY so observation
+            // tracking re-renders the icon; an argument expression in
+            // App.body has no verified tracking site.
+            StatusBarLabel(dependencies: dependencies)
         }
     }
 
