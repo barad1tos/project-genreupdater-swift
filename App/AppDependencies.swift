@@ -49,6 +49,10 @@ final class AppDependencies {
     private(set) var appState: AppState = .loading
     /// Serialized runtime-apply chain; see `enqueueRuntimeApplyAndPublish`.
     var runtimeApplyQueue: Task<Void, Never>?
+    /// Observable mirror of the chrome projection's command descriptors so
+    /// SwiftUI Commands scenes re-evaluate; written only by
+    /// `refreshChromeProjection()` (slice 10 relocates this).
+    var chromeCommands: [ChromeCommandDescriptor] = []
     var config: AppConfiguration
     var isAutoSyncRunning = false
     @ObservationIgnored let projectionStore = ProjectionStore()
@@ -233,16 +237,7 @@ final class AppDependencies {
         previousIncrementalScopeTracks = tracks
     }
 
-    /// Refresh library data (triggered by Cmd+R).
-    func refreshLibrary() async {
-        guard let reader = musicReader else { return }
-        do {
-            try await reader.requestAuthorization()
-            log.info("Library refresh triggered")
-        } catch {
-            log.error("Library refresh failed: \(error.localizedDescription, privacy: .public)")
-        }
-    }
+    // Refresh library data (triggered by Cmd+R).
 
     /// Surfaces a corrupted-persistence condition that blocks every future
     /// settings mutation; called from the command choke point, where the

@@ -41,13 +41,27 @@ struct GenreUpdaterApp: App {
             }
 
             CommandMenu("Library") {
-                Button("Refresh Library") {
-                    Task { await dependencies.refreshLibrary() }
+                // The menu renders the chrome projection's descriptors —
+                // title, availability, and hold degradation come from the
+                // shared shell truth, never a local guess (ADR 0012).
+                let runCommand = dependencies.chromeCommands.first { $0.commandKind == .runManually }
+                Button(runCommand?.title ?? "Run now") {
+                    Task { await dependencies.performChromeCommand(.runManually) }
                 }
                 .keyboardShortcut("r", modifiers: .command)
+                .disabled(runCommand?.isEnabled != true)
+
+                if let resumeCommand = dependencies.chromeCommands.first(where: { $0.commandKind == .resumeRecovery }) {
+                    Button(resumeCommand.title) {
+                        Task { await dependencies.performChromeCommand(.resumeRecovery) }
+                    }
+                    .disabled(!resumeCommand.isEnabled)
+                }
             }
 
             CommandMenu("Update") {
+                // Navigation-only intent: the handler routes to the Update
+                // surface and validates the browse selection there.
                 Button("Update Selected Tracks") {
                     NotificationCenter.default.post(
                         name: .updateSelectedTracks,
