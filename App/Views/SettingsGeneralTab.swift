@@ -9,15 +9,17 @@ import SwiftUI
 
 struct GeneralTab: View {
     @Environment(AppDependencies.self) private var dependencies
-    @AppStorage(AppStorageKey.defaultUpdateBehavior) private var updateBehavior: String = UpdateBehavior.both.rawValue
     @AppStorage("showNotifications") private var showNotifications = true
 
     var body: some View {
         Form {
             Section("Update Behavior") {
-                Picker("Default update behavior", selection: $updateBehavior) {
+                Picker(
+                    "Default update behavior",
+                    selection: configBinding(dependencies, \.processing.defaultUpdateBehavior)
+                ) {
                     ForEach(UpdateBehavior.allCases) { behavior in
-                        Text(behavior.displayName).tag(behavior.rawValue)
+                        Text(behavior.displayName).tag(behavior)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -43,8 +45,9 @@ struct GeneralTab: View {
             let confidenceBinding = Binding<Double>(
                 get: { Double(dependencies.config.yearRetrieval.logic.minConfidenceForNewYear) },
                 set: { newValue in
-                    dependencies.config.yearRetrieval.logic.minConfidenceForNewYear = newValue
-                    saveConfig()
+                    mutateConfiguration(dependencies) {
+                        $0.yearRetrieval.logic.minConfidenceForNewYear = newValue
+                    }
                 }
             )
 
@@ -56,8 +59,9 @@ struct GeneralTab: View {
             let definitiveBinding = Binding<Double>(
                 get: { Double(dependencies.config.yearRetrieval.logic.definitiveScoreThreshold) },
                 set: { newValue in
-                    dependencies.config.yearRetrieval.logic.definitiveScoreThreshold = Int(newValue)
-                    saveConfig()
+                    mutateConfiguration(dependencies) {
+                        $0.yearRetrieval.logic.definitiveScoreThreshold = Int(newValue)
+                    }
                 }
             )
 
@@ -216,10 +220,6 @@ struct GeneralTab: View {
                 SubscriptionView()
             }
         }
-    }
-
-    private func saveConfig() {
-        saveConfiguration(dependencies)
     }
 }
 
@@ -412,8 +412,9 @@ private struct AppleScriptTimeoutSettings: View {
                 max(1, Int(dependencies.config.applescript.timeouts[keyPath: keyPath].timeInterval))
             },
             set: { newValue in
-                dependencies.config.applescript.timeouts[keyPath: keyPath] = .seconds(max(1, newValue))
-                saveConfiguration(dependencies)
+                mutateConfiguration(dependencies) {
+                    $0.applescript.timeouts[keyPath: keyPath] = .seconds(max(1, newValue))
+                }
             }
         )
     }

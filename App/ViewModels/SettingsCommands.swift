@@ -3,39 +3,97 @@ import Foundation
 import Services
 
 /// The single mutation choke point for pipeline settings (ADR 0022): CAS
-/// against the global settings revision, persist, awaited runtime apply,
-/// projection publication. UI surfaces build copy-with-edit values and
-/// dispatch here; nothing else may write `dependencies.config`.
+/// against the global settings revision, persist, runtime apply, projection
+/// publication. UI surfaces build copy-with-edit values and dispatch here;
+/// nothing else may write `dependencies.config`.
 @MainActor
 enum SettingsCommands {
+    /// Fire-and-settle entry for synchronous UI contexts (bindings, button
+    /// closures): the config mutates and persists BEFORE this returns, so
+    /// SwiftUI reads the new value on the same render turn. Runtime apply
+    /// and projection publication follow on the serialized apply queue.
+    @discardableResult
+    static func dispatch(
+        _ configuration: AppConfiguration,
+        target: SettingsCommandTarget,
+        dependencies: AppDependencies
+    ) -> CommandResultStatus {
+        switch acceptSynchronously(configuration, target: target, dependencies: dependencies) {
+        case .accepted:
+            dependencies.enqueueRuntimeApplyAndPublish()
+            return .accepted
+        case .rejectedStale:
+            Task { await dependencies.publishSettingsProjection() }
+            return .rejectedStale
+        case .temporaryUnavailable:
+            let saveError = dependencies.configurationSaveErrorMessage ?? "Could not save the configuration."
+            Task { await dependencies.publishSettingsProjection(saveErrorMessage: saveError) }
+            return .temporaryUnavailable
+        }
+    }
+
+    /// Awaited entry for imperative flows that consume the settled result
+    /// (the JSON editor, tests): returns only after the runtime apply and
+    /// both projection publications completed.
     static func apply(
         _ configuration: AppConfiguration,
         target: SettingsCommandTarget,
         dependencies: AppDependencies
     ) async -> SettingsCommandResult {
-        // CAS correctness relies on the accept path staying synchronous:
-        // no await may sit between the revision read here and the
-        // persistConfiguration call below — MainActor reentrancy would
-        // break the compare-and-set otherwise.
-        let currentRevision = dependencies.config.revision
-        guard target.expectedSettingsRevision == currentRevision else {
+        switch acceptSynchronously(configuration, target: target, dependencies: dependencies) {
+        case let .rejectedStale(message):
             let refreshed = await dependencies.publishSettingsProjection()
-            return .rejectedStale(
-                message: "Settings changed elsewhere. Review the current values and retry.",
+            return .rejectedStale(message: message, refreshedSettings: refreshed)
+
+        case .temporaryUnavailable:
+            let saveError = dependencies.configurationSaveErrorMessage ?? "Could not save the configuration."
+            let refreshed = await dependencies.publishSettingsProjection(saveErrorMessage: saveError)
+            return .temporaryUnavailable(
+                message: "Could not save the configuration. Nothing was changed.",
                 refreshedSettings: refreshed
             )
+
+        case .accepted:
+            await dependencies.enqueueRuntimeApplyAndPublish().value
+            let refreshedSettings = await dependencies.projectionStore.currentSettings()
+            let refreshedFixPlan = await dependencies.projectionStore.fixPlanProjection()
+            return .accepted(
+                message: "Settings saved.",
+                refreshedSettings: refreshedSettings,
+                refreshedFixPlan: refreshedFixPlan
+            )
+        }
+    }
+
+    private enum Acceptance {
+        case accepted
+        case rejectedStale(message: String)
+        case temporaryUnavailable(message: String)
+    }
+
+    /// The shared synchronous acceptance head: CAS, overflow guard, bump,
+    /// persist with in-memory rollback. No await may ever enter this path —
+    /// MainActor reentrancy would break the compare-and-set otherwise.
+    private static func acceptSynchronously(
+        _ configuration: AppConfiguration,
+        target: SettingsCommandTarget,
+        dependencies: AppDependencies
+    ) -> Acceptance {
+        let currentRevision = dependencies.config.revision
+        guard target.expectedSettingsRevision == currentRevision else {
+            return .rejectedStale(message: "Settings changed elsewhere. Review the current values and retry.")
         }
 
         // A revision at UInt64.max can only come from a hand-edited
         // config.json; conflict instead of trapping (the FixPlanDataStore
-        // corrupted-row precedent).
+        // corrupted-row precedent). Escalate through appState: dispatch
+        // sites discard results, and this state blocks every future
+        // mutation — including the reset the message recommends.
         let (bumpedRevision, overflowed) = currentRevision.addingReportingOverflow(1)
         guard !overflowed else {
-            let refreshed = await dependencies.publishSettingsProjection()
-            return .rejectedStale(
-                message: "The stored settings revision is invalid. Restore or reset the configuration file.",
-                refreshedSettings: refreshed
-            )
+            let message = "The stored settings revision is invalid. Restore or reset the configuration file."
+            dependencies.reportSettingsRevisionCorruption(message)
+            return .rejectedStale(message: message)
         }
 
         let previousConfiguration = dependencies.config
@@ -45,27 +103,9 @@ enum SettingsCommands {
 
         guard dependencies.persistConfiguration() else {
             dependencies.config = previousConfiguration
-            let refreshed = await dependencies.publishSettingsProjection(
-                saveErrorMessage: dependencies.configurationSaveErrorMessage
-                    ?? "Could not save the configuration."
-            )
-            return .temporaryUnavailable(
-                message: "Could not save the configuration. Nothing was changed.",
-                refreshedSettings: refreshed
-            )
+            return .temporaryUnavailable(message: "Could not save the configuration. Nothing was changed.")
         }
-
-        await dependencies.applyRuntimeConfigurationAndWait()
-        let refreshedSettings = await dependencies.publishSettingsProjection()
-        // Always refresh: the fix-plan staleness evaluation decides whether
-        // this change matters, and the projection store dedups identical
-        // results — presentation-only changes cause no revision bump.
-        let refreshedFixPlan = await dependencies.refreshFixPlanProjection()
-        return .accepted(
-            message: "Settings saved.",
-            refreshedSettings: refreshedSettings,
-            refreshedFixPlan: refreshedFixPlan
-        )
+        return .accepted
     }
 }
 

@@ -35,8 +35,9 @@ struct SettingsTestArtistsSection: View {
                 }
             }
             .onDelete { offsets in
-                dependencies.config.development.testArtists.remove(atOffsets: offsets)
-                saveConfiguration(dependencies)
+                mutateConfiguration(dependencies) {
+                    $0.development.testArtists.remove(atOffsets: offsets)
+                }
             }
 
             HStack {
@@ -70,20 +71,28 @@ struct SettingsTestArtistsSection: View {
     }
 
     private func addTestArtist() {
-        let addedCount = addTestArtists([trimmedTestArtist])
-        newTestArtist = ""
-        importStatus = addedCount == 0 ? "Artist already exists" : ""
+        switch addTestArtists([trimmedTestArtist]) {
+        case .added:
+            newTestArtist = ""
+            importStatus = ""
+        case .nothingNew:
+            newTestArtist = ""
+            importStatus = "Artist already exists"
+        case .saveFailed:
+            importStatus = "Could not save the artist list"
+        }
     }
 
     private func removeTestArtist(_ artist: String) {
-        let previousCount = dependencies.config.development.testArtists.count
-        dependencies.config.development.testArtists.removeAll { existing in
+        let hasMatch = dependencies.config.development.testArtists.contains { existing in
             existing.localizedCaseInsensitiveCompare(artist) == .orderedSame
         }
-
-        if dependencies.config.development.testArtists.count < previousCount {
-            importStatus = ""
-            saveConfiguration(dependencies)
+        guard hasMatch else { return }
+        importStatus = ""
+        mutateConfiguration(dependencies) {
+            $0.development.testArtists.removeAll { existing in
+                existing.localizedCaseInsensitiveCompare(artist) == .orderedSame
+            }
         }
     }
 
@@ -105,35 +114,44 @@ struct SettingsTestArtistsSection: View {
                 .split(whereSeparator: \.isNewline)
                 .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
-            let addedCount = addTestArtists(artists)
-            importStatus = addedCount == 0
-                ? "No new artists imported"
-                : "Imported \(addedCount) artists"
+            switch addTestArtists(artists) {
+            case let .added(count):
+                importStatus = "Imported \(count) artists"
+            case .nothingNew:
+                importStatus = "No new artists imported"
+            case .saveFailed:
+                importStatus = "Import failed: could not save the artist list"
+            }
         } catch {
             importStatus = "Import failed: \(error.localizedDescription)"
         }
     }
 
-    @discardableResult
-    private func addTestArtists(_ artists: [String]) -> Int {
-        var addedCount = 0
+    private enum ArtistAddOutcome {
+        case added(Int)
+        case nothingNew
+        case saveFailed
+    }
+
+    private func addTestArtists(_ artists: [String]) -> ArtistAddOutcome {
+        var additions: [String] = []
         for artist in artists {
             let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedArtist.isEmpty else { continue }
 
-            let alreadyExists = dependencies.config.development.testArtists.contains { existing in
+            let alreadyExists = (dependencies.config.development.testArtists + additions).contains { existing in
                 existing.trimmingCharacters(in: .whitespacesAndNewlines)
                     .localizedCaseInsensitiveCompare(trimmedArtist) == .orderedSame
             }
             guard !alreadyExists else { continue }
 
-            dependencies.config.development.testArtists.append(trimmedArtist)
-            addedCount += 1
+            additions.append(trimmedArtist)
         }
 
-        if addedCount > 0 {
-            saveConfiguration(dependencies)
+        guard !additions.isEmpty else { return .nothingNew }
+        let status = mutateConfiguration(dependencies) {
+            $0.development.testArtists.append(contentsOf: additions)
         }
-        return addedCount
+        return status == .accepted ? .added(additions.count) : .saveFailed
     }
 }

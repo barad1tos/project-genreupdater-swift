@@ -8,15 +8,20 @@ private let log = AppLogger.make(category: "runtime-apply")
 /// dependencies file: the synchronous head rebuilds main-actor services,
 /// the awaited tail pushes the new configuration across actor boundaries.
 extension AppDependencies {
-    /// Legacy sync entry: the service-rebuild head runs synchronously, the
-    /// actor-hop tail runs fire-and-forget. The settings command path uses
-    /// `applyRuntimeConfigurationAndWait` so the result only returns once
-    /// every service holds the new configuration.
-    func applyRuntimeConfiguration() {
-        let handoff = applyRuntimeConfigurationHead()
-        Task {
-            await applyRuntimeConfigurationTail(handoff)
+    /// Chains a runtime apply + projection publication behind any already
+    /// queued apply: concurrent tails would otherwise interleave at their
+    /// suspension points and push mixed service configurations.
+    @discardableResult
+    func enqueueRuntimeApplyAndPublish() -> Task<Void, Never> {
+        let previous = runtimeApplyQueue
+        let queued = Task {
+            await previous?.value
+            await applyRuntimeConfigurationAndWait()
+            await publishSettingsProjection()
+            _ = await refreshFixPlanProjection()
         }
+        runtimeApplyQueue = queued
+        return queued
     }
 
     func applyRuntimeConfigurationAndWait() async {

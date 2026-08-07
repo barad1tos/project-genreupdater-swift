@@ -257,6 +257,7 @@ struct PreviewRunOptionsTests {
             "adaptiveDelay",
             "batchSize",
             "cacheTTLDays",
+            "defaultUpdateBehavior",
             "delayBetweenBatches",
             "futureYearThreshold",
             "incrementalIntervalMinutes",

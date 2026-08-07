@@ -283,11 +283,18 @@ struct APICacheTab: View {
                 tokenStatus = .localFallback
                 statusMessage = "Token saved in local Keychain fallback for this unsigned development build"
             }
-            dependencies.applyRuntimeConfiguration()
+            reapplyRuntimeAfterTokenChange()
         } catch {
             tokenStatus = .error
             statusMessage = "Save failed: \(error.localizedDescription)"
         }
+    }
+
+    /// A token change is a user-intended credential-availability flip:
+    /// re-probe through the serialized apply queue, which also refreshes
+    /// the fix-plan projection so a hasDiscogsAccess change surfaces.
+    private func reapplyRuntimeAfterTokenChange() {
+        dependencies.enqueueRuntimeApplyAndPublish()
     }
 
     private func deleteToken() {
@@ -296,7 +303,7 @@ struct APICacheTab: View {
             tokenInput = ""
             tokenStatus = .missing
             statusMessage = "Token deleted"
-            dependencies.applyRuntimeConfiguration()
+            reapplyRuntimeAfterTokenChange()
         } catch {
             tokenStatus = .error
             statusMessage = "Delete failed: \(error.localizedDescription)"

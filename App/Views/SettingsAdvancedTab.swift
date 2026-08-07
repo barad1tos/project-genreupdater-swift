@@ -2,6 +2,7 @@
 
 import AppKit
 import Core
+import Services
 import SharedUI
 import SwiftUI
 
@@ -22,6 +23,10 @@ struct AdvancedTab: View {
     @State private var configurationJSON = ""
     @State private var jsonEditorState: JSONEditorState = .idle
     @State private var jsonStatusMessage = "Loaded from current configuration"
+    /// The settings revision the editor text was generated from — the CAS
+    /// anchor for Apply, so stale text conflicts instead of silently
+    /// overwriting changes made elsewhere since the last reload.
+    @State private var editorRevision: UInt64 = 0
 
     var body: some View {
         Form {
@@ -57,8 +62,7 @@ struct AdvancedTab: View {
             mappings: Binding(
                 get: { dependencies.config.cleaning.genreMappings },
                 set: { newValue in
-                    dependencies.config.cleaning.genreMappings = newValue
-                    saveConfig()
+                    applyMutation { $0.cleaning.genreMappings = newValue }
                 }
             ),
             newSource: $newMappingSource,
@@ -74,8 +78,7 @@ struct AdvancedTab: View {
             mappings: Binding(
                 get: { dependencies.config.artistRenamer.mappings },
                 set: { newValue in
-                    dependencies.config.artistRenamer.mappings = newValue
-                    saveConfig()
+                    applyMutation { $0.artistRenamer.mappings = newValue }
                 }
             ),
             newSource: $newArtistRenameSource,
@@ -89,8 +92,7 @@ struct AdvancedTab: View {
                 Text(keyword)
             }
             .onDelete { offsets in
-                dependencies.config.cleaning.remasterKeywords.remove(atOffsets: offsets)
-                saveConfig()
+                applyMutation { $0.cleaning.remasterKeywords.remove(atOffsets: offsets) }
             }
 
             HStack {
@@ -108,8 +110,7 @@ struct AdvancedTab: View {
                 Text(suffix)
             }
             .onDelete { offsets in
-                dependencies.config.cleaning.albumSuffixesToRemove.remove(atOffsets: offsets)
-                saveConfig()
+                applyMutation { $0.cleaning.albumSuffixesToRemove.remove(atOffsets: offsets) }
             }
 
             HStack {
@@ -139,15 +140,13 @@ struct AdvancedTab: View {
             let penaltyScaleBinding = Binding<Double>(
                 get: { Double(abs(dependencies.config.yearRetrieval.scoring.yearDiffPenaltyScale)) },
                 set: { newValue in
-                    dependencies.config.yearRetrieval.scoring.yearDiffPenaltyScale = -Int(newValue)
-                    saveConfig()
+                    applyMutation { $0.yearRetrieval.scoring.yearDiffPenaltyScale = -Int(newValue) }
                 }
             )
             let maxPenaltyBinding = Binding<Double>(
                 get: { Double(abs(dependencies.config.yearRetrieval.scoring.yearDiffMaxPenalty)) },
                 set: { newValue in
-                    dependencies.config.yearRetrieval.scoring.yearDiffMaxPenalty = -Int(newValue)
-                    saveConfig()
+                    applyMutation { $0.yearRetrieval.scoring.yearDiffMaxPenalty = -Int(newValue) }
                 }
             )
 
@@ -181,6 +180,7 @@ struct AdvancedTab: View {
                 }
 
                 Button { formatJSON() } label: {
+                    // noinspection SpellCheckingInspection — canonical SF Symbol identifier
                     Label("Format", systemImage: "text.alignleft")
                 }
 
@@ -218,7 +218,9 @@ struct AdvancedTab: View {
                 titleVisibility: .visible
             ) {
                 Button("Reset", role: .destructive) { resetConfiguration() }
-                Button("Cancel", role: .cancel) {}
+                Button("Cancel", role: .cancel) {
+                    // Dismissal is the whole action.
+                }
             }
         }
     }
@@ -227,32 +229,43 @@ struct AdvancedTab: View {
     private func addRemasterKeyword() {
         let trimmed = newRemasterKeyword.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        dependencies.config.cleaning.remasterKeywords.append(trimmed)
-        newRemasterKeyword = ""
-        saveConfig()
+        if applyMutation({ $0.cleaning.remasterKeywords.append(trimmed) }) == .accepted {
+            newRemasterKeyword = ""
+        }
     }
 
     private func addAlbumSuffix() {
         let trimmed = newAlbumSuffix.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        dependencies.config.cleaning.albumSuffixesToRemove.append(trimmed)
-        newAlbumSuffix = ""
-        saveConfig()
+        if applyMutation({ $0.cleaning.albumSuffixesToRemove.append(trimmed) }) == .accepted {
+            newAlbumSuffix = ""
+        }
     }
 
-    private func saveConfig() {
-        saveConfiguration(dependencies)
+    /// Dispatches a settings command and refreshes the JSON preview to the
+    /// resulting truth (accepted or rolled back).
+    @discardableResult
+    private func applyMutation(_ mutation: (inout AppConfiguration) -> Void) -> CommandResultStatus {
+        let status = mutateConfiguration(dependencies, mutation)
         reloadJSON()
+        return status
     }
 
     private func resetConfiguration() {
-        dependencies.config = AppConfiguration()
-        saveConfig()
+        // Deliberate live-revision target: reset is a user-confirmed
+        // destructive clobber of whatever the current settings are.
+        SettingsCommands.dispatch(
+            AppConfiguration(),
+            target: SettingsCommandTarget(expectedSettingsRevision: dependencies.config.revision),
+            dependencies: dependencies
+        )
+        reloadJSON()
     }
 
     private func reloadJSON() {
         do {
             configurationJSON = try Self.encodeConfiguration(dependencies.config)
+            editorRevision = dependencies.config.revision
             jsonEditorState = .valid
             jsonStatusMessage = "Loaded from current configuration"
         } catch {
@@ -283,12 +296,21 @@ struct AdvancedTab: View {
     private func applyJSON() {
         do {
             let decoded = try Self.decodeConfiguration(configurationJSON)
-            dependencies.config = decoded
-            try dependencies.config.save()
-            dependencies.applyRuntimeConfiguration()
-            configurationJSON = try Self.encodeConfiguration(decoded)
-            jsonEditorState = .saved
-            jsonStatusMessage = "Saved"
+            Task {
+                let result = await SettingsCommands.apply(
+                    decoded,
+                    target: SettingsCommandTarget(expectedSettingsRevision: editorRevision),
+                    dependencies: dependencies
+                )
+                if result.status == .accepted {
+                    reloadJSON()
+                    jsonEditorState = .saved
+                    jsonStatusMessage = "Saved"
+                } else {
+                    jsonEditorState = .invalid
+                    jsonStatusMessage = result.message
+                }
+            }
         } catch {
             jsonEditorState = .invalid
             jsonStatusMessage = "Apply failed: \(error.localizedDescription)"
@@ -325,8 +347,7 @@ extension AdvancedTab {
                 }
             }
             .onDelete { offsets in
-                dependencies.config.cleaning.trackCleaningExceptions.remove(atOffsets: offsets)
-                saveConfig()
+                applyMutation { $0.cleaning.trackCleaningExceptions.remove(atOffsets: offsets) }
             }
 
             HStack {
@@ -369,13 +390,13 @@ extension AdvancedTab {
             return
         }
 
-        dependencies.config.cleaning.trackCleaningExceptions.append(TrackCleaningException(
-            artist: artist,
-            album: album
-        ))
-        newExceptionArtist = ""
-        newExceptionAlbum = ""
-        saveConfig()
+        let status = applyMutation {
+            $0.cleaning.trackCleaningExceptions.append(TrackCleaningException(artist: artist, album: album))
+        }
+        if status == .accepted {
+            newExceptionArtist = ""
+            newExceptionAlbum = ""
+        }
     }
 }
 

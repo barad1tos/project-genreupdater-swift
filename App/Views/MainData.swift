@@ -222,7 +222,7 @@ extension MainView {
     }
 
     var configuredUpdateSelection: (updateGenre: Bool, updateYear: Bool) {
-        UpdateBehavior.resolved(from: defaultUpdateBehavior).enabledTargets
+        dependencies.config.processing.defaultUpdateBehavior.enabledTargets
     }
 
     var configuredPreviewOnly: Bool {

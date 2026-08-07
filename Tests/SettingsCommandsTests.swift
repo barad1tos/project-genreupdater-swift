@@ -91,6 +91,57 @@ struct SettingsCommandsTests {
         #expect(saved.configurations.count == 1)
     }
 
+    @Test("sequential mutations compose through the command dispatcher")
+    func sequentialMutationsCompose() {
+        let saved = SavedConfigurations()
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { saved.append($0) }
+        )
+
+        mutateConfiguration(dependencies) { $0.development.testArtists = ["Clutch"] }
+        let second = mutateConfiguration(dependencies) { $0.runtime.dryRun.toggle() }
+
+        #expect(second == .accepted)
+        #expect(dependencies.config.revision == 2)
+        #expect(dependencies.config.development.testArtists == ["Clutch"])
+    }
+
+    @Test("the dispatcher mutates and persists before returning")
+    func dispatchMutatesSynchronously() {
+        let saved = SavedConfigurations()
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { saved.append($0) }
+        )
+
+        let status = mutateConfiguration(dependencies) { $0.development.testArtists = ["Clutch"] }
+
+        // No await happened: SwiftUI reads the new value on this same turn
+        // (controlled TextField bindings depend on it).
+        #expect(status == .accepted)
+        #expect(dependencies.config.development.testArtists == ["Clutch"])
+        #expect(saved.configurations.count == 1)
+    }
+
+    @Test("a whole-config command discards the submitted revision")
+    func wholeConfigCommandDiscardsSubmittedRevision() async {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // Persistence is irrelevant to this revision pin.
+            }
+        )
+        var submitted = dependencies.config
+        submitted.revision = 999
+        let target = SettingsCommandTarget(expectedSettingsRevision: 0)
+
+        let result = await SettingsCommands.apply(submitted, target: target, dependencies: dependencies)
+
+        #expect(result.status == .accepted)
+        #expect(dependencies.config.revision == 1)
+    }
+
     @Test("a revision at the UInt64 maximum conflicts instead of trapping")
     func maxRevisionConflictsInsteadOfTrapping() async {
         let saved = SavedConfigurations()
@@ -109,6 +160,9 @@ struct SettingsCommandsTests {
         #expect(result.status == .rejectedStale)
         #expect(dependencies.config.revision == .max)
         #expect(saved.configurations.isEmpty)
+        // Corrupted persistence blocks every future mutation — including
+        // the recommended reset — so it must escalate loudly.
+        #expect(isErrorState(dependencies.appState))
     }
 
     @Test("a fingerprint-relevant change marks the current plan stale")
@@ -188,34 +242,90 @@ struct SettingsCommandsTests {
         #expect(result.refreshedFixPlan?.revision == baseline.revision)
     }
 
-    @Test("a failed configuration load blocks scene-inactive saves")
-    func loadFailureBlocksSceneSave() async {
+    @Test("a stored UserDefaults behavior migrates into the configuration once")
+    func userDefaultsBehaviorMigratesOnce() {
+        let defaults = UserDefaults.standard
+        // Clear residue from an interrupted earlier run before seeding.
+        defaults.removeObject(forKey: AppStorageKey.defaultUpdateBehavior)
+        defaults.set("genre_only", forKey: AppStorageKey.defaultUpdateBehavior)
+        defer { defaults.removeObject(forKey: AppStorageKey.defaultUpdateBehavior) }
+        let saved = SavedConfigurations()
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { saved.append($0) }
+        )
+
+        dependencies.migrateDefaultUpdateBehaviorIfNeeded()
+
+        #expect(dependencies.config.processing.defaultUpdateBehavior == .genreOnly)
+        #expect(defaults.string(forKey: AppStorageKey.defaultUpdateBehavior) == nil)
+        #expect(saved.configurations.count == 1)
+    }
+
+    @Test("the behavior migration never runs on a failed configuration load")
+    func behaviorMigrationSkipsFailedLoad() {
+        let defaults = UserDefaults.standard
+        // Clear residue from an interrupted earlier run before seeding.
+        defaults.removeObject(forKey: AppStorageKey.defaultUpdateBehavior)
+        defaults.set("genre_only", forKey: AppStorageKey.defaultUpdateBehavior)
+        defer { defaults.removeObject(forKey: AppStorageKey.defaultUpdateBehavior) }
         let saved = SavedConfigurations()
         let dependencies = AppDependencies(
             configurationLoader: { throw SaveProbeFailure() },
             configurationSaver: { saved.append($0) }
         )
 
-        await dependencies.saveState()
+        dependencies.migrateDefaultUpdateBehaviorIfNeeded()
 
         #expect(saved.configurations.isEmpty)
+        #expect(defaults.string(forKey: AppStorageKey.defaultUpdateBehavior) == "genre_only")
     }
 
-    @Test("an explicit accepted command repairs a failed load")
+    @Test("a failed load never persists until a command repairs it")
     func explicitCommandRepairsFailedLoad() async {
         let saved = SavedConfigurations()
         let dependencies = AppDependencies(
             configurationLoader: { throw SaveProbeFailure() },
             configurationSaver: { saved.append($0) }
         )
+        #expect(dependencies.configurationLoadIssue != nil)
         let target = SettingsCommandTarget(expectedSettingsRevision: 0)
 
         let result = await SettingsCommands.apply(dependencies.config, target: target, dependencies: dependencies)
-        await dependencies.saveState()
 
         #expect(result.status == .accepted)
-        #expect(saved.configurations.count == 2)
+        #expect(saved.configurations.count == 1)
+        #expect(dependencies.configurationLoadIssue == nil)
     }
+
+    @Test("initialization bootstraps the settings projection with the loaded configuration")
+    func initializeBootstrapsSettingsProjection() async {
+        let dependencies = AppDependencies(
+            configurationLoader: {
+                var configuration = AppConfiguration()
+                configuration.development.testArtists = ["Bootstrap Probe"]
+                return configuration
+            },
+            configurationSaver: { _ in
+                // Persistence is irrelevant to this bootstrap pin.
+            }
+        )
+
+        // The bootstrap publish precedes service initialization, so the
+        // pin holds regardless of how far initialize() gets afterwards.
+        await dependencies.initialize()
+        let current = await dependencies.projectionStore.currentSettings()
+
+        #expect(current.configuration.development.testArtists == ["Bootstrap Probe"])
+    }
+}
+
+@MainActor
+private func isErrorState(_ state: AppState) -> Bool {
+    guard case .error = state else {
+        return false
+    }
+    return true
 }
 
 @MainActor

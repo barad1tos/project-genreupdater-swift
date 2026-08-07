@@ -234,7 +234,6 @@ struct MainView: View {
     @State var hasNavigated = false
     @AppStorage("sidebarCompact") var isSidebarCompact = false
     @AppStorage("sidebarBadgesEnabled") var areSidebarBadgesEnabled = false
-    @AppStorage(AppStorageKey.defaultUpdateBehavior) var defaultUpdateBehavior = UpdateBehavior.both.rawValue
 
     var body: some View {
         navigationShell
@@ -258,7 +257,7 @@ struct MainView: View {
                 updateColumnVisibility()
             }
             .onChange(of: browseViewModel.selectedAlbum) { updateColumnVisibility() }
-            .onChange(of: defaultUpdateBehavior) { applyWorkflowDefaults() }
+            .onChange(of: dependencies.config.processing.defaultUpdateBehavior) { applyWorkflowDefaults() }
             .onChange(of: dependencies.config.runtime.dryRun) { applyWorkflowDefaults() }
             .onChange(of: dependencies.config.yearRetrieval.logic.minConfidenceForNewYear) {
                 applyWorkflowDefaults()

@@ -1,41 +1,9 @@
 // SettingsSupport.swift — shared settings bindings and display helpers.
 
 import Core
+import Services
 import SharedUI
 import SwiftUI
-
-enum UpdateBehavior: String, CaseIterable, Identifiable {
-    case genreOnly = "genre_only"
-    case yearOnly = "year_only"
-    case both
-
-    var id: String {
-        rawValue
-    }
-
-    var displayName: String {
-        switch self {
-        case .genreOnly: "Genre only"
-        case .yearOnly: "Year only"
-        case .both: "Both"
-        }
-    }
-
-    var enabledTargets: (updateGenre: Bool, updateYear: Bool) {
-        switch self {
-        case .genreOnly:
-            (true, false)
-        case .yearOnly:
-            (false, true)
-        case .both:
-            (true, true)
-        }
-    }
-
-    static func resolved(from rawValue: String?) -> Self {
-        rawValue.flatMap(Self.init(rawValue:)) ?? .both
-    }
-}
 
 // MARK: - JSON Editor State
 
@@ -78,25 +46,20 @@ func configBinding<Value>(
     )
 }
 
+/// The one write path for UI settings mutations: copy-with-edit against
+/// the live config, CAS target from the live revision, dispatched through
+/// the command's synchronous acceptance head — the mutation is visible to
+/// SwiftUI on the same render turn (controlled TextFields depend on it).
 @MainActor
 @discardableResult
 func mutateConfiguration(
     _ dependencies: AppDependencies,
     _ mutation: (inout AppConfiguration) -> Void
-) -> Bool {
-    let previousConfiguration = dependencies.config
-    mutation(&dependencies.config)
-    guard saveConfiguration(dependencies) else {
-        dependencies.config = previousConfiguration
-        return false
-    }
-    return true
-}
-
-@MainActor
-@discardableResult
-func saveConfiguration(_ dependencies: AppDependencies) -> Bool {
-    dependencies.saveConfigurationAndApplyRuntime()
+) -> CommandResultStatus {
+    var edited = dependencies.config
+    mutation(&edited)
+    let target = SettingsCommandTarget(expectedSettingsRevision: dependencies.config.revision)
+    return SettingsCommands.dispatch(edited, target: target, dependencies: dependencies)
 }
 
 // MARK: - Display Names

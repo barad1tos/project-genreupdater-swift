@@ -82,9 +82,10 @@ struct AlbumTypeDetectionSection: View {
     ) {
         let trimmed = newValue.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        if mutateConfiguration(dependencies, { configuration in
+        let status = mutateConfiguration(dependencies) { configuration in
             configuration.albumTypeDetection[keyPath: keyPath].append(trimmed)
-        }) {
+        }
+        if status == .accepted {
             newValue.wrappedValue = ""
         }
     }

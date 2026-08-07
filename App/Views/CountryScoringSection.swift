@@ -59,9 +59,10 @@ struct CountryScoringSection: View {
             newMajorMarketCode = ""
             return
         }
-        if mutateConfiguration(dependencies, { configuration in
+        let status = mutateConfiguration(dependencies) { configuration in
             configuration.yearRetrieval.logic.majorMarketCodes.append(code)
-        }) {
+        }
+        if status == .accepted {
             newMajorMarketCode = ""
         }
     }

@@ -17,7 +17,6 @@ struct GenreUpdaterApp: App {
     @State private var dependencies = AppDependencies()
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("fastAnimations") private var fastAnimations = false
-    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -60,12 +59,6 @@ struct GenreUpdaterApp: App {
 
             NavigationCommands()
         }
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .inactive {
-                Task { await dependencies.saveState() }
-            }
-        }
-
         Settings {
             SettingsView()
                 .environment(dependencies)

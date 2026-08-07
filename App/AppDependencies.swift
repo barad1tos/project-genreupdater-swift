@@ -47,6 +47,8 @@ final class AppDependencies {
     // MARK: - Observable State
 
     private(set) var appState: AppState = .loading
+    /// Serialized runtime-apply chain; see `enqueueRuntimeApplyAndPublish`.
+    var runtimeApplyQueue: Task<Void, Never>?
     var config: AppConfiguration
     var isAutoSyncRunning = false
     @ObservationIgnored let projectionStore = ProjectionStore()
@@ -139,9 +141,17 @@ final class AppDependencies {
     func initialize() async {
         if let configurationLoadIssue {
             appState = .error(configurationLoadIssue)
+            await publishSettingsProjection()
             return
         }
 
+        migrateDefaultUpdateBehaviorIfNeeded()
+        // Bootstrap the settings projection so the store never serves the
+        // `.empty` default state once the app is running. A migration
+        // persist failure is not fatal (the key is kept for a retry next
+        // launch), but its message must survive into the projection —
+        // appState is about to become .loading.
+        await publishSettingsProjection(saveErrorMessage: configurationSaveErrorMessage)
         appState = .loading
 
         do {
@@ -228,33 +238,29 @@ final class AppDependencies {
         }
     }
 
-    /// Save current state (called on scene phase change to inactive).
-    func saveState() async {
-        // A failed load left in-memory DEFAULTS here; persisting them on
-        // scene-inactive would silently overwrite the user's config.json.
-        // Only a conscious settings save (any successful persistConfiguration
-        // until the channels migrate onto the command path) repairs this.
-        guard configurationLoadIssue == nil else {
-            log.error("Skipping state save: configuration failed to load and was not explicitly repaired")
-            return
-        }
-        do {
-            try configurationSaver(config)
-            log.debug("App state saved")
-        } catch {
-            log.error("Failed to save state: \(error.localizedDescription, privacy: .public)")
-        }
+    /// One-time UserDefaults → AppConfiguration migration (slice 7). Never
+    /// runs on a failed load: seeding defaults plus the behavior would
+    /// persist over the user's config.json. A persist failure keeps the
+    /// key so the migration retries on the next launch (persistConfiguration
+    /// clears the key on any later success, so a newer explicit choice can
+    /// never be reverted by a stale key).
+    func migrateDefaultUpdateBehaviorIfNeeded() {
+        guard configurationLoadIssue == nil,
+              let raw = UserDefaults.standard.string(forKey: AppStorageKey.defaultUpdateBehavior)
+        else { return }
+        config.processing.defaultUpdateBehavior = UpdateBehavior.resolved(from: raw)
+        persistConfiguration()
     }
 
-    @discardableResult
-    func saveConfigurationAndApplyRuntime() -> Bool {
-        guard persistConfiguration() else { return false }
-        applyRuntimeConfiguration()
-        return true
+    /// Surfaces a corrupted-persistence condition that blocks every future
+    /// settings mutation; called from the command choke point, where the
+    /// fire-and-settle dispatch sites cannot show the message themselves.
+    func reportSettingsRevisionCorruption(_ message: String) {
+        appState = .error(message)
     }
 
     /// Persists the configuration WITHOUT applying runtime effects — the
-    /// settings command path awaits its own apply after this succeeds.
+    /// settings command path owns the apply after this succeeds.
     /// An explicit successful save also repairs a failed initial load: the
     /// user has consciously accepted the current values.
     @discardableResult
@@ -263,6 +269,10 @@ final class AppDependencies {
             try configurationSaver(config)
             configurationLoadIssue = nil
             clearConfigurationSaveIssue()
+            // The persisted config carries the current defaultUpdateBehavior,
+            // so any pending legacy-key migration is superseded: a stale key
+            // must not overwrite a newer explicit choice on the next launch.
+            UserDefaults.standard.removeObject(forKey: AppStorageKey.defaultUpdateBehavior)
             return true
         } catch {
             let message = "\(configurationSaveErrorPrefix) \(error.localizedDescription)"
