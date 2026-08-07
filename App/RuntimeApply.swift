@@ -19,6 +19,7 @@ extension AppDependencies {
             await applyRuntimeConfigurationAndWait()
             await publishSettingsProjection()
             _ = await refreshFixPlanProjection()
+            _ = await refreshChromeProjection()
         }
         runtimeApplyQueue = queued
         return queued

@@ -693,6 +693,9 @@ struct DesignRootHostView: View {
                 }
                 await refreshReportsProjection()
             }
+            // House pattern until slice 10: chrome re-derives shell truth
+            // at every lifecycle boundary the shell already observes.
+            await dependencies.refreshChromeProjection()
         }
     }
 

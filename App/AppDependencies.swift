@@ -142,6 +142,7 @@ final class AppDependencies {
         if let configurationLoadIssue {
             appState = .error(configurationLoadIssue)
             await publishSettingsProjection()
+            await refreshChromeProjection()
             return
         }
 
@@ -152,6 +153,7 @@ final class AppDependencies {
         // launch), but its message must survive into the projection —
         // appState is about to become .loading.
         await publishSettingsProjection(saveErrorMessage: configurationSaveErrorMessage)
+        await refreshChromeProjection()
         appState = .loading
 
         do {
