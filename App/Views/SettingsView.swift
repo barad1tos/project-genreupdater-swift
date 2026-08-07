@@ -5,7 +5,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppDependencies.self) private var dependencies
-    @AppStorage(AppStorageKey.experienceLevel) private var experienceLevel: ExperienceLevel = .default
+    @AppStorage(AppStorageKey.experienceLevel) private var experienceLevel: ExperienceLevel = .defaultLevel
 
     var body: some View {
         TabView {

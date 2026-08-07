@@ -45,7 +45,7 @@ struct DesignRootHostView: View {
     @State private var isDismissalBusy = false
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("fastAnimations") private var fastAnimations = false
-    @AppStorage(AppStorageKey.experienceLevel) private var experienceLevel: ExperienceLevel = .default
+    @AppStorage(AppStorageKey.experienceLevel) private var experienceLevel: ExperienceLevel = .defaultLevel
 
     var body: some View {
         RootView(

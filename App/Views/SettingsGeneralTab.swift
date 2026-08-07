@@ -10,7 +10,7 @@ import SwiftUI
 struct GeneralTab: View {
     @Environment(AppDependencies.self) private var dependencies
     @AppStorage("showNotifications") private var showNotifications = true
-    @AppStorage(AppStorageKey.experienceLevel) private var experienceLevel: ExperienceLevel = .default
+    @AppStorage(AppStorageKey.experienceLevel) private var experienceLevel: ExperienceLevel = .defaultLevel
 
     var body: some View {
         Form {
