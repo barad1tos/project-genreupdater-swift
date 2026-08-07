@@ -114,6 +114,7 @@ private func makeProbeProjection(title: String) -> ChromeProjection {
         syncStatus: ChromeSyncStatus(text: "Idle", severity: .nominal, isRunActive: false),
         library: ChromeLibrarySummary(physicalTrackCount: 42, effectiveScope: nil),
         safety: ChromeSafetyState(
+            isPreviewMode: true,
             processingModeLabel: "Preview",
             automationState: .manualOnly,
             recoveryHold: nil,

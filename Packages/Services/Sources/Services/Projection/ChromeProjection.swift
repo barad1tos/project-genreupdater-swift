@@ -135,17 +135,20 @@ public struct ChromeLibrarySummary: Equatable, Sendable {
 /// The safety facts chrome must keep orthogonal (ADR 0006): processing
 /// mode, automation state, recovery hold, and probed permissions.
 public struct ChromeSafetyState: Equatable, Sendable {
+    public let isPreviewMode: Bool
     public let processingModeLabel: String
     public let automationState: ChromeAutomationState
     public let recoveryHold: ChromeRecoveryHold?
     public let permissions: ChromePermissions
 
     public init(
+        isPreviewMode: Bool,
         processingModeLabel: String,
         automationState: ChromeAutomationState,
         recoveryHold: ChromeRecoveryHold?,
         permissions: ChromePermissions
     ) {
+        self.isPreviewMode = isPreviewMode
         self.processingModeLabel = processingModeLabel
         self.automationState = automationState
         self.recoveryHold = recoveryHold
@@ -190,6 +193,7 @@ public struct ChromeProjection: Equatable, Sendable {
             syncStatus: ChromeSyncStatus(text: "Idle", severity: .nominal, isRunActive: false),
             library: ChromeLibrarySummary(physicalTrackCount: nil, effectiveScope: nil),
             safety: ChromeSafetyState(
+                isPreviewMode: true,
                 processingModeLabel: "Preview",
                 automationState: .manualOnly,
                 recoveryHold: nil,

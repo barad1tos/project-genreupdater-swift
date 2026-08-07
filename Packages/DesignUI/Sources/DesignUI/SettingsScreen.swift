@@ -191,7 +191,7 @@ struct SettingsScreen: View {
             }
             group("Schedule", "clock", .info) {
                 row("Automatic scan", "Current automatic scan status.") {
-                    TagPill(text: "Manual trigger", tone: .neutral)
+                    TagPill(text: model.data.chrome.automationLabel, tone: .neutral)
                 }
                 row("Scan cadence", "Next scheduled automatic run, when available.") {
                     TagPill(text: model.snapshot.nextRun, tone: .neutral)

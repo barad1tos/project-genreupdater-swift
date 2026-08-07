@@ -22,12 +22,46 @@ struct DesignActivitySnapshotInput {
 enum ActivitySnapshotAdapter {
     static let reportEntryLimit = 100
 
+    /// Mirrors the Chrome projection into DesignUI's shell snapshot —
+    /// pure mapping, no derivation (ADR 0012).
+    static func makeChrome(from projection: ChromeProjection) -> DesignChromeSnapshot {
+        DesignChromeSnapshot(
+            syncStatusText: projection.syncStatus.text,
+            syncSeverity: makeSeverity(projection.syncStatus.severity),
+            processingModeLabel: projection.safety.processingModeLabel,
+            isAutoFixEnabled: !projection.safety.isPreviewMode,
+            automationLabel: makeAutomationLabel(projection.safety.automationState),
+            narrowedScopeLabel: projection.library.effectiveScope.flatMap { scope in
+                scope.isNarrowedFromPhysical ? scope.sourceLabel : nil
+            }
+        )
+    }
+
+    private static func makeSeverity(_ severity: ChromeStatusSeverity) -> DesignChromeSeverity {
+        switch severity {
+        case .nominal: .nominal
+        case .attention: .attention
+        case .blocked: .blocked
+        }
+    }
+
+    private static func makeAutomationLabel(_ state: ChromeAutomationState) -> String {
+        switch state {
+        case .running: "Running"
+        case .manualOnly: "Manual trigger"
+        case .nothingDue: "Nothing due"
+        case .recoveryHold: "Recovery hold"
+        case .permissionRequired: "Permission required"
+        }
+    }
+
     static func makeSnapshot(
         from input: DesignActivitySnapshotInput,
         activityProjection: ActivityProjection,
         reportsProjection: ReportsProjection = .empty(),
         selectedRunReport: RunReportDetailSnapshot? = nil,
-        activityNotice: String? = nil
+        activityNotice: String? = nil,
+        chrome: DesignChromeSnapshot = .preview
     ) -> DesignDataSnapshot {
         let dashboard = makeDashboardSnapshot(from: input)
         let reportEntries = makeReportEntries(from: input.changeLogEntries)
@@ -63,6 +97,7 @@ enum ActivitySnapshotAdapter {
             selectedRunReport: selectedRunReport,
             settings: input.settings,
             syncStatusText: activityProjection.syncStatusText,
+            chrome: chrome,
             isPreviewBacked: false
         )
     }

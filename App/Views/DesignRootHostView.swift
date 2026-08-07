@@ -31,6 +31,7 @@ struct DesignRootHostView: View {
     @State private var queuedWriteSummary: ActivityQueuedWriteSummary?
     @State private var reportsProjection: ReportsProjection = .empty()
     @State private var fixPlanProjection: FixPlanProjection = .empty()
+    @State private var chromeProjection: ChromeProjection = .empty()
     @State private var selectedRunReport: RunReportDetailSnapshot?
     @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
@@ -80,6 +81,7 @@ struct DesignRootHostView: View {
         .task { await observeReportsProjectionUpdates() }
         .task { await observeFixPlanUpdates() }
         .task { await observeRunLifecycleUpdates() }
+        .task { await observeChromeUpdates() }
         .onChange(of: dependencies.config.processing.defaultUpdateBehavior) {
             applyWorkflowDefaults()
             scheduleActivityProjectionRefresh()
@@ -126,8 +128,15 @@ struct DesignRootHostView: View {
             activityProjection: activityProjection,
             reportsProjection: reportsProjection,
             selectedRunReport: selectedRunReport,
-            activityNotice: activityCommandNoticeMessage
+            activityNotice: activityCommandNoticeMessage,
+            chrome: ActivitySnapshotAdapter.makeChrome(from: chromeProjection)
         )
+    }
+
+    private func observeChromeUpdates() async {
+        for await projection in await dependencies.projectionStore.chromeUpdates() {
+            chromeProjection = projection
+        }
     }
 
     private var designActivitySnapshotInput: DesignActivitySnapshotInput {

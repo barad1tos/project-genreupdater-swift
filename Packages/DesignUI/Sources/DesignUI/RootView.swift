@@ -79,7 +79,7 @@ public struct RootView<UpdateContent: View>: View {
                 NavigationHistoryControls(model: model)
             }
             ToolbarItem(placement: .automatic) {
-                SyncStatusPill(text: model.data.syncStatusText)
+                SyncStatusPill(chrome: model.data.chrome)
             }
         }
         .onChange(of: data) { _, newData in
@@ -190,15 +190,15 @@ private struct NavigationHistoryControls: View {
 }
 
 private struct SyncStatusPill: View {
-    let text: String
+    let chrome: DesignChromeSnapshot
 
     var body: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(Ayu.success.opacity(0.88))
+                .fill(severityColor.opacity(0.88))
                 .frame(width: 6, height: 6)
 
-            Text(text)
+            Text(chrome.syncStatusText)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Ayu.fg2)
                 .lineLimit(1)
@@ -208,7 +208,23 @@ private struct SyncStatusPill: View {
         .padding(.vertical, 6)
         .fixedSize(horizontal: true, vertical: false)
         .layoutPriority(1)
-        .accessibilityLabel(text)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    /// The dot renders the projection's severity — the shell must never
+    /// invent its own status colour (ADR 0012).
+    private var severityColor: Color {
+        switch chrome.syncSeverity {
+        case .nominal: Ayu.success
+        case .attention: Ayu.warning
+        case .blocked: Ayu.error
+        }
+    }
+
+    private var accessibilityText: String {
+        chrome.syncSeverity == .nominal
+            ? chrome.syncStatusText
+            : "\(chrome.syncStatusText) — needs attention"
     }
 }
 
