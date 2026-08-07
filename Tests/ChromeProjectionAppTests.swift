@@ -69,6 +69,33 @@ struct ChromeProjectionAppTests {
         #expect(updated.revision != baseline.revision)
     }
 
+    @Test("the observable command mirror follows the projection")
+    func commandMirrorFollowsProjection() async {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // Persistence is irrelevant to this mirror pin.
+            }
+        )
+        #expect(dependencies.chromeCommands.isEmpty)
+
+        _ = await dependencies.refreshChromeProjection()
+
+        #expect(dependencies.chromeCommands.contains { $0.commandKind == .runManually })
+    }
+
+    @Test("the design chrome mirror maps facts without derivation")
+    func designChromeMirrorMapsFacts() {
+        let design = ActivitySnapshotAdapter.makeChrome(from: .empty())
+
+        #expect(design.syncSeverity == .nominal)
+        #expect(design.syncStatusText == "Idle")
+        #expect(design.processingModeLabel == "Preview")
+        #expect(design.isAutoFixEnabled == false)
+        #expect(design.automationLabel == "Manual trigger")
+        #expect(design.narrowedScopeLabel == nil)
+    }
+
     @Test("a content-identical chrome refresh keeps the revision")
     func identicalRefreshKeepsRevision() async {
         let dependencies = AppDependencies(
