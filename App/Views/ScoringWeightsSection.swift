@@ -77,10 +77,8 @@ struct ScoringWeightsSection: View {
         Binding(
             get: { scoreValue(for: row) },
             set: { newValue in
-                Task {
-                    await mutateConfiguration(dependencies) { configuration in
-                        configuration.yearRetrieval.scoring[keyPath: row.keyPath] = newValue
-                    }
+                mutateConfiguration(dependencies) { configuration in
+                    configuration.yearRetrieval.scoring[keyPath: row.keyPath] = newValue
                 }
             }
         )

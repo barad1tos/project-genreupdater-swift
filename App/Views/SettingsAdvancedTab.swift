@@ -23,6 +23,10 @@ struct AdvancedTab: View {
     @State private var configurationJSON = ""
     @State private var jsonEditorState: JSONEditorState = .idle
     @State private var jsonStatusMessage = "Loaded from current configuration"
+    /// The settings revision the editor text was generated from — the CAS
+    /// anchor for Apply, so stale text conflicts instead of silently
+    /// overwriting changes made elsewhere since the last reload.
+    @State private var editorRevision: UInt64 = 0
 
     var body: some View {
         Form {
@@ -225,40 +229,43 @@ struct AdvancedTab: View {
     private func addRemasterKeyword() {
         let trimmed = newRemasterKeyword.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        newRemasterKeyword = ""
-        applyMutation { $0.cleaning.remasterKeywords.append(trimmed) }
+        if applyMutation({ $0.cleaning.remasterKeywords.append(trimmed) }) == .accepted {
+            newRemasterKeyword = ""
+        }
     }
 
     private func addAlbumSuffix() {
         let trimmed = newAlbumSuffix.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        newAlbumSuffix = ""
-        applyMutation { $0.cleaning.albumSuffixesToRemove.append(trimmed) }
+        if applyMutation({ $0.cleaning.albumSuffixesToRemove.append(trimmed) }) == .accepted {
+            newAlbumSuffix = ""
+        }
     }
 
-    /// Dispatches a settings command and refreshes the JSON preview once
-    /// the command settles (accepted or not — the preview mirrors truth).
-    private func applyMutation(_ mutation: @escaping (inout AppConfiguration) -> Void) {
-        Task {
-            await mutateConfiguration(dependencies, mutation)
-            reloadJSON()
-        }
+    /// Dispatches a settings command and refreshes the JSON preview to the
+    /// resulting truth (accepted or rolled back).
+    @discardableResult
+    private func applyMutation(_ mutation: (inout AppConfiguration) -> Void) -> CommandResultStatus {
+        let status = mutateConfiguration(dependencies, mutation)
+        reloadJSON()
+        return status
     }
 
     private func resetConfiguration() {
-        Task {
-            _ = await SettingsCommands.apply(
-                AppConfiguration(),
-                target: SettingsCommandTarget(expectedSettingsRevision: dependencies.config.revision),
-                dependencies: dependencies
-            )
-            reloadJSON()
-        }
+        // Deliberate live-revision target: reset is a user-confirmed
+        // destructive clobber of whatever the current settings are.
+        SettingsCommands.dispatch(
+            AppConfiguration(),
+            target: SettingsCommandTarget(expectedSettingsRevision: dependencies.config.revision),
+            dependencies: dependencies
+        )
+        reloadJSON()
     }
 
     private func reloadJSON() {
         do {
             configurationJSON = try Self.encodeConfiguration(dependencies.config)
+            editorRevision = dependencies.config.revision
             jsonEditorState = .valid
             jsonStatusMessage = "Loaded from current configuration"
         } catch {
@@ -292,11 +299,11 @@ struct AdvancedTab: View {
             Task {
                 let result = await SettingsCommands.apply(
                     decoded,
-                    target: SettingsCommandTarget(expectedSettingsRevision: dependencies.config.revision),
+                    target: SettingsCommandTarget(expectedSettingsRevision: editorRevision),
                     dependencies: dependencies
                 )
                 if result.status == .accepted {
-                    configurationJSON = (try? Self.encodeConfiguration(dependencies.config)) ?? configurationJSON
+                    reloadJSON()
                     jsonEditorState = .saved
                     jsonStatusMessage = "Saved"
                 } else {
@@ -383,10 +390,12 @@ extension AdvancedTab {
             return
         }
 
-        newExceptionArtist = ""
-        newExceptionAlbum = ""
-        applyMutation {
+        let status = applyMutation {
             $0.cleaning.trackCleaningExceptions.append(TrackCleaningException(artist: artist, album: album))
+        }
+        if status == .accepted {
+            newExceptionArtist = ""
+            newExceptionAlbum = ""
         }
     }
 }

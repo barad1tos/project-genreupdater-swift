@@ -291,13 +291,10 @@ struct APICacheTab: View {
     }
 
     /// A token change is a user-intended credential-availability flip:
-    /// re-probe through the awaited apply, then refresh the fix-plan
-    /// projection so a hasDiscogsAccess change surfaces immediately.
+    /// re-probe through the serialized apply queue, which also refreshes
+    /// the fix-plan projection so a hasDiscogsAccess change surfaces.
     private func reapplyRuntimeAfterTokenChange() {
-        Task {
-            await dependencies.applyRuntimeConfigurationAndWait()
-            _ = await dependencies.refreshFixPlanProjection()
-        }
+        dependencies.enqueueRuntimeApplyAndPublish()
     }
 
     private func deleteToken() {
@@ -403,14 +400,12 @@ struct ScriptAPIPrioritySection: View {
         Binding(
             get: { scriptPriorityOrder(for: key)[slot.index] },
             set: { newValue in
-                Task {
-                    await updateScriptPriority(key, slot: slot, api: newValue)
-                }
+                updateScriptPriority(key, slot: slot, api: newValue)
             }
         )
     }
 
-    func updateScriptPriority(_ key: String, slot: ScriptPrioritySlot, api: PreferredAPI) async {
+    func updateScriptPriority(_ key: String, slot: ScriptPrioritySlot, api: PreferredAPI) {
         var order = scriptPriorityOrder(for: key)
         order.removeAll { $0 == api }
         order.insert(api, at: min(slot.index, order.count))
@@ -419,7 +414,7 @@ struct ScriptAPIPrioritySection: View {
             primary: order.prefix(2).map { apiConfigurationValue(for: $0) },
             fallback: order.dropFirst(2).prefix(1).map { apiConfigurationValue(for: $0) }
         )
-        await mutateConfiguration(dependencies) { configuration in
+        mutateConfiguration(dependencies) { configuration in
             configuration.yearRetrieval.scriptAPIPriorities[key] = newPriority
         }
     }

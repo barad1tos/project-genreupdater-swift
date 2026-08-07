@@ -840,58 +840,45 @@ struct DesignRootHostView: View {
 
 extension DesignRootHostView {
     private func setDryRunMode(_ isDryRun: Bool) -> Bool {
-        Task {
-            let result = await mutateConfiguration(dependencies) { configuration in
-                configuration.runtime.dryRun = isDryRun
-            }
-            if result.status == .accepted {
-                applyWorkflowDefaults()
-            }
+        let didSave = mutateConfiguration(dependencies) { configuration in
+            configuration.runtime.dryRun = isDryRun
+        } == .accepted
+        if didSave {
+            applyWorkflowDefaults()
         }
-        return true
+        return didSave
     }
 
     private func setDefaultUpdateBehavior(_ behavior: DesignUpdateBehavior) -> Bool {
         let resolved = UpdateBehavior.resolved(from: behavior.rawValue)
-        Task {
-            let result = await mutateConfiguration(dependencies) { configuration in
-                configuration.processing.defaultUpdateBehavior = resolved
-            }
-            if result.status == .accepted {
-                applyWorkflowDefaults()
-            }
+        let didSave = mutateConfiguration(dependencies) { configuration in
+            configuration.processing.defaultUpdateBehavior = resolved
+        } == .accepted
+        if didSave {
+            applyWorkflowDefaults()
         }
-        return true
+        return didSave
     }
 
     private func setMinimumConfidence(_ percent: Double) -> Bool {
         let normalizedPercent = min(max(percent, 30), 100)
-        Task {
-            await mutateConfiguration(dependencies) { configuration in
-                configuration.yearRetrieval.logic.minConfidenceForNewYear = normalizedPercent
-            }
-        }
-        return true
+        return mutateConfiguration(dependencies) { configuration in
+            configuration.yearRetrieval.logic.minConfidenceForNewYear = normalizedPercent
+        } == .accepted
     }
 
     private func setReleaseYearRestoreThreshold(_ years: Int) -> Bool {
         let normalizedYears = min(max(years, 0), 100)
-        Task {
-            await mutateConfiguration(dependencies) { configuration in
-                configuration.processing.releaseYearRestoreThreshold = normalizedYears
-            }
-        }
-        return true
+        return mutateConfiguration(dependencies) { configuration in
+            configuration.processing.releaseYearRestoreThreshold = normalizedYears
+        } == .accepted
     }
 
     private func setTestArtists(_ artists: [String]) -> Bool {
         let normalizedArtists = ArtistAllowList.normalized(artists)
-        Task {
-            await mutateConfiguration(dependencies) { configuration in
-                configuration.development.testArtists = normalizedArtists
-            }
-        }
-        return true
+        return mutateConfiguration(dependencies) { configuration in
+            configuration.development.testArtists = normalizedArtists
+        } == .accepted
     }
 
     private func setAppearanceMode(_ mode: DesignAppearanceMode) -> Bool {

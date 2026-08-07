@@ -45,10 +45,8 @@ struct GeneralTab: View {
             let confidenceBinding = Binding<Double>(
                 get: { Double(dependencies.config.yearRetrieval.logic.minConfidenceForNewYear) },
                 set: { newValue in
-                    Task {
-                        await mutateConfiguration(dependencies) {
-                            $0.yearRetrieval.logic.minConfidenceForNewYear = newValue
-                        }
+                    mutateConfiguration(dependencies) {
+                        $0.yearRetrieval.logic.minConfidenceForNewYear = newValue
                     }
                 }
             )
@@ -61,10 +59,8 @@ struct GeneralTab: View {
             let definitiveBinding = Binding<Double>(
                 get: { Double(dependencies.config.yearRetrieval.logic.definitiveScoreThreshold) },
                 set: { newValue in
-                    Task {
-                        await mutateConfiguration(dependencies) {
-                            $0.yearRetrieval.logic.definitiveScoreThreshold = Int(newValue)
-                        }
+                    mutateConfiguration(dependencies) {
+                        $0.yearRetrieval.logic.definitiveScoreThreshold = Int(newValue)
                     }
                 }
             )
@@ -278,10 +274,8 @@ private struct IDLookupSettings: View {
         Binding(
             get: { batchSize },
             set: { newValue in
-                Task {
-                    await mutateConfiguration(dependencies) {
-                        $0.applescript.batchProcessing.idsBatchSize = newValue
-                    }
+                mutateConfiguration(dependencies) {
+                    $0.applescript.batchProcessing.idsBatchSize = newValue
                 }
             }
         )
@@ -418,10 +412,8 @@ private struct AppleScriptTimeoutSettings: View {
                 max(1, Int(dependencies.config.applescript.timeouts[keyPath: keyPath].timeInterval))
             },
             set: { newValue in
-                Task {
-                    await mutateConfiguration(dependencies) {
-                        $0.applescript.timeouts[keyPath: keyPath] = .seconds(max(1, newValue))
-                    }
+                mutateConfiguration(dependencies) {
+                    $0.applescript.timeouts[keyPath: keyPath] = .seconds(max(1, newValue))
                 }
             }
         )

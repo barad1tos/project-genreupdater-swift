@@ -35,10 +35,8 @@ struct SettingsTestArtistsSection: View {
                 }
             }
             .onDelete { offsets in
-                Task {
-                    await mutateConfiguration(dependencies) {
-                        $0.development.testArtists.remove(atOffsets: offsets)
-                    }
+                mutateConfiguration(dependencies) {
+                    $0.development.testArtists.remove(atOffsets: offsets)
                 }
             }
 
@@ -73,9 +71,16 @@ struct SettingsTestArtistsSection: View {
     }
 
     private func addTestArtist() {
-        let addedCount = addTestArtists([trimmedTestArtist])
-        newTestArtist = ""
-        importStatus = addedCount == 0 ? "Artist already exists" : ""
+        switch addTestArtists([trimmedTestArtist]) {
+        case .added:
+            newTestArtist = ""
+            importStatus = ""
+        case .nothingNew:
+            newTestArtist = ""
+            importStatus = "Artist already exists"
+        case .saveFailed:
+            importStatus = "Could not save the artist list"
+        }
     }
 
     private func removeTestArtist(_ artist: String) {
@@ -84,11 +89,9 @@ struct SettingsTestArtistsSection: View {
         }
         guard hasMatch else { return }
         importStatus = ""
-        Task {
-            await mutateConfiguration(dependencies) {
-                $0.development.testArtists.removeAll { existing in
-                    existing.localizedCaseInsensitiveCompare(artist) == .orderedSame
-                }
+        mutateConfiguration(dependencies) {
+            $0.development.testArtists.removeAll { existing in
+                existing.localizedCaseInsensitiveCompare(artist) == .orderedSame
             }
         }
     }
@@ -111,17 +114,26 @@ struct SettingsTestArtistsSection: View {
                 .split(whereSeparator: \.isNewline)
                 .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
-            let addedCount = addTestArtists(artists)
-            importStatus = addedCount == 0
-                ? "No new artists imported"
-                : "Imported \(addedCount) artists"
+            switch addTestArtists(artists) {
+            case let .added(count):
+                importStatus = "Imported \(count) artists"
+            case .nothingNew:
+                importStatus = "No new artists imported"
+            case .saveFailed:
+                importStatus = "Import failed: could not save the artist list"
+            }
         } catch {
             importStatus = "Import failed: \(error.localizedDescription)"
         }
     }
 
-    @discardableResult
-    private func addTestArtists(_ artists: [String]) -> Int {
+    private enum ArtistAddOutcome {
+        case added(Int)
+        case nothingNew
+        case saveFailed
+    }
+
+    private func addTestArtists(_ artists: [String]) -> ArtistAddOutcome {
         var additions: [String] = []
         for artist in artists {
             let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -136,12 +148,10 @@ struct SettingsTestArtistsSection: View {
             additions.append(trimmedArtist)
         }
 
-        guard !additions.isEmpty else { return 0 }
-        Task {
-            await mutateConfiguration(dependencies) {
-                $0.development.testArtists.append(contentsOf: additions)
-            }
+        guard !additions.isEmpty else { return .nothingNew }
+        let status = mutateConfiguration(dependencies) {
+            $0.development.testArtists.append(contentsOf: additions)
         }
-        return additions.count
+        return status == .accepted ? .added(additions.count) : .saveFailed
     }
 }

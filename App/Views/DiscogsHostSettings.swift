@@ -74,12 +74,10 @@ extension APICacheTab {
             return
         }
         let previousHost = dependencies.config.yearRetrieval.apiAuth.discogsBaseHost
-        Task {
-            let result = await mutateConfiguration(dependencies) { configuration in
-                configuration.yearRetrieval.apiAuth.discogsBaseHost = normalizedHost
-            }
-            discogsHostInput = result.status == .accepted ? normalizedHost : previousHost
+        let status = mutateConfiguration(dependencies) { configuration in
+            configuration.yearRetrieval.apiAuth.discogsBaseHost = normalizedHost
         }
+        discogsHostInput = status == .accepted ? normalizedHost : previousHost
     }
 
     private func resetDiscogsHost() {

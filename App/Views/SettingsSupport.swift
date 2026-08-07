@@ -39,28 +39,27 @@ func configBinding<Value>(
     Binding(
         get: { dependencies.config[keyPath: keyPath] },
         set: { newValue in
-            Task {
-                await mutateConfiguration(dependencies) { configuration in
-                    configuration[keyPath: keyPath] = newValue
-                }
+            mutateConfiguration(dependencies) { configuration in
+                configuration[keyPath: keyPath] = newValue
             }
         }
     )
 }
 
 /// The one write path for UI settings mutations: copy-with-edit against
-/// the LIVE config at execution time (sequential dispatches compose),
-/// CAS target from the live revision, dispatched through the command.
+/// the live config, CAS target from the live revision, dispatched through
+/// the command's synchronous acceptance head — the mutation is visible to
+/// SwiftUI on the same render turn (controlled TextFields depend on it).
 @MainActor
 @discardableResult
 func mutateConfiguration(
     _ dependencies: AppDependencies,
-    _ mutation: @escaping (inout AppConfiguration) -> Void
-) async -> SettingsCommandResult {
+    _ mutation: (inout AppConfiguration) -> Void
+) -> CommandResultStatus {
     var edited = dependencies.config
     mutation(&edited)
     let target = SettingsCommandTarget(expectedSettingsRevision: dependencies.config.revision)
-    return await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
+    return SettingsCommands.dispatch(edited, target: target, dependencies: dependencies)
 }
 
 // MARK: - Display Names
