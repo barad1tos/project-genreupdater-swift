@@ -9,15 +9,15 @@ struct ChromeProjectionTests {
     func emptyProjectionAssertsNothing() {
         let empty = ChromeProjection.empty()
 
-        #expect(empty.permissions == .unprobed)
-        #expect(empty.permissions.isMusicAppAvailable == nil)
+        #expect(empty.safety.permissions == .unprobed)
+        #expect(empty.safety.permissions.isMusicAppAvailable == nil)
         #expect(empty.commands.isEmpty)
         #expect(empty.operationalIssues.isEmpty)
         #expect(empty.syncStatus.severity == .nominal)
         #expect(empty.syncStatus.isRunActive == false)
-        #expect(empty.recoveryHold == nil)
-        #expect(empty.effectiveScope == nil)
-        #expect(empty.processingModeLabel == "Preview")
+        #expect(empty.safety.recoveryHold == nil)
+        #expect(empty.library.effectiveScope == nil)
+        #expect(empty.safety.processingModeLabel == "Preview")
     }
 
     @Test("withRevision changes only the revision")
@@ -37,7 +37,7 @@ struct ChromeProjectionTests {
         let current = await store.currentChrome()
 
         #expect(current == published)
-        #expect(current.shellTitle == "Probe")
+        #expect(current.identity.title == "Probe")
     }
 
     @Test("each chrome replacement advances the projection revision")
@@ -74,7 +74,7 @@ struct ChromeProjectionTests {
         )
 
         #expect(afterStale == fresh)
-        #expect(afterStale.shellTitle == "Fresh")
+        #expect(afterStale.identity.title == "Fresh")
     }
 
     @Test("the chrome updates stream yields the current projection on subscribe")
@@ -110,15 +110,15 @@ struct ChromeProjectionTests {
 private func makeProbeProjection(title: String) -> ChromeProjection {
     ChromeProjection(
         revision: .initial,
-        shellTitle: title,
-        shellSubtitle: nil,
+        identity: ChromeShellIdentity(title: title, subtitle: nil),
         syncStatus: ChromeSyncStatus(text: "Idle", severity: .nominal, isRunActive: false),
-        physicalTrackCount: 42,
-        effectiveScope: nil,
-        processingModeLabel: "Preview",
-        automationState: .manualOnly,
-        recoveryHold: nil,
-        permissions: .unprobed,
+        library: ChromeLibrarySummary(physicalTrackCount: 42, effectiveScope: nil),
+        safety: ChromeSafetyState(
+            processingModeLabel: "Preview",
+            automationState: .manualOnly,
+            recoveryHold: nil,
+            permissions: .unprobed
+        ),
         commands: [],
         operationalIssues: []
     )

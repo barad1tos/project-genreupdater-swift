@@ -96,6 +96,9 @@ extension AppDependencies {
         recoveryClearTasks[id] = task
         defer { recoveryClearTasks[id] = nil }
         try await task.value
+        // A hold-only clearance broadcasts no lifecycle event; chrome must
+        // re-derive its hold fact at this choke point for every caller.
+        await refreshChromeProjection()
     }
 
     /// Dismisses selected recovery work and persists the still-open record;

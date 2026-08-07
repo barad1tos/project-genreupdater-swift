@@ -108,48 +108,77 @@ public struct ChromeCommandDescriptor: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Shell identity, distinct from any screen's title (analysis P-checklist).
+public struct ChromeShellIdentity: Equatable, Sendable {
+    public let title: String
+    public let subtitle: String?
+
+    public init(title: String, subtitle: String?) {
+        self.title = title
+        self.subtitle = subtitle
+    }
+}
+
+/// The physical-vs-effective scope pair (ADR 0020 / CONTEXT both-visible
+/// rule): the physical count describes Music.app as a whole, the scope
+/// describes what a run may touch.
+public struct ChromeLibrarySummary: Equatable, Sendable {
+    public let physicalTrackCount: Int?
+    public let effectiveScope: ChromeScopeSummary?
+
+    public init(physicalTrackCount: Int?, effectiveScope: ChromeScopeSummary?) {
+        self.physicalTrackCount = physicalTrackCount
+        self.effectiveScope = effectiveScope
+    }
+}
+
+/// The safety facts chrome must keep orthogonal (ADR 0006): processing
+/// mode, automation state, recovery hold, and probed permissions.
+public struct ChromeSafetyState: Equatable, Sendable {
+    public let processingModeLabel: String
+    public let automationState: ChromeAutomationState
+    public let recoveryHold: ChromeRecoveryHold?
+    public let permissions: ChromePermissions
+
+    public init(
+        processingModeLabel: String,
+        automationState: ChromeAutomationState,
+        recoveryHold: ChromeRecoveryHold?,
+        permissions: ChromePermissions
+    ) {
+        self.processingModeLabel = processingModeLabel
+        self.automationState = automationState
+        self.recoveryHold = recoveryHold
+        self.permissions = permissions
+    }
+}
+
 /// The one shell truth for the main window, status bar, and app commands
 /// (ADR 0012): sync, scope, recovery hold, permission, and command state.
 /// Other projections may carry derived display copies; this is the source.
 public struct ChromeProjection: Equatable, Sendable {
     public let revision: ProjectionRevision
-    public let shellTitle: String
-    public let shellSubtitle: String?
+    public let identity: ChromeShellIdentity
     public let syncStatus: ChromeSyncStatus
-    /// Whole-Music.app count — informational, never the processing scope.
-    public let physicalTrackCount: Int?
-    public let effectiveScope: ChromeScopeSummary?
-    public let processingModeLabel: String
-    public let automationState: ChromeAutomationState
-    public let recoveryHold: ChromeRecoveryHold?
-    public let permissions: ChromePermissions
+    public let library: ChromeLibrarySummary
+    public let safety: ChromeSafetyState
     public let commands: [ChromeCommandDescriptor]
     public let operationalIssues: [OperationalIssue]
 
     public init(
         revision: ProjectionRevision,
-        shellTitle: String,
-        shellSubtitle: String?,
+        identity: ChromeShellIdentity,
         syncStatus: ChromeSyncStatus,
-        physicalTrackCount: Int?,
-        effectiveScope: ChromeScopeSummary?,
-        processingModeLabel: String,
-        automationState: ChromeAutomationState,
-        recoveryHold: ChromeRecoveryHold?,
-        permissions: ChromePermissions,
+        library: ChromeLibrarySummary,
+        safety: ChromeSafetyState,
         commands: [ChromeCommandDescriptor],
         operationalIssues: [OperationalIssue]
     ) {
         self.revision = revision
-        self.shellTitle = shellTitle
-        self.shellSubtitle = shellSubtitle
+        self.identity = identity
         self.syncStatus = syncStatus
-        self.physicalTrackCount = physicalTrackCount
-        self.effectiveScope = effectiveScope
-        self.processingModeLabel = processingModeLabel
-        self.automationState = automationState
-        self.recoveryHold = recoveryHold
-        self.permissions = permissions
+        self.library = library
+        self.safety = safety
         self.commands = commands
         self.operationalIssues = operationalIssues
     }
@@ -157,15 +186,15 @@ public struct ChromeProjection: Equatable, Sendable {
     public static func empty(revision: ProjectionRevision = .initial) -> Self {
         Self(
             revision: revision,
-            shellTitle: "Genre Updater",
-            shellSubtitle: nil,
+            identity: ChromeShellIdentity(title: "Genre Updater", subtitle: nil),
             syncStatus: ChromeSyncStatus(text: "Idle", severity: .nominal, isRunActive: false),
-            physicalTrackCount: nil,
-            effectiveScope: nil,
-            processingModeLabel: "Preview",
-            automationState: .manualOnly,
-            recoveryHold: nil,
-            permissions: .unprobed,
+            library: ChromeLibrarySummary(physicalTrackCount: nil, effectiveScope: nil),
+            safety: ChromeSafetyState(
+                processingModeLabel: "Preview",
+                automationState: .manualOnly,
+                recoveryHold: nil,
+                permissions: .unprobed
+            ),
             commands: [],
             operationalIssues: []
         )
@@ -174,15 +203,10 @@ public struct ChromeProjection: Equatable, Sendable {
     func withRevision(_ revision: ProjectionRevision) -> Self {
         Self(
             revision: revision,
-            shellTitle: shellTitle,
-            shellSubtitle: shellSubtitle,
+            identity: identity,
             syncStatus: syncStatus,
-            physicalTrackCount: physicalTrackCount,
-            effectiveScope: effectiveScope,
-            processingModeLabel: processingModeLabel,
-            automationState: automationState,
-            recoveryHold: recoveryHold,
-            permissions: permissions,
+            library: library,
+            safety: safety,
             commands: commands,
             operationalIssues: operationalIssues
         )

@@ -27,7 +27,12 @@ enum SettingsCommands {
             return .rejectedStale
         case .temporaryUnavailable:
             let saveError = dependencies.configurationSaveErrorMessage ?? "Could not save the configuration."
-            Task { await dependencies.publishSettingsProjection(saveErrorMessage: saveError) }
+            Task {
+                await dependencies.publishSettingsProjection(saveErrorMessage: saveError)
+                // Chrome carries the same persistence-health fact; a failed
+                // save must reach both surfaces (ADR 0012).
+                await dependencies.refreshChromeProjection()
+            }
             return .temporaryUnavailable
         }
     }
@@ -48,6 +53,7 @@ enum SettingsCommands {
         case .temporaryUnavailable:
             let saveError = dependencies.configurationSaveErrorMessage ?? "Could not save the configuration."
             let refreshed = await dependencies.publishSettingsProjection(saveErrorMessage: saveError)
+            await dependencies.refreshChromeProjection()
             return .temporaryUnavailable(
                 message: "Could not save the configuration. Nothing was changed.",
                 refreshedSettings: refreshed
@@ -110,6 +116,29 @@ enum SettingsCommands {
 }
 
 extension AppDependencies {
+    /// One-time UserDefaults → AppConfiguration migration (slice 7). Never
+    /// runs on a failed load: seeding defaults plus the behavior would
+    /// persist over the user's config.json. A persist failure keeps the
+    /// key so the migration retries on the next launch (persistConfiguration
+    /// clears the key on any later success, so a newer explicit choice can
+    /// never be reverted by a stale key).
+    func migrateDefaultUpdateBehaviorIfNeeded() {
+        guard configurationLoadIssue == nil,
+              let raw = UserDefaults.standard.string(forKey: AppStorageKey.defaultUpdateBehavior)
+        else { return }
+        config.processing.defaultUpdateBehavior = UpdateBehavior.resolved(from: raw)
+        persistConfiguration()
+    }
+
+    /// The configuration-save failure message when the app is in that
+    /// error state; nil otherwise.
+    var configurationSaveErrorMessage: String? {
+        guard case let .error(message) = appState, isConfigurationSaveIssue(appState) else {
+            return nil
+        }
+        return message
+    }
+
     /// Publishes the current configuration as the settings projection; the
     /// settings command path is the only writer, so the projection always
     /// reflects the last accepted (or rolled-back) state.

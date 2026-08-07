@@ -25,7 +25,7 @@ struct ChromeProjectionAppTests {
 
         // "Auto-fix" differs from the empty sentinel's "Preview", proving
         // the bootstrap publish landed with the loaded configuration.
-        #expect(current.processingModeLabel == "Auto-fix")
+        #expect(current.safety.processingModeLabel == "Auto-fix")
     }
 
     @Test("a failed load surfaces as a chrome configuration issue")
@@ -53,7 +53,7 @@ struct ChromeProjectionAppTests {
         )
         _ = await dependencies.refreshChromeProjection()
         let baseline = await dependencies.projectionStore.currentChrome()
-        #expect(baseline.processingModeLabel == "Auto-fix")
+        #expect(baseline.safety.processingModeLabel == "Auto-fix")
         var edited = dependencies.config
         edited.runtime.dryRun = true
 
@@ -65,7 +65,7 @@ struct ChromeProjectionAppTests {
         let updated = await dependencies.projectionStore.currentChrome()
 
         #expect(result.status == .accepted)
-        #expect(updated.processingModeLabel == "Preview")
+        #expect(updated.safety.processingModeLabel == "Preview")
         #expect(updated.revision != baseline.revision)
     }
 

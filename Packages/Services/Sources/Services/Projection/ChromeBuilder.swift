@@ -1,51 +1,92 @@
 import Core
 import Foundation
 
-/// Raw facts the app layer snapshots for chrome assembly. Every field is a
-/// probed truth or an immutable snapshot — the builder never reads live
-/// mutable state (ADR 0020 for scope; analysis D7/D9).
-public struct ChromeInput: Sendable {
+/// Facts about the run service and its current lifecycle.
+public struct ChromeRunFacts: Sendable {
     public let lifecycle: RunLifecycleSnapshot?
+    public let isRunServiceAvailable: Bool
+
+    public init(lifecycle: RunLifecycleSnapshot?, isRunServiceAvailable: Bool) {
+        self.lifecycle = lifecycle
+        self.isRunServiceAvailable = isRunServiceAvailable
+    }
+}
+
+/// The unresolved write-recovery fact, sourced from the run store — never
+/// from a UI-refresh-cadence projection.
+public struct ChromeRecoveryFacts: Sendable {
     public let hasUnresolvedWriteRecovery: Bool
     public let recoveryRunID: RunID?
+
+    public init(hasUnresolvedWriteRecovery: Bool, recoveryRunID: RunID?) {
+        self.hasUnresolvedWriteRecovery = hasUnresolvedWriteRecovery
+        self.recoveryRunID = recoveryRunID
+    }
+}
+
+/// Settings-derived facts: mode plus persistence health.
+public struct ChromeSettingsFacts: Sendable {
     public let isPreviewMode: Bool
+    public let saveErrorMessage: String?
+    public let hasLoadFailed: Bool
+
+    public init(isPreviewMode: Bool, saveErrorMessage: String?, hasLoadFailed: Bool) {
+        self.isPreviewMode = isPreviewMode
+        self.saveErrorMessage = saveErrorMessage
+        self.hasLoadFailed = hasLoadFailed
+    }
+}
+
+/// Automation cadence facts.
+public struct ChromeAutomationFacts: Sendable {
     public let isAutoSyncRunning: Bool
     public let isIncrementalDue: Bool?
+
+    public init(isAutoSyncRunning: Bool, isIncrementalDue: Bool?) {
+        self.isAutoSyncRunning = isAutoSyncRunning
+        self.isIncrementalDue = isIncrementalDue
+    }
+}
+
+/// Library facts: the whole-Music.app count and the active run's scope
+/// snapshot (ADR 0020 — never live settings).
+public struct ChromeLibraryFacts: Sendable {
     public let physicalTrackCount: Int?
     public let scope: ProcessingScopeSnapshot?
+
+    public init(physicalTrackCount: Int?, scope: ProcessingScopeSnapshot?) {
+        self.physicalTrackCount = physicalTrackCount
+        self.scope = scope
+    }
+}
+
+/// Raw facts the app layer snapshots for chrome assembly. Every field is a
+/// probed truth or an immutable snapshot — the builder never reads live
+/// mutable state (analysis D7/D9).
+public struct ChromeInput: Sendable {
+    public let run: ChromeRunFacts
+    public let recovery: ChromeRecoveryFacts
+    public let settings: ChromeSettingsFacts
+    public let automation: ChromeAutomationFacts
+    public let library: ChromeLibraryFacts
     public let permissions: ChromePermissions
-    public let settingsSaveErrorMessage: String?
-    public let settingsLoadFailed: Bool
-    public let isRunServiceAvailable: Bool
     public let hasReviewableFixPlan: Bool
 
     public init(
-        lifecycle: RunLifecycleSnapshot?,
-        hasUnresolvedWriteRecovery: Bool,
-        recoveryRunID: RunID?,
-        isPreviewMode: Bool,
-        isAutoSyncRunning: Bool,
-        isIncrementalDue: Bool?,
-        physicalTrackCount: Int?,
-        scope: ProcessingScopeSnapshot?,
+        run: ChromeRunFacts,
+        recovery: ChromeRecoveryFacts,
+        settings: ChromeSettingsFacts,
+        automation: ChromeAutomationFacts,
+        library: ChromeLibraryFacts,
         permissions: ChromePermissions,
-        settingsSaveErrorMessage: String?,
-        settingsLoadFailed: Bool,
-        isRunServiceAvailable: Bool,
         hasReviewableFixPlan: Bool
     ) {
-        self.lifecycle = lifecycle
-        self.hasUnresolvedWriteRecovery = hasUnresolvedWriteRecovery
-        self.recoveryRunID = recoveryRunID
-        self.isPreviewMode = isPreviewMode
-        self.isAutoSyncRunning = isAutoSyncRunning
-        self.isIncrementalDue = isIncrementalDue
-        self.physicalTrackCount = physicalTrackCount
-        self.scope = scope
+        self.run = run
+        self.recovery = recovery
+        self.settings = settings
+        self.automation = automation
+        self.library = library
         self.permissions = permissions
-        self.settingsSaveErrorMessage = settingsSaveErrorMessage
-        self.settingsLoadFailed = settingsLoadFailed
-        self.isRunServiceAvailable = isRunServiceAvailable
         self.hasReviewableFixPlan = hasReviewableFixPlan
     }
 }
@@ -57,28 +98,31 @@ public enum ChromeBuilder {
         let hold = makeRecoveryHold(input: input)
         return ChromeProjection(
             revision: .initial,
-            shellTitle: "Genre Updater",
-            shellSubtitle: nil,
+            identity: ChromeShellIdentity(title: "Genre Updater", subtitle: nil),
             syncStatus: makeSyncStatus(input: input, hold: hold),
-            physicalTrackCount: input.physicalTrackCount,
-            effectiveScope: makeScope(input: input),
-            processingModeLabel: input.isPreviewMode ? "Preview" : "Auto-fix",
-            automationState: makeAutomationState(input: input, hold: hold),
-            recoveryHold: hold,
-            permissions: input.permissions,
+            library: ChromeLibrarySummary(
+                physicalTrackCount: input.library.physicalTrackCount,
+                effectiveScope: makeScope(input: input)
+            ),
+            safety: ChromeSafetyState(
+                processingModeLabel: input.settings.isPreviewMode ? "Preview" : "Auto-fix",
+                automationState: makeAutomationState(input: input, hold: hold),
+                recoveryHold: hold,
+                permissions: input.permissions
+            ),
             commands: makeCommands(input: input, hold: hold),
             operationalIssues: makeIssues(input: input)
         )
     }
 
     private static func makeRecoveryHold(input: ChromeInput) -> ChromeRecoveryHold? {
-        guard input.hasUnresolvedWriteRecovery else { return nil }
-        return ChromeRecoveryHold(blocksWrites: true, runID: input.recoveryRunID)
+        guard input.recovery.hasUnresolvedWriteRecovery else { return nil }
+        return ChromeRecoveryHold(blocksWrites: true, runID: input.recovery.recoveryRunID)
     }
 
     private static func makeSyncStatus(input: ChromeInput, hold: ChromeRecoveryHold?) -> ChromeSyncStatus {
-        let isRunActive = input.lifecycle?.isActive == true
-        guard let state = input.lifecycle?.state else {
+        let isRunActive = input.run.lifecycle?.isActive == true
+        guard let state = input.run.lifecycle?.state else {
             let text = hold == nil ? "Idle" : "Recovery needed"
             return ChromeSyncStatus(
                 text: text,
@@ -118,7 +162,7 @@ public enum ChromeBuilder {
     }
 
     private static func makeScope(input: ChromeInput) -> ChromeScopeSummary? {
-        guard let scope = input.scope else { return nil }
+        guard let scope = input.library.scope else { return nil }
         let detail: String? = if let trackCount = scope.knownTrackCount {
             trackCount == 1 ? "1 known track" : "\(trackCount.formatted()) known tracks"
         } else {
@@ -135,7 +179,7 @@ public enum ChromeBuilder {
         input: ChromeInput,
         hold: ChromeRecoveryHold?
     ) -> ChromeAutomationState {
-        if input.lifecycle?.isActive == true || input.isAutoSyncRunning {
+        if input.run.lifecycle?.isActive == true || input.automation.isAutoSyncRunning {
             return .running
         }
         if hold != nil {
@@ -144,7 +188,7 @@ public enum ChromeBuilder {
         if hasDeniedPermission(input.permissions) {
             return .permissionRequired
         }
-        if input.isIncrementalDue == false {
+        if input.automation.isIncrementalDue == false {
             return .nothingDue
         }
         return .manualOnly
@@ -163,8 +207,8 @@ public enum ChromeBuilder {
             commands.append(ChromeCommandDescriptor(
                 id: "chrome.resume-recovery",
                 title: "Resume recovery",
-                isEnabled: input.isRunServiceAvailable,
-                disabledReason: input.isRunServiceAvailable ? nil : "Services are still starting.",
+                isEnabled: input.run.isRunServiceAvailable,
+                disabledReason: input.run.isRunServiceAvailable ? nil : "Services are still starting.",
                 commandKind: .resumeRecovery
             ))
         }
@@ -180,35 +224,28 @@ public enum ChromeBuilder {
         return commands
     }
 
+    /// The availability predicate lives here, on probed facts (D9): a
+    /// proven-unavailable Music.app refuses the run (the Python P30
+    /// refusal analog), never just "the service object exists".
     private static func makeRunCommand(input: ChromeInput, hold: ChromeRecoveryHold?) -> ChromeCommandDescriptor {
         // A write hold degrades the run command to the read-only library
         // check instead of hiding or disabling it (ADR 0006).
         let variant: ActivityCommandVariant = hold == nil ? .standard : .libraryCheck
         let title = hold == nil ? "Run now" : "Check library"
-        guard input.isRunServiceAvailable else {
-            return ChromeCommandDescriptor(
-                id: "chrome.run-manually",
-                title: title,
-                isEnabled: false,
-                disabledReason: "Services are still starting.",
-                commandKind: .runManually,
-                variant: variant
-            )
-        }
-        if let lifecycle = input.lifecycle, lifecycle.isActive, !lifecycle.canQueueManual {
-            return ChromeCommandDescriptor(
-                id: "chrome.run-manually",
-                title: title,
-                isEnabled: false,
-                disabledReason: "A run is already in progress.",
-                commandKind: .runManually,
-                variant: variant
-            )
+        let disabledReason: String? = if !input.run.isRunServiceAvailable {
+            "Services are still starting."
+        } else if input.permissions.isMusicAppAvailable == false {
+            "Music.app is not available."
+        } else if let lifecycle = input.run.lifecycle, lifecycle.isActive, !lifecycle.canQueueManual {
+            "A run is already in progress."
+        } else {
+            nil
         }
         return ChromeCommandDescriptor(
             id: "chrome.run-manually",
             title: title,
-            isEnabled: true,
+            isEnabled: disabledReason == nil,
+            disabledReason: disabledReason,
             commandKind: .runManually,
             variant: variant
         )
@@ -216,7 +253,7 @@ public enum ChromeBuilder {
 
     private static func makeIssues(input: ChromeInput) -> [OperationalIssue] {
         var issues: [OperationalIssue] = []
-        if input.settingsLoadFailed {
+        if input.settings.hasLoadFailed {
             issues.append(OperationalIssue(
                 id: "chrome.settings-load",
                 category: .configurationRequired,
@@ -224,7 +261,7 @@ public enum ChromeBuilder {
                 nextAction: "Review and save Settings to repair the stored configuration."
             ))
         }
-        if let saveError = input.settingsSaveErrorMessage {
+        if let saveError = input.settings.saveErrorMessage {
             issues.append(OperationalIssue(
                 id: "chrome.settings-save",
                 category: .temporaryUnavailable,
