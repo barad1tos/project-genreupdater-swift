@@ -19,7 +19,9 @@ struct GenreUpdaterApp: App {
     @AppStorage("fastAnimations") private var fastAnimations = false
 
     var body: some Scene {
-        WindowGroup {
+        // Single-instance window: openWindow(id:) from the status item
+        // brings this one forward instead of creating a second shell.
+        Window("Genre Updater", id: "main") {
             ContentView()
                 .environment(dependencies)
                 .environment(\.motionScale, fastAnimations ? 0.5 : 1.0)
@@ -44,14 +46,15 @@ struct GenreUpdaterApp: App {
                 // The menu renders the chrome projection's descriptors —
                 // title, availability, and hold degradation come from the
                 // shared shell truth, never a local guess (ADR 0012).
-                let runCommand = dependencies.chromeCommands.first { $0.commandKind == .runManually }
+                let runCommand = dependencies.chrome.commands.first { $0.commandKind == .runManually }
                 Button(runCommand?.title ?? "Run now") {
                     Task { await dependencies.performChromeCommand(.runManually) }
                 }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(runCommand?.isEnabled != true)
 
-                if let resumeCommand = dependencies.chromeCommands.first(where: { $0.commandKind == .resumeRecovery }) {
+                if let resumeCommand = dependencies.chrome.commands
+                    .first(where: { $0.commandKind == .resumeRecovery }) {
                     Button(resumeCommand.title) {
                         Task { await dependencies.performChromeCommand(.resumeRecovery) }
                     }
@@ -79,6 +82,18 @@ struct GenreUpdaterApp: App {
                 .environment(\.motionScale, fastAnimations ? 0.5 : 1.0)
                 .preferredColorScheme(appearanceMode.colorScheme)
                 .animation(Motion.curveDefault, value: appearanceMode)
+        }
+
+        // ADR 0006: recovery must be visible without an open window; the
+        // status item renders the same chrome truth as every shell zone.
+        MenuBarExtra {
+            StatusBarMenu()
+                .environment(dependencies)
+        } label: {
+            // The severity read lives in a view BODY so observation
+            // tracking re-renders the icon; an argument expression in
+            // App.body has no verified tracking site.
+            StatusBarLabel(dependencies: dependencies)
         }
     }
 

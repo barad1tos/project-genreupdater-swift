@@ -69,19 +69,27 @@ struct ChromeProjectionAppTests {
         #expect(updated.revision != baseline.revision)
     }
 
-    @Test("the observable command mirror follows the projection")
-    func commandMirrorFollowsProjection() async {
+    @Test("the observable chrome mirror follows the projection")
+    func chromeMirrorFollowsProjection() async {
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
             configurationSaver: { _ in
                 // Persistence is irrelevant to this mirror pin.
             }
         )
-        #expect(dependencies.chromeCommands.isEmpty)
+        #expect(dependencies.chrome.commands.isEmpty)
 
-        _ = await dependencies.refreshChromeProjection()
+        let published = await dependencies.refreshChromeProjection()
 
-        #expect(dependencies.chromeCommands.contains { $0.commandKind == .runManually })
+        #expect(dependencies.chrome == published)
+        #expect(dependencies.chrome.commands.contains { $0.commandKind == .runManually })
+    }
+
+    @Test("the status item symbol follows severity")
+    func statusItemSymbolFollowsSeverity() {
+        #expect(StatusBarSymbol.name(for: .nominal) == "music.note")
+        #expect(StatusBarSymbol.name(for: .attention) == "exclamationmark.triangle")
+        #expect(StatusBarSymbol.name(for: .blocked) == "exclamationmark.octagon.fill")
     }
 
     @Test("the design chrome mirror maps facts without derivation")
