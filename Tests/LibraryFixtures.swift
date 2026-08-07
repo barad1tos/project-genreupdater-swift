@@ -235,12 +235,12 @@ func sampleTrack() -> Track {
     )
 }
 
-func mainViewDataSourceURL() throws -> URL {
+func libraryLoadHostSourceURL() throws -> URL {
     var currentURL = URL(fileURLWithPath: #filePath)
     currentURL.deleteLastPathComponent()
 
     for _ in 0 ..< 8 {
-        let candidate = currentURL.appendingPathComponent("App/Views/MainData.swift")
+        let candidate = currentURL.appendingPathComponent("App/Views/DesignRootHostView.swift")
         if FileManager.default.fileExists(atPath: candidate.path) {
             return candidate
         }

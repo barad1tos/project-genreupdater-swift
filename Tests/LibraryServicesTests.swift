@@ -77,9 +77,9 @@ struct LibraryServicesTests {
         #expect(await fixture.snapshotService.savedSnapshotCount() == 0)
     }
 
-    @Test("MainView load persistence passes captured scope")
-    func mainViewLoadPersistencePassesCapturedScope() throws {
-        let source = try String(contentsOf: mainViewDataSourceURL(), encoding: .utf8)
+    @Test("Library load persistence passes captured scope")
+    func libraryLoadPersistencePassesCapturedScope() throws {
+        let source = try String(contentsOf: libraryLoadHostSourceURL(), encoding: .utf8)
         let compactSource = source.replacingOccurrences(
             of: "\\s+",
             with: " ",
