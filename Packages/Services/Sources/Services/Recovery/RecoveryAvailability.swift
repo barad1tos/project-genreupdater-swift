@@ -1,5 +1,15 @@
 import Foundation
 
+public struct RecoveryAvailabilityFacts: Equatable, Sendable {
+    public let isMusicAppRunning: Bool?
+    public let areScriptsInstalled: Bool
+
+    public init(isMusicAppRunning: Bool?, areScriptsInstalled: Bool) {
+        self.isMusicAppRunning = isMusicAppRunning
+        self.areScriptsInstalled = areScriptsInstalled
+    }
+}
+
 public enum RecoveryAvailabilityStatus: Equatable, Sendable {
     case available
     case blocked(RecoveryPreflightBlocker)
@@ -31,6 +41,16 @@ public struct RecoveryAvailability: Sendable {
 
     public init(checks: Checks) {
         self.checks = checks
+    }
+
+    /// The raw probe verdicts, for consumers that must not infer more
+    /// than a probe can prove: `isMusicAppRunning` is tri-state (nil =
+    /// undeterminable, and `status()` deliberately fails open on it).
+    public func probedFacts() async -> RecoveryAvailabilityFacts {
+        await RecoveryAvailabilityFacts(
+            isMusicAppRunning: checks.isMusicAppRunning(),
+            areScriptsInstalled: checks.areScriptsInstalled()
+        )
     }
 
     public func status() async -> RecoveryAvailabilityStatus {

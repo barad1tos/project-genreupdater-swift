@@ -101,6 +101,9 @@ struct DesignRootHostView: View {
         }
         .onChange(of: dependencies.isAutoSyncRunning) {
             scheduleActivityProjectionRefresh()
+            // The toggle flips a chrome automation fact without crossing
+            // any lifecycle or settings boundary.
+            Task { await dependencies.refreshChromeProjection() }
         }
         .onChange(of: workflowDashboardState) {
             scheduleActivityProjectionRefresh()
@@ -679,6 +682,8 @@ struct DesignRootHostView: View {
     }
 
     private func observeRunLifecycleUpdates() async {
+        var lastChromeRunID: RunID?
+        var lastChromeState: RunLifecycleState?
         for await lifecycle in await dependencies.runLifecycleUpdates() {
             currentRunLifecycle = lifecycle
             await refreshActivityProjection()
@@ -692,6 +697,16 @@ struct DesignRootHostView: View {
                     await refreshFixPlanProjection()
                 }
                 await refreshReportsProjection()
+            }
+            // House pattern until slice 10: chrome re-derives shell truth
+            // at (run, state) boundaries. Per-item write checkpoints
+            // re-emit the same state; skipping them keeps the probe cost
+            // (file comparisons, workspace scan, count query) off the
+            // write path where the projection could not change anyway.
+            if lifecycle.runID != lastChromeRunID || lifecycle.state != lastChromeState {
+                lastChromeRunID = lifecycle.runID
+                lastChromeState = lifecycle.state
+                await dependencies.refreshChromeProjection()
             }
         }
     }
@@ -912,8 +927,10 @@ extension DesignRootHostView {
                     isIndividual: isIndividual
                 )
                 // Item states live in the reports projection; refresh it so
-                // the dismissal is visible without an unrelated lifecycle event.
+                // the dismissal is visible without an unrelated lifecycle
+                // event. Chrome re-derives its hold fact the same way.
                 await refreshReportsProjection()
+                await dependencies.refreshChromeProjection()
             },
             queueManualReload: { runID in
                 queuedManualReload = .waitingForActive(runID)
@@ -928,6 +945,7 @@ extension DesignRootHostView {
                 let outcome = await dependencies.runRecoveryPreflight(runID: runID)
                 if case .resolved = outcome {
                     await refreshReportsProjection()
+                    await dependencies.refreshChromeProjection()
                 }
                 return outcome
             },

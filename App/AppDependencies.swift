@@ -142,6 +142,7 @@ final class AppDependencies {
         if let configurationLoadIssue {
             appState = .error(configurationLoadIssue)
             await publishSettingsProjection()
+            await refreshChromeProjection()
             return
         }
 
@@ -152,6 +153,7 @@ final class AppDependencies {
         // launch), but its message must survive into the projection —
         // appState is about to become .loading.
         await publishSettingsProjection(saveErrorMessage: configurationSaveErrorMessage)
+        await refreshChromeProjection()
         appState = .loading
 
         do {
@@ -211,6 +213,10 @@ final class AppDependencies {
 
             log.info("All services initialized successfully")
             appState = .ready
+            // Republish chrome now that every probed fact exists — the
+            // bootstrap publish above ran before services were built, and
+            // a fresh session emits no lifecycle event to re-derive it.
+            await refreshChromeProjection()
         } catch {
             log.error("Initialization failed: \(error.localizedDescription, privacy: .public)")
             appState = .error(error.localizedDescription)
@@ -236,20 +242,6 @@ final class AppDependencies {
         } catch {
             log.error("Library refresh failed: \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    /// One-time UserDefaults → AppConfiguration migration (slice 7). Never
-    /// runs on a failed load: seeding defaults plus the behavior would
-    /// persist over the user's config.json. A persist failure keeps the
-    /// key so the migration retries on the next launch (persistConfiguration
-    /// clears the key on any later success, so a newer explicit choice can
-    /// never be reverted by a stale key).
-    func migrateDefaultUpdateBehaviorIfNeeded() {
-        guard configurationLoadIssue == nil,
-              let raw = UserDefaults.standard.string(forKey: AppStorageKey.defaultUpdateBehavior)
-        else { return }
-        config.processing.defaultUpdateBehavior = UpdateBehavior.resolved(from: raw)
-        persistConfiguration()
     }
 
     /// Surfaces a corrupted-persistence condition that blocks every future
@@ -283,15 +275,6 @@ final class AppDependencies {
         }
     }
 
-    /// The configuration-save failure message when the app is in that
-    /// error state; nil otherwise.
-    var configurationSaveErrorMessage: String? {
-        guard case let .error(message) = appState, isConfigurationSaveIssue(appState) else {
-            return nil
-        }
-        return message
-    }
-
     private func rememberConfigurationSaveRecoveryState() {
         guard !isConfigurationSaveIssue(appState) else {
             return
@@ -307,7 +290,7 @@ final class AppDependencies {
         configurationSaveRecoveryState = nil
     }
 
-    private func isConfigurationSaveIssue(_ state: AppState) -> Bool {
+    func isConfigurationSaveIssue(_ state: AppState) -> Bool {
         guard case let .error(message) = state else {
             return false
         }

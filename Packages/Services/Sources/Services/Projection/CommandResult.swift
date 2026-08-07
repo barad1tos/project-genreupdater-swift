@@ -205,17 +205,22 @@ public struct OperationalIssue: Identifiable, Equatable, Sendable {
     public let category: OperationalIssueCategory
     public let summary: String
     public let technicalDetail: String?
+    /// The casual-experience "what do I do about it" line (ADR 0015);
+    /// nil when the issue is informational or the action lives elsewhere.
+    public let nextAction: String?
 
     public init(
         id: String,
         category: OperationalIssueCategory,
         summary: String,
-        technicalDetail: String? = nil
+        technicalDetail: String? = nil,
+        nextAction: String? = nil
     ) {
         self.id = id
         self.category = category
         self.summary = summary
         self.technicalDetail = technicalDetail
+        self.nextAction = nextAction
     }
 }
 
