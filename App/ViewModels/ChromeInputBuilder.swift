@@ -52,7 +52,7 @@ extension AppDependencies {
             projection,
             inputGeneration: inputGeneration
         )
-        chromeCommands = published.commands
+        chrome = published
         return published
     }
 
