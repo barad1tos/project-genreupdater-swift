@@ -10,9 +10,23 @@ import SwiftUI
 struct GeneralTab: View {
     @Environment(AppDependencies.self) private var dependencies
     @AppStorage("showNotifications") private var showNotifications = true
+    @AppStorage(AppStorageKey.experienceLevel) private var experienceLevelRaw = ExperienceLevel.advanced.rawValue
 
     var body: some View {
         Form {
+            Section("Experience") {
+                Picker("Experience level", selection: $experienceLevelRaw) {
+                    ForEach(ExperienceLevel.allCases) { level in
+                        Text(level.displayName).tag(level.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text("Casual hides operational detail; every setting stays effective (display-only).")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            }
+
             Section("Update Behavior") {
                 Picker(
                     "Default update behavior",
