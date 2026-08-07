@@ -122,10 +122,27 @@ struct SidebarView: View {
                     .foregroundStyle(Ayu.fgMuted)
                 automationRow(
                     "Status",
-                    pill: TagPill(text: model.pipelineActivity.automationState.summaryValue, tone: .neutral)
+                    pill: TagPill(text: model.data.chrome.automationLabel, tone: .neutral)
                 )
-                automationRow("Mode", pill: TagPill(text: "Preview", tone: .warning, dot: true))
-                automationRow("Auto-fix", pill: TagPill(text: "Off", tone: .neutral, dot: true))
+                automationRow(
+                    "Mode",
+                    pill: TagPill(
+                        text: model.data.chrome.processingModeLabel,
+                        tone: model.data.chrome.isAutoFixEnabled ? .success : .warning,
+                        dot: true
+                    )
+                )
+                automationRow(
+                    "Auto-fix",
+                    pill: TagPill(
+                        text: model.data.chrome.isAutoFixEnabled ? "On" : "Off",
+                        tone: model.data.chrome.isAutoFixEnabled ? .success : .neutral,
+                        dot: true
+                    )
+                )
+                if let scopeLabel = model.data.chrome.narrowedScopeLabel {
+                    automationRow("Scope", pill: TagPill(text: scopeLabel, tone: .warning, dot: true))
+                }
             }
 
             Button { model.navigate(to: .settings) } label: {

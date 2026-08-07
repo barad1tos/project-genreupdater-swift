@@ -1,3 +1,46 @@
+/// Shell-zone severity mirrored from the Chrome projection (ADR 0012).
+public enum DesignChromeSeverity: String, Equatable, Sendable {
+    case nominal
+    case attention
+    case blocked
+}
+
+/// The chrome facts DesignUI shell zones render — never derived locally.
+public struct DesignChromeSnapshot: Equatable, Sendable {
+    public let syncStatusText: String
+    public let syncSeverity: DesignChromeSeverity
+    public let processingModeLabel: String
+    public let isAutoFixEnabled: Bool
+    public let automationLabel: String
+    /// Present only when the effective scope narrows the physical library.
+    public let narrowedScopeLabel: String?
+
+    public init(
+        syncStatusText: String,
+        syncSeverity: DesignChromeSeverity,
+        processingModeLabel: String,
+        isAutoFixEnabled: Bool,
+        automationLabel: String,
+        narrowedScopeLabel: String?
+    ) {
+        self.syncStatusText = syncStatusText
+        self.syncSeverity = syncSeverity
+        self.processingModeLabel = processingModeLabel
+        self.isAutoFixEnabled = isAutoFixEnabled
+        self.automationLabel = automationLabel
+        self.narrowedScopeLabel = narrowedScopeLabel
+    }
+
+    public static let preview = Self(
+        syncStatusText: "Up to date",
+        syncSeverity: .nominal,
+        processingModeLabel: "Preview",
+        isAutoFixEnabled: false,
+        automationLabel: "Manual trigger",
+        narrowedScopeLabel: nil
+    )
+}
+
 public struct DesignDataSnapshot: Equatable, Sendable {
     public let health: HealthSnapshot
     public let pipelineActivity: PipelineActivitySnapshot
@@ -19,6 +62,7 @@ public struct DesignDataSnapshot: Equatable, Sendable {
     public let selectedRunReport: RunReportDetailSnapshot?
     public let settings: DesignSettingsSnapshot
     public let syncStatusText: String
+    public let chrome: DesignChromeSnapshot
     public let isPreviewBacked: Bool
 
     public init(
@@ -42,6 +86,7 @@ public struct DesignDataSnapshot: Equatable, Sendable {
         selectedRunReport: RunReportDetailSnapshot? = nil,
         settings: DesignSettingsSnapshot = .preview,
         syncStatusText: String,
+        chrome: DesignChromeSnapshot = .preview,
         isPreviewBacked: Bool
     ) {
         self.health = health
@@ -64,6 +109,7 @@ public struct DesignDataSnapshot: Equatable, Sendable {
         self.selectedRunReport = selectedRunReport
         self.settings = settings
         self.syncStatusText = syncStatusText
+        self.chrome = chrome
         self.isPreviewBacked = isPreviewBacked
     }
 }

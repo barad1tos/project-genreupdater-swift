@@ -48,10 +48,12 @@ extension AppDependencies {
         // or the store's stale-generation guard would drop them.
         let projection = await ChromeBuilder.makeProjection(input: makeChromeInput())
         let inputGeneration = await projectionStore.nextChromeInputGeneration()
-        return await projectionStore.replaceChromeProjection(
+        let published = await projectionStore.replaceChromeProjection(
             projection,
             inputGeneration: inputGeneration
         )
+        chromeCommands = published.commands
+        return published
     }
 
     /// The write-recovery fact comes from the orchestrator — the exact

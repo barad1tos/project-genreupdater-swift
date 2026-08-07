@@ -69,6 +69,58 @@ struct ChromeProjectionAppTests {
         #expect(updated.revision != baseline.revision)
     }
 
+    @Test("the observable command mirror follows the projection")
+    func commandMirrorFollowsProjection() async {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // Persistence is irrelevant to this mirror pin.
+            }
+        )
+        #expect(dependencies.chromeCommands.isEmpty)
+
+        _ = await dependencies.refreshChromeProjection()
+
+        #expect(dependencies.chromeCommands.contains { $0.commandKind == .runManually })
+    }
+
+    @Test("the design chrome mirror maps facts without derivation")
+    func designChromeMirrorMapsFacts() {
+        let design = ActivitySnapshotAdapter.makeChrome(from: .empty())
+
+        #expect(design.syncSeverity == .nominal)
+        #expect(design.syncStatusText == "Idle")
+        #expect(design.processingModeLabel == "Preview")
+        #expect(design.isAutoFixEnabled == false)
+        #expect(design.automationLabel == "Manual trigger")
+        #expect(design.narrowedScopeLabel == nil)
+    }
+
+    @Test("the design chrome mirror maps severity and scope narrowing")
+    func designChromeMirrorMapsSeverityAndScope() {
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Clutch"],
+            knownTrackCount: 10,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "mirror-pin"
+        )
+        let projection = ChromeBuilder.makeProjection(input: ChromeInput(
+            run: ChromeRunFacts(lifecycle: nil, isRunServiceAvailable: true),
+            recovery: ChromeRecoveryFacts(hasUnresolvedWriteRecovery: true, recoveryRunID: nil),
+            settings: ChromeSettingsFacts(isPreviewMode: false, saveErrorMessage: nil, hasLoadFailed: false),
+            automation: ChromeAutomationFacts(isAutoSyncRunning: false, isIncrementalDue: nil),
+            library: ChromeLibraryFacts(physicalTrackCount: nil, scope: scope),
+            permissions: .unprobed,
+            hasReviewableFixPlan: false
+        ))
+
+        let design = ActivitySnapshotAdapter.makeChrome(from: projection)
+
+        #expect(design.syncSeverity == .blocked)
+        #expect(design.isAutoFixEnabled == true)
+        #expect(design.narrowedScopeLabel == "Last run: Test artists (1)")
+    }
+
     @Test("a content-identical chrome refresh keeps the revision")
     func identicalRefreshKeepsRevision() async {
         let dependencies = AppDependencies(

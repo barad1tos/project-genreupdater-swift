@@ -11,7 +11,7 @@ import SwiftUI
 
 /// Snapshot-driven dashboard showing whether the library is safe to update.
 ///
-/// Uses a two-phase cached-first loading pattern: MainView passes persisted metrics
+/// Uses a two-phase cached-first loading pattern: the host shell passes persisted metrics
 /// instantly, then the dashboard refreshes from live MusicKit data when tracks arrive.
 /// First launch shows full shimmer placeholders; subsequent launches never show "0 tracks".
 struct DashboardView: View {

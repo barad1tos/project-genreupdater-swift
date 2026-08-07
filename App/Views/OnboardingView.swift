@@ -7,7 +7,7 @@
 // 2. Installing them from the app bundle
 // 3. Requesting Music.app access
 //
-// The wizard runs only once — after scripts are installed, the app skips to MainView.
+// The wizard runs only once — after scripts are installed, the app opens the main shell.
 
 import Core
 import Services

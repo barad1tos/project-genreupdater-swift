@@ -105,6 +105,7 @@ public enum ChromeBuilder {
                 effectiveScope: makeScope(input: input)
             ),
             safety: ChromeSafetyState(
+                isPreviewMode: input.settings.isPreviewMode,
                 processingModeLabel: input.settings.isPreviewMode ? "Preview" : "Auto-fix",
                 automationState: makeAutomationState(input: input, hold: hold),
                 recoveryHold: hold,
