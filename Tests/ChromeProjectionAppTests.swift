@@ -96,6 +96,31 @@ struct ChromeProjectionAppTests {
         #expect(design.narrowedScopeLabel == nil)
     }
 
+    @Test("the design chrome mirror maps severity and scope narrowing")
+    func designChromeMirrorMapsSeverityAndScope() {
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Clutch"],
+            knownTrackCount: 10,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "mirror-pin"
+        )
+        let projection = ChromeBuilder.makeProjection(input: ChromeInput(
+            run: ChromeRunFacts(lifecycle: nil, isRunServiceAvailable: true),
+            recovery: ChromeRecoveryFacts(hasUnresolvedWriteRecovery: true, recoveryRunID: nil),
+            settings: ChromeSettingsFacts(isPreviewMode: false, saveErrorMessage: nil, hasLoadFailed: false),
+            automation: ChromeAutomationFacts(isAutoSyncRunning: false, isIncrementalDue: nil),
+            library: ChromeLibraryFacts(physicalTrackCount: nil, scope: scope),
+            permissions: .unprobed,
+            hasReviewableFixPlan: false
+        ))
+
+        let design = ActivitySnapshotAdapter.makeChrome(from: projection)
+
+        #expect(design.syncSeverity == .blocked)
+        #expect(design.isAutoFixEnabled == true)
+        #expect(design.narrowedScopeLabel == "Last run: Test artists (1)")
+    }
+
     @Test("a content-identical chrome refresh keeps the revision")
     func identicalRefreshKeepsRevision() async {
         let dependencies = AppDependencies(

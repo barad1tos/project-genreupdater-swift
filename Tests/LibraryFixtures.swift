@@ -235,7 +235,7 @@ func sampleTrack() -> Track {
     )
 }
 
-func libraryLoadHostSourceURL() throws -> URL {
+func libraryLoadSourceURL() throws -> URL {
     var currentURL = URL(fileURLWithPath: #filePath)
     currentURL.deleteLastPathComponent()
 

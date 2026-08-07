@@ -108,7 +108,7 @@ struct PreviewRunOptionsTests {
     }
 
     @Test(
-        "min confidence matches MainView clamp semantics",
+        "min confidence matches the settings clamp semantics",
         arguments: [
             (configured: 30.0, expected: 30),
             (configured: 57.0, expected: 57),

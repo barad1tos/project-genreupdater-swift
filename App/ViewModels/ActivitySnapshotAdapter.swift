@@ -32,7 +32,12 @@ enum ActivitySnapshotAdapter {
             isAutoFixEnabled: !projection.safety.isPreviewMode,
             automationLabel: makeAutomationLabel(projection.safety.automationState),
             narrowedScopeLabel: projection.library.effectiveScope.flatMap { scope in
-                scope.isNarrowedFromPhysical ? scope.sourceLabel : nil
+                guard scope.isNarrowedFromPhysical else { return nil }
+                // The snapshot belongs to a run (ADR 0020); label it as
+                // history unless that run is still active.
+                return projection.syncStatus.isRunActive
+                    ? scope.sourceLabel
+                    : "Last run: \(scope.sourceLabel)"
             }
         )
     }

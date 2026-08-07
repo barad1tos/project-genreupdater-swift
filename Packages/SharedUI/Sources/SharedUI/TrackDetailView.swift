@@ -1,5 +1,5 @@
 // TrackDetailView.swift — Track metadata inspector
-// Extracted from App/Views/MainView.swift to SharedUI for reuse.
+// Shared track presentation components.
 
 import Core
 import SwiftUI

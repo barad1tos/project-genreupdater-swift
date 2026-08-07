@@ -237,8 +237,6 @@ final class AppDependencies {
         previousIncrementalScopeTracks = tracks
     }
 
-    // Refresh library data (triggered by Cmd+R).
-
     /// Surfaces a corrupted-persistence condition that blocks every future
     /// settings mutation; called from the command choke point, where the
     /// fire-and-settle dispatch sites cannot show the message themselves.

@@ -1,8 +1,7 @@
 import Core
+import Foundation
 import Services
-import SharedUI
 import SwiftData
-import SwiftUI
 
 struct SelectedUpdateScopeConfiguration {
     let tracks: [Track]
@@ -71,8 +70,6 @@ struct SelectedUpdateScopeConfiguration {
         )
     }
 }
-
-// Legacy workflow bridge retained until DesignUI owns equivalent browse/update flows.
 
 struct DashboardMetricsSnapshotValues: Equatable {
     let totalTracks: Int
