@@ -20,6 +20,10 @@ public actor ProjectionStore {
     private var issuedSettingsGeneration: UInt64
     private var appliedSettingsGeneration: UInt64
     private var settingsContinuations: [UUID: AsyncStream<SettingsProjection>.Continuation]
+    private var currentChromeProjection: ChromeProjection
+    private var issuedChromeGeneration: UInt64
+    private var appliedChromeGeneration: UInt64
+    private var chromeContinuations: [UUID: AsyncStream<ChromeProjection>.Continuation]
 
     public init() {
         currentActivityProjection = .empty()
@@ -41,6 +45,10 @@ public actor ProjectionStore {
         issuedSettingsGeneration = 0
         appliedSettingsGeneration = 0
         settingsContinuations = [:]
+        currentChromeProjection = .empty()
+        issuedChromeGeneration = 0
+        appliedChromeGeneration = 0
+        chromeContinuations = [:]
     }
 
     public func activityProjection() -> ActivityProjection {
@@ -387,5 +395,88 @@ public actor ProjectionStore {
 
     private func removeSettingsContinuation(id: UUID) {
         settingsContinuations[id] = nil
+    }
+
+    public func currentChrome() -> ChromeProjection {
+        currentChromeProjection
+    }
+
+    public func chromeUpdates() -> AsyncStream<ChromeProjection> {
+        let subscriptionID = UUID()
+        let (stream, continuation) = AsyncStream<ChromeProjection>.makeStream(bufferingPolicy: .bufferingNewest(1))
+
+        registerChromeContinuation(continuation, id: subscriptionID)
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.removeChromeContinuation(id: subscriptionID)
+            }
+        }
+
+        return stream
+    }
+
+    public func nextChromeInputGeneration() -> UInt64 {
+        issuedChromeGeneration += 1
+        return issuedChromeGeneration
+    }
+
+    /// Replaces the chrome projection when the optional input generation is newer.
+    @discardableResult
+    public func replaceChromeProjection(
+        _ projection: ChromeProjection,
+        inputGeneration: UInt64? = nil
+    ) -> ChromeProjection {
+        if let inputGeneration {
+            guard inputGeneration > appliedChromeGeneration else {
+                return currentChromeProjection
+            }
+            issuedChromeGeneration = max(issuedChromeGeneration, inputGeneration)
+            appliedChromeGeneration = inputGeneration
+        }
+
+        let comparableProjection = projection.withRevision(currentChromeProjection.revision)
+        guard comparableProjection != currentChromeProjection else {
+            return currentChromeProjection
+        }
+
+        let storedProjection = projection.withRevision(currentChromeProjection.revision.advanced())
+
+        currentChromeProjection = storedProjection
+        broadcastChromeProjection(storedProjection)
+
+        return storedProjection
+    }
+
+    private func registerChromeContinuation(
+        _ continuation: AsyncStream<ChromeProjection>.Continuation,
+        id: UUID
+    ) {
+        if case .terminated = continuation.yield(currentChromeProjection) {
+            return
+        }
+        chromeContinuations[id] = continuation
+    }
+
+    private func broadcastChromeProjection(_ projection: ChromeProjection) {
+        var terminatedContinuationIDs: [UUID] = []
+
+        for (id, continuation) in chromeContinuations {
+            switch continuation.yield(projection) {
+            case .enqueued, .dropped:
+                break
+            case .terminated:
+                terminatedContinuationIDs.append(id)
+            @unknown default:
+                break
+            }
+        }
+
+        for id in terminatedContinuationIDs {
+            chromeContinuations[id] = nil
+        }
+    }
+
+    private func removeChromeContinuation(id: UUID) {
+        chromeContinuations[id] = nil
     }
 }
