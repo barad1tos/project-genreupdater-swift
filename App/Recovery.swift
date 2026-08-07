@@ -6,6 +6,14 @@ private let recoveryLog = AppLogger.make(category: "recovery")
 
 extension AppDependencies {
     func ensureRecoveryHold() async -> Bool {
+        let hasHold = await discoverAndAdmitRecoveryHold()
+        // Admission changes the orchestrator's hold fact — chrome's
+        // source — without any lifecycle broadcast.
+        await refreshChromeProjection()
+        return hasHold
+    }
+
+    private func discoverAndAdmitRecoveryHold() async -> Bool {
         let activeLifecycle = await runOrchestrator?.activeLifecycle()
         let activeRunID = activeLifecycle?.runID
         let existingID: UUID? = if activeLifecycle?.intent == .writeFixes {

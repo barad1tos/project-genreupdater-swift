@@ -682,6 +682,7 @@ struct DesignRootHostView: View {
     }
 
     private func observeRunLifecycleUpdates() async {
+        var lastChromeRunID: RunID?
         var lastChromeState: RunLifecycleState?
         for await lifecycle in await dependencies.runLifecycleUpdates() {
             currentRunLifecycle = lifecycle
@@ -698,11 +699,12 @@ struct DesignRootHostView: View {
                 await refreshReportsProjection()
             }
             // House pattern until slice 10: chrome re-derives shell truth
-            // at lifecycle STATE boundaries. Per-item write checkpoints
+            // at (run, state) boundaries. Per-item write checkpoints
             // re-emit the same state; skipping them keeps the probe cost
             // (file comparisons, workspace scan, count query) off the
             // write path where the projection could not change anyway.
-            if lifecycle.state != lastChromeState {
+            if lifecycle.runID != lastChromeRunID || lifecycle.state != lastChromeState {
+                lastChromeRunID = lifecycle.runID
                 lastChromeState = lifecycle.state
                 await dependencies.refreshChromeProjection()
             }

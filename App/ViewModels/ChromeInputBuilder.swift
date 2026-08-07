@@ -54,23 +54,19 @@ extension AppDependencies {
         )
     }
 
-    /// The write-recovery fact comes from the run store — the DB-level
-    /// truth — not from the reports projection, whose refresh cadence is
-    /// a UI concern and which is empty before the first screen loads.
+    /// The write-recovery fact comes from the orchestrator — the exact
+    /// in-memory gate that refuses write submissions — so chrome can
+    /// never disagree with enforcement, never counts the active run's
+    /// own open record, and sees hold-only and synthetic candidates.
     private func probedRecoveryFacts() async -> ChromeRecoveryFacts {
-        guard let runRecordStore else {
+        guard let runOrchestrator else {
             return ChromeRecoveryFacts(hasUnresolvedWriteRecovery: false, recoveryRunID: nil)
         }
-        do {
-            let page = try await runRecordStore.recoveryRecords()
-            return ChromeRecoveryFacts(
-                hasUnresolvedWriteRecovery: !page.records.isEmpty,
-                recoveryRunID: page.records.first?.runID
-            )
-        } catch {
-            log.error("Chrome recovery probe failed: \(error.localizedDescription, privacy: .public)")
-            return ChromeRecoveryFacts(hasUnresolvedWriteRecovery: false, recoveryRunID: nil)
-        }
+        let hold = await runOrchestrator.currentWriteRecoveryHold()
+        return ChromeRecoveryFacts(
+            hasUnresolvedWriteRecovery: hold.hasWriteBlock,
+            recoveryRunID: hold.recoveryRunID
+        )
     }
 
     /// Maps raw probe verdicts onto nullable permission facts without

@@ -26,11 +26,14 @@ enum SettingsCommands {
             Task { await dependencies.publishSettingsProjection() }
             return .rejectedStale
         case .temporaryUnavailable:
-            let saveError = dependencies.configurationSaveErrorMessage ?? "Could not save the configuration."
             Task {
-                await dependencies.publishSettingsProjection(saveErrorMessage: saveError)
-                // Chrome carries the same persistence-health fact; a failed
-                // save must reach both surfaces (ADR 0012).
+                // Re-probe at execution: a retry may have repaired the
+                // save before this task ran, and a stale banner must not
+                // resurrect. Chrome carries the same persistence-health
+                // fact; a failed save must reach both surfaces (ADR 0012).
+                await dependencies.publishSettingsProjection(
+                    saveErrorMessage: dependencies.configurationSaveErrorMessage
+                )
                 await dependencies.refreshChromeProjection()
             }
             return .temporaryUnavailable

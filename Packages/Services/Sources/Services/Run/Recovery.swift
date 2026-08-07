@@ -6,6 +6,17 @@ public enum RecoveryResolutionOutcome: Equatable, Sendable {
     case rejected
 }
 
+/// The write-recovery hold exactly as the orchestrator enforces it.
+public struct WriteRecoveryHoldFact: Equatable, Sendable {
+    public let hasWriteBlock: Bool
+    public let recoveryRunID: RunID?
+
+    public init(hasWriteBlock: Bool, recoveryRunID: RunID?) {
+        self.hasWriteBlock = hasWriteBlock
+        self.recoveryRunID = recoveryRunID
+    }
+}
+
 extension RunOrchestrator {
     struct RecoveryRun {
         let snapshot: RunLifecycleSnapshot
@@ -60,6 +71,17 @@ extension RunOrchestrator {
         func contains(_ holdID: UUID) -> Bool {
             current?.holdID == holdID || pending?.holdID == holdID
         }
+    }
+
+    /// The same gate that refuses writeFixes submissions, exposed as a
+    /// fact: in-memory, no store scan, inclusive of hold-only and
+    /// synthetic candidates, and never counting the active run itself.
+    public func currentWriteRecoveryHold() -> WriteRecoveryHoldFact {
+        WriteRecoveryHoldFact(
+            hasWriteBlock: recoveryState.hasWriteBlock,
+            recoveryRunID: recoveryState.current?.run?.snapshot.runID
+                ?? recoveryState.pending?.run?.snapshot.runID
+        )
     }
 
     public func restoreRecovery(_ record: RunRecord) async {
