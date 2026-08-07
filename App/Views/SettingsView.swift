@@ -5,6 +5,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppDependencies.self) private var dependencies
+    @AppStorage(AppStorageKey.experienceLevel) private var experienceLevel: ExperienceLevel = .defaultLevel
 
     var body: some View {
         TabView {
@@ -14,8 +15,12 @@ struct SettingsView: View {
             APICacheTab()
                 .tabItem { Label("API & Cache", systemImage: "key") }
 
-            AdvancedTab()
-                .tabItem { Label("Advanced", systemImage: "wrench") }
+            // Display-only gating (ADR 0002): Casual hides the operational
+            // surface; the settings behind it stay untouched and effective.
+            if experienceLevel != .casual {
+                AdvancedTab()
+                    .tabItem { Label("Advanced", systemImage: "wrench") }
+            }
 
             AppearanceTab()
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }

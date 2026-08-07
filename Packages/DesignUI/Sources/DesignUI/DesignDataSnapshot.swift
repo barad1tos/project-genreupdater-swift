@@ -143,6 +143,9 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
     public let appearanceMode: DesignAppearanceMode
     public let isFastAnimationsEnabled: Bool
     public let isPostWriteVerificationRequired: Bool
+    /// Display-only experience gate (ADR 0002): false hides the Advanced
+    /// settings tab; every setting behind it stays effective.
+    public let isAdvancedExperience: Bool
 
     public init(
         updateBehavior: DesignUpdateBehavior,
@@ -151,7 +154,8 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         testArtists: [String],
         appearanceMode: DesignAppearanceMode = .system,
         isFastAnimationsEnabled: Bool = false,
-        isPostWriteVerificationRequired: Bool
+        isPostWriteVerificationRequired: Bool,
+        isAdvancedExperience: Bool = true
     ) {
         self.updateBehavior = updateBehavior
         self.minimumConfidencePercent = minimumConfidencePercent
@@ -160,6 +164,7 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         self.appearanceMode = appearanceMode
         self.isFastAnimationsEnabled = isFastAnimationsEnabled
         self.isPostWriteVerificationRequired = isPostWriteVerificationRequired
+        self.isAdvancedExperience = isAdvancedExperience
     }
 }
 
