@@ -137,7 +137,7 @@ enum ActivitySnapshotAdapter {
         let reportEntries = makeReportEntries(from: input.changeLogEntries)
 
         return DesignDataSnapshot(
-            health: makeHealthSnapshot(from: dashboard, input: input),
+            health: makeHealthSnapshot(from: dashboard, input: input, activityProjection: activityProjection),
             pipelineActivity: ActivityDesignAdapter.makePipelineSnapshot(
                 from: activityProjection,
                 notice: activityNotice
@@ -196,16 +196,16 @@ enum ActivitySnapshotAdapter {
 
     private static func makeHealthSnapshot(
         from dashboard: LibraryDashboardSnapshot,
-        input: DesignActivitySnapshotInput
+        input: DesignActivitySnapshotInput,
+        activityProjection: ActivityProjection
     ) -> HealthSnapshot {
-        let automationState = makeAutomationState(from: input)
-        return HealthSnapshot(
+        HealthSnapshot(
             health: dashboard.healthScore,
             genre: dashboard.genreCoverageRatio,
             year: dashboard.yearCoverageRatio,
             consistency: dashboard.consistencyCoverageRatio,
             totalTracks: dashboard.totalTracks,
-            totalAlbums: makeAlbumCount(from: input),
+            totalAlbums: activityProjection.scanFacts.albumCount,
             missingGenre: dashboard.missingGenreCount,
             missingYear: dashboard.missingYearCount,
             completeMetadata: dashboard.tracksWithBoth,
@@ -214,21 +214,11 @@ enum ActivitySnapshotAdapter {
             protectedFiles: dashboard.protectedFileCount,
             writeErrors: input.workflow.failedWriteCount,
             recentlyAdded: input.metricsSnapshot?.recentlyAdded ?? 0,
-            lastScan: makeLastScanLabel(from: input),
-            nextRun: makeNextRunLabel(automationState: automationState, input: input),
+            lastScan: activityProjection.scanFacts.lastScanLabel,
+            nextRun: activityProjection.scanFacts.nextRunLabel,
             source: "Apple Music · local files",
             library: "Music Library"
         )
-    }
-
-    private static func makeAlbumCount(from input: DesignActivitySnapshotInput) -> Int? {
-        guard !input.tracks.isEmpty else {
-            // nil = metrics-backed snapshot without album identity; 0 = no cached metrics and no
-            // live tracks (empty or not yet loaded).
-            return input.metricsSnapshot == nil ? 0 : nil
-        }
-
-        return Set(input.tracks.map(\.albumIdentity)).count
     }
 
     private static func makeCoverageBuckets(from dashboard: LibraryDashboardSnapshot) -> [CoverageBucket] {
@@ -345,62 +335,6 @@ enum ActivitySnapshotAdapter {
             problematicAlbums: summary.problematic,
             verifiedAlbums: summary.verified
         )
-    }
-
-    private static func makeAutomationState(from input: DesignActivitySnapshotInput) -> PipelineAutomationState {
-        if input.isAutoSyncRunning {
-            return .autoSyncRunning
-        }
-
-        if effectiveLastScanDate(from: input) != nil {
-            return .manualScanOnly
-        }
-
-        return .noSyncYet
-    }
-
-    private static func makeNextRunLabel(
-        automationState: PipelineAutomationState,
-        input: DesignActivitySnapshotInput
-    ) -> String {
-        if let lifecycleLabel = makeRunLifecycleNextRunLabel(from: input.runLifecycle) {
-            return lifecycleLabel
-        }
-
-        return automationState == .noSyncYet ? "Manual scan only" : automationState.stageDetail
-    }
-
-    private static func makeRunLifecycleNextRunLabel(from lifecycle: RunLifecycleSnapshot?) -> String? {
-        guard let lifecycle else {
-            return nil
-        }
-
-        switch lifecycle.phase {
-        case .active:
-            return lifecycle.trigger == .manualCheck ? "Manual sync running" : "Run in progress"
-        case .suspended(.blocked):
-            return lifecycle.trigger == .manualCheck ? "Manual sync blocked" : "Run blocked"
-        case .suspended(.recoverable):
-            return lifecycle.trigger == .manualCheck ? "Manual sync needs recovery" : "Recovery needed"
-        case .finished(.failed, _):
-            return lifecycle.trigger == .manualCheck ? "Manual sync failed" : "Run failed"
-        case .finished(.cancelled, _):
-            return lifecycle.trigger == .manualCheck ? "Manual sync cancelled" : "Run cancelled"
-        case .finished(.completed, _), .finished(.completedNoOp, _):
-            return nil
-        }
-    }
-
-    private static func makeLastScanLabel(from input: DesignActivitySnapshotInput) -> String {
-        guard let lastScanDate = effectiveLastScanDate(from: input) else {
-            return "No scan yet"
-        }
-
-        return relativeElapsedLabel(since: lastScanDate, now: input.now)
-    }
-
-    private static func effectiveLastScanDate(from input: DesignActivitySnapshotInput) -> Date? {
-        input.metricsSnapshot?.timestamp ?? input.lastScanDate
     }
 
     static func relativeElapsedLabel(since date: Date, now: Date) -> String {

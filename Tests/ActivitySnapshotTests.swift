@@ -257,7 +257,28 @@ struct ActivitySnapshotTests {
     }
 
     private func makeSnapshot(from input: DesignActivitySnapshotInput) -> DesignDataSnapshot {
-        ActivitySnapshotAdapter.makeSnapshot(from: input, activityProjection: .empty())
+        // The snapshot's scan facts come from the projection (S35): build
+        // it from the same context so the pins verify the unified truth.
+        let projection = ActivityBuilder.makeProjection(from: ActivityInputBuilder.makeInput(
+            from: ActivityInputContext(
+                tracks: input.tracks,
+                metricsSnapshot: input.metricsSnapshot,
+                lastScanDate: input.lastScanDate,
+                loadError: input.loadError,
+                isLoading: input.isLoading,
+                isDryRun: input.isDryRun,
+                workflow: input.workflow,
+                fixPlanProjection: .empty(),
+                reportsProjection: .empty(),
+                queuedWrite: nil,
+                pendingVerification: input.pendingVerification,
+                runLifecycle: input.runLifecycle,
+                isLibrarySyncAvailable: true,
+                isAutoSyncRunning: input.isAutoSyncRunning,
+                now: input.now
+            )
+        ))
+        return ActivitySnapshotAdapter.makeSnapshot(from: input, activityProjection: projection)
     }
 
     private func makeInput(
