@@ -8,8 +8,7 @@ struct SidebarView: View {
 
     private let smartViews = [
         SmartSidebarView(title: "Missing genre", symbol: "tag.slash", filter: .missingGenre),
-        SmartSidebarView(title: "Missing year", symbol: "calendar.badge.exclamationmark", filter: .missingYear),
-        SmartSidebarView(title: "Low health", symbol: "exclamationmark.triangle", filter: .conflicts)
+        SmartSidebarView(title: "Missing year", symbol: "calendar.badge.exclamationmark", filter: .missingYear)
     ]
 
     private var routeSelection: Binding<Route?> {

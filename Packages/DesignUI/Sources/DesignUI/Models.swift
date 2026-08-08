@@ -7,7 +7,7 @@ public enum Route: Hashable, Sendable {
 }
 
 public enum BrowseFilter: String, CaseIterable, Identifiable, Sendable {
-    case all, missingGenre, missingYear, conflicts
+    case all, missingGenre, missingYear
     public var id: String {
         rawValue
     }
@@ -16,7 +16,6 @@ public enum BrowseFilter: String, CaseIterable, Identifiable, Sendable {
         case .all: "All"
         case .missingGenre: "Missing genre"
         case .missingYear: "Missing year"
-        case .conflicts: "Conflicts"
         }
     }
 }
@@ -214,31 +213,100 @@ public struct PendingVerificationSnapshot: Equatable, Sendable {
 
 // MARK: - Library / changes
 
+/// Track tallies for a browse node — a display mirror of the backend's
+/// BrowseNodeCounts.
+public struct DesignBrowseCounts: Equatable, Sendable {
+    public let tracks: Int
+    public let inScope: Int
+    public let writable: Int
+
+    public init(tracks: Int, inScope: Int, writable: Int) {
+        self.tracks = tracks
+        self.inScope = inScope
+        self.writable = writable
+    }
+}
+
+/// A browse action's availability truth; a disabled action always
+/// carries its reason (ADR 0014).
+public struct DesignBrowseAction: Equatable, Sendable {
+    public let title: String
+    public let isEnabled: Bool
+    public let disabledReason: String?
+
+    public init(title: String, isEnabled: Bool, disabledReason: String?) {
+        self.title = title
+        self.isEnabled = isEnabled
+        self.disabledReason = disabledReason
+    }
+}
+
+/// One real track row for the album detail pane.
+public struct DesignBrowseTrackRow: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let genre: String?
+    public let year: Int?
+    public let hasWriteIdentity: Bool
+    public let isInScope: Bool
+
+    public init(id: String, title: String, genre: String?, year: Int?, hasWriteIdentity: Bool, isInScope: Bool) {
+        self.id = id
+        self.title = title
+        self.genre = genre
+        self.year = year
+        self.hasWriteIdentity = hasWriteIdentity
+        self.isInScope = isInScope
+    }
+}
+
+/// The effective-scope banner facts for the browse surface.
+public struct DesignBrowseScope: Equatable, Sendable {
+    public let sourceLabel: String
+    public let detailLabel: String?
+    public let isNarrowed: Bool
+
+    public init(sourceLabel: String, detailLabel: String?, isNarrowed: Bool) {
+        self.sourceLabel = sourceLabel
+        self.detailLabel = detailLabel
+        self.isNarrowed = isNarrowed
+    }
+}
+
 public struct Album: Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
+    public let artistName: String
     public let genre: String?
     public let year: Int?
-    public let tracks: Int
-    public let health: Double
+    public let counts: DesignBrowseCounts
+    public let action: DesignBrowseAction
 
-    public init(id: String, name: String, genre: String?, year: Int?, tracks: Int, health: Double) {
+    public init(
+        id: String,
+        name: String,
+        artistName: String,
+        genre: String?,
+        year: Int?,
+        counts: DesignBrowseCounts,
+        action: DesignBrowseAction
+    ) {
         self.id = id
         self.name = name
+        self.artistName = artistName
         self.genre = genre
         self.year = year
-        self.tracks = tracks
-        self.health = health
+        self.counts = counts
+        self.action = action
     }
 }
 
 public struct Artist: Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
-    public let genre: String
     public let albums: [Album]
     public var totalTracks: Int {
-        albums.reduce(0) { $0 + $1.tracks }
+        albums.reduce(0) { $0 + $1.counts.tracks }
     }
     public var indexLetter: String {
         let sortableName = name.hasPrefix("The ") ? String(name.dropFirst(4)) : name
@@ -246,10 +314,9 @@ public struct Artist: Identifiable, Equatable, Sendable {
         return leadingCharacter.range(of: "[A-Z]", options: .regularExpression) != nil ? leadingCharacter : "#"
     }
 
-    public init(id: String, name: String, genre: String, albums: [Album]) {
+    public init(id: String, name: String, albums: [Album]) {
         self.id = id
         self.name = name
-        self.genre = genre
         self.albums = albums
     }
 }

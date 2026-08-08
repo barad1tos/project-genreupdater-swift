@@ -2,8 +2,10 @@ import SwiftUI
 
 struct BrowseView: View {
     @Bindable var model: AppModel
-    var albumUpdateAction: ((Album, String) -> Void)?
-    var albumSelectionAction: ((Album?, String?) -> Void)?
+    /// Real rows for one album, resolved by the host from backend truth.
+    var trackRows: ((Album.ID) -> [DesignBrowseTrackRow])?
+    /// Dispatches the typed preview command for one album id.
+    var albumPreviewAction: ((Album.ID) -> Void)?
     @SceneStorage("DesignUI.BrowseView.availableWidth") private var storedAvailableWidth = 0.0
     @State private var query = ""
     @State private var selection: Album.ID?
@@ -15,7 +17,6 @@ struct BrowseView: View {
         case .all: true
         case .missingGenre: album.genre == nil
         case .missingYear: album.year == nil
-        case .conflicts: album.health < 0.6
         }
     }
 
@@ -27,7 +28,6 @@ struct BrowseView: View {
             return albums.isEmpty ? nil : Artist(
                 id: artist.id,
                 name: artist.name,
-                genre: artist.genre,
                 albums: albums
             )
         }
@@ -39,10 +39,10 @@ struct BrowseView: View {
         }
     }
 
-    private var selectedAlbum: (Album, String)? {
+    private var selectedAlbum: Album? {
         for artist in model.data.artists {
             if let album = artist.albums.first(where: { $0.id == selection }) {
-                return (album, artist.name)
+                return album
             }
         }
         return nil
@@ -63,11 +63,7 @@ struct BrowseView: View {
                 .onChange(of: geometry.size.width) { _, width in
                     storeAvailableWidth(width)
                 }
-                .onChange(of: selection) {
-                    publishSelectedAlbum()
-                }
         }
-        .onAppear { publishSelectedAlbum() }
         .background(Ayu.window)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -102,15 +98,27 @@ struct BrowseView: View {
         storedAvailableWidth = Double(width)
     }
 
-    private func publishSelectedAlbum() {
-        if let (album, artist) = selectedAlbum {
-            albumSelectionAction?(album, artist)
-        } else {
-            albumSelectionAction?(nil, nil)
+    private func artistList(width: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            if let scope = model.data.browseScope, scope.isNarrowed {
+                HStack(spacing: 6) {
+                    Image(systemName: "scope").font(.system(size: 11))
+                    Text(scope.detailLabel.map { "\(scope.sourceLabel) · \($0)" } ?? scope.sourceLabel)
+                        .font(.system(size: 11.5))
+                        .lineLimit(1)
+                    Spacer()
+                }
+                .foregroundStyle(Ayu.fg2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+            artistListContent
         }
+        .frame(width: width)
+        .frame(maxHeight: .infinity)
     }
 
-    private func artistList(width: CGFloat) -> some View {
+    private var artistListContent: some View {
         List(selection: $selection) {
             ForEach(grouped) { section in
                 Section(section.letter) {
@@ -128,8 +136,6 @@ struct BrowseView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Ayu.window)
-        .frame(width: width)
-        .frame(maxHeight: .infinity)
         .searchable(text: $query, placement: .toolbar, prompt: "Search artists")
     }
 
@@ -148,13 +154,12 @@ struct BrowseView: View {
 
     @ViewBuilder
     private var detailPane: some View {
-        if let (album, artist) = selectedAlbum {
-            AlbumDetail(album: album, artist: artist) {
-                if let albumUpdateAction {
-                    albumUpdateAction(album, artist)
-                } else {
-                    model.navigate(to: .update)
-                }
+        if let album = selectedAlbum {
+            AlbumDetail(
+                album: album,
+                rows: trackRows?(album.id) ?? []
+            ) {
+                albumPreviewAction?(album.id)
             }
         } else {
             ContentUnavailableView("Select an album", systemImage: "music.note")
@@ -163,7 +168,6 @@ struct BrowseView: View {
 
     private func albumRow(_ album: Album) -> some View {
         HStack(spacing: 9) {
-            Circle().fill(healthTone(album.health).color).frame(width: 7, height: 7)
             Text(album.name).font(.system(size: 13)).lineLimit(1)
             Spacer()
             if album.genre == nil {
@@ -210,88 +214,107 @@ private struct FadingVerticalSeparator: View {
 
 struct AlbumDetail: View {
     let album: Album
-    let artist: String
-    var onUpdate: () -> Void
+    let rows: [DesignBrowseTrackRow]
+    var onPreview: () -> Void
 
-    private var missing: Int {
-        (album.genre == nil ? 1 : 0) + (album.year == nil ? 1 : 0)
-    }
-    private var autofillMessage: String {
-        "\(missing) metadata field\(missing > 1 ? "s" : "") can be auto-filled with high confidence."
+    private var isNarrowed: Bool {
+        album.counts.inScope < album.counts.tracks
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 16) {
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(healthTone(album.health).color.opacity(0.8))
-                        .frame(width: 72, height: 72)
-                        .overlay(Image(systemName: "music.note").font(.system(size: 30)).foregroundStyle(Ayu.onAccent))
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(album.name).font(.system(size: 19, weight: .bold))
-                        Text(artist).font(.system(size: 13.5)).foregroundStyle(Ayu.fg2)
-                        HStack(spacing: 7) {
-                            if let genre = album.genre {
-                                TagPill(text: genre, tone: .purple, dot: true)
-                            } else {
-                                TagPill(text: "No genre tag", tone: .warning, dot: true)
-                            }
-                            if let year = album.year {
-                                TagPill(text: String(year), tone: .info, dot: true)
-                            } else {
-                                TagPill(text: "No year", tone: .info)
-                            }
-                            TagPill(
-                                text: "\(Int((album.health * 100).rounded()))% complete",
-                                tone: healthTone(album.health),
-                                dot: true
-                            )
-                        }
-                    }
-                    Spacer()
-                }
-
-                if missing > 0 {
-                    HStack(spacing: 12) {
-                        Image(systemName: "sparkles").foregroundStyle(Ayu.accent)
-                        Text(autofillMessage)
-                            .font(.system(size: 13))
-                            .foregroundStyle(Ayu.fg)
-                        Spacer()
-                        PrimaryButton(title: "Update", symbol: "wand.and.stars", action: onUpdate)
-                    }
-                    .padding(14)
-                    .background(Ayu.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Ayu.accent.opacity(0.24)))
-                }
-
-                VStack(spacing: 0) {
-                    ForEach(1 ... album.tracks, id: \.self) { trackNumber in
-                        HStack(spacing: 12) {
-                            Text("\(trackNumber)")
-                                .font(.system(size: 12).monospacedDigit())
-                                .foregroundStyle(Ayu.fgMuted)
-                                .frame(width: 22, alignment: .trailing)
-                            Text("\(album.name.split(separator: " ").first ?? "") — track \(trackNumber)")
-                                .font(.system(size: 13))
-                                .foregroundStyle(Ayu.fg)
-                                .lineLimit(1)
-                            Spacer()
-                            Text(album.genre ?? "—").font(.system(size: 12)).foregroundStyle(Ayu.fg2)
-                            Text(album.year.map(String.init) ?? "—")
-                                .font(.system(size: 12).monospacedDigit())
-                                .foregroundStyle(Ayu.fg2)
-                                .frame(width: 40, alignment: .trailing)
-                        }
-                        .padding(.vertical, 9)
-                        if trackNumber < album.tracks {
-                            Divider().overlay(Ayu.glassBorder)
-                        }
-                    }
-                }
+                header
+                actionBanner
+                trackList
             }
             .padding(24)
         }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 16) {
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Ayu.accent.opacity(0.8))
+                .frame(width: 72, height: 72)
+                .overlay(Image(systemName: "music.note").font(.system(size: 30)).foregroundStyle(Ayu.onAccent))
+            VStack(alignment: .leading, spacing: 6) {
+                Text(album.name).font(.system(size: 19, weight: .bold))
+                Text(album.artistName).font(.system(size: 13.5)).foregroundStyle(Ayu.fg2)
+                HStack(spacing: 7) {
+                    if let genre = album.genre {
+                        TagPill(text: genre, tone: .purple, dot: true)
+                    } else {
+                        TagPill(text: "No genre tag", tone: .warning, dot: true)
+                    }
+                    if let year = album.year {
+                        TagPill(text: String(year), tone: .info, dot: true)
+                    } else {
+                        TagPill(text: "No year", tone: .info)
+                    }
+                    if isNarrowed {
+                        TagPill(
+                            text: "\(album.counts.inScope)/\(album.counts.tracks) in scope",
+                            tone: .warning,
+                            dot: true
+                        )
+                    }
+                }
+            }
+            Spacer()
+        }
+    }
+
+    private var actionBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "sparkles").foregroundStyle(Ayu.accent)
+            Text(album.action.disabledReason ?? "Preview metadata fixes for this album.")
+                .font(.system(size: 13))
+                .foregroundStyle(Ayu.fg)
+            Spacer()
+            PrimaryButton(title: album.action.title, symbol: "wand.and.stars", action: onPreview)
+                .disabled(!album.action.isEnabled)
+                .opacity(album.action.isEnabled ? 1 : 0.5)
+        }
+        .padding(14)
+        .background(Ayu.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Ayu.accent.opacity(0.24)))
+    }
+
+    private var trackList: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                trackRow(row, ordinal: index + 1)
+                if index < rows.count - 1 {
+                    Divider().overlay(Ayu.glassBorder)
+                }
+            }
+        }
+    }
+
+    private func trackRow(_ row: DesignBrowseTrackRow, ordinal: Int) -> some View {
+        HStack(spacing: 12) {
+            Text("\(ordinal)")
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundStyle(Ayu.fgMuted)
+                .frame(width: 22, alignment: .trailing)
+            Text(row.title)
+                .font(.system(size: 13))
+                .foregroundStyle(row.isInScope ? Ayu.fg : Ayu.fgMuted)
+                .lineLimit(1)
+            if !row.isInScope {
+                TagPill(text: "out of scope", tone: .warning)
+            }
+            if !row.hasWriteIdentity {
+                TagPill(text: "read-only", tone: .info)
+            }
+            Spacer()
+            Text(row.genre ?? "—").font(.system(size: 12)).foregroundStyle(Ayu.fg2)
+            Text(row.year.map(String.init) ?? "—")
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundStyle(Ayu.fg2)
+                .frame(width: 40, alignment: .trailing)
+        }
+        .padding(.vertical, 9)
     }
 }

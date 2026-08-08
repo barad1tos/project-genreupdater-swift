@@ -1,5 +1,24 @@
 import Foundation
 
+private func mockAlbum(
+    id: String,
+    name: String,
+    artist: String,
+    genre: String? = nil,
+    year: Int? = nil,
+    tracks: Int
+) -> Album {
+    Album(
+        id: id,
+        name: name,
+        artistName: artist,
+        genre: genre,
+        year: year,
+        counts: DesignBrowseCounts(tracks: tracks, inScope: tracks, writable: tracks),
+        action: DesignBrowseAction(title: "Preview changes", isEnabled: true, disabledReason: nil)
+    )
+}
+
 /// Mock library data — internally consistent (coverage % ⇄ counts ⇄ health).
 /// Swap this for your real services / LibraryDashboardSnapshot pipeline.
 struct MockData {
@@ -84,115 +103,129 @@ struct MockData {
     ]
 
     let artists: [Artist] = [
-        Artist(id: "artist-aphex-twin", name: "Aphex Twin", genre: "Electronic", albums: [
-            .init(
+        Artist(id: "artist-aphex-twin", name: "Aphex Twin", albums: [
+            mockAlbum(
                 id: "album-aphex-selected-ambient",
                 name: "Selected Ambient Works 85-92",
+                artist: "Aphex Twin",
                 genre: "Electronic",
                 year: 1992,
-                tracks: 13,
-                health: 1.0
+                tracks: 13
             ),
-            .init(id: "album-aphex-drukqs", name: "Drukqs", genre: "Electronic", year: 2001, tracks: 30, health: 0.9),
-            .init(id: "album-aphex-syro", name: "Syro", genre: nil, year: 2014, tracks: 12, health: 0.4)
+            mockAlbum(
+                id: "album-aphex-drukqs",
+                name: "Drukqs",
+                artist: "Aphex Twin",
+                genre: "Electronic",
+                year: 2001,
+                tracks: 30
+            ),
+            mockAlbum(id: "album-aphex-syro", name: "Syro", artist: "Aphex Twin", genre: nil, year: 2014, tracks: 12)
         ]),
-        Artist(id: "artist-bach", name: "Bach, J.S.", genre: "Classical", albums: [
-            .init(
+        Artist(id: "artist-bach", name: "Bach, J.S.", albums: [
+            mockAlbum(
                 id: "album-bach-goldberg",
                 name: "Goldberg Variations",
+                artist: "Bach, J.S.",
                 genre: "Classical",
                 year: 1741,
-                tracks: 32,
-                health: 1.0
+                tracks: 32
             ),
-            .init(
+            mockAlbum(
                 id: "album-bach-cello-suites",
                 name: "Cello Suites",
+                artist: "Bach, J.S.",
                 genre: "Classical",
                 year: nil,
-                tracks: 36,
-                health: 0.6
+                tracks: 36
             )
         ]),
-        Artist(id: "artist-boards-of-canada", name: "Boards of Canada", genre: "Electronic", albums: [
-            .init(
+        Artist(id: "artist-boards-of-canada", name: "Boards of Canada", albums: [
+            mockAlbum(
                 id: "album-boc-music-has-right",
                 name: "Music Has the Right to Children",
+                artist: "Boards of Canada",
                 genre: nil,
                 year: nil,
-                tracks: 17,
-                health: 0.2
+                tracks: 17
             ),
-            .init(
+            mockAlbum(
                 id: "album-boc-geogaddi",
                 name: "Geogaddi",
+                artist: "Boards of Canada",
                 genre: "Electronic",
                 year: 2002,
-                tracks: 23,
-                health: 0.95
+                tracks: 23
             )
         ]),
-        Artist(id: "artist-metallica", name: "Metallica", genre: "Metal", albums: [
-            .init(
+        Artist(id: "artist-metallica", name: "Metallica", albums: [
+            mockAlbum(
                 id: "album-metallica-master",
                 name: "Master of Puppets",
+                artist: "Metallica",
                 genre: "Metal",
                 year: 1986,
-                tracks: 8,
-                health: 1.0
+                tracks: 8
             ),
-            .init(
+            mockAlbum(
                 id: "album-metallica-justice",
                 name: "...And Justice for All",
+                artist: "Metallica",
                 genre: "Metal",
                 year: 1988,
-                tracks: 9,
-                health: 0.9
+                tracks: 9
             ),
-            .init(
+            mockAlbum(
                 id: "album-metallica-black",
                 name: "The Black Album",
+                artist: "Metallica",
                 genre: "Metal",
                 year: 1991,
-                tracks: 12,
-                health: 1.0
+                tracks: 12
             )
         ]),
-        Artist(id: "artist-miles-davis", name: "Miles Davis", genre: "Jazz", albums: [
-            .init(
+        Artist(id: "artist-miles-davis", name: "Miles Davis", albums: [
+            mockAlbum(
                 id: "album-miles-kind-of-blue",
                 name: "Kind of Blue",
+                artist: "Miles Davis",
                 genre: "Jazz",
                 year: 1959,
-                tracks: 5,
-                health: 1.0
+                tracks: 5
             ),
-            .init(
+            mockAlbum(
                 id: "album-miles-bitches-brew",
                 name: "Bitches Brew",
+                artist: "Miles Davis",
                 genre: "Jazz",
                 year: 1970,
-                tracks: 6,
-                health: 0.85
+                tracks: 6
             )
         ]),
-        Artist(id: "artist-radiohead", name: "Radiohead", genre: "Alternative", albums: [
-            .init(
+        Artist(id: "artist-radiohead", name: "Radiohead", albums: [
+            mockAlbum(
                 id: "album-radiohead-ok-computer",
                 name: "OK Computer",
+                artist: "Radiohead",
                 genre: "Alternative",
                 year: 1997,
-                tracks: 12,
-                health: 1.0
+                tracks: 12
             ),
-            .init(id: "album-radiohead-kid-a", name: "Kid A", genre: "Electronic", year: 2000, tracks: 10, health: 0.9),
-            .init(
+            mockAlbum(
+                id: "album-radiohead-kid-a",
+                name: "Kid A",
+                artist: "Radiohead",
+                genre: "Electronic",
+                year: 2000,
+                tracks: 10
+            ),
+            mockAlbum(
                 id: "album-radiohead-in-rainbows",
                 name: "In Rainbows",
+                artist: "Radiohead",
                 genre: nil,
                 year: nil,
-                tracks: 10,
-                health: 0.3
+                tracks: 10
             )
         ])
     ]

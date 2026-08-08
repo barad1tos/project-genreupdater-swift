@@ -15,8 +15,8 @@ public struct RootView<UpdateContent: View>: View {
     private let setTestArtistsAction: (([String]) -> Bool)?
     private let setAppearanceModeAction: ((DesignAppearanceMode) -> Bool)?
     private let setFastAnimationsAction: ((Bool) -> Bool)?
-    private let browseAlbumUpdateAction: ((Album, String) -> Void)?
-    private let browseAlbumSelectionAction: ((Album?, String?) -> Void)?
+    private let browseTrackRows: ((Album.ID) -> [DesignBrowseTrackRow])?
+    private let browseAlbumPreviewAction: ((Album.ID) -> Void)?
     private let reportRunSelectionAction: ((String?) -> Void)?
     private let recoveryDetailActions: RecoveryDetailActions?
     private let reportNotice: ReportNotice?
@@ -35,8 +35,8 @@ public struct RootView<UpdateContent: View>: View {
         setTestArtistsAction: (([String]) -> Bool)? = nil,
         setAppearanceModeAction: ((DesignAppearanceMode) -> Bool)? = nil,
         setFastAnimationsAction: ((Bool) -> Bool)? = nil,
-        browseAlbumUpdateAction: ((Album, String) -> Void)? = nil,
-        browseAlbumSelectionAction: ((Album?, String?) -> Void)? = nil,
+        browseTrackRows: ((Album.ID) -> [DesignBrowseTrackRow])? = nil,
+        browseAlbumPreviewAction: ((Album.ID) -> Void)? = nil,
         reportRunSelectionAction: ((String?) -> Void)? = nil,
         recoveryDetailActions: RecoveryDetailActions? = nil,
         reportNotice: ReportNotice? = nil,
@@ -53,8 +53,8 @@ public struct RootView<UpdateContent: View>: View {
         self.setTestArtistsAction = setTestArtistsAction
         self.setAppearanceModeAction = setAppearanceModeAction
         self.setFastAnimationsAction = setFastAnimationsAction
-        self.browseAlbumUpdateAction = browseAlbumUpdateAction
-        self.browseAlbumSelectionAction = browseAlbumSelectionAction
+        self.browseTrackRows = browseTrackRows
+        self.browseAlbumPreviewAction = browseAlbumPreviewAction
         self.reportRunSelectionAction = reportRunSelectionAction
         self.recoveryDetailActions = recoveryDetailActions
         self.reportNotice = reportNotice
@@ -113,8 +113,8 @@ public struct RootView<UpdateContent: View>: View {
         case .browse:
             BrowseView(
                 model: model,
-                albumUpdateAction: browseAlbumUpdateAction,
-                albumSelectionAction: browseAlbumSelectionAction
+                trackRows: browseTrackRows,
+                albumPreviewAction: browseAlbumPreviewAction
             )
         case .reports: ReportsView(
                 model: model,

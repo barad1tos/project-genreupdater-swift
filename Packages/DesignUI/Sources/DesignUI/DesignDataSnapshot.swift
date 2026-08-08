@@ -50,6 +50,7 @@ public struct DesignDataSnapshot: Equatable, Sendable {
     public let metrics: [MetricTile]
     public let activity: [ActivityItem]
     public let artists: [Artist]
+    public let browseScope: DesignBrowseScope?
     public let changes: [Change]
     public let dryRun: DryRunSummary
     public let changeLog: [LogEntry]
@@ -74,6 +75,7 @@ public struct DesignDataSnapshot: Equatable, Sendable {
         metrics: [MetricTile],
         activity: [ActivityItem],
         artists: [Artist],
+        browseScope: DesignBrowseScope? = nil,
         changes: [Change],
         dryRun: DryRunSummary,
         changeLog: [LogEntry],
@@ -97,6 +99,7 @@ public struct DesignDataSnapshot: Equatable, Sendable {
         self.metrics = metrics
         self.activity = activity
         self.artists = artists
+        self.browseScope = browseScope
         self.changes = changes
         self.dryRun = dryRun
         self.changeLog = changeLog

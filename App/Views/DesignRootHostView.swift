@@ -25,7 +25,6 @@ struct DesignRootHostView: View {
     @State private var workflowViewModel: WorkflowViewModel?
     @State private var updateScopeTracks: [Core.Track]?
     @State private var workflowNoticeMessage: String?
-    @State private var selectedBrowseAlbum: (album: DesignUI.Album, artist: String)?
     @State private var selectedRoute: Route? = .activity
     @State private var activityProjection: ActivityProjection = .empty()
     @State private var queuedWriteSummary: ActivityQueuedWriteSummary?
@@ -61,8 +60,6 @@ struct DesignRootHostView: View {
             setTestArtistsAction: setTestArtists,
             setAppearanceModeAction: setAppearanceMode,
             setFastAnimationsAction: setFastAnimationsEnabled,
-            browseAlbumUpdateAction: prepareAlbumUpdate,
-            browseAlbumSelectionAction: setSelectedBrowseAlbum,
             reportRunSelectionAction: selectRunReport,
             recoveryDetailActions: RecoveryDetailActions(
                 applyRemainingFixes: applyRemainingFixes,
@@ -112,9 +109,6 @@ struct DesignRootHostView: View {
         }
         .onChange(of: workflowViewModel?.pendingVerificationReportSummary) {
             scheduleActivityProjectionRefresh()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .updateSelectedTracks)) { _ in
-            prepareSelectedTracksUpdate()
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToUpdate)) { _ in
             prepareDefaultUpdateForReview()
@@ -378,38 +372,6 @@ struct DesignRootHostView: View {
         }
     }
 
-    private func prepareAlbumUpdate(album: DesignUI.Album, artist: String) {
-        let selectedTracks = tracksForAlbumUpdate(album: album, artist: artist)
-        let updateSelection = configuredUpdateSelection
-        configureSelectedUpdateScope(
-            SelectedUpdateScopeConfiguration(
-                tracks: selectedTracks,
-                updateGenre: updateSelection.updateGenre,
-                updateYear: updateSelection.updateYear,
-                previewOnly: configuredPreviewOnly
-            )
-        )
-    }
-
-    private func prepareSelectedTracksUpdate() {
-        guard let selectedBrowseAlbum else {
-            ensureWorkflowViewModel()
-            selectedRoute = .update
-            workflowNoticeMessage = "Select an album in Browse before using Update Selected Tracks."
-            return
-        }
-
-        prepareAlbumUpdate(album: selectedBrowseAlbum.album, artist: selectedBrowseAlbum.artist)
-    }
-
-    private func setSelectedBrowseAlbum(album: DesignUI.Album?, artist: String?) {
-        if let album, let artist {
-            selectedBrowseAlbum = (album, artist)
-        } else {
-            selectedBrowseAlbum = nil
-        }
-    }
-
     private func selectRunReport(_ runID: String?) {
         if runID != selectedRunReport?.runID {
             clearReportNotice()
@@ -424,45 +386,6 @@ struct DesignRootHostView: View {
         }
         Task { @MainActor in
             await loadRunReportDetail(runID: runID, requestID: requestID)
-        }
-    }
-
-    private func configureSelectedUpdateScope(_ configuration: SelectedUpdateScopeConfiguration) {
-        selectedRoute = .update
-        ensureWorkflowViewModel()
-        guard let workflowViewModel else {
-            updateScopeTracks = configuration.tracks
-            workflowNoticeMessage = "Update services are still initializing. Please wait."
-            return
-        }
-
-        guard workflowViewModel.canStart else {
-            workflowNoticeMessage = "Finish or reset the current update before starting a new Browse selection."
-            return
-        }
-
-        let scopedTracks = UpdateTrackScopeResolver.tracksForWorkflow(
-            libraryTracks: tracks,
-            selectedScopeTracks: configuration.tracks,
-            mode: .selectedTracks,
-            testArtists: dependencies.config.development.testArtists
-        )
-        updateScopeTracks = scopedTracks
-        workflowViewModel.configureSelectedTracksScope(
-            tracks: scopedTracks,
-            updateGenre: configuration.updateGenre,
-            updateYear: configuration.updateYear,
-            previewOnly: configuration.previewOnly
-        )
-        workflowNoticeMessage = scopedTracks.isEmpty
-            ? "No tracks matched this album in the current library scope."
-            : nil
-    }
-
-    private func tracksForAlbumUpdate(album: DesignUI.Album, artist: String) -> [Core.Track] {
-        let albumKeys = Set(AlbumIdentity.lookupKeys(artist: artist, album: album.name))
-        return tracks.filter { track in
-            !Set(AlbumIdentity.lookupKeys(for: track)).isDisjoint(with: albumKeys)
         }
     }
 
