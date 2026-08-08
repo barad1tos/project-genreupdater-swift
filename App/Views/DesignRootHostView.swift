@@ -216,26 +216,34 @@ struct DesignRootHostView: View {
         }
     }
 
-    private var designActivitySnapshotInput: DesignActivitySnapshotInput {
-        DesignActivitySnapshotInput(
+    /// The one place host state becomes activity facts (F4): the design
+    /// snapshot and the backend publish consume the SAME constructors,
+    /// so the two paths cannot read the library at different moments.
+    var currentActivityLibraryFacts: ActivityLibraryFacts {
+        ActivityLibraryFacts(
             tracks: tracks,
             metricsSnapshot: metricsSnapshot,
             lastScanDate: lastScanDate,
-            isLoading: isLoading,
             loadError: loadError,
-            isDryRun: dependencies.config.runtime.dryRun,
-            workflow: workflowDashboardState,
-            pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
-            changeLogEntries: changeLogEntries,
-            isAutoSyncRunning: dependencies.isAutoSyncRunning,
-            runLifecycle: currentRunLifecycle,
-            settings: settingsSnapshot,
-            now: Date()
+            isLoading: isLoading
         )
     }
 
-    private var activeRunID: RunID? {
-        currentRunLifecycle?.isActive == true ? currentRunLifecycle?.runID : nil
+    var currentActivityWorkflowFacts: ActivityWorkflowFacts {
+        ActivityWorkflowFacts(
+            dashboard: workflowDashboardState,
+            pendingVerification: workflowViewModel?.pendingVerificationReportSummary
+        )
+    }
+
+    private var designActivitySnapshotInput: DesignActivitySnapshotInput {
+        DesignActivitySnapshotInput(
+            library: currentActivityLibraryFacts,
+            workflow: currentActivityWorkflowFacts,
+            changeLogEntries: changeLogEntries,
+            settings: settingsSnapshot,
+            now: Date()
+        )
     }
 
     @ViewBuilder
@@ -675,17 +683,8 @@ struct DesignRootHostView: View {
     @discardableResult
     private func refreshActivityProjection() async -> ActivityProjection {
         let storedProjection = await dependencies.refreshActivityProjection(
-            library: ActivityLibraryFacts(
-                tracks: tracks,
-                metricsSnapshot: metricsSnapshot,
-                lastScanDate: lastScanDate,
-                loadError: loadError,
-                isLoading: isLoading
-            ),
-            workflow: ActivityWorkflowFacts(
-                dashboard: workflowDashboardState,
-                pendingVerification: workflowViewModel?.pendingVerificationReportSummary
-            )
+            library: currentActivityLibraryFacts,
+            workflow: currentActivityWorkflowFacts
         )
         applyActivityProjection(storedProjection)
         return storedProjection
@@ -1192,21 +1191,16 @@ extension DesignRootHostView {
 
 extension DesignRootHostView {
     private func loadRunReportDetail(runID: String, requestID: UUID) async {
-        let record = await dependencies.loadRunReportRecord(id: runID)
+        // Backend query-response (D6): assembly and active-run truth live
+        // with the dependency graph; the host keeps only the result
+        // behind its request-ID guard.
+        let detail = await dependencies.loadRunReportDetail(runID: runID)
         guard runReportDetailRequestID == requestID else { return }
 
-        guard let record else {
+        guard let detail else {
             selectedRunReport = .unavailable(runID: runID)
             return
         }
-        let continuedBy = await dependencies.loadRunContinuations(id: runID)
-        guard runReportDetailRequestID == requestID else { return }
-        let detail = RunReportDetailBuilder.makeDetail(
-            from: record,
-            now: Date(),
-            activeRunID: activeRunID,
-            continuedBy: continuedBy
-        )
         selectedRunReport = ReportDetailAdapter.makeSnapshot(from: detail)
     }
 

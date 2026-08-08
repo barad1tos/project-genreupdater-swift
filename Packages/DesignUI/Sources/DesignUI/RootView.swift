@@ -41,7 +41,9 @@ public struct RootView<UpdateContent: View>: View {
         browseNotice: String? = nil,
         reportRunSelectionAction: ((String?) -> Void)? = nil,
         recoveryDetailActions: RecoveryDetailActions? = nil,
-        reportNotice: ReportNotice? = nil,
+        // No default: the host must pass its notice state explicitly —
+        // a defaulted nil once let the whole chain die silently.
+        reportNotice: ReportNotice?,
         @ViewBuilder updateContent: @escaping () -> UpdateContent
     ) {
         self.data = data
@@ -123,7 +125,8 @@ public struct RootView<UpdateContent: View>: View {
         case .reports: ReportsView(
                 model: model,
                 runSelectionAction: reportRunSelectionAction,
-                recoveryActions: recoveryDetailActions
+                recoveryActions: recoveryDetailActions,
+                reportNotice: reportNotice
             )
         case .update: updateContent()
         case .settings:
@@ -233,7 +236,7 @@ private struct SyncStatusPill: View {
 }
 
 #Preview {
-    RootView {
+    RootView(reportNotice: nil) {
         UpdateView(model: AppModel(data: .preview))
     }
 }

@@ -20,7 +20,13 @@ enum ActivityFixtures {
             currentStage: .detect,
             processingMode: .preview,
             automationState: .manualScanOnly,
-            scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: nil),
+            scanFacts: ActivityScanFacts(
+                lastScanLabel: "No scan yet",
+                nextRunLabel: "Manual scan only",
+                albumCount: nil
+            ),
+            healthFacts: .empty,
+            pendingVerification: nil,
             deltaCount: 0,
             interventionCount: 0,
             protectedCount: 0,
@@ -54,7 +60,13 @@ enum ActivityFixtures {
             currentStage: .fix,
             processingMode: .preview,
             automationState: .manualScanOnly,
-            scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: nil),
+            scanFacts: ActivityScanFacts(
+                lastScanLabel: "No scan yet",
+                nextRunLabel: "Manual scan only",
+                albumCount: nil
+            ),
+            healthFacts: .empty,
+            pendingVerification: nil,
             deltaCount: 0,
             interventionCount: 0,
             protectedCount: 0,

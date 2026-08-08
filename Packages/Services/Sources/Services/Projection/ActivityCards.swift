@@ -1,7 +1,7 @@
 extension ActivityBuilder {
     static func makeRecentActivity(
         input: ActivityProjectionInput,
-        counts: Counts,
+        counts: ActivityHealthCounts,
         syncSummary: ActivitySyncSummary?
     ) -> [ActivityRecentItem] {
         var items: [ActivityRecentItem] = []
@@ -35,7 +35,7 @@ extension ActivityBuilder {
 
     static func makeSummaryCards(
         input: ActivityProjectionInput,
-        counts: Counts,
+        counts: ActivityHealthCounts,
         syncSummary: ActivitySyncSummary?
     ) -> [ActivitySummaryCard] {
         let automationState = makeAutomationState(input: input)
@@ -74,7 +74,7 @@ extension ActivityBuilder {
         ]
     }
 
-    static func qualityPercentage(from counts: Counts) -> String {
+    static func qualityPercentage(from counts: ActivityHealthCounts) -> String {
         guard counts.totalTracks > 0 else { return "0%" }
         let percentage = Double(counts.tracksWithBoth) / Double(counts.totalTracks) * 100
         return "\(Int(percentage.rounded()))%"

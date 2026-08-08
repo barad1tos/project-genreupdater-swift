@@ -186,6 +186,13 @@ public struct Track: Sendable, Codable, Identifiable, Hashable {
     public var canEdit: Bool {
         kind?.canEditMetadata ?? true
     }
+
+    /// Whether the genre carries real content — whitespace-only values
+    /// count as missing everywhere (coverage, browse triage, health).
+    public var hasPresentGenre: Bool {
+        guard let genre else { return false }
+        return !genre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 // MARK: - Change Log

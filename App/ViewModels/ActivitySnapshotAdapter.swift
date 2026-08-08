@@ -3,18 +3,13 @@ import DesignUI
 import Foundation
 import Services
 
+/// One activity input per render truth (F4): the same fact values the
+/// backend publish caches feed the design snapshot — no second read of
+/// host state, no second Date().
 struct DesignActivitySnapshotInput {
-    let tracks: [Core.Track]
-    let metricsSnapshot: PersistedMetricsSnapshot?
-    let lastScanDate: Date?
-    let isLoading: Bool
-    let loadError: LibraryLoadError?
-    let isDryRun: Bool
-    let workflow: WorkflowDashboardState
-    let pendingVerification: UpdateRunPendingVerificationSummary?
+    let library: ActivityLibraryFacts
+    let workflow: ActivityWorkflowFacts
     let changeLogEntries: [Core.ChangeLogEntry]
-    let isAutoSyncRunning: Bool
-    let runLifecycle: RunLifecycleSnapshot?
     let settings: DesignSettingsSnapshot
     let now: Date
 }
@@ -133,27 +128,28 @@ enum ActivitySnapshotAdapter {
         chrome: DesignChromeSnapshot = .preview,
         browse: BrowseSnapshotInput = .empty
     ) -> DesignDataSnapshot {
-        let dashboard = makeDashboardSnapshot(from: input)
         let reportEntries = makeReportEntries(from: input.changeLogEntries)
 
         return DesignDataSnapshot(
-            health: makeHealthSnapshot(from: dashboard, input: input, activityProjection: activityProjection),
+            health: makeHealthSnapshot(from: input, activityProjection: activityProjection),
             pipelineActivity: ActivityDesignAdapter.makePipelineSnapshot(
                 from: activityProjection,
                 notice: activityNotice
             ),
-            pendingVerification: makePendingVerificationSnapshot(from: input.pendingVerification),
-            coverage: makeCoverageBuckets(from: dashboard),
-            issues: makeIssues(from: dashboard, input: input),
-            metrics: makeMetricTiles(from: dashboard, input: input),
+            pendingVerification: makePendingVerificationSnapshot(from: activityProjection.pendingVerification),
+            coverage: makeCoverageBuckets(from: activityProjection.healthFacts),
+            issues: makeIssues(from: activityProjection),
+            metrics: makeMetricTiles(from: activityProjection.healthFacts, input: input),
             activity: ActivityDesignAdapter.makeActivityItems(from: activityProjection),
             artists: browse.artists,
             browseScope: browse.scope,
             // Change rows arrive with the reports lineage work, not browse.
             changes: [],
             dryRun: DryRunSummary(
-                changes: input.workflow.proposedChangeCount,
-                tracks: input.tracks.count,
+                changes: input.workflow.dashboard.proposedChangeCount,
+                // Paired with the SAME published totals the health card
+                // shows — render-time track state may be a frame newer.
+                tracks: activityProjection.healthFacts.counts.totalTracks,
                 averageConfidence: 0,
                 genre: 0,
                 year: 0
@@ -173,47 +169,28 @@ enum ActivitySnapshotAdapter {
         )
     }
 
-    private static func makeDashboardSnapshot(from input: DesignActivitySnapshotInput) -> LibraryDashboardSnapshot {
-        if let metricsSnapshot = input.metricsSnapshot {
-            return LibraryDashboardSnapshot.make(
-                persistedMetrics: metricsSnapshot,
-                isLoading: input.isLoading,
-                loadError: input.loadError,
-                isDryRun: input.isDryRun,
-                workflow: input.workflow
-            )
-        }
-
-        return LibraryDashboardSnapshot.make(
-            tracks: input.tracks,
-            lastScanDate: input.lastScanDate,
-            isLoading: input.isLoading,
-            loadError: input.loadError,
-            isDryRun: input.isDryRun,
-            workflow: input.workflow
-        )
-    }
-
+    /// Health numbers come from the published projection VERBATIM (S35):
+    /// the builder owns the derivation, this adapter only formats.
     private static func makeHealthSnapshot(
-        from dashboard: LibraryDashboardSnapshot,
-        input: DesignActivitySnapshotInput,
+        from input: DesignActivitySnapshotInput,
         activityProjection: ActivityProjection
     ) -> HealthSnapshot {
-        HealthSnapshot(
-            health: dashboard.healthScore,
-            genre: dashboard.genreCoverageRatio,
-            year: dashboard.yearCoverageRatio,
-            consistency: dashboard.consistencyCoverageRatio,
-            totalTracks: dashboard.totalTracks,
+        let facts = activityProjection.healthFacts
+        return HealthSnapshot(
+            health: facts.healthScore,
+            genre: facts.genreCoverageRatio,
+            year: facts.yearCoverageRatio,
+            consistency: facts.consistencyCoverageRatio,
+            totalTracks: facts.counts.totalTracks,
             totalAlbums: activityProjection.scanFacts.albumCount,
-            missingGenre: dashboard.missingGenreCount,
-            missingYear: dashboard.missingYearCount,
-            completeMetadata: dashboard.tracksWithBoth,
-            ready: dashboard.readyUpdateCount,
-            pendingVerification: input.pendingVerification?.total ?? 0,
-            protectedFiles: dashboard.protectedFileCount,
-            writeErrors: input.workflow.failedWriteCount,
-            recentlyAdded: input.metricsSnapshot?.recentlyAdded ?? 0,
+            missingGenre: facts.missingGenreCount,
+            missingYear: facts.missingYearCount,
+            completeMetadata: facts.counts.tracksWithBoth,
+            ready: facts.readyUpdateCount,
+            pendingVerification: activityProjection.interventionCount,
+            protectedFiles: facts.counts.isProtectedFileCountKnown ? facts.counts.protectedFileCount : nil,
+            writeErrors: activityProjection.failedWriteCount,
+            recentlyAdded: input.library.metricsSnapshot?.recentlyAdded ?? 0,
             lastScan: activityProjection.scanFacts.lastScanLabel,
             nextRun: activityProjection.scanFacts.nextRunLabel,
             source: "Apple Music · local files",
@@ -221,84 +198,101 @@ enum ActivitySnapshotAdapter {
         )
     }
 
-    private static func makeCoverageBuckets(from dashboard: LibraryDashboardSnapshot) -> [CoverageBucket] {
-        dashboard.coverageBuckets.map { bucket in
+    private static func makeCoverageBuckets(from facts: ActivityHealthFacts) -> [CoverageBucket] {
+        [
             CoverageBucket(
-                id: bucket.id,
-                label: bucket.title,
-                ratio: bucket.ratio,
-                tone: bucket.title
-                    .localizedCaseInsensitiveContains("unknown") ? .neutral : makeCoverageTone(bucket.ratio)
-            )
-        }
+                id: "genre",
+                label: "Genre coverage",
+                ratio: facts.genreCoverageRatio,
+                tone: makeCoverageTone(facts.genreCoverageRatio)
+            ),
+            CoverageBucket(
+                id: "year",
+                label: "Year coverage",
+                ratio: facts.yearCoverageRatio,
+                tone: makeCoverageTone(facts.yearCoverageRatio)
+            ),
+            CoverageBucket(
+                id: "consistency",
+                label: "Consistency",
+                ratio: facts.consistencyCoverageRatio,
+                tone: makeCoverageTone(facts.consistencyCoverageRatio)
+            ),
+            CoverageBucket(
+                id: "editable",
+                label: facts.counts.isProtectedFileCountKnown ? "Editable files" : "Editable files unknown",
+                ratio: facts.editableCoverageRatio,
+                tone: facts.counts.isProtectedFileCountKnown
+                    ? makeCoverageTone(facts.editableCoverageRatio) : .neutral
+            ),
+        ]
     }
 
-    private static func makeIssues(
-        from dashboard: LibraryDashboardSnapshot,
-        input: DesignActivitySnapshotInput
-    ) -> [Issue] {
-        [
-            makePendingVerificationIssue(input.pendingVerification),
+    private static func makeIssues(from projection: ActivityProjection) -> [Issue] {
+        let facts = projection.healthFacts
+        let failedWriteCount = projection.failedWriteCount
+        return [
+            makePendingVerificationIssue(projection.pendingVerification),
             Issue(
                 id: "protected",
-                label: dashboard.isProtectedFileCountKnown ? "Protected files" : "Protected files unknown",
-                count: dashboard.protectedFileCount.formatted(),
-                tone: makeProtectedTone(from: dashboard),
+                label: facts.counts.isProtectedFileCountKnown ? "Protected files" : "Protected files unknown",
+                count: facts.counts.protectedFileCount.formatted(),
+                tone: makeProtectedTone(from: facts.counts),
                 symbol: "lock"
             ),
             Issue(
                 id: "errors",
                 label: "Write errors",
-                count: input.workflow.failedWriteCount.formatted(),
-                tone: input.workflow.failedWriteCount > 0 ? .error : .success,
-                symbol: input.workflow.failedWriteCount > 0 ? "xmark.octagon" : "checkmark.circle"
-            )
+                count: failedWriteCount.formatted(),
+                tone: failedWriteCount > 0 ? .error : .success,
+                symbol: failedWriteCount > 0 ? "xmark.octagon" : "checkmark.circle"
+            ),
         ]
     }
 
     private static func makeMetricTiles(
-        from dashboard: LibraryDashboardSnapshot,
+        from facts: ActivityHealthFacts,
         input: DesignActivitySnapshotInput
     ) -> [MetricTile] {
         let missingGenreTrend = makeTrend(
-            current: dashboard.missingGenreCount,
-            previous: input.metricsSnapshot?.previousTracksNeedingGenre
+            current: facts.missingGenreCount,
+            previous: input.library.metricsSnapshot?.previousTracksNeedingGenre
         )
         let missingYearTrend = makeTrend(
-            current: dashboard.missingYearCount,
-            previous: input.metricsSnapshot?.previousTracksNeedingYear
+            current: facts.missingYearCount,
+            previous: input.library.metricsSnapshot?.previousTracksNeedingYear
         )
 
         return [
             MetricTile(
                 id: "missing-genres",
                 label: "Missing Genres",
-                value: dashboard.missingGenreCount.formatted(),
+                value: facts.missingGenreCount.formatted(),
                 symbol: "tag.slash",
-                tone: dashboard.missingGenreCount > 0 ? .warning : .success,
+                tone: facts.missingGenreCount > 0 ? .warning : .success,
                 trendUp: missingGenreTrend?.isUp,
                 delta: missingGenreTrend?.delta
             ),
             MetricTile(
                 id: "missing-years",
                 label: "Missing Years",
-                value: dashboard.missingYearCount.formatted(),
+                value: facts.missingYearCount.formatted(),
                 symbol: "calendar.badge.exclamationmark",
-                tone: dashboard.missingYearCount > 0 ? .info : .success,
+                tone: facts.missingYearCount > 0 ? .info : .success,
                 trendUp: missingYearTrend?.isUp,
                 delta: missingYearTrend?.delta
             ),
             MetricTile(
                 id: "complete-metadata",
                 label: "Complete Metadata",
-                value: dashboard.tracksWithBoth.formatted(),
+                value: facts.counts.tracksWithBoth.formatted(),
                 symbol: "checkmark.seal",
-                tone: makeCoverageTone(dashboard.consistencyCoverageRatio)
+                tone: makeCoverageTone(facts.consistencyCoverageRatio)
             )
         ]
     }
 
-    private static func makePendingVerificationIssue(_ summary: UpdateRunPendingVerificationSummary?) -> Issue {
+    private static func makePendingVerificationIssue(_ summary: ActivityPendingVerificationSummary?) -> Issue {
         guard let summary else {
             return Issue(
                 id: "pending",
@@ -322,7 +316,7 @@ enum ActivitySnapshotAdapter {
     }
 
     private static func makePendingVerificationSnapshot(
-        from summary: UpdateRunPendingVerificationSummary?
+        from summary: ActivityPendingVerificationSummary?
     ) -> PendingVerificationSnapshot {
         guard let summary else {
             return .unavailable
@@ -353,12 +347,12 @@ enum ActivitySnapshotAdapter {
         return .error
     }
 
-    private static func makeProtectedTone(from dashboard: LibraryDashboardSnapshot) -> Tone {
-        guard dashboard.isProtectedFileCountKnown else {
+    private static func makeProtectedTone(from counts: ActivityHealthCounts) -> Tone {
+        guard counts.isProtectedFileCountKnown else {
             return .neutral
         }
 
-        return dashboard.protectedFileCount > 0 ? .warning : .success
+        return counts.protectedFileCount > 0 ? .warning : .success
     }
 
     private static func makeTrend(current: Int, previous: Int?) -> (isUp: Bool, delta: String)? {

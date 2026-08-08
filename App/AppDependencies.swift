@@ -42,9 +42,10 @@ final class AppDependencies {
     private(set) var appState: AppState = .loading
     /// Serialized runtime-apply chain; see `enqueueRuntimeApplyAndPublish`.
     var runtimeApplyQueue: Task<Void, Never>?
-    /// Observable mirror of the chrome projection so SwiftUI Commands and
-    /// MenuBarExtra scenes re-evaluate; written only by
-    /// `refreshChromeProjection()` (slice 10 relocates this).
+    /// Observable mirror of the chrome projection for Commands and
+    /// MenuBarExtra scenes. `refreshChromeProjection()` is the SOLE
+    /// publisher, keeping mirror and store stream identical (pinned by
+    /// `oneChromeTruthAcrossSurfaces`) — route new publishers through it.
     var chrome: ChromeProjection = .empty()
     var config: AppConfiguration
     var isAutoSyncRunning = false

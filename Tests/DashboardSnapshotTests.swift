@@ -731,4 +731,37 @@ extension DashboardSnapshotTests {
 
         #expect(persistedSnapshot?.protectedFileCount == nil)
     }
+
+    @Test("metrics writer values: mixed evidence is unknown, window counts recent")
+    @MainActor
+    func metricsWriterValuesContract() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let recent = now.addingTimeInterval(-3 * 24 * 3600)
+        let old = now.addingTimeInterval(-30 * 24 * 3600)
+        let values = makeDashboardMetricsSnapshotValues(
+            from: [
+                Track(
+                    id: "known-protected", name: "a", artist: "A", album: "B",
+                    genre: "Rock", year: 2001, dateAdded: recent, trackStatus: "prerelease"
+                ),
+                Track(id: "no-evidence", name: "b", artist: "A", album: "B", dateAdded: old),
+            ],
+            timestamp: now
+        )
+
+        // One track lacks editability evidence → the whole count is
+        // unknowable and MUST persist as nil, never 0 (the read side
+        // renders nil as "unknown").
+        #expect(values?.protectedFileCount == nil)
+        #expect(values?.totalTracks == 2)
+        #expect(values?.tracksWithGenre == 1)
+        #expect(values?.tracksNeedingGenre == 1)
+        #expect(values?.recentlyAdded == 1)
+    }
+
+    @Test("metrics writer yields nothing for an empty library")
+    @MainActor
+    func metricsWriterEmptyLibrary() {
+        #expect(makeDashboardMetricsSnapshotValues(from: []) == nil)
+    }
 }

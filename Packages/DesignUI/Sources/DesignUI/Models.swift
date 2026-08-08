@@ -34,7 +34,8 @@ public struct HealthSnapshot: Equatable, Sendable {
     public let completeMetadata: Int
     public let ready: Int // staged updates
     public let pendingVerification: Int
-    public let protectedFiles: Int
+    /// nil = editability evidence incomplete (count unknowable).
+    public let protectedFiles: Int?
     public let writeErrors: Int
     public let recentlyAdded: Int
     public let lastScan: String
@@ -54,7 +55,7 @@ public struct HealthSnapshot: Equatable, Sendable {
         completeMetadata: Int,
         ready: Int,
         pendingVerification: Int,
-        protectedFiles: Int,
+        protectedFiles: Int?,
         writeErrors: Int,
         recentlyAdded: Int,
         lastScan: String,

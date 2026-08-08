@@ -277,7 +277,11 @@ struct ActivityView: View {
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 SafetyGateRow(title: "Preview approval", value: previewApprovalValue(pipeline), tone: .teal)
-                SafetyGateRow(title: "Protected files", value: "\(snapshot.protectedFiles) skipped", tone: .warning)
+                SafetyGateRow(
+                    title: "Protected files",
+                    value: snapshot.protectedFiles.map { "\($0) skipped" } ?? "Unknown",
+                    tone: snapshot.protectedFiles == nil ? .neutral : .warning
+                )
                 SafetyGateRow(
                     title: "Write errors",
                     value: "\(pipeline.failedWriteCount)",

@@ -76,4 +76,20 @@ extension AppDependencies {
         ))
         return await projectionStore.replaceReportsProjection(projection, inputGeneration: inputGeneration)
     }
+
+    /// Query-response detail serving (D6): no store slot, no publish —
+    /// the host keeps only the RESULT plus a request-ID guard. Active-run
+    /// truth comes from the orchestrator, never from view state.
+    func loadRunReportDetail(runID: String) async -> RunReportDetailProjection? {
+        guard let record = await loadRunReportRecord(id: runID) else { return nil }
+        let continuedBy = await loadRunContinuations(id: runID)
+        let lifecycle = await currentRunLifecycle()
+        let activeRunID = lifecycle?.isActive == true ? lifecycle?.runID : nil
+        return RunReportDetailBuilder.makeDetail(
+            from: record,
+            now: Date(),
+            activeRunID: activeRunID,
+            continuedBy: continuedBy
+        )
+    }
 }

@@ -207,17 +207,11 @@ struct ActivityReportTests {
 
     private func makeInput(changeLogEntries: [Core.ChangeLogEntry] = []) -> DesignActivitySnapshotInput {
         DesignActivitySnapshotInput(
-            tracks: [],
-            metricsSnapshot: nil,
-            lastScanDate: nil,
-            isLoading: false,
-            loadError: nil,
-            isDryRun: true,
-            workflow: .empty,
-            pendingVerification: nil,
+            library: ActivityLibraryFacts(
+                tracks: [], metricsSnapshot: nil, lastScanDate: nil, loadError: nil, isLoading: false
+            ),
+            workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil),
             changeLogEntries: changeLogEntries,
-            isAutoSyncRunning: false,
-            runLifecycle: nil,
             settings: .preview,
             now: now
         )

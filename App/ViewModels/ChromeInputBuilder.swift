@@ -41,8 +41,7 @@ extension AppDependencies {
                 physicalTrackCount: probedPhysicalTrackCount(),
                 scope: lifecycle?.scope
             ),
-            permissions: probedChromePermissions(),
-            hasReviewableFixPlan: fixPlan.status == .ready || fixPlan.status == .stale
+            permissions: probedChromePermissions()
         )
     }
 

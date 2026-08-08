@@ -283,6 +283,8 @@ private func makeProjection(
         processingMode: .preview,
         automationState: .noSyncYet,
         scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: nil),
+        healthFacts: .empty,
+        pendingVerification: nil,
         deltaCount: 0,
         interventionCount: 0,
         protectedCount: 0,

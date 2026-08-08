@@ -45,6 +45,7 @@ actor RunRecordStoreStub: RunRecordStore {
     private let recordError: (any Error)?
     private let claimError: (any Error)?
     private var continuationsError: (any Error)?
+    private var continuationRunIDs: [RunID] = []
     private var storedRecord: RunRecord?
     private let reportPages: [RunReportPage]
     private let recoveryPage: RunReportPage?
@@ -133,7 +134,11 @@ actor RunRecordStoreStub: RunRecordStore {
         if let continuationsError {
             throw continuationsError
         }
-        return []
+        return continuationRunIDs
+    }
+
+    func installContinuations(_ runIDs: [RunID]) {
+        continuationRunIDs = runIDs
     }
 
     func failContinuations() {
@@ -241,21 +246,6 @@ func libraryLoadSourceURL() throws -> URL {
 
     for _ in 0 ..< 8 {
         let candidate = currentURL.appendingPathComponent("App/Views/DesignRootHostView.swift")
-        if FileManager.default.fileExists(atPath: candidate.path) {
-            return candidate
-        }
-        currentURL.deleteLastPathComponent()
-    }
-
-    throw CocoaError(.fileNoSuchFile)
-}
-
-func reportsViewSourceURL() throws -> URL {
-    var currentURL = URL(fileURLWithPath: #filePath)
-    currentURL.deleteLastPathComponent()
-
-    for _ in 0 ..< 8 {
-        let candidate = currentURL.appendingPathComponent("App/Views/ReportsView.swift")
         if FileManager.default.fileExists(atPath: candidate.path) {
             return candidate
         }

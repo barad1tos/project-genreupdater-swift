@@ -687,7 +687,13 @@ struct ActivityCommandsTests {
             currentStage: .diff,
             processingMode: .preview,
             automationState: .manualScanOnly,
-            scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: nil),
+            scanFacts: ActivityScanFacts(
+                lastScanLabel: "No scan yet",
+                nextRunLabel: "Manual scan only",
+                albumCount: nil
+            ),
+            healthFacts: .empty,
+            pendingVerification: nil,
             deltaCount: 2,
             interventionCount: 0,
             protectedCount: 0,
@@ -908,6 +914,8 @@ private func blockedRecoveryProjection(revision: ProjectionRevision) -> Activity
         processingMode: .preview,
         automationState: .manualScanOnly,
         scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: nil),
+        healthFacts: .empty,
+        pendingVerification: nil,
         deltaCount: 0,
         interventionCount: 0,
         protectedCount: 0,

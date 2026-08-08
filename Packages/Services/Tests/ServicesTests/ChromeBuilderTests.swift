@@ -98,16 +98,14 @@ struct ChromeBuilderTests {
 
     // MARK: - Recovery hold and command precedence
 
-    @Test("recovery outranks a reviewable fix plan as the first command")
+    @Test("recovery leads the command list under a hold")
     func recoveryOutranksReview() {
         let projection = ChromeBuilder.makeProjection(input: makeInput(
-            recovery: heldRecovery,
-            hasReviewableFixPlan: true
+            recovery: heldRecovery
         ))
 
         #expect(projection.commands.first?.commandKind == .resumeRecovery)
         #expect(projection.safety.recoveryHold?.blocksWrites == true)
-        #expect(!projection.commands.contains { $0.commandKind == .reviewChanges })
     }
 
     @Test("the hold carries the recovery run identifier through")
@@ -167,11 +165,16 @@ struct ChromeBuilderTests {
         #expect(background.commands.first { $0.commandKind == .runManually }?.isEnabled == true)
     }
 
-    @Test("a reviewable plan without a hold offers review changes")
-    func reviewablePlanOffersReview() {
-        let projection = ChromeBuilder.makeProjection(input: makeInput(hasReviewableFixPlan: true))
+    @Test("chrome offers only commands a menu renders")
+    func chromeCommandsAreRenderable() {
+        // The review-changes descriptor was emitted for years and rendered
+        // by no menu — deleted. The in-window Activity surface owns the
+        // review affordance; chrome menus offer run and recovery only.
+        let projection = ChromeBuilder.makeProjection(input: makeInput())
 
-        #expect(projection.commands.contains { $0.commandKind == .reviewChanges })
+        #expect(projection.commands.allSatisfy {
+            $0.commandKind == .runManually || $0.commandKind == .resumeRecovery
+        })
     }
 
     // MARK: - Scope
@@ -320,8 +323,7 @@ private func makeInput(
     ),
     automation: ChromeAutomationFacts = ChromeAutomationFacts(isAutoSyncRunning: false, isIncrementalDue: nil),
     library: ChromeLibraryFacts = ChromeLibraryFacts(physicalTrackCount: nil, scope: nil),
-    permissions: ChromePermissions = .unprobed,
-    hasReviewableFixPlan: Bool = false
+    permissions: ChromePermissions = .unprobed
 ) -> ChromeInput {
     ChromeInput(
         run: run,
@@ -329,8 +331,7 @@ private func makeInput(
         settings: settings,
         automation: automation,
         library: library,
-        permissions: permissions,
-        hasReviewableFixPlan: hasReviewableFixPlan
+        permissions: permissions
     )
 }
 

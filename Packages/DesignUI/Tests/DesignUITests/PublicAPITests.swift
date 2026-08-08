@@ -9,7 +9,7 @@ struct PublicAPITests {
     func snapshotCanBeConstructedOutsideDesignUIModule() {
         let data = makeSnapshot(totalTracks: 10, syncStatusText: "No sync yet", deltaCount: 2)
         let model = AppModel(data: data)
-        let root = RootView(data: data) {
+        let root = RootView(data: data, reportNotice: nil) {
             EmptyView()
         }
         let actionRoot = RootView(
@@ -23,6 +23,7 @@ struct PublicAPITests {
             setUpdateBehaviorAction: { $0 == .both },
             setMinimumConfidenceAction: { $0 >= 0 },
             setReleaseYearRestoreThresholdAction: { $0 >= 0 },
+            reportNotice: ReportNotice(message: "Dismissed 2 items", tone: .success),
             updateContent: {
                 EmptyView()
             }
