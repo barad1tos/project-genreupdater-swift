@@ -58,14 +58,13 @@ extension AppDependencies {
     @discardableResult
     func refreshActivityProjection(
         library: ActivityLibraryFacts,
-        workflow: ActivityWorkflowFacts,
-        runLifecycle: RunLifecycleSnapshot?
+        workflow: ActivityWorkflowFacts
     ) async -> ActivityProjection {
         cachedActivityLibraryFacts = library
         cachedActivityWorkflowFacts = workflow
-        if let runLifecycle {
-            currentLifecycleSnapshot = runLifecycle
-        }
+        // The lifecycle observer is the SOLE writer of the lifecycle
+        // snapshot: a host mirror can lag its own subscription, and
+        // writing it back here would revert newer run truth.
         return await republishActivityProjection()
     }
 

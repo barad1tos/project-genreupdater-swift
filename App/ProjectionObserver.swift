@@ -10,9 +10,19 @@ import Services
 extension AppDependencies {
     func startLifecycleProjectionObserver() {
         lifecycleObserverTask?.cancel()
+        // A re-initialize rebuilds the orchestrator: the previous
+        // session's snapshot and throttle keys must not survive into
+        // the new one, or chrome serves a dead run and the first new
+        // boundary can be throttled away. Clearing also closes the
+        // unawaited-cancel race — a suspended old task can no longer
+        // leave keys a fresh session would trust.
+        currentLifecycleSnapshot = nil
+        lastChromeLifecycleRunID = nil
+        lastChromeLifecycleState = nil
         lifecycleObserverTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            for await lifecycle in await self.runLifecycleUpdates() {
+            guard let updates = await self?.runLifecycleUpdates() else { return }
+            for await lifecycle in updates {
+                guard let self else { return }
                 await self.publishLifecycleBoundary(lifecycle)
             }
         }
@@ -25,13 +35,16 @@ extension AppDependencies {
     /// where the projection could not change anyway.
     func publishLifecycleBoundary(_ lifecycle: RunLifecycleSnapshot) async {
         currentLifecycleSnapshot = lifecycle
-        await republishActivityProjection()
+        // Terminal dependencies FIRST: activity embeds fix-plan and
+        // reports truth, so it must publish after them or a headless
+        // terminal boundary leaves activity a boundary stale.
         if !lifecycle.isActive {
             if lifecycle.intent == .previewFixes {
                 await refreshFixPlanProjection()
             }
             await refreshReportsProjection()
         }
+        await republishActivityProjection()
         if lifecycle.runID != lastChromeLifecycleRunID || lifecycle.state != lastChromeLifecycleState {
             lastChromeLifecycleRunID = lifecycle.runID
             lastChromeLifecycleState = lifecycle.state

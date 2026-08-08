@@ -690,8 +690,7 @@ struct DesignRootHostView: View {
             workflow: ActivityWorkflowFacts(
                 dashboard: workflowDashboardState,
                 pendingVerification: workflowViewModel?.pendingVerificationReportSummary
-            ),
-            runLifecycle: currentRunLifecycle
+            )
         )
         applyActivityProjection(storedProjection)
         return storedProjection

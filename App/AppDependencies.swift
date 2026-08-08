@@ -49,8 +49,8 @@ final class AppDependencies {
     var config: AppConfiguration
     var isAutoSyncRunning = false
     @ObservationIgnored var cachedBrowseScopeSnapshot: ProcessingScopeSnapshot?
-    /// Last observed run boundary; written only by publishLifecycleBoundary.
-    var currentLifecycleSnapshot: RunLifecycleSnapshot?
+    /// Last observed run boundary; written only by the lifecycle observer.
+    @ObservationIgnored var currentLifecycleSnapshot: RunLifecycleSnapshot?
     @ObservationIgnored var lifecycleObserverTask: Task<Void, Never>?
     @ObservationIgnored var lastChromeLifecycleRunID: RunID?
     @ObservationIgnored var lastChromeLifecycleState: RunLifecycleState?

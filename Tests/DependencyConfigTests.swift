@@ -290,7 +290,7 @@ private enum StubConfigurationError: LocalizedError {
     }
 }
 
-private actor StoredFixPlanStore: FixPlanStore {
+actor StoredFixPlanStore: FixPlanStore {
     private let plan: FixPlan?
     private var decision: FixPlanReviewDecision?
 
@@ -327,7 +327,7 @@ private actor StoredFixPlanStore: FixPlanStore {
     }
 }
 
-private func makeStoredFixPlan(configuration: FixPlanConfig) -> FixPlan? {
+func makeStoredFixPlan(configuration: FixPlanConfig) -> FixPlan? {
     let track = Track(
         id: "stored-track",
         name: "Stored Track",

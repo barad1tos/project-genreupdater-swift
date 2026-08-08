@@ -59,12 +59,7 @@ extension AppDependencies {
             // Mirrors the host view's resolved path: item states live in
             // the reports projection, and the view applies this publish
             // through its projection stream.
-            await republishReportsProjection()
+            await refreshReportsProjection()
         }
-    }
-
-    /// Store-published reports refresh usable outside the host view.
-    private func republishReportsProjection() async {
-        await refreshReportsProjection()
     }
 }

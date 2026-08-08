@@ -33,8 +33,7 @@ struct ProjectionRuntimeTests {
 
         let published = await dependencies.refreshActivityProjection(
             library: makeLibraryFacts(tracks: [track]),
-            workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil),
-            runLifecycle: nil
+            workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil)
         )
 
         // A non-empty ready library differs from the empty sentinel's
@@ -100,13 +99,13 @@ struct ProjectionRuntimeTests {
         #expect(after != baseline)
     }
 
-    private func makeLifecycle(phase: RunPhase) -> RunLifecycleSnapshot {
+    private func makeLifecycle(phase: RunPhase, intent: RunIntent = .observeLibrary) -> RunLifecycleSnapshot {
         let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
         return RunLifecycleSnapshot(
             runID: RunID(),
             requestID: RunRequestID(),
             trigger: .manualCheck,
-            intent: .observeLibrary,
+            intent: intent,
             scope: ProcessingScopeSnapshot.capture(
                 requestedTestArtists: [],
                 knownTrackCount: nil,
@@ -147,27 +146,165 @@ struct ProjectionRuntimeTests {
         #expect(result?.rowIndex?.count == 1)
     }
 
-    @Test("no direct store publish remains in the host view")
-    func hostViewPublishesNothing() throws {
+    @Test("no direct store publish remains in any view")
+    func viewsPublishNothing() throws {
         // Source-scan pin (house precedent): subscriptions are the only
-        // store surface a view may touch (ADR 0013).
-        let source = try String(contentsOf: hostViewSourceURL(), encoding: .utf8)
+        // store surface a view may touch (ADR 0013). Every file under
+        // App/Views is scanned so a helper cannot smuggle a publish in.
+        let viewsDirectory = try libraryLoadSourceURL().deletingLastPathComponent()
+        let sources = try swiftSources(under: viewsDirectory)
+        #expect(!sources.isEmpty)
 
-        for forbidden in [
-            "replaceActivityProjection", "replaceReportsProjection",
-            "replaceFixPlanProjection", "replaceSettingsProjection",
-            "replaceChromeProjection", "replaceBrowseProjection",
-            "InputGeneration()", "Builder.makeProjection",
-        ] {
-            #expect(!source.contains(forbidden), "host view must not touch \(forbidden)")
+        for fileURL in sources {
+            let source = try String(contentsOf: fileURL, encoding: .utf8)
+            for forbidden in [
+                "replaceActivityProjection", "replaceReportsProjection",
+                "replaceFixPlanProjection", "replaceSettingsProjection",
+                "replaceChromeProjection", "replaceBrowseProjection",
+                "InputGeneration()", "Builder.makeProjection",
+                "publishBrowseProjection(",
+            ] {
+                #expect(
+                    !source.contains(forbidden),
+                    "\(fileURL.lastPathComponent) must not touch \(forbidden)"
+                )
+            }
         }
     }
 
-    private func hostViewSourceURL() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("App/Views/DesignRootHostView.swift")
+    private func swiftSources(under directory: URL) throws -> [URL] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ) else { return [] }
+        return enumerator.compactMap { item in
+            guard let url = item as? URL, url.pathExtension == "swift" else { return nil }
+            return url
+        }
+    }
+
+    @Test("the started observer converts a real run into publishes")
+    func observerConvertsRunIntoPublishes() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        fixture.dependencies.installTrackCountSource { 1 }
+        fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in
+                // Persistence is outside this observer pin.
+            }
+        )))
+        fixture.dependencies.startLifecycleProjectionObserver()
+        #expect(fixture.dependencies.lifecycleObserverTask != nil)
+
+        _ = try await fixture.dependencies.submitManualRun()
+
+        // The observer consumes its own buffered stream; poll briefly.
+        for _ in 0 ..< 50 {
+            if await fixture.dependencies.projectionStore.activityProjection().revision != .initial {
+                break
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        #expect(await fixture.dependencies.projectionStore.activityProjection().revision != .initial)
+        #expect(fixture.dependencies.currentLifecycleSnapshot != nil)
+    }
+
+    @Test("the fact cache survives into observer republishes")
+    func factCacheFeedsRepublish() async {
+        let dependencies = makeDependencies()
+        let track = Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")
+
+        let refreshed = await dependencies.refreshActivityProjection(
+            library: makeLibraryFacts(tracks: [track]),
+            workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil)
+        )
+        let republished = await dependencies.republishActivityProjection()
+
+        // A dropped cache write would rebuild from empty facts, change
+        // the content, and advance the revision.
+        #expect(republished == refreshed)
+    }
+
+    @Test("a terminal preview boundary refreshes the fix plan")
+    func previewTerminalRefreshesFixPlan() async throws {
+        let dependencies = makeDependencies()
+        let plan = try #require(makeStoredFixPlan(configuration: dependencies.capturePreviewConfig(
+            at: Date(timeIntervalSince1970: 1_800_000_100),
+            hasDiscogsAccess: true
+        )))
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
+        dependencies.configureLibraryPersistenceForTesting(
+            fixPlanStore: StoredFixPlanStore(plan: plan, decision: decision)
+        )
+        let baseline = await dependencies.projectionStore.fixPlanProjection().revision
+
+        await dependencies.publishLifecycleBoundary(makeLifecycle(
+            phase: .finished(.completed(SyncResult()), finishedAt: Date(timeIntervalSince1970: 200)),
+            intent: .previewFixes
+        ))
+
+        #expect(await dependencies.projectionStore.fixPlanProjection().revision != baseline)
+    }
+
+    @Test("chrome falls back to the orchestrator probe before the observer runs")
+    func chromeFallbackProbesOrchestrator() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        fixture.dependencies.installTrackCountSource { 1 }
+        fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in
+                // Persistence is outside this probe pin.
+            }
+        )))
+        _ = try await fixture.dependencies.submitManualRun()
+        #expect(fixture.dependencies.currentLifecycleSnapshot == nil)
+
+        let published = await fixture.dependencies.refreshChromeProjection()
+
+        // The probe found the finished run — a deleted fallback would
+        // leave the empty sentinel's Idle line.
+        #expect(published.syncStatus.text != "Idle")
+    }
+
+    @Test("a terminal boundary publishes activity AFTER reports")
+    func terminalBoundaryOrdersActivityAfterReports() async throws {
+        let fixture = try makeFixture(
+            testArtists: [],
+            runRecordStore: RunRecordStoreStub(
+                reportPage: RunReportPage(
+                    records: [sampleRunRecord()],
+                    skippedCorruptedCount: 1,
+                    corruptedRunIDs: [RunID()],
+                    recoveryRunIDs: [RunID()]
+                )
+            )
+        )
+
+        await fixture.dependencies.publishLifecycleBoundary(makeLifecycle(
+            phase: .finished(.completed(SyncResult()), finishedAt: Date(timeIntervalSince1970: 200))
+        ))
+
+        // Activity embeds reports truth: the recovery summary from the
+        // just-refreshed reports must be visible in the SAME boundary's
+        // activity publish, headless.
+        let activity = await fixture.dependencies.projectionStore.activityProjection()
+        #expect(activity.operationalIssues.contains { $0.category == .recoveryRequired })
+    }
+
+    @Test("supersession after publish keeps the store but returns nil")
+    func supersededAfterPublishKeepsStore() async {
+        let dependencies = makeDependencies()
+        let track = Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")
+        let currentFlags = CurrentFlagSequence(values: [true, false])
+
+        let result = await dependencies.refreshBrowseProjection(
+            tracks: [track],
+            readSource: .cachedMirror(scannedAt: nil),
+            isCurrent: { currentFlags.next() }
+        )
+
+        #expect(result == nil)
+        #expect(await dependencies.projectionStore.currentBrowse().artists.count == 1)
     }
 
     @Test("identical activity facts keep the revision")
@@ -177,15 +314,25 @@ struct ProjectionRuntimeTests {
 
         let first = await dependencies.refreshActivityProjection(
             library: facts,
-            workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil),
-            runLifecycle: nil
+            workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil)
         )
         let second = await dependencies.refreshActivityProjection(
             library: facts,
-            workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil),
-            runLifecycle: nil
+            workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil)
         )
 
         #expect(second.revision == first.revision)
+    }
+}
+
+private final class CurrentFlagSequence: @unchecked Sendable {
+    private var values: [Bool]
+
+    init(values: [Bool]) {
+        self.values = values
+    }
+
+    func next() -> Bool {
+        values.isEmpty ? false : values.removeFirst()
     }
 }
