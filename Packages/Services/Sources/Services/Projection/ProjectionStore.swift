@@ -25,6 +25,11 @@ public actor ProjectionStore {
     private var appliedChromeGeneration: UInt64
     private var chromeContinuations: [UUID: AsyncStream<ChromeProjection>.Continuation]
 
+    private var currentBrowseProjection: BrowseProjection
+    private var issuedBrowseGeneration: UInt64
+    private var appliedBrowseGeneration: UInt64
+    private var browseContinuations: [UUID: AsyncStream<BrowseProjection>.Continuation]
+
     public init() {
         currentActivityProjection = .empty()
         latestIssuedActivityProjectionInputGeneration = 0
@@ -49,6 +54,11 @@ public actor ProjectionStore {
         issuedChromeGeneration = 0
         appliedChromeGeneration = 0
         chromeContinuations = [:]
+
+        currentBrowseProjection = .empty()
+        issuedBrowseGeneration = 0
+        appliedBrowseGeneration = 0
+        browseContinuations = [:]
     }
 
     public func activityProjection() -> ActivityProjection {
@@ -478,5 +488,88 @@ public actor ProjectionStore {
 
     private func removeChromeContinuation(id: UUID) {
         chromeContinuations[id] = nil
+    }
+
+    public func currentBrowse() -> BrowseProjection {
+        currentBrowseProjection
+    }
+
+    public func browseUpdates() -> AsyncStream<BrowseProjection> {
+        let subscriptionID = UUID()
+        let (stream, continuation) = AsyncStream<BrowseProjection>.makeStream(bufferingPolicy: .bufferingNewest(1))
+
+        registerBrowseContinuation(continuation, id: subscriptionID)
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.removeBrowseContinuation(id: subscriptionID)
+            }
+        }
+
+        return stream
+    }
+
+    public func nextBrowseInputGeneration() -> UInt64 {
+        issuedBrowseGeneration += 1
+        return issuedBrowseGeneration
+    }
+
+    /// Replaces the browse projection when the optional input generation is newer.
+    @discardableResult
+    public func replaceBrowseProjection(
+        _ projection: BrowseProjection,
+        inputGeneration: UInt64? = nil
+    ) -> BrowseProjection {
+        if let inputGeneration {
+            guard inputGeneration > appliedBrowseGeneration else {
+                return currentBrowseProjection
+            }
+            issuedBrowseGeneration = max(issuedBrowseGeneration, inputGeneration)
+            appliedBrowseGeneration = inputGeneration
+        }
+
+        let comparableProjection = projection.withRevision(currentBrowseProjection.revision)
+        guard comparableProjection != currentBrowseProjection else {
+            return currentBrowseProjection
+        }
+
+        let storedProjection = projection.withRevision(currentBrowseProjection.revision.advanced())
+
+        currentBrowseProjection = storedProjection
+        broadcastBrowseProjection(storedProjection)
+
+        return storedProjection
+    }
+
+    private func registerBrowseContinuation(
+        _ continuation: AsyncStream<BrowseProjection>.Continuation,
+        id: UUID
+    ) {
+        if case .terminated = continuation.yield(currentBrowseProjection) {
+            return
+        }
+        browseContinuations[id] = continuation
+    }
+
+    private func broadcastBrowseProjection(_ projection: BrowseProjection) {
+        var terminatedContinuationIDs: [UUID] = []
+
+        for (id, continuation) in browseContinuations {
+            switch continuation.yield(projection) {
+            case .enqueued, .dropped:
+                break
+            case .terminated:
+                terminatedContinuationIDs.append(id)
+            @unknown default:
+                break
+            }
+        }
+
+        for id in terminatedContinuationIDs {
+            browseContinuations[id] = nil
+        }
+    }
+
+    private func removeBrowseContinuation(id: UUID) {
+        browseContinuations[id] = nil
     }
 }
