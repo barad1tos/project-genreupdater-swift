@@ -27,7 +27,6 @@ struct DesignRootHostView: View {
     @State private var workflowNoticeMessage: String?
     @State private var selectedRoute: Route? = .activity
     @State private var activityProjection: ActivityProjection = .empty()
-    @State private var queuedWriteSummary: ActivityQueuedWriteSummary?
     @State private var reportsProjection: ReportsProjection = .empty()
     @State private var fixPlanProjection: FixPlanProjection = .empty()
     @State private var chromeProjection: ChromeProjection = .empty()
@@ -143,6 +142,7 @@ struct DesignRootHostView: View {
 
     private func observeChromeUpdates() async {
         for await projection in await dependencies.projectionStore.chromeUpdates() {
+            guard projection.revision > chromeProjection.revision else { continue }
             chromeProjection = projection
         }
     }
@@ -166,41 +166,24 @@ struct DesignRootHostView: View {
         ActivitySnapshotAdapter.makeBrowseRows(browseRowIndex[albumID] ?? [])
     }
 
-    /// Publishes browse truth for one load. The generation is claimed
-    /// BEFORE the input's awaits (facts are already snapshotted in the
-    /// argument), the load guard re-checks after every await, and the
-    /// row index only pairs with a projection this input actually
-    /// produced — a losing publish keeps the winner's rows.
+    /// Ordering and pairing guarantees live in the backend extension
+    /// now; this wrapper keeps only the view-state application.
     private func refreshBrowseTruth(
         _ loadedTracks: [Core.Track],
         readSource: BrowseReadSource,
         requestID: UUID?
     ) async {
         browseReadSource = readSource
-        let generation = await dependencies.claimBrowseInputGeneration()
-        let input = await dependencies.makeBrowseInput(tracks: loadedTracks, readSource: readSource)
-        if let requestID {
-            guard isCurrentLibraryLoad(requestID) else { return }
+        let result = await dependencies.refreshBrowseProjection(
+            tracks: loadedTracks,
+            readSource: readSource,
+            isCurrent: { requestID.map(isCurrentLibraryLoad) ?? true }
+        )
+        guard let result else { return }
+        applyBrowseProjection(result.projection)
+        if let rowIndex = result.rowIndex {
+            browseRowIndex = rowIndex
         }
-        let built = BrowseBuilder.makeProjection(input: input)
-        let published = await dependencies.publishBrowseProjection(built, inputGeneration: generation)
-        if let requestID {
-            guard isCurrentLibraryLoad(requestID) else { return }
-        }
-        applyBrowseProjection(published)
-        if browseContentMatches(published, built: built) {
-            browseRowIndex = BrowseBuilder.makeTrackRowIndex(input: input)
-        }
-    }
-
-    /// Whether the stored projection is the one this input produced —
-    /// everything but the store-owned revision.
-    private func browseContentMatches(_ published: BrowseProjection, built: BrowseProjection) -> Bool {
-        published.artists == built.artists
-            && published.scope == built.scope
-            && published.physicalTrackCount == built.physicalTrackCount
-            && published.readSource == built.readSource
-            && published.operationalIssues == built.operationalIssues
     }
 
     /// Dispatches the typed preview command for one album. Revalidation
@@ -326,26 +309,6 @@ struct DesignRootHostView: View {
             isPostWriteVerificationRequired: true,
             isAdvancedExperience: experienceLevel != .casual
         )
-    }
-
-    private var activityProjectionInput: ActivityProjectionInput {
-        ActivityInputBuilder.makeInput(from: ActivityInputContext(
-            tracks: tracks,
-            metricsSnapshot: metricsSnapshot,
-            lastScanDate: lastScanDate,
-            loadError: loadError,
-            isLoading: isLoading,
-            isDryRun: dependencies.config.runtime.dryRun,
-            workflow: workflowDashboardState,
-            fixPlanProjection: fixPlanProjection,
-            reportsProjection: reportsProjection,
-            queuedWrite: queuedWriteSummary,
-            pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
-            runLifecycle: currentRunLifecycle,
-            isLibrarySyncAvailable: dependencies.isManualRunAvailable,
-            isAutoSyncRunning: dependencies.isAutoSyncRunning,
-            now: Date()
-        ))
     }
 
     private var updateWorkflowTracks: [Core.Track] {
@@ -716,13 +679,18 @@ struct DesignRootHostView: View {
 
     @discardableResult
     private func refreshActivityProjection() async -> ActivityProjection {
-        let inputGeneration = await dependencies.projectionStore.nextActivityProjectionInputGeneration()
-        queuedWriteSummary = await dependencies.queuedWriteSummary()
-        let projectionInput = activityProjectionInput
-        let projection = ActivityBuilder.makeProjection(from: projectionInput)
-        let storedProjection = await dependencies.projectionStore.replaceActivityProjection(
-            projection,
-            inputGeneration: inputGeneration
+        let storedProjection = await dependencies.refreshActivityProjection(
+            library: ActivityLibraryFacts(
+                tracks: tracks,
+                metricsSnapshot: metricsSnapshot,
+                lastScanDate: lastScanDate,
+                loadError: loadError,
+                isLoading: isLoading
+            ),
+            workflow: ActivityWorkflowFacts(
+                dashboard: workflowDashboardState,
+                pendingVerification: workflowViewModel?.pendingVerificationReportSummary
+            )
         )
         applyActivityProjection(storedProjection)
         return storedProjection
@@ -739,32 +707,19 @@ struct DesignRootHostView: View {
         }
     }
 
+    /// Projection publishes moved behind the backend observer (ADR
+    /// 0013); this host subscription keeps only the UI reactions: the
+    /// lifecycle mirror for remaining inputs and the queued-reload
+    /// trigger, since the load chain is host-owned until slice 11.
     private func observeRunLifecycleUpdates() async {
-        var lastChromeRunID: RunID?
-        var lastChromeState: RunLifecycleState?
         for await lifecycle in await dependencies.runLifecycleUpdates() {
             currentRunLifecycle = lifecycle
-            await refreshActivityProjection()
             if !lifecycle.isActive {
                 let reloadAdvance = advanceQueuedReload(queuedManualReload, lifecycle: lifecycle)
                 queuedManualReload = reloadAdvance.next
                 if reloadAdvance.shouldReload {
                     await loadLibrary(forceRefresh: true)
                 }
-                if lifecycle.intent == .previewFixes {
-                    await refreshFixPlanProjection()
-                }
-                await refreshReportsProjection()
-            }
-            // House pattern until slice 10: chrome re-derives shell truth
-            // at (run, state) boundaries. Per-item write checkpoints
-            // re-emit the same state; skipping them keeps the probe cost
-            // (file comparisons, workspace scan, count query) off the
-            // write path where the projection could not change anyway.
-            if lifecycle.runID != lastChromeRunID || lifecycle.state != lastChromeState {
-                lastChromeRunID = lifecycle.runID
-                lastChromeState = lifecycle.state
-                await dependencies.refreshChromeProjection()
             }
         }
     }
@@ -777,19 +732,7 @@ struct DesignRootHostView: View {
 
     @discardableResult
     private func refreshReportsProjection() async -> ReportsProjection? {
-        let inputGeneration = await dependencies.projectionStore.nextReportsProjectionInputGeneration()
-        guard let page = await dependencies.loadRunReportPage(
-            limit: RunHistoryAdapter.runHistoryLimit
-        ) else { return nil }
-        let projection = ReportsBuilder.makeProjection(from: RunHistoryAdapter.makeInput(
-            from: page,
-            now: Date(),
-            activeRunID: activeRunID
-        ))
-        let storedProjection = await dependencies.projectionStore.replaceReportsProjection(
-            projection,
-            inputGeneration: inputGeneration
-        )
+        guard let storedProjection = await dependencies.refreshReportsProjection() else { return nil }
         if applyReportsProjection(storedProjection) {
             await refreshActivityProjection()
         }

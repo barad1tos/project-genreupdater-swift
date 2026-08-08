@@ -59,21 +59,7 @@ extension AppDependencies {
             // Mirrors the host view's resolved path: item states live in
             // the reports projection, and the view applies this publish
             // through its projection stream.
-            await republishReportsProjection()
+            await refreshReportsProjection()
         }
-    }
-
-    /// Store-published reports refresh usable outside the host view.
-    private func republishReportsProjection() async {
-        let inputGeneration = await projectionStore.nextReportsProjectionInputGeneration()
-        guard let page = await loadRunReportPage(limit: RunHistoryAdapter.runHistoryLimit) else { return }
-        let lifecycle = await currentRunLifecycle()
-        let activeRunID = lifecycle?.isActive == true ? lifecycle?.runID : nil
-        let projection = ReportsBuilder.makeProjection(from: RunHistoryAdapter.makeInput(
-            from: page,
-            now: Date(),
-            activeRunID: activeRunID
-        ))
-        _ = await projectionStore.replaceReportsProjection(projection, inputGeneration: inputGeneration)
     }
 }

@@ -2,6 +2,33 @@ import Core
 import Foundation
 import Services
 
+/// Library facts the host still owns this slice (D5: the load chain
+/// moves in slice 11); grouped below the parameter ceiling.
+struct ActivityLibraryFacts {
+    let tracks: [Core.Track]
+    let metricsSnapshot: PersistedMetricsSnapshot?
+    let lastScanDate: Date?
+    let loadError: LibraryLoadError?
+    let isLoading: Bool
+
+    @MainActor static let empty = Self(
+        tracks: [],
+        metricsSnapshot: nil,
+        lastScanDate: nil,
+        loadError: nil,
+        isLoading: false
+    )
+}
+
+/// Workflow view-model facts, marked inputs until slice 11 moves
+/// ownership behind the run orchestrator.
+struct ActivityWorkflowFacts {
+    let dashboard: WorkflowDashboardState
+    let pendingVerification: UpdateRunPendingVerificationSummary?
+
+    @MainActor static let empty = Self(dashboard: .empty, pendingVerification: nil)
+}
+
 struct ActivityInputContext {
     let tracks: [Core.Track]
     let metricsSnapshot: PersistedMetricsSnapshot?
@@ -18,6 +45,68 @@ struct ActivityInputContext {
     let isLibrarySyncAvailable: Bool
     let isAutoSyncRunning: Bool
     let now: Date
+}
+
+/// Backend-owned activity assembly (ADR 0013): the host supplies the
+/// facts it still loads; projections, queued-write truth, and
+/// MainActor configuration are read here — and the publish happens
+/// here, never in view code.
+extension AppDependencies {
+    /// Host-supplied facts land in the bridge cache so every later
+    /// publisher (the lifecycle observer, command handlers) reuses the
+    /// same truth the host last loaded.
+    @discardableResult
+    func refreshActivityProjection(
+        library: ActivityLibraryFacts,
+        workflow: ActivityWorkflowFacts
+    ) async -> ActivityProjection {
+        cachedActivityLibraryFacts = library
+        cachedActivityWorkflowFacts = workflow
+        // The lifecycle observer is the SOLE writer of the lifecycle
+        // snapshot: a host mirror can lag its own subscription, and
+        // writing it back here would revert newer run truth.
+        return await republishActivityProjection()
+    }
+
+    /// Rebuilds activity from the cached facts plus current lifecycle.
+    @discardableResult
+    func republishActivityProjection() async -> ActivityProjection {
+        let library = cachedActivityLibraryFacts
+        let workflow = cachedActivityWorkflowFacts
+        let runLifecycle = currentLifecycleSnapshot
+        // Synchronous MainActor facts first so the snapshot cannot tear
+        // across the awaits below (D3).
+        let isDryRun = config.runtime.dryRun
+        let isLibrarySyncAvailable = isManualRunAvailable
+        let isAutoSyncRunningNow = isAutoSyncRunning
+
+        let inputGeneration = await projectionStore.nextActivityProjectionInputGeneration()
+        let queuedWrite = await queuedWriteSummary()
+        let fixPlan = await projectionStore.fixPlanProjection()
+        let reports = await projectionStore.reportsProjection()
+
+        let input = ActivityInputBuilder.makeInput(from: ActivityInputContext(
+            tracks: library.tracks,
+            metricsSnapshot: library.metricsSnapshot,
+            lastScanDate: library.lastScanDate,
+            loadError: library.loadError,
+            isLoading: library.isLoading,
+            isDryRun: isDryRun,
+            workflow: workflow.dashboard,
+            fixPlanProjection: fixPlan,
+            reportsProjection: reports,
+            queuedWrite: queuedWrite,
+            pendingVerification: workflow.pendingVerification,
+            runLifecycle: runLifecycle,
+            isLibrarySyncAvailable: isLibrarySyncAvailable,
+            isAutoSyncRunning: isAutoSyncRunningNow,
+            now: Date()
+        ))
+        return await projectionStore.replaceActivityProjection(
+            ActivityBuilder.makeProjection(from: input),
+            inputGeneration: inputGeneration
+        )
+    }
 }
 
 enum ActivityInputBuilder {
