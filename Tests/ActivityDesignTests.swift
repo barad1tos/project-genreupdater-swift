@@ -50,7 +50,11 @@ struct ActivityDesignTests {
             currentStage: .fix,
             processingMode: .preview,
             automationState: .manualScanOnly,
-            scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: nil),
+            scanFacts: ActivityScanFacts(
+                lastScanLabel: "No scan yet",
+                nextRunLabel: "Manual scan only",
+                albumCount: nil
+            ),
             healthFacts: .empty,
             deltaCount: 0,
             interventionCount: 0,
@@ -225,7 +229,11 @@ struct ActivityDesignTests {
             currentStage: .diff,
             processingMode: .preview,
             automationState: .manualScanOnly,
-            scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: nil),
+            scanFacts: ActivityScanFacts(
+                lastScanLabel: "No scan yet",
+                nextRunLabel: "Manual scan only",
+                albumCount: nil
+            ),
             healthFacts: .empty,
             deltaCount: 7,
             interventionCount: 2,
@@ -263,17 +271,15 @@ struct ActivityDesignTests {
         workflow: WorkflowDashboardState = .empty
     ) -> DesignActivitySnapshotInput {
         DesignActivitySnapshotInput(
-            tracks: tracks,
-            metricsSnapshot: metricsSnapshot,
-            lastScanDate: lastScanDate,
-            isLoading: false,
-            loadError: nil,
-            isDryRun: true,
-            workflow: workflow,
-            pendingVerification: nil,
+            library: ActivityLibraryFacts(
+                tracks: tracks,
+                metricsSnapshot: metricsSnapshot,
+                lastScanDate: lastScanDate,
+                loadError: nil,
+                isLoading: false
+            ),
+            workflow: ActivityWorkflowFacts(dashboard: workflow, pendingVerification: nil),
             changeLogEntries: [],
-            isAutoSyncRunning: false,
-            runLifecycle: nil,
             settings: .preview,
             now: now
         )

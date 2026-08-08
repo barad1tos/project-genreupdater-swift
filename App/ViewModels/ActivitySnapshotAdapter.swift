@@ -3,18 +3,13 @@ import DesignUI
 import Foundation
 import Services
 
+/// One activity input per render truth (F4): the same fact values the
+/// backend publish caches feed the design snapshot — no second read of
+/// host state, no second Date().
 struct DesignActivitySnapshotInput {
-    let tracks: [Core.Track]
-    let metricsSnapshot: PersistedMetricsSnapshot?
-    let lastScanDate: Date?
-    let isLoading: Bool
-    let loadError: LibraryLoadError?
-    let isDryRun: Bool
-    let workflow: WorkflowDashboardState
-    let pendingVerification: UpdateRunPendingVerificationSummary?
+    let library: ActivityLibraryFacts
+    let workflow: ActivityWorkflowFacts
     let changeLogEntries: [Core.ChangeLogEntry]
-    let isAutoSyncRunning: Bool
-    let runLifecycle: RunLifecycleSnapshot?
     let settings: DesignSettingsSnapshot
     let now: Date
 }
@@ -141,7 +136,7 @@ enum ActivitySnapshotAdapter {
                 from: activityProjection,
                 notice: activityNotice
             ),
-            pendingVerification: makePendingVerificationSnapshot(from: input.pendingVerification),
+            pendingVerification: makePendingVerificationSnapshot(from: input.workflow.pendingVerification),
             coverage: makeCoverageBuckets(from: activityProjection.healthFacts),
             issues: makeIssues(from: activityProjection.healthFacts, input: input),
             metrics: makeMetricTiles(from: activityProjection.healthFacts, input: input),
@@ -151,8 +146,8 @@ enum ActivitySnapshotAdapter {
             // Change rows arrive with the reports lineage work, not browse.
             changes: [],
             dryRun: DryRunSummary(
-                changes: input.workflow.proposedChangeCount,
-                tracks: input.tracks.count,
+                changes: input.workflow.dashboard.proposedChangeCount,
+                tracks: input.library.tracks.count,
                 averageConfidence: 0,
                 genre: 0,
                 year: 0
@@ -190,10 +185,10 @@ enum ActivitySnapshotAdapter {
             missingYear: facts.missingYearCount,
             completeMetadata: facts.counts.tracksWithBoth,
             ready: facts.readyUpdateCount,
-            pendingVerification: input.pendingVerification?.total ?? 0,
+            pendingVerification: input.workflow.pendingVerification?.total ?? 0,
             protectedFiles: facts.counts.protectedFileCount,
-            writeErrors: input.workflow.failedWriteCount,
-            recentlyAdded: input.metricsSnapshot?.recentlyAdded ?? 0,
+            writeErrors: input.workflow.dashboard.failedWriteCount,
+            recentlyAdded: input.library.metricsSnapshot?.recentlyAdded ?? 0,
             lastScan: activityProjection.scanFacts.lastScanLabel,
             nextRun: activityProjection.scanFacts.nextRunLabel,
             source: "Apple Music · local files",
@@ -236,7 +231,7 @@ enum ActivitySnapshotAdapter {
         input: DesignActivitySnapshotInput
     ) -> [Issue] {
         [
-            makePendingVerificationIssue(input.pendingVerification),
+            makePendingVerificationIssue(input.workflow.pendingVerification),
             Issue(
                 id: "protected",
                 label: facts.counts.isProtectedFileCountKnown ? "Protected files" : "Protected files unknown",
@@ -247,9 +242,9 @@ enum ActivitySnapshotAdapter {
             Issue(
                 id: "errors",
                 label: "Write errors",
-                count: input.workflow.failedWriteCount.formatted(),
-                tone: input.workflow.failedWriteCount > 0 ? .error : .success,
-                symbol: input.workflow.failedWriteCount > 0 ? "xmark.octagon" : "checkmark.circle"
+                count: input.workflow.dashboard.failedWriteCount.formatted(),
+                tone: input.workflow.dashboard.failedWriteCount > 0 ? .error : .success,
+                symbol: input.workflow.dashboard.failedWriteCount > 0 ? "xmark.octagon" : "checkmark.circle"
             )
         ]
     }
@@ -260,11 +255,11 @@ enum ActivitySnapshotAdapter {
     ) -> [MetricTile] {
         let missingGenreTrend = makeTrend(
             current: facts.missingGenreCount,
-            previous: input.metricsSnapshot?.previousTracksNeedingGenre
+            previous: input.library.metricsSnapshot?.previousTracksNeedingGenre
         )
         let missingYearTrend = makeTrend(
             current: facts.missingYearCount,
-            previous: input.metricsSnapshot?.previousTracksNeedingYear
+            previous: input.library.metricsSnapshot?.previousTracksNeedingYear
         )
 
         return [

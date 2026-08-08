@@ -687,7 +687,11 @@ struct ActivityCommandsTests {
             currentStage: .diff,
             processingMode: .preview,
             automationState: .manualScanOnly,
-            scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: nil),
+            scanFacts: ActivityScanFacts(
+                lastScanLabel: "No scan yet",
+                nextRunLabel: "Manual scan only",
+                albumCount: nil
+            ),
             healthFacts: .empty,
             deltaCount: 2,
             interventionCount: 0,

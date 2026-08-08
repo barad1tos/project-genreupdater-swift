@@ -216,19 +216,31 @@ struct DesignRootHostView: View {
         }
     }
 
-    private var designActivitySnapshotInput: DesignActivitySnapshotInput {
-        DesignActivitySnapshotInput(
+    /// The one place host state becomes activity facts (F4): the design
+    /// snapshot and the backend publish consume the SAME constructors,
+    /// so the two paths cannot read the library at different moments.
+    var currentActivityLibraryFacts: ActivityLibraryFacts {
+        ActivityLibraryFacts(
             tracks: tracks,
             metricsSnapshot: metricsSnapshot,
             lastScanDate: lastScanDate,
-            isLoading: isLoading,
             loadError: loadError,
-            isDryRun: dependencies.config.runtime.dryRun,
-            workflow: workflowDashboardState,
-            pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
+            isLoading: isLoading
+        )
+    }
+
+    var currentActivityWorkflowFacts: ActivityWorkflowFacts {
+        ActivityWorkflowFacts(
+            dashboard: workflowDashboardState,
+            pendingVerification: workflowViewModel?.pendingVerificationReportSummary
+        )
+    }
+
+    private var designActivitySnapshotInput: DesignActivitySnapshotInput {
+        DesignActivitySnapshotInput(
+            library: currentActivityLibraryFacts,
+            workflow: currentActivityWorkflowFacts,
             changeLogEntries: changeLogEntries,
-            isAutoSyncRunning: dependencies.isAutoSyncRunning,
-            runLifecycle: currentRunLifecycle,
             settings: settingsSnapshot,
             now: Date()
         )
@@ -671,17 +683,8 @@ struct DesignRootHostView: View {
     @discardableResult
     private func refreshActivityProjection() async -> ActivityProjection {
         let storedProjection = await dependencies.refreshActivityProjection(
-            library: ActivityLibraryFacts(
-                tracks: tracks,
-                metricsSnapshot: metricsSnapshot,
-                lastScanDate: lastScanDate,
-                loadError: loadError,
-                isLoading: isLoading
-            ),
-            workflow: ActivityWorkflowFacts(
-                dashboard: workflowDashboardState,
-                pendingVerification: workflowViewModel?.pendingVerificationReportSummary
-            )
+            library: currentActivityLibraryFacts,
+            workflow: currentActivityWorkflowFacts
         )
         applyActivityProjection(storedProjection)
         return storedProjection

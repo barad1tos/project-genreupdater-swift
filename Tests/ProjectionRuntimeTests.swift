@@ -408,6 +408,36 @@ struct ProjectionRuntimeTests {
         #expect(second.revision == first.revision)
     }
 
+    @Test("one fact set feeds the snapshot and the projection")
+    func activityFactsFeedBothPaths() async {
+        // F4: the design snapshot reads the SAME ActivityLibraryFacts
+        // value the backend publish caches — now-independent facts agree
+        // within one render by construction.
+        let dependencies = makeDependencies()
+        let facts = makeLibraryFacts(tracks: [
+            Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant", genre: "Rock", year: 2004),
+        ])
+
+        let published = await dependencies.refreshActivityProjection(
+            library: facts,
+            workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil)
+        )
+        let snapshot = ActivitySnapshotAdapter.makeSnapshot(
+            from: DesignActivitySnapshotInput(
+                library: facts,
+                workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil),
+                changeLogEntries: [],
+                settings: .preview,
+                now: Date(timeIntervalSince1970: 100)
+            ),
+            activityProjection: published
+        )
+
+        #expect(snapshot.health.totalTracks == facts.tracks.count)
+        #expect(snapshot.health.totalTracks == published.healthFacts.counts.totalTracks)
+        #expect(snapshot.dryRun.tracks == facts.tracks.count)
+    }
+
     @Test("report detail is served by a backend query")
     func reportDetailServedByBackend() async throws {
         let runID = RunID()

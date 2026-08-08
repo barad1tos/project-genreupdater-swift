@@ -301,17 +301,9 @@ struct BrowseHostPublishTests {
 
         let snapshot = ActivitySnapshotAdapter.makeSnapshot(
             from: DesignActivitySnapshotInput(
-                tracks: [],
-                metricsSnapshot: nil,
-                lastScanDate: nil,
-                isLoading: false,
-                loadError: nil,
-                isDryRun: true,
+                library: .empty,
                 workflow: .empty,
-                pendingVerification: nil,
                 changeLogEntries: [],
-                isAutoSyncRunning: false,
-                runLifecycle: nil,
                 settings: .preview,
                 now: Date(timeIntervalSince1970: 100)
             ),

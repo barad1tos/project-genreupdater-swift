@@ -198,8 +198,8 @@ struct ActivitySnapshotTests {
 
     @Test("distinguishes auto sync running and stopped wording before first scan")
     func distinguishesAutoSyncRunningAndStoppedWordingBeforeFirstScan() {
-        let running = makeSnapshot(from: makeInput(isAutoSyncRunning: true))
-        let stopped = makeSnapshot(from: makeInput(isAutoSyncRunning: false))
+        let running = makeSnapshot(from: makeInput(), isAutoSyncRunning: true)
+        let stopped = makeSnapshot(from: makeInput(), isAutoSyncRunning: false)
 
         #expect(running.health.nextRun == "Auto-sync running")
         #expect(stopped.health.nextRun == "Manual scan only")
@@ -207,46 +207,32 @@ struct ActivitySnapshotTests {
 
     @Test("maps next run from run lifecycle")
     func mapsLifecycleNextRun() {
+        let base = makeInput(tracks: [editableTrack(id: "1")], lastScanDate: scanDate)
         let syncing = makeSnapshot(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                lastScanDate: scanDate,
-                runLifecycle: makeRunLifecycle(phase: .active(.syncingLibrary))
-            )
+            from: base,
+            runLifecycle: makeRunLifecycle(phase: .active(.syncingLibrary))
         )
         let failed = makeSnapshot(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                lastScanDate: scanDate,
-                runLifecycle: makeRunLifecycle(phase: .finished(
-                    .failed(message: "AppleScript timeout"),
-                    finishedAt: now
-                ))
-            )
+            from: base,
+            runLifecycle: makeRunLifecycle(phase: .finished(
+                .failed(message: "AppleScript timeout"),
+                finishedAt: now
+            ))
         )
         let blocked = makeSnapshot(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                lastScanDate: scanDate,
-                runLifecycle: makeRunLifecycle(phase: .suspended(.blocked))
-            )
+            from: base,
+            runLifecycle: makeRunLifecycle(phase: .suspended(.blocked))
         )
         let recoverable = makeSnapshot(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                lastScanDate: scanDate,
-                runLifecycle: makeRunLifecycle(phase: .suspended(.recoverable))
-            )
+            from: base,
+            runLifecycle: makeRunLifecycle(phase: .suspended(.recoverable))
         )
         let cancelled = makeSnapshot(
-            from: makeInput(
-                tracks: [editableTrack(id: "1")],
-                lastScanDate: scanDate,
-                runLifecycle: makeRunLifecycle(phase: .finished(
-                    .cancelled(message: "User cancelled"),
-                    finishedAt: now
-                ))
-            )
+            from: base,
+            runLifecycle: makeRunLifecycle(phase: .finished(
+                .cancelled(message: "User cancelled"),
+                finishedAt: now
+            ))
         )
 
         #expect(syncing.health.nextRun == "Manual sync running")
@@ -256,25 +242,31 @@ struct ActivitySnapshotTests {
         #expect(cancelled.health.nextRun == "Manual sync cancelled")
     }
 
-    private func makeSnapshot(from input: DesignActivitySnapshotInput) -> DesignDataSnapshot {
-        // The snapshot's scan facts come from the projection (S35): build
-        // it from the same context so the pins verify the unified truth.
+    private func makeSnapshot(
+        from input: DesignActivitySnapshotInput,
+        runLifecycle: RunLifecycleSnapshot? = nil,
+        isAutoSyncRunning: Bool = false
+    ) -> DesignDataSnapshot {
+        // The snapshot's facts come from the projection (S35/F4): build
+        // it from the same fact values so the pins verify one truth.
+        // Lifecycle and auto-sync are projection-side facts the design
+        // input no longer carries.
         let projection = ActivityBuilder.makeProjection(from: ActivityInputBuilder.makeInput(
             from: ActivityInputContext(
-                tracks: input.tracks,
-                metricsSnapshot: input.metricsSnapshot,
-                lastScanDate: input.lastScanDate,
-                loadError: input.loadError,
-                isLoading: input.isLoading,
-                isDryRun: input.isDryRun,
-                workflow: input.workflow,
+                tracks: input.library.tracks,
+                metricsSnapshot: input.library.metricsSnapshot,
+                lastScanDate: input.library.lastScanDate,
+                loadError: input.library.loadError,
+                isLoading: input.library.isLoading,
+                isDryRun: true,
+                workflow: input.workflow.dashboard,
                 fixPlanProjection: .empty(),
                 reportsProjection: .empty(),
                 queuedWrite: nil,
-                pendingVerification: input.pendingVerification,
-                runLifecycle: input.runLifecycle,
+                pendingVerification: input.workflow.pendingVerification,
+                runLifecycle: runLifecycle,
                 isLibrarySyncAvailable: true,
-                isAutoSyncRunning: input.isAutoSyncRunning,
+                isAutoSyncRunning: isAutoSyncRunning,
                 now: input.now
             )
         ))
@@ -288,22 +280,18 @@ struct ActivitySnapshotTests {
         loadError: LibraryLoadError? = nil,
         workflow: WorkflowDashboardState = .empty,
         pendingVerification: UpdateRunPendingVerificationSummary? = nil,
-        changeLogEntries: [Core.ChangeLogEntry] = [],
-        isAutoSyncRunning: Bool = false,
-        runLifecycle: RunLifecycleSnapshot? = nil
+        changeLogEntries: [Core.ChangeLogEntry] = []
     ) -> DesignActivitySnapshotInput {
         DesignActivitySnapshotInput(
-            tracks: tracks,
-            metricsSnapshot: metricsSnapshot,
-            lastScanDate: lastScanDate,
-            isLoading: false,
-            loadError: loadError,
-            isDryRun: true,
-            workflow: workflow,
-            pendingVerification: pendingVerification,
+            library: ActivityLibraryFacts(
+                tracks: tracks,
+                metricsSnapshot: metricsSnapshot,
+                lastScanDate: lastScanDate,
+                loadError: loadError,
+                isLoading: false
+            ),
+            workflow: ActivityWorkflowFacts(dashboard: workflow, pendingVerification: pendingVerification),
             changeLogEntries: changeLogEntries,
-            isAutoSyncRunning: isAutoSyncRunning,
-            runLifecycle: runLifecycle,
             settings: .preview,
             now: now
         )
