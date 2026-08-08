@@ -27,7 +27,6 @@ struct DesignRootHostView: View {
     @State private var workflowNoticeMessage: String?
     @State private var selectedRoute: Route? = .activity
     @State private var activityProjection: ActivityProjection = .empty()
-    @State private var queuedWriteSummary: ActivityQueuedWriteSummary?
     @State private var reportsProjection: ReportsProjection = .empty()
     @State private var fixPlanProjection: FixPlanProjection = .empty()
     @State private var chromeProjection: ChromeProjection = .empty()
@@ -326,26 +325,6 @@ struct DesignRootHostView: View {
             isPostWriteVerificationRequired: true,
             isAdvancedExperience: experienceLevel != .casual
         )
-    }
-
-    private var activityProjectionInput: ActivityProjectionInput {
-        ActivityInputBuilder.makeInput(from: ActivityInputContext(
-            tracks: tracks,
-            metricsSnapshot: metricsSnapshot,
-            lastScanDate: lastScanDate,
-            loadError: loadError,
-            isLoading: isLoading,
-            isDryRun: dependencies.config.runtime.dryRun,
-            workflow: workflowDashboardState,
-            fixPlanProjection: fixPlanProjection,
-            reportsProjection: reportsProjection,
-            queuedWrite: queuedWriteSummary,
-            pendingVerification: workflowViewModel?.pendingVerificationReportSummary,
-            runLifecycle: currentRunLifecycle,
-            isLibrarySyncAvailable: dependencies.isManualRunAvailable,
-            isAutoSyncRunning: dependencies.isAutoSyncRunning,
-            now: Date()
-        ))
     }
 
     private var updateWorkflowTracks: [Core.Track] {
@@ -716,13 +695,19 @@ struct DesignRootHostView: View {
 
     @discardableResult
     private func refreshActivityProjection() async -> ActivityProjection {
-        let inputGeneration = await dependencies.projectionStore.nextActivityProjectionInputGeneration()
-        queuedWriteSummary = await dependencies.queuedWriteSummary()
-        let projectionInput = activityProjectionInput
-        let projection = ActivityBuilder.makeProjection(from: projectionInput)
-        let storedProjection = await dependencies.projectionStore.replaceActivityProjection(
-            projection,
-            inputGeneration: inputGeneration
+        let storedProjection = await dependencies.refreshActivityProjection(
+            library: ActivityLibraryFacts(
+                tracks: tracks,
+                metricsSnapshot: metricsSnapshot,
+                lastScanDate: lastScanDate,
+                loadError: loadError,
+                isLoading: isLoading
+            ),
+            workflow: ActivityWorkflowFacts(
+                dashboard: workflowDashboardState,
+                pendingVerification: workflowViewModel?.pendingVerificationReportSummary
+            ),
+            runLifecycle: currentRunLifecycle
         )
         applyActivityProjection(storedProjection)
         return storedProjection
