@@ -74,7 +74,6 @@ struct DesignRootHostView: View {
         .task { await observeActivityProjectionUpdates() }
         .task { await observeReportsProjectionUpdates() }
         .task { await observeFixPlanUpdates() }
-        .task { await observeRunLifecycleUpdates() }
         .task { await observeChromeUpdates() }
         .task { await observeBrowseUpdates() }
         .onChange(of: dependencies.config.processing.defaultUpdateBehavior) {
@@ -559,16 +558,6 @@ struct DesignRootHostView: View {
     private func observeActivityProjectionUpdates() async {
         for await projection in await dependencies.projectionStore.activityUpdates() {
             applyActivityProjection(projection)
-        }
-    }
-
-    /// Projection publishes moved behind the backend observer (ADR
-    /// 0013); this host subscription keeps only the UI reactions: the
-    /// lifecycle mirror for remaining inputs and the queued-reload
-    /// trigger (the reload itself is a backend chain call).
-    private func observeRunLifecycleUpdates() async {
-        for await lifecycle in await dependencies.runLifecycleUpdates() {
-            await dependencies.advanceQueuedReloadForBoundary(lifecycle)
         }
     }
 

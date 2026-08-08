@@ -210,6 +210,19 @@ struct ChromeProjectionAppTests {
         #expect(input.automation.isIncrementalDue == nil)
     }
 
+    @Test("the interval is minutes, not seconds")
+    func intervalIsMinutesNotSeconds() async {
+        let dependencies = makeChromeTestDependencies()
+        dependencies.config.runtime.incrementalIntervalMinutes = 120
+        dependencies.lastIncrementalRunTimestamp = Date(timeIntervalSinceNow: -3600)
+
+        let input = await dependencies.makeChromeInput()
+
+        // One hour into a two-hour window: due only if the unit
+        // conversion regresses (120 s would already have elapsed).
+        #expect(input.automation.isIncrementalDue == false)
+    }
+
     private func makeChromeTestDependencies() -> AppDependencies {
         AppDependencies(
             configurationLoader: { AppConfiguration() },

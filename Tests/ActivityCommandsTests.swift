@@ -674,6 +674,52 @@ struct ActivityCommandsTests {
         #expect(!advance.shouldReload)
     }
 
+    // D4: the graph-level wrapper — write-back, reload firing, and the
+    // active-lifecycle guard — pinned beyond the pure truth table.
+    @Test("a terminal boundary consumes the queue and reloads")
+    func terminalBoundaryConsumesQueueAndReloads() async {
+        let dependencies = makeMenuTestDependencies()
+        dependencies.installTestLibraryReadProvider(MenuSnapshotLibraryReadProvider())
+        dependencies.queuedManualReload = .waitingForQueued
+
+        await dependencies.advanceQueuedReloadForBoundary(ActivityFixtures.lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate)
+        ))
+
+        #expect(dependencies.queuedManualReload == nil)
+        #expect(dependencies.libraryTracks.map(\.id) == ["menu-live"])
+    }
+
+    @Test("a matching terminal advances to waiting-for-queued without reloading")
+    func matchingTerminalAdvancesWithoutReload() async {
+        let dependencies = makeMenuTestDependencies()
+        dependencies.installTestLibraryReadProvider(MenuSnapshotLibraryReadProvider())
+        let activeRunID = RunID()
+        dependencies.queuedManualReload = .waitingForActive(activeRunID)
+
+        await dependencies.advanceQueuedReloadForBoundary(ActivityFixtures.lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate),
+            runID: activeRunID
+        ))
+
+        #expect(dependencies.queuedManualReload == .waitingForQueued)
+        #expect(dependencies.libraryTracks.isEmpty)
+    }
+
+    @Test("an active boundary leaves the queue and library untouched")
+    func activeBoundaryLeavesQueueUntouched() async {
+        let dependencies = makeMenuTestDependencies()
+        dependencies.installTestLibraryReadProvider(MenuSnapshotLibraryReadProvider())
+        dependencies.queuedManualReload = .waitingForQueued
+
+        await dependencies.advanceQueuedReloadForBoundary(ActivityFixtures.lifecycle(
+            phase: .active(.writing)
+        ))
+
+        #expect(dependencies.queuedManualReload == .waitingForQueued)
+        #expect(dependencies.libraryTracks.isEmpty)
+    }
+
     // D4: the menu's ActivityCommands write the REAL coordination state —
     // the no-op policy is closed; menus behave like the activity surface.
     @Test("the menu queue closure writes the shared reload machine")

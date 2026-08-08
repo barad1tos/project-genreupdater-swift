@@ -22,7 +22,9 @@ extension AppDependencies {
             // Cached tracker read (D6): nil = value unavailable —
             // unknown stays unknown rather than guessing due.
             isIncrementalDue: lastIncrementalRunTimestamp.map { lastRun in
-                let interval = TimeInterval(config.runtime.incrementalIntervalMinutes) * 60
+                // Clamped like the auto-sync scheduler, so the chrome fact
+                // and the actual cadence never diverge on a bad config.
+                let interval = TimeInterval(max(1, config.runtime.incrementalIntervalMinutes)) * 60
                 return lastRun.addingTimeInterval(interval) <= Date()
             }
         )

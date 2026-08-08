@@ -132,6 +132,13 @@ struct DependencyConfigTests {
             .appendingPathComponent("state", isDirectory: true)
             .appendingPathComponent("last_incremental_run.log")
         #expect(FileManager.default.fileExists(atPath: expectedTimestampFile.path))
+
+        // A second apply rebuilds the tracker AND refreshes the chrome
+        // due-fact cache from the persisted timestamp (D6): drop the
+        // RuntimeApply refresh or the helper copy and this goes nil.
+        dependencies.lastIncrementalRunTimestamp = nil
+        await dependencies.applyRuntimeConfigurationAndWait()
+        #expect(dependencies.lastIncrementalRunTimestamp != nil)
     }
 
     @Test("Runtime apply wires cleaning edition keywords into year scoring")
