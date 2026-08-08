@@ -41,6 +41,10 @@ public struct DesignChromeSnapshot: Equatable, Sendable {
     )
 }
 
+/// Composition vehicle only (P8): every field is a formatted mirror of a
+/// published projection or a slim view fact — nothing here is derived
+/// from raw library state. The change-log/chart cluster is the last
+/// view-fed remainder and moves with the backend change-log read path.
 public struct DesignDataSnapshot: Equatable, Sendable {
     public let health: HealthSnapshot
     public let pipelineActivity: PipelineActivitySnapshot

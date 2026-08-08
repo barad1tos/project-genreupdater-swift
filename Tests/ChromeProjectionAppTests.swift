@@ -85,6 +85,42 @@ struct ChromeProjectionAppTests {
         #expect(dependencies.chrome.commands.contains { $0.commandKind == .runManually })
     }
 
+    @Test("window, status bar, and menus render one chrome truth")
+    func oneChromeTruthAcrossSurfaces() async {
+        // P16: the window subscribes to the store stream while the status
+        // bar and CommandMenu read the observable mirror. The lifecycle
+        // path — the real runtime writer — must leave both identical, or
+        // the menus would disagree with the window mid-run.
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // Persistence is irrelevant to this truth pin.
+            }
+        )
+        let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let lifecycle = RunLifecycleSnapshot(
+            runID: RunID(),
+            requestID: RunRequestID(),
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: nil,
+                createdAt: startedAt,
+                reason: "one-truth-pin"
+            ),
+            startedAt: startedAt,
+            phase: .active(.syncingLibrary)
+        )
+
+        await dependencies.publishLifecycleBoundary(lifecycle)
+
+        let stored = await dependencies.projectionStore.currentChrome()
+        #expect(dependencies.chrome == stored)
+        #expect(stored.revision != .initial)
+        #expect(dependencies.chrome.syncStatus.isRunActive)
+    }
+
     @Test("the status item symbol follows severity")
     func statusItemSymbolFollowsSeverity() {
         #expect(StatusBarSymbol.name(for: .nominal) == "music.note")
