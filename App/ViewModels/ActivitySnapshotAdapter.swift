@@ -50,6 +50,62 @@ enum ActivitySnapshotAdapter {
         }
     }
 
+    /// Mirrors the Browse projection into DesignUI's browse vocabulary —
+    /// pure struct copies, no derivation: makeSnapshot re-runs on every
+    /// body evaluation (ADR 0012).
+    static func makeBrowseArtists(from projection: BrowseProjection) -> [DesignUI.Artist] {
+        projection.artists.map { artist in
+            DesignUI.Artist(
+                id: artist.id,
+                name: artist.name,
+                albums: artist.albums.map(makeBrowseAlbum)
+            )
+        }
+    }
+
+    static func makeBrowseScope(from projection: BrowseProjection) -> DesignBrowseScope? {
+        projection.scope.map { scope in
+            DesignBrowseScope(
+                sourceLabel: scope.summary.sourceLabel,
+                detailLabel: scope.summary.detailLabel,
+                isNarrowed: scope.summary.isNarrowedFromPhysical
+            )
+        }
+    }
+
+    static func makeBrowseRows(_ rows: [BrowseTrackRow]) -> [DesignBrowseTrackRow] {
+        rows.map { row in
+            DesignBrowseTrackRow(
+                id: row.id,
+                title: row.title,
+                genre: row.genre,
+                year: row.year,
+                hasWriteIdentity: row.hasWriteIdentity,
+                isInScope: row.isInScope
+            )
+        }
+    }
+
+    private static func makeBrowseAlbum(_ album: BrowseAlbumNode) -> DesignUI.Album {
+        DesignUI.Album(
+            id: album.id,
+            name: album.title,
+            artistName: album.artistName,
+            genre: album.genre,
+            year: album.year,
+            counts: DesignBrowseCounts(
+                tracks: album.counts.total,
+                inScope: album.counts.inScope,
+                writable: album.counts.writable
+            ),
+            action: DesignBrowseAction(
+                title: album.action.title,
+                isEnabled: album.action.isEnabled,
+                disabledReason: album.action.disabledReason
+            )
+        )
+    }
+
     private static func makeAutomationLabel(_ state: ChromeAutomationState) -> String {
         switch state {
         case .running: "Running"
@@ -66,7 +122,9 @@ enum ActivitySnapshotAdapter {
         reportsProjection: ReportsProjection = .empty(),
         selectedRunReport: RunReportDetailSnapshot? = nil,
         activityNotice: String? = nil,
-        chrome: DesignChromeSnapshot = .preview
+        chrome: DesignChromeSnapshot = .preview,
+        browseArtists: [DesignUI.Artist] = [],
+        browseScope: DesignBrowseScope? = nil
     ) -> DesignDataSnapshot {
         let dashboard = makeDashboardSnapshot(from: input)
         let reportEntries = makeReportEntries(from: input.changeLogEntries)
@@ -82,8 +140,9 @@ enum ActivitySnapshotAdapter {
             issues: makeIssues(from: dashboard, input: input),
             metrics: makeMetricTiles(from: dashboard, input: input),
             activity: ActivityDesignAdapter.makeActivityItems(from: activityProjection),
-            // Browse data stays empty until a dedicated bridge slice maps it from persisted/library sources.
-            artists: [],
+            artists: browseArtists,
+            browseScope: browseScope,
+            // Change rows arrive with the reports lineage work, not browse.
             changes: [],
             dryRun: DryRunSummary(
                 changes: input.workflow.proposedChangeCount,
