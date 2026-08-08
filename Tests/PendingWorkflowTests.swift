@@ -317,6 +317,35 @@ struct PendingWorkflowTests {
         #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
     }
 
+    @Test("does not auto verify pending albums during smart-filter live review")
+    func doesNotAutoVerifyPendingAlbumsDuringSmartFilterLiveReview() async throws {
+        // Live review paths outside the full-library batch must never
+        // auto-verify due pending albums — the exclusion is keyed to the
+        // batch path, not to previewOnly.
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry()]
+        )
+        let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
+            options.runMaintenancePreflight = { pendingDuePreflight() }
+        }
+        let viewModel = fixture.viewModel
+        viewModel.mode = .smartFilter
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = false
+
+        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let removals = await pendingVerification.removedAlbums()
+
+        #expect(writes.isEmpty)
+        #expect(removals.isEmpty)
+        #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
+    }
+
     @Test("preflight pending failures stop live batch and stay visible")
     func preflightPendingFailuresStopLiveBatchAndStayVisible() async throws {
         let pendingVerification = WorkflowPendingVerificationService(

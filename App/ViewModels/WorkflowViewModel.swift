@@ -77,9 +77,8 @@ enum TrackProcessingStatus: Equatable {
 /// Unified ViewModel driving genre/year updates for any track selection mode.
 ///
 /// Merges the responsibilities of `UpdateViewModel` (dry-run → preview → apply)
-/// and `BatchViewModel` (start/pause/resume/cancel with progress) into a single
-/// workflow with three operating modes:
-/// - **Selected Tracks**: Analyzes and applies changes to a specific set of tracks
+/// and `BatchViewModel` (start/pause/resume/cancel with progress) into one
+/// workflow whose scope is always the effective processing scope:
 /// - **Full Library**: Batch-processes the entire library (feature-gated)
 /// - **Smart Filter**: Targets tracks missing genres, years, or with low confidence
 @Observable @MainActor
@@ -232,9 +231,9 @@ final class WorkflowViewModel {
 
     /// Begin the update workflow for the given tracks.
     ///
-    /// In **Selected Tracks** and **Smart Filter** modes, runs a dry-run first
-    /// to produce proposed changes for review. In **Full Library** mode, processes
-    /// all tracks through `BatchProcessor` with real-time progress.
+    /// In **Smart Filter** mode, runs a dry-run first to produce proposed
+    /// changes for review. In **Full Library** mode, processes all tracks
+    /// through `BatchProcessor` with real-time progress.
     func start(tracks: [Track]) {
         guard canStart else { return }
 
@@ -276,7 +275,7 @@ final class WorkflowViewModel {
         }
     }
 
-    // MARK: - Dry Run (Selected + Smart Filter modes)
+    // MARK: - Dry Run (Smart Filter mode)
 
     private func startDryRun(tracks: [Track], contextTracks: [Track]? = nil) {
         phase = .scanning

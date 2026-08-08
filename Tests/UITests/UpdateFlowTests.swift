@@ -135,24 +135,24 @@ final class UpdateFlowTests: XCTestCase {
     // MARK: - Menu Command
 
     @MainActor
-    func testUpdateMenuCommandExists() throws {
+    func testLibraryMenuCommandExists() throws {
         try waitForMainView()
 
         let app = launchedApp()
         let menuBar = app.menuBars.firstMatch
-        let updateMenu = menuBar.menuBarItems["Update"]
+        let libraryMenu = menuBar.menuBarItems["Library"]
 
         XCTAssertTrue(
-            updateMenu.exists,
-            "Update menu should exist in the menu bar"
+            libraryMenu.exists,
+            "Library menu should exist in the menu bar"
         )
 
-        updateMenu.click()
+        libraryMenu.click()
 
-        let updateCommand = updateMenu.menuItems["Update Selected Tracks"]
+        let runCommand = libraryMenu.menuItems["Run now"]
         XCTAssertTrue(
-            updateCommand.waitForExistence(timeout: 3),
-            "Update Selected Tracks menu item should exist"
+            runCommand.waitForExistence(timeout: 3),
+            "Run now menu item should exist"
         )
 
         app.typeKey(.escape, modifierFlags: [])
