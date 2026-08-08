@@ -38,7 +38,15 @@ struct StatusBarMenu: View {
     var body: some View {
         let chrome = dependencies.chrome
 
-        Text(chrome.syncStatus.text)
+        // Time-derived facts (the incremental due-fact) have no
+        // publication boundary of their own; recomputing when the menu
+        // opens keeps them honest without a deadline timer.
+        Group {
+            Text(chrome.syncStatus.text)
+        }
+        .onAppear {
+            Task { await dependencies.refreshChromeProjection() }
+        }
         Text("Mode: \(chrome.safety.processingModeLabel)")
         if chrome.safety.recoveryHold != nil {
             Text("Recovery needed — writes held")
