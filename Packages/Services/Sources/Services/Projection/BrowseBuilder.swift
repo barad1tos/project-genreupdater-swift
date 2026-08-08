@@ -47,14 +47,15 @@ public enum BrowseBuilder {
     private static func makeAlbumNodes(input: BrowseInput) -> [BrowseAlbumNode] {
         let groups = Dictionary(grouping: input.tracks) { AlbumIdentity(track: $0) }
         return groups.map { identity, tracks in
-            BrowseAlbumNode(
+            let counts = makeCounts(for: tracks, scope: input.scope)
+            return BrowseAlbumNode(
                 id: identity.key,
                 title: identity.album,
                 artistName: identity.artist,
                 genre: dominantValue(in: tracks.compactMap(\.genre)),
                 year: dominantValue(in: tracks.compactMap(\.year)),
-                counts: makeCounts(for: tracks, scope: input.scope),
-                action: makeAlbumAction(albumID: identity.key)
+                counts: counts,
+                action: makeAlbumAction(albumID: identity.key, counts: counts, input: input)
             )
         }
     }
@@ -67,11 +68,28 @@ public enum BrowseBuilder {
         )
     }
 
-    private static func makeAlbumAction(albumID: String) -> ChromeCommandDescriptor {
-        ChromeCommandDescriptor(
+    /// The availability ladder, fail-closed: the host's service reason
+    /// outranks the scope reason; a zero-intersection album under Test
+    /// Artists disables with the boundary spelled out (analysis D2);
+    /// partial intersection stays enabled with narrowing visible through
+    /// the counts.
+    private static func makeAlbumAction(
+        albumID: String,
+        counts: BrowseNodeCounts,
+        input: BrowseInput
+    ) -> ChromeCommandDescriptor {
+        var disabledReason: String?
+        if let unavailableReason = input.previewUnavailableReason {
+            disabledReason = unavailableReason
+        } else if input.scope.source == .testArtists, counts.inScope == 0 {
+            disabledReason = "Outside the current Test Artists scope."
+        }
+
+        return ChromeCommandDescriptor(
             id: "browse-preview-\(albumID)",
             title: "Preview changes",
-            isEnabled: true,
+            isEnabled: disabledReason == nil,
+            disabledReason: disabledReason,
             commandKind: .requestAlbumPreview
         )
     }

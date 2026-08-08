@@ -123,3 +123,97 @@ struct BrowseBuilderGroupingTests {
         #expect(projection.artists[0].albums.map(\.title) == ["Beta", "Zeta", "Alpha"])
     }
 }
+
+// MARK: - Scope truth
+
+@Suite("Browse builder scope truth")
+struct BrowseBuilderScopeTests {
+    @Test("membership is per track, never per node name")
+    func membershipIsPerTrack() {
+        // Identity normalization strips the feature suffix, so both tracks
+        // land in one album node whose artist name matches the allow list.
+        // Scope matching compares the full effectiveArtist — the featured
+        // track stays out. A node-name comparison would claim 2 of 2.
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [
+                makeTrack(artist: "The Beatles", album: "Abbey Road"),
+                makeTrack(artist: "The Beatles feat. Billy Preston", album: "Abbey Road"),
+            ],
+            testArtists: ["The Beatles"]
+        ))
+
+        #expect(projection.artists.count == 1)
+        let album = projection.artists[0].albums[0]
+        #expect(album.counts.total == 2)
+        #expect(album.counts.inScope == 1)
+        // Partial intersection keeps the action enabled; narrowing stays
+        // visible through the counts.
+        #expect(album.action.isEnabled)
+    }
+
+    @Test("a fully out-of-scope album is disabled with the scope reason")
+    func outOfScopeAlbumDisabled() {
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [makeTrack(artist: "Other", album: "Elsewhere")],
+            testArtists: ["Clutch"]
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.counts.inScope == 0)
+        #expect(album.action.isEnabled == false)
+        #expect(album.action.disabledReason == "Outside the current Test Artists scope.")
+    }
+
+    @Test("a full-library scope keeps every album enabled and unnarrowed")
+    func fullLibraryScope() {
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [makeTrack(artist: "Anyone", album: "Anything")]
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.counts.inScope == album.counts.total)
+        #expect(album.action.isEnabled)
+        #expect(projection.scope?.summary.isNarrowedFromPhysical == false)
+        #expect(projection.scope?.summary.sourceLabel == "Full library")
+        #expect(projection.scope?.summary.detailLabel == nil)
+    }
+
+    @Test("the unavailability reason outranks the scope reason")
+    func unavailabilityWins() {
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [makeTrack(artist: "Other", album: "Elsewhere")],
+            testArtists: ["Clutch"],
+            previewUnavailableReason: "Services are still starting."
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.action.isEnabled == false)
+        #expect(album.action.disabledReason == "Services are still starting.")
+    }
+
+    @Test("scope facts carry the snapshot identity and shared labels")
+    func scopeFactsCarrySnapshot() {
+        let input = makeInput(
+            tracks: [makeTrack(artist: "Clutch", album: "Blast Tyrant")],
+            testArtists: ["Clutch"]
+        )
+        let projection = BrowseBuilder.makeProjection(input: input)
+
+        #expect(projection.scope?.snapshotID == input.scope.id)
+        #expect(projection.scope?.fingerprint == input.scope.fingerprint)
+        #expect(projection.scope?.summary.sourceLabel == "Test artists (1)")
+        #expect(projection.scope?.summary.detailLabel == "Clutch")
+        #expect(projection.scope?.summary.isNarrowedFromPhysical == true)
+    }
+
+    @Test("writable counts mirror the fix-plan write-id rule")
+    func writableCounts() {
+        let projection = BrowseBuilder.makeProjection(input: makeInput(tracks: [
+            makeTrack(artist: "Artist", album: "One", appleScriptID: nil),
+            makeTrack(artist: "Artist", album: "One", appleScriptID: ""),
+            makeTrack(artist: "Artist", album: "One", appleScriptID: "as-1"),
+        ]))
+
+        #expect(projection.artists[0].albums[0].counts.writable == 1)
+    }
+}
