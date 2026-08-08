@@ -724,32 +724,19 @@ struct DesignRootHostView: View {
         }
     }
 
+    /// Projection publishes moved behind the backend observer (ADR
+    /// 0013); this host subscription keeps only the UI reactions: the
+    /// lifecycle mirror for remaining inputs and the queued-reload
+    /// trigger, since the load chain is host-owned until slice 11.
     private func observeRunLifecycleUpdates() async {
-        var lastChromeRunID: RunID?
-        var lastChromeState: RunLifecycleState?
         for await lifecycle in await dependencies.runLifecycleUpdates() {
             currentRunLifecycle = lifecycle
-            await refreshActivityProjection()
             if !lifecycle.isActive {
                 let reloadAdvance = advanceQueuedReload(queuedManualReload, lifecycle: lifecycle)
                 queuedManualReload = reloadAdvance.next
                 if reloadAdvance.shouldReload {
                     await loadLibrary(forceRefresh: true)
                 }
-                if lifecycle.intent == .previewFixes {
-                    await refreshFixPlanProjection()
-                }
-                await refreshReportsProjection()
-            }
-            // House pattern until slice 10: chrome re-derives shell truth
-            // at (run, state) boundaries. Per-item write checkpoints
-            // re-emit the same state; skipping them keeps the probe cost
-            // (file comparisons, workspace scan, count query) off the
-            // write path where the projection could not change anyway.
-            if lifecycle.runID != lastChromeRunID || lifecycle.state != lastChromeState {
-                lastChromeRunID = lifecycle.runID
-                lastChromeState = lifecycle.state
-                await dependencies.refreshChromeProjection()
             }
         }
     }

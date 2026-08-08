@@ -32,15 +32,8 @@ enum AppInitializationError: LocalizedError {
 
 // MARK: - App Dependencies
 
-/// Central dependency container and app state manager.
-///
-/// Owns all service instances and manages initialization order.
-/// Injected via `.environment()` to make services available throughout the view hierarchy.
-///
-/// ## Initialization Order
-/// 1. Load configuration
-/// 2. Check script installation status
-/// 3. If scripts installed → ready; else → onboarding
+/// Central dependency container and app state manager; injected via
+/// `.environment()` so services are available throughout the hierarchy.
 @Observable
 @MainActor
 final class AppDependencies {
@@ -56,6 +49,13 @@ final class AppDependencies {
     var config: AppConfiguration
     var isAutoSyncRunning = false
     @ObservationIgnored var cachedBrowseScopeSnapshot: ProcessingScopeSnapshot?
+    /// Last observed run boundary; written only by publishLifecycleBoundary.
+    var currentLifecycleSnapshot: RunLifecycleSnapshot?
+    @ObservationIgnored var lifecycleObserverTask: Task<Void, Never>?
+    @ObservationIgnored var lastChromeLifecycleRunID: RunID?
+    @ObservationIgnored var lastChromeLifecycleState: RunLifecycleState?
+    @ObservationIgnored var cachedActivityLibraryFacts = ActivityLibraryFacts.empty
+    @ObservationIgnored var cachedActivityWorkflowFacts = ActivityWorkflowFacts.empty
     @ObservationIgnored let projectionStore = ProjectionStore()
     private(set) var configurationLoadIssue: String?
     @ObservationIgnored private let configurationSaver: (AppConfiguration) throws -> Void
@@ -244,6 +244,7 @@ final class AppDependencies {
             // bootstrap publish above ran before services were built, and
             // a fresh session emits no lifecycle event to re-derive it.
             await refreshChromeProjection()
+            startLifecycleProjectionObserver()
         } catch {
             log.error("Initialization failed: \(error.localizedDescription, privacy: .public)")
             appState = .error(error.localizedDescription)

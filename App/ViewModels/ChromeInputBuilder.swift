@@ -24,7 +24,12 @@ extension AppDependencies {
         )
         let isRunServiceAvailable = isManualRunAvailable
 
-        let lifecycle = await currentRunLifecycle()
+        // The observer keeps this exactly as fresh as the stream; the
+        // probe covers only the pre-observer bootstrap.
+        var lifecycle = currentLifecycleSnapshot
+        if lifecycle == nil {
+            lifecycle = await currentRunLifecycle()
+        }
         let recovery = await probedRecoveryFacts()
         let fixPlan = await projectionStore.fixPlanProjection()
         return await ChromeInput(

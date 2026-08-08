@@ -10,6 +10,14 @@ struct ActivityLibraryFacts {
     let lastScanDate: Date?
     let loadError: LibraryLoadError?
     let isLoading: Bool
+
+    @MainActor static let empty = Self(
+        tracks: [],
+        metricsSnapshot: nil,
+        lastScanDate: nil,
+        loadError: nil,
+        isLoading: false
+    )
 }
 
 /// Workflow view-model facts, marked inputs until slice 11 moves
@@ -17,6 +25,8 @@ struct ActivityLibraryFacts {
 struct ActivityWorkflowFacts {
     let dashboard: WorkflowDashboardState
     let pendingVerification: UpdateRunPendingVerificationSummary?
+
+    @MainActor static let empty = Self(dashboard: .empty, pendingVerification: nil)
 }
 
 struct ActivityInputContext {
@@ -42,12 +52,29 @@ struct ActivityInputContext {
 /// MainActor configuration are read here — and the publish happens
 /// here, never in view code.
 extension AppDependencies {
+    /// Host-supplied facts land in the bridge cache so every later
+    /// publisher (the lifecycle observer, command handlers) reuses the
+    /// same truth the host last loaded.
     @discardableResult
     func refreshActivityProjection(
         library: ActivityLibraryFacts,
         workflow: ActivityWorkflowFacts,
         runLifecycle: RunLifecycleSnapshot?
     ) async -> ActivityProjection {
+        cachedActivityLibraryFacts = library
+        cachedActivityWorkflowFacts = workflow
+        if let runLifecycle {
+            currentLifecycleSnapshot = runLifecycle
+        }
+        return await republishActivityProjection()
+    }
+
+    /// Rebuilds activity from the cached facts plus current lifecycle.
+    @discardableResult
+    func republishActivityProjection() async -> ActivityProjection {
+        let library = cachedActivityLibraryFacts
+        let workflow = cachedActivityWorkflowFacts
+        let runLifecycle = currentLifecycleSnapshot
         // Synchronous MainActor facts first so the snapshot cannot tear
         // across the awaits below (D3).
         let isDryRun = config.runtime.dryRun
