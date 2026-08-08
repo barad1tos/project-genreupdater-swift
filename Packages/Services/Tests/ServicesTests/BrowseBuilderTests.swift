@@ -33,6 +33,7 @@ private func makeInput(
     tracks: [Track],
     testArtists: [String] = [],
     physicalTrackCount: Int? = nil,
+    readSource: BrowseReadSource = .liveLibrary(scannedAt: Date(timeIntervalSince1970: 100)),
     previewUnavailableReason: String? = nil
 ) -> BrowseInput {
     BrowseInput(
@@ -44,7 +45,7 @@ private func makeInput(
             reason: "browse-test"
         ),
         physicalTrackCount: physicalTrackCount,
-        readSource: .liveLibrary(scannedAt: Date(timeIntervalSince1970: 100)),
+        readSource: readSource,
         previewUnavailableReason: previewUnavailableReason
     )
 }
@@ -86,7 +87,64 @@ struct BrowseBuilderGroupingTests {
         ]))
 
         let expectedKey = AlbumIdentity(artist: "Clutch", album: "Blast Tyrant").key
-        #expect(projection.artists[0].albums[0].id == expectedKey)
+        let album = projection.artists[0].albums[0]
+        #expect(album.id == expectedKey)
+        #expect(album.action.commandKind == .requestAlbumPreview)
+        #expect(album.action.id == "browse-preview-\(expectedKey)")
+    }
+
+    @Test("tracks without a complete album identity get no node")
+    func incompleteIdentitySkipped() {
+        let projection = BrowseBuilder.makeProjection(input: makeInput(tracks: [
+            makeTrack(artist: "Artist", album: ""),
+            makeTrack(artist: "   ", album: "Orphan"),
+            makeTrack(artist: "Artist", album: "Kept"),
+        ]))
+
+        #expect(projection.artists.count == 1)
+        #expect(projection.artists[0].albums.map(\.title) == ["Kept"])
+    }
+
+    @Test("an empty mirror still carries scope, read source, and count facts")
+    func emptyTracksKeepsFacts() {
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [],
+            testArtists: ["Clutch"],
+            physicalTrackCount: 10,
+            readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 50))
+        ))
+
+        #expect(projection.artists.isEmpty)
+        #expect(projection.scope?.summary.sourceLabel == "Test artists (1)")
+        #expect(projection.physicalTrackCount == 10)
+        #expect(projection.readSource == .cachedMirror(scannedAt: Date(timeIntervalSince1970: 50)))
+    }
+
+    @Test("the same album title under different artists yields two nodes")
+    func sameTitleDifferentArtists() {
+        let input = makeInput(tracks: [
+            makeTrack(id: "a-track", artist: "Alpha", album: "Greatest Hits"),
+            makeTrack(id: "b-track", artist: "Beta", album: "Greatest Hits"),
+        ])
+        let projection = BrowseBuilder.makeProjection(input: input)
+
+        #expect(projection.artists.count == 2)
+        let alphaRows = BrowseBuilder.trackRows(
+            forAlbumID: AlbumIdentity(artist: "Alpha", album: "Greatest Hits").key,
+            input: input
+        )
+        #expect(alphaRows.map(\.id) == ["a-track"])
+    }
+
+    @Test("the majority spelling wins the artist display name")
+    func majorityCasingWins() {
+        let projection = BrowseBuilder.makeProjection(input: makeInput(tracks: [
+            makeTrack(artist: "metallica", album: "One"),
+            makeTrack(artist: "metallica", album: "Two"),
+            makeTrack(artist: "Metallica", album: "Three"),
+        ]))
+
+        #expect(projection.artists[0].name == "metallica")
     }
 
     @Test("display genre and year are the most frequent values, ties smallest")
@@ -211,10 +269,52 @@ struct BrowseBuilderScopeTests {
         let projection = BrowseBuilder.makeProjection(input: makeInput(tracks: [
             makeTrack(artist: "Artist", album: "One", appleScriptID: nil),
             makeTrack(artist: "Artist", album: "One", appleScriptID: ""),
+            makeTrack(artist: "Artist", album: "One", appleScriptID: "   "),
             makeTrack(artist: "Artist", album: "One", appleScriptID: "as-1"),
         ]))
 
+        // A whitespace-only ID is not writable — the fix plan trims.
         #expect(projection.artists[0].albums[0].counts.writable == 1)
+    }
+
+    @Test("the service reason disables even a fully in-scope album")
+    func serviceReasonDisablesInScope() {
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [makeTrack(artist: "Anyone", album: "Anything")],
+            previewUnavailableReason: "Services are still starting."
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.counts.inScope == album.counts.total)
+        #expect(album.action.isEnabled == false)
+        #expect(album.action.disabledReason == "Services are still starting.")
+    }
+
+    @Test("a testArtists snapshot with an empty list fails closed")
+    func degenerateSnapshotFailsClosed() {
+        // capture() cannot produce this shape; a decoded or hand-built
+        // snapshot can. Nothing may be in scope then.
+        let degenerateScope = ProcessingScopeSnapshot(
+            createdAt: Date(timeIntervalSince1970: 100),
+            source: .testArtists,
+            normalizedTestArtists: [],
+            matchingRule: "Core.ArtistAllowList.effectiveArtist.localizedCaseInsensitiveCompare",
+            knownTrackCount: 1,
+            fingerprint: "degenerate",
+            reason: "browse-test"
+        )
+        let projection = BrowseBuilder.makeProjection(input: BrowseInput(
+            tracks: [makeTrack(artist: "Anyone", album: "Anything")],
+            scope: degenerateScope,
+            physicalTrackCount: nil,
+            readSource: .liveLibrary(scannedAt: Date(timeIntervalSince1970: 100)),
+            previewUnavailableReason: nil
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.counts.inScope == 0)
+        #expect(album.action.isEnabled == false)
+        #expect(album.action.disabledReason == "Outside the current Test Artists scope.")
     }
 }
 
@@ -278,5 +378,62 @@ struct BrowseBuilderTrackRowTests {
         )
 
         #expect(rows.isEmpty)
+    }
+
+    @Test("albumArtist-driven grouping reaches rows the same way it reaches nodes")
+    func albumArtistAliasRows() {
+        let rows = BrowseBuilder.trackRows(
+            forAlbumID: AlbumIdentity(artist: "Artist", album: "Split").key,
+            input: makeInput(tracks: [
+                makeTrack(artist: "Someone Else", album: "Split", albumArtist: "Artist"),
+                makeTrack(artist: "Another One", album: "Split", albumArtist: "Artist"),
+            ])
+        )
+
+        // If rows filtered by raw artist instead of AlbumIdentity, the
+        // detail pane would disagree with the node's counts.
+        #expect(rows.count == 2)
+    }
+
+    @Test("scope membership does not depend on the read source")
+    func cachedMirrorMembershipSame() {
+        let albumID = AlbumIdentity(artist: "The Beatles", album: "Abbey Road").key
+        let tracks = [
+            makeTrack(artist: "The Beatles", album: "Abbey Road", originalPosition: 1),
+            makeTrack(artist: "The Beatles feat. Billy Preston", album: "Abbey Road", originalPosition: 2),
+        ]
+
+        let liveRows = BrowseBuilder.trackRows(
+            forAlbumID: albumID,
+            input: makeInput(tracks: tracks, testArtists: ["The Beatles"])
+        )
+        let cachedRows = BrowseBuilder.trackRows(
+            forAlbumID: albumID,
+            input: makeInput(
+                tracks: tracks,
+                testArtists: ["The Beatles"],
+                readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 50))
+            )
+        )
+
+        #expect(liveRows.map(\.isInScope) == [true, false])
+        #expect(cachedRows.map(\.isInScope) == liveRows.map(\.isInScope))
+    }
+
+    @Test("the track-row index matches per-album rows")
+    func trackRowIndexMatchesPerAlbum() {
+        let input = makeInput(tracks: [
+            makeTrack(artist: "Alpha", album: "One", originalPosition: 2),
+            makeTrack(artist: "Alpha", album: "One", originalPosition: 1),
+            makeTrack(artist: "Beta", album: "Two"),
+            makeTrack(artist: "Incomplete", album: ""),
+        ])
+
+        let index = BrowseBuilder.makeTrackRowIndex(input: input)
+
+        #expect(index.count == 2)
+        for albumID in index.keys {
+            #expect(index[albumID] == BrowseBuilder.trackRows(forAlbumID: albumID, input: input))
+        }
     }
 }

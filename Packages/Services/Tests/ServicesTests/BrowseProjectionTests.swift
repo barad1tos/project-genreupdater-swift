@@ -16,6 +16,9 @@ struct BrowseProjectionTests {
         #expect(command.kind == .requestAlbumPreview)
         #expect(command.browseTarget == target)
         #expect(command.fixPlanTarget == nil)
+        #expect(command.recoveryDismissal == nil)
+        #expect(command.targetItemID == nil)
+        #expect(command.sourceRunID == nil)
     }
 
     @Test("the empty sentinel carries no library truth")

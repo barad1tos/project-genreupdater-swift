@@ -38,6 +38,24 @@ public enum ArtistAllowList {
         contains(track.effectiveArtist, in: allowedArtists)
     }
 
+    /// Membership against a list already produced by `normalized(_:)`.
+    ///
+    /// Skips the per-call re-normalization of `contains(_:in:)`, which is
+    /// quadratic in the list size — callers looping per track must use
+    /// this with a pre-normalized list (e.g. a scope snapshot's).
+    public static func containsNormalized(_ artist: String, in normalizedArtists: [String]) -> Bool {
+        guard !normalizedArtists.isEmpty else { return true }
+
+        let trackArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalizedArtists.contains { allowedArtist in
+            allowedArtist.localizedCaseInsensitiveCompare(trackArtist) == .orderedSame
+        }
+    }
+
+    public static func containsNormalized(_ track: Track, in normalizedArtists: [String]) -> Bool {
+        containsNormalized(track.effectiveArtist, in: normalizedArtists)
+    }
+
     public static func filter(_ tracks: [Track], allowedArtists: [String]) -> [Track] {
         let normalizedArtists = normalized(allowedArtists)
         guard !normalizedArtists.isEmpty else { return tracks }

@@ -334,7 +334,9 @@ struct ActivityCommands {
             message: "Browse action is unavailable from Activity.",
             issue: OperationalIssue(
                 id: "browse-command-unavailable",
-                category: .staleAction,
+                // Reaching this arm is a programmer error (Activity never
+                // constructs browse commands), not staleness.
+                category: .internalFailure,
                 summary: "Browse action unavailable",
                 technicalDetail: command.kind.rawValue
             ),

@@ -5,7 +5,7 @@ import Foundation
 /// mirror, the immutable scope snapshot the projection is computed
 /// against, the derived physical count, and the host-owned service
 /// ladder for preview availability.
-public struct BrowseInput: Sendable {
+public struct BrowseInput: Equatable, Sendable {
     public let tracks: [Track]
     public let scope: ProcessingScopeSnapshot
     public let physicalTrackCount: Int?
@@ -29,7 +29,9 @@ public struct BrowseInput: Sendable {
 
 /// Pure assembly of the Browse projection. Scope membership is decided
 /// per track through the snapshot's own matching rule — never by
-/// comparing an artist-node name to the allow list (ADR 0020).
+/// comparing an artist-node name to the allow list (ADR 0020). Tracks
+/// without a complete album identity are not represented: the write
+/// pipeline fails fast on them, so Browse must not offer them nodes.
 public enum BrowseBuilder {
     public static func makeProjection(input: BrowseInput) -> BrowseProjection {
         BrowseProjection(
@@ -42,36 +44,33 @@ public enum BrowseBuilder {
         )
     }
 
-    /// Track rows for one album, derived on demand so the projection
-    /// value never carries the whole library. Pure over the same input
-    /// the projection was built from — DesignUI never assembles truth.
+    /// Track rows for one album, derived on demand. Pure over the same
+    /// input the projection was built from — DesignUI never assembles
+    /// truth. O(library) per call; render paths that expand albums
+    /// repeatedly must use `makeTrackRowIndex(input:)` instead.
     public static func trackRows(forAlbumID albumID: String, input: BrowseInput) -> [BrowseTrackRow] {
-        input.tracks
-            .filter { AlbumIdentity(track: $0).key == albumID }
-            .sorted { left, right in
-                let leftPosition = left.originalPosition ?? Int.max
-                let rightPosition = right.originalPosition ?? Int.max
-                if leftPosition != rightPosition {
-                    return leftPosition < rightPosition
-                }
-                return left.name.localizedStandardCompare(right.name) == .orderedAscending
-            }
-            .map { track in
-                BrowseTrackRow(
-                    id: track.id,
-                    title: track.name,
-                    genre: track.genre,
-                    year: track.year,
-                    hasWriteIdentity: hasWriteIdentity(track),
-                    isInScope: ArtistAllowList.contains(track, in: input.scope.normalizedTestArtists)
-                )
-            }
+        let albumTracks = input.tracks.filter { track in
+            let identity = AlbumIdentity(track: track)
+            return identity.isComplete && identity.key == albumID
+        }
+        return makeRows(for: albumTracks, scope: input.scope)
+    }
+
+    /// Every album's rows in one O(library) pass, keyed by album node id.
+    /// Built once per input by the host so per-album lookup is O(1) on
+    /// render paths.
+    public static func makeTrackRowIndex(input: BrowseInput) -> [String: [BrowseTrackRow]] {
+        let groups = Dictionary(grouping: input.tracks.filter { AlbumIdentity(track: $0).isComplete }) {
+            AlbumIdentity(track: $0).key
+        }
+        return groups.mapValues { makeRows(for: $0, scope: input.scope) }
     }
 
     // MARK: - Album nodes
 
     private static func makeAlbumNodes(input: BrowseInput) -> [BrowseAlbumNode] {
-        let groups = Dictionary(grouping: input.tracks) { AlbumIdentity(track: $0) }
+        let completeTracks = input.tracks.filter { AlbumIdentity(track: $0).isComplete }
+        let groups = Dictionary(grouping: completeTracks) { AlbumIdentity(track: $0) }
         return groups.map { identity, tracks in
             let counts = makeCounts(for: tracks, scope: input.scope)
             return BrowseAlbumNode(
@@ -89,8 +88,8 @@ public enum BrowseBuilder {
     private static func makeCounts(for tracks: [Track], scope: ProcessingScopeSnapshot) -> BrowseNodeCounts {
         BrowseNodeCounts(
             total: tracks.count,
-            inScope: tracks.count { ArtistAllowList.contains($0, in: scope.normalizedTestArtists) },
-            writable: tracks.count { hasWriteIdentity($0) }
+            inScope: tracks.count { isTrackInScope($0, scope: scope) },
+            writable: tracks.count { FixPlanProjector.hasWriteID($0.appleScriptID) }
         )
     }
 
@@ -120,9 +119,48 @@ public enum BrowseBuilder {
         )
     }
 
-    private static func hasWriteIdentity(_ track: Track) -> Bool {
-        guard let appleScriptID = track.appleScriptID else { return false }
-        return !appleScriptID.isEmpty
+    // MARK: - Scope membership
+
+    /// Membership through the snapshot's own matching rule. A
+    /// `.testArtists` snapshot with an empty normalized list cannot be
+    /// produced by `capture`, but a decoded or hand-built one fails
+    /// CLOSED here: nothing is in scope, rather than everything.
+    private static func isTrackInScope(_ track: Track, scope: ProcessingScopeSnapshot) -> Bool {
+        switch scope.source {
+        case .fullLibrary:
+            return true
+        case .testArtists:
+            guard !scope.normalizedTestArtists.isEmpty else { return false }
+            return ArtistAllowList.containsNormalized(track, in: scope.normalizedTestArtists)
+        }
+    }
+
+    // MARK: - Track rows
+
+    private static func makeRows(for tracks: [Track], scope: ProcessingScopeSnapshot) -> [BrowseTrackRow] {
+        tracks
+            .sorted { left, right in
+                let leftPosition = left.originalPosition ?? Int.max
+                let rightPosition = right.originalPosition ?? Int.max
+                if leftPosition != rightPosition {
+                    return leftPosition < rightPosition
+                }
+                let nameOrder = left.name.localizedStandardCompare(right.name)
+                if nameOrder != .orderedSame {
+                    return nameOrder == .orderedAscending
+                }
+                return left.id < right.id
+            }
+            .map { track in
+                BrowseTrackRow(
+                    id: track.id,
+                    title: track.name,
+                    genre: track.genre,
+                    year: track.year,
+                    hasWriteIdentity: FixPlanProjector.hasWriteID(track.appleScriptID),
+                    isInScope: isTrackInScope(track, scope: scope)
+                )
+            }
     }
 
     // MARK: - Artist nodes

@@ -22,7 +22,52 @@ struct BrowseProjectionStoreTests {
         let first = await store.replaceBrowseProjection(projection(artistID: "same"))
         let second = await store.replaceBrowseProjection(projection(artistID: "same"))
 
+        // The first replace must actually land before dedup can hold.
+        #expect(first.revision != .initial)
         #expect(second.revision == first.revision)
+    }
+
+    @Test("a content change advances the revision past the builder's initial")
+    func revisionAdvancesOnChange() async {
+        let store = ProjectionStore()
+
+        let first = await store.replaceBrowseProjection(projection(artistID: "first"))
+        let second = await store.replaceBrowseProjection(projection(artistID: "second"))
+
+        // BrowseCommandTarget.projectionRevision is the staleness token:
+        // a frozen revision would silently defeat stale-command checks.
+        #expect(second.revision != first.revision)
+        #expect(second.revision != .initial)
+    }
+
+    @Test("browse generations are independent of the chrome slot")
+    func crossSlotGenerationIndependence() async {
+        let store = ProjectionStore()
+        _ = await store.nextChromeInputGeneration()
+        _ = await store.nextChromeInputGeneration()
+
+        let browseGeneration = await store.nextBrowseInputGeneration()
+        let stored = await store.replaceBrowseProjection(
+            projection(artistID: "landed"),
+            inputGeneration: browseGeneration
+        )
+
+        #expect(browseGeneration == 1)
+        #expect(stored.artists.first?.id == "landed")
+    }
+
+    @Test("a nil-generation replace still lands after a tagged one")
+    func nilGenerationAfterTagged() async {
+        let store = ProjectionStore()
+        let generation = await store.nextBrowseInputGeneration()
+        _ = await store.replaceBrowseProjection(
+            projection(artistID: "tagged"),
+            inputGeneration: generation
+        )
+
+        let stored = await store.replaceBrowseProjection(projection(artistID: "untagged"))
+
+        #expect(stored.artists.first?.id == "untagged")
     }
 
     @Test("a stale input generation is dropped")
