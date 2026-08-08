@@ -408,6 +408,21 @@ struct ProjectionRuntimeTests {
         #expect(second.revision == first.revision)
     }
 
+    @Test("request tokens invalidate across begins")
+    func requestTokenGateTruthTable() {
+        let gate = RequestTokenGate()
+
+        let first = gate.begin()
+        #expect(gate.isCurrent(first))
+
+        let second = gate.begin()
+        #expect(!gate.isCurrent(first))
+        #expect(gate.isCurrent(second))
+
+        gate.invalidate()
+        #expect(!gate.isCurrent(second))
+    }
+
     @Test("a republish derives report facts from the persisted change log")
     func republishDerivesReportFacts() async throws {
         // The chart cluster is builder truth fed by the bounded store
