@@ -182,8 +182,6 @@ extension UpdateConfigSection {
         switch viewModel.mode {
         case .fullLibrary:
             "Full Library - effective scope"
-        case .selectedTracks:
-            "Selected Tracks"
         case .smartFilter:
             "Smart Filter - \(viewModel.smartFilterType.rawValue)"
         case .pendingVerification:
@@ -426,7 +424,7 @@ extension UpdateConfigSection {
             "Verify Pending"
         case .releaseYearRestore:
             "Restore Years"
-        case .selectedTracks, .smartFilter:
+        case .smartFilter:
             "Start Preview"
         }
     }

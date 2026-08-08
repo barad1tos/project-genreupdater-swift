@@ -19,12 +19,10 @@ struct MutationMetadataTests {
         let tracks = [
             Track(id: "selected-1", name: "Battery", artist: "Metallica", album: "Master of Puppets"),
         ]
-        viewModel.configureSelectedTracksScope(
-            tracks: tracks,
-            updateGenre: true,
-            updateYear: false,
-            previewOnly: true
-        )
+        viewModel.configureFullLibraryScope(tracks: tracks)
+        viewModel.updateGenre = true
+        viewModel.updateYear = false
+        viewModel.previewOnly = true
 
         viewModel.start(tracks: tracks)
         try await waitForWorkflowToLeaveScanning(viewModel)
@@ -45,12 +43,10 @@ struct MutationMetadataTests {
         let tracks = [
             Track(id: "selected-1", name: "Battery", artist: "Metallica", album: "Master of Puppets"),
         ]
-        viewModel.configureSelectedTracksScope(
-            tracks: tracks,
-            updateGenre: true,
-            updateYear: false,
-            previewOnly: true
-        )
+        viewModel.configureFullLibraryScope(tracks: tracks)
+        viewModel.updateGenre = true
+        viewModel.updateYear = false
+        viewModel.previewOnly = true
 
         viewModel.start(tracks: tracks)
         try await waitForWorkflowToLeaveScanning(viewModel)

@@ -68,20 +68,6 @@ extension WorkflowViewModel {
         dryRunReport = nil
     }
 
-    func configureSelectedTracksScope(
-        tracks: [Core.Track],
-        updateGenre: Bool,
-        updateYear: Bool,
-        previewOnly: Bool
-    ) {
-        reset()
-        mode = .selectedTracks
-        self.updateGenre = updateGenre
-        self.updateYear = updateYear
-        self.previewOnly = previewOnly
-        computeScopePreview(tracks: tracks)
-    }
-
     func configureFullLibraryScope(tracks: [Core.Track]) {
         reset()
         mode = .fullLibrary

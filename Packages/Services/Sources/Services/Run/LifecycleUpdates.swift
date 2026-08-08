@@ -30,12 +30,6 @@ public struct LifecycleUpdates: AsyncSequence, Sendable {
         lease = LifecycleLease(buffer: buffer)
     }
 
-    public static var finished: Self {
-        let buffer = LifecycleUpdateBuffer(limit: 1)
-        buffer.finish()
-        return Self(buffer: buffer)
-    }
-
     public func makeAsyncIterator() -> AsyncIterator {
         let activeLease = buffer.claimIterator() ? lease : nil
         return AsyncIterator(buffer: buffer, lease: activeLease)

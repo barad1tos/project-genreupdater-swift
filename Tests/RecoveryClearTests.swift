@@ -10,7 +10,7 @@ import Testing
 struct RecoveryClearTests {
     @Test("Observed clearance closes uncertain work with physical outcomes")
     func observedClearanceClosesUncertainRun() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, item) = uncertainRunRecord(recoveryID: recoveryID)
@@ -44,7 +44,7 @@ struct RecoveryClearTests {
 
     @Test("Observed clearance repairs missing undo history for landed writes")
     func observedClearanceRepairsHistory() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
@@ -81,7 +81,7 @@ struct RecoveryClearTests {
 
     @Test("Checkpointed terminal writes repair history without observation")
     func terminalWrittenRepairsHistory() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, _) = uncertainRunRecord(
@@ -112,7 +112,7 @@ struct RecoveryClearTests {
 
     @Test("Blocked availability keeps the hold with an actionable reason")
     func blockedAvailabilityKeepsHold() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
@@ -136,7 +136,7 @@ struct RecoveryClearTests {
 
     @Test("Prepared-only records clear locally while Music.app is closed")
     func preparedOnlyClearsWhileBlocked() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, item) = uncertainRunRecord(recoveryID: recoveryID, itemState: .prepared)
@@ -160,7 +160,7 @@ struct RecoveryClearTests {
 
     @Test("Preflight reports the blocker for uncertain records")
     func preflightReportsBlocker() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
@@ -180,7 +180,7 @@ struct RecoveryClearTests {
 
     @Test("Clearance without observation keeps the uncertain record open")
     func blindClearanceKeepsUncertainRecordOpen() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
@@ -203,7 +203,7 @@ struct RecoveryClearTests {
         let container = try ModelContainerFactory.createInMemory()
         let realStore = RunRecordDataStore(modelContainer: container)
         let flaky = FlakyRecoveryStore(base: realStore, failingReads: 2)
-        let setup = try makeRecoverySetup(store: flaky)
+        let setup = try await makeRecoverySetup(store: flaky)
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = UUID()
         let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
@@ -230,7 +230,7 @@ struct RecoveryClearTests {
         let container = try ModelContainerFactory.createInMemory()
         let realStore = RunRecordDataStore(modelContainer: container)
         let flaky = FlakyRecoveryStore(base: realStore, failingReads: 1)
-        let setup = try makeRecoverySetup(store: flaky)
+        let setup = try await makeRecoverySetup(store: flaky)
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let (record, _) = uncertainRunRecord(recoveryID: nil)
         try await realStore.upsert(record)
@@ -246,7 +246,7 @@ struct RecoveryClearTests {
 
     @Test("Dismissal resolves the record by run ID as well as hold ID")
     func dismissalResolvesByRunID() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, item) = uncertainRunRecord(recoveryID: recoveryID, itemState: .prepared)
@@ -268,7 +268,7 @@ struct RecoveryClearTests {
 
     @Test("Grouped dismissal persists selected closures and keeps the hold")
     func groupedDismissalPersistsAndKeepsHold() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, item) = uncertainRunRecord(recoveryID: recoveryID, itemState: .prepared)
@@ -292,7 +292,7 @@ struct RecoveryClearTests {
 
     @Test("Grouped dismissal refuses write-uncertain selections")
     func groupedDismissalRefusesUncertain() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, item) = uncertainRunRecord(recoveryID: recoveryID, itemState: .attempted)
@@ -315,7 +315,7 @@ struct RecoveryClearTests {
 
     @Test("Individual dismissal closes an uncertain item as an explicit decision")
     func individualDismissalClosesUncertain() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, item) = uncertainRunRecord(recoveryID: recoveryID, itemState: .attempted)
@@ -338,7 +338,7 @@ struct RecoveryClearTests {
 
     @Test("Verified write closes its run and releases every hold")
     func closesVerifiedWrite() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let record = sampleRunRecord(
@@ -366,7 +366,7 @@ struct RecoveryClearTests {
     func holdsOpaqueWrite() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
-        let setup = try makeRecoverySetup(store: store)
+        let setup = try await makeRecoverySetup(store: store)
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let runID = UUID()
         try insertCorruptedRun(id: runID, state: .recoverable, into: container)
@@ -384,7 +384,7 @@ struct RecoveryClearTests {
 
     @Test("Blocked recovery cannot be dismissed as verified")
     func blockedRecoveryStaysOpen() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let record = sampleRunRecord(intent: .writeFixes, state: .blocked, finishedAt: nil)
         try await setup.store.upsert(record)
@@ -402,7 +402,7 @@ struct RecoveryClearTests {
     @Test("Future recovery payload requires an app update")
     func futurePayloadNeedsUpdate() async throws {
         let container = try ModelContainerFactory.createInMemory()
-        let setup = try makeRecoverySetup(store: RunRecordDataStore(modelContainer: container))
+        let setup = try await makeRecoverySetup(store: RunRecordDataStore(modelContainer: container))
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let runID = UUID()
         try insertCorruptedRun(
@@ -427,7 +427,7 @@ struct RecoveryClearTests {
     @Test("Corrupted blocked write cannot be dismissed")
     func blockedWriteStaysOpen() async throws {
         let container = try ModelContainerFactory.createInMemory()
-        let setup = try makeRecoverySetup(store: RunRecordDataStore(modelContainer: container))
+        let setup = try await makeRecoverySetup(store: RunRecordDataStore(modelContainer: container))
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let runID = UUID()
         try insertCorruptedRun(id: runID, state: .blocked, into: container)

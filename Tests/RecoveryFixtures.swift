@@ -208,7 +208,7 @@ actor RecoveryScriptStub: AppleScriptClient {
 }
 
 @MainActor
-func makeRecoverySetup(store: (any RunRecordStore)? = nil) throws -> RecoverySetup {
+func makeRecoverySetup(store: (any RunRecordStore)? = nil) async throws -> RecoverySetup {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("Recovery-\(UUID().uuidString)")
     let processor = BatchProcessor(
@@ -245,7 +245,7 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) throws -> RecoverySet
             }
         )
     ))
-    fixture.dependencies.installTestOrchestrator(orchestrator)
+    await fixture.dependencies.installTestOrchestrator(orchestrator)
     return RecoverySetup(
         dependencies: fixture.dependencies,
         processor: processor,

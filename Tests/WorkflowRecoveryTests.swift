@@ -22,12 +22,10 @@ struct WorkflowRecoveryTests {
         #expect(recoveryID != nil)
         #expect(!viewModel.canStart)
 
-        viewModel.configureSelectedTracksScope(
-            tracks: [Track(id: "safe", name: "Safe", artist: "Artist", album: "Album")],
-            updateGenre: true,
-            updateYear: false,
-            previewOnly: false
-        )
+        viewModel.configureFullLibraryScope(tracks: [Track(id: "safe", name: "Safe", artist: "Artist", album: "Album")])
+        viewModel.updateGenre = true
+        viewModel.updateYear = false
+        viewModel.previewOnly = false
         viewModel.phase = .review
         viewModel.proposedChanges = [makeProposedChange(id: "safe", isAccepted: true)]
         viewModel.applyAccepted()

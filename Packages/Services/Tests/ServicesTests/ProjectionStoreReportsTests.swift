@@ -139,7 +139,11 @@ struct ProjectionStoreReportsTests {
             currentStage: .watch,
             processingMode: .preview,
             automationState: .noSyncYet,
-            scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: nil),
+            scanFacts: ActivityScanFacts(
+                lastScanLabel: "No scan yet",
+                nextRunLabel: "Manual scan only",
+                albumCount: nil
+            ),
             healthFacts: .empty,
             pendingVerification: nil,
             deltaCount: 0,

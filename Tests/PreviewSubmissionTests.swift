@@ -25,7 +25,7 @@ struct PreviewSubmissionTests {
             await gate.hold()
             return 1
         }
-        dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             synchronizePreview: { scope, configuration in
                 await probe.recordSync(scope: scope, configuration: configuration)
@@ -80,7 +80,7 @@ struct PreviewSubmissionTests {
             }
         )
         dependencies.installTrackCountSource { 1 }
-        dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             synchronizePreview: { scope, configuration in
                 await probe.recordSync(scope: scope, configuration: configuration)
