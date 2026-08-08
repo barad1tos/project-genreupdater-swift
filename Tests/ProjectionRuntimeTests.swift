@@ -322,6 +322,18 @@ struct ProjectionRuntimeTests {
         #expect(dependencies.lastChromeLifecycleRunID == nil)
     }
 
+    @Test("a menu run refusal is the same typed status the surface renders")
+    func menuRunRefusalIsTyped() async {
+        // No orchestrator installed: the ActivityCommands ladder must
+        // answer with the typed temporaryUnavailable, not a silent log.
+        let dependencies = makeDependencies()
+
+        let result = await dependencies.makeMenuActivityCommands().handle(.runManually())
+
+        #expect(result.status == .temporaryUnavailable)
+        #expect(result.issue?.category == .temporaryUnavailable)
+    }
+
     @Test("identical activity facts keep the revision")
     func activityRefreshDedups() async {
         let dependencies = makeDependencies()
