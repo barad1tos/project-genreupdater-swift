@@ -2,6 +2,18 @@ import Core
 import CryptoKit
 import Foundation
 
+/// One album, addressed by its display metadata (analysis D3). Matching
+/// happens through AlbumIdentity lookup keys, never raw string compare.
+public struct FixPlanAlbumTarget: Codable, Equatable, Sendable {
+    public let artist: String
+    public let album: String
+
+    public init(artist: String, album: String) {
+        self.artist = artist
+        self.album = album
+    }
+}
+
 /// Immutable configuration captured when an orchestrated run starts.
 public struct FixPlanConfig: Codable, Sendable {
     public let id: UUID
@@ -16,6 +28,9 @@ public struct FixPlanConfig: Codable, Sendable {
     public let cleanAlbumNames: Bool
     public let minConfidence: Int
     public let hasDiscogsAccess: Bool
+    /// Narrows the preview to one album WITHIN the processing scope;
+    /// nil previews the whole scope. Part of the staleness fingerprint.
+    public let albumTarget: FixPlanAlbumTarget?
 
     private let discogsReferenceDigest: String
     private let discogsCredentialRevision: String
@@ -31,11 +46,13 @@ public struct FixPlanConfig: Codable, Sendable {
         appConfiguration: AppConfiguration,
         options: UpdateOptions,
         discogsCredentialRevision: String = "",
-        hasDiscogsAccess: Bool = false
+        hasDiscogsAccess: Bool = false,
+        albumTarget: FixPlanAlbumTarget? = nil
     ) {
         self.id = id
         self.capturedAt = capturedAt
         self.appConfiguration = appConfiguration
+        self.albumTarget = albumTarget
         updateGenre = options.updateGenre
         updateYear = options.updateYear
         repairExistingGenreMismatches = options.repairExistingGenreMismatches
@@ -47,13 +64,14 @@ public struct FixPlanConfig: Codable, Sendable {
         let discogsReferenceDigest = digestDiscogsReference(appConfiguration)
         self.discogsReferenceDigest = discogsReferenceDigest
         self.discogsCredentialRevision = discogsCredentialRevision
-        fingerprintValue = Self.makeFingerprint(
+        fingerprintValue = Self.makeFingerprint(input: FingerprintInput(
             configuration: appConfiguration,
             options: options,
             discogsReferenceDigest: discogsReferenceDigest,
             discogsCredentialRevision: discogsCredentialRevision,
-            hasDiscogsAccess: hasDiscogsAccess
-        )
+            hasDiscogsAccess: hasDiscogsAccess,
+            albumTarget: albumTarget
+        ))
     }
 
     public static func capture(
@@ -61,14 +79,16 @@ public struct FixPlanConfig: Codable, Sendable {
         options: UpdateOptions,
         capturedAt: Date,
         discogsCredentialRevision: String = "",
-        hasDiscogsAccess: Bool = false
+        hasDiscogsAccess: Bool = false,
+        albumTarget: FixPlanAlbumTarget? = nil
     ) -> Self {
         Self(
             capturedAt: capturedAt,
             appConfiguration: configuration,
             options: options,
             discogsCredentialRevision: discogsCredentialRevision,
-            hasDiscogsAccess: hasDiscogsAccess
+            hasDiscogsAccess: hasDiscogsAccess,
+            albumTarget: albumTarget
         )
     }
 
@@ -86,20 +106,7 @@ public struct FixPlanConfig: Codable, Sendable {
         )
     }
 
-    private static func makeFingerprint(
-        configuration: AppConfiguration,
-        options: UpdateOptions,
-        discogsReferenceDigest: String,
-        discogsCredentialRevision: String,
-        hasDiscogsAccess: Bool
-    ) -> String {
-        let input = FingerprintInput(
-            configuration: configuration,
-            options: options,
-            discogsReferenceDigest: discogsReferenceDigest,
-            discogsCredentialRevision: discogsCredentialRevision,
-            hasDiscogsAccess: hasDiscogsAccess
-        )
+    private static func makeFingerprint(input: FingerprintInput) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         encoder.nonConformingFloatEncodingStrategy = .convertToString(
@@ -118,6 +125,7 @@ public struct FixPlanConfig: Codable, Sendable {
         case updateGenre, updateYear, repairExistingGenreMismatches, forceYearLookup
         case cleanTrackNames, cleanAlbumNames, minConfidence
         case discogsReferenceDigest, discogsCredentialRevision, hasDiscogsAccess, fingerprint
+        case albumTarget
     }
 
     public init(from decoder: any Decoder) throws {
@@ -132,6 +140,7 @@ public struct FixPlanConfig: Codable, Sendable {
         cleanAlbumNames = try container.decode(Bool.self, forKey: .cleanAlbumNames)
         minConfidence = try container.decode(Int.self, forKey: .minConfidence)
         hasDiscogsAccess = try container.decodeIfPresent(Bool.self, forKey: .hasDiscogsAccess) ?? false
+        albumTarget = try container.decodeIfPresent(FixPlanAlbumTarget.self, forKey: .albumTarget)
 
         if let configuration = try container.decodeIfPresent(AppConfiguration.self, forKey: .appConfiguration) {
             appConfiguration = configuration
@@ -139,7 +148,7 @@ public struct FixPlanConfig: Codable, Sendable {
                 ?? digestDiscogsReference(configuration)
             discogsCredentialRevision = try container
                 .decodeIfPresent(String.self, forKey: .discogsCredentialRevision) ?? ""
-            fingerprintValue = Self.makeFingerprint(
+            fingerprintValue = Self.makeFingerprint(input: FingerprintInput(
                 configuration: configuration,
                 options: UpdateOptions(
                     updateGenre: updateGenre,
@@ -153,8 +162,9 @@ public struct FixPlanConfig: Codable, Sendable {
                 ),
                 discogsReferenceDigest: discogsReferenceDigest,
                 discogsCredentialRevision: discogsCredentialRevision,
-                hasDiscogsAccess: hasDiscogsAccess
-            )
+                hasDiscogsAccess: hasDiscogsAccess,
+                albumTarget: albumTarget
+            ))
         } else {
             appConfiguration = AppConfiguration()
             discogsReferenceDigest = digestDiscogsReference(appConfiguration)
@@ -178,6 +188,7 @@ public struct FixPlanConfig: Codable, Sendable {
         try container.encode(discogsReferenceDigest, forKey: .discogsReferenceDigest)
         try container.encode(discogsCredentialRevision, forKey: .discogsCredentialRevision)
         try container.encode(hasDiscogsAccess, forKey: .hasDiscogsAccess)
+        try container.encodeIfPresent(albumTarget, forKey: .albumTarget)
         // Older readers consume this field; current readers recompute it when appConfiguration is present.
         try container.encode(fingerprint, forKey: .fingerprint)
     }
@@ -199,6 +210,7 @@ private struct FingerprintInput: Encodable {
     let discogsReferenceDigest: String
     let discogsCredentialRevision: String
     let hasDiscogsAccess: Bool
+    let albumTarget: FixPlanAlbumTarget?
     let runtime: Runtime
     let appleScript: AppleScript
     let yearRetrieval: YearRetrievalConfig
@@ -216,13 +228,15 @@ private struct FingerprintInput: Encodable {
         options: UpdateOptions,
         discogsReferenceDigest: String,
         discogsCredentialRevision: String,
-        hasDiscogsAccess: Bool
+        hasDiscogsAccess: Bool,
+        albumTarget: FixPlanAlbumTarget?
     ) {
         let configuration = redactedConfiguration(configuration)
         self.options = Options(options)
         self.discogsReferenceDigest = discogsReferenceDigest
         self.discogsCredentialRevision = discogsCredentialRevision
         self.hasDiscogsAccess = hasDiscogsAccess
+        self.albumTarget = albumTarget
         runtime = Runtime(configuration.runtime)
         appleScript = AppleScript(configuration.applescript)
         yearRetrieval = configuration.yearRetrieval
