@@ -60,18 +60,26 @@ public enum BrowseBuilder {
     /// Built once per input by the host so per-album lookup is O(1) on
     /// render paths.
     public static func makeTrackRowIndex(input: BrowseInput) -> [String: [BrowseTrackRow]] {
-        let groups = Dictionary(grouping: input.tracks.filter { AlbumIdentity(track: $0).isComplete }) {
-            AlbumIdentity(track: $0).key
-        }
-        return groups.mapValues { makeRows(for: $0, scope: input.scope) }
+        let groups = Dictionary(grouping: identifiedTracks(in: input.tracks)) { $0.identity.key }
+        return groups.mapValues { makeRows(for: $0.map(\.track), scope: input.scope) }
     }
 
     // MARK: - Album nodes
 
+    /// One identity construction per track — identity building runs
+    /// feature-suffix searches, so the grouped paths pair it with the
+    /// track instead of rebuilding it for filter and grouping.
+    private static func identifiedTracks(in tracks: [Track]) -> [(track: Track, identity: AlbumIdentity)] {
+        tracks.compactMap { track in
+            let identity = AlbumIdentity(track: track)
+            return identity.isComplete ? (track: track, identity: identity) : nil
+        }
+    }
+
     private static func makeAlbumNodes(input: BrowseInput) -> [BrowseAlbumNode] {
-        let completeTracks = input.tracks.filter { AlbumIdentity(track: $0).isComplete }
-        let groups = Dictionary(grouping: completeTracks) { AlbumIdentity(track: $0) }
-        return groups.map { identity, tracks in
+        let groups = Dictionary(grouping: identifiedTracks(in: input.tracks)) { $0.identity }
+        return groups.map { identity, members in
+            let tracks = members.map(\.track)
             let counts = makeCounts(for: tracks, scope: input.scope)
             return BrowseAlbumNode(
                 id: identity.key,
