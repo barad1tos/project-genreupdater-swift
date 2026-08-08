@@ -210,6 +210,88 @@ struct FixPlanTests {
         #expect(decoded == snapshot)
     }
 
+    @Test("an album target rides the config through Codable")
+    func albumTargetRoundTripsThroughCodable() throws {
+        let snapshot = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSinceReferenceDate: 773_996_400),
+            albumTarget: FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant")
+        )
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(FixPlanConfig.self, from: encoded)
+
+        #expect(decoded.albumTarget == FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant"))
+        #expect(decoded == snapshot)
+    }
+
+    @Test("a nil album target stays absent from the wire format")
+    func nilAlbumTargetOmitsKey() throws {
+        let snapshot = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSinceReferenceDate: 773_996_400)
+        )
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        let json = try #require(String(data: encoded, encoding: .utf8))
+
+        // Key absence is the backward-compatibility and fingerprint-
+        // neutrality mechanism: older payloads never carried it.
+        #expect(!json.contains("albumTarget"))
+        #expect(snapshot.albumTarget == nil)
+    }
+
+    @Test("the albumTarget wire key decodes from spliced JSON")
+    func albumTargetDecodesFromSplicedJSON() throws {
+        // Round-trip cannot catch a symmetric CodingKeys bug — splice the
+        // key into a nil-target payload and require the exact spelling to
+        // land, with the fingerprint recomputed as if captured targeted.
+        let capturedAt = Date(timeIntervalSinceReferenceDate: 773_996_400)
+        let unscoped = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: capturedAt
+        )
+        let targeted = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: capturedAt,
+            albumTarget: FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant")
+        )
+
+        let encoded = try JSONEncoder().encode(unscoped)
+        var payload = try #require(
+            try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        payload["albumTarget"] = ["artist": "Clutch", "album": "Blast Tyrant"]
+        let spliced = try JSONSerialization.data(withJSONObject: payload)
+
+        let decoded = try JSONDecoder().decode(FixPlanConfig.self, from: spliced)
+
+        #expect(decoded.albumTarget == FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant"))
+        #expect(decoded.fingerprint == targeted.fingerprint)
+    }
+
+    @Test("an album target changes the staleness fingerprint")
+    func albumTargetChangesFingerprint() {
+        let capturedAt = Date(timeIntervalSinceReferenceDate: 773_996_400)
+        let unscoped = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: capturedAt
+        )
+        let targeted = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: capturedAt,
+            albumTarget: FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant")
+        )
+
+        #expect(targeted.fingerprint != unscoped.fingerprint)
+    }
+
     @Test("item decision round trips through Codable")
     func itemDecisionRoundTripsThroughCodable() throws {
         let decision = FixPlanItemDecision(itemID: UUID(), verdict: .rejected)

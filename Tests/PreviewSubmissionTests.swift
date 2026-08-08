@@ -54,6 +54,7 @@ struct PreviewSubmissionTests {
 
         _ = try await submission.value
         #expect(await probe.configuration?.minConfidence == 42)
+        #expect(await probe.configuration?.albumTarget == nil)
         #expect(await probe.configuration?.hasDiscogsAccess == true)
         #expect(await probe.configuration?.appConfiguration.cleaning.genreMappings["Electronic"] == "Electronica")
         #expect(await probe.scope?.normalizedTestArtists == ["Original Artist"])
@@ -67,6 +68,37 @@ struct PreviewSubmissionTests {
             configurationID: submittedConfiguration.id
         )
         #expect(submittedAccess?.isEnabled == true)
+    }
+
+    @Test("Submission carries the album target into the captured configuration")
+    func submissionCarriesAlbumTarget() async throws {
+        let probe = SubmissionProbe()
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // This test keeps configuration in memory.
+            }
+        )
+        dependencies.installTrackCountSource { 1 }
+        dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            synchronizePreview: { scope, configuration in
+                await probe.recordSync(scope: scope, configuration: configuration)
+                return SyncResult()
+            },
+            persistRunRecord: { _ in
+                // Persistence is outside the submission contract under test.
+            },
+            produceFixPlan: { _, scope, configuration in
+                await probe.record(scope: scope, configuration: configuration)
+                return .empty
+            }
+        )))
+
+        let target = FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant")
+        _ = try await dependencies.submitPreviewRun(albumTarget: target)
+
+        #expect(await probe.configuration?.albumTarget == target)
     }
 }
 

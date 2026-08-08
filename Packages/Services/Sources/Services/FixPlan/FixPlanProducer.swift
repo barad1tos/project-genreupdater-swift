@@ -57,14 +57,19 @@ public struct FixPlanProducer: Sendable {
         let options = configuration.determinationOptions
         let tracks = try await dependencies.loadTracks()
         let scopedTracks = Self.scopedTracks(tracks, scope: scope)
-        guard !scopedTracks.isEmpty else { return .empty }
+        let targetedTracks = Self.albumTargetedTracks(scopedTracks, target: configuration.albumTarget)
+        guard !targetedTracks.isEmpty else { return .empty }
         let runtime = try await dependencies.makeRuntime(configuration, scope)
-        try await runtime.refreshIdentity(scopedTracks, scope)
-        let albumTracksByTrackID = await runtime.albumContext(scopedTracks)
+        try await runtime.refreshIdentity(targetedTracks, scope)
+        let albumTracksByTrackID = await runtime.albumContext(targetedTracks)
+        // Artist context spans the FULL scope: dominant-genre
+        // determination must see the artist's other albums, or a
+        // targeted preview would propose different metadata than a
+        // whole-scope one for the same track.
         let artistGroups = Self.groupTracksByArtist(scopedTracks)
 
         var proposals: [ProposedChange] = []
-        for track in scopedTracks {
+        for track in targetedTracks {
             try Task.checkCancellation()
             do {
                 let changes = try await runtime.determineChanges(
@@ -112,6 +117,21 @@ public struct FixPlanProducer: Sendable {
                 ? []
                 : ArtistAllowList.filter(tracks, allowedArtists: scope.normalizedTestArtists)
         }
+    }
+
+    /// Intersects already-scoped tracks with one album's CANONICAL
+    /// identity key — the same key browse nodes are formed under. The
+    /// track-side key already absorbs albumArtist grouping and feature
+    /// suffixes; the alias-expanded lookup keys exist for legacy cache
+    /// lookup where over-matching is benign, and as a selection
+    /// predicate they would pull a neighboring node's tracks into the
+    /// plan. Target strings are a browse node's display identity. Pure
+    /// narrowing: this can only ever shrink the scoped set.
+    private static func albumTargetedTracks(_ tracks: [Track], target: FixPlanAlbumTarget?) -> [Track] {
+        guard let target else { return tracks }
+
+        let targetKey = AlbumIdentity(artist: target.artist, album: target.album).key
+        return tracks.filter { AlbumIdentity(track: $0).key == targetKey }
     }
 
     private static func groupTracksByArtist(_ tracks: [Track]) -> [String: [Track]] {

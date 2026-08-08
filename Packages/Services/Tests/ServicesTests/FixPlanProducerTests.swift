@@ -76,6 +76,105 @@ struct FixPlanProducerTests {
         #expect(await spy.savedPlans().isEmpty)
     }
 
+    @Test("an album target narrows the plan to that album within scope")
+    func albumTargetNarrowsWithinScope() async throws {
+        let targetTrack = track("HIT", artist: "Aphex Twin", album: "Drukqs")
+        let otherAlbum = track("MISS", artist: "Aphex Twin", album: "Syro")
+        let spy = FixPlanProducerSpy(
+            tracks: [targetTrack, otherAlbum],
+            outcomes: ["HIT": .changes([proposal(for: targetTrack)])]
+        )
+
+        let production = try await makeProducer(spy).producePlan(
+            sourceRunID: sourceRunID,
+            scope: scope(requestedTestArtists: ["Aphex Twin"], knownTrackCount: 2),
+            configuration: configuration(
+                UpdateOptions(minConfidence: 60),
+                albumTarget: FixPlanAlbumTarget(artist: "Aphex Twin", album: "Drukqs")
+            )
+        )
+
+        #expect(production.proposalCount == 1)
+        #expect(await spy.refreshInputs() == [["HIT"]])
+        let calls = await spy.determinationCalls()
+        #expect(calls.map(\.trackID) == ["HIT"])
+        // Full-scope artist context: the artist's OTHER album still
+        // informs dominant-genre determination, so a targeted preview
+        // proposes the same metadata a whole-scope one would.
+        #expect(calls[0].artistTrackIDs == ["HIT", "MISS"])
+    }
+
+    @Test("an album target outside the scope plans nothing")
+    func albumTargetOutsideScopeFailsClosed() async throws {
+        // The album exists in the library, but its artist is outside the
+        // Test Artists scope — intersection must be empty, never widened.
+        let spy = FixPlanProducerSpy(tracks: [track("OUT", artist: "Boards of Canada", album: "Geogaddi")])
+
+        let production = try await makeProducer(spy).producePlan(
+            sourceRunID: sourceRunID,
+            scope: scope(requestedTestArtists: ["Aphex Twin"], knownTrackCount: 1),
+            configuration: configuration(
+                UpdateOptions(),
+                albumTarget: FixPlanAlbumTarget(artist: "Boards of Canada", album: "Geogaddi")
+            )
+        )
+
+        #expect(production == .empty)
+        #expect(await spy.eventLog().isEmpty)
+    }
+
+    @Test("album target matching tolerates identity alias forms")
+    func albumTargetMatchesAliasForms() async throws {
+        // albumArtist-grouped and feature-suffixed tracks belong to the
+        // same album identity the target names.
+        let grouped = track("GRP", artist: "Someone Else", album: "Drukqs", albumArtist: "Aphex Twin")
+        let featured = track("FEAT", artist: "Aphex Twin feat. Guest", album: "Drukqs")
+        let spy = FixPlanProducerSpy(
+            tracks: [grouped, featured],
+            outcomes: [
+                "GRP": .changes([proposal(for: grouped)]),
+                "FEAT": .changes([proposal(for: featured)]),
+            ]
+        )
+
+        let production = try await makeProducer(spy).producePlan(
+            sourceRunID: sourceRunID,
+            scope: scope(requestedTestArtists: [], knownTrackCount: 2),
+            configuration: configuration(
+                UpdateOptions(minConfidence: 60),
+                albumTarget: FixPlanAlbumTarget(artist: "Aphex Twin", album: "Drukqs")
+            )
+        )
+
+        #expect(production.proposalCount == 2)
+        #expect(await spy.determinationCalls().map(\.trackID).sorted() == ["FEAT", "GRP"])
+    }
+
+    @Test("an album target never pulls a neighboring node's tracks")
+    func albumTargetExcludesNeighborNodes() async throws {
+        // Two DISTINCT browse nodes share the album title and even a raw
+        // track artist: alias-expanded matching would merge them.
+        let compilation = track("VA", artist: "Clutch", album: "Greatest Hits", albumArtist: "Various Artists")
+        let own = track("CL", artist: "Clutch", album: "Greatest Hits", albumArtist: "Clutch")
+        let spy = FixPlanProducerSpy(
+            tracks: [compilation, own],
+            outcomes: ["CL": .changes([proposal(for: own)])]
+        )
+
+        let production = try await makeProducer(spy).producePlan(
+            sourceRunID: sourceRunID,
+            scope: scope(requestedTestArtists: [], knownTrackCount: 2),
+            configuration: configuration(
+                UpdateOptions(minConfidence: 60),
+                albumTarget: FixPlanAlbumTarget(artist: "Clutch", album: "Greatest Hits")
+            )
+        )
+
+        #expect(production.proposalCount == 1)
+        #expect(await spy.refreshInputs() == [["CL"]])
+        #expect(await spy.determinationCalls().map(\.trackID) == ["CL"])
+    }
+
     @Test("write identity refresh failure stops plan production")
     func propagatesRefreshFailure() async {
         let spy = FixPlanProducerSpy(tracks: [track("TRACK")], refreshFails: true)
@@ -293,11 +392,15 @@ struct FixPlanProducerTests {
         )
     }
 
-    private func configuration(_ options: UpdateOptions = UpdateOptions()) -> FixPlanConfig {
+    private func configuration(
+        _ options: UpdateOptions = UpdateOptions(),
+        albumTarget: FixPlanAlbumTarget? = nil
+    ) -> FixPlanConfig {
         FixPlanConfig.capture(
             configuration: AppConfiguration(),
             options: options,
-            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            albumTarget: albumTarget
         )
     }
 }
@@ -433,9 +536,10 @@ private enum ProducerTestError: Error, Equatable {
 private func track(
     _ id: String,
     artist: String = "Artist",
-    album: String = "Album"
+    album: String = "Album",
+    albumArtist: String? = nil
 ) -> Track {
-    Track(id: id, name: "Track \(id)", artist: artist, album: album)
+    Track(id: id, name: "Track \(id)", artist: artist, album: album, albumArtist: albumArtist)
 }
 
 private func proposal(
