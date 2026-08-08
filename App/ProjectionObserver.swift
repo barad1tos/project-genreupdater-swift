@@ -54,5 +54,8 @@ extension AppDependencies {
             lastChromeLifecycleState = lifecycle.state
             await refreshChromeProjection()
         }
+        // After the boundary publishes: the observer outlives any window,
+        // so a menu-queued reload advances even in windowless sessions (D4).
+        await advanceQueuedReloadForBoundary(lifecycle)
     }
 }

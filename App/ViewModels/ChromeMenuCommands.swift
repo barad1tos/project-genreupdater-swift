@@ -45,10 +45,9 @@ extension AppDependencies {
         log.info("Menu run outcome: \(result.status.rawValue, privacy: .public)")
     }
 
-    /// ActivityCommands wired with backend closures only. The reload
-    /// closures are no-ops on purpose: menu-triggered reloads stay a
-    /// deliberate scope choice for slice 12, and today's menu path queues no reload
-    /// either — behavior parity, typed outcomes gained.
+    /// ActivityCommands wired to the same coordination state the window
+    /// uses (D4): menu runs queue and perform reloads exactly like the
+    /// activity surface — one machine, no per-entry-point drift.
     func makeMenuActivityCommands() -> ActivityCommands {
         ActivityCommands(
             isRunOrchestratorAvailable: { [weak self] in self?.runOrchestrator != nil },
@@ -68,11 +67,11 @@ extension AppDependencies {
                     isIndividual: isIndividual
                 )
             },
-            queueManualReload: { _ in
-                // Deliberate no-op until slice 12 owns reload policy.
+            queueManualReload: { [weak self] runID in
+                self?.queuedManualReload = .waitingForActive(runID)
             },
-            reloadLibrary: { _ in
-                // Deliberate no-op until slice 12 owns reload policy.
+            reloadLibrary: { [weak self] forceRefresh in
+                await self?.loadLibrary(forceRefresh: forceRefresh)
             },
             refreshActivityProjection: { [weak self] in
                 await self?.republishActivityProjection() ?? .empty()

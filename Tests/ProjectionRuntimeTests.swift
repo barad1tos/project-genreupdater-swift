@@ -99,6 +99,22 @@ struct ProjectionRuntimeTests {
         #expect(after != baseline)
     }
 
+    @Test("a terminal boundary advances the queued reload without a window")
+    func terminalBoundaryAdvancesQueuedReloadHeadlessly() async throws {
+        // The observer outlives any window (D4): a menu-queued reload
+        // must advance even when no host view is subscribed.
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        fixture.dependencies.installTestLibraryReadProvider(SnapshotLibraryReadProvider())
+        fixture.dependencies.queuedManualReload = .waitingForQueued
+
+        await fixture.dependencies.publishLifecycleBoundary(
+            makeLifecycle(phase: .finished(.completed(SyncResult()), finishedAt: Date(timeIntervalSince1970: 200)))
+        )
+
+        #expect(fixture.dependencies.queuedManualReload == nil)
+        #expect(fixture.dependencies.libraryTracks.map(\.id) == ["live"])
+    }
+
     private func makeLifecycle(phase: RunPhase, intent: RunIntent = .observeLibrary) -> RunLifecycleSnapshot {
         let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
         return RunLifecycleSnapshot(
@@ -411,18 +427,17 @@ struct ProjectionRuntimeTests {
 
     @Test("the host holds no product-truth state beyond the allowlist")
     func hostStateAllowlist() throws {
-        // The slice-11 exit pin: every remaining @State is a projection
+        // The slice exit pin: every remaining @State is a projection
         // mirror, a browse adapter cache, a backend query RESULT, or UI
-        // ephemera. workflowViewModel and currentRunLifecycle are the
-        // slice-12 handover set — new product truth must land on the
-        // dependency graph, never here.
+        // ephemera. workflowViewModel is the LAST handover item — new
+        // product truth must land on the dependency graph, never here.
         let allowlist: Set = [
             "activityProjection", "reportsProjection", "fixPlanProjection",
             "chromeProjection", "browseProjection",
             "browseDesignArtists", "browseDesignScope", "browseRowIndex", "browseReadSource",
             "selectedRunReport", "runReportDetailRequestID",
-            "selectedRoute", "hasStartedInitialLoad", "queuedManualReload",
-            "workflowViewModel", "workflowNoticeMessage", "currentRunLifecycle",
+            "selectedRoute", "hasStartedInitialLoad",
+            "workflowViewModel", "workflowNoticeMessage",
             "activityCommandNoticeMessage", "activityCommandNoticeID",
             "fixPlanNoticeMessage", "fixPlanNoticeTone", "fixPlanNoticeID",
             "reportNotice", "reportNoticeID",
@@ -432,6 +447,10 @@ struct ProjectionRuntimeTests {
         let declared = source.split(separator: "\n")
             .compactMap { line -> String? in
                 guard let range = line.range(of: "@State private var ") else { return nil }
+                // A multi-binding line would parse as ONE name and count
+                // as ONE raw occurrence — reject the shape outright so
+                // the tripwire cannot weaken silently.
+                #expect(!line.contains(","), "multi-binding @State line: \(line)")
                 let tail = line[range.upperBound...]
                 return tail.prefix { $0.isLetter || $0.isNumber || $0 == "_" }.description
             }

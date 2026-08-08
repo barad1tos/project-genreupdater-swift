@@ -674,6 +674,85 @@ struct ActivityCommandsTests {
         #expect(!advance.shouldReload)
     }
 
+    // D4: the graph-level wrapper — write-back, reload firing, and the
+    // active-lifecycle guard — pinned beyond the pure truth table.
+    @Test("a terminal boundary consumes the queue and reloads")
+    func terminalBoundaryConsumesQueueAndReloads() async {
+        let dependencies = makeMenuTestDependencies()
+        dependencies.installTestLibraryReadProvider(MenuSnapshotLibraryReadProvider())
+        dependencies.queuedManualReload = .waitingForQueued
+
+        await dependencies.advanceQueuedReloadForBoundary(ActivityFixtures.lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate)
+        ))
+
+        #expect(dependencies.queuedManualReload == nil)
+        #expect(dependencies.libraryTracks.map(\.id) == ["menu-live"])
+    }
+
+    @Test("a matching terminal advances to waiting-for-queued without reloading")
+    func matchingTerminalAdvancesWithoutReload() async {
+        let dependencies = makeMenuTestDependencies()
+        dependencies.installTestLibraryReadProvider(MenuSnapshotLibraryReadProvider())
+        let activeRunID = RunID()
+        dependencies.queuedManualReload = .waitingForActive(activeRunID)
+
+        await dependencies.advanceQueuedReloadForBoundary(ActivityFixtures.lifecycle(
+            phase: .finished(.completedNoOp(SyncResult()), finishedAt: ActivityFixtures.finishDate),
+            runID: activeRunID
+        ))
+
+        #expect(dependencies.queuedManualReload == .waitingForQueued)
+        #expect(dependencies.libraryTracks.isEmpty)
+    }
+
+    @Test("an active boundary leaves the queue and library untouched")
+    func activeBoundaryLeavesQueueUntouched() async {
+        let dependencies = makeMenuTestDependencies()
+        dependencies.installTestLibraryReadProvider(MenuSnapshotLibraryReadProvider())
+        dependencies.queuedManualReload = .waitingForQueued
+
+        await dependencies.advanceQueuedReloadForBoundary(ActivityFixtures.lifecycle(
+            phase: .active(.writing)
+        ))
+
+        #expect(dependencies.queuedManualReload == .waitingForQueued)
+        #expect(dependencies.libraryTracks.isEmpty)
+    }
+
+    // D4: the menu's ActivityCommands write the REAL coordination state —
+    // the no-op policy is closed; menus behave like the activity surface.
+    @Test("the menu queue closure writes the shared reload machine")
+    func menuQueueClosureWritesSharedReloadMachine() {
+        let dependencies = makeMenuTestDependencies()
+        let commands = dependencies.makeMenuActivityCommands()
+        let runID = RunID()
+
+        commands.queueManualReload(runID)
+
+        #expect(dependencies.queuedManualReload == .waitingForActive(runID))
+    }
+
+    @Test("the menu reload closure loads the library headlessly")
+    func menuReloadClosureLoadsLibraryHeadlessly() async {
+        let dependencies = makeMenuTestDependencies()
+        dependencies.installTestLibraryReadProvider(MenuSnapshotLibraryReadProvider())
+        let commands = dependencies.makeMenuActivityCommands()
+
+        await commands.reloadLibrary(true)
+
+        #expect(dependencies.libraryTracks.map(\.id) == ["menu-live"])
+    }
+
+    private func makeMenuTestDependencies() -> AppDependencies {
+        AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // Persistence is irrelevant to these wiring pins.
+            }
+        )
+    }
+
     private func track(id: String) -> Core.Track {
         Core.Track(id: id, name: "Track \(id)", artist: "Artist", album: "Album")
     }
@@ -947,4 +1026,12 @@ private func blockedRecoveryProjection(revision: ProjectionRevision) -> Activity
 
 private struct TestError: LocalizedError {
     let errorDescription: String?
+}
+
+private actor MenuSnapshotLibraryReadProvider: LibraryReadProvider {
+    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+        LibraryReadSnapshot(tracks: [
+            Core.Track(id: "menu-live", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+        ], scannedAt: Date(timeIntervalSince1970: 300))
+    }
 }

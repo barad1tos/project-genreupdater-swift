@@ -178,6 +178,72 @@ struct ChromeProjectionAppTests {
 
         #expect(second.revision == first.revision)
     }
+
+    // D6: the automation due-fact derives from the cached tracker read;
+    // the default interval is one minute (GeneralConfiguration).
+    @Test("an elapsed incremental interval reads as due")
+    func elapsedIncrementalIntervalReadsDue() async {
+        let dependencies = makeChromeTestDependencies()
+        dependencies.lastIncrementalRunTimestamp = Date(timeIntervalSinceNow: -3600)
+
+        let input = await dependencies.makeChromeInput()
+
+        #expect(input.automation.isIncrementalDue == true)
+    }
+
+    @Test("an unelapsed incremental interval reads as not due")
+    func unelapsedIncrementalIntervalReadsNotDue() async {
+        let dependencies = makeChromeTestDependencies()
+        dependencies.lastIncrementalRunTimestamp = Date()
+
+        let input = await dependencies.makeChromeInput()
+
+        #expect(input.automation.isIncrementalDue == false)
+    }
+
+    @Test("a missing tracker value keeps the due-fact unknown")
+    func missingTrackerValueKeepsDueFactUnknown() async {
+        let dependencies = makeChromeTestDependencies()
+
+        let input = await dependencies.makeChromeInput()
+
+        #expect(input.automation.isIncrementalDue == nil)
+    }
+
+    @Test("the interval is minutes, not seconds")
+    func intervalIsMinutesNotSeconds() async {
+        let dependencies = makeChromeTestDependencies()
+        dependencies.config.runtime.incrementalIntervalMinutes = 120
+        dependencies.lastIncrementalRunTimestamp = Date(timeIntervalSinceNow: -3600)
+
+        let input = await dependencies.makeChromeInput()
+
+        // One hour into a two-hour window: due only if the unit
+        // conversion regresses (120 s would already have elapsed).
+        #expect(input.automation.isIncrementalDue == false)
+    }
+
+    @Test("a zero interval clamps to the scheduler's one-minute floor")
+    func zeroIntervalClampsToSchedulerFloor() async {
+        let dependencies = makeChromeTestDependencies()
+        dependencies.config.runtime.incrementalIntervalMinutes = 0
+        dependencies.lastIncrementalRunTimestamp = Date(timeIntervalSinceNow: -30)
+
+        let input = await dependencies.makeChromeInput()
+
+        // Thirty seconds after the last run: an unclamped zero interval
+        // would read due while the scheduler still waits at its floor.
+        #expect(input.automation.isIncrementalDue == false)
+    }
+
+    private func makeChromeTestDependencies() -> AppDependencies {
+        AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // Persistence is irrelevant to these due-fact pins.
+            }
+        )
+    }
 }
 
 private struct ChromeProbeFailure: Error {}

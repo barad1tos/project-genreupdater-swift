@@ -31,9 +31,16 @@ final class AppDependencies {
     @ObservationIgnored var lifecycleObserverTask: Task<Void, Never>?
     @ObservationIgnored var lastChromeLifecycleRunID: RunID?
     @ObservationIgnored var lastChromeLifecycleState: RunLifecycleState?
+    /// One reload-coordination truth for window, commands, and menus;
+    /// producers set it, run completion advances it (D4).
+    var queuedManualReload: QueuedManualReload?
     /// Pulled fresh at every publish; nil (no window/VM) reads as
     /// .empty — honest idle instead of a stale cached phase (A8).
     @ObservationIgnored var workflowFactsProvider: (@MainActor () -> ActivityWorkflowFacts)?
+    /// Cached tracker read for the sync chrome snapshot (D6); refreshed
+    /// at initialize, runtime re-apply, and after a run advances the
+    /// tracker. nil = tracker value unavailable (unknown stays unknown).
+    @ObservationIgnored var lastIncrementalRunTimestamp: Date?
     // Library facts (D1): the load chain is the SOLE writer (chrome-
     // mirror convention, pinned); views and view-models only read.
     var libraryTracks: [Track] = []
@@ -391,11 +398,17 @@ final class AppDependencies {
         )
     }
 
+    /// Creates the tracker and primes the chrome due-fact cache (D6).
+    private func installIncrementalRunTracker() async {
+        incrementalRunTracker = Self.makeIncrementalRunTracker(configuration: config)
+        await refreshIncrementalRunTimestamp()
+    }
+
     /// Step 8: Wire workflow services that depend on persistence, algorithms, and the script bridge.
     private func initializeWorkflowServices(bridge: AppleScriptBridge, gate: FeatureGate) async throws {
         let checkpoint = CheckpointManager()
         checkpointManager = checkpoint
-        incrementalRunTracker = Self.makeIncrementalRunTracker(configuration: config)
+        await installIncrementalRunTracker()
 
         guard let logStore = changeLogStore,
               let store = trackStore,
