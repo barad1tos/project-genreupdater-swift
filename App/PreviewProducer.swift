@@ -8,14 +8,16 @@ private let previewProducerLog = Logger(subsystem: "com.genreupdater", category:
 extension AppDependencies {
     func capturePreviewConfig(
         at date: Date,
-        hasDiscogsAccess: Bool
+        hasDiscogsAccess: Bool,
+        albumTarget: FixPlanAlbumTarget? = nil
     ) -> FixPlanConfig {
         FixPlanConfig.capture(
             configuration: config,
             options: previewRunOptions(),
             capturedAt: date,
             discogsCredentialRevision: DiscogsClient.credentialRevision,
-            hasDiscogsAccess: hasDiscogsAccess
+            hasDiscogsAccess: hasDiscogsAccess,
+            albumTarget: albumTarget
         )
     }
 

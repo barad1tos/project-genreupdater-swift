@@ -171,7 +171,8 @@ extension AppDependencies {
     }
 
     func submitPreviewRun(
-        factoryOverrides: APIClientFactoryOverrides = APIClientFactoryOverrides()
+        factoryOverrides: APIClientFactoryOverrides = APIClientFactoryOverrides(),
+        albumTarget: FixPlanAlbumTarget? = nil
     ) async throws -> RunSubmissionResult {
         guard let runOrchestrator else {
             throw AppDependencyServiceError.runOrchestratorUnavailable
@@ -188,7 +189,11 @@ extension AppDependencies {
             configuration: config,
             factoryOverrides: factoryOverrides
         )
-        let configuration = capturePreviewConfig(at: Date(), hasDiscogsAccess: discogsAccess.isEnabled)
+        let configuration = capturePreviewConfig(
+            at: Date(),
+            hasDiscogsAccess: discogsAccess.isEnabled,
+            albumTarget: albumTarget
+        )
         let knownTrackCount = await currentKnownTrackCount()
         await discogsAccessStore.save(discogsAccess, configurationID: configuration.id)
         return await runOrchestrator.submit(.manualPreview(
