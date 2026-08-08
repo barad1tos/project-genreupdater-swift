@@ -231,7 +231,7 @@ public struct ActivityProjection: Equatable, Sendable {
             currentStage: .watch,
             processingMode: .preview,
             automationState: .noSyncYet,
-            scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "No sync yet", albumCount: nil),
+            scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: 0),
             deltaCount: 0,
             interventionCount: 0,
             protectedCount: 0,

@@ -338,24 +338,7 @@ enum ActivitySnapshotAdapter {
     }
 
     static func relativeElapsedLabel(since date: Date, now: Date) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(date)))
-
-        if seconds < 60 {
-            return "just now"
-        }
-
-        let minutes = seconds / 60
-        if minutes < 60 {
-            return "\(minutes)m ago"
-        }
-
-        let hours = minutes / 60
-        if hours < 24 {
-            return "\(hours)h ago"
-        }
-
-        let days = hours / 24
-        return "\(days)d ago"
+        ActivityBuilder.relativeElapsedLabel(since: date, now: now)
     }
 
     private static func makeCoverageTone(_ ratio: Double) -> Tone {

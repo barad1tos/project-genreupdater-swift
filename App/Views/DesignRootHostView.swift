@@ -36,7 +36,6 @@ struct DesignRootHostView: View {
     @State private var browseRowIndex: [String: [BrowseTrackRow]] = [:]
     @State private var browseReadSource: BrowseReadSource = .cachedMirror(scannedAt: nil)
     @State private var browseNoticeMessage: String?
-    @State private var settingsProjection: SettingsProjection = .empty()
     @State private var selectedRunReport: RunReportDetailSnapshot?
     @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
@@ -89,7 +88,6 @@ struct DesignRootHostView: View {
         .task { await observeRunLifecycleUpdates() }
         .task { await observeChromeUpdates() }
         .task { await observeBrowseUpdates() }
-        .task { await observeSettingsUpdates() }
         .onChange(of: dependencies.config.processing.defaultUpdateBehavior) {
             applyWorkflowDefaults()
             scheduleActivityProjectionRefresh()
@@ -143,17 +141,6 @@ struct DesignRootHostView: View {
         for await projection in await dependencies.projectionStore.chromeUpdates() {
             guard projection.revision > chromeProjection.revision else { continue }
             chromeProjection = projection
-        }
-    }
-
-    private func observeSettingsUpdates() async {
-        // The settings projection's first UI subscriber (slice-10 A5):
-        // passive display reads projection truth; bindings keep reading
-        // the synchronously-accepted config so controlled fields never
-        // see a stale value within their own runloop.
-        for await projection in await dependencies.projectionStore.settingsUpdates() {
-            guard projection.revision > settingsProjection.revision else { continue }
-            settingsProjection = projection
         }
     }
 
@@ -306,11 +293,13 @@ struct DesignRootHostView: View {
     }
 
     private var settingsSnapshot: DesignSettingsSnapshot {
-        // Read the projection when it has published; fall back to the
-        // sync-accepted config only before the first publish lands.
-        let configuration = settingsProjection.revision == .initial
-            ? dependencies.config
-            : settingsProjection.configuration
+        // CONTRACT: the settings surface reads the synchronously-accepted
+        // config, not the projection. These fields feed controlled
+        // bindings and CAS-anchored mutations — the projection publishes
+        // at the tail of the serialized apply queue, so reading it here
+        // snapped pickers back and lost concurrent test-artist edits.
+        // The projection serves cross-surface consumers.
+        let configuration = dependencies.config
         return DesignSettingsSnapshot(
             updateBehavior: DesignUpdateBehavior(
                 rawValue: configuration.processing.defaultUpdateBehavior.rawValue
@@ -318,18 +307,41 @@ struct DesignRootHostView: View {
             minimumConfidencePercent: configuration.yearRetrieval.logic.minConfidenceForNewYear,
             releaseYearRestoreThresholdYears: configuration.processing.releaseYearRestoreThreshold,
             testArtists: ArtistAllowList.normalized(configuration.development.testArtists),
-            appearanceMode: designAppearanceMode(from: appearanceMode),
-            isFastAnimationsEnabled: fastAnimations,
+            presentation: DesignSettingsSnapshot.Presentation(
+                appearanceMode: designAppearanceMode(from: appearanceMode),
+                isFastAnimationsEnabled: fastAnimations,
+                isAdvancedExperience: experienceLevel != .casual
+            ),
             // Writes must always be verified before the app reports them as complete.
             isPostWriteVerificationRequired: true,
-            discogsState: discogsDisplayState(configuration: configuration),
-            isAdvancedExperience: experienceLevel != .casual
+            discogsState: Self.discogsDisplayState(
+                resolvedTokenIsEmpty: APIAuthReferenceResolver.resolve(
+                    configuration.yearRetrieval.apiAuth.discogsTokenReference
+                ).isEmpty,
+                issue: dependencies.discogsCredentialIssue,
+                isAccessAvailable: dependencies.isDiscogsAccessAvailable
+            )
         )
     }
 
-    private func discogsDisplayState(configuration: AppConfiguration) -> DesignDiscogsState {
-        guard !configuration.yearRetrieval.apiAuth.discogsTokenReference.isEmpty else { return .noToken }
-        switch dependencies.isDiscogsAccessAvailable {
+    /// Probe facts first (the credential handler knows best), then the
+    /// RESOLVED token: the raw reference defaults to a non-empty
+    /// placeholder, so testing it directly made noToken unreachable.
+    static func discogsDisplayState(
+        resolvedTokenIsEmpty: Bool,
+        issue: DiscogsCredentialIssue?,
+        isAccessAvailable: Bool?
+    ) -> DesignDiscogsState {
+        if case .missingToken = issue {
+            return .noToken
+        }
+        if issue != nil {
+            return .tokenIssue
+        }
+        if resolvedTokenIsEmpty {
+            return .noToken
+        }
+        switch isAccessAvailable {
         case true: return .connected
         case false: return .tokenIssue
         default: return .unverified
@@ -1214,11 +1226,6 @@ extension DesignRootHostView {
             }
         case .activity:
             selectedRoute = .activity
-        case .browse:
-            // Selection-by-id lands with the report-detail linking work;
-            // routing to the surface is the consumer today (ADR 0011:
-            // suggest-by-ID, routes stay UI-owned).
-            selectedRoute = .browse
         case let .report(id):
             selectedRoute = .reports
             selectRunReport(id)

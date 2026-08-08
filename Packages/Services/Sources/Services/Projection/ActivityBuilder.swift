@@ -130,8 +130,9 @@ public enum ActivityBuilder {
         return Set(input.tracks.map(\.albumIdentity)).count
     }
 
-    /// Shared relative-elapsed vocabulary for scan labels.
-    static func relativeElapsedLabel(since date: Date, now: Date) -> String {
+    /// Shared relative-elapsed vocabulary for scan labels; public so the
+    /// App-side report mapping speaks the same buckets.
+    public static func relativeElapsedLabel(since date: Date, now: Date) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
 
         if seconds < 60 {

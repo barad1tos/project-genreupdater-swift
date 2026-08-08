@@ -334,6 +334,63 @@ struct ProjectionRuntimeTests {
         #expect(result.issue?.category == .temporaryUnavailable)
     }
 
+    @Test("the settings projection retains the token reference in memory")
+    func settingsProjectionRetainsTokenReference() async {
+        // Redaction is an ENCODE-time concern (the FixPlanConfig
+        // precedent); applying it to the in-memory projection would
+        // silently break every reference-driven display fact.
+        let dependencies = makeDependencies()
+        dependencies.config.yearRetrieval.apiAuth.discogsTokenReference = "keychain:test"
+
+        _ = await dependencies.publishSettingsProjection()
+
+        let stored = await dependencies.projectionStore.currentSettings()
+        #expect(stored.configuration.yearRetrieval.apiAuth.discogsTokenReference == "keychain:test")
+    }
+
+    @Test("discogs display state maps probe facts before the reference")
+    func discogsStateMapping() {
+        typealias State = DesignRootHostView
+        #expect(State.discogsDisplayState(
+            resolvedTokenIsEmpty: true, issue: .missingToken, isAccessAvailable: nil
+        ) == .noToken)
+        #expect(State.discogsDisplayState(
+            resolvedTokenIsEmpty: false, issue: .other("rejected"), isAccessAvailable: nil
+        ) == .tokenIssue)
+        // The unresolved default placeholder resolves empty → noToken,
+        // even though the RAW reference string is non-empty.
+        #expect(State.discogsDisplayState(
+            resolvedTokenIsEmpty: true, issue: nil, isAccessAvailable: nil
+        ) == .noToken)
+        #expect(State.discogsDisplayState(
+            resolvedTokenIsEmpty: false, issue: nil, isAccessAvailable: true
+        ) == .connected)
+        #expect(State.discogsDisplayState(
+            resolvedTokenIsEmpty: false, issue: nil, isAccessAvailable: false
+        ) == .tokenIssue)
+        #expect(State.discogsDisplayState(
+            resolvedTokenIsEmpty: false, issue: nil, isAccessAvailable: nil
+        ) == .unverified)
+    }
+
+    @Test("a menu run with an orchestrator reaches submission")
+    func menuRunHappyPath() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        fixture.dependencies.installTrackCountSource { 1 }
+        fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in
+                // Persistence is outside this wiring pin.
+            }
+        )))
+
+        let result = await fixture.dependencies.makeMenuActivityCommands().handle(.runManually())
+
+        // The stubbed sync finds nothing — the run completes as a no-op,
+        // proving submission was reached through the menu wiring.
+        #expect(result.status == .noOp)
+    }
+
     @Test("identical activity facts keep the revision")
     func activityRefreshDedups() async {
         let dependencies = makeDependencies()
