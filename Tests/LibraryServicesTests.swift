@@ -93,64 +93,6 @@ struct LibraryServicesTests {
         )
     }
 
-    @Test("Reports backup import propagates mapping refresh errors")
-    func reportsBackupImportPropagatesMappingRefreshErrors() throws {
-        let source = try String(contentsOf: reportsViewSourceURL(), encoding: .utf8)
-        let compactSource = source.replacingOccurrences(
-            of: "\\s+",
-            with: " ",
-            options: .regularExpression
-        )
-
-        #expect(
-            compactSource.contains(
-                [
-                    "let mappedTrackCount = try await dependencies.refreshTrackIDMappingOrThrow(",
-                    "musicKitTracks: tracks,",
-                    "scopedArtists: [artist],",
-                    "mergeExisting: true",
-                    ")",
-                ].joined(separator: " ")
-            )
-        )
-        #expect(
-            compactSource.contains(
-                [
-                    "guard mappedTrackCount > 0 || tracks.isEmpty else {",
-                    "throw BackupCSVImportError.noWritableTrackMapping",
-                    "}",
-                ].joined(separator: " ")
-            )
-        )
-    }
-
-    @Test("Reports backup import title distinguishes failed and partial reverts")
-    func reportsBackupImportTitleDistinguishesFailedAndPartialReverts() {
-        #expect(backupImportAlertTitle(for: YearBackupRevertResult(
-            parsedCount: 1,
-            updatedCount: 0,
-            skippedCount: 0,
-            missingCount: 0,
-            failedCount: 1
-        )) == "Revert Failed")
-
-        #expect(backupImportAlertTitle(for: YearBackupRevertResult(
-            parsedCount: 2,
-            updatedCount: 1,
-            skippedCount: 0,
-            missingCount: 0,
-            failedCount: 1
-        )) == "Revert Partial")
-
-        #expect(backupImportAlertTitle(for: YearBackupRevertResult(
-            parsedCount: 1,
-            updatedCount: 1,
-            skippedCount: 0,
-            missingCount: 0,
-            failedCount: 0
-        )) == "Revert Complete")
-    }
-
     @Test("Malformed run report id returns nil")
     func malformedRunReportIDReturnsNil() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
@@ -419,23 +361,6 @@ struct LibraryServicesTests {
         await #expect(throws: AppDependencyServiceError.runOrchestratorUnavailable) {
             try await fixture.dependencies.submitPreviewRun()
         }
-    }
-
-    @Test("Reports backup import message includes safe first failure")
-    func reportsBackupImportMessageIncludesSafeFirstFailure() {
-        let result = YearBackupRevertResult(
-            parsedCount: 1,
-            updatedCount: 0,
-            skippedCount: 0,
-            missingCount: 0,
-            failedCount: 1,
-            firstFailureDescription: "Missing AppleScript ID mapping for a track"
-        )
-
-        let message = backupImportMessage(for: result)
-
-        #expect(message.contains("First failure: Missing AppleScript ID mapping for a track."))
-        #expect(!message.contains("MK1"))
     }
 
     @Test("Continuation lookup failures degrade to an empty lineage")

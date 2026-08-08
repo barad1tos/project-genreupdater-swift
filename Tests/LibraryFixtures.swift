@@ -250,21 +250,6 @@ func libraryLoadSourceURL() throws -> URL {
     throw CocoaError(.fileNoSuchFile)
 }
 
-func reportsViewSourceURL() throws -> URL {
-    var currentURL = URL(fileURLWithPath: #filePath)
-    currentURL.deleteLastPathComponent()
-
-    for _ in 0 ..< 8 {
-        let candidate = currentURL.appendingPathComponent("App/Views/ReportsView.swift")
-        if FileManager.default.fileExists(atPath: candidate.path) {
-            return candidate
-        }
-        currentURL.deleteLastPathComponent()
-    }
-
-    throw CocoaError(.fileNoSuchFile)
-}
-
 actor SnapshotServiceSpy: LibrarySnapshotService {
     var isEnabled = true
     var isDeltaEnabled = true
