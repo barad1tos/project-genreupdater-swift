@@ -132,6 +132,8 @@ enum ActivityDesignAdapter {
         }
     }
 
+    // Keep this switch exhaustive so adding a command kind requires a matching symbol.
+    // swiftlint:disable:next cyclomatic_complexity
     private static func makeSymbol(for command: ActivityCommandDescriptor) -> String {
         switch command.commandKind {
         case .acceptFixPlan:
@@ -153,6 +155,8 @@ enum ActivityDesignAdapter {
             "xmark.bin"
         case .togglePlanItem:
             "arrow.triangle.2.circlepath"
+        case .requestAlbumPreview:
+            "eye"
         case .runManually:
             manualSymbol(for: command.variant)
         }

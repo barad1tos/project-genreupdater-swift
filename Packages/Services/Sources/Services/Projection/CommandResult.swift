@@ -8,6 +8,7 @@ public enum UserIntentCommandKind: String, Equatable, Sendable {
     case dismissRecoveryItem
     case dismissRecoveryItems
     case rejectFixPlan
+    case requestAlbumPreview
     case reviewChanges
     case resumeRecovery
     case runManually
@@ -54,6 +55,22 @@ public struct FixPlanCommandTarget: Equatable, Sendable {
     }
 }
 
+/// What a browse preview request was aimed at, and which projection and
+/// scope snapshot the user was looking at when they asked (ADR 0011).
+/// IDs and revisions only: a preview request cannot mutate anything, so
+/// it never needs a fix-plan revisioned write target (ADR 0011:18-20).
+public struct BrowseCommandTarget: Equatable, Sendable {
+    public let albumID: String
+    public let projectionRevision: ProjectionRevision
+    public let scopeSnapshotID: UUID
+
+    public init(albumID: String, projectionRevision: ProjectionRevision, scopeSnapshotID: UUID) {
+        self.albumID = albumID
+        self.projectionRevision = projectionRevision
+        self.scopeSnapshotID = scopeSnapshotID
+    }
+}
+
 public struct UserIntentCommand: Equatable, Sendable {
     public let id: UUID
     public let kind: UserIntentCommandKind
@@ -63,6 +80,8 @@ public struct UserIntentCommand: Equatable, Sendable {
     public let sourceRunID: UUID?
     /// The recovery work a dismissal command closes.
     public let recoveryDismissal: RecoveryDismissalTarget?
+    /// The browse node a preview request was issued against.
+    public let browseTarget: BrowseCommandTarget?
 
     private init(
         id: UUID,
@@ -70,7 +89,8 @@ public struct UserIntentCommand: Equatable, Sendable {
         fixPlanTarget: FixPlanCommandTarget? = nil,
         targetItemID: UUID? = nil,
         sourceRunID: UUID? = nil,
-        recoveryDismissal: RecoveryDismissalTarget? = nil
+        recoveryDismissal: RecoveryDismissalTarget? = nil,
+        browseTarget: BrowseCommandTarget? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -78,6 +98,7 @@ public struct UserIntentCommand: Equatable, Sendable {
         self.targetItemID = targetItemID
         self.sourceRunID = sourceRunID
         self.recoveryDismissal = recoveryDismissal
+        self.browseTarget = browseTarget
     }
 
     public static func acceptFixPlan(target: FixPlanCommandTarget, id: UUID = UUID()) -> Self {
@@ -98,6 +119,13 @@ public struct UserIntentCommand: Equatable, Sendable {
 
     public static func rejectFixPlan(target: FixPlanCommandTarget, id: UUID = UUID()) -> Self {
         Self(id: id, kind: .rejectFixPlan, fixPlanTarget: target)
+    }
+
+    /// A read-only preview request for one browse album (analysis D3):
+    /// the only action Browse may originate; writes stay behind the fix
+    /// plan gate.
+    public static func requestAlbumPreview(target: BrowseCommandTarget, id: UUID = UUID()) -> Self {
+        Self(id: id, kind: .requestAlbumPreview, browseTarget: target)
     }
 
     public static func reviewChanges(id: UUID = UUID()) -> Self {
@@ -191,6 +219,7 @@ public enum OperationalIssueCategory: String, Equatable, Sendable {
     case temporaryUnavailable
     case safetyBlocked
     case staleAction
+    case outOfScope
     case internalFailure
     case musicPermissionRequired
     case musicUnavailable
