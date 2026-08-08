@@ -56,7 +56,10 @@ public struct FixPlanProducer: Sendable {
     ) async throws -> FixPlanProduction {
         let options = configuration.determinationOptions
         let tracks = try await dependencies.loadTracks()
-        let scopedTracks = Self.scopedTracks(tracks, scope: scope)
+        let scopedTracks = Self.albumTargetedTracks(
+            Self.scopedTracks(tracks, scope: scope),
+            target: configuration.albumTarget
+        )
         guard !scopedTracks.isEmpty else { return .empty }
         let runtime = try await dependencies.makeRuntime(configuration, scope)
         try await runtime.refreshIdentity(scopedTracks, scope)
@@ -111,6 +114,18 @@ public struct FixPlanProducer: Sendable {
             scope.normalizedTestArtists.isEmpty
                 ? []
                 : ArtistAllowList.filter(tracks, allowedArtists: scope.normalizedTestArtists)
+        }
+    }
+
+    /// Intersects already-scoped tracks with one album's identity —
+    /// alias-tolerant through AlbumIdentity lookup keys, and a pure
+    /// narrowing: it can only ever shrink the scoped set (analysis D3).
+    private static func albumTargetedTracks(_ tracks: [Track], target: FixPlanAlbumTarget?) -> [Track] {
+        guard let target else { return tracks }
+
+        let targetKeys = Set(AlbumIdentity.lookupKeys(artist: target.artist, album: target.album))
+        return tracks.filter { track in
+            !targetKeys.isDisjoint(with: AlbumIdentity.lookupKeys(for: track))
         }
     }
 
