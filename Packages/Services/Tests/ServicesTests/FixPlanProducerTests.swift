@@ -145,6 +145,31 @@ struct FixPlanProducerTests {
         #expect(await spy.determinationCalls().map(\.trackID).sorted() == ["FEAT", "GRP"])
     }
 
+    @Test("an album target never pulls a neighboring node's tracks")
+    func albumTargetExcludesNeighborNodes() async throws {
+        // Two DISTINCT browse nodes share the album title and even a raw
+        // track artist: alias-expanded matching would merge them.
+        let compilation = track("VA", artist: "Clutch", album: "Greatest Hits", albumArtist: "Various Artists")
+        let own = track("CL", artist: "Clutch", album: "Greatest Hits", albumArtist: "Clutch")
+        let spy = FixPlanProducerSpy(
+            tracks: [compilation, own],
+            outcomes: ["CL": .changes([proposal(for: own)])]
+        )
+
+        let production = try await makeProducer(spy).producePlan(
+            sourceRunID: sourceRunID,
+            scope: scope(requestedTestArtists: [], knownTrackCount: 2),
+            configuration: configuration(
+                UpdateOptions(minConfidence: 60),
+                albumTarget: FixPlanAlbumTarget(artist: "Clutch", album: "Greatest Hits")
+            )
+        )
+
+        #expect(production.proposalCount == 1)
+        #expect(await spy.refreshInputs() == [["CL"]])
+        #expect(await spy.determinationCalls().map(\.trackID) == ["CL"])
+    }
+
     @Test("write identity refresh failure stops plan production")
     func propagatesRefreshFailure() async {
         let spy = FixPlanProducerSpy(tracks: [track("TRACK")], refreshFails: true)

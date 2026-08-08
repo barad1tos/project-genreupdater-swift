@@ -117,16 +117,19 @@ public struct FixPlanProducer: Sendable {
         }
     }
 
-    /// Intersects already-scoped tracks with one album's identity —
-    /// alias-tolerant through AlbumIdentity lookup keys, and a pure
-    /// narrowing: it can only ever shrink the scoped set (analysis D3).
+    /// Intersects already-scoped tracks with one album's CANONICAL
+    /// identity key — the same key browse nodes are formed under. The
+    /// track-side key already absorbs albumArtist grouping and feature
+    /// suffixes; the alias-expanded lookup keys exist for legacy cache
+    /// lookup where over-matching is benign, and as a selection
+    /// predicate they would pull a neighboring node's tracks into the
+    /// plan. Target strings are a browse node's display identity. Pure
+    /// narrowing: this can only ever shrink the scoped set.
     private static func albumTargetedTracks(_ tracks: [Track], target: FixPlanAlbumTarget?) -> [Track] {
         guard let target else { return tracks }
 
-        let targetKeys = Set(AlbumIdentity.lookupKeys(artist: target.artist, album: target.album))
-        return tracks.filter { track in
-            !targetKeys.isDisjoint(with: AlbumIdentity.lookupKeys(for: track))
-        }
+        let targetKey = AlbumIdentity(artist: target.artist, album: target.album).key
+        return tracks.filter { AlbumIdentity(track: $0).key == targetKey }
     }
 
     private static func groupTracksByArtist(_ tracks: [Track]) -> [String: [Track]] {

@@ -54,6 +54,7 @@ struct PreviewSubmissionTests {
 
         _ = try await submission.value
         #expect(await probe.configuration?.minConfidence == 42)
+        #expect(await probe.configuration?.albumTarget == nil)
         #expect(await probe.configuration?.hasDiscogsAccess == true)
         #expect(await probe.configuration?.appConfiguration.cleaning.genreMappings["Electronic"] == "Electronica")
         #expect(await probe.scope?.normalizedTestArtists == ["Original Artist"])

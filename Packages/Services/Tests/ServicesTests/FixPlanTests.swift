@@ -243,6 +243,37 @@ struct FixPlanTests {
         #expect(snapshot.albumTarget == nil)
     }
 
+    @Test("the albumTarget wire key decodes from spliced JSON")
+    func albumTargetDecodesFromSplicedJSON() throws {
+        // Round-trip cannot catch a symmetric CodingKeys bug — splice the
+        // key into a nil-target payload and require the exact spelling to
+        // land, with the fingerprint recomputed as if captured targeted.
+        let capturedAt = Date(timeIntervalSinceReferenceDate: 773_996_400)
+        let unscoped = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: capturedAt
+        )
+        let targeted = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: capturedAt,
+            albumTarget: FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant")
+        )
+
+        let encoded = try JSONEncoder().encode(unscoped)
+        var payload = try #require(
+            try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        payload["albumTarget"] = ["artist": "Clutch", "album": "Blast Tyrant"]
+        let spliced = try JSONSerialization.data(withJSONObject: payload)
+
+        let decoded = try JSONDecoder().decode(FixPlanConfig.self, from: spliced)
+
+        #expect(decoded.albumTarget == FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant"))
+        #expect(decoded.fingerprint == targeted.fingerprint)
+    }
+
     @Test("an album target changes the staleness fingerprint")
     func albumTargetChangesFingerprint() {
         let capturedAt = Date(timeIntervalSinceReferenceDate: 773_996_400)

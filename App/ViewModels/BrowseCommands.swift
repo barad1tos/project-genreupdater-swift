@@ -48,10 +48,13 @@ struct BrowseCommands: Sendable {
     private func submit(_ target: FixPlanAlbumTarget) async -> CommandResultStatus {
         do {
             let result = try await submitAlbumPreview(target)
-            log.info("Album preview submission outcome: \(String(describing: result), privacy: .public)")
-            return status(for: result)
+            let mapped = status(for: result)
+            // Only the mapped category is public: the raw result carries
+            // the lifecycle snapshot with user library metadata.
+            log.info("Album preview submission outcome: \(mapped.rawValue, privacy: .public)")
+            return mapped
         } catch {
-            log.error("Album preview submission failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Album preview submission failed: \(error.localizedDescription, privacy: .private)")
             return .temporaryUnavailable
         }
     }
@@ -66,9 +69,11 @@ struct BrowseCommands: Sendable {
             .alreadyCovered
         case .completedNoOp, .cancelled:
             .noOp
-        case .recoveryRequired:
+        case .recoverable, .recoveryRequired:
+            // Unreachable for preview intent today; mirrors the sibling
+            // dispatchers' vocabulary so the mapping stays uniform.
             .blockedByRecovery
-        case .recoverable, .failed:
+        case .failed:
             .requiresAttention
         }
     }

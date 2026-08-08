@@ -127,6 +127,30 @@ struct BrowseCommandsTests {
         let status = await commands.performAlbumPreview(target: target())
 
         #expect(status == .rejectedInvalid)
+        #expect(recorder.republishCount == 1)
+        #expect(recorder.submitted.isEmpty)
+    }
+
+    @Test("a scope-less projection fails closed")
+    func nilScopeRejects() async {
+        // BrowseProjection.empty() is a real nil-scope state; a command
+        // against it must never reach submission.
+        let base = projection()
+        let scopeless = BrowseProjection(
+            revision: base.revision,
+            artists: base.artists,
+            scope: nil,
+            physicalTrackCount: nil,
+            readSource: nil,
+            operationalIssues: []
+        )
+        let recorder = Recorder()
+        let commands = makeCommands(projection: scopeless, recorder: recorder)
+
+        let status = await commands.performAlbumPreview(target: target())
+
+        #expect(status == .rejectedStale)
+        #expect(recorder.republishCount == 1)
         #expect(recorder.submitted.isEmpty)
     }
 
@@ -155,8 +179,8 @@ struct BrowseCommandsTests {
             (.alreadyCovered(activeRun: snapshot), .alreadyCovered),
             (.cancelled(snapshot), .noOp),
             (.recoveryRequired, .blockedByRecovery),
+            (.recoverable(snapshot, reason: "io"), .blockedByRecovery),
             (.failed(snapshot), .requiresAttention),
-            (.recoverable(snapshot, reason: "io"), .requiresAttention),
         ]
 
         for (result, expected) in cases {
@@ -176,6 +200,9 @@ struct BrowseCommandsTests {
 
         #expect(status == .temporaryUnavailable)
         #expect(recorder.submitted.count == 1)
+        // A transport failure is not a staleness rejection: the shown
+        // projection is still true, so no republish fires.
+        #expect(recorder.republishCount == 0)
     }
 }
 
