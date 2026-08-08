@@ -8,17 +8,21 @@ import Services
 /// view. Started from `initialize()` AFTER the orchestrator exists — a
 /// subscription made earlier would receive an empty stream.
 extension AppDependencies {
-    func startLifecycleProjectionObserver() {
-        lifecycleObserverTask?.cancel()
-        // A re-initialize rebuilds the orchestrator: the previous
-        // session's snapshot and throttle keys must not survive into
-        // the new one, or chrome serves a dead run and the first new
-        // boundary can be throttled away. Clearing also closes the
-        // unawaited-cancel race — a suspended old task can no longer
-        // leave keys a fresh session would trust.
+    /// A re-initialize rebuilds the orchestrator: the previous
+    /// session's snapshot and throttle keys must not survive into the
+    /// new one, or chrome serves a dead run and the first new boundary
+    /// can be throttled away. Called at initialize() ENTRY so even the
+    /// bootstrap publishes read a cleared snapshot, and again on
+    /// observer restart to close the unawaited-cancel race.
+    func resetLifecycleProjectionState() {
         currentLifecycleSnapshot = nil
         lastChromeLifecycleRunID = nil
         lastChromeLifecycleState = nil
+    }
+
+    func startLifecycleProjectionObserver() {
+        lifecycleObserverTask?.cancel()
+        resetLifecycleProjectionState()
         lifecycleObserverTask = Task { @MainActor [weak self] in
             guard let updates = await self?.runLifecycleUpdates() else { return }
             for await lifecycle in updates {

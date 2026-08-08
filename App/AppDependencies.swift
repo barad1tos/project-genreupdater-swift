@@ -178,6 +178,7 @@ final class AppDependencies {
     /// onboarding-complete and error-retry paths still pass the guard.
     func initialize() async {
         guard beginInitialization() else { return }
+        resetLifecycleProjectionState()
         defer { isInitializing = false }
 
         guard await bootstrapProjectionsForLaunch() else { return }

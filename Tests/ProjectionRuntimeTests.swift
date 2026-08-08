@@ -307,6 +307,21 @@ struct ProjectionRuntimeTests {
         #expect(await dependencies.projectionStore.currentBrowse().artists.count == 1)
     }
 
+    @Test("initialize clears the previous session's lifecycle state")
+    func initializeClearsLifecycleState() async {
+        let dependencies = makeDependencies()
+        await dependencies.publishLifecycleBoundary(makeLifecycle(phase: .active(.writing)))
+        #expect(dependencies.currentLifecycleSnapshot != nil)
+
+        await dependencies.initialize()
+
+        // Even the bootstrap chrome publishes must read a cleared
+        // snapshot on a re-initialize — the dead session's run line
+        // must never survive into the new one.
+        #expect(dependencies.currentLifecycleSnapshot == nil)
+        #expect(dependencies.lastChromeLifecycleRunID == nil)
+    }
+
     @Test("identical activity facts keep the revision")
     func activityRefreshDedups() async {
         let dependencies = makeDependencies()
