@@ -119,9 +119,6 @@ struct DesignRootHostView: View {
         .onChange(of: workflowViewModel?.pendingVerificationReportSummary) {
             scheduleActivityProjectionRefresh()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .navigateToUpdate)) { _ in
-            prepareDefaultUpdateForReview()
-        }
         .focusedValue(\.selectedCategory, selectedCategoryBinding)
     }
 
@@ -391,43 +388,6 @@ struct DesignRootHostView: View {
             minConfidence: configuredMinConfidence,
             releaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
         )
-    }
-
-    private func prepareDefaultUpdateForReview() {
-        selectedRoute = .update
-        ensureWorkflowViewModel()
-        guard let workflowViewModel else {
-            workflowNoticeMessage = "Update services are still initializing. Please wait."
-            return
-        }
-
-        if workflowDashboardState.proposedChangeCount > 0 {
-            workflowNoticeMessage = nil
-            return
-        }
-
-        guard !isLoading, isLibraryReadyForUpdates else {
-            workflowNoticeMessage = "Wait for the live library scan to finish before reviewing changes."
-            return
-        }
-
-        guard workflowViewModel.canStart else {
-            workflowNoticeMessage = "Finish or reset the current update before starting a new update scope."
-            return
-        }
-
-        updateScopeTracks = nil
-        applyWorkflowDefaults()
-        let scopedLibraryTracks = UpdateTrackScopeResolver.tracksForWorkflow(
-            libraryTracks: tracks,
-            selectedScopeTracks: nil,
-            mode: .fullLibrary,
-            testArtists: dependencies.config.development.testArtists
-        )
-        workflowViewModel.configureFullLibraryScope(tracks: scopedLibraryTracks)
-        workflowViewModel.previewOnly = true
-        workflowNoticeMessage = nil
-        workflowViewModel.start(tracks: scopedLibraryTracks)
     }
 
     private func runPrimaryCommand() {

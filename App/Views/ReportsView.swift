@@ -39,7 +39,8 @@ struct ReportsView: View {
                     description: "Update your library to see genre distribution, year analytics, and change history.",
                     actionTitle: "Go to Update"
                 ) {
-                    NotificationCenter.default.post(name: .navigateToUpdate, object: nil)
+                    // The legacy chain this posted into is deleted; the
+                    // whole view is production-dead (PR C ledger).
                 }
             } else {
                 reportsContent(entries: entries)

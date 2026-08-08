@@ -166,11 +166,6 @@ struct ErrorView: View {
 
 // MARK: - Notification Names
 
-extension Notification.Name {
-    /// Posted by Reports empty state to navigate to the Update screen.
-    static let navigateToUpdate = Notification.Name("GenreUpdater.navigateToUpdate")
-}
-
 // MARK: - Navigation Commands
 
 /// Cmd+1 through Cmd+9 shortcuts for sidebar categories.
