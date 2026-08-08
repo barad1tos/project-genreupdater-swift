@@ -57,6 +57,7 @@ struct ActivityDesignTests {
             ),
             healthFacts: .empty,
             pendingVerification: nil,
+            reportFacts: .empty,
             deltaCount: 0,
             interventionCount: 0,
             protectedCount: 0,
@@ -237,6 +238,7 @@ struct ActivityDesignTests {
             ),
             healthFacts: .empty,
             pendingVerification: nil,
+            reportFacts: .empty,
             deltaCount: 7,
             interventionCount: 2,
             protectedCount: 3,
@@ -268,7 +270,7 @@ struct ActivityDesignTests {
 
     private func makeInput(
         tracks: [Core.Track] = [],
-        metricsSnapshot: PersistedMetricsSnapshot? = nil,
+        metricsSnapshot: MetricsSnapshotValues? = nil,
         lastScanDate: Date? = nil,
         workflow: WorkflowDashboardState = .empty
     ) -> DesignActivitySnapshotInput {
@@ -281,7 +283,6 @@ struct ActivityDesignTests {
                 isLoading: false
             ),
             workflow: ActivityWorkflowFacts(dashboard: workflow, pendingVerification: nil),
-            changeLogEntries: [],
             settings: .preview,
             now: now
         )

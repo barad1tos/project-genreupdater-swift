@@ -110,6 +110,10 @@ actor MockChangeLogStore: ChangeLogStore {
         shouldFailSaves = true
     }
 
+    func loadRecent(limit: Int) async throws -> [ChangeLogEntry] {
+        Array(entries.sorted { $0.timestamp > $1.timestamp }.prefix(limit))
+    }
+
     func saveEntry(_ entry: ChangeLogEntry) async throws {
         if shouldFailSaves {
             throw MockScriptError.intentional

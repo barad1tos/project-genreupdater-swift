@@ -44,6 +44,15 @@ public actor ChangeLogDataStore: ChangeLogStore {
         return persisted.map { $0.toChangeLogEntry() }
     }
 
+    public func loadRecent(limit: Int) async throws -> [Core.ChangeLogEntry] {
+        var descriptor = FetchDescriptor<PersistedChangeLogEntry>(
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        let persisted = try modelContext.fetch(descriptor)
+        return persisted.map { $0.toChangeLogEntry() }
+    }
+
     // MARK: - Delete
 
     public func delete(entryID: UUID) async throws {

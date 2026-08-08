@@ -143,6 +143,7 @@ public struct ActivityQueuedWriteSummary: Equatable, Sendable {
 
 public struct ActivityProjectionInput: Equatable, Sendable {
     public let tracks: [Track]
+    public let reportEntries: [ChangeLogEntry]
     public let metrics: ActivityProjectionMetrics?
     public let lastScanDate: Date?
     public let libraryState: ActivityLibraryState
@@ -204,6 +205,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
 
     public init(
         tracks: [Track],
+        reportEntries: [ChangeLogEntry] = [],
         metrics: ActivityProjectionMetrics?,
         lastScanDate: Date?,
         libraryState: ActivityLibraryState,
@@ -219,6 +221,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         now: Date
     ) {
         self.tracks = tracks
+        self.reportEntries = reportEntries
         self.metrics = metrics
         self.lastScanDate = lastScanDate
         self.libraryState = libraryState

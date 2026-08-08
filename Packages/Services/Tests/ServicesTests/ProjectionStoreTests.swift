@@ -285,6 +285,7 @@ private func makeProjection(
         scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: nil),
         healthFacts: .empty,
         pendingVerification: nil,
+        reportFacts: .empty,
         deltaCount: 0,
         interventionCount: 0,
         protectedCount: 0,

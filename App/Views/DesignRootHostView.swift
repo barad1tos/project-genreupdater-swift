@@ -12,16 +12,8 @@ struct DesignRootHostView: View {
     @Environment(AppDependencies.self) private var dependencies
     @Environment(\.modelContext) private var modelContext
 
-    @State private var tracks: [Core.Track] = []
-    @State private var metricsSnapshot: PersistedMetricsSnapshot?
-    @State private var changeLogEntries: [Core.ChangeLogEntry] = []
-    @State private var lastScanDate: Date?
-    @State private var isLoading = false
-    @State private var isLibraryReadyForUpdates = false
-    @State private var loadError: LibraryLoadError?
     @State private var currentRunLifecycle: RunLifecycleSnapshot?
     @State private var hasStartedInitialLoad = false
-    @State private var libraryLoadRequestID = UUID()
     @State private var workflowViewModel: WorkflowViewModel?
     @State private var workflowNoticeMessage: String?
     @State private var selectedRoute: Route? = .activity
@@ -167,13 +159,13 @@ struct DesignRootHostView: View {
     private func refreshBrowseTruth(
         _ loadedTracks: [Core.Track],
         readSource: BrowseReadSource,
-        requestID: UUID?
+        loadToken: UInt64?
     ) async {
         browseReadSource = readSource
         let result = await dependencies.refreshBrowseProjection(
             tracks: loadedTracks,
             readSource: readSource,
-            isCurrent: { requestID.map(isCurrentLibraryLoad) ?? true }
+            isCurrent: { loadToken.map(dependencies.libraryLoadGate.isCurrent) ?? true }
         )
         guard let result else { return }
         applyBrowseProjection(result.projection)
@@ -192,7 +184,7 @@ struct DesignRootHostView: View {
             scopeSnapshotID: browseProjection.scope?.snapshotID ?? UUID()
         )
         let commands = dependencies.makeBrowseCommands {
-            await refreshBrowseTruth(tracks, readSource: browseReadSource, requestID: nil)
+            await refreshBrowseTruth(dependencies.libraryTracks, readSource: browseReadSource, loadToken: nil)
         }
         browseNoticeMessage = nil
         Task { @MainActor in
@@ -215,16 +207,16 @@ struct DesignRootHostView: View {
         }
     }
 
-    /// The one place host state becomes activity facts (F4): the design
-    /// snapshot and the backend publish consume the SAME constructors,
-    /// so the two paths cannot read the library at different moments.
+    /// Adapter grouping of the dependency-graph library facts (F4/D1):
+    /// the load chain is the sole writer; render and publish read the
+    /// same live values.
     var currentActivityLibraryFacts: ActivityLibraryFacts {
         ActivityLibraryFacts(
-            tracks: tracks,
-            metricsSnapshot: metricsSnapshot,
-            lastScanDate: lastScanDate,
-            loadError: loadError,
-            isLoading: isLoading
+            tracks: dependencies.libraryTracks,
+            metricsSnapshot: dependencies.libraryMetrics,
+            lastScanDate: dependencies.lastLibraryScanDate,
+            loadError: dependencies.libraryLoadError,
+            isLoading: dependencies.isLibraryLoading
         )
     }
 
@@ -239,7 +231,6 @@ struct DesignRootHostView: View {
         DesignActivitySnapshotInput(
             library: currentActivityLibraryFacts,
             workflow: currentActivityWorkflowFacts,
-            changeLogEntries: changeLogEntries,
             settings: settingsSnapshot,
             now: Date()
         )
@@ -265,7 +256,7 @@ struct DesignRootHostView: View {
                 testArtists: dependencies.config.development.testArtists,
                 reportDisplayMode: dependencies.config.reporting.changeDisplayMode,
                 credentialIssue: dependencies.discogsCredentialIssue,
-                isLibraryReadyForUpdates: !isLoading && isLibraryReadyForUpdates,
+                isLibraryReadyForUpdates: !dependencies.isLibraryLoading && dependencies.isLibraryReadyForUpdates,
                 noticeMessage: $workflowNoticeMessage
             )
             .padding(24)
@@ -360,9 +351,9 @@ struct DesignRootHostView: View {
     }
 
     private var updateWorkflowTracks: [Core.Track] {
-        guard workflowViewModel != nil else { return tracks }
+        guard workflowViewModel != nil else { return dependencies.libraryTracks }
         return UpdateTrackScopeResolver.tracksForWorkflow(
-            libraryTracks: tracks,
+            libraryTracks: dependencies.libraryTracks,
             testArtists: dependencies.config.development.testArtists
         )
     }
@@ -393,17 +384,17 @@ struct DesignRootHostView: View {
                 clearRecovery: { id in
                     try await dependencies.clearRecoveryHold(id: id)
                 },
-                prepareMutationMetadata: { tracks in
+                prepareMutationMetadata: { mutationTracks in
                     _ = try await dependencies.refreshTrackIDMappingOrThrow(
-                        musicKitTracks: tracks,
+                        musicKitTracks: mutationTracks,
                         scopedArtists: dependencies.config.development.testArtists,
                         mergeExisting: true
                     )
                 },
-                resolveIncrementalTracks: { tracks, options in
+                resolveIncrementalTracks: { incrementalTracks, options in
                     let lastRunTime = await dependencies.incrementalRunTracker?.getLastRunTimestamp()
                     return UpdateTrackScopeResolver.incrementalTracks(
-                        tracks,
+                        incrementalTracks,
                         lastRunTime: lastRunTime,
                         previousTracks: dependencies.previousIncrementalScopeTracks,
                         options: options
@@ -468,7 +459,7 @@ struct DesignRootHostView: View {
         // Invalidate in-flight loads SYNCHRONOUSLY: their facts were
         // snapshotted under the old scope, and a late-starting refresh
         // would otherwise out-claim the emptied truth published below.
-        libraryLoadRequestID = UUID()
+        dependencies.invalidateLibraryLoads()
         // The config change has already persisted (onChange fires after
         // commit) — browse truth empties in BOTH branches so the surface
         // never renders the previous scope, even while a run refuses the
@@ -482,202 +473,44 @@ struct DesignRootHostView: View {
 
         workflowNoticeMessage = nil
         browseNoticeMessage = nil
-        tracks = []
-        metricsSnapshot = nil
-        lastScanDate = nil
+        dependencies.emptyLibraryTruthForScopeChange()
         workflowViewModel?.reset()
         applyWorkflowDefaults()
 
         Task { @MainActor in
             await refreshActivityProjection()
-            await loadLibrary(forceRefresh: true)
+            await dependencies.loadLibrary(forceRefresh: true)
         }
     }
 
     private func emptyBrowseTruthForScopeChange() {
         Task { @MainActor in
-            await refreshBrowseTruth([], readSource: browseReadSource, requestID: nil)
+            await refreshBrowseTruth([], readSource: browseReadSource, loadToken: nil)
         }
     }
 
     private func startInitialLoadIfNeeded() async {
         guard !hasStartedInitialLoad else { return }
         hasStartedInitialLoad = true
+        // The chain delegates browse application (row-index pairing is
+        // view state) and the scope-preview refresh back to the host.
+        dependencies.applyBrowseTruthForLoad = { loadedTracks, readSource, token in
+            await refreshBrowseTruth(loadedTracks, readSource: readSource, loadToken: token)
+        }
+        dependencies.onLibraryLoadApplied = { _ in
+            refreshWorkflowScopePreview()
+        }
         ensureWorkflowViewModel()
         if await dependencies.ensureRecoveryHold() {
             _ = await workflowViewModel?.stopForRecoveryHold()
         }
-        await loadLibrary()
+        await dependencies.loadLibrary()
         await refreshActivityProjection()
-    }
-
-    private func loadLibrary(forceRefresh: Bool = false) async {
-        let requestID = UUID()
-        libraryLoadRequestID = requestID
-        loadError = nil
-        isLibraryReadyForUpdates = false
-        loadCachedMetrics()
-        loadChangeLogEntries()
-        await refreshReportsProjection()
-        await dependencies.refreshAutoSyncStatus()
-        guard isCurrentLibraryLoad(requestID) else { return }
-
-        let scopedArtists = LibraryTrackLoader.scopedArtists(from: dependencies)
-        let loadStart = ContinuousClock.now
-        let hasCachedTracks = await applyCachedLibraryLoad(
-            requestID: requestID,
-            scopedArtists: scopedArtists,
-            loadStart: loadStart,
-            forceRefresh: forceRefresh
-        )
-        guard isCurrentLibraryLoad(requestID) else { return }
-
-        guard let provider = LibraryTrackLoader.liveProvider(from: dependencies) else {
-            finishLibraryLoadIfCurrent(requestID)
-            await refreshActivityProjection()
-            return
-        }
-
-        isLoading = true
-        await refreshActivityProjection()
-
-        let shouldRefreshProjection = await loadLiveLibrary(
-            provider: provider,
-            requestID: requestID,
-            scopedArtists: scopedArtists,
-            loadStart: loadStart,
-            hasCachedTracks: hasCachedTracks
-        )
-        guard shouldRefreshProjection else { return }
-        await refreshActivityProjection()
-    }
-
-    private func loadLiveLibrary(
-        provider: LibraryReadProvider,
-        requestID: UUID,
-        scopedArtists: [String],
-        loadStart: ContinuousClock.Instant,
-        hasCachedTracks: Bool
-    ) async -> Bool {
-        defer { finishLibraryLoadIfCurrent(requestID) }
-
-        do {
-            let liveLoad = try await LibraryTrackLoader.liveTracks(
-                provider: provider,
-                scopedArtists: scopedArtists
-            )
-            await applyLiveLibraryLoad(
-                liveLoad,
-                requestID: requestID,
-                scopedArtists: scopedArtists,
-                loadStart: loadStart
-            )
-        } catch is CancellationError {
-            return isCurrentLibraryLoad(requestID)
-        } catch {
-            await handleLibraryLoadFailure(error, hasCachedTracks: hasCachedTracks, requestID: requestID)
-        }
-
-        return isCurrentLibraryLoad(requestID)
-    }
-
-    private func applyCachedLibraryLoad(
-        requestID: UUID,
-        scopedArtists: [String],
-        loadStart: ContinuousClock.Instant,
-        forceRefresh: Bool
-    ) async -> Bool {
-        guard let cachedLoad = await LibraryTrackLoader.cachedSnapshot(
-            from: dependencies,
-            scopedArtists: scopedArtists,
-            forceRefresh: forceRefresh
-        ) else { return false }
-
-        guard isCurrentLibraryLoad(requestID) else { return false }
-        tracks = cachedLoad.tracks
-        await refreshBrowseTruth(cachedLoad.tracks, readSource: .cachedMirror(scannedAt: nil), requestID: requestID)
-        refreshWorkflowScopePreview()
-        await recordLibraryLoad(source: "snapshot", count: cachedLoad.tracks.count, startedAt: loadStart)
-        return cachedLoad.hasTracks
-    }
-
-    private func applyLiveLibraryLoad(
-        _ liveLoad: LibraryLiveTrackLoad,
-        requestID: UUID,
-        scopedArtists: [String],
-        loadStart: ContinuousClock.Instant
-    ) async {
-        guard isCurrentLibraryLoad(requestID) else { return }
-        isLibraryReadyForUpdates = liveLoad.isLibraryReadyForUpdates
-        tracks = liveLoad.tracks
-        await dependencies.persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)
-        guard isCurrentLibraryLoad(requestID) else { return }
-        await refreshBrowseTruth(
-            liveLoad.tracks,
-            readSource: .liveLibrary(scannedAt: liveLoad.scanDate),
-            requestID: requestID
-        )
-        lastScanDate = liveLoad.scanDate
-        metricsSnapshot = upsertDashboardMetricsSnapshot(from: liveLoad.tracks, in: modelContext)
-        refreshWorkflowScopePreview()
-        await recordLibraryLoad(source: "music", count: liveLoad.tracks.count, startedAt: loadStart)
-    }
-
-    private func handleLibraryLoadFailure(
-        _ error: any Error,
-        hasCachedTracks: Bool,
-        requestID: UUID
-    ) async {
-        guard isCurrentLibraryLoad(requestID) else { return }
-        await dependencies.analyticsService?.trackError("library.load", error: error)
-        loadError = LibraryLoadError.make(from: error)
-        if !hasCachedTracks {
-            tracks = []
-        }
-    }
-
-    private func finishLibraryLoadIfCurrent(_ requestID: UUID) {
-        if isCurrentLibraryLoad(requestID) {
-            isLoading = false
-        }
-    }
-
-    private func isCurrentLibraryLoad(_ requestID: UUID) -> Bool {
-        libraryLoadRequestID == requestID
-    }
-
-    private func loadCachedMetrics() {
-        let descriptor = FetchDescriptor<PersistedMetricsSnapshot>()
-        metricsSnapshot = try? modelContext.fetch(descriptor).first
-    }
-
-    private func loadChangeLogEntries() {
-        var descriptor = FetchDescriptor<PersistedChangeLogEntry>(
-            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
-        )
-        descriptor.fetchLimit = ActivitySnapshotAdapter.reportEntryLimit
-        changeLogEntries = (try? modelContext.fetch(descriptor).map { $0.toChangeLogEntry() }) ?? []
-    }
-
-    private func recordLibraryLoad(
-        source: String,
-        count: Int,
-        startedAt loadStart: ContinuousClock.Instant
-    ) async {
-        await dependencies.analyticsService?.trackEvent(
-            "library.load",
-            duration: loadStart.duration(to: .now),
-            metadata: [
-                "source": source,
-                "trackCount": "\(count)"
-            ]
-        )
     }
 
     @discardableResult
     private func refreshActivityProjection() async -> ActivityProjection {
         let storedProjection = await dependencies.refreshActivityProjection(
-            library: currentActivityLibraryFacts,
             workflow: currentActivityWorkflowFacts
         )
         applyActivityProjection(storedProjection)
@@ -698,7 +531,7 @@ struct DesignRootHostView: View {
     /// Projection publishes moved behind the backend observer (ADR
     /// 0013); this host subscription keeps only the UI reactions: the
     /// lifecycle mirror for remaining inputs and the queued-reload
-    /// trigger, since the load chain is host-owned until slice 11.
+    /// trigger (the reload itself is a backend chain call).
     private func observeRunLifecycleUpdates() async {
         for await lifecycle in await dependencies.runLifecycleUpdates() {
             currentRunLifecycle = lifecycle
@@ -706,7 +539,7 @@ struct DesignRootHostView: View {
                 let reloadAdvance = advanceQueuedReload(queuedManualReload, lifecycle: lifecycle)
                 queuedManualReload = reloadAdvance.next
                 if reloadAdvance.shouldReload {
-                    await loadLibrary(forceRefresh: true)
+                    await dependencies.loadLibrary(forceRefresh: true)
                 }
             }
         }
@@ -925,7 +758,7 @@ extension DesignRootHostView {
                 queuedManualReload = .waitingForActive(runID)
             },
             reloadLibrary: { forceRefresh in
-                await loadLibrary(forceRefresh: forceRefresh)
+                await dependencies.loadLibrary(forceRefresh: forceRefresh)
             },
             refreshActivityProjection: {
                 await refreshActivityProjection()

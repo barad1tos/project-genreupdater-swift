@@ -142,6 +142,7 @@ struct ActivityInputBuilderTests {
     ) -> ActivityInputContext {
         ActivityInputContext(
             tracks: tracks,
+            reportEntries: [],
             metricsSnapshot: nil,
             lastScanDate: nil,
             loadError: loadError,

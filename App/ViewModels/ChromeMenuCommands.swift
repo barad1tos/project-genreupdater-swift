@@ -46,8 +46,8 @@ extension AppDependencies {
     }
 
     /// ActivityCommands wired with backend closures only. The reload
-    /// closures are no-ops on purpose: the load chain is host-owned
-    /// (slice-10 D5) and today's direct menu path queues no reload
+    /// closures are no-ops on purpose: menu-triggered reloads stay a
+    /// deliberate scope choice for slice 12, and today's menu path queues no reload
     /// either — behavior parity, typed outcomes gained.
     func makeMenuActivityCommands() -> ActivityCommands {
         ActivityCommands(
@@ -69,10 +69,10 @@ extension AppDependencies {
                 )
             },
             queueManualReload: { _ in
-                // Host-owned load chain (D5); nothing to queue headless.
+                // Deliberate no-op until slice 12 owns reload policy.
             },
             reloadLibrary: { _ in
-                // Host-owned load chain (D5).
+                // Deliberate no-op until slice 12 owns reload policy.
             },
             refreshActivityProjection: { [weak self] in
                 await self?.republishActivityProjection() ?? .empty()

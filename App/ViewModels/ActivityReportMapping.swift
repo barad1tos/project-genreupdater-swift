@@ -1,81 +1,39 @@
 import Core
 import DesignUI
 import Foundation
+import Services
 
+/// Format-only maps from the projection's report facts to DesignUI
+/// rows (P8): every derivation — bounds, fallbacks, labels, buckets —
+/// happens in ActivityReportFacts on the builder side.
 extension ActivitySnapshotAdapter {
-    static func makeReportEntries(from entries: [Core.ChangeLogEntry]) -> [Core.ChangeLogEntry] {
-        Array(entries.sorted { $0.timestamp > $1.timestamp }.prefix(reportEntryLimit))
-    }
-
-    static func makeChangeLog(from entries: [Core.ChangeLogEntry], now: Date) -> [LogEntry] {
-        entries.map { entry in
+    static func makeChangeLog(from facts: ActivityReportFacts) -> [LogEntry] {
+        facts.changeLog.map { item in
             LogEntry(
-                id: entry.id.uuidString,
-                time: relativeElapsedLabel(since: entry.timestamp, now: now),
-                type: makeDesignChangeType(from: entry.changeType),
-                track: makeChangeLogTrackTitle(from: entry),
-                artist: entry.artist,
-                old: makeChangeLogOldValue(from: entry),
-                new: makeChangeLogNewValue(from: entry),
+                id: item.id,
+                time: item.timeLabel,
+                type: makeDesignChangeType(from: item.changeType),
+                track: item.trackTitle,
+                artist: item.artist,
+                old: item.oldValue,
+                new: item.newValue,
                 conf: nil
             )
         }
     }
 
-    static func makeReportStats(from entries: [Core.ChangeLogEntry]) -> ReportStats {
+    static func makeReportStats(from facts: ActivityReportFacts) -> ReportStats {
         ReportStats(
-            processed: entries.count,
-            genres: entries.count { $0.newGenre != nil },
-            years: entries.count { $0.newYear != nil }
+            processed: facts.stats.processed,
+            genres: facts.stats.genreUpdates,
+            years: facts.stats.yearUpdates
         )
     }
 
-    static func makeGenreDistribution(from entries: [Core.ChangeLogEntry]) -> [ChartDatum] {
-        let updatedGenres = entries.compactMap(\.newGenre)
-        let genreCounts = Dictionary(grouping: updatedGenres, by: { $0 }).mapValues { $0.count }
-        let sortedGenres = genreCounts.sorted { lhs, rhs in
-            lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value
+    static func makeChartData(from buckets: [ActivityReportBucket]) -> [ChartDatum] {
+        buckets.map { bucket in
+            ChartDatum(id: bucket.id, label: bucket.label, count: bucket.count)
         }
-
-        return sortedGenres
-            .prefix(8)
-            .map { genre, count in
-                ChartDatum(id: stableValueID(prefix: "genre", value: genre), label: genre, count: count)
-            }
-    }
-
-    static func makeUpdatesOverTime(from entries: [Core.ChangeLogEntry]) -> [ChartDatum] {
-        let calendar = Calendar(identifier: .gregorian)
-        let groupedByDay = Dictionary(grouping: entries) { entry in
-            calendar.startOfDay(for: entry.timestamp)
-        }
-
-        return groupedByDay.keys.sorted().suffix(12).map { day in
-            ChartDatum(
-                id: "day-\(Int(day.timeIntervalSince1970))",
-                label: day.formatted(.dateTime.month(.abbreviated).day()),
-                count: groupedByDay[day]?.count ?? 0
-            )
-        }
-    }
-
-    static func makeYearDistribution(from entries: [Core.ChangeLogEntry]) -> [ChartDatum] {
-        let decadeCounts = Dictionary(grouping: entries.compactMap(\.newYear)) { year in
-            year / 10 * 10
-        }
-        .mapValues(\.count)
-
-        return decadeCounts.keys.sorted().map { decade in
-            ChartDatum(
-                id: "decade-\(decade)",
-                label: "\(decade)s",
-                count: decadeCounts[decade] ?? 0
-            )
-        }
-    }
-
-    private static func stableValueID(prefix: String, value: String) -> String {
-        "\(prefix)-\(value.count)-\(value)"
     }
 
     private static func makeDesignChangeType(from changeType: Core.ChangeType) -> DesignUI.ChangeType {
@@ -92,48 +50,6 @@ extension ActivitySnapshotAdapter {
             .artist
         case .yearRevert:
             .revert
-        }
-    }
-
-    private static func makeChangeLogTrackTitle(from entry: Core.ChangeLogEntry) -> String {
-        if !entry.trackName.isEmpty {
-            return entry.trackName
-        }
-
-        if !entry.albumName.isEmpty {
-            return entry.albumName
-        }
-
-        return entry.trackID
-    }
-
-    private static func makeChangeLogOldValue(from entry: Core.ChangeLogEntry) -> String {
-        switch entry.changeType {
-        case .genreUpdate:
-            entry.oldGenre ?? "none"
-        case .yearUpdate, .yearRevert:
-            entry.oldYear.map(String.init) ?? "none"
-        case .trackCleaning:
-            entry.oldTrackName ?? entry.trackName
-        case .albumCleaning:
-            entry.oldAlbumName ?? entry.albumName
-        case .artistRename:
-            entry.oldArtist ?? entry.artist
-        }
-    }
-
-    private static func makeChangeLogNewValue(from entry: Core.ChangeLogEntry) -> String {
-        switch entry.changeType {
-        case .genreUpdate:
-            entry.newGenre ?? "none"
-        case .yearUpdate, .yearRevert:
-            entry.newYear.map(String.init) ?? "none"
-        case .trackCleaning:
-            entry.newTrackName ?? entry.trackName
-        case .albumCleaning:
-            entry.newAlbumName ?? entry.albumName
-        case .artistRename:
-            entry.newArtist ?? entry.artist
         }
     }
 }

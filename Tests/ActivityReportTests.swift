@@ -51,7 +51,7 @@ struct ActivityReportTests {
             )
         ]
 
-        let snapshot = makeSnapshot(from: makeInput(changeLogEntries: entries))
+        let snapshot = makeSnapshot(from: makeInput(), entries: entries)
 
         #expect(snapshot.changeLog.map(\.id) == [genreID.uuidString, yearID.uuidString, renameID.uuidString])
         #expect(snapshot.changeLog[0].time == "8m ago")
@@ -110,7 +110,7 @@ struct ActivityReportTests {
             )
         ]
 
-        let snapshot = makeSnapshot(from: makeInput(changeLogEntries: entries))
+        let snapshot = makeSnapshot(from: makeInput(), entries: entries)
 
         #expect(snapshot.changeLog[0].type == .track)
         #expect(snapshot.changeLog[0].track == "Windowlicker")
@@ -155,7 +155,7 @@ struct ActivityReportTests {
             )
         ]
 
-        let snapshot = makeSnapshot(from: makeInput(changeLogEntries: entries))
+        let snapshot = makeSnapshot(from: makeInput(), entries: entries)
         let identifiers = snapshot.genreDistribution.map(\.id)
 
         #expect(Set(identifiers).count == identifiers.count)
@@ -201,17 +201,41 @@ struct ActivityReportTests {
         #expect(snapshot.runHistorySkippedCount == 0)
     }
 
-    private func makeSnapshot(from input: DesignActivitySnapshotInput) -> DesignDataSnapshot {
-        ActivitySnapshotAdapter.makeSnapshot(from: input, activityProjection: .empty())
+    private func makeSnapshot(
+        from input: DesignActivitySnapshotInput,
+        entries: [Core.ChangeLogEntry] = []
+    ) -> DesignDataSnapshot {
+        // Derivation is builder truth now: entries flow through the
+        // projection input; the adapter only formats reportFacts.
+        let projection = ActivityBuilder.makeProjection(from: ActivityInputBuilder.makeInput(
+            from: ActivityInputContext(
+                tracks: [],
+                reportEntries: entries,
+                metricsSnapshot: nil,
+                lastScanDate: nil,
+                loadError: nil,
+                isLoading: false,
+                isDryRun: true,
+                workflow: .empty,
+                fixPlanProjection: .empty(),
+                reportsProjection: .empty(),
+                queuedWrite: nil,
+                pendingVerification: nil,
+                runLifecycle: nil,
+                isLibrarySyncAvailable: true,
+                isAutoSyncRunning: false,
+                now: input.now
+            )
+        ))
+        return ActivitySnapshotAdapter.makeSnapshot(from: input, activityProjection: projection)
     }
 
-    private func makeInput(changeLogEntries: [Core.ChangeLogEntry] = []) -> DesignActivitySnapshotInput {
+    private func makeInput() -> DesignActivitySnapshotInput {
         DesignActivitySnapshotInput(
             library: ActivityLibraryFacts(
                 tracks: [], metricsSnapshot: nil, lastScanDate: nil, loadError: nil, isLoading: false
             ),
             workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil),
-            changeLogEntries: changeLogEntries,
             settings: .preview,
             now: now
         )

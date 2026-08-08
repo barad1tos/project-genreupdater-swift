@@ -2,11 +2,11 @@ import Core
 import Foundation
 import Services
 
-/// Library facts the host still owns this slice (D5: the load chain
-/// moves in slice 11); grouped below the parameter ceiling.
+/// Adapter grouping of the dependency-graph library facts (the load
+/// chain is their sole writer); kept below the parameter ceiling.
 struct ActivityLibraryFacts {
     let tracks: [Core.Track]
-    let metricsSnapshot: PersistedMetricsSnapshot?
+    let metricsSnapshot: MetricsSnapshotValues?
     let lastScanDate: Date?
     let loadError: LibraryLoadError?
     let isLoading: Bool
@@ -31,7 +31,8 @@ struct ActivityWorkflowFacts {
 
 struct ActivityInputContext {
     let tracks: [Core.Track]
-    let metricsSnapshot: PersistedMetricsSnapshot?
+    let reportEntries: [Core.ChangeLogEntry]
+    let metricsSnapshot: MetricsSnapshotValues?
     let lastScanDate: Date?
     let loadError: LibraryLoadError?
     let isLoading: Bool
@@ -60,7 +61,13 @@ extension AppDependencies {
         library: ActivityLibraryFacts,
         workflow: ActivityWorkflowFacts
     ) async -> ActivityProjection {
-        cachedActivityLibraryFacts = library
+        // External facts land on the dependency graph (the load chain
+        // is the production writer; tests use this seam directly).
+        libraryTracks = library.tracks
+        libraryMetrics = library.metricsSnapshot
+        lastLibraryScanDate = library.lastScanDate
+        libraryLoadError = library.loadError
+        isLibraryLoading = library.isLoading
         cachedActivityWorkflowFacts = workflow
         // The lifecycle observer is the SOLE writer of the lifecycle
         // snapshot: a host mirror can lag its own subscription, and
@@ -68,10 +75,24 @@ extension AppDependencies {
         return await republishActivityProjection()
     }
 
+    /// Workflow-facts-only refresh: library truth already lives on the
+    /// dependency graph (the host pushes only what it still owns).
+    @discardableResult
+    func refreshActivityProjection(workflow: ActivityWorkflowFacts) async -> ActivityProjection {
+        cachedActivityWorkflowFacts = workflow
+        return await republishActivityProjection()
+    }
+
     /// Rebuilds activity from the cached facts plus current lifecycle.
     @discardableResult
     func republishActivityProjection() async -> ActivityProjection {
-        let library = cachedActivityLibraryFacts
+        let library = ActivityLibraryFacts(
+            tracks: libraryTracks,
+            metricsSnapshot: libraryMetrics,
+            lastScanDate: lastLibraryScanDate,
+            loadError: libraryLoadError,
+            isLoading: isLibraryLoading
+        )
         let workflow = cachedActivityWorkflowFacts
         let runLifecycle = currentLifecycleSnapshot
         // Synchronous MainActor facts first so the snapshot cannot tear
@@ -84,9 +105,13 @@ extension AppDependencies {
         let queuedWrite = await queuedWriteSummary()
         let fixPlan = await projectionStore.fixPlanProjection()
         let reports = await projectionStore.reportsProjection()
+        let reportEntries = await (try? changeLogStore?.loadRecent(
+            limit: ActivityReportFacts.entryLimit
+        )) ?? []
 
         let input = ActivityInputBuilder.makeInput(from: ActivityInputContext(
             tracks: library.tracks,
+            reportEntries: reportEntries,
             metricsSnapshot: library.metricsSnapshot,
             lastScanDate: library.lastScanDate,
             loadError: library.loadError,
@@ -113,6 +138,7 @@ enum ActivityInputBuilder {
     static func makeInput(from context: ActivityInputContext) -> ActivityProjectionInput {
         ActivityProjectionInput(
             tracks: context.tracks,
+            reportEntries: context.reportEntries,
             metrics: makeMetrics(from: context.metricsSnapshot),
             lastScanDate: context.lastScanDate,
             libraryState: makeLibraryState(
@@ -133,7 +159,7 @@ enum ActivityInputBuilder {
         )
     }
 
-    private static func makeMetrics(from metricsSnapshot: PersistedMetricsSnapshot?) -> ActivityProjectionMetrics? {
+    private static func makeMetrics(from metricsSnapshot: MetricsSnapshotValues?) -> ActivityProjectionMetrics? {
         guard let metricsSnapshot else { return nil }
         return ActivityProjectionMetrics(
             totalTracks: metricsSnapshot.totalTracks,

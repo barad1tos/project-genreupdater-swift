@@ -24,7 +24,7 @@ struct DashboardView: View {
     @Environment(\.motionScale) private var motionScale
 
     let tracks: [Track]
-    let metricsSnapshot: PersistedMetricsSnapshot?
+    let metricsSnapshot: MetricsSnapshotValues?
     let isLoadingTracks: Bool
     let loadError: LibraryLoadError?
     let lastScanDate: Date?
@@ -1064,7 +1064,7 @@ private struct DashboardMetricsSnapshotFingerprint: Equatable {
     let recentlyAdded: Int
     let timestamp: Date
 
-    static func make(from snapshot: PersistedMetricsSnapshot?) -> Self? {
+    static func make(from snapshot: MetricsSnapshotValues?) -> Self? {
         guard let snapshot else { return nil }
         return Self(
             totalTracks: snapshot.totalTracks,

@@ -12,7 +12,7 @@ struct ActivitySnapshotTests {
 
     @Test("maps cached metrics without live tracks")
     func mapsCachedMetricsWithoutLiveTracks() {
-        let metrics = PersistedMetricsSnapshot(
+        let metrics = MetricsSnapshotValues(
             totalTracks: 10,
             tracksWithGenre: 7,
             tracksWithYear: 8,
@@ -256,7 +256,7 @@ struct ActivitySnapshotTests {
 
         // Unknown (metrics without a protected count): honest label,
         // neutral tone, zero ratio.
-        let unknown = makeSnapshot(from: makeInput(metricsSnapshot: PersistedMetricsSnapshot(
+        let unknown = makeSnapshot(from: makeInput(metricsSnapshot: MetricsSnapshotValues(
             totalTracks: 10,
             tracksWithGenre: 8,
             tracksWithYear: 6,
@@ -286,6 +286,7 @@ struct ActivitySnapshotTests {
         let projection = ActivityBuilder.makeProjection(from: ActivityInputBuilder.makeInput(
             from: ActivityInputContext(
                 tracks: input.library.tracks,
+                reportEntries: [],
                 metricsSnapshot: input.library.metricsSnapshot,
                 lastScanDate: input.library.lastScanDate,
                 loadError: input.library.loadError,
@@ -307,7 +308,7 @@ struct ActivitySnapshotTests {
 
     private func makeInput(
         tracks: [Core.Track] = [],
-        metricsSnapshot: PersistedMetricsSnapshot? = nil,
+        metricsSnapshot: MetricsSnapshotValues? = nil,
         lastScanDate: Date? = nil,
         loadError: LibraryLoadError? = nil,
         workflow: WorkflowDashboardState = .empty,
@@ -323,7 +324,6 @@ struct ActivitySnapshotTests {
                 isLoading: false
             ),
             workflow: ActivityWorkflowFacts(dashboard: workflow, pendingVerification: pendingVerification),
-            changeLogEntries: changeLogEntries,
             settings: .preview,
             now: now
         )

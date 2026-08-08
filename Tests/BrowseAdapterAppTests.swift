@@ -303,7 +303,6 @@ struct BrowseHostPublishTests {
             from: DesignActivitySnapshotInput(
                 library: .empty,
                 workflow: .empty,
-                changeLogEntries: [],
                 settings: .preview,
                 now: Date(timeIntervalSince1970: 100)
             ),

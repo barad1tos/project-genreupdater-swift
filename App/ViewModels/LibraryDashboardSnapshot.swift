@@ -2,38 +2,6 @@ import Core
 import Foundation
 import Services
 
-enum LibraryLoadError: Equatable {
-    case permissionDenied
-    case restricted
-    case failed(String)
-
-    static func make(from error: Error) -> Self {
-        guard let musicLibraryError = error as? MusicLibraryError else {
-            return .failed(error.localizedDescription)
-        }
-
-        switch musicLibraryError {
-        case .authorizationDenied:
-            return .permissionDenied
-        case .authorizationRestricted:
-            return .restricted
-        case .fetchFailed, .musicAppNotAvailable:
-            return .failed(error.localizedDescription)
-        }
-    }
-
-    var message: String {
-        switch self {
-        case .permissionDenied:
-            "Music library permission denied"
-        case .restricted:
-            "Music library access is restricted on this device"
-        case let .failed(message):
-            message
-        }
-    }
-}
-
 enum LibraryScanState: Equatable {
     case loading
     case ready(lastScanDate: Date?)
@@ -132,23 +100,23 @@ struct LibraryDashboardSnapshot: Equatable {
     )
 
     static func make(
-        persistedMetrics: PersistedMetricsSnapshot,
+        metrics: MetricsSnapshotValues,
         isLoading: Bool = false,
         loadError: LibraryLoadError? = nil,
         isDryRun: Bool,
         workflow: WorkflowDashboardState
     ) -> Self {
         let counts = ActivityHealthCounts(
-            totalTracks: persistedMetrics.totalTracks,
-            tracksWithGenre: persistedMetrics.tracksWithGenre,
-            tracksWithYear: persistedMetrics.tracksWithYear,
-            tracksWithBoth: persistedMetrics.tracksWithBoth,
-            protectedFileCount: persistedMetrics.protectedFileCount ?? 0,
-            isProtectedFileCountKnown: persistedMetrics.protectedFileCount != nil
+            totalTracks: metrics.totalTracks,
+            tracksWithGenre: metrics.tracksWithGenre,
+            tracksWithYear: metrics.tracksWithYear,
+            tracksWithBoth: metrics.tracksWithBoth,
+            protectedFileCount: metrics.protectedFileCount ?? 0,
+            isProtectedFileCountKnown: metrics.protectedFileCount != nil
         )
         let scanState = makeScanState(
             hasLibraryContent: counts.totalTracks > 0,
-            lastScanDate: persistedMetrics.timestamp,
+            lastScanDate: metrics.timestamp,
             isLoading: isLoading,
             loadError: loadError
         )
