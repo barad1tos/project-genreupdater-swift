@@ -206,6 +206,8 @@ public enum CommandSettingsSection: String, Equatable, Sendable {
 
 public enum CommandNavigationTarget: Equatable, Sendable {
     case activity
+    /// A browse node by its stable album id; nil opens the surface.
+    case browse(albumID: String?)
     case fixPlan(id: String)
     case report(id: String)
     case recovery(runID: String?)

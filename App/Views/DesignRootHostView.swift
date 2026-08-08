@@ -1186,6 +1186,11 @@ extension DesignRootHostView {
             }
         case .activity:
             selectedRoute = .activity
+        case .browse:
+            // Selection-by-id lands with the report-detail linking work;
+            // routing to the surface is the consumer today (ADR 0011:
+            // suggest-by-ID, routes stay UI-owned).
+            selectedRoute = .browse
         case let .report(id):
             selectedRoute = .reports
             selectRunReport(id)
