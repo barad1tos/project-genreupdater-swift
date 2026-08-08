@@ -62,24 +62,18 @@ extension AppDependencies {
         workflow: ActivityWorkflowFacts
     ) async -> ActivityProjection {
         // External facts land on the dependency graph (the load chain
-        // is the production writer; tests use this seam directly).
+        // is the production writer; tests use this seam directly). The
+        // workflow facts install as a provider — the same path
+        // production publishes through.
         libraryTracks = library.tracks
         libraryMetrics = library.metricsSnapshot
         lastLibraryScanDate = library.lastScanDate
         libraryLoadError = library.loadError
         isLibraryLoading = library.isLoading
-        cachedActivityWorkflowFacts = workflow
+        workflowFactsProvider = { workflow }
         // The lifecycle observer is the SOLE writer of the lifecycle
         // snapshot: a host mirror can lag its own subscription, and
         // writing it back here would revert newer run truth.
-        return await republishActivityProjection()
-    }
-
-    /// Workflow-facts-only refresh: library truth already lives on the
-    /// dependency graph (the host pushes only what it still owns).
-    @discardableResult
-    func refreshActivityProjection(workflow: ActivityWorkflowFacts) async -> ActivityProjection {
-        cachedActivityWorkflowFacts = workflow
         return await republishActivityProjection()
     }
 
@@ -93,7 +87,7 @@ extension AppDependencies {
             loadError: libraryLoadError,
             isLoading: isLibraryLoading
         )
-        let workflow = cachedActivityWorkflowFacts
+        let workflow = workflowFactsProvider?() ?? .empty
         let runLifecycle = currentLifecycleSnapshot
         // Synchronous MainActor facts first so the snapshot cannot tear
         // across the awaits below (D3).

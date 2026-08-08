@@ -409,6 +409,92 @@ struct ProjectionRuntimeTests {
         #expect(second.revision == first.revision)
     }
 
+    @Test("the host holds no product-truth state beyond the allowlist")
+    func hostStateAllowlist() throws {
+        // The slice-11 exit pin: every remaining @State is a projection
+        // mirror, a browse adapter cache, a backend query RESULT, or UI
+        // ephemera. workflowViewModel and currentRunLifecycle are the
+        // slice-12 handover set — new product truth must land on the
+        // dependency graph, never here.
+        let allowlist: Set = [
+            "activityProjection", "reportsProjection", "fixPlanProjection",
+            "chromeProjection", "browseProjection",
+            "browseDesignArtists", "browseDesignScope", "browseRowIndex", "browseReadSource",
+            "selectedRunReport", "runReportDetailRequestID",
+            "selectedRoute", "hasStartedInitialLoad", "queuedManualReload",
+            "workflowViewModel", "workflowNoticeMessage", "currentRunLifecycle",
+            "activityCommandNoticeMessage", "activityCommandNoticeID",
+            "fixPlanNoticeMessage", "fixPlanNoticeTone", "fixPlanNoticeID",
+            "reportNotice", "reportNoticeID",
+            "browseNoticeMessage", "isReviewBusy", "isDismissalBusy",
+        ]
+        let source = try String(contentsOf: libraryLoadSourceURL(), encoding: .utf8)
+        let declared = source.split(separator: "\n")
+            .compactMap { line -> String? in
+                guard let range = line.range(of: "@State private var ") else { return nil }
+                let tail = line[range.upperBound...]
+                return tail.prefix { $0.isLetter || $0.isNumber || $0 == "_" }.description
+            }
+
+        #expect(!declared.isEmpty)
+        // Every @State in the file must parse into `declared` — a
+        // declaration shape the parser misses would weaken the tripwire
+        // silently.
+        let rawStateCount = source.components(separatedBy: "@State ").count - 1
+        #expect(declared.count == rawStateCount)
+        for name in declared {
+            #expect(allowlist.contains(name), "\(name) is not an allowed host @State")
+        }
+    }
+
+    @Test("a closed window publishes honest idle, never a stale phase")
+    func closedWindowPublishesHonestIdle() async throws {
+        // The A8 pin: a provider whose VM died must NOT re-emit the last
+        // cached processing phase — publishes read .empty by construction.
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        fixture.dependencies.workflowFactsProvider = {
+            ActivityWorkflowFacts(
+                dashboard: WorkflowDashboardState(
+                    proposedChangeCount: 0, acceptedChangeCount: 0, failedWriteCount: 0,
+                    isProcessing: true, phaseLabel: "Scanning"
+                ),
+                pendingVerification: nil
+            )
+        }
+        _ = await fixture.dependencies.republishActivityProjection()
+
+        // Window death: the provider slot clears (registration is
+        // per-window); the next boundary republish must go idle.
+        fixture.dependencies.workflowFactsProvider = nil
+        let published = await fixture.dependencies.republishActivityProjection()
+
+        #expect(published.subtitle != "Scanning")
+        #expect(published.healthFacts.readyUpdateCount == 0)
+    }
+
+    @Test("a boundary republish reads fresh workflow facts")
+    func boundaryPublishReadsFreshWorkflowFacts() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let phase = PhaseBox()
+        fixture.dependencies.workflowFactsProvider = {
+            ActivityWorkflowFacts(
+                dashboard: WorkflowDashboardState(
+                    proposedChangeCount: 0, acceptedChangeCount: phase.accepted, failedWriteCount: 0,
+                    isProcessing: false, phaseLabel: "Idle"
+                ),
+                pendingVerification: nil
+            )
+        }
+        _ = await fixture.dependencies.republishActivityProjection()
+
+        // The VM mutates with NO host onChange in between — the next
+        // publish still carries the new value (no stale cache).
+        phase.accepted = 7
+        let published = await fixture.dependencies.republishActivityProjection()
+
+        #expect(published.healthFacts.readyUpdateCount == 7)
+    }
+
     @Test("the backend load chain publishes library facts headlessly")
     func backendLoadPublishesLibraryFacts() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
@@ -491,12 +577,31 @@ struct ProjectionRuntimeTests {
         ])
         await fixture.dependencies.loadLibrary()
 
-        let published = await fixture.dependencies.refreshActivityProjection(
-            workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil)
-        )
+        fixture.dependencies.workflowFactsProvider = {
+            ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil)
+        }
+        let published = await fixture.dependencies.republishActivityProjection()
 
         #expect(published.healthFacts.counts.totalTracks == 1)
         #expect(fixture.dependencies.libraryTracks.count == 1)
+    }
+
+    @Test("an invalidation during browse application drops late writes")
+    func invalidationDuringBrowseApplicationDropsLateWrites() async throws {
+        // The post-browse-await rechecks are the deciding guards here:
+        // the browse callback itself invalidates the chain mid-apply.
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        fixture.dependencies.installTestLibraryReadProvider(SnapshotLibraryReadProvider())
+        fixture.dependencies.applyBrowseTruthForLoad = { _, readSource, _ in
+            if case .liveLibrary = readSource {
+                fixture.dependencies.invalidateLibraryLoads()
+            }
+        }
+
+        await fixture.dependencies.loadLibrary()
+
+        #expect(fixture.dependencies.lastLibraryScanDate == nil)
+        #expect(fixture.dependencies.libraryMetrics == nil)
     }
 
     @Test("a cancelled live load is not an error")
@@ -710,6 +815,11 @@ struct ProjectionRuntimeTests {
     }
 }
 
+@MainActor
+private final class PhaseBox {
+    var accepted = 0
+}
+
 private actor LibraryReadGate {
     private var requested = false
     private var releaseContinuation: CheckedContinuation<Void, Never>?
@@ -747,6 +857,14 @@ private actor GatedLibraryReadProvider: LibraryReadProvider {
         return LibraryReadSnapshot(tracks: [
             Core.Track(id: "stale", name: "Old Scope", artist: "Stale", album: "Stale"),
         ], scannedAt: Date(timeIntervalSince1970: 100))
+    }
+}
+
+private actor SnapshotLibraryReadProvider: LibraryReadProvider {
+    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+        LibraryReadSnapshot(tracks: [
+            Core.Track(id: "live", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+        ], scannedAt: Date(timeIntervalSince1970: 200))
     }
 }
 

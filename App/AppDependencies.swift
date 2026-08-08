@@ -31,7 +31,9 @@ final class AppDependencies {
     @ObservationIgnored var lifecycleObserverTask: Task<Void, Never>?
     @ObservationIgnored var lastChromeLifecycleRunID: RunID?
     @ObservationIgnored var lastChromeLifecycleState: RunLifecycleState?
-    @ObservationIgnored var cachedActivityWorkflowFacts = ActivityWorkflowFacts.empty
+    /// Pulled fresh at every publish; nil (no window/VM) reads as
+    /// .empty — honest idle instead of a stale cached phase (A8).
+    @ObservationIgnored var workflowFactsProvider: (@MainActor () -> ActivityWorkflowFacts)?
     // Library facts (D1): the load chain is the SOLE writer (chrome-
     // mirror convention, pinned); views and view-models only read.
     var libraryTracks: [Track] = []
