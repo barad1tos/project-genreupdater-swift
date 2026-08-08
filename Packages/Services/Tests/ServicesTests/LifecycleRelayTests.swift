@@ -130,10 +130,12 @@ struct LifecycleRelayTests {
             }
         ))
         await relay.attach(to: hangingOrchestrator)
-        let hangingSubmission = Task { await hangingOrchestrator.submit(.manualObservation(
-            requestedTestArtists: [],
-            knownTrackCount: nil
-        )) }
+        let hangingSubmission = Task {
+            await hangingOrchestrator.submit(.manualObservation(
+                requestedTestArtists: [],
+                knownTrackCount: nil
+            ))
+        }
         await waitUntil { await hangingOrchestrator.activeLifecycle() != nil }
         let hangingRunID = await hangingOrchestrator.activeLifecycle()?.runID
 
