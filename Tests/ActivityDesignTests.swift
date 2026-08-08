@@ -56,6 +56,7 @@ struct ActivityDesignTests {
                 albumCount: nil
             ),
             healthFacts: .empty,
+            pendingVerification: nil,
             deltaCount: 0,
             interventionCount: 0,
             protectedCount: 0,
@@ -235,6 +236,7 @@ struct ActivityDesignTests {
                 albumCount: nil
             ),
             healthFacts: .empty,
+            pendingVerification: nil,
             deltaCount: 7,
             interventionCount: 2,
             protectedCount: 3,

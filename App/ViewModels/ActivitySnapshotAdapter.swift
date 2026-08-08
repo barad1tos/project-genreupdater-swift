@@ -136,9 +136,9 @@ enum ActivitySnapshotAdapter {
                 from: activityProjection,
                 notice: activityNotice
             ),
-            pendingVerification: makePendingVerificationSnapshot(from: input.workflow.pendingVerification),
+            pendingVerification: makePendingVerificationSnapshot(from: activityProjection.pendingVerification),
             coverage: makeCoverageBuckets(from: activityProjection.healthFacts),
-            issues: makeIssues(from: activityProjection.healthFacts, input: input),
+            issues: makeIssues(from: activityProjection),
             metrics: makeMetricTiles(from: activityProjection.healthFacts, input: input),
             activity: ActivityDesignAdapter.makeActivityItems(from: activityProjection),
             artists: browse.artists,
@@ -147,7 +147,9 @@ enum ActivitySnapshotAdapter {
             changes: [],
             dryRun: DryRunSummary(
                 changes: input.workflow.dashboard.proposedChangeCount,
-                tracks: input.library.tracks.count,
+                // Paired with the SAME published totals the health card
+                // shows — render-time track state may be a frame newer.
+                tracks: activityProjection.healthFacts.counts.totalTracks,
                 averageConfidence: 0,
                 genre: 0,
                 year: 0
@@ -185,9 +187,9 @@ enum ActivitySnapshotAdapter {
             missingYear: facts.missingYearCount,
             completeMetadata: facts.counts.tracksWithBoth,
             ready: facts.readyUpdateCount,
-            pendingVerification: input.workflow.pendingVerification?.total ?? 0,
-            protectedFiles: facts.counts.protectedFileCount,
-            writeErrors: input.workflow.dashboard.failedWriteCount,
+            pendingVerification: activityProjection.interventionCount,
+            protectedFiles: facts.counts.isProtectedFileCountKnown ? facts.counts.protectedFileCount : nil,
+            writeErrors: activityProjection.failedWriteCount,
             recentlyAdded: input.library.metricsSnapshot?.recentlyAdded ?? 0,
             lastScan: activityProjection.scanFacts.lastScanLabel,
             nextRun: activityProjection.scanFacts.nextRunLabel,
@@ -226,12 +228,11 @@ enum ActivitySnapshotAdapter {
         ]
     }
 
-    private static func makeIssues(
-        from facts: ActivityHealthFacts,
-        input: DesignActivitySnapshotInput
-    ) -> [Issue] {
-        [
-            makePendingVerificationIssue(input.workflow.pendingVerification),
+    private static func makeIssues(from projection: ActivityProjection) -> [Issue] {
+        let facts = projection.healthFacts
+        let failedWriteCount = projection.failedWriteCount
+        return [
+            makePendingVerificationIssue(projection.pendingVerification),
             Issue(
                 id: "protected",
                 label: facts.counts.isProtectedFileCountKnown ? "Protected files" : "Protected files unknown",
@@ -242,10 +243,10 @@ enum ActivitySnapshotAdapter {
             Issue(
                 id: "errors",
                 label: "Write errors",
-                count: input.workflow.dashboard.failedWriteCount.formatted(),
-                tone: input.workflow.dashboard.failedWriteCount > 0 ? .error : .success,
-                symbol: input.workflow.dashboard.failedWriteCount > 0 ? "xmark.octagon" : "checkmark.circle"
-            )
+                count: failedWriteCount.formatted(),
+                tone: failedWriteCount > 0 ? .error : .success,
+                symbol: failedWriteCount > 0 ? "xmark.octagon" : "checkmark.circle"
+            ),
         ]
     }
 
@@ -291,7 +292,7 @@ enum ActivitySnapshotAdapter {
         ]
     }
 
-    private static func makePendingVerificationIssue(_ summary: UpdateRunPendingVerificationSummary?) -> Issue {
+    private static func makePendingVerificationIssue(_ summary: ActivityPendingVerificationSummary?) -> Issue {
         guard let summary else {
             return Issue(
                 id: "pending",
@@ -315,7 +316,7 @@ enum ActivitySnapshotAdapter {
     }
 
     private static func makePendingVerificationSnapshot(
-        from summary: UpdateRunPendingVerificationSummary?
+        from summary: ActivityPendingVerificationSummary?
     ) -> PendingVerificationSnapshot {
         guard let summary else {
             return .unavailable

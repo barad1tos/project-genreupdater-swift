@@ -145,6 +145,9 @@ public struct ActivityProjection: Equatable, Sendable {
     public let automationState: ActivityAutomationState
     public let scanFacts: ActivityScanFacts
     public let healthFacts: ActivityHealthFacts
+    /// Full pending-verification truth for the surfaces that render more
+    /// than the count; `interventionCount` stays its derived total.
+    public let pendingVerification: ActivityPendingVerificationSummary?
     public let deltaCount: Int
     public let interventionCount: Int
     public let protectedCount: Int
@@ -167,6 +170,7 @@ public struct ActivityProjection: Equatable, Sendable {
         automationState: ActivityAutomationState,
         scanFacts: ActivityScanFacts,
         healthFacts: ActivityHealthFacts,
+        pendingVerification: ActivityPendingVerificationSummary?,
         deltaCount: Int,
         interventionCount: Int,
         protectedCount: Int,
@@ -188,6 +192,7 @@ public struct ActivityProjection: Equatable, Sendable {
         self.automationState = automationState
         self.scanFacts = scanFacts
         self.healthFacts = healthFacts
+        self.pendingVerification = pendingVerification
         self.deltaCount = deltaCount
         self.interventionCount = interventionCount
         self.protectedCount = protectedCount
@@ -212,6 +217,7 @@ public struct ActivityProjection: Equatable, Sendable {
             automationState: automationState,
             scanFacts: scanFacts,
             healthFacts: healthFacts,
+            pendingVerification: pendingVerification,
             deltaCount: deltaCount,
             interventionCount: interventionCount,
             protectedCount: protectedCount,
@@ -237,6 +243,7 @@ public struct ActivityProjection: Equatable, Sendable {
             automationState: .noSyncYet,
             scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: 0),
             healthFacts: .empty,
+            pendingVerification: nil,
             deltaCount: 0,
             interventionCount: 0,
             protectedCount: 0,

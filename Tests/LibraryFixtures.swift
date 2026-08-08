@@ -45,6 +45,7 @@ actor RunRecordStoreStub: RunRecordStore {
     private let recordError: (any Error)?
     private let claimError: (any Error)?
     private var continuationsError: (any Error)?
+    private var continuationRunIDs: [RunID] = []
     private var storedRecord: RunRecord?
     private let reportPages: [RunReportPage]
     private let recoveryPage: RunReportPage?
@@ -133,7 +134,11 @@ actor RunRecordStoreStub: RunRecordStore {
         if let continuationsError {
             throw continuationsError
         }
-        return []
+        return continuationRunIDs
+    }
+
+    func installContinuations(_ runIDs: [RunID]) {
+        continuationRunIDs = runIDs
     }
 
     func failContinuations() {

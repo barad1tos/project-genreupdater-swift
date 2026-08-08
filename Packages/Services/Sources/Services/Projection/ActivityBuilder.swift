@@ -19,6 +19,7 @@ public enum ActivityBuilder {
             automationState: makeAutomationState(input: input),
             scanFacts: makeScanFacts(input: input),
             healthFacts: healthFacts,
+            pendingVerification: input.pendingVerification,
             deltaCount: makeDeltaCount(input: input, syncSummary: syncSummary),
             interventionCount: input.pendingVerification?.total ?? 0,
             protectedCount: counts.protectedFileCount,

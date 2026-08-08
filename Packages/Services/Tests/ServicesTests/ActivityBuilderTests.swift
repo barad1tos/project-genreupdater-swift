@@ -490,6 +490,34 @@ struct ActivityBuilderTests {
         #expect(facts.healthPercentage == 44)
     }
 
+    @Test("mixed editability evidence makes the protected count unknown")
+    func healthCountsMixedEditabilityGrid() {
+        // The known-flag rule is all-or-nothing: ONE track without
+        // editability evidence makes the whole count unknowable.
+        let counts = ActivityHealthCounts.make(from: [
+            track(id: "protected", genre: "Rock", year: 2001, status: "prerelease"),
+            Track(id: "blank", name: "blank", artist: "A", album: "B", trackStatus: "   "),
+            Track(id: "unrecognized", name: "odd", artist: "A", album: "B", trackStatus: "mystery-status"),
+        ])
+
+        #expect(counts.protectedFileCount == 1)
+        #expect(!counts.isProtectedFileCountKnown)
+    }
+
+    @Test("the quality card reports the consistency percentage")
+    func qualityCardValue() {
+        let tracks = [
+            track(id: "both", genre: "Rock", year: 2001, status: "purchased"),
+            track(id: "genre-only", genre: "Rock", year: nil, status: "purchased"),
+            track(id: "year-only", genre: nil, year: 2002, status: "purchased"),
+            track(id: "neither", genre: nil, year: nil, status: "purchased"),
+        ]
+
+        let projection = ActivityBuilder.makeProjection(from: makeInput(tracks: tracks))
+
+        #expect(projection.summaryCards.first { $0.kind == .quality }?.value == "25%")
+    }
+
     @Test("an empty library scores zero health")
     func healthFactsEmpty() {
         let facts = ActivityBuilder.makeProjection(from: makeInput()).healthFacts

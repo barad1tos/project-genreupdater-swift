@@ -136,8 +136,10 @@ struct LibraryHealthGauge: View {
                         .contentTransition(.numericText())
                     Text("Library Health").font(.system(size: 14, weight: .bold)).foregroundStyle(Ayu.fg2)
 
-                    if snap.protectedFiles > 0 || snap.writeErrors > 0 {
-                        let statusText = "\(snap.protectedFiles) protected"
+                    // An unknown protected count (nil) shows no warning
+                    // capsule — absence of evidence is not a hazard.
+                    if (snap.protectedFiles ?? 0) > 0 || snap.writeErrors > 0 {
+                        let statusText = "\(snap.protectedFiles ?? 0) protected"
                             + (snap.writeErrors > 0 ? " · \(snap.writeErrors) errors" : "")
                         Label(statusText, systemImage: "exclamationmark.triangle.fill")
                             .font(.system(size: 11, weight: .semibold))

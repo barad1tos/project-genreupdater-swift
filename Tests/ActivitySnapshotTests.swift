@@ -242,6 +242,38 @@ struct ActivitySnapshotTests {
         #expect(cancelled.health.nextRun == "Manual sync cancelled")
     }
 
+    @Test("coverage buckets label unknown editability and grade known ratios")
+    func coverageBucketsEditability() {
+        // Known: 3 of 4 tracks editable -> 0.75 editable ratio, graded tone.
+        let known = makeSnapshot(from: makeInput(tracks: [
+            editableTrack(id: "1"), editableTrack(id: "2"), editableTrack(id: "3"),
+            protectedTrack(id: "4"),
+        ]))
+        let knownEditable = known.coverage.first { $0.id == "editable" }
+        #expect(knownEditable?.label == "Editable files")
+        #expect(knownEditable?.ratio == 0.75)
+        #expect(knownEditable?.tone != .neutral)
+
+        // Unknown (metrics without a protected count): honest label,
+        // neutral tone, zero ratio.
+        let unknown = makeSnapshot(from: makeInput(metricsSnapshot: PersistedMetricsSnapshot(
+            totalTracks: 10,
+            tracksWithGenre: 8,
+            tracksWithYear: 6,
+            tracksWithBoth: 5,
+            tracksNeedingGenre: 2,
+            tracksNeedingYear: 4,
+            protectedFileCount: nil,
+            recentlyAdded: 0,
+            timestamp: Date(timeIntervalSince1970: 50)
+        )))
+        let unknownEditable = unknown.coverage.first { $0.id == "editable" }
+        #expect(unknownEditable?.label == "Editable files unknown")
+        #expect(unknownEditable?.tone == .neutral)
+        #expect(unknownEditable?.ratio == 0)
+        #expect(unknown.health.protectedFiles == nil)
+    }
+
     private func makeSnapshot(
         from input: DesignActivitySnapshotInput,
         runLifecycle: RunLifecycleSnapshot? = nil,
@@ -311,6 +343,18 @@ struct ActivitySnapshotTests {
             ),
             startedAt: scanDate,
             phase: phase
+        )
+    }
+
+    private func protectedTrack(id: String) -> Core.Track {
+        Core.Track(
+            id: id,
+            name: "Song \(id)",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            year: 2001,
+            trackStatus: "prerelease"
         )
     }
 

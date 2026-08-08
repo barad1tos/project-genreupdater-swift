@@ -453,6 +453,20 @@ struct ProjectionRuntimeTests {
         #expect(detail?.stateLabel.isEmpty == false)
     }
 
+    @Test("continuation lineage flows through the backend query")
+    func reportDetailCarriesContinuations() async throws {
+        let runID = RunID()
+        let continuation = RunID()
+        let store = RunRecordStoreStub(storedRecord: sampleRunRecord(runID: runID))
+        await store.installContinuations([continuation])
+        let fixture = try makeFixture(testArtists: [], runRecordStore: store)
+
+        let detail = await fixture.dependencies.loadRunReportDetail(runID: runID.rawValue.uuidString)
+
+        let lineage = try #require(detail?.lineageLines)
+        #expect(lineage.contains { $0.hasPrefix("Continued by") })
+    }
+
     @Test("a missing record yields no detail")
     func reportDetailMissingRecord() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
