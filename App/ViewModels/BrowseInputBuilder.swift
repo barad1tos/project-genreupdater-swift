@@ -55,6 +55,37 @@ extension AppDependencies {
         await projectionStore.replaceBrowseProjection(projection, inputGeneration: inputGeneration)
     }
 
+    /// One browse refresh for one load: claim BEFORE the input's awaits
+    /// (the track facts are already snapshotted in the argument, so
+    /// claim order equals fact-snapshot order), re-check validity after
+    /// every await, and pair the row index only with a projection this
+    /// input actually produced. Returns nil when the load was
+    /// superseded; rowIndex is nil when another claimant's content won.
+    func refreshBrowseProjection(
+        tracks: [Track],
+        readSource: BrowseReadSource,
+        isCurrent: () -> Bool = { true }
+    ) async -> (projection: BrowseProjection, rowIndex: [String: [BrowseTrackRow]]?)? {
+        let generation = await claimBrowseInputGeneration()
+        let input = await makeBrowseInput(tracks: tracks, readSource: readSource)
+        guard isCurrent() else { return nil }
+        let built = BrowseBuilder.makeProjection(input: input)
+        let published = await publishBrowseProjection(built, inputGeneration: generation)
+        guard isCurrent() else { return nil }
+        let landed = browseContentMatches(published, built: built)
+        return (published, landed ? BrowseBuilder.makeTrackRowIndex(input: input) : nil)
+    }
+
+    /// Whether the stored projection is the one an input produced —
+    /// everything but the store-owned revision.
+    private func browseContentMatches(_ published: BrowseProjection, built: BrowseProjection) -> Bool {
+        published.artists == built.artists
+            && published.scope == built.scope
+            && published.physicalTrackCount == built.physicalTrackCount
+            && published.readSource == built.readSource
+            && published.operationalIssues == built.operationalIssues
+    }
+
     /// The revalidating browse dispatcher with production wiring: reads
     /// CURRENT store truth and submits through the preview-only path.
     /// A factory so the wiring itself is pinnable (no browse action may

@@ -118,6 +118,58 @@ struct ProjectionRuntimeTests {
         )
     }
 
+    @Test("an aborted browse refresh publishes nothing")
+    func abortedBrowseRefreshPublishesNothing() async {
+        let dependencies = makeDependencies()
+        let track = Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")
+
+        let result = await dependencies.refreshBrowseProjection(
+            tracks: [track],
+            readSource: .cachedMirror(scannedAt: nil),
+            isCurrent: { false }
+        )
+
+        #expect(result == nil)
+        #expect(await dependencies.projectionStore.currentBrowse().artists.isEmpty)
+    }
+
+    @Test("a landed browse refresh pairs rows with its own projection")
+    func landedBrowseRefreshPairsRows() async {
+        let dependencies = makeDependencies()
+        let track = Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")
+
+        let result = await dependencies.refreshBrowseProjection(
+            tracks: [track],
+            readSource: .cachedMirror(scannedAt: nil)
+        )
+
+        #expect(result?.projection.artists.count == 1)
+        #expect(result?.rowIndex?.count == 1)
+    }
+
+    @Test("no direct store publish remains in the host view")
+    func hostViewPublishesNothing() throws {
+        // Source-scan pin (house precedent): subscriptions are the only
+        // store surface a view may touch (ADR 0013).
+        let source = try String(contentsOf: hostViewSourceURL(), encoding: .utf8)
+
+        for forbidden in [
+            "replaceActivityProjection", "replaceReportsProjection",
+            "replaceFixPlanProjection", "replaceSettingsProjection",
+            "replaceChromeProjection", "replaceBrowseProjection",
+            "InputGeneration()", "Builder.makeProjection",
+        ] {
+            #expect(!source.contains(forbidden), "host view must not touch \(forbidden)")
+        }
+    }
+
+    private func hostViewSourceURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("App/Views/DesignRootHostView.swift")
+    }
+
     @Test("identical activity facts keep the revision")
     func activityRefreshDedups() async {
         let dependencies = makeDependencies()

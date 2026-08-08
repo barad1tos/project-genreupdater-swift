@@ -142,6 +142,7 @@ struct DesignRootHostView: View {
 
     private func observeChromeUpdates() async {
         for await projection in await dependencies.projectionStore.chromeUpdates() {
+            guard projection.revision > chromeProjection.revision else { continue }
             chromeProjection = projection
         }
     }
@@ -165,41 +166,24 @@ struct DesignRootHostView: View {
         ActivitySnapshotAdapter.makeBrowseRows(browseRowIndex[albumID] ?? [])
     }
 
-    /// Publishes browse truth for one load. The generation is claimed
-    /// BEFORE the input's awaits (facts are already snapshotted in the
-    /// argument), the load guard re-checks after every await, and the
-    /// row index only pairs with a projection this input actually
-    /// produced — a losing publish keeps the winner's rows.
+    /// Ordering and pairing guarantees live in the backend extension
+    /// now; this wrapper keeps only the view-state application.
     private func refreshBrowseTruth(
         _ loadedTracks: [Core.Track],
         readSource: BrowseReadSource,
         requestID: UUID?
     ) async {
         browseReadSource = readSource
-        let generation = await dependencies.claimBrowseInputGeneration()
-        let input = await dependencies.makeBrowseInput(tracks: loadedTracks, readSource: readSource)
-        if let requestID {
-            guard isCurrentLibraryLoad(requestID) else { return }
+        let result = await dependencies.refreshBrowseProjection(
+            tracks: loadedTracks,
+            readSource: readSource,
+            isCurrent: { requestID.map(isCurrentLibraryLoad) ?? true }
+        )
+        guard let result else { return }
+        applyBrowseProjection(result.projection)
+        if let rowIndex = result.rowIndex {
+            browseRowIndex = rowIndex
         }
-        let built = BrowseBuilder.makeProjection(input: input)
-        let published = await dependencies.publishBrowseProjection(built, inputGeneration: generation)
-        if let requestID {
-            guard isCurrentLibraryLoad(requestID) else { return }
-        }
-        applyBrowseProjection(published)
-        if browseContentMatches(published, built: built) {
-            browseRowIndex = BrowseBuilder.makeTrackRowIndex(input: input)
-        }
-    }
-
-    /// Whether the stored projection is the one this input produced —
-    /// everything but the store-owned revision.
-    private func browseContentMatches(_ published: BrowseProjection, built: BrowseProjection) -> Bool {
-        published.artists == built.artists
-            && published.scope == built.scope
-            && published.physicalTrackCount == built.physicalTrackCount
-            && published.readSource == built.readSource
-            && published.operationalIssues == built.operationalIssues
     }
 
     /// Dispatches the typed preview command for one album. Revalidation
