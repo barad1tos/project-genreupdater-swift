@@ -148,6 +148,9 @@ public struct ActivityProjection: Equatable, Sendable {
     /// Full pending-verification truth for the surfaces that render more
     /// than the count; `interventionCount` stays its derived total.
     public let pendingVerification: ActivityPendingVerificationSummary?
+    /// Change-log display truth (bounded log + charts), derived once in
+    /// the builder (P8).
+    public let reportFacts: ActivityReportFacts
     public let deltaCount: Int
     public let interventionCount: Int
     public let protectedCount: Int
@@ -171,6 +174,7 @@ public struct ActivityProjection: Equatable, Sendable {
         scanFacts: ActivityScanFacts,
         healthFacts: ActivityHealthFacts,
         pendingVerification: ActivityPendingVerificationSummary?,
+        reportFacts: ActivityReportFacts,
         deltaCount: Int,
         interventionCount: Int,
         protectedCount: Int,
@@ -193,6 +197,7 @@ public struct ActivityProjection: Equatable, Sendable {
         self.scanFacts = scanFacts
         self.healthFacts = healthFacts
         self.pendingVerification = pendingVerification
+        self.reportFacts = reportFacts
         self.deltaCount = deltaCount
         self.interventionCount = interventionCount
         self.protectedCount = protectedCount
@@ -218,6 +223,7 @@ public struct ActivityProjection: Equatable, Sendable {
             scanFacts: scanFacts,
             healthFacts: healthFacts,
             pendingVerification: pendingVerification,
+            reportFacts: reportFacts,
             deltaCount: deltaCount,
             interventionCount: interventionCount,
             protectedCount: protectedCount,
@@ -244,6 +250,7 @@ public struct ActivityProjection: Equatable, Sendable {
             scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: 0),
             healthFacts: .empty,
             pendingVerification: nil,
+            reportFacts: .empty,
             deltaCount: 0,
             interventionCount: 0,
             protectedCount: 0,

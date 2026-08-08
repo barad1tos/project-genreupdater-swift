@@ -286,6 +286,7 @@ struct ActivitySnapshotTests {
         let projection = ActivityBuilder.makeProjection(from: ActivityInputBuilder.makeInput(
             from: ActivityInputContext(
                 tracks: input.library.tracks,
+                reportEntries: [],
                 metricsSnapshot: input.library.metricsSnapshot,
                 lastScanDate: input.library.lastScanDate,
                 loadError: input.library.loadError,
@@ -323,7 +324,6 @@ struct ActivitySnapshotTests {
                 isLoading: false
             ),
             workflow: ActivityWorkflowFacts(dashboard: workflow, pendingVerification: pendingVerification),
-            changeLogEntries: changeLogEntries,
             settings: .preview,
             now: now
         )

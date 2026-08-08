@@ -31,6 +31,7 @@ struct ActivityWorkflowFacts {
 
 struct ActivityInputContext {
     let tracks: [Core.Track]
+    let reportEntries: [Core.ChangeLogEntry]
     let metricsSnapshot: MetricsSnapshotValues?
     let lastScanDate: Date?
     let loadError: LibraryLoadError?
@@ -84,9 +85,13 @@ extension AppDependencies {
         let queuedWrite = await queuedWriteSummary()
         let fixPlan = await projectionStore.fixPlanProjection()
         let reports = await projectionStore.reportsProjection()
+        let reportEntries = await (try? changeLogStore?.loadRecent(
+            limit: ActivityReportFacts.entryLimit
+        )) ?? []
 
         let input = ActivityInputBuilder.makeInput(from: ActivityInputContext(
             tracks: library.tracks,
+            reportEntries: reportEntries,
             metricsSnapshot: library.metricsSnapshot,
             lastScanDate: library.lastScanDate,
             loadError: library.loadError,
@@ -113,6 +118,7 @@ enum ActivityInputBuilder {
     static func makeInput(from context: ActivityInputContext) -> ActivityProjectionInput {
         ActivityProjectionInput(
             tracks: context.tracks,
+            reportEntries: context.reportEntries,
             metrics: makeMetrics(from: context.metricsSnapshot),
             lastScanDate: context.lastScanDate,
             libraryState: makeLibraryState(

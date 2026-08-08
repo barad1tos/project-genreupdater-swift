@@ -350,23 +350,6 @@ final class AppDependencies {
         )
     }
 
-    private static func defaultGenericCacheTTL(configuration: AppConfiguration) -> TimeInterval {
-        let candidates = [
-            configuration.caching.defaultTTLSeconds,
-            configuration.runtime.cacheTTLSeconds
-        ]
-
-        for seconds in candidates where seconds > 0 {
-            return TimeInterval(seconds)
-        }
-
-        return 5 * 60
-    }
-
-    static func apiResultCacheTTL(configuration: AppConfiguration) -> TimeInterval {
-        GRDBCacheService.resolvedAPIResultTTL(configuration: configuration)
-    }
-
     static func makeYearDeterminator(configuration: AppConfiguration) -> YearDeterminator {
         let yearRetrieval = configuration.yearRetrieval
         return YearDeterminator(
@@ -782,6 +765,10 @@ extension AppDependencies {
         self.librarySnapshotService = librarySnapshotService
         self.runRecordStore = runRecordStore
         self.fixPlanStore = fixPlanStore
+    }
+
+    func installTestChangeLogStore(_ store: ChangeLogDataStore) {
+        changeLogStore = store
     }
 
     func installTestOrchestrator(_ orchestrator: RunOrchestrator) async {

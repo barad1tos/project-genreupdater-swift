@@ -408,6 +408,26 @@ struct ProjectionRuntimeTests {
         #expect(second.revision == first.revision)
     }
 
+    @Test("a republish derives report facts from the persisted change log")
+    func republishDerivesReportFacts() async throws {
+        // The chart cluster is builder truth fed by the bounded store
+        // read — no view fetch exists on this path anymore (P8/D3).
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let store = try ChangeLogDataStore(modelContainer: ModelContainerFactory.createInMemory())
+        try await store.saveEntry(Core.ChangeLogEntry(
+            changeType: .genreUpdate, trackID: "t-1", artist: "Clutch"
+        ))
+        fixture.dependencies.installTestChangeLogStore(store)
+
+        let published = await fixture.dependencies.refreshActivityProjection(
+            library: makeLibraryFacts(tracks: []),
+            workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil)
+        )
+
+        #expect(published.reportFacts.stats.processed == 1)
+        #expect(published.reportFacts.changeLog.first?.artist == "Clutch")
+    }
+
     @Test("one fact set feeds the snapshot and the projection")
     func activityFactsFeedBothPaths() async {
         // F4: the design snapshot reads the SAME ActivityLibraryFacts
@@ -426,7 +446,6 @@ struct ProjectionRuntimeTests {
             from: DesignActivitySnapshotInput(
                 library: facts,
                 workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil),
-                changeLogEntries: [],
                 settings: .preview,
                 now: Date(timeIntervalSince1970: 100)
             ),

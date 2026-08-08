@@ -14,7 +14,6 @@ struct DesignRootHostView: View {
 
     @State private var tracks: [Core.Track] = []
     @State private var metricsSnapshot: MetricsSnapshotValues?
-    @State private var changeLogEntries: [Core.ChangeLogEntry] = []
     @State private var lastScanDate: Date?
     @State private var isLoading = false
     @State private var isLibraryReadyForUpdates = false
@@ -239,7 +238,6 @@ struct DesignRootHostView: View {
         DesignActivitySnapshotInput(
             library: currentActivityLibraryFacts,
             workflow: currentActivityWorkflowFacts,
-            changeLogEntries: changeLogEntries,
             settings: settingsSnapshot,
             now: Date()
         )
@@ -517,7 +515,6 @@ struct DesignRootHostView: View {
         loadError = nil
         isLibraryReadyForUpdates = false
         await loadCachedMetrics()
-        loadChangeLogEntries()
         await refreshReportsProjection()
         await dependencies.refreshAutoSyncStatus()
         guard isCurrentLibraryLoad(requestID) else { return }
@@ -648,14 +645,6 @@ struct DesignRootHostView: View {
 
     private func loadCachedMetrics() async {
         metricsSnapshot = await dependencies.metricsSnapshotStore?.loadLatest()
-    }
-
-    private func loadChangeLogEntries() {
-        var descriptor = FetchDescriptor<PersistedChangeLogEntry>(
-            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
-        )
-        descriptor.fetchLimit = ActivitySnapshotAdapter.reportEntryLimit
-        changeLogEntries = (try? modelContext.fetch(descriptor).map { $0.toChangeLogEntry() }) ?? []
     }
 
     private func recordLibraryLoad(

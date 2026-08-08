@@ -20,6 +20,7 @@ public enum ActivityBuilder {
             scanFacts: makeScanFacts(input: input),
             healthFacts: healthFacts,
             pendingVerification: input.pendingVerification,
+            reportFacts: ActivityReportFacts.make(from: input.reportEntries, now: input.now),
             deltaCount: makeDeltaCount(input: input, syncSummary: syncSummary),
             interventionCount: input.pendingVerification?.total ?? 0,
             protectedCount: counts.protectedFileCount,

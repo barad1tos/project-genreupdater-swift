@@ -9,7 +9,6 @@ import Services
 struct DesignActivitySnapshotInput {
     let library: ActivityLibraryFacts
     let workflow: ActivityWorkflowFacts
-    let changeLogEntries: [Core.ChangeLogEntry]
     let settings: DesignSettingsSnapshot
     let now: Date
 }
@@ -128,7 +127,7 @@ enum ActivitySnapshotAdapter {
         chrome: DesignChromeSnapshot = .preview,
         browse: BrowseSnapshotInput = .empty
     ) -> DesignDataSnapshot {
-        let reportEntries = makeReportEntries(from: input.changeLogEntries)
+        let reportFacts = activityProjection.reportFacts
 
         return DesignDataSnapshot(
             health: makeHealthSnapshot(from: input, activityProjection: activityProjection),
@@ -154,11 +153,11 @@ enum ActivitySnapshotAdapter {
                 genre: 0,
                 year: 0
             ),
-            changeLog: makeChangeLog(from: reportEntries, now: input.now),
-            reportStats: makeReportStats(from: reportEntries),
-            genreDistribution: makeGenreDistribution(from: reportEntries),
-            updatesOverTime: makeUpdatesOverTime(from: reportEntries),
-            yearDistribution: makeYearDistribution(from: reportEntries),
+            changeLog: makeChangeLog(from: reportFacts),
+            reportStats: makeReportStats(from: reportFacts),
+            genreDistribution: makeChartData(from: reportFacts.genreDistribution),
+            updatesOverTime: makeChartData(from: reportFacts.updatesOverTime),
+            yearDistribution: makeChartData(from: reportFacts.yearDistribution),
             runHistory: RunHistoryAdapter.makeRunHistory(from: reportsProjection),
             runHistorySkippedCount: reportsProjection.skippedCorruptedCount,
             selectedRunReport: selectedRunReport,
