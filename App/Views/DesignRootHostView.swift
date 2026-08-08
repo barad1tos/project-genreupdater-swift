@@ -762,19 +762,7 @@ struct DesignRootHostView: View {
 
     @discardableResult
     private func refreshReportsProjection() async -> ReportsProjection? {
-        let inputGeneration = await dependencies.projectionStore.nextReportsProjectionInputGeneration()
-        guard let page = await dependencies.loadRunReportPage(
-            limit: RunHistoryAdapter.runHistoryLimit
-        ) else { return nil }
-        let projection = ReportsBuilder.makeProjection(from: RunHistoryAdapter.makeInput(
-            from: page,
-            now: Date(),
-            activeRunID: activeRunID
-        ))
-        let storedProjection = await dependencies.projectionStore.replaceReportsProjection(
-            projection,
-            inputGeneration: inputGeneration
-        )
+        guard let storedProjection = await dependencies.refreshReportsProjection() else { return nil }
         if applyReportsProjection(storedProjection) {
             await refreshActivityProjection()
         }

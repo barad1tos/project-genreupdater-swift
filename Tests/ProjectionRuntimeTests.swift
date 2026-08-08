@@ -43,6 +43,19 @@ struct ProjectionRuntimeTests {
         #expect(await dependencies.projectionStore.activityProjection() == published)
     }
 
+    @Test("reports refresh publishes with no host state at all")
+    func reportsRefreshHeadless() async throws {
+        // The unified path reads the active run from the orchestrator,
+        // never from view state — usable from any window-independent
+        // caller.
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+
+        let published = await fixture.dependencies.refreshReportsProjection()
+
+        #expect(published != nil)
+        #expect(await fixture.dependencies.projectionStore.reportsProjection() == published)
+    }
+
     @Test("identical activity facts keep the revision")
     func activityRefreshDedups() async {
         let dependencies = makeDependencies()

@@ -58,3 +58,22 @@ enum RunHistoryAdapter {
         }
     }
 }
+
+/// Backend-owned reports assembly (ADR 0013): one publish path for the
+/// host and every window-independent caller, with the active run read
+/// from the orchestrator — never from view state.
+extension AppDependencies {
+    @discardableResult
+    func refreshReportsProjection() async -> ReportsProjection? {
+        let inputGeneration = await projectionStore.nextReportsProjectionInputGeneration()
+        guard let page = await loadRunReportPage(limit: RunHistoryAdapter.runHistoryLimit) else { return nil }
+        let lifecycle = await currentRunLifecycle()
+        let activeRunID = lifecycle?.isActive == true ? lifecycle?.runID : nil
+        let projection = ReportsBuilder.makeProjection(from: RunHistoryAdapter.makeInput(
+            from: page,
+            now: Date(),
+            activeRunID: activeRunID
+        ))
+        return await projectionStore.replaceReportsProjection(projection, inputGeneration: inputGeneration)
+    }
+}
