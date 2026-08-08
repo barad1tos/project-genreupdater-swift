@@ -23,7 +23,6 @@ struct DesignRootHostView: View {
     @State private var hasStartedInitialLoad = false
     @State private var libraryLoadRequestID = UUID()
     @State private var workflowViewModel: WorkflowViewModel?
-    @State private var updateScopeTracks: [Core.Track]?
     @State private var workflowNoticeMessage: String?
     @State private var selectedRoute: Route? = .activity
     @State private var activityProjection: ActivityProjection = .empty()
@@ -352,11 +351,9 @@ struct DesignRootHostView: View {
     }
 
     private var updateWorkflowTracks: [Core.Track] {
-        guard let workflowViewModel else { return tracks }
+        guard workflowViewModel != nil else { return tracks }
         return UpdateTrackScopeResolver.tracksForWorkflow(
             libraryTracks: tracks,
-            selectedScopeTracks: updateScopeTracks,
-            mode: workflowViewModel.mode,
             testArtists: dependencies.config.development.testArtists
         )
     }
@@ -458,17 +455,6 @@ struct DesignRootHostView: View {
         }
     }
 
-    private func reconcileUpdateScope(with loadedTracks: [Core.Track]) {
-        updateScopeTracks = UpdateTrackScopeResolver.reconciledSelectedScope(
-            currentScopeTracks: updateScopeTracks,
-            libraryTracks: loadedTracks,
-            testArtists: dependencies.config.development.testArtists
-        )
-
-        guard let workflowViewModel, workflowViewModel.canStart else { return }
-        workflowViewModel.computeScopePreview(tracks: updateWorkflowTracks)
-    }
-
     private func handleTestArtistScopeChange() {
         // Invalidate in-flight loads SYNCHRONOUSLY: their facts were
         // snapshotted under the old scope, and a late-starting refresh
@@ -485,7 +471,6 @@ struct DesignRootHostView: View {
             return
         }
 
-        updateScopeTracks = nil
         workflowNoticeMessage = nil
         browseNoticeMessage = nil
         tracks = []
@@ -602,7 +587,6 @@ struct DesignRootHostView: View {
         guard isCurrentLibraryLoad(requestID) else { return false }
         tracks = cachedLoad.tracks
         await refreshBrowseTruth(cachedLoad.tracks, readSource: .cachedMirror(scannedAt: nil), requestID: requestID)
-        reconcileUpdateScope(with: cachedLoad.tracks)
         await recordLibraryLoad(source: "snapshot", count: cachedLoad.tracks.count, startedAt: loadStart)
         return cachedLoad.hasTracks
     }
@@ -623,7 +607,6 @@ struct DesignRootHostView: View {
             readSource: .liveLibrary(scannedAt: liveLoad.scanDate),
             requestID: requestID
         )
-        reconcileUpdateScope(with: liveLoad.tracks)
         lastScanDate = liveLoad.scanDate
         metricsSnapshot = upsertDashboardMetricsSnapshot(from: liveLoad.tracks, in: modelContext)
         await recordLibraryLoad(source: "music", count: liveLoad.tracks.count, startedAt: loadStart)

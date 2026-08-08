@@ -7,45 +7,6 @@ import Testing
 @Suite("Workflow selected update scope")
 @MainActor
 struct ScopeWorkflowTests {
-    @Test("selected scope configuration applies flags and preview counts")
-    func selectedScopeConfigurationAppliesFlagsAndPreviewCounts() {
-        let viewModel = makeWorkflowViewModel()
-        let scopedTracks = [
-            Track(id: "1", name: "One", artist: "Alpha", album: "First"),
-            Track(id: "2", name: "Two", artist: "Alpha", album: "First"),
-        ]
-
-        viewModel.configureSelectedTracksScope(
-            tracks: scopedTracks,
-            updateGenre: true,
-            updateYear: false,
-            previewOnly: true
-        )
-
-        #expect(viewModel.mode == .selectedTracks)
-        #expect(viewModel.updateGenre)
-        #expect(!viewModel.updateYear)
-        #expect(viewModel.previewOnly)
-        #expect(viewModel.scopeTrackCount == 2)
-        #expect(viewModel.scopeArtistCount == 1)
-    }
-
-    @Test("empty selected scope stays empty instead of becoming full library")
-    func emptySelectedScopeStaysEmptyInsteadOfBecomingFullLibrary() {
-        let viewModel = makeWorkflowViewModel()
-
-        viewModel.configureSelectedTracksScope(
-            tracks: [],
-            updateGenre: true,
-            updateYear: true,
-            previewOnly: false
-        )
-
-        #expect(viewModel.mode == .selectedTracks)
-        #expect(viewModel.scopeTrackCount == 0)
-        #expect(viewModel.scopeArtistCount == 0)
-    }
-
     @Test("preview only apply is ignored")
     func previewOnlyApplyIsIgnored() {
         let viewModel = makeWorkflowViewModel()
@@ -239,7 +200,7 @@ struct ScopeWorkflowTests {
     func selectedDryRunPassesForcedYearLookupToWorkflowOptions() async throws {
         let fixture = makeWorkflowFixture(apiService: DashboardStateAPIService(year: 1999, confidence: 100))
         let viewModel = fixture.viewModel
-        viewModel.mode = .selectedTracks
+        viewModel.mode = .smartFilter
         viewModel.previewOnly = true
         viewModel.updateGenre = false
         viewModel.updateYear = true
@@ -275,7 +236,7 @@ struct ScopeWorkflowTests {
             }
         )
         let viewModel = fixture.viewModel
-        viewModel.mode = .selectedTracks
+        viewModel.mode = .smartFilter
         viewModel.previewOnly = true
         viewModel.updateGenre = false
         viewModel.updateYear = true
@@ -746,7 +707,7 @@ struct ScopeWorkflowTests {
     @Test("full library scope resets finished workflow state")
     func fullLibraryScopeResetsFinishedWorkflowState() {
         let viewModel = makeWorkflowViewModel()
-        viewModel.mode = .selectedTracks
+        viewModel.mode = .smartFilter
         viewModel.phase = .done
         viewModel.proposedChanges = [makeProposedChange(id: "1", isAccepted: true)]
         viewModel.result = BatchUpdateResult(entries: [], failedTrackIDs: ["1"], errorDescriptions: ["failed"])
@@ -770,10 +731,20 @@ struct ScopeWorkflowTests {
         #expect(viewModel.scopeArtistCount == 2)
     }
 
-    @Test("selected tracks mode requires non-empty scope")
-    func selectedTracksModeRequiresNonEmptyScope() {
+    @Test("workflow mode vocabulary matches the scope contract")
+    func workflowModeVocabulary() {
+        // Effective Processing Scope is Test Artists or the full library
+        // (CONTEXT.md:67-69); track-level selectivity lives in fix-plan
+        // review decisions, never in a run mode. A future selection
+        // feature must arrive as a review-decision surface, not a mode.
+        #expect(WorkflowMode.allCases == [.fullLibrary, .smartFilter, .pendingVerification, .releaseYearRestore])
+        #expect(makeWorkflowViewModel().mode == .fullLibrary)
+    }
+
+    @Test("full library mode requires non-empty scope")
+    func fullLibraryModeRequiresNonEmptyScope() {
         let viewModel = makeWorkflowViewModel()
-        viewModel.mode = .selectedTracks
+        viewModel.mode = .fullLibrary
         viewModel.scopeTrackCount = 0
 
         #expect(!viewModel.hasRunnableScope)

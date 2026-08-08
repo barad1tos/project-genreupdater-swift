@@ -9,7 +9,6 @@ import Services
 
 /// Determines which tracks the workflow operates on.
 enum WorkflowMode: String, CaseIterable, Identifiable {
-    case selectedTracks = "Selected Tracks"
     case fullLibrary = "Full Library"
     case smartFilter = "Smart Filter"
     case pendingVerification = "Pending"
@@ -23,7 +22,6 @@ enum WorkflowMode: String, CaseIterable, Identifiable {
     // noinspection SpellCheckingInspection
     var icon: String {
         switch self {
-        case .selectedTracks: "hand.tap"
         case .fullLibrary: "music.note.list"
         case .smartFilter: "sparkle.magnifyingglass"
         case .pendingVerification: "clock.arrow.circlepath"
@@ -88,7 +86,7 @@ enum TrackProcessingStatus: Equatable {
 final class WorkflowViewModel {
     // MARK: - Configuration
 
-    var mode: WorkflowMode = .selectedTracks
+    var mode: WorkflowMode = .fullLibrary
     var smartFilterType: SmartFilterType = .missingGenres
     var updateGenre: Bool
     var updateYear: Bool
@@ -162,7 +160,7 @@ final class WorkflowViewModel {
         switch mode {
         case .pendingVerification:
             true
-        case .selectedTracks, .fullLibrary, .smartFilter, .releaseYearRestore:
+        case .fullLibrary, .smartFilter, .releaseYearRestore:
             scopeTrackCount > 0
         }
     }

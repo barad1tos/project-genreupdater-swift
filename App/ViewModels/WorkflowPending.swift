@@ -92,7 +92,7 @@ extension WorkflowViewModel {
                 tracks,
                 threshold: releaseYearRestoreThreshold
             )
-        case .selectedTracks, .fullLibrary:
+        case .fullLibrary:
             tracks
         }
     }
