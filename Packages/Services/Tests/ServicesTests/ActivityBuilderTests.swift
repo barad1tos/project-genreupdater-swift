@@ -346,6 +346,79 @@ struct ActivityBuilderTests {
         #expect(projection.secondaryCommand?.isEnabled == false)
     }
 
+    @Test("scan facts pin the label vocabulary and precedence")
+    func scanFactsVocabulary() {
+        let now = Date(timeIntervalSince1970: 1_800_000_060)
+        // Precedence: the LIVE scan date wins over the cached metrics
+        // timestamp when both exist (strictly fresher).
+        let both = ActivityBuilder.makeProjection(from: makeInput(environment: InputEnvironment(
+            lastScanDate: Date(timeIntervalSince1970: 1_800_000_000),
+            metrics: ActivityProjectionMetrics(
+                totalTracks: 10, tracksWithGenre: 5, tracksWithYear: 5, tracksWithBoth: 5,
+                protectedFileCount: 0, recentlyAdded: 0,
+                snapshotDate: Date(timeIntervalSince1970: 1_799_996_400)
+            ),
+            now: now
+        )))
+        #expect(both.scanFacts.lastScanLabel == "1m ago")
+
+        // Album count contract: nil = metrics-backed without identity;
+        // 0 = neither metrics nor tracks; counted when tracks exist.
+        #expect(both.scanFacts.albumCount == nil)
+        let neither = ActivityBuilder.makeProjection(from: makeInput(environment: InputEnvironment(
+            usesDefaultScanDate: false
+        )))
+        #expect(neither.scanFacts.albumCount == 0)
+        #expect(neither.scanFacts.lastScanLabel == "No scan yet")
+        let counted = ActivityBuilder.makeProjection(from: makeInput(
+            tracks: [editableTrack(id: "a"), editableTrack(id: "b")]
+        ))
+        #expect(counted.scanFacts.albumCount == 1)
+    }
+
+    @Test("next-run labels cover both triggers across run phases")
+    func nextRunLabelTriggerTable() {
+        let cases: [(RunTrigger, RunPhase, String)] = [
+            (.manualCheck, .active(.writing), "Manual sync running"),
+            (.backgroundSync, .active(.writing), "Run in progress"),
+            (.manualCheck, .suspended(.blocked), "Manual sync blocked"),
+            (.backgroundSync, .suspended(.blocked), "Run blocked"),
+            (.manualCheck, .suspended(.recoverable), "Manual sync needs recovery"),
+            (.backgroundSync, .suspended(.recoverable), "Recovery needed"),
+            (.manualCheck, .finished(.failed(message: "x"), finishedAt: scanDate), "Manual sync failed"),
+            (.backgroundSync, .finished(.failed(message: "x"), finishedAt: scanDate), "Run failed"),
+            (.manualCheck, .finished(.cancelled(message: "x"), finishedAt: scanDate), "Manual sync cancelled"),
+            (.backgroundSync, .finished(.cancelled(message: "x"), finishedAt: scanDate), "Run cancelled"),
+        ]
+
+        for (trigger, phase, expected) in cases {
+            let lifecycle = RunLifecycleSnapshot(
+                runID: RunID(),
+                requestID: RunRequestID(),
+                trigger: trigger,
+                intent: .observeLibrary,
+                scope: ProcessingScopeSnapshot.capture(
+                    requestedTestArtists: [],
+                    knownTrackCount: nil,
+                    createdAt: scanDate,
+                    reason: "scan-facts-test"
+                ),
+                startedAt: scanDate,
+                phase: phase
+            )
+            let projection = ActivityBuilder.makeProjection(from: makeInput(environment: InputEnvironment(
+                runLifecycle: lifecycle
+            )))
+            #expect(projection.scanFacts.nextRunLabel == expected, "\(trigger) \(phase)")
+        }
+
+        // Completed terminals fall back to the automation ladder.
+        let completed = ActivityBuilder.makeProjection(from: makeInput(environment: InputEnvironment(
+            runLifecycle: nil
+        )))
+        #expect(completed.scanFacts.nextRunLabel == "Manual scan only")
+    }
+
     private func makeInput(
         tracks: [Track] = [],
         libraryState: ActivityLibraryState? = nil,

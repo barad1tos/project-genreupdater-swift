@@ -6,8 +6,11 @@ private let log = AppLogger.make(category: "chrome-menu")
 
 /// Menu-bar dispatch for chrome commands (ADR 0010): the menu renders the
 /// projection's descriptors, and dispatch revalidates against the current
-/// projection before performing the typed operation. Slice 10 routes this
-/// through ActivityCommands so menu outcomes render as typed results.
+/// projection before performing the typed operation. Manual runs route
+/// through ActivityCommands so menu outcomes are the same typed results
+/// the activity surface renders; recovery resume stays on the direct
+/// chrome-gated preflight (ADR 0006) — an activity-descriptor double
+/// gate could reject against a surface the user is not looking at.
 extension AppDependencies {
     func performChromeCommand(_ kind: UserIntentCommandKind) async {
         let chrome = await projectionStore.currentChrome()
@@ -38,12 +41,48 @@ extension AppDependencies {
     }
 
     private func performMenuRun() async {
-        do {
-            let result = try await submitManualRun()
-            log.info("Menu run submission outcome: \(String(describing: result), privacy: .public)")
-        } catch {
-            log.error("Menu run submission failed: \(error.localizedDescription, privacy: .public)")
-        }
+        let result = await makeMenuActivityCommands().handle(.runManually())
+        log.info("Menu run outcome: \(result.status.rawValue, privacy: .public)")
+    }
+
+    /// ActivityCommands wired with backend closures only. The reload
+    /// closures are no-ops on purpose: the load chain is host-owned
+    /// (slice-10 D5) and today's direct menu path queues no reload
+    /// either — behavior parity, typed outcomes gained.
+    func makeMenuActivityCommands() -> ActivityCommands {
+        ActivityCommands(
+            isRunOrchestratorAvailable: { [weak self] in self?.runOrchestrator != nil },
+            submitManualRun: { [weak self] in
+                guard let self else { throw AppDependencyServiceError.runOrchestratorUnavailable }
+                return try await self.submitManualRun()
+            },
+            releaseQueuedWrite: { [weak self] in
+                await self?.runOrchestrator?.releaseQueuedWrite() ?? .empty
+            },
+            dismissRecoveryWork: { [weak self] runID, itemIDs, reason, isIndividual in
+                guard let self else { throw AppDependencyServiceError.runOrchestratorUnavailable }
+                try await self.dismissRecoveryWork(
+                    id: runID,
+                    itemIDs: itemIDs,
+                    reason: reason,
+                    isIndividual: isIndividual
+                )
+            },
+            queueManualReload: { _ in
+                // Host-owned load chain (D5); nothing to queue headless.
+            },
+            reloadLibrary: { _ in
+                // Host-owned load chain (D5).
+            },
+            refreshActivityProjection: { [weak self] in
+                await self?.republishActivityProjection() ?? .empty()
+            },
+            runRecoveryPreflight: { [weak self] runID in
+                await self?.runRecoveryPreflight(runID: runID)
+                    ?? .blocked(runID: runID, reason: .storeUnavailable)
+            },
+            currentFixPlanID: { nil }
+        )
     }
 
     private func performMenuRecoveryResume(chrome: ChromeProjection) async {

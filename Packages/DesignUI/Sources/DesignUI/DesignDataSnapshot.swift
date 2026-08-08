@@ -174,46 +174,78 @@ public enum DesignAppearanceMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// The Discogs connection as a settings display fact — probed, never
+/// invented; nil means the probe has not run.
+public enum DesignDiscogsState: Equatable, Sendable {
+    case noToken
+    case connected
+    case tokenIssue
+    case unverified
+}
+
 public struct DesignSettingsSnapshot: Equatable, Sendable {
+    /// Presentation-only facts grouped below the parameter ceiling.
+    public struct Presentation: Equatable, Sendable {
+        public let appearanceMode: DesignAppearanceMode
+        public let isFastAnimationsEnabled: Bool
+        /// Display-only experience gate (ADR 0002): false hides the
+        /// Advanced settings tab; every setting stays effective.
+        public let isAdvancedExperience: Bool
+
+        public init(
+            appearanceMode: DesignAppearanceMode = .system,
+            isFastAnimationsEnabled: Bool = false,
+            isAdvancedExperience: Bool = true
+        ) {
+            self.appearanceMode = appearanceMode
+            self.isFastAnimationsEnabled = isFastAnimationsEnabled
+            self.isAdvancedExperience = isAdvancedExperience
+        }
+    }
+
     public static let preview = Self(
         updateBehavior: .both,
         minimumConfidencePercent: 70,
         releaseYearRestoreThresholdYears: 5,
         testArtists: ["Aphex Twin", "Boards of Canada"],
-        appearanceMode: .system,
-        isFastAnimationsEnabled: false,
-        isPostWriteVerificationRequired: true
+        isPostWriteVerificationRequired: true,
+        discogsState: .connected
     )
 
     public let updateBehavior: DesignUpdateBehavior
     public let minimumConfidencePercent: Double
     public let releaseYearRestoreThresholdYears: Int
     public let testArtists: [String]
-    public let appearanceMode: DesignAppearanceMode
-    public let isFastAnimationsEnabled: Bool
+    public let presentation: Presentation
     public let isPostWriteVerificationRequired: Bool
-    /// Display-only experience gate (ADR 0002): false hides the Advanced
-    /// settings tab; every setting behind it stays effective.
-    public let isAdvancedExperience: Bool
+    public let discogsState: DesignDiscogsState
+
+    public var appearanceMode: DesignAppearanceMode {
+        presentation.appearanceMode
+    }
+    public var isFastAnimationsEnabled: Bool {
+        presentation.isFastAnimationsEnabled
+    }
+    public var isAdvancedExperience: Bool {
+        presentation.isAdvancedExperience
+    }
 
     public init(
         updateBehavior: DesignUpdateBehavior,
         minimumConfidencePercent: Double,
         releaseYearRestoreThresholdYears: Int,
         testArtists: [String],
-        appearanceMode: DesignAppearanceMode = .system,
-        isFastAnimationsEnabled: Bool = false,
+        presentation: Presentation = Presentation(),
         isPostWriteVerificationRequired: Bool,
-        isAdvancedExperience: Bool = true
+        discogsState: DesignDiscogsState = .unverified
     ) {
         self.updateBehavior = updateBehavior
         self.minimumConfidencePercent = minimumConfidencePercent
         self.releaseYearRestoreThresholdYears = releaseYearRestoreThresholdYears
         self.testArtists = testArtists
-        self.appearanceMode = appearanceMode
-        self.isFastAnimationsEnabled = isFastAnimationsEnabled
+        self.presentation = presentation
         self.isPostWriteVerificationRequired = isPostWriteVerificationRequired
-        self.isAdvancedExperience = isAdvancedExperience
+        self.discogsState = discogsState
     }
 }
 

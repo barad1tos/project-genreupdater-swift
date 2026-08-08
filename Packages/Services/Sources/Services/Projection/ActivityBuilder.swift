@@ -16,6 +16,7 @@ public enum ActivityBuilder {
             currentStage: currentStage,
             processingMode: input.processingMode,
             automationState: makeAutomationState(input: input),
+            scanFacts: makeScanFacts(input: input),
             deltaCount: makeDeltaCount(input: input, syncSummary: syncSummary),
             interventionCount: input.pendingVerification?.total ?? 0,
             protectedCount: counts.protectedFileCount,
@@ -74,6 +75,76 @@ public enum ActivityBuilder {
             return .manualScanOnly
         }
         return .noSyncYet
+    }
+
+    static func makeScanFacts(input: ActivityProjectionInput) -> ActivityScanFacts {
+        ActivityScanFacts(
+            lastScanLabel: makeLastScanLabel(input: input),
+            nextRunLabel: makeNextRunLabel(input: input),
+            albumCount: makeAlbumCount(input: input)
+        )
+    }
+
+    private static func makeLastScanLabel(input: ActivityProjectionInput) -> String {
+        guard let lastScanDate = input.effectiveLastScanDate else { return "No scan yet" }
+        return relativeElapsedLabel(since: lastScanDate, now: input.now)
+    }
+
+    private static func makeNextRunLabel(input: ActivityProjectionInput) -> String {
+        if let lifecycleLabel = makeRunLifecycleNextRunLabel(from: input.runLifecycle) {
+            return lifecycleLabel
+        }
+        switch makeAutomationState(input: input) {
+        case .autoSyncRunning:
+            return "Auto-sync running"
+        case .manualScanOnly, .noSyncYet:
+            return "Manual scan only"
+        }
+    }
+
+    private static func makeRunLifecycleNextRunLabel(from lifecycle: RunLifecycleSnapshot?) -> String? {
+        guard let lifecycle else { return nil }
+
+        switch lifecycle.phase {
+        case .active:
+            return lifecycle.trigger == .manualCheck ? "Manual sync running" : "Run in progress"
+        case .suspended(.blocked):
+            return lifecycle.trigger == .manualCheck ? "Manual sync blocked" : "Run blocked"
+        case .suspended(.recoverable):
+            return lifecycle.trigger == .manualCheck ? "Manual sync needs recovery" : "Recovery needed"
+        case .finished(.failed, _):
+            return lifecycle.trigger == .manualCheck ? "Manual sync failed" : "Run failed"
+        case .finished(.cancelled, _):
+            return lifecycle.trigger == .manualCheck ? "Manual sync cancelled" : "Run cancelled"
+        case .finished(.completed, _), .finished(.completedNoOp, _):
+            return nil
+        }
+    }
+
+    private static func makeAlbumCount(input: ActivityProjectionInput) -> Int? {
+        guard !input.tracks.isEmpty else {
+            // nil = metrics-backed snapshot without album identity; 0 = no
+            // cached metrics and no live tracks.
+            return input.metrics == nil ? 0 : nil
+        }
+        return Set(input.tracks.map(\.albumIdentity)).count
+    }
+
+    /// Shared relative-elapsed vocabulary for scan labels; public so the
+    /// App-side report mapping speaks the same buckets.
+    public static func relativeElapsedLabel(since date: Date, now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(date)))
+
+        if seconds < 60 {
+            return "just now"
+        }
+        if seconds < 3600 {
+            return "\(seconds / 60)m ago"
+        }
+        if seconds < 86400 {
+            return "\(seconds / 3600)h ago"
+        }
+        return "\(seconds / 86400)d ago"
     }
 
     private static func makePrimaryCommand(input: ActivityProjectionInput) -> ActivityCommandDescriptor? {

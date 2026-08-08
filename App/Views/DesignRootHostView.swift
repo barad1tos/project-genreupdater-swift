@@ -119,9 +119,6 @@ struct DesignRootHostView: View {
         .onChange(of: workflowViewModel?.pendingVerificationReportSummary) {
             scheduleActivityProjectionRefresh()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .navigateToUpdate)) { _ in
-            prepareDefaultUpdateForReview()
-        }
         .focusedValue(\.selectedCategory, selectedCategoryBinding)
     }
 
@@ -296,19 +293,54 @@ struct DesignRootHostView: View {
     }
 
     private var settingsSnapshot: DesignSettingsSnapshot {
-        DesignSettingsSnapshot(
+        // CONTRACT: the settings surface reads the synchronously-accepted
+        // config, not the projection. These fields feed controlled
+        // bindings and CAS-anchored mutations — the projection publishes
+        // at the tail of the serialized apply queue, so reading it here
+        // snapped pickers back and lost concurrent test-artist edits.
+        // The projection serves cross-surface consumers.
+        let configuration = dependencies.config
+        return DesignSettingsSnapshot(
             updateBehavior: DesignUpdateBehavior(
-                rawValue: dependencies.config.processing.defaultUpdateBehavior.rawValue
+                rawValue: configuration.processing.defaultUpdateBehavior.rawValue
             ) ?? .both,
-            minimumConfidencePercent: dependencies.config.yearRetrieval.logic.minConfidenceForNewYear,
-            releaseYearRestoreThresholdYears: dependencies.config.processing.releaseYearRestoreThreshold,
-            testArtists: ArtistAllowList.normalized(dependencies.config.development.testArtists),
-            appearanceMode: designAppearanceMode(from: appearanceMode),
-            isFastAnimationsEnabled: fastAnimations,
+            minimumConfidencePercent: configuration.yearRetrieval.logic.minConfidenceForNewYear,
+            releaseYearRestoreThresholdYears: configuration.processing.releaseYearRestoreThreshold,
+            testArtists: ArtistAllowList.normalized(configuration.development.testArtists),
+            presentation: DesignSettingsSnapshot.Presentation(
+                appearanceMode: designAppearanceMode(from: appearanceMode),
+                isFastAnimationsEnabled: fastAnimations,
+                isAdvancedExperience: experienceLevel != .casual
+            ),
             // Writes must always be verified before the app reports them as complete.
             isPostWriteVerificationRequired: true,
-            isAdvancedExperience: experienceLevel != .casual
+            discogsState: Self.discogsDisplayState(
+                issue: dependencies.discogsCredentialIssue,
+                isAccessAvailable: dependencies.isDiscogsAccessAvailable
+            )
         )
+    }
+
+    /// The client factory is the sole no-token authority: it reports
+    /// missingToken only after the resolved reference AND the Keychain
+    /// fallback both come up empty. Testing the reference string here
+    /// would misread a Keychain-only token as absent (and the raw
+    /// reference defaults to a non-empty placeholder anyway).
+    static func discogsDisplayState(
+        issue: DiscogsCredentialIssue?,
+        isAccessAvailable: Bool?
+    ) -> DesignDiscogsState {
+        if case .missingToken = issue {
+            return .noToken
+        }
+        if issue != nil {
+            return .tokenIssue
+        }
+        switch isAccessAvailable {
+        case true: return .connected
+        case false: return .tokenIssue
+        default: return .unverified
+        }
     }
 
     private var updateWorkflowTracks: [Core.Track] {
@@ -391,43 +423,6 @@ struct DesignRootHostView: View {
             minConfidence: configuredMinConfidence,
             releaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
         )
-    }
-
-    private func prepareDefaultUpdateForReview() {
-        selectedRoute = .update
-        ensureWorkflowViewModel()
-        guard let workflowViewModel else {
-            workflowNoticeMessage = "Update services are still initializing. Please wait."
-            return
-        }
-
-        if workflowDashboardState.proposedChangeCount > 0 {
-            workflowNoticeMessage = nil
-            return
-        }
-
-        guard !isLoading, isLibraryReadyForUpdates else {
-            workflowNoticeMessage = "Wait for the live library scan to finish before reviewing changes."
-            return
-        }
-
-        guard workflowViewModel.canStart else {
-            workflowNoticeMessage = "Finish or reset the current update before starting a new update scope."
-            return
-        }
-
-        updateScopeTracks = nil
-        applyWorkflowDefaults()
-        let scopedLibraryTracks = UpdateTrackScopeResolver.tracksForWorkflow(
-            libraryTracks: tracks,
-            selectedScopeTracks: nil,
-            mode: .fullLibrary,
-            testArtists: dependencies.config.development.testArtists
-        )
-        workflowViewModel.configureFullLibraryScope(tracks: scopedLibraryTracks)
-        workflowViewModel.previewOnly = true
-        workflowNoticeMessage = nil
-        workflowViewModel.start(tracks: scopedLibraryTracks)
     }
 
     private func runPrimaryCommand() {

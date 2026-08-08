@@ -322,6 +322,75 @@ struct ProjectionRuntimeTests {
         #expect(dependencies.lastChromeLifecycleRunID == nil)
     }
 
+    @Test("a menu run refusal is the same typed status the surface renders")
+    func menuRunRefusalIsTyped() async {
+        // No orchestrator installed: the ActivityCommands ladder must
+        // answer with the typed temporaryUnavailable, not a silent log.
+        let dependencies = makeDependencies()
+
+        let result = await dependencies.makeMenuActivityCommands().handle(.runManually())
+
+        #expect(result.status == .temporaryUnavailable)
+        #expect(result.issue?.category == .temporaryUnavailable)
+    }
+
+    @Test("the settings projection retains the token reference in memory")
+    func settingsProjectionRetainsTokenReference() async {
+        // Redaction is an ENCODE-time concern (the FixPlanConfig
+        // precedent); applying it to the in-memory projection would
+        // silently break every reference-driven display fact.
+        let dependencies = makeDependencies()
+        dependencies.config.yearRetrieval.apiAuth.discogsTokenReference = "keychain:test"
+
+        _ = await dependencies.publishSettingsProjection()
+
+        let stored = await dependencies.projectionStore.currentSettings()
+        #expect(stored.configuration.yearRetrieval.apiAuth.discogsTokenReference == "keychain:test")
+    }
+
+    @Test("discogs display state trusts the credential factory, not the reference")
+    func discogsStateMapping() {
+        typealias State = DesignRootHostView
+        // missingToken is the factory's verdict AFTER the resolved
+        // reference and the Keychain fallback both came up empty — the
+        // only authoritative no-token signal. A nil issue means a token
+        // exists somewhere (possibly Keychain-only, invisible to the
+        // reference resolver), so it never maps to noToken.
+        #expect(State.discogsDisplayState(
+            issue: .missingToken, isAccessAvailable: nil
+        ) == .noToken)
+        #expect(State.discogsDisplayState(
+            issue: .other("rejected"), isAccessAvailable: nil
+        ) == .tokenIssue)
+        #expect(State.discogsDisplayState(
+            issue: nil, isAccessAvailable: true
+        ) == .connected)
+        #expect(State.discogsDisplayState(
+            issue: nil, isAccessAvailable: false
+        ) == .tokenIssue)
+        #expect(State.discogsDisplayState(
+            issue: nil, isAccessAvailable: nil
+        ) == .unverified)
+    }
+
+    @Test("a menu run with an orchestrator reaches submission")
+    func menuRunHappyPath() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        fixture.dependencies.installTrackCountSource { 1 }
+        fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in
+                // Persistence is outside this wiring pin.
+            }
+        )))
+
+        let result = await fixture.dependencies.makeMenuActivityCommands().handle(.runManually())
+
+        // The stubbed sync finds nothing — the run completes as a no-op,
+        // proving submission was reached through the menu wiring.
+        #expect(result.status == .noOp)
+    }
+
     @Test("identical activity facts keep the revision")
     func activityRefreshDedups() async {
         let dependencies = makeDependencies()

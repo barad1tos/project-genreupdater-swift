@@ -302,23 +302,31 @@ struct SettingsScreen: View {
     private var api: some View {
         VStack(spacing: 14) {
             group("Metadata sources", "key", .accent) {
+                // MusicBrainz needs no token; the public rate limit is a
+                // property of the service, not app state.
                 apiRow("MusicBrainz", "Public rate limit", .info, "Public")
-                apiRow("Discogs", "Connected · token valid", .success, "Connected")
-                apiRow("Apple Music API", "No token set", .warning, "Not set")
-            }
-            group("Cache", "externaldrive", .info) {
-                row("Album-year cache", "Resolved release years cached to avoid repeat lookups.") {
-                    HStack {
-                        TagPill(text: "218 MB", tone: .neutral)
-                        BorderedButton(title: "Clear cache", enabled: false)
-                    }
-                }
-                row("Track ID mapping", "Persistent map between MusicKit IDs and writable tracks.") {
-                    TagPill(text: "42,318 mapped", tone: .success, dot: true)
-                }
+                apiRow(
+                    "Discogs",
+                    discogsDetail.description,
+                    discogsDetail.tone,
+                    discogsDetail.badge
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var discogsDetail: (description: String, tone: Tone, badge: String) {
+        switch settings.discogsState {
+        case .noToken:
+            ("No token configured", .neutral, "Not set")
+        case .connected:
+            ("Connected · token valid", .success, "Connected")
+        case .tokenIssue:
+            ("Token rejected — check credentials", .warning, "Issue")
+        case .unverified:
+            ("Token set · not verified yet", .info, "Unverified")
+        }
     }
 
     private var advanced: some View {

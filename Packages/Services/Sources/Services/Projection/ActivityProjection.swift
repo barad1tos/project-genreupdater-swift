@@ -32,6 +32,20 @@ public enum ActivityAutomationState: String, Equatable, Sendable {
     case noSyncYet
 }
 
+/// Scan-history display truth, derived once by the builder so no
+/// adapter re-derives it (slice-8 S35).
+public struct ActivityScanFacts: Equatable, Sendable {
+    public let lastScanLabel: String
+    public let nextRunLabel: String
+    public let albumCount: Int?
+
+    public init(lastScanLabel: String, nextRunLabel: String, albumCount: Int?) {
+        self.lastScanLabel = lastScanLabel
+        self.nextRunLabel = nextRunLabel
+        self.albumCount = albumCount
+    }
+}
+
 public enum ActivityCommandStyle: String, Equatable, Sendable {
     case primary
     case secondary
@@ -129,6 +143,7 @@ public struct ActivityProjection: Equatable, Sendable {
     public let currentStage: ActivityPipelineStage
     public let processingMode: ActivityProcessingMode
     public let automationState: ActivityAutomationState
+    public let scanFacts: ActivityScanFacts
     public let deltaCount: Int
     public let interventionCount: Int
     public let protectedCount: Int
@@ -149,6 +164,7 @@ public struct ActivityProjection: Equatable, Sendable {
         currentStage: ActivityPipelineStage,
         processingMode: ActivityProcessingMode,
         automationState: ActivityAutomationState,
+        scanFacts: ActivityScanFacts,
         deltaCount: Int,
         interventionCount: Int,
         protectedCount: Int,
@@ -168,6 +184,7 @@ public struct ActivityProjection: Equatable, Sendable {
         self.currentStage = currentStage
         self.processingMode = processingMode
         self.automationState = automationState
+        self.scanFacts = scanFacts
         self.deltaCount = deltaCount
         self.interventionCount = interventionCount
         self.protectedCount = protectedCount
@@ -190,6 +207,7 @@ public struct ActivityProjection: Equatable, Sendable {
             currentStage: currentStage,
             processingMode: processingMode,
             automationState: automationState,
+            scanFacts: scanFacts,
             deltaCount: deltaCount,
             interventionCount: interventionCount,
             protectedCount: protectedCount,
@@ -213,6 +231,7 @@ public struct ActivityProjection: Equatable, Sendable {
             currentStage: .watch,
             processingMode: .preview,
             automationState: .noSyncYet,
+            scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: 0),
             deltaCount: 0,
             interventionCount: 0,
             protectedCount: 0,
