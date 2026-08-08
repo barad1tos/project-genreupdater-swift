@@ -70,7 +70,6 @@ public struct ChromeInput: Sendable {
     public let automation: ChromeAutomationFacts
     public let library: ChromeLibraryFacts
     public let permissions: ChromePermissions
-    public let hasReviewableFixPlan: Bool
 
     public init(
         run: ChromeRunFacts,
@@ -78,8 +77,7 @@ public struct ChromeInput: Sendable {
         settings: ChromeSettingsFacts,
         automation: ChromeAutomationFacts,
         library: ChromeLibraryFacts,
-        permissions: ChromePermissions,
-        hasReviewableFixPlan: Bool
+        permissions: ChromePermissions
     ) {
         self.run = run
         self.recovery = recovery
@@ -87,7 +85,6 @@ public struct ChromeInput: Sendable {
         self.automation = automation
         self.library = library
         self.permissions = permissions
-        self.hasReviewableFixPlan = hasReviewableFixPlan
     }
 }
 
@@ -214,14 +211,6 @@ public enum ChromeBuilder {
             ))
         }
         commands.append(makeRunCommand(input: input, hold: hold))
-        if input.hasReviewableFixPlan, hold == nil {
-            commands.append(ChromeCommandDescriptor(
-                id: "chrome.review-changes",
-                title: "Review changes",
-                isEnabled: true,
-                commandKind: .reviewChanges
-            ))
-        }
         return commands
     }
 

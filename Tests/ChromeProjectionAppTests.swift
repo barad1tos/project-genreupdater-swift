@@ -118,8 +118,7 @@ struct ChromeProjectionAppTests {
             settings: ChromeSettingsFacts(isPreviewMode: false, saveErrorMessage: nil, hasLoadFailed: false),
             automation: ChromeAutomationFacts(isAutoSyncRunning: false, isIncrementalDue: nil),
             library: ChromeLibraryFacts(physicalTrackCount: nil, scope: scope),
-            permissions: .unprobed,
-            hasReviewableFixPlan: false
+            permissions: .unprobed
         ))
 
         let design = ActivitySnapshotAdapter.makeChrome(from: projection)
