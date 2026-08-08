@@ -480,7 +480,11 @@ struct DesignRootHostView: View {
         emptyBrowseTruthForScopeChange()
 
         guard workflowViewModel?.canStart ?? true else {
-            workflowNoticeMessage = "Finish or reset the current update before reloading the new test artist scope."
+            workflowNoticeMessage = "The new test artist scope loads after the current update finishes."
+            // The loaded library stays visible during the run; the new
+            // scope loads at the next terminal boundary through the
+            // queued-reload machine.
+            queuedManualReload = .waitingForQueued
             return
         }
 

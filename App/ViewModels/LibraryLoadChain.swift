@@ -161,8 +161,11 @@ extension AppDependencies {
         await persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)
         guard libraryLoadGate.isCurrent(token) else { return }
         await applyBrowseTruthForLoad?(liveLoad.tracks, .liveLibrary(scannedAt: liveLoad.scanDate), token)
+        guard libraryLoadGate.isCurrent(token) else { return }
         lastLibraryScanDate = liveLoad.scanDate
-        libraryMetrics = await metricsSnapshotStore?.upsert(from: liveLoad.tracks)
+        let upsertedMetrics = await metricsSnapshotStore?.upsert(from: liveLoad.tracks)
+        guard libraryLoadGate.isCurrent(token) else { return }
+        libraryMetrics = upsertedMetrics
         onLibraryLoadApplied?(liveLoad.tracks)
         await recordLibraryLoad(source: "music", count: liveLoad.tracks.count, startedAt: loadStart)
     }

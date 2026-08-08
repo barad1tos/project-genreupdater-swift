@@ -409,6 +409,39 @@ struct ProjectionRuntimeTests {
         #expect(second.revision == first.revision)
     }
 
+    @Test("the host holds no product-truth state beyond the allowlist")
+    func hostStateAllowlist() throws {
+        // The slice-11 exit pin: every remaining @State is a projection
+        // mirror, a browse adapter cache, a backend query RESULT, or UI
+        // ephemera. workflowViewModel and currentRunLifecycle are the
+        // slice-12 handover set — new product truth must land on the
+        // dependency graph, never here.
+        let allowlist: Set = [
+            "activityProjection", "reportsProjection", "fixPlanProjection",
+            "chromeProjection", "browseProjection",
+            "browseDesignArtists", "browseDesignScope", "browseRowIndex", "browseReadSource",
+            "selectedRunReport", "runReportDetailRequestID",
+            "selectedRoute", "hasStartedInitialLoad", "queuedManualReload",
+            "workflowViewModel", "workflowNoticeMessage", "currentRunLifecycle",
+            "activityCommandNoticeMessage", "activityCommandNoticeID",
+            "fixPlanNoticeMessage", "fixPlanNoticeTone", "fixPlanNoticeID",
+            "reportNotice", "reportNoticeID",
+            "browseNoticeMessage", "isReviewBusy", "isDismissalBusy",
+        ]
+        let source = try String(contentsOf: libraryLoadSourceURL(), encoding: .utf8)
+        let declared = source.split(separator: "\n")
+            .compactMap { line -> String? in
+                guard let range = line.range(of: "@State private var ") else { return nil }
+                let tail = line[range.upperBound...]
+                return tail.prefix { $0.isLetter || $0.isNumber || $0 == "_" }.description
+            }
+
+        #expect(!declared.isEmpty)
+        for name in declared {
+            #expect(allowlist.contains(name), "\(name) is not an allowed host @State")
+        }
+    }
+
     @Test("a closed window publishes honest idle, never a stale phase")
     func closedWindowPublishesHonestIdle() async throws {
         // The A8 pin: a provider whose VM died must NOT re-emit the last
