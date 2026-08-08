@@ -20,7 +20,11 @@ struct RunRuntimeFactory {
         configuration: FixPlanConfig,
         scope: ProcessingScopeSnapshot
     ) async throws -> LibrarySyncService {
-        let appConfiguration = scopedConfiguration(configuration.appConfiguration, scope: scope)
+        let appConfiguration = scopedConfiguration(
+            configuration.appConfiguration,
+            scope: scope,
+            albumTarget: configuration.albumTarget
+        )
         let runServices = try await services.prepare(id: configuration.id, configuration: appConfiguration)
         return LibrarySyncService(
             scriptBridge: runServices.scripts,
@@ -42,7 +46,11 @@ struct RunRuntimeFactory {
         configuration: FixPlanConfig,
         scope: ProcessingScopeSnapshot
     ) async throws -> FixPlanProducer.Runtime {
-        let appConfiguration = scopedConfiguration(configuration.appConfiguration, scope: scope)
+        let appConfiguration = scopedConfiguration(
+            configuration.appConfiguration,
+            scope: scope,
+            albumTarget: configuration.albumTarget
+        )
         let runServices = try await services.consume(id: configuration.id, configuration: appConfiguration)
         let snapshotService = AppDependencies.makeSnapshotService(
             cache: cache,
@@ -106,7 +114,11 @@ struct RunRuntimeFactory {
         configuration: FixPlanConfig,
         scope: ProcessingScopeSnapshot
     ) async throws -> FixPlanWrite.Runtime {
-        let appConfiguration = scopedConfiguration(configuration.appConfiguration, scope: scope)
+        let appConfiguration = scopedConfiguration(
+            configuration.appConfiguration,
+            scope: scope,
+            albumTarget: configuration.albumTarget
+        )
         let runServices = try await services.consume(id: configuration.id, configuration: appConfiguration)
         let snapshotService = AppDependencies.makeSnapshotService(
             cache: cache,
@@ -142,11 +154,33 @@ struct RunRuntimeFactory {
 
     private func scopedConfiguration(
         _ configuration: AppConfiguration,
-        scope: ProcessingScopeSnapshot
+        scope: ProcessingScopeSnapshot,
+        albumTarget: FixPlanAlbumTarget? = nil
     ) -> AppConfiguration {
         var scoped = configuration
-        scoped.development.testArtists = scope.normalizedTestArtists
+        scoped.development.testArtists = syncArtistScope(scope: scope, albumTarget: albumTarget)
         return scoped
+    }
+
+    /// A one-album preview narrows the sync READ to the target's artist
+    /// (the proven test-artists mechanism with a one-artist list) — the
+    /// artist stays complete so FixPlanProducer's matching context holds.
+    /// A target outside a configured test-artist scope fails OPEN to the
+    /// scope: never widen, never guess.
+    func syncArtistScope(
+        scope: ProcessingScopeSnapshot,
+        albumTarget: FixPlanAlbumTarget?
+    ) -> [String] {
+        let scopeArtists = scope.normalizedTestArtists
+        guard let albumTarget else { return scopeArtists }
+
+        if scopeArtists.isEmpty {
+            return [albumTarget.artist]
+        }
+        if ArtistAllowList.containsNormalized(albumTarget.artist, in: scopeArtists) {
+            return [albumTarget.artist]
+        }
+        return scopeArtists
     }
 }
 
