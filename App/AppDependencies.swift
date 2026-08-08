@@ -55,6 +55,7 @@ final class AppDependencies {
     var chrome: ChromeProjection = .empty()
     var config: AppConfiguration
     var isAutoSyncRunning = false
+    @ObservationIgnored var cachedBrowseScopeSnapshot: ProcessingScopeSnapshot?
     @ObservationIgnored let projectionStore = ProjectionStore()
     private(set) var configurationLoadIssue: String?
     @ObservationIgnored private let configurationSaver: (AppConfiguration) throws -> Void
@@ -791,10 +792,6 @@ extension AppDependencies {
 
     func installTestAvailability(_ availability: RecoveryAvailability) {
         recoveryAvailability = availability
-    }
-
-    func installTrackCountSource(_ source: @escaping @Sendable () async -> Int?) {
-        trackCountSource = source
     }
 }
 #endif

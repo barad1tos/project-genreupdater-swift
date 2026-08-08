@@ -145,3 +145,53 @@ struct BrowseAdapterAppTests {
         #expect(ActivitySnapshotAdapter.makeBrowseScope(from: empty) == nil)
     }
 }
+
+@Suite("Browse host publish")
+@MainActor
+struct BrowseHostPublishTests {
+    private func makeDependencies() -> AppDependencies {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // Persistence is irrelevant to these pins.
+            }
+        )
+        dependencies.config.development.testArtists = ["Clutch"]
+        return dependencies
+    }
+
+    @Test("the browse scope snapshot is stable until Test Artists change")
+    func scopeSnapshotStability() {
+        let dependencies = makeDependencies()
+
+        let first = dependencies.currentBrowseScopeSnapshot()
+        let second = dependencies.currentBrowseScopeSnapshot()
+        #expect(second.id == first.id)
+
+        dependencies.config.development.testArtists = ["Clutch", "Anthrax"]
+        let recaptured = dependencies.currentBrowseScopeSnapshot()
+        #expect(recaptured.id != first.id)
+        #expect(recaptured.normalizedTestArtists == ["Clutch", "Anthrax"])
+    }
+
+    @Test("publishing identical browse input keeps the revision")
+    func identicalPublishDedups() async {
+        let dependencies = makeDependencies()
+        let track = Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")
+
+        let firstInput = await dependencies.makeBrowseInput(
+            tracks: [track],
+            readSource: .cachedMirror(scannedAt: nil)
+        )
+        let first = await dependencies.publishBrowseProjection(input: firstInput)
+        let secondInput = await dependencies.makeBrowseInput(
+            tracks: [track],
+            readSource: .cachedMirror(scannedAt: nil)
+        )
+        let second = await dependencies.publishBrowseProjection(input: secondInput)
+
+        #expect(first.artists.count == 1)
+        #expect(second.revision == first.revision)
+        #expect(await dependencies.projectionStore.currentBrowse() == second)
+    }
+}

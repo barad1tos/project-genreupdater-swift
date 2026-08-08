@@ -31,6 +31,10 @@ struct DesignRootHostView: View {
     @State private var reportsProjection: ReportsProjection = .empty()
     @State private var fixPlanProjection: FixPlanProjection = .empty()
     @State private var chromeProjection: ChromeProjection = .empty()
+    @State private var browseProjection: BrowseProjection = .empty()
+    @State private var browseDesignArtists: [DesignUI.Artist] = []
+    @State private var browseDesignScope: DesignBrowseScope?
+    @State private var browseRowIndex: [String: [BrowseTrackRow]] = [:]
     @State private var selectedRunReport: RunReportDetailSnapshot?
     @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
@@ -60,6 +64,7 @@ struct DesignRootHostView: View {
             setTestArtistsAction: setTestArtists,
             setAppearanceModeAction: setAppearanceMode,
             setFastAnimationsAction: setFastAnimationsEnabled,
+            browseTrackRows: browseRows(for:),
             reportRunSelectionAction: selectRunReport,
             recoveryDetailActions: RecoveryDetailActions(
                 applyRemainingFixes: applyRemainingFixes,
@@ -79,6 +84,7 @@ struct DesignRootHostView: View {
         .task { await observeFixPlanUpdates() }
         .task { await observeRunLifecycleUpdates() }
         .task { await observeChromeUpdates() }
+        .task { await observeBrowseUpdates() }
         .onChange(of: dependencies.config.processing.defaultUpdateBehavior) {
             applyWorkflowDefaults()
             scheduleActivityProjectionRefresh()
@@ -123,7 +129,9 @@ struct DesignRootHostView: View {
             reportsProjection: reportsProjection,
             selectedRunReport: selectedRunReport,
             activityNotice: activityCommandNoticeMessage,
-            chrome: ActivitySnapshotAdapter.makeChrome(from: chromeProjection)
+            chrome: ActivitySnapshotAdapter.makeChrome(from: chromeProjection),
+            browseArtists: browseDesignArtists,
+            browseScope: browseDesignScope
         )
     }
 
@@ -131,6 +139,32 @@ struct DesignRootHostView: View {
         for await projection in await dependencies.projectionStore.chromeUpdates() {
             chromeProjection = projection
         }
+    }
+
+    private func observeBrowseUpdates() async {
+        for await projection in await dependencies.projectionStore.browseUpdates() {
+            applyBrowseProjection(projection)
+        }
+    }
+
+    /// Maps once per publish, never per body evaluation: makeSnapshot is
+    /// a computed property and browse nodes number in the thousands.
+    private func applyBrowseProjection(_ projection: BrowseProjection) {
+        guard projection.revision != browseProjection.revision || browseDesignArtists.isEmpty else { return }
+        browseProjection = projection
+        browseDesignArtists = ActivitySnapshotAdapter.makeBrowseArtists(from: projection)
+        browseDesignScope = ActivitySnapshotAdapter.makeBrowseScope(from: projection)
+    }
+
+    private func browseRows(for albumID: String) -> [DesignBrowseTrackRow] {
+        ActivitySnapshotAdapter.makeBrowseRows(browseRowIndex[albumID] ?? [])
+    }
+
+    private func refreshBrowseTruth(_ loadedTracks: [Core.Track], readSource: BrowseReadSource) async {
+        let input = await dependencies.makeBrowseInput(tracks: loadedTracks, readSource: readSource)
+        let published = await dependencies.publishBrowseProjection(input: input)
+        applyBrowseProjection(published)
+        browseRowIndex = BrowseBuilder.makeTrackRowIndex(input: input)
     }
 
     private var designActivitySnapshotInput: DesignActivitySnapshotInput {
@@ -515,6 +549,7 @@ struct DesignRootHostView: View {
 
         guard isCurrentLibraryLoad(requestID) else { return false }
         tracks = cachedLoad.tracks
+        await refreshBrowseTruth(cachedLoad.tracks, readSource: .cachedMirror(scannedAt: nil))
         reconcileUpdateScope(with: cachedLoad.tracks)
         await recordLibraryLoad(source: "snapshot", count: cachedLoad.tracks.count, startedAt: loadStart)
         return cachedLoad.hasTracks
@@ -531,6 +566,7 @@ struct DesignRootHostView: View {
         tracks = liveLoad.tracks
         await dependencies.persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)
         guard isCurrentLibraryLoad(requestID) else { return }
+        await refreshBrowseTruth(liveLoad.tracks, readSource: .liveLibrary(scannedAt: liveLoad.scanDate))
         reconcileUpdateScope(with: liveLoad.tracks)
         lastScanDate = liveLoad.scanDate
         metricsSnapshot = upsertDashboardMetricsSnapshot(from: liveLoad.tracks, in: modelContext)

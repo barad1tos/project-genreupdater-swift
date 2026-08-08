@@ -109,7 +109,8 @@ public struct BrowseScopeFacts: Equatable, Sendable {
 /// Where the browse read came from, so Browse never implies a fresher
 /// truth than it has.
 public enum BrowseReadSource: Equatable, Sendable {
-    case cachedMirror(scannedAt: Date)
+    /// The persisted mirror records no scan date today; nil stays honest.
+    case cachedMirror(scannedAt: Date?)
     case liveLibrary(scannedAt: Date)
 }
 

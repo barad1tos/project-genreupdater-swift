@@ -26,4 +26,10 @@ struct TestWriteServices {
     }
 }
 
+extension AppDependencies {
+    func installTrackCountSource(_ source: @escaping @Sendable () async -> Int?) {
+        trackCountSource = source
+    }
+}
+
 #endif
