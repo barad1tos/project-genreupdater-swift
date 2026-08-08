@@ -42,6 +42,32 @@ public enum BrowseBuilder {
         )
     }
 
+    /// Track rows for one album, derived on demand so the projection
+    /// value never carries the whole library. Pure over the same input
+    /// the projection was built from — DesignUI never assembles truth.
+    public static func trackRows(forAlbumID albumID: String, input: BrowseInput) -> [BrowseTrackRow] {
+        input.tracks
+            .filter { AlbumIdentity(track: $0).key == albumID }
+            .sorted { left, right in
+                let leftPosition = left.originalPosition ?? Int.max
+                let rightPosition = right.originalPosition ?? Int.max
+                if leftPosition != rightPosition {
+                    return leftPosition < rightPosition
+                }
+                return left.name.localizedStandardCompare(right.name) == .orderedAscending
+            }
+            .map { track in
+                BrowseTrackRow(
+                    id: track.id,
+                    title: track.name,
+                    genre: track.genre,
+                    year: track.year,
+                    hasWriteIdentity: hasWriteIdentity(track),
+                    isInScope: ArtistAllowList.contains(track, in: input.scope.normalizedTestArtists)
+                )
+            }
+    }
+
     // MARK: - Album nodes
 
     private static func makeAlbumNodes(input: BrowseInput) -> [BrowseAlbumNode] {

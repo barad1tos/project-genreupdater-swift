@@ -217,3 +217,66 @@ struct BrowseBuilderScopeTests {
         #expect(projection.artists[0].albums[0].counts.writable == 1)
     }
 }
+
+// MARK: - Track rows
+
+@Suite("Browse builder track rows")
+struct BrowseBuilderTrackRowTests {
+    @Test("rows order by position, then name, unknown position last")
+    func rowOrder() {
+        let rows = BrowseBuilder.trackRows(
+            forAlbumID: AlbumIdentity(artist: "Artist", album: "One").key,
+            input: makeInput(tracks: [
+                makeTrack(name: "Closer", artist: "Artist", album: "One", originalPosition: nil),
+                makeTrack(name: "Opener", artist: "Artist", album: "One", originalPosition: 1),
+                makeTrack(name: "Middle", artist: "Artist", album: "One", originalPosition: 2),
+                makeTrack(name: "Bonus", artist: "Artist", album: "One", originalPosition: nil),
+            ])
+        )
+
+        #expect(rows.map(\.title) == ["Opener", "Middle", "Bonus", "Closer"])
+    }
+
+    @Test("rows carry per-track write identity and scope membership")
+    func rowSafetyFacts() {
+        let rows = BrowseBuilder.trackRows(
+            forAlbumID: AlbumIdentity(artist: "The Beatles", album: "Abbey Road").key,
+            input: makeInput(
+                tracks: [
+                    makeTrack(
+                        name: "Something",
+                        artist: "The Beatles",
+                        album: "Abbey Road",
+                        genre: "Rock",
+                        year: 1969,
+                        originalPosition: 1
+                    ),
+                    makeTrack(
+                        name: "Get Back",
+                        artist: "The Beatles feat. Billy Preston",
+                        album: "Abbey Road",
+                        originalPosition: 2,
+                        appleScriptID: nil
+                    ),
+                ],
+                testArtists: ["The Beatles"]
+            )
+        )
+
+        #expect(rows.count == 2)
+        #expect(rows[0].hasWriteIdentity && rows[0].isInScope)
+        #expect(rows[0].genre == "Rock")
+        #expect(rows[0].year == 1969)
+        #expect(!rows[1].hasWriteIdentity && !rows[1].isInScope)
+    }
+
+    @Test("an unknown album id returns no rows")
+    func unknownAlbum() {
+        let rows = BrowseBuilder.trackRows(
+            forAlbumID: "missing",
+            input: makeInput(tracks: [makeTrack(artist: "Artist", album: "One")])
+        )
+
+        #expect(rows.isEmpty)
+    }
+}
