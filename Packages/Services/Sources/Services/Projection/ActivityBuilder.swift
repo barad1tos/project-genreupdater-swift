@@ -2,7 +2,8 @@ import Foundation
 
 public enum ActivityBuilder {
     public static func makeProjection(from input: ActivityProjectionInput) -> ActivityProjection {
-        let counts = makeCounts(from: input)
+        let healthFacts = makeHealthFacts(input: input)
+        let counts = healthFacts.counts
         let syncSummary = input.effectiveSyncState.summary
         let currentStage = makeCurrentStage(input: input)
         let stageDescriptors = makeStageDescriptors(input: input, currentStage: currentStage, syncSummary: syncSummary)
@@ -17,6 +18,7 @@ public enum ActivityBuilder {
             processingMode: input.processingMode,
             automationState: makeAutomationState(input: input),
             scanFacts: makeScanFacts(input: input),
+            healthFacts: healthFacts,
             deltaCount: makeDeltaCount(input: input, syncSummary: syncSummary),
             interventionCount: input.pendingVerification?.total ?? 0,
             protectedCount: counts.protectedFileCount,
@@ -31,6 +33,18 @@ public enum ActivityBuilder {
         )
     }
 
+    /// One formula for library health (D8): cached metrics outrank a
+    /// live-track scan, mirroring the dashboard's long-standing
+    /// precedence, and the live branch runs the full editability scan.
+    static func makeHealthFacts(input: ActivityProjectionInput) -> ActivityHealthFacts {
+        let counts = input.metrics.map(ActivityHealthCounts.make) ?? ActivityHealthCounts.make(from: input.tracks)
+        return ActivityHealthFacts.make(
+            counts: counts,
+            readyUpdateCount: input.workflow.acceptedChangeCount,
+            failedWriteCount: input.workflow.failedWriteCount
+        )
+    }
+
     private static func makeDeltaCount(
         input: ActivityProjectionInput,
         syncSummary: ActivitySyncSummary?
@@ -39,32 +53,6 @@ public enum ActivityBuilder {
             return input.proposedFixCount
         }
         return syncSummary?.changeCount ?? 0
-    }
-
-    struct Counts {
-        let totalTracks: Int
-        let tracksWithBoth: Int
-        let protectedFileCount: Int
-    }
-
-    private static func makeCounts(from input: ActivityProjectionInput) -> Counts {
-        if let metrics = input.metrics {
-            return Counts(
-                totalTracks: metrics.totalTracks,
-                tracksWithBoth: metrics.tracksWithBoth,
-                protectedFileCount: metrics.protectedFileCount ?? 0
-            )
-        }
-
-        let tracksWithBoth = input.tracks.count { track in
-            track.genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                && track.year != nil
-        }
-        return Counts(
-            totalTracks: input.tracks.count,
-            tracksWithBoth: tracksWithBoth,
-            protectedFileCount: 0
-        )
     }
 
     static func makeAutomationState(input: ActivityProjectionInput) -> ActivityAutomationState {

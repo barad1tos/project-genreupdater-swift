@@ -21,28 +21,11 @@ func makeDashboardMetricsSnapshotValues(
 ) -> DashboardMetricsSnapshotValues? {
     guard !loadedTracks.isEmpty else { return nil }
 
-    let total = loadedTracks.count
-    var genreCount = 0
-    var yearCount = 0
-    var bothCount = 0
     var recentCount = 0
     let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: timestamp)
-    let editabilitySummary = DashboardEditabilitySummary.make(from: loadedTracks)
+    let healthCounts = ActivityHealthCounts.make(from: loadedTracks)
 
     for track in loadedTracks {
-        let hasGenre = GenreUtilities.hasPresentGenre(track.genre)
-        let hasYear = track.year != nil
-
-        if hasGenre {
-            genreCount += 1
-        }
-        if hasYear {
-            yearCount += 1
-        }
-        if hasGenre, hasYear {
-            bothCount += 1
-        }
-
         if let dateAdded = track.dateAdded,
            let cutoff = sevenDaysAgo,
            dateAdded >= cutoff {
@@ -51,14 +34,14 @@ func makeDashboardMetricsSnapshotValues(
     }
 
     return DashboardMetricsSnapshotValues(
-        totalTracks: total,
-        tracksWithGenre: genreCount,
-        tracksWithYear: yearCount,
-        tracksWithBoth: bothCount,
-        tracksNeedingGenre: total - genreCount,
-        tracksNeedingYear: total - yearCount,
-        protectedFileCount: editabilitySummary.isProtectedFileCountKnown
-            ? editabilitySummary.protectedFileCount
+        totalTracks: healthCounts.totalTracks,
+        tracksWithGenre: healthCounts.tracksWithGenre,
+        tracksWithYear: healthCounts.tracksWithYear,
+        tracksWithBoth: healthCounts.tracksWithBoth,
+        tracksNeedingGenre: healthCounts.totalTracks - healthCounts.tracksWithGenre,
+        tracksNeedingYear: healthCounts.totalTracks - healthCounts.tracksWithYear,
+        protectedFileCount: healthCounts.isProtectedFileCountKnown
+            ? healthCounts.protectedFileCount
             : nil,
         recentlyAdded: recentCount,
         timestamp: timestamp

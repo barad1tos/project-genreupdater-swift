@@ -138,7 +138,14 @@ struct LibraryDashboardSnapshot: Equatable {
         isDryRun: Bool,
         workflow: WorkflowDashboardState
     ) -> Self {
-        let counts = TrackDashboardCounts.make(from: persistedMetrics)
+        let counts = ActivityHealthCounts(
+            totalTracks: persistedMetrics.totalTracks,
+            tracksWithGenre: persistedMetrics.tracksWithGenre,
+            tracksWithYear: persistedMetrics.tracksWithYear,
+            tracksWithBoth: persistedMetrics.tracksWithBoth,
+            protectedFileCount: persistedMetrics.protectedFileCount ?? 0,
+            isProtectedFileCountKnown: persistedMetrics.protectedFileCount != nil
+        )
         let scanState = makeScanState(
             hasLibraryContent: counts.totalTracks > 0,
             lastScanDate: persistedMetrics.timestamp,
@@ -163,7 +170,7 @@ struct LibraryDashboardSnapshot: Equatable {
         isDryRun: Bool,
         workflow: WorkflowDashboardState
     ) -> Self {
-        let counts = TrackDashboardCounts.make(from: tracks)
+        let counts = ActivityHealthCounts.make(from: tracks)
         let scanState = makeScanState(
             hasLibraryContent: !tracks.isEmpty,
             lastScanDate: lastScanDate,
@@ -179,62 +186,49 @@ struct LibraryDashboardSnapshot: Equatable {
         )
     }
 
+    /// Numeric truth delegates to the shared Services formula (D8): this
+    /// snapshot keeps only the App-side scan/write state machine.
     private static func make(
-        counts: TrackDashboardCounts,
+        counts: ActivityHealthCounts,
         scanState: LibraryScanState,
         isDryRun: Bool,
         workflow: WorkflowDashboardState
     ) -> Self {
         let writeState = makeWriteState(isDryRun: isDryRun, workflow: workflow)
-        let readyUpdateCount = workflow.acceptedChangeCount
-        let genreCoverageRatio = ratio(counts.tracksWithGenre, of: counts.totalTracks)
-        let yearCoverageRatio = ratio(counts.tracksWithYear, of: counts.totalTracks)
-        let consistencyCoverageRatio = ratio(counts.tracksWithBoth, of: counts.totalTracks)
-        let editableCoverageRatio = counts.isProtectedFileCountKnown
-            ? ratio(counts.totalTracks - counts.protectedFileCount, of: counts.totalTracks)
-            : 0
-        let healthScore = makeHealthScore(
+        let facts = ActivityHealthFacts.make(
             counts: counts,
-            genreCoverageRatio: genreCoverageRatio,
-            yearCoverageRatio: yearCoverageRatio,
-            consistencyCoverageRatio: consistencyCoverageRatio,
+            readyUpdateCount: workflow.acceptedChangeCount,
             failedWriteCount: workflow.failedWriteCount
         )
 
         return Self(
-            totalTracks: counts.totalTracks,
-            tracksWithGenre: counts.tracksWithGenre,
-            tracksWithYear: counts.tracksWithYear,
-            tracksWithBoth: counts.tracksWithBoth,
-            missingGenreCount: counts.missingGenreCount,
-            missingYearCount: counts.missingYearCount,
-            protectedFileCount: counts.protectedFileCount,
-            isProtectedFileCountKnown: counts.isProtectedFileCountKnown,
-            readyUpdateCount: readyUpdateCount,
-            genreCoverageRatio: genreCoverageRatio,
-            yearCoverageRatio: yearCoverageRatio,
-            consistencyCoverageRatio: consistencyCoverageRatio,
-            editableCoverageRatio: editableCoverageRatio,
-            healthScore: healthScore,
-            healthPercentage: Int((healthScore * 100).rounded()),
+            totalTracks: facts.counts.totalTracks,
+            tracksWithGenre: facts.counts.tracksWithGenre,
+            tracksWithYear: facts.counts.tracksWithYear,
+            tracksWithBoth: facts.counts.tracksWithBoth,
+            missingGenreCount: facts.missingGenreCount,
+            missingYearCount: facts.missingYearCount,
+            protectedFileCount: facts.counts.protectedFileCount,
+            isProtectedFileCountKnown: facts.counts.isProtectedFileCountKnown,
+            readyUpdateCount: facts.readyUpdateCount,
+            genreCoverageRatio: facts.genreCoverageRatio,
+            yearCoverageRatio: facts.yearCoverageRatio,
+            consistencyCoverageRatio: facts.consistencyCoverageRatio,
+            editableCoverageRatio: facts.editableCoverageRatio,
+            healthScore: facts.healthScore,
+            healthPercentage: facts.healthPercentage,
             scanState: scanState,
             writeState: writeState,
             primaryStatusText: makePrimaryStatusText(
                 scanState: scanState,
                 writeState: writeState,
-                readyUpdateCount: readyUpdateCount
+                readyUpdateCount: facts.readyUpdateCount
             ),
             primaryActionTitle: makePrimaryActionTitle(scanState: scanState, writeState: writeState),
-            issues: DashboardSnapshotContent.makeIssues(counts: counts, failedWriteCount: workflow.failedWriteCount),
-            coverageBuckets: DashboardSnapshotContent.makeCoverageBuckets(
-                genreCoverageRatio: genreCoverageRatio,
-                yearCoverageRatio: yearCoverageRatio,
-                consistencyCoverageRatio: consistencyCoverageRatio,
-                editableCoverageRatio: editableCoverageRatio,
-                isProtectedFileCountKnown: counts.isProtectedFileCountKnown
-            ),
+            issues: DashboardSnapshotContent.makeIssues(facts: facts, failedWriteCount: workflow.failedWriteCount),
+            coverageBuckets: DashboardSnapshotContent.makeCoverageBuckets(facts: facts),
             recentActivity: DashboardSnapshotContent.makeRecentActivity(
-                totalTracks: counts.totalTracks,
+                totalTracks: facts.counts.totalTracks,
                 scanState: scanState,
                 workflow: workflow
             )
@@ -287,31 +281,6 @@ struct LibraryDashboardSnapshot: Equatable {
         }
 
         return .ready(count: 0, isDryRun: false)
-    }
-
-    private static func makeHealthScore(
-        counts: TrackDashboardCounts,
-        genreCoverageRatio: Double,
-        yearCoverageRatio: Double,
-        consistencyCoverageRatio: Double,
-        failedWriteCount: Int
-    ) -> Double {
-        guard counts.totalTracks > 0 else { return 0 }
-
-        let coverageScore =
-            genreCoverageRatio * DashboardHealthPolicy.genreCoverageWeight
-                + yearCoverageRatio * DashboardHealthPolicy.yearCoverageWeight
-                + consistencyCoverageRatio * DashboardHealthPolicy.consistencyCoverageWeight
-        let protectedPenalty = counts.isProtectedFileCountKnown
-            ? ratio(counts.protectedFileCount, of: counts.totalTracks)
-            * DashboardHealthPolicy.protectedFilePenaltyWeight
-            : 0
-        let failedWritePenalty = min(
-            ratio(failedWriteCount, of: counts.totalTracks) * DashboardHealthPolicy.failedWritePenaltyWeight,
-            DashboardHealthPolicy.failedWritePenaltyCap
-        )
-
-        return clamp(coverageScore - protectedPenalty - failedWritePenalty)
     }
 
     private static func makePrimaryStatusText(
@@ -377,37 +346,28 @@ struct LibraryDashboardSnapshot: Equatable {
             return "Review changes"
         }
     }
-
-    private static func ratio(_ count: Int, of total: Int) -> Double {
-        guard total > 0 else { return 0 }
-        return clamp(Double(count) / Double(total))
-    }
-
-    private static func clamp(_ value: Double) -> Double {
-        min(max(value, 0), 1)
-    }
 }
 
 private enum DashboardSnapshotContent {
-    static func makeIssues(counts: TrackDashboardCounts, failedWriteCount: Int) -> [DashboardIssue] {
+    static func makeIssues(facts: ActivityHealthFacts, failedWriteCount: Int) -> [DashboardIssue] {
         [
             DashboardIssue(
                 id: "missing-genres",
                 title: "Missing genres",
-                count: counts.missingGenreCount,
-                severity: missingMetadataSeverity(counts.missingGenreCount)
+                count: facts.missingGenreCount,
+                severity: missingMetadataSeverity(facts.missingGenreCount)
             ),
             DashboardIssue(
                 id: "missing-years",
                 title: "Missing years",
-                count: counts.missingYearCount,
-                severity: missingMetadataSeverity(counts.missingYearCount)
+                count: facts.missingYearCount,
+                severity: missingMetadataSeverity(facts.missingYearCount)
             ),
             DashboardIssue(
                 id: "protected-files",
-                title: counts.isProtectedFileCountKnown ? "Protected files" : "Protected files unknown",
-                count: counts.protectedFileCount,
-                severity: protectedFileSeverity(counts: counts)
+                title: facts.counts.isProtectedFileCountKnown ? "Protected files" : "Protected files unknown",
+                count: facts.counts.protectedFileCount,
+                severity: protectedFileSeverity(counts: facts.counts)
             ),
             DashboardIssue(
                 id: "write-errors",
@@ -418,21 +378,15 @@ private enum DashboardSnapshotContent {
         ]
     }
 
-    static func makeCoverageBuckets(
-        genreCoverageRatio: Double,
-        yearCoverageRatio: Double,
-        consistencyCoverageRatio: Double,
-        editableCoverageRatio: Double,
-        isProtectedFileCountKnown: Bool
-    ) -> [DashboardCoverageBucket] {
+    static func makeCoverageBuckets(facts: ActivityHealthFacts) -> [DashboardCoverageBucket] {
         [
-            DashboardCoverageBucket(id: "genre", title: "Genre coverage", ratio: genreCoverageRatio),
-            DashboardCoverageBucket(id: "year", title: "Year coverage", ratio: yearCoverageRatio),
-            DashboardCoverageBucket(id: "consistency", title: "Consistency", ratio: consistencyCoverageRatio),
+            DashboardCoverageBucket(id: "genre", title: "Genre coverage", ratio: facts.genreCoverageRatio),
+            DashboardCoverageBucket(id: "year", title: "Year coverage", ratio: facts.yearCoverageRatio),
+            DashboardCoverageBucket(id: "consistency", title: "Consistency", ratio: facts.consistencyCoverageRatio),
             DashboardCoverageBucket(
                 id: "editable",
-                title: isProtectedFileCountKnown ? "Editable files" : "Editable files unknown",
-                ratio: editableCoverageRatio
+                title: facts.counts.isProtectedFileCountKnown ? "Editable files" : "Editable files unknown",
+                ratio: facts.editableCoverageRatio
             ),
         ]
     }
@@ -500,113 +454,10 @@ private enum DashboardSnapshotContent {
         count > 0 ? .warning : .info
     }
 
-    private static func protectedFileSeverity(counts: TrackDashboardCounts) -> DashboardIssueSeverity {
+    private static func protectedFileSeverity(counts: ActivityHealthCounts) -> DashboardIssueSeverity {
         if counts.protectedFileCount > 0 {
             return .critical
         }
         return counts.isProtectedFileCountKnown ? .info : .warning
-    }
-}
-
-struct DashboardEditabilitySummary: Equatable {
-    let protectedFileCount: Int
-    let isProtectedFileCountKnown: Bool
-
-    static func make(from tracks: [Core.Track]) -> Self {
-        var protectedFileCount = 0
-        var knownEditabilityCount = 0
-
-        for track in tracks {
-            guard hasKnownEditability(track) else {
-                continue
-            }
-
-            knownEditabilityCount += 1
-            if !track.canEdit {
-                protectedFileCount += 1
-            }
-        }
-
-        return Self(
-            protectedFileCount: protectedFileCount,
-            isProtectedFileCountKnown: tracks.isEmpty || knownEditabilityCount == tracks.count
-        )
-    }
-
-    private static func hasKnownEditability(_ track: Core.Track) -> Bool {
-        guard let trackStatus = track.trackStatus?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trackStatus.isEmpty
-        else { return false }
-
-        return normalizeTrackStatus(trackStatus) != nil
-    }
-}
-
-private enum DashboardHealthPolicy {
-    static let genreCoverageWeight = 0.35
-    static let yearCoverageWeight = 0.35
-    static let consistencyCoverageWeight = 0.30
-    static let protectedFilePenaltyWeight = 0.25
-    static let failedWritePenaltyWeight = 2.0
-    static let failedWritePenaltyCap = 0.40
-}
-
-private struct TrackDashboardCounts: Equatable {
-    let totalTracks: Int
-    let tracksWithGenre: Int
-    let tracksWithYear: Int
-    let tracksWithBoth: Int
-    let missingGenreCount: Int
-    let missingYearCount: Int
-    let protectedFileCount: Int
-    let isProtectedFileCountKnown: Bool
-
-    static func make(from tracks: [Core.Track]) -> Self {
-        var tracksWithGenre = 0
-        var tracksWithYear = 0
-        var tracksWithBoth = 0
-        let editabilitySummary = DashboardEditabilitySummary.make(from: tracks)
-
-        for track in tracks {
-            let hasGenre = GenreUtilities.hasPresentGenre(track.genre)
-            let hasYear = track.year != nil
-
-            if hasGenre {
-                tracksWithGenre += 1
-            }
-
-            if hasYear {
-                tracksWithYear += 1
-            }
-
-            if hasGenre, hasYear {
-                tracksWithBoth += 1
-            }
-        }
-
-        return Self(
-            totalTracks: tracks.count,
-            tracksWithGenre: tracksWithGenre,
-            tracksWithYear: tracksWithYear,
-            tracksWithBoth: tracksWithBoth,
-            missingGenreCount: tracks.count - tracksWithGenre,
-            missingYearCount: tracks.count - tracksWithYear,
-            protectedFileCount: editabilitySummary.protectedFileCount,
-            isProtectedFileCountKnown: editabilitySummary.isProtectedFileCountKnown
-        )
-    }
-
-    static func make(from persistedMetrics: PersistedMetricsSnapshot) -> Self {
-        let protectedFileCount = persistedMetrics.protectedFileCount
-        return Self(
-            totalTracks: persistedMetrics.totalTracks,
-            tracksWithGenre: persistedMetrics.tracksWithGenre,
-            tracksWithYear: persistedMetrics.tracksWithYear,
-            tracksWithBoth: persistedMetrics.tracksWithBoth,
-            missingGenreCount: persistedMetrics.tracksNeedingGenre,
-            missingYearCount: persistedMetrics.tracksNeedingYear,
-            protectedFileCount: protectedFileCount ?? 0,
-            isProtectedFileCountKnown: protectedFileCount != nil
-        )
     }
 }

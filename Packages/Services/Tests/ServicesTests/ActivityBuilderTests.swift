@@ -419,6 +419,90 @@ struct ActivityBuilderTests {
         #expect(completed.scanFacts.nextRunLabel == "Manual scan only")
     }
 
+    @Test("health facts derive from live tracks with the editability scan")
+    func healthFactsFromTracks() {
+        let tracks = [
+            track(id: "both", genre: "Rock", year: 2001, status: "purchased"),
+            track(id: "genre-only", genre: "Rock", year: nil, status: "purchased"),
+            track(id: "year-only", genre: "   ", year: 2002, status: "purchased"),
+            track(id: "protected", genre: nil, year: nil, status: "prerelease"),
+        ]
+        let workflow = ActivityWorkflowState(
+            proposedChangeCount: 0, acceptedChangeCount: 3, failedWriteCount: 0,
+            isProcessing: false, phaseLabel: "Idle"
+        )
+
+        let projection = ActivityBuilder.makeProjection(from: makeInput(tracks: tracks, workflow: workflow))
+        let facts = projection.healthFacts
+
+        #expect(facts.counts.totalTracks == 4)
+        #expect(facts.counts.tracksWithGenre == 2)
+        #expect(facts.counts.tracksWithYear == 2)
+        #expect(facts.counts.tracksWithBoth == 1)
+        #expect(facts.missingGenreCount == 2)
+        #expect(facts.missingYearCount == 2)
+        #expect(facts.counts.protectedFileCount == 1)
+        #expect(facts.counts.isProtectedFileCountKnown)
+        #expect(facts.readyUpdateCount == 3)
+        #expect(facts.genreCoverageRatio == 0.5)
+        #expect(facts.yearCoverageRatio == 0.5)
+        #expect(facts.consistencyCoverageRatio == 0.25)
+        #expect(facts.editableCoverageRatio == 0.75)
+        // 0.5*0.35 + 0.5*0.35 + 0.25*0.30 = 0.425, minus the protected
+        // penalty (1/4)*0.25 = 0.0625 — the verbatim dashboard formula.
+        #expect(abs(facts.healthScore - 0.3625) < 0.0001)
+        #expect(facts.healthPercentage == 36)
+        // The live-tracks branch now runs the real editability scan — the
+        // projection's protected count agrees with the dashboard truth.
+        #expect(projection.protectedCount == 1)
+    }
+
+    @Test("health facts prefer cached metrics and honor unknown editability")
+    func healthFactsFromMetrics() {
+        let metrics = ActivityProjectionMetrics(
+            totalTracks: 10, tracksWithGenre: 8, tracksWithYear: 6, tracksWithBoth: 5,
+            protectedFileCount: nil, recentlyAdded: 2, snapshotDate: scanDate
+        )
+        let workflow = ActivityWorkflowState(
+            proposedChangeCount: 0, acceptedChangeCount: 2, failedWriteCount: 1,
+            isProcessing: false, phaseLabel: "Idle"
+        )
+
+        let facts = ActivityBuilder.makeProjection(from: makeInput(
+            workflow: workflow,
+            environment: InputEnvironment(metrics: metrics)
+        )).healthFacts
+
+        #expect(facts.counts.totalTracks == 10)
+        #expect(facts.missingGenreCount == 2)
+        #expect(facts.missingYearCount == 4)
+        #expect(facts.counts.protectedFileCount == 0)
+        #expect(!facts.counts.isProtectedFileCountKnown)
+        #expect(facts.readyUpdateCount == 2)
+        #expect(abs(facts.genreCoverageRatio - 0.8) < 0.0001)
+        #expect(abs(facts.yearCoverageRatio - 0.6) < 0.0001)
+        #expect(facts.consistencyCoverageRatio == 0.5)
+        // Unknown editability contributes no ratio and no penalty.
+        #expect(facts.editableCoverageRatio == 0)
+        // 0.8*0.35 + 0.6*0.35 + 0.5*0.30 = 0.64, minus the capped failed
+        // write penalty min((1/10)*2.0, 0.4) = 0.2.
+        #expect(abs(facts.healthScore - 0.44) < 0.0001)
+        #expect(facts.healthPercentage == 44)
+    }
+
+    @Test("an empty library scores zero health")
+    func healthFactsEmpty() {
+        let facts = ActivityBuilder.makeProjection(from: makeInput()).healthFacts
+
+        #expect(facts == .empty)
+        #expect(facts.healthScore == 0)
+        #expect(facts.counts.isProtectedFileCountKnown)
+    }
+
+    private func track(id: String, genre: String?, year: Int?, status: String) -> Track {
+        Track(id: id, name: id, artist: "Artist", album: "Album", genre: genre, year: year, trackStatus: status)
+    }
+
     private func makeInput(
         tracks: [Track] = [],
         libraryState: ActivityLibraryState? = nil,

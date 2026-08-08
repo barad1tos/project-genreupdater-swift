@@ -144,6 +144,7 @@ public struct ActivityProjection: Equatable, Sendable {
     public let processingMode: ActivityProcessingMode
     public let automationState: ActivityAutomationState
     public let scanFacts: ActivityScanFacts
+    public let healthFacts: ActivityHealthFacts
     public let deltaCount: Int
     public let interventionCount: Int
     public let protectedCount: Int
@@ -165,6 +166,7 @@ public struct ActivityProjection: Equatable, Sendable {
         processingMode: ActivityProcessingMode,
         automationState: ActivityAutomationState,
         scanFacts: ActivityScanFacts,
+        healthFacts: ActivityHealthFacts,
         deltaCount: Int,
         interventionCount: Int,
         protectedCount: Int,
@@ -185,6 +187,7 @@ public struct ActivityProjection: Equatable, Sendable {
         self.processingMode = processingMode
         self.automationState = automationState
         self.scanFacts = scanFacts
+        self.healthFacts = healthFacts
         self.deltaCount = deltaCount
         self.interventionCount = interventionCount
         self.protectedCount = protectedCount
@@ -208,6 +211,7 @@ public struct ActivityProjection: Equatable, Sendable {
             processingMode: processingMode,
             automationState: automationState,
             scanFacts: scanFacts,
+            healthFacts: healthFacts,
             deltaCount: deltaCount,
             interventionCount: interventionCount,
             protectedCount: protectedCount,
@@ -232,6 +236,7 @@ public struct ActivityProjection: Equatable, Sendable {
             processingMode: .preview,
             automationState: .noSyncYet,
             scanFacts: ActivityScanFacts(lastScanLabel: "No scan yet", nextRunLabel: "Manual scan only", albumCount: 0),
+            healthFacts: .empty,
             deltaCount: 0,
             interventionCount: 0,
             protectedCount: 0,
