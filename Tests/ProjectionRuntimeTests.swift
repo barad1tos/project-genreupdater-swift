@@ -407,6 +407,58 @@ struct ProjectionRuntimeTests {
 
         #expect(second.revision == first.revision)
     }
+
+    @Test("report detail is served by a backend query")
+    func reportDetailServedByBackend() async throws {
+        let runID = RunID()
+        let record = sampleRunRecord(runID: runID)
+        let fixture = try makeFixture(
+            testArtists: [],
+            runRecordStore: RunRecordStoreStub(storedRecord: record)
+        )
+
+        let detail = await fixture.dependencies.loadRunReportDetail(runID: runID.rawValue.uuidString)
+
+        #expect(detail?.runID == runID.rawValue.uuidString)
+        #expect(detail?.stateLabel.isEmpty == false)
+    }
+
+    @Test("a missing record yields no detail")
+    func reportDetailMissingRecord() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+
+        let detail = await fixture.dependencies.loadRunReportDetail(runID: RunID().rawValue.uuidString)
+
+        #expect(detail == nil)
+    }
+
+    @Test("an open recovery record serves detail through the backend")
+    func reportDetailOpenRecoveryRecord() async throws {
+        // The backend query reads active-run truth from the orchestrator
+        // accessor (the F3 rule, pinned for the list by
+        // reportsRefreshHeadless) — no view state exists on this path.
+        // The active-vs-inactive dismissal gate itself is pinned at
+        // builder level (ReportDetailBuilderTests).
+        let runID = RunID()
+        let record = sampleRunRecord(
+            runID: runID,
+            intent: .writeFixes,
+            state: .recoverable,
+            recoveryID: UUID(),
+            finishedAt: nil
+        )
+        let fixture = try makeFixture(
+            testArtists: [],
+            runRecordStore: RunRecordStoreStub(storedRecord: record)
+        )
+
+        let detail = await fixture.dependencies.loadRunReportDetail(runID: runID.rawValue.uuidString)
+
+        #expect(detail != nil)
+        // No work items on the fixture record: dismissal must stay closed
+        // even in the recoverable state (builder truth passed through).
+        #expect(detail?.canDismissItems == false)
+    }
 }
 
 private final class CurrentFlagSequence: @unchecked Sendable {

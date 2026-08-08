@@ -234,10 +234,6 @@ struct DesignRootHostView: View {
         )
     }
 
-    private var activeRunID: RunID? {
-        currentRunLifecycle?.isActive == true ? currentRunLifecycle?.runID : nil
-    }
-
     @ViewBuilder
     private var updateContent: some View {
         if fixPlanProjection.status != .empty {
@@ -1192,21 +1188,16 @@ extension DesignRootHostView {
 
 extension DesignRootHostView {
     private func loadRunReportDetail(runID: String, requestID: UUID) async {
-        let record = await dependencies.loadRunReportRecord(id: runID)
+        // Backend query-response (D6): assembly and active-run truth live
+        // with the dependency graph; the host keeps only the result
+        // behind its request-ID guard.
+        let detail = await dependencies.loadRunReportDetail(runID: runID)
         guard runReportDetailRequestID == requestID else { return }
 
-        guard let record else {
+        guard let detail else {
             selectedRunReport = .unavailable(runID: runID)
             return
         }
-        let continuedBy = await dependencies.loadRunContinuations(id: runID)
-        guard runReportDetailRequestID == requestID else { return }
-        let detail = RunReportDetailBuilder.makeDetail(
-            from: record,
-            now: Date(),
-            activeRunID: activeRunID,
-            continuedBy: continuedBy
-        )
         selectedRunReport = ReportDetailAdapter.makeSnapshot(from: detail)
     }
 
