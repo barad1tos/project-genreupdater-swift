@@ -79,6 +79,28 @@ struct MetricsSnapshotStoreTests {
         #expect(second?.previousTotalTracks == 2)
     }
 
+    @Test("the recently-added window includes exactly seven days")
+    func recentlyAddedWindowBoundary() async throws {
+        let store = try makeStore()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let calendar = Calendar.current
+        let exactlySevenDays = try #require(calendar.date(byAdding: .day, value: -7, to: now))
+
+        let values = await store.upsert(from: [
+            track(id: "on-boundary", genre: "Rock", status: "purchased", dateAdded: exactlySevenDays),
+            track(
+                id: "past-boundary",
+                genre: "Rock",
+                status: "purchased",
+                dateAdded: exactlySevenDays.addingTimeInterval(-1)
+            ),
+        ], timestamp: now)
+
+        // dateAdded >= cutoff: the boundary itself counts, one second
+        // earlier does not.
+        #expect(values?.recentlyAdded == 1)
+    }
+
     @Test("loadLatest returns the persisted values")
     func loadLatestReturnsPersisted() async throws {
         let store = try makeStore()

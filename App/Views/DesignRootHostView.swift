@@ -459,7 +459,7 @@ struct DesignRootHostView: View {
         // Invalidate in-flight loads SYNCHRONOUSLY: their facts were
         // snapshotted under the old scope, and a late-starting refresh
         // would otherwise out-claim the emptied truth published below.
-        dependencies.invalidateLibraryLoadsForScopeChange()
+        dependencies.invalidateLibraryLoads()
         // The config change has already persisted (onChange fires after
         // commit) — browse truth empties in BOTH branches so the surface
         // never renders the previous scope, even while a run refuses the
@@ -473,6 +473,7 @@ struct DesignRootHostView: View {
 
         workflowNoticeMessage = nil
         browseNoticeMessage = nil
+        dependencies.emptyLibraryTruthForScopeChange()
         workflowViewModel?.reset()
         applyWorkflowDefaults()
 
@@ -530,7 +531,7 @@ struct DesignRootHostView: View {
     /// Projection publishes moved behind the backend observer (ADR
     /// 0013); this host subscription keeps only the UI reactions: the
     /// lifecycle mirror for remaining inputs and the queued-reload
-    /// trigger, since the load chain is host-owned until slice 11.
+    /// trigger (the reload itself is a backend chain call).
     private func observeRunLifecycleUpdates() async {
         for await lifecycle in await dependencies.runLifecycleUpdates() {
             currentRunLifecycle = lifecycle

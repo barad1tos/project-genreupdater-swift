@@ -41,19 +41,31 @@ enum LibraryLoadError: Equatable {
 extension AppDependencies {
     /// Invalidate in-flight loads SYNCHRONOUSLY on a scope change:
     /// their facts were snapshotted under the old scope, and a
-    /// late-landing apply would out-claim the emptied truth.
-    func invalidateLibraryLoadsForScopeChange() {
+    /// late-landing apply would out-claim newer truth. The invalidated
+    /// chain can no longer own the loading flag, so it resets here.
+    func invalidateLibraryLoads() {
         libraryLoadGate.invalidate()
+        isLibraryLoading = false
+    }
+
+    /// Empties old-scope truth for an ACCEPTED scope change only — a
+    /// refused change (active run) keeps the loaded library visible,
+    /// matching the pre-chain behavior. A stale load error dies with
+    /// the scope that produced it.
+    func emptyLibraryTruthForScopeChange() {
         libraryTracks = []
         libraryMetrics = nil
         lastLibraryScanDate = nil
+        libraryLoadError = nil
     }
 
     func loadLibrary(forceRefresh: Bool = false) async {
         let token = libraryLoadGate.begin()
         libraryLoadError = nil
         isLibraryReadyForUpdates = false
-        libraryMetrics = await metricsSnapshotStore?.loadLatest()
+        let cachedMetrics = await metricsSnapshotStore?.loadLatest()
+        guard libraryLoadGate.isCurrent(token) else { return }
+        libraryMetrics = cachedMetrics
         await refreshReportsProjection()
         await refreshAutoSyncStatus()
         guard libraryLoadGate.isCurrent(token) else { return }

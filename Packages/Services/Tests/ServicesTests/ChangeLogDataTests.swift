@@ -163,6 +163,30 @@ struct ChangeLogDataTests {
         #expect(loaded[1].trackID == "T1")
     }
 
+    @Test("loadRecent bounds the read to the newest entries")
+    func loadRecentBoundsRead() async throws {
+        let store = try makeStore()
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        for index in 0 ..< 150 {
+            try await store.saveEntry(ChangeLogEntry(
+                id: UUID(),
+                timestamp: base.addingTimeInterval(TimeInterval(index)),
+                changeType: .genreUpdate,
+                trackID: "T\(index)",
+                artist: "Artist"
+            ))
+        }
+
+        let recent = try await store.loadRecent(limit: 100)
+
+        #expect(recent.count == 100)
+        // Newest-first: the fetch limit must keep the newest 100, never
+        // the oldest (the builder re-caps but cannot restore dropped
+        // entries).
+        #expect(recent.first?.trackID == "T149")
+        #expect(recent.last?.trackID == "T50")
+    }
+
     @Test("Delete non-existent entry is a no-op")
     func deleteNonExistent() async throws {
         let store = try makeStore()

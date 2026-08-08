@@ -2,8 +2,8 @@ import Core
 import Foundation
 import Services
 
-/// Library facts the host still owns this slice (D5: the load chain
-/// moves in slice 11); grouped below the parameter ceiling.
+/// Adapter grouping of the dependency-graph library facts (the load
+/// chain is their sole writer); kept below the parameter ceiling.
 struct ActivityLibraryFacts {
     let tracks: [Core.Track]
     let metricsSnapshot: MetricsSnapshotValues?

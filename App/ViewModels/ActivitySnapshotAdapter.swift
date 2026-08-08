@@ -14,8 +14,6 @@ struct DesignActivitySnapshotInput {
 }
 
 enum ActivitySnapshotAdapter {
-    static let reportEntryLimit = 100
-
     /// Mirrors the Chrome projection into DesignUI's shell snapshot —
     /// pure mapping, no derivation (ADR 0012).
     static func makeChrome(from projection: ChromeProjection) -> DesignChromeSnapshot {
