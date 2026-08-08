@@ -621,7 +621,11 @@ final class AppDependencies {
         )
         let currentConfiguration = capturePreviewConfig(
             at: now,
-            hasDiscogsAccess: isDiscogsAccessAvailable ?? plan.configuration.hasDiscogsAccess
+            hasDiscogsAccess: isDiscogsAccessAvailable ?? plan.configuration.hasDiscogsAccess,
+            // The album target is the plan's identity, not a live setting:
+            // staleness must compare the rest of the configuration against
+            // the same target, or every targeted plan is instantly stale.
+            albumTarget: plan.configuration.albumTarget
         )
         return FixPlanProjector.makeProjection(
             plan: plan,

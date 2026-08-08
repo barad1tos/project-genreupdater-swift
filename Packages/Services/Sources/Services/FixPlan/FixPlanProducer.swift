@@ -56,18 +56,20 @@ public struct FixPlanProducer: Sendable {
     ) async throws -> FixPlanProduction {
         let options = configuration.determinationOptions
         let tracks = try await dependencies.loadTracks()
-        let scopedTracks = Self.albumTargetedTracks(
-            Self.scopedTracks(tracks, scope: scope),
-            target: configuration.albumTarget
-        )
-        guard !scopedTracks.isEmpty else { return .empty }
+        let scopedTracks = Self.scopedTracks(tracks, scope: scope)
+        let targetedTracks = Self.albumTargetedTracks(scopedTracks, target: configuration.albumTarget)
+        guard !targetedTracks.isEmpty else { return .empty }
         let runtime = try await dependencies.makeRuntime(configuration, scope)
-        try await runtime.refreshIdentity(scopedTracks, scope)
-        let albumTracksByTrackID = await runtime.albumContext(scopedTracks)
+        try await runtime.refreshIdentity(targetedTracks, scope)
+        let albumTracksByTrackID = await runtime.albumContext(targetedTracks)
+        // Artist context spans the FULL scope: dominant-genre
+        // determination must see the artist's other albums, or a
+        // targeted preview would propose different metadata than a
+        // whole-scope one for the same track.
         let artistGroups = Self.groupTracksByArtist(scopedTracks)
 
         var proposals: [ProposedChange] = []
-        for track in scopedTracks {
+        for track in targetedTracks {
             try Task.checkCancellation()
             do {
                 let changes = try await runtime.determineChanges(

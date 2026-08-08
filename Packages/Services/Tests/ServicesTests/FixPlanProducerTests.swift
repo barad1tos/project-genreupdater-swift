@@ -96,7 +96,12 @@ struct FixPlanProducerTests {
 
         #expect(production.proposalCount == 1)
         #expect(await spy.refreshInputs() == [["HIT"]])
-        #expect(await spy.determinationCalls().map(\.trackID) == ["HIT"])
+        let calls = await spy.determinationCalls()
+        #expect(calls.map(\.trackID) == ["HIT"])
+        // Full-scope artist context: the artist's OTHER album still
+        // informs dominant-genre determination, so a targeted preview
+        // proposes the same metadata a whole-scope one would.
+        #expect(calls[0].artistTrackIDs == ["HIT", "MISS"])
     }
 
     @Test("an album target outside the scope plans nothing")

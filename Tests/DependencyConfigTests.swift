@@ -234,6 +234,32 @@ struct DependencyConfigTests {
         #expect(staleProjection.stalenessReasons == [.configurationChanged])
     }
 
+    @Test("An album-targeted fix plan stays fresh under an unchanged configuration")
+    func targetedPlanStaysFresh() async throws {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // This test reads a stored fix plan without mutating app configuration.
+            }
+        )
+        // The target is the plan's identity, not a live setting: staleness
+        // must not flag it as configuration drift.
+        let plan = try #require(makeStoredFixPlan(configuration: dependencies.capturePreviewConfig(
+            at: Date(timeIntervalSince1970: 1_800_000_100),
+            hasDiscogsAccess: true,
+            albumTarget: FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant")
+        )))
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
+        dependencies.configureLibraryPersistenceForTesting(
+            fixPlanStore: StoredFixPlanStore(plan: plan, decision: decision)
+        )
+
+        let projection = await dependencies.refreshFixPlanProjection()
+
+        #expect(projection.status == .ready)
+        #expect(projection.stalenessReasons.isEmpty)
+    }
+
     @Test("Missing fix plan store keeps projection empty")
     func emptyFixPlanWithoutStore() async {
         let dependencies = AppDependencies(
