@@ -146,6 +146,7 @@ struct FixPlanCommands {
         case .continueWrites,
              .dismissRecoveryItem,
              .dismissRecoveryItems,
+             .requestAlbumPreview,
              .reviewChanges,
              .resumeRecovery,
              .runManually:
@@ -190,6 +191,7 @@ struct FixPlanCommands {
              .continueWrites,
              .dismissRecoveryItem,
              .dismissRecoveryItems,
+             .requestAlbumPreview,
              .reviewChanges,
              .resumeRecovery,
              .runManually:

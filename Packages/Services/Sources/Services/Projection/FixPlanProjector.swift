@@ -71,7 +71,10 @@ public enum FixPlanProjector {
         return Int((Double(total) / Double(items.count)).rounded())
     }
 
-    private static func hasWriteID(_ id: String?) -> Bool {
+    /// The single write-ID rule: a non-blank AppleScript ID. Browse
+    /// writable counts consume the same predicate so the two surfaces
+    /// can never disagree on a safety fact.
+    static func hasWriteID(_ id: String?) -> Bool {
         id?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 }

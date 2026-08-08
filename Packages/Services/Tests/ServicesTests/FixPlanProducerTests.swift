@@ -48,6 +48,34 @@ struct FixPlanProducerTests {
         #expect(await spy.savedPlans().isEmpty)
     }
 
+    @Test("a testArtists snapshot with an empty list plans nothing")
+    func degenerateScopeFailsClosed() async throws {
+        // capture() cannot produce this shape; a decoded or hand-built
+        // snapshot can. ArtistAllowList.filter's empty-list arm would
+        // widen the plan to the whole library — the producer must fail
+        // closed instead.
+        let spy = FixPlanProducerSpy(tracks: [track("ANY", artist: "Anyone")])
+        let degenerateScope = ProcessingScopeSnapshot(
+            createdAt: Date(timeIntervalSince1970: 100),
+            source: .testArtists,
+            normalizedTestArtists: [],
+            matchingRule: "Core.ArtistAllowList.effectiveArtist.localizedCaseInsensitiveCompare",
+            knownTrackCount: 1,
+            fingerprint: "degenerate",
+            reason: "unit-test"
+        )
+
+        let production = try await makeProducer(spy).producePlan(
+            sourceRunID: sourceRunID,
+            scope: degenerateScope,
+            configuration: configuration()
+        )
+
+        #expect(production == .empty)
+        #expect(await spy.eventLog().isEmpty)
+        #expect(await spy.savedPlans().isEmpty)
+    }
+
     @Test("write identity refresh failure stops plan production")
     func propagatesRefreshFailure() async {
         let spy = FixPlanProducerSpy(tracks: [track("TRACK")], refreshFails: true)

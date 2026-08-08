@@ -41,6 +41,9 @@ struct ActivityCommands {
              .dismissRecoveryItems:
             // The recovery surface constructs dismissal commands directly.
             return nil
+        case .requestAlbumPreview:
+            // Browse constructs preview commands with their target directly.
+            return nil
         case .runManually:
             return .runManually()
         }
@@ -85,6 +88,9 @@ struct ActivityCommands {
         case .dismissRecoveryItem,
              .dismissRecoveryItems:
             return await handleDismissal(command)
+        case .requestAlbumPreview:
+            // Defensive only: Activity descriptors never construct browse commands.
+            return await unavailableBrowseCommand(command)
         case .runManually:
             return await handleRunManually()
         }
@@ -322,6 +328,22 @@ struct ActivityCommands {
         )
     }
 
+    private func unavailableBrowseCommand(_ command: UserIntentCommand) async -> UserCommandResult {
+        let projection = await refreshActivityProjection()
+        return .rejectedInvalid(
+            message: "Browse action is unavailable from Activity.",
+            issue: OperationalIssue(
+                id: "browse-command-unavailable",
+                // Reaching this arm is a programmer error (Activity never
+                // constructs browse commands), not staleness.
+                category: .internalFailure,
+                summary: "Browse action unavailable",
+                technicalDetail: command.kind.rawValue
+            ),
+            refreshedActivityProjection: projection
+        )
+    }
+
     private func recoveryRunID(from issue: OperationalIssue) -> RunID? {
         guard let rawID = issue.technicalDetail,
               let uuid = UUID(uuidString: rawID)
@@ -498,6 +520,7 @@ struct ActivityCommands {
                  .recoveryRequired,
                  .safetyBlocked,
                  .staleAction,
+                 .outOfScope,
                  .internalFailure,
                  .automationPermissionRequired,
                  .applicationScriptsUnavailable,

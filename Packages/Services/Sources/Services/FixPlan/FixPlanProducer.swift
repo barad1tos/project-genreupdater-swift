@@ -104,7 +104,13 @@ public struct FixPlanProducer: Sendable {
         case .fullLibrary:
             tracks
         case .testArtists:
-            ArtistAllowList.filter(tracks, allowedArtists: scope.normalizedTestArtists)
+            // A .testArtists snapshot with an empty normalized list cannot
+            // come from capture(); a decoded or hand-built one must fail
+            // CLOSED — ArtistAllowList.filter's empty-list arm would widen
+            // the plan to the whole library on the write path.
+            scope.normalizedTestArtists.isEmpty
+                ? []
+                : ArtistAllowList.filter(tracks, allowedArtists: scope.normalizedTestArtists)
         }
     }
 

@@ -29,6 +29,7 @@ extension AppDependencies {
              .dismissRecoveryItem,
              .dismissRecoveryItems,
              .rejectFixPlan,
+             .requestAlbumPreview,
              .reviewChanges,
              .togglePlanItem:
             log.error("Chrome menu received unsupported command kind \(kind.rawValue, privacy: .public)")
