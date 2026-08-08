@@ -91,7 +91,7 @@ extension AppDependencies {
     /// The whole-Music.app count (never the scoped mirror): probed via
     /// MusicKit only when authorization already exists, so the probe can
     /// never prompt.
-    private func probedPhysicalTrackCount() async -> Int? {
+    func probedPhysicalTrackCount() async -> Int? {
         guard let musicReader, await musicReader.isAuthorized else { return nil }
         do {
             return try await musicReader.trackCount()

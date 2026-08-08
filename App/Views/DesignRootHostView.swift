@@ -25,13 +25,18 @@ struct DesignRootHostView: View {
     @State private var workflowViewModel: WorkflowViewModel?
     @State private var updateScopeTracks: [Core.Track]?
     @State private var workflowNoticeMessage: String?
-    @State private var selectedBrowseAlbum: (album: DesignUI.Album, artist: String)?
     @State private var selectedRoute: Route? = .activity
     @State private var activityProjection: ActivityProjection = .empty()
     @State private var queuedWriteSummary: ActivityQueuedWriteSummary?
     @State private var reportsProjection: ReportsProjection = .empty()
     @State private var fixPlanProjection: FixPlanProjection = .empty()
     @State private var chromeProjection: ChromeProjection = .empty()
+    @State private var browseProjection: BrowseProjection = .empty()
+    @State private var browseDesignArtists: [DesignUI.Artist] = []
+    @State private var browseDesignScope: DesignBrowseScope?
+    @State private var browseRowIndex: [String: [BrowseTrackRow]] = [:]
+    @State private var browseReadSource: BrowseReadSource = .cachedMirror(scannedAt: nil)
+    @State private var browseNoticeMessage: String?
     @State private var selectedRunReport: RunReportDetailSnapshot?
     @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
@@ -61,8 +66,9 @@ struct DesignRootHostView: View {
             setTestArtistsAction: setTestArtists,
             setAppearanceModeAction: setAppearanceMode,
             setFastAnimationsAction: setFastAnimationsEnabled,
-            browseAlbumUpdateAction: prepareAlbumUpdate,
-            browseAlbumSelectionAction: setSelectedBrowseAlbum,
+            browseTrackRows: browseRows(for:),
+            browseAlbumPreviewAction: performAlbumPreview(albumID:),
+            browseNotice: browseNoticeMessage,
             reportRunSelectionAction: selectRunReport,
             recoveryDetailActions: RecoveryDetailActions(
                 applyRemainingFixes: applyRemainingFixes,
@@ -82,6 +88,7 @@ struct DesignRootHostView: View {
         .task { await observeFixPlanUpdates() }
         .task { await observeRunLifecycleUpdates() }
         .task { await observeChromeUpdates() }
+        .task { await observeBrowseUpdates() }
         .onChange(of: dependencies.config.processing.defaultUpdateBehavior) {
             applyWorkflowDefaults()
             scheduleActivityProjectionRefresh()
@@ -113,9 +120,6 @@ struct DesignRootHostView: View {
         .onChange(of: workflowViewModel?.pendingVerificationReportSummary) {
             scheduleActivityProjectionRefresh()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .updateSelectedTracks)) { _ in
-            prepareSelectedTracksUpdate()
-        }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToUpdate)) { _ in
             prepareDefaultUpdateForReview()
         }
@@ -129,13 +133,106 @@ struct DesignRootHostView: View {
             reportsProjection: reportsProjection,
             selectedRunReport: selectedRunReport,
             activityNotice: activityCommandNoticeMessage,
-            chrome: ActivitySnapshotAdapter.makeChrome(from: chromeProjection)
+            chrome: ActivitySnapshotAdapter.makeChrome(from: chromeProjection),
+            browse: ActivitySnapshotAdapter.BrowseSnapshotInput(
+                artists: browseDesignArtists,
+                scope: browseDesignScope
+            )
         )
     }
 
     private func observeChromeUpdates() async {
         for await projection in await dependencies.projectionStore.chromeUpdates() {
             chromeProjection = projection
+        }
+    }
+
+    private func observeBrowseUpdates() async {
+        for await projection in await dependencies.projectionStore.browseUpdates() {
+            applyBrowseProjection(projection)
+        }
+    }
+
+    /// Maps once per publish, never per body evaluation: makeSnapshot is
+    /// a computed property and browse nodes number in the thousands.
+    private func applyBrowseProjection(_ projection: BrowseProjection) {
+        guard projection.revision > browseProjection.revision || browseDesignArtists.isEmpty else { return }
+        browseProjection = projection
+        browseDesignArtists = ActivitySnapshotAdapter.makeBrowseArtists(from: projection)
+        browseDesignScope = ActivitySnapshotAdapter.makeBrowseScope(from: projection)
+    }
+
+    private func browseRows(for albumID: String) -> [DesignBrowseTrackRow] {
+        ActivitySnapshotAdapter.makeBrowseRows(browseRowIndex[albumID] ?? [])
+    }
+
+    /// Publishes browse truth for one load. The generation is claimed
+    /// BEFORE the input's awaits (facts are already snapshotted in the
+    /// argument), the load guard re-checks after every await, and the
+    /// row index only pairs with a projection this input actually
+    /// produced — a losing publish keeps the winner's rows.
+    private func refreshBrowseTruth(
+        _ loadedTracks: [Core.Track],
+        readSource: BrowseReadSource,
+        requestID: UUID?
+    ) async {
+        browseReadSource = readSource
+        let generation = await dependencies.claimBrowseInputGeneration()
+        let input = await dependencies.makeBrowseInput(tracks: loadedTracks, readSource: readSource)
+        if let requestID {
+            guard isCurrentLibraryLoad(requestID) else { return }
+        }
+        let built = BrowseBuilder.makeProjection(input: input)
+        let published = await dependencies.publishBrowseProjection(built, inputGeneration: generation)
+        if let requestID {
+            guard isCurrentLibraryLoad(requestID) else { return }
+        }
+        applyBrowseProjection(published)
+        if browseContentMatches(published, built: built) {
+            browseRowIndex = BrowseBuilder.makeTrackRowIndex(input: input)
+        }
+    }
+
+    /// Whether the stored projection is the one this input produced —
+    /// everything but the store-owned revision.
+    private func browseContentMatches(_ published: BrowseProjection, built: BrowseProjection) -> Bool {
+        published.artists == built.artists
+            && published.scope == built.scope
+            && published.physicalTrackCount == built.physicalTrackCount
+            && published.readSource == built.readSource
+            && published.operationalIssues == built.operationalIssues
+    }
+
+    /// Dispatches the typed preview command for one album. Revalidation
+    /// happens in BrowseCommands against the CURRENT store truth; the
+    /// target carries what the user was looking at (ADR 0011).
+    private func performAlbumPreview(albumID: String) {
+        let target = BrowseCommandTarget(
+            albumID: albumID,
+            projectionRevision: browseProjection.revision,
+            scopeSnapshotID: browseProjection.scope?.snapshotID ?? UUID()
+        )
+        let commands = dependencies.makeBrowseCommands {
+            await refreshBrowseTruth(tracks, readSource: browseReadSource, requestID: nil)
+        }
+        browseNoticeMessage = nil
+        Task { @MainActor in
+            let status = await commands.performAlbumPreview(target: target)
+            switch status {
+            case .accepted, .queued, .alreadyCovered:
+                // The produced plan lands on the Update surface through
+                // the existing lifecycle observer chain.
+                selectedRoute = .update
+            case .noOp,
+                 .rejectedStale,
+                 .rejectedInvalid,
+                 .requiresAttention,
+                 .blockedByRecovery,
+                 .blockedByPermission,
+                 .temporaryUnavailable,
+                 .navigated:
+                browseNoticeMessage = BrowseCommands.noticeCopy(for: status)
+            }
         }
     }
 
@@ -378,38 +475,6 @@ struct DesignRootHostView: View {
         }
     }
 
-    private func prepareAlbumUpdate(album: DesignUI.Album, artist: String) {
-        let selectedTracks = tracksForAlbumUpdate(album: album, artist: artist)
-        let updateSelection = configuredUpdateSelection
-        configureSelectedUpdateScope(
-            SelectedUpdateScopeConfiguration(
-                tracks: selectedTracks,
-                updateGenre: updateSelection.updateGenre,
-                updateYear: updateSelection.updateYear,
-                previewOnly: configuredPreviewOnly
-            )
-        )
-    }
-
-    private func prepareSelectedTracksUpdate() {
-        guard let selectedBrowseAlbum else {
-            ensureWorkflowViewModel()
-            selectedRoute = .update
-            workflowNoticeMessage = "Select an album in Browse before using Update Selected Tracks."
-            return
-        }
-
-        prepareAlbumUpdate(album: selectedBrowseAlbum.album, artist: selectedBrowseAlbum.artist)
-    }
-
-    private func setSelectedBrowseAlbum(album: DesignUI.Album?, artist: String?) {
-        if let album, let artist {
-            selectedBrowseAlbum = (album, artist)
-        } else {
-            selectedBrowseAlbum = nil
-        }
-    }
-
     private func selectRunReport(_ runID: String?) {
         if runID != selectedRunReport?.runID {
             clearReportNotice()
@@ -427,45 +492,6 @@ struct DesignRootHostView: View {
         }
     }
 
-    private func configureSelectedUpdateScope(_ configuration: SelectedUpdateScopeConfiguration) {
-        selectedRoute = .update
-        ensureWorkflowViewModel()
-        guard let workflowViewModel else {
-            updateScopeTracks = configuration.tracks
-            workflowNoticeMessage = "Update services are still initializing. Please wait."
-            return
-        }
-
-        guard workflowViewModel.canStart else {
-            workflowNoticeMessage = "Finish or reset the current update before starting a new Browse selection."
-            return
-        }
-
-        let scopedTracks = UpdateTrackScopeResolver.tracksForWorkflow(
-            libraryTracks: tracks,
-            selectedScopeTracks: configuration.tracks,
-            mode: .selectedTracks,
-            testArtists: dependencies.config.development.testArtists
-        )
-        updateScopeTracks = scopedTracks
-        workflowViewModel.configureSelectedTracksScope(
-            tracks: scopedTracks,
-            updateGenre: configuration.updateGenre,
-            updateYear: configuration.updateYear,
-            previewOnly: configuration.previewOnly
-        )
-        workflowNoticeMessage = scopedTracks.isEmpty
-            ? "No tracks matched this album in the current library scope."
-            : nil
-    }
-
-    private func tracksForAlbumUpdate(album: DesignUI.Album, artist: String) -> [Core.Track] {
-        let albumKeys = Set(AlbumIdentity.lookupKeys(artist: artist, album: album.name))
-        return tracks.filter { track in
-            !Set(AlbumIdentity.lookupKeys(for: track)).isDisjoint(with: albumKeys)
-        }
-    }
-
     private func reconcileUpdateScope(with loadedTracks: [Core.Track]) {
         updateScopeTracks = UpdateTrackScopeResolver.reconciledSelectedScope(
             currentScopeTracks: updateScopeTracks,
@@ -478,13 +504,24 @@ struct DesignRootHostView: View {
     }
 
     private func handleTestArtistScopeChange() {
+        // Invalidate in-flight loads SYNCHRONOUSLY: their facts were
+        // snapshotted under the old scope, and a late-starting refresh
+        // would otherwise out-claim the emptied truth published below.
+        libraryLoadRequestID = UUID()
+        // The config change has already persisted (onChange fires after
+        // commit) — browse truth empties in BOTH branches so the surface
+        // never renders the previous scope, even while a run refuses the
+        // reload.
+        emptyBrowseTruthForScopeChange()
+
         guard workflowViewModel?.canStart ?? true else {
-            workflowNoticeMessage = "Finish or reset the current update before changing the test artist scope."
+            workflowNoticeMessage = "Finish or reset the current update before reloading the new test artist scope."
             return
         }
 
         updateScopeTracks = nil
         workflowNoticeMessage = nil
+        browseNoticeMessage = nil
         tracks = []
         metricsSnapshot = nil
         lastScanDate = nil
@@ -494,6 +531,12 @@ struct DesignRootHostView: View {
         Task { @MainActor in
             await refreshActivityProjection()
             await loadLibrary(forceRefresh: true)
+        }
+    }
+
+    private func emptyBrowseTruthForScopeChange() {
+        Task { @MainActor in
+            await refreshBrowseTruth([], readSource: browseReadSource, requestID: nil)
         }
     }
 
@@ -592,6 +635,7 @@ struct DesignRootHostView: View {
 
         guard isCurrentLibraryLoad(requestID) else { return false }
         tracks = cachedLoad.tracks
+        await refreshBrowseTruth(cachedLoad.tracks, readSource: .cachedMirror(scannedAt: nil), requestID: requestID)
         reconcileUpdateScope(with: cachedLoad.tracks)
         await recordLibraryLoad(source: "snapshot", count: cachedLoad.tracks.count, startedAt: loadStart)
         return cachedLoad.hasTracks
@@ -608,6 +652,11 @@ struct DesignRootHostView: View {
         tracks = liveLoad.tracks
         await dependencies.persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)
         guard isCurrentLibraryLoad(requestID) else { return }
+        await refreshBrowseTruth(
+            liveLoad.tracks,
+            readSource: .liveLibrary(scannedAt: liveLoad.scanDate),
+            requestID: requestID
+        )
         reconcileUpdateScope(with: liveLoad.tracks)
         lastScanDate = liveLoad.scanDate
         metricsSnapshot = upsertDashboardMetricsSnapshot(from: liveLoad.tracks, in: modelContext)

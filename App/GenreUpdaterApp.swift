@@ -62,18 +62,6 @@ struct GenreUpdaterApp: App {
                 }
             }
 
-            CommandMenu("Update") {
-                // Navigation-only intent: the handler routes to the Update
-                // surface and validates the browse selection there.
-                Button("Update Selected Tracks") {
-                    NotificationCenter.default.post(
-                        name: .updateSelectedTracks,
-                        object: nil
-                    )
-                }
-                .keyboardShortcut("u", modifiers: .command)
-            }
-
             NavigationCommands()
         }
         Settings {
@@ -179,9 +167,6 @@ struct ErrorView: View {
 // MARK: - Notification Names
 
 extension Notification.Name {
-    /// Posted by the Update menu command (Cmd+U) to navigate to the Update screen.
-    static let updateSelectedTracks = Notification.Name("GenreUpdater.updateSelectedTracks")
-
     /// Posted by Reports empty state to navigate to the Update screen.
     static let navigateToUpdate = Notification.Name("GenreUpdater.navigateToUpdate")
 }
