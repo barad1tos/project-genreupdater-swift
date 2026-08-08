@@ -69,10 +69,10 @@ extension AppDependencies {
                 )
             },
             queueManualReload: { _ in
-                // Host-owned load chain (D5); nothing to queue headless.
+                // Deliberate no-op until slice 12 owns reload policy.
             },
             reloadLibrary: { _ in
-                // Host-owned load chain (D5).
+                // Deliberate no-op until slice 12 owns reload policy.
             },
             refreshActivityProjection: { [weak self] in
                 await self?.republishActivityProjection() ?? .empty()
