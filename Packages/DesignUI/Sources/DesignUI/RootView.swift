@@ -123,7 +123,8 @@ public struct RootView<UpdateContent: View>: View {
         case .reports: ReportsView(
                 model: model,
                 runSelectionAction: reportRunSelectionAction,
-                recoveryActions: recoveryDetailActions
+                recoveryActions: recoveryDetailActions,
+                reportNotice: reportNotice
             )
         case .update: updateContent()
         case .settings:

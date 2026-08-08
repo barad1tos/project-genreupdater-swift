@@ -22,7 +22,10 @@ struct ReportsView: View {
     @Bindable var model: AppModel
     var runSelectionAction: ((String?) -> Void)?
     var recoveryActions: RecoveryDetailActions?
-    var reportNotice: ReportNotice?
+    /// Required (no default): RootView once dropped this argument and the
+    /// notice chain died silently at the render boundary — a `let`
+    /// without a default makes that omission a compile error.
+    let reportNotice: ReportNotice?
     private static let dismissalReasons = ["Duplicate", "Handled manually", "Not wanted"]
     private let cols = [GridItem(.adaptive(minimum: 260), spacing: 14)]
 
