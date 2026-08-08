@@ -424,8 +424,8 @@ struct DesignRootHostView: View {
     /// provider; a dead VM (closed window) reads as honest idle (A8).
     /// Legacy VM runs emit no lifecycle boundaries, so a reload queued
     /// during one (refused scope change) advances HERE when the VM
-    /// leaves processing — the orchestrator-run path advances through
-    /// observeRunLifecycleUpdates as before.
+    /// leaves processing — the orchestrator-run path advances in the
+    /// backend observer (publishLifecycleBoundary).
     private func advanceQueuedReloadAfterWorkflowRun() {
         guard dependencies.queuedManualReload == .waitingForQueued,
               workflowDashboardState.isProcessing == false,

@@ -223,6 +223,19 @@ struct ChromeProjectionAppTests {
         #expect(input.automation.isIncrementalDue == false)
     }
 
+    @Test("a zero interval clamps to the scheduler's one-minute floor")
+    func zeroIntervalClampsToSchedulerFloor() async {
+        let dependencies = makeChromeTestDependencies()
+        dependencies.config.runtime.incrementalIntervalMinutes = 0
+        dependencies.lastIncrementalRunTimestamp = Date(timeIntervalSinceNow: -30)
+
+        let input = await dependencies.makeChromeInput()
+
+        // Thirty seconds after the last run: an unclamped zero interval
+        // would read due while the scheduler still waits at its floor.
+        #expect(input.automation.isIncrementalDue == false)
+    }
+
     private func makeChromeTestDependencies() -> AppDependencies {
         AppDependencies(
             configurationLoader: { AppConfiguration() },
