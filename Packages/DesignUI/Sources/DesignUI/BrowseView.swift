@@ -6,14 +6,16 @@ struct BrowseView: View {
     var trackRows: ((Album.ID) -> [DesignBrowseTrackRow])?
     /// Dispatches the typed preview command for one album id.
     var albumPreviewAction: ((Album.ID) -> Void)?
+    /// Outcome copy for the last preview dispatch; nil when quiet.
+    var notice: String?
     @SceneStorage("DesignUI.BrowseView.availableWidth") private var storedAvailableWidth = 0.0
     @State private var query = ""
     @State private var selection: Album.ID?
 
     private let listWidthShare: CGFloat = 0.42
 
-    private func matches(_ album: Album) -> Bool {
-        switch model.browseFilter {
+    private static func matches(_ album: Album, filter: BrowseFilter) -> Bool {
+        switch filter {
         case .all: true
         case .missingGenre: album.genre == nil
         case .missingYear: album.year == nil
@@ -21,9 +23,15 @@ struct BrowseView: View {
     }
 
     private var artists: [Artist] {
-        model.data.artists.compactMap { artist in
-            let albums = artist.albums.filter {
-                matches($0) && (query.isEmpty || artist.name.localizedCaseInsensitiveContains(query))
+        Self.filterArtists(model.data.artists, filter: model.browseFilter, query: query)
+    }
+
+    /// Pure so the triage filter is pinnable: albums by fact filter,
+    /// artists by name search, empty artists dropped.
+    static func filterArtists(_ artists: [Artist], filter: BrowseFilter, query: String) -> [Artist] {
+        artists.compactMap { artist in
+            let albums = artist.albums.filter { album in
+                matches(album, filter: filter) && (query.isEmpty || artist.name.localizedCaseInsensitiveContains(query))
             }
             return albums.isEmpty ? nil : Artist(
                 id: artist.id,
@@ -40,7 +48,9 @@ struct BrowseView: View {
     }
 
     private var selectedAlbum: Album? {
-        for artist in model.data.artists {
+        // Resolve against the FILTERED list: the detail pane must never
+        // show an album the list has filtered away.
+        for artist in artists {
             if let album = artist.albums.first(where: { $0.id == selection }) {
                 return album
             }
@@ -100,6 +110,16 @@ struct BrowseView: View {
 
     private func artistList(width: CGFloat) -> some View {
         VStack(spacing: 0) {
+            if let notice {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle").font(.system(size: 11))
+                    Text(notice).font(.system(size: 11.5)).lineLimit(2)
+                    Spacer()
+                }
+                .foregroundStyle(Ayu.warning)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
             if let scope = model.data.browseScope, scope.isNarrowed {
                 HStack(spacing: 6) {
                     Image(systemName: "scope").font(.system(size: 11))

@@ -116,6 +116,14 @@ enum ActivitySnapshotAdapter {
         }
     }
 
+    /// Browse pass-through grouped below the parameter ceiling.
+    struct BrowseSnapshotInput {
+        let artists: [DesignUI.Artist]
+        let scope: DesignBrowseScope?
+
+        static let empty = Self(artists: [], scope: nil)
+    }
+
     static func makeSnapshot(
         from input: DesignActivitySnapshotInput,
         activityProjection: ActivityProjection,
@@ -123,8 +131,7 @@ enum ActivitySnapshotAdapter {
         selectedRunReport: RunReportDetailSnapshot? = nil,
         activityNotice: String? = nil,
         chrome: DesignChromeSnapshot = .preview,
-        browseArtists: [DesignUI.Artist] = [],
-        browseScope: DesignBrowseScope? = nil
+        browse: BrowseSnapshotInput = .empty
     ) -> DesignDataSnapshot {
         let dashboard = makeDashboardSnapshot(from: input)
         let reportEntries = makeReportEntries(from: input.changeLogEntries)
@@ -140,8 +147,8 @@ enum ActivitySnapshotAdapter {
             issues: makeIssues(from: dashboard, input: input),
             metrics: makeMetricTiles(from: dashboard, input: input),
             activity: ActivityDesignAdapter.makeActivityItems(from: activityProjection),
-            artists: browseArtists,
-            browseScope: browseScope,
+            artists: browse.artists,
+            browseScope: browse.scope,
             // Change rows arrive with the reports lineage work, not browse.
             changes: [],
             dryRun: DryRunSummary(

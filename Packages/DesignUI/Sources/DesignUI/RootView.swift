@@ -17,6 +17,7 @@ public struct RootView<UpdateContent: View>: View {
     private let setFastAnimationsAction: ((Bool) -> Bool)?
     private let browseTrackRows: ((Album.ID) -> [DesignBrowseTrackRow])?
     private let browseAlbumPreviewAction: ((Album.ID) -> Void)?
+    private let browseNotice: String?
     private let reportRunSelectionAction: ((String?) -> Void)?
     private let recoveryDetailActions: RecoveryDetailActions?
     private let reportNotice: ReportNotice?
@@ -37,6 +38,7 @@ public struct RootView<UpdateContent: View>: View {
         setFastAnimationsAction: ((Bool) -> Bool)? = nil,
         browseTrackRows: ((Album.ID) -> [DesignBrowseTrackRow])? = nil,
         browseAlbumPreviewAction: ((Album.ID) -> Void)? = nil,
+        browseNotice: String? = nil,
         reportRunSelectionAction: ((String?) -> Void)? = nil,
         recoveryDetailActions: RecoveryDetailActions? = nil,
         reportNotice: ReportNotice? = nil,
@@ -55,6 +57,7 @@ public struct RootView<UpdateContent: View>: View {
         self.setFastAnimationsAction = setFastAnimationsAction
         self.browseTrackRows = browseTrackRows
         self.browseAlbumPreviewAction = browseAlbumPreviewAction
+        self.browseNotice = browseNotice
         self.reportRunSelectionAction = reportRunSelectionAction
         self.recoveryDetailActions = recoveryDetailActions
         self.reportNotice = reportNotice
@@ -114,7 +117,8 @@ public struct RootView<UpdateContent: View>: View {
             BrowseView(
                 model: model,
                 trackRows: browseTrackRows,
-                albumPreviewAction: browseAlbumPreviewAction
+                albumPreviewAction: browseAlbumPreviewAction,
+                notice: browseNotice
             )
         case .reports: ReportsView(
                 model: model,

@@ -80,6 +80,19 @@ struct BrowseBuilderGroupingTests {
         #expect(artist.albums.count == 2)
     }
 
+    @Test("a The-prefixed spelling groups separately by design")
+    func thePrefixSplitsByDesign() {
+        // Canonical grouping is trim+lowercase only: "The Beatles" and
+        // "Beatles" are different artists to scope matching, so browse
+        // must not merge them either (analysis S6).
+        let projection = BrowseBuilder.makeProjection(input: makeInput(tracks: [
+            makeTrack(artist: "The Beatles", album: "Abbey Road"),
+            makeTrack(artist: "Beatles", album: "Revolver"),
+        ]))
+
+        #expect(projection.artists.count == 2)
+    }
+
     @Test("the album id is the normalized AlbumIdentity key")
     func albumIDIsIdentityKey() {
         let projection = BrowseBuilder.makeProjection(input: makeInput(tracks: [

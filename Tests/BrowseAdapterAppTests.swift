@@ -174,6 +174,24 @@ struct BrowseHostPublishTests {
         #expect(recaptured.normalizedTestArtists == ["Clutch", "Anthrax"])
     }
 
+    @Test("noise variants hold the snapshot; reorder recaptures")
+    func scopeSnapshotCacheKeyVariants() {
+        let dependencies = makeDependencies()
+        let first = dependencies.currentBrowseScopeSnapshot()
+
+        // A case-duplicate normalizes away — same membership, same snapshot.
+        dependencies.config.development.testArtists = ["Clutch", "clutch"]
+        #expect(dependencies.currentBrowseScopeSnapshot().id == first.id)
+
+        // Reorder changes the normalized list (order is preserved), so the
+        // snapshot recaptures — detail labels join in order.
+        dependencies.config.development.testArtists = ["Anthrax", "Clutch"]
+        dependencies.config.development.testArtists = ["Clutch", "Anthrax"]
+        let reordered = dependencies.currentBrowseScopeSnapshot()
+        dependencies.config.development.testArtists = ["Anthrax", "Clutch"]
+        #expect(dependencies.currentBrowseScopeSnapshot().id != reordered.id)
+    }
+
     @Test("publishing identical browse input keeps the revision")
     func identicalPublishDedups() async {
         let dependencies = makeDependencies()
@@ -183,15 +201,123 @@ struct BrowseHostPublishTests {
             tracks: [track],
             readSource: .cachedMirror(scannedAt: nil)
         )
-        let first = await dependencies.publishBrowseProjection(input: firstInput)
+        let firstGeneration = await dependencies.claimBrowseInputGeneration()
+        let first = await dependencies.publishBrowseProjection(input: firstInput, inputGeneration: firstGeneration)
         let secondInput = await dependencies.makeBrowseInput(
             tracks: [track],
             readSource: .cachedMirror(scannedAt: nil)
         )
-        let second = await dependencies.publishBrowseProjection(input: secondInput)
+        let secondGeneration = await dependencies.claimBrowseInputGeneration()
+        let second = await dependencies.publishBrowseProjection(input: secondInput, inputGeneration: secondGeneration)
 
         #expect(first.artists.count == 1)
         #expect(second.revision == first.revision)
         #expect(await dependencies.projectionStore.currentBrowse() == second)
+    }
+
+    @Test("an early-claimed older generation loses to a newer publish")
+    func staleClaimantLoses() async {
+        let dependencies = makeDependencies()
+        let olderGeneration = await dependencies.claimBrowseInputGeneration()
+        let newerGeneration = await dependencies.claimBrowseInputGeneration()
+
+        let newerInput = await dependencies.makeBrowseInput(
+            tracks: [Track(id: "new", name: "New", artist: "Clutch", album: "Newer")],
+            readSource: .cachedMirror(scannedAt: nil)
+        )
+        _ = await dependencies.publishBrowseProjection(input: newerInput, inputGeneration: newerGeneration)
+
+        let olderInput = await dependencies.makeBrowseInput(
+            tracks: [Track(id: "old", name: "Old", artist: "Clutch", album: "Older")],
+            readSource: .cachedMirror(scannedAt: nil)
+        )
+        let result = await dependencies.publishBrowseProjection(input: olderInput, inputGeneration: olderGeneration)
+
+        // The slow older claimant is dropped even though it finished last.
+        #expect(result.artists.first?.albums.first?.title == "Newer")
+        #expect(await dependencies.projectionStore.currentBrowse().artists.first?.albums.first?.title == "Newer")
+    }
+
+    @Test("the browse commands factory routes into preview production only")
+    func factoryRoutesToPreview() async throws {
+        let dependencies = makeDependencies()
+        let recorder = ProducedTargetRecorder()
+        dependencies.installTrackCountSource { 1 }
+        dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            synchronizePreview: { _, _ in SyncResult() },
+            persistRunRecord: { _ in
+                // Persistence is outside this wiring pin.
+            },
+            produceFixPlan: { _, _, configuration in
+                recorder.record(configuration.albumTarget)
+                return .empty
+            }
+        )))
+
+        let input = await dependencies.makeBrowseInput(
+            tracks: [Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant", appleScriptID: "as-1")],
+            readSource: .cachedMirror(scannedAt: nil)
+        )
+        let generation = await dependencies.claimBrowseInputGeneration()
+        let published = await dependencies.publishBrowseProjection(input: input, inputGeneration: generation)
+        let album = try #require(published.artists.first?.albums.first)
+        let scopeID = try #require(published.scope?.snapshotID)
+
+        let commands = dependencies.makeBrowseCommands {
+            // Republish is host-owned; irrelevant to the routing pin.
+        }
+        let status = await commands.performAlbumPreview(target: BrowseCommandTarget(
+            albumID: album.id,
+            projectionRevision: published.revision,
+            scopeSnapshotID: scopeID
+        ))
+
+        // The dispatch reached fix-plan production — the preview-only
+        // seam — carrying the album target; no write seam exists here.
+        #expect(status == .noOp)
+        #expect(recorder.target == FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant"))
+    }
+
+    @Test("makeSnapshot carries browse truth through")
+    func makeSnapshotCarriesBrowse() {
+        let artist = DesignUI.Artist(id: "a", name: "Clutch", albums: [])
+        let scope = DesignBrowseScope(sourceLabel: "Test artists (1)", detailLabel: "Clutch", isNarrowed: true)
+
+        let snapshot = ActivitySnapshotAdapter.makeSnapshot(
+            from: DesignActivitySnapshotInput(
+                tracks: [],
+                metricsSnapshot: nil,
+                lastScanDate: nil,
+                isLoading: false,
+                loadError: nil,
+                isDryRun: true,
+                workflow: .empty,
+                pendingVerification: nil,
+                changeLogEntries: [],
+                isAutoSyncRunning: false,
+                runLifecycle: nil,
+                settings: .preview,
+                now: Date(timeIntervalSince1970: 100)
+            ),
+            activityProjection: .empty(),
+            browse: ActivitySnapshotAdapter.BrowseSnapshotInput(artists: [artist], scope: scope)
+        )
+
+        #expect(snapshot.artists == [artist])
+        #expect(snapshot.browseScope == scope)
+    }
+}
+
+private final class ProducedTargetRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: FixPlanAlbumTarget?
+
+    var target: FixPlanAlbumTarget? {
+        lock.withLock { value }
+    }
+
+    func record(_ target: FixPlanAlbumTarget?) {
+        lock.withLock { value = target }
     }
 }

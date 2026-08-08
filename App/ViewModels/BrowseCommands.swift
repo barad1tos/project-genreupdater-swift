@@ -78,3 +78,26 @@ struct BrowseCommands: Sendable {
         }
     }
 }
+
+extension BrowseCommands {
+    /// Casual copy for every non-success preview outcome — a mute
+    /// failure is a silent catch (ADR 0015).
+    static func noticeCopy(for status: CommandResultStatus) -> String {
+        switch status {
+        case .rejectedStale:
+            "Browse just refreshed — try the album again."
+        case .rejectedInvalid:
+            "This album is not available for preview right now."
+        case .blockedByRecovery:
+            "The previous run needs recovery before new previews."
+        case .blockedByPermission:
+            "Music access is required before previewing."
+        case .requiresAttention:
+            "The preview run failed. Check Activity for details."
+        case .temporaryUnavailable:
+            "Preview services are unavailable. Try again shortly."
+        case .noOp, .navigated, .accepted, .queued, .alreadyCovered:
+            "Nothing to preview for this album."
+        }
+    }
+}

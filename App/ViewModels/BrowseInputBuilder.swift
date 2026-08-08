@@ -40,13 +40,34 @@ extension AppDependencies {
         )
     }
 
-    /// Publishes browse truth built from an input. Snapshot before the
-    /// generation claim (the settings-slot precedent): an older claimant
-    /// must never carry fresher facts.
+    /// Claim the generation BEFORE the input's long awaits: the track
+    /// facts are already snapshotted in the caller's argument, so claim
+    /// order equals fact-snapshot order and a slow older refresh can
+    /// never out-claim a newer one.
+    func claimBrowseInputGeneration() async -> UInt64 {
+        await projectionStore.nextBrowseInputGeneration()
+    }
+
     @discardableResult
-    func publishBrowseProjection(input: BrowseInput) async -> BrowseProjection {
-        let projection = BrowseBuilder.makeProjection(input: input)
-        let generation = await projectionStore.nextBrowseInputGeneration()
-        return await projectionStore.replaceBrowseProjection(projection, inputGeneration: generation)
+    func publishBrowseProjection(input: BrowseInput, inputGeneration: UInt64) async -> BrowseProjection {
+        await projectionStore.replaceBrowseProjection(
+            BrowseBuilder.makeProjection(input: input),
+            inputGeneration: inputGeneration
+        )
+    }
+
+    /// The revalidating browse dispatcher with production wiring: reads
+    /// CURRENT store truth and submits through the preview-only path.
+    /// A factory so the wiring itself is pinnable (no browse action may
+    /// ever reach a write-capable submission).
+    func makeBrowseCommands(republish: @escaping @Sendable () async -> Void) -> BrowseCommands {
+        BrowseCommands(
+            currentBrowse: { [projectionStore] in await projectionStore.currentBrowse() },
+            submitAlbumPreview: { [weak self] target in
+                guard let self else { throw AppDependencyServiceError.runOrchestratorUnavailable }
+                return try await self.submitPreviewRun(albumTarget: target)
+            },
+            republishBrowse: republish
+        )
     }
 }

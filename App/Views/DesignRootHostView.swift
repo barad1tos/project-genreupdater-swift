@@ -36,6 +36,7 @@ struct DesignRootHostView: View {
     @State private var browseDesignScope: DesignBrowseScope?
     @State private var browseRowIndex: [String: [BrowseTrackRow]] = [:]
     @State private var browseReadSource: BrowseReadSource = .cachedMirror(scannedAt: nil)
+    @State private var browseNoticeMessage: String?
     @State private var selectedRunReport: RunReportDetailSnapshot?
     @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
@@ -67,6 +68,7 @@ struct DesignRootHostView: View {
             setFastAnimationsAction: setFastAnimationsEnabled,
             browseTrackRows: browseRows(for:),
             browseAlbumPreviewAction: performAlbumPreview(albumID:),
+            browseNotice: browseNoticeMessage,
             reportRunSelectionAction: selectRunReport,
             recoveryDetailActions: RecoveryDetailActions(
                 applyRemainingFixes: applyRemainingFixes,
@@ -132,8 +134,10 @@ struct DesignRootHostView: View {
             selectedRunReport: selectedRunReport,
             activityNotice: activityCommandNoticeMessage,
             chrome: ActivitySnapshotAdapter.makeChrome(from: chromeProjection),
-            browseArtists: browseDesignArtists,
-            browseScope: browseDesignScope
+            browse: ActivitySnapshotAdapter.BrowseSnapshotInput(
+                artists: browseDesignArtists,
+                scope: browseDesignScope
+            )
         )
     }
 
@@ -152,7 +156,7 @@ struct DesignRootHostView: View {
     /// Maps once per publish, never per body evaluation: makeSnapshot is
     /// a computed property and browse nodes number in the thousands.
     private func applyBrowseProjection(_ projection: BrowseProjection) {
-        guard projection.revision != browseProjection.revision || browseDesignArtists.isEmpty else { return }
+        guard projection.revision > browseProjection.revision || browseDesignArtists.isEmpty else { return }
         browseProjection = projection
         browseDesignArtists = ActivitySnapshotAdapter.makeBrowseArtists(from: projection)
         browseDesignScope = ActivitySnapshotAdapter.makeBrowseScope(from: projection)
@@ -162,12 +166,41 @@ struct DesignRootHostView: View {
         ActivitySnapshotAdapter.makeBrowseRows(browseRowIndex[albumID] ?? [])
     }
 
-    private func refreshBrowseTruth(_ loadedTracks: [Core.Track], readSource: BrowseReadSource) async {
+    /// Publishes browse truth for one load. The generation is claimed
+    /// BEFORE the input's awaits (facts are already snapshotted in the
+    /// argument), the load guard re-checks after every await, and the
+    /// row index only pairs with a projection this input actually
+    /// produced — a losing publish keeps the winner's rows.
+    private func refreshBrowseTruth(
+        _ loadedTracks: [Core.Track],
+        readSource: BrowseReadSource,
+        requestID: UUID?
+    ) async {
         browseReadSource = readSource
+        let generation = await dependencies.claimBrowseInputGeneration()
         let input = await dependencies.makeBrowseInput(tracks: loadedTracks, readSource: readSource)
-        let published = await dependencies.publishBrowseProjection(input: input)
+        if let requestID {
+            guard isCurrentLibraryLoad(requestID) else { return }
+        }
+        let published = await dependencies.publishBrowseProjection(input: input, inputGeneration: generation)
+        if let requestID {
+            guard isCurrentLibraryLoad(requestID) else { return }
+        }
         applyBrowseProjection(published)
-        browseRowIndex = BrowseBuilder.makeTrackRowIndex(input: input)
+        if browseContentMatches(published, input: input) {
+            browseRowIndex = BrowseBuilder.makeTrackRowIndex(input: input)
+        }
+    }
+
+    /// Whether the stored projection is the one this input produced —
+    /// everything but the store-owned revision.
+    private func browseContentMatches(_ published: BrowseProjection, input: BrowseInput) -> Bool {
+        let built = BrowseBuilder.makeProjection(input: input)
+        return published.artists == built.artists
+            && published.scope == built.scope
+            && published.physicalTrackCount == built.physicalTrackCount
+            && published.readSource == built.readSource
+            && published.operationalIssues == built.operationalIssues
     }
 
     /// Dispatches the typed preview command for one album. Revalidation
@@ -179,11 +212,10 @@ struct DesignRootHostView: View {
             projectionRevision: browseProjection.revision,
             scopeSnapshotID: browseProjection.scope?.snapshotID ?? UUID()
         )
-        let commands = BrowseCommands(
-            currentBrowse: { await dependencies.projectionStore.currentBrowse() },
-            submitAlbumPreview: { try await dependencies.submitPreviewRun(albumTarget: $0) },
-            republishBrowse: { await refreshBrowseTruth(tracks, readSource: browseReadSource) }
-        )
+        let commands = dependencies.makeBrowseCommands {
+            await refreshBrowseTruth(tracks, readSource: browseReadSource, requestID: nil)
+        }
+        browseNoticeMessage = nil
         Task { @MainActor in
             let status = await commands.performAlbumPreview(target: target)
             switch status {
@@ -199,9 +231,7 @@ struct DesignRootHostView: View {
                  .blockedByPermission,
                  .temporaryUnavailable,
                  .navigated:
-                // The republished projection carries the current truth;
-                // per-node disabled reasons explain refusals in place.
-                break
+                browseNoticeMessage = BrowseCommands.noticeCopy(for: status)
             }
         }
     }
@@ -481,6 +511,7 @@ struct DesignRootHostView: View {
 
         updateScopeTracks = nil
         workflowNoticeMessage = nil
+        browseNoticeMessage = nil
         tracks = []
         metricsSnapshot = nil
         lastScanDate = nil
@@ -488,6 +519,11 @@ struct DesignRootHostView: View {
         applyWorkflowDefaults()
 
         Task { @MainActor in
+            // Publish the emptied browse truth IMMEDIATELY: the scope
+            // cache invalidates on the changed artists, so a click on the
+            // old projection stale-rejects instead of passing revalidation
+            // against outdated truth — even if the reload below fails.
+            await refreshBrowseTruth([], readSource: browseReadSource, requestID: nil)
             await refreshActivityProjection()
             await loadLibrary(forceRefresh: true)
         }
@@ -588,7 +624,7 @@ struct DesignRootHostView: View {
 
         guard isCurrentLibraryLoad(requestID) else { return false }
         tracks = cachedLoad.tracks
-        await refreshBrowseTruth(cachedLoad.tracks, readSource: .cachedMirror(scannedAt: nil))
+        await refreshBrowseTruth(cachedLoad.tracks, readSource: .cachedMirror(scannedAt: nil), requestID: requestID)
         reconcileUpdateScope(with: cachedLoad.tracks)
         await recordLibraryLoad(source: "snapshot", count: cachedLoad.tracks.count, startedAt: loadStart)
         return cachedLoad.hasTracks
@@ -605,7 +641,11 @@ struct DesignRootHostView: View {
         tracks = liveLoad.tracks
         await dependencies.persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)
         guard isCurrentLibraryLoad(requestID) else { return }
-        await refreshBrowseTruth(liveLoad.tracks, readSource: .liveLibrary(scannedAt: liveLoad.scanDate))
+        await refreshBrowseTruth(
+            liveLoad.tracks,
+            readSource: .liveLibrary(scannedAt: liveLoad.scanDate),
+            requestID: requestID
+        )
         reconcileUpdateScope(with: liveLoad.tracks)
         lastScanDate = liveLoad.scanDate
         metricsSnapshot = upsertDashboardMetricsSnapshot(from: liveLoad.tracks, in: modelContext)
