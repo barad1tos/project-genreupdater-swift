@@ -13,7 +13,7 @@ struct DesignRootHostView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var tracks: [Core.Track] = []
-    @State private var metricsSnapshot: PersistedMetricsSnapshot?
+    @State private var metricsSnapshot: MetricsSnapshotValues?
     @State private var changeLogEntries: [Core.ChangeLogEntry] = []
     @State private var lastScanDate: Date?
     @State private var isLoading = false
@@ -516,7 +516,7 @@ struct DesignRootHostView: View {
         libraryLoadRequestID = requestID
         loadError = nil
         isLibraryReadyForUpdates = false
-        loadCachedMetrics()
+        await loadCachedMetrics()
         loadChangeLogEntries()
         await refreshReportsProjection()
         await dependencies.refreshAutoSyncStatus()
@@ -618,7 +618,7 @@ struct DesignRootHostView: View {
             requestID: requestID
         )
         lastScanDate = liveLoad.scanDate
-        metricsSnapshot = upsertDashboardMetricsSnapshot(from: liveLoad.tracks, in: modelContext)
+        metricsSnapshot = await dependencies.metricsSnapshotStore?.upsert(from: liveLoad.tracks)
         refreshWorkflowScopePreview()
         await recordLibraryLoad(source: "music", count: liveLoad.tracks.count, startedAt: loadStart)
     }
@@ -646,9 +646,8 @@ struct DesignRootHostView: View {
         libraryLoadRequestID == requestID
     }
 
-    private func loadCachedMetrics() {
-        let descriptor = FetchDescriptor<PersistedMetricsSnapshot>()
-        metricsSnapshot = try? modelContext.fetch(descriptor).first
+    private func loadCachedMetrics() async {
+        metricsSnapshot = await dependencies.metricsSnapshotStore?.loadLatest()
     }
 
     private func loadChangeLogEntries() {

@@ -268,7 +268,7 @@ struct ActivityDesignTests {
 
     private func makeInput(
         tracks: [Core.Track] = [],
-        metricsSnapshot: PersistedMetricsSnapshot? = nil,
+        metricsSnapshot: MetricsSnapshotValues? = nil,
         lastScanDate: Date? = nil,
         workflow: WorkflowDashboardState = .empty
     ) -> DesignActivitySnapshotInput {

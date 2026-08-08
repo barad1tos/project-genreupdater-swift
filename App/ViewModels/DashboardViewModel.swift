@@ -84,7 +84,7 @@ enum TrendDirection {
 
 /// Two-phase cached-first loading ViewModel with trend calculations.
 ///
-/// On launch, loads cached metrics from `PersistedMetricsSnapshot` for
+/// On launch, loads cached metrics from the metrics snapshot store for
 /// instant display, then refreshes from live MusicKit data. Computes
 /// trend direction by comparing current metrics to previous scan values.
 @Observable @MainActor
@@ -142,7 +142,7 @@ final class DashboardViewModel {
     /// If no snapshot exists (first launch), sets shimmer state.
     /// Otherwise builds metrics from the snapshot and loads previous
     /// scan values for trend calculation.
-    func loadCachedMetrics(from snapshot: PersistedMetricsSnapshot?) {
+    func loadCachedMetrics(from snapshot: MetricsSnapshotValues?) {
         guard let snapshot else {
             loadingState = .shimmer
             shimmerStartTime = Date()
@@ -239,7 +239,7 @@ final class DashboardViewModel {
     // swiftlint:disable:next function_parameter_count
     func refreshSnapshot(
         tracks: [Track],
-        metricsSnapshot: PersistedMetricsSnapshot? = nil,
+        metricsSnapshot: MetricsSnapshotValues? = nil,
         lastScanDate: Date?,
         isLoadingTracks: Bool,
         loadError: LibraryLoadError?,
@@ -253,7 +253,7 @@ final class DashboardViewModel {
         if tracks.isEmpty, isLoadingTracks, loadError == nil, let metricsSnapshot {
             loadCachedMetrics(from: metricsSnapshot)
             snapshot = LibraryDashboardSnapshot.make(
-                persistedMetrics: metricsSnapshot,
+                metrics: metricsSnapshot,
                 isLoading: isLoadingTracks,
                 loadError: loadError,
                 isDryRun: isDryRun,

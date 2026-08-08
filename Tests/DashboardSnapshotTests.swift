@@ -104,7 +104,7 @@ struct DashboardSnapshotTests {
 
     @Test("cached metrics keep protected-file coverage unknown when the cache cannot prove it")
     func cachedMetricsKeepProtectedFileCoverageUnknown() {
-        let cachedMetrics = PersistedMetricsSnapshot(
+        let cachedMetrics = MetricsSnapshotValues(
             totalTracks: 3,
             tracksWithGenre: 3,
             tracksWithYear: 3,
@@ -116,7 +116,7 @@ struct DashboardSnapshotTests {
         )
 
         let snapshot = LibraryDashboardSnapshot.make(
-            persistedMetrics: cachedMetrics,
+            metrics: cachedMetrics,
             isLoading: false,
             loadError: nil,
             isDryRun: true,
@@ -133,7 +133,7 @@ struct DashboardSnapshotTests {
 
     @Test("cached metrics use persisted protected-file count when present")
     func cachedMetricsUsePersistedProtectedFileCount() {
-        let cachedMetrics = PersistedMetricsSnapshot(
+        let cachedMetrics = MetricsSnapshotValues(
             totalTracks: 4,
             tracksWithGenre: 4,
             tracksWithYear: 4,
@@ -146,7 +146,7 @@ struct DashboardSnapshotTests {
         )
 
         let snapshot = LibraryDashboardSnapshot.make(
-            persistedMetrics: cachedMetrics,
+            metrics: cachedMetrics,
             isLoading: false,
             loadError: nil,
             isDryRun: true,
@@ -358,7 +358,7 @@ extension DashboardSnapshotTests {
     @Test("cached metrics refresh dashboard snapshot during warm loading")
     @MainActor
     func cachedMetricsRefreshDashboardSnapshotDuringWarmLoading() {
-        let cachedMetrics = PersistedMetricsSnapshot(
+        let cachedMetrics = MetricsSnapshotValues(
             totalTracks: 12,
             tracksWithGenre: 9,
             tracksWithYear: 10,
@@ -563,7 +563,7 @@ extension DashboardSnapshotTests {
     @Test("warm cached loading times out when live refresh stalls")
     @MainActor
     func warmCachedLoadingTimesOutWhenLiveRefreshStalls() async {
-        let cachedMetrics = PersistedMetricsSnapshot(
+        let cachedMetrics = MetricsSnapshotValues(
             totalTracks: 12,
             tracksWithGenre: 9,
             tracksWithYear: 10,
@@ -685,83 +685,5 @@ extension DashboardSnapshotTests {
         #expect(!GenreUtilities.hasPresentGenre(""))
         #expect(!GenreUtilities.hasPresentGenre(" \n\t "))
         #expect(GenreUtilities.hasPresentGenre(" Rock "))
-    }
-
-    @Test("metrics snapshot persistence writes protected count when editability is known")
-    @MainActor
-    func metricsSnapshotPersistenceWritesProtectedCountWhenEditabilityIsKnown() throws {
-        let context = try ModelContext(ModelContainerFactory.createInMemory())
-        let persistedSnapshot = upsertDashboardMetricsSnapshot(
-            from: [
-                Track(
-                    id: "1",
-                    name: "Editable",
-                    artist: "A",
-                    album: "One",
-                    genre: "Rock",
-                    year: 2001,
-                    trackStatus: "purchased"
-                ),
-                Track(
-                    id: "2",
-                    name: "Protected",
-                    artist: "B",
-                    album: "Two",
-                    genre: "Pop",
-                    year: 2002,
-                    trackStatus: "prerelease"
-                ),
-            ],
-            in: context
-        )
-
-        #expect(persistedSnapshot?.protectedFileCount == 1)
-    }
-
-    @Test("metrics snapshot persistence keeps protected count unknown for MusicKit tracks")
-    @MainActor
-    func metricsSnapshotPersistenceKeepsProtectedCountUnknownForMusicKitTracks() throws {
-        let context = try ModelContext(ModelContainerFactory.createInMemory())
-        let persistedSnapshot = upsertDashboardMetricsSnapshot(
-            from: [
-                Track(id: "1", name: "MusicKit", artist: "A", album: "One", genre: "Rock", year: 2001),
-            ],
-            in: context
-        )
-
-        #expect(persistedSnapshot?.protectedFileCount == nil)
-    }
-
-    @Test("metrics writer values: mixed evidence is unknown, window counts recent")
-    @MainActor
-    func metricsWriterValuesContract() {
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let recent = now.addingTimeInterval(-3 * 24 * 3600)
-        let old = now.addingTimeInterval(-30 * 24 * 3600)
-        let values = makeDashboardMetricsSnapshotValues(
-            from: [
-                Track(
-                    id: "known-protected", name: "a", artist: "A", album: "B",
-                    genre: "Rock", year: 2001, dateAdded: recent, trackStatus: "prerelease"
-                ),
-                Track(id: "no-evidence", name: "b", artist: "A", album: "B", dateAdded: old),
-            ],
-            timestamp: now
-        )
-
-        // One track lacks editability evidence → the whole count is
-        // unknowable and MUST persist as nil, never 0 (the read side
-        // renders nil as "unknown").
-        #expect(values?.protectedFileCount == nil)
-        #expect(values?.totalTracks == 2)
-        #expect(values?.tracksWithGenre == 1)
-        #expect(values?.tracksNeedingGenre == 1)
-        #expect(values?.recentlyAdded == 1)
-    }
-
-    @Test("metrics writer yields nothing for an empty library")
-    @MainActor
-    func metricsWriterEmptyLibrary() {
-        #expect(makeDashboardMetricsSnapshotValues(from: []) == nil)
     }
 }

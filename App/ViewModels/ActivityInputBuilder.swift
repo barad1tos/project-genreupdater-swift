@@ -6,7 +6,7 @@ import Services
 /// moves in slice 11); grouped below the parameter ceiling.
 struct ActivityLibraryFacts {
     let tracks: [Core.Track]
-    let metricsSnapshot: PersistedMetricsSnapshot?
+    let metricsSnapshot: MetricsSnapshotValues?
     let lastScanDate: Date?
     let loadError: LibraryLoadError?
     let isLoading: Bool
@@ -31,7 +31,7 @@ struct ActivityWorkflowFacts {
 
 struct ActivityInputContext {
     let tracks: [Core.Track]
-    let metricsSnapshot: PersistedMetricsSnapshot?
+    let metricsSnapshot: MetricsSnapshotValues?
     let lastScanDate: Date?
     let loadError: LibraryLoadError?
     let isLoading: Bool
@@ -133,7 +133,7 @@ enum ActivityInputBuilder {
         )
     }
 
-    private static func makeMetrics(from metricsSnapshot: PersistedMetricsSnapshot?) -> ActivityProjectionMetrics? {
+    private static func makeMetrics(from metricsSnapshot: MetricsSnapshotValues?) -> ActivityProjectionMetrics? {
         guard let metricsSnapshot else { return nil }
         return ActivityProjectionMetrics(
             totalTracks: metricsSnapshot.totalTracks,

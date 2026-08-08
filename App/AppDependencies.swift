@@ -80,6 +80,7 @@ final class AppDependencies {
     private(set) var cacheService: GRDBCacheService?
     private(set) var trackStore: TrackDataStore?
     private(set) var changeLogStore: ChangeLogDataStore?
+    private(set) var metricsSnapshotStore: MetricsSnapshotStore?
     private(set) var modelContainer: ModelContainer?
     private(set) var genreDeterminator: GenreDeterminator?
     private(set) var yearDeterminator: YearDeterminator?
@@ -171,11 +172,10 @@ final class AppDependencies {
         return true
     }
 
-    /// Initialize all services and determine app state.
-    ///
-    /// Re-entry safe: a window re-creation re-fires the launch task, and
-    /// initializing twice would rebuild live services mid-flight. The
-    /// onboarding-complete and error-retry paths still pass the guard.
+    /// Initialize all services and determine app state. Re-entry safe:
+    /// a window re-creation re-fires the launch task; initializing twice
+    /// would rebuild live services mid-flight (onboarding-complete and
+    /// error-retry paths still pass the guard).
     func initialize() async {
         guard beginInitialization() else { return }
         resetLifecycleProjectionState()
@@ -330,6 +330,7 @@ final class AppDependencies {
 
         let logStore = ChangeLogDataStore(modelContainer: container)
         changeLogStore = logStore
+        metricsSnapshotStore = MetricsSnapshotStore(modelContainer: container)
 
         runRecordStore = RunRecordDataStore(modelContainer: container)
         fixPlanStore = FixPlanDataStore(modelContainer: container)
