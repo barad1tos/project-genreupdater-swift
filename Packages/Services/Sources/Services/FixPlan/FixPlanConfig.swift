@@ -2,8 +2,9 @@ import Core
 import CryptoKit
 import Foundation
 
-/// One album, addressed by its display metadata (analysis D3). Matching
-/// happens through AlbumIdentity lookup keys, never raw string compare.
+/// One album, addressed by a browse node's display identity (analysis
+/// D3). Matching happens through the canonical AlbumIdentity key,
+/// never raw string compare.
 public struct FixPlanAlbumTarget: Codable, Equatable, Sendable {
     public let artist: String
     public let album: String
