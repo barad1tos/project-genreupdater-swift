@@ -418,6 +418,19 @@ struct DesignRootHostView: View {
                 releaseYearRestoreThreshold: dependencies.config.processing.releaseYearRestoreThreshold
             )
         )
+        registerWorkflowFactsProvider()
+    }
+
+    /// Every backend publish pulls workflow truth through this
+    /// provider; a dead VM (closed window) reads as honest idle (A8).
+    private func registerWorkflowFactsProvider() {
+        let createdViewModel = workflowViewModel
+        dependencies.workflowFactsProvider = { [weak createdViewModel] in
+            ActivityWorkflowFacts(
+                dashboard: createdViewModel?.dashboardState ?? .empty,
+                pendingVerification: createdViewModel?.pendingVerificationReportSummary
+            )
+        }
     }
 
     private func applyWorkflowDefaults() {
@@ -510,9 +523,9 @@ struct DesignRootHostView: View {
 
     @discardableResult
     private func refreshActivityProjection() async -> ActivityProjection {
-        let storedProjection = await dependencies.refreshActivityProjection(
-            workflow: currentActivityWorkflowFacts
-        )
+        // Workflow facts come through the registered provider — the
+        // same freshness every backend publisher gets (A8).
+        let storedProjection = await dependencies.republishActivityProjection()
         applyActivityProjection(storedProjection)
         return storedProjection
     }

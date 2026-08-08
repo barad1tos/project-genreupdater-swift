@@ -409,6 +409,54 @@ struct ProjectionRuntimeTests {
         #expect(second.revision == first.revision)
     }
 
+    @Test("a closed window publishes honest idle, never a stale phase")
+    func closedWindowPublishesHonestIdle() async throws {
+        // The A8 pin: a provider whose VM died must NOT re-emit the last
+        // cached processing phase — publishes read .empty by construction.
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        fixture.dependencies.workflowFactsProvider = {
+            ActivityWorkflowFacts(
+                dashboard: WorkflowDashboardState(
+                    proposedChangeCount: 0, acceptedChangeCount: 0, failedWriteCount: 0,
+                    isProcessing: true, phaseLabel: "Scanning"
+                ),
+                pendingVerification: nil
+            )
+        }
+        _ = await fixture.dependencies.republishActivityProjection()
+
+        // Window death: the provider slot clears (registration is
+        // per-window); the next boundary republish must go idle.
+        fixture.dependencies.workflowFactsProvider = nil
+        let published = await fixture.dependencies.republishActivityProjection()
+
+        #expect(published.subtitle != "Scanning")
+        #expect(published.healthFacts.readyUpdateCount == 0)
+    }
+
+    @Test("a boundary republish reads fresh workflow facts")
+    func boundaryPublishReadsFreshWorkflowFacts() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let phase = PhaseBox()
+        fixture.dependencies.workflowFactsProvider = {
+            ActivityWorkflowFacts(
+                dashboard: WorkflowDashboardState(
+                    proposedChangeCount: 0, acceptedChangeCount: phase.accepted, failedWriteCount: 0,
+                    isProcessing: false, phaseLabel: "Idle"
+                ),
+                pendingVerification: nil
+            )
+        }
+        _ = await fixture.dependencies.republishActivityProjection()
+
+        // The VM mutates with NO host onChange in between — the next
+        // publish still carries the new value (no stale cache).
+        phase.accepted = 7
+        let published = await fixture.dependencies.republishActivityProjection()
+
+        #expect(published.healthFacts.readyUpdateCount == 7)
+    }
+
     @Test("the backend load chain publishes library facts headlessly")
     func backendLoadPublishesLibraryFacts() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
@@ -491,9 +539,10 @@ struct ProjectionRuntimeTests {
         ])
         await fixture.dependencies.loadLibrary()
 
-        let published = await fixture.dependencies.refreshActivityProjection(
-            workflow: ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil)
-        )
+        fixture.dependencies.workflowFactsProvider = {
+            ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil)
+        }
+        let published = await fixture.dependencies.republishActivityProjection()
 
         #expect(published.healthFacts.counts.totalTracks == 1)
         #expect(fixture.dependencies.libraryTracks.count == 1)
@@ -708,6 +757,11 @@ struct ProjectionRuntimeTests {
         // even in the recoverable state (builder truth passed through).
         #expect(detail?.canDismissItems == false)
     }
+}
+
+@MainActor
+private final class PhaseBox {
+    var accepted = 0
 }
 
 private actor LibraryReadGate {
