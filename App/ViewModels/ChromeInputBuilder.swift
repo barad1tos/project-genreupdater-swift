@@ -19,8 +19,12 @@ extension AppDependencies {
         )
         let automation = ChromeAutomationFacts(
             isAutoSyncRunning: isAutoSyncRunning,
-            // No cheap due-probe exists yet; unknown stays unknown (D7).
-            isIncrementalDue: nil
+            // Cached tracker read (D6): nil = value unavailable —
+            // unknown stays unknown rather than guessing due.
+            isIncrementalDue: lastIncrementalRunTimestamp.map { lastRun in
+                let interval = TimeInterval(config.runtime.incrementalIntervalMinutes) * 60
+                return lastRun.addingTimeInterval(interval) <= Date()
+            }
         )
         let isRunServiceAvailable = isManualRunAvailable
 
@@ -31,7 +35,6 @@ extension AppDependencies {
             lifecycle = await currentRunLifecycle()
         }
         let recovery = await probedRecoveryFacts()
-        let fixPlan = await projectionStore.fixPlanProjection()
         return await ChromeInput(
             run: ChromeRunFacts(lifecycle: lifecycle, isRunServiceAvailable: isRunServiceAvailable),
             recovery: recovery,
@@ -43,6 +46,12 @@ extension AppDependencies {
             ),
             permissions: probedChromePermissions()
         )
+    }
+
+    /// Refresh points: initialize, runtime re-apply, and after a run
+    /// advances the tracker (D6) — the chrome snapshot itself stays sync.
+    func refreshIncrementalRunTimestamp() async {
+        lastIncrementalRunTimestamp = await incrementalRunTracker?.getLastRunTimestamp()
     }
 
     @discardableResult

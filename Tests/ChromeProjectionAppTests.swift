@@ -178,6 +178,46 @@ struct ChromeProjectionAppTests {
 
         #expect(second.revision == first.revision)
     }
+
+    // D6: the automation due-fact derives from the cached tracker read;
+    // the default interval is one minute (GeneralConfiguration).
+    @Test("an elapsed incremental interval reads as due")
+    func elapsedIncrementalIntervalReadsDue() async {
+        let dependencies = makeChromeTestDependencies()
+        dependencies.lastIncrementalRunTimestamp = Date(timeIntervalSinceNow: -3600)
+
+        let input = await dependencies.makeChromeInput()
+
+        #expect(input.automation.isIncrementalDue == true)
+    }
+
+    @Test("an unelapsed incremental interval reads as not due")
+    func unelapsedIncrementalIntervalReadsNotDue() async {
+        let dependencies = makeChromeTestDependencies()
+        dependencies.lastIncrementalRunTimestamp = Date()
+
+        let input = await dependencies.makeChromeInput()
+
+        #expect(input.automation.isIncrementalDue == false)
+    }
+
+    @Test("a missing tracker value keeps the due-fact unknown")
+    func missingTrackerValueKeepsDueFactUnknown() async {
+        let dependencies = makeChromeTestDependencies()
+
+        let input = await dependencies.makeChromeInput()
+
+        #expect(input.automation.isIncrementalDue == nil)
+    }
+
+    private func makeChromeTestDependencies() -> AppDependencies {
+        AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // Persistence is irrelevant to these due-fact pins.
+            }
+        )
+    }
 }
 
 private struct ChromeProbeFailure: Error {}

@@ -12,7 +12,6 @@ struct DesignRootHostView: View {
     @Environment(AppDependencies.self) private var dependencies
     @Environment(\.modelContext) private var modelContext
 
-    @State private var currentRunLifecycle: RunLifecycleSnapshot?
     @State private var hasStartedInitialLoad = false
     @State private var workflowViewModel: WorkflowViewModel?
     @State private var workflowNoticeMessage: String?
@@ -35,7 +34,6 @@ struct DesignRootHostView: View {
     @State private var fixPlanNoticeTone: Tone = .info
     @State private var fixPlanNoticeID = UUID()
     @State private var isReviewBusy = false
-    @State private var queuedManualReload: QueuedManualReload?
     @State private var reportNotice: ReportNotice?
     @State private var reportNoticeID = UUID()
     @State private var isDismissalBusy = false
@@ -406,6 +404,7 @@ struct DesignRootHostView: View {
                 },
                 updateIncrementalRunTimestamp: {
                     await dependencies.incrementalRunTracker?.updateLastRunTimestamp()
+                    await dependencies.refreshIncrementalRunTimestamp()
                 },
                 problematicAlbumReportMinAttempts: {
                     max(1, Int(dependencies.config.reporting.minAttemptsForReport.rounded()))
@@ -429,11 +428,11 @@ struct DesignRootHostView: View {
     /// leaves processing — the orchestrator-run path advances through
     /// observeRunLifecycleUpdates as before.
     private func advanceQueuedReloadAfterWorkflowRun() {
-        guard queuedManualReload == .waitingForQueued,
+        guard dependencies.queuedManualReload == .waitingForQueued,
               workflowDashboardState.isProcessing == false,
               workflowViewModel?.canStart ?? true
         else { return }
-        queuedManualReload = nil
+        dependencies.queuedManualReload = nil
         Task { @MainActor in
             await dependencies.loadLibrary(forceRefresh: true)
         }
@@ -500,8 +499,8 @@ struct DesignRootHostView: View {
             // The loaded library stays visible during the run; the new
             // scope loads when the run finishes (VM completion advances
             // the machine — legacy runs emit no lifecycle boundaries).
-            if queuedManualReload == nil {
-                queuedManualReload = .waitingForQueued
+            if dependencies.queuedManualReload == nil {
+                dependencies.queuedManualReload = .waitingForQueued
             }
             return
         }
@@ -569,14 +568,7 @@ struct DesignRootHostView: View {
     /// trigger (the reload itself is a backend chain call).
     private func observeRunLifecycleUpdates() async {
         for await lifecycle in await dependencies.runLifecycleUpdates() {
-            currentRunLifecycle = lifecycle
-            if !lifecycle.isActive {
-                let reloadAdvance = advanceQueuedReload(queuedManualReload, lifecycle: lifecycle)
-                queuedManualReload = reloadAdvance.next
-                if reloadAdvance.shouldReload {
-                    await dependencies.loadLibrary(forceRefresh: true)
-                }
-            }
+            await dependencies.advanceQueuedReloadForBoundary(lifecycle)
         }
     }
 
@@ -790,7 +782,7 @@ extension DesignRootHostView {
                 await dependencies.refreshChromeProjection()
             },
             queueManualReload: { runID in
-                queuedManualReload = .waitingForActive(runID)
+                dependencies.queuedManualReload = .waitingForActive(runID)
             },
             reloadLibrary: { forceRefresh in
                 await dependencies.loadLibrary(forceRefresh: forceRefresh)
@@ -1085,31 +1077,5 @@ extension DesignRootHostView {
         case nil:
             break
         }
-    }
-}
-
-enum QueuedManualReload: Equatable {
-    case waitingForActive(RunID)
-    case waitingForQueued
-}
-
-struct QueuedReloadAdvance: Equatable {
-    let next: QueuedManualReload?
-    let shouldReload: Bool
-}
-
-func advanceQueuedReload(
-    _ state: QueuedManualReload?,
-    lifecycle: RunLifecycleSnapshot
-) -> QueuedReloadAdvance {
-    guard let state, lifecycle.finishedAt != nil else {
-        return QueuedReloadAdvance(next: state, shouldReload: false)
-    }
-
-    switch state {
-    case let .waitingForActive(runID) where lifecycle.runID == runID:
-        return QueuedReloadAdvance(next: .waitingForQueued, shouldReload: false)
-    case .waitingForActive, .waitingForQueued:
-        return QueuedReloadAdvance(next: nil, shouldReload: true)
     }
 }

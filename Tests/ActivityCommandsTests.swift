@@ -674,6 +674,39 @@ struct ActivityCommandsTests {
         #expect(!advance.shouldReload)
     }
 
+    // D4: the menu's ActivityCommands write the REAL coordination state —
+    // the no-op policy is closed; menus behave like the activity surface.
+    @Test("the menu queue closure writes the shared reload machine")
+    func menuQueueClosureWritesSharedReloadMachine() {
+        let dependencies = makeMenuTestDependencies()
+        let commands = dependencies.makeMenuActivityCommands()
+        let runID = RunID()
+
+        commands.queueManualReload(runID)
+
+        #expect(dependencies.queuedManualReload == .waitingForActive(runID))
+    }
+
+    @Test("the menu reload closure loads the library headlessly")
+    func menuReloadClosureLoadsLibraryHeadlessly() async {
+        let dependencies = makeMenuTestDependencies()
+        dependencies.installTestLibraryReadProvider(MenuSnapshotLibraryReadProvider())
+        let commands = dependencies.makeMenuActivityCommands()
+
+        await commands.reloadLibrary(true)
+
+        #expect(dependencies.libraryTracks.map(\.id) == ["menu-live"])
+    }
+
+    private func makeMenuTestDependencies() -> AppDependencies {
+        AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // Persistence is irrelevant to these wiring pins.
+            }
+        )
+    }
+
     private func track(id: String) -> Core.Track {
         Core.Track(id: id, name: "Track \(id)", artist: "Artist", album: "Album")
     }
@@ -947,4 +980,12 @@ private func blockedRecoveryProjection(revision: ProjectionRevision) -> Activity
 
 private struct TestError: LocalizedError {
     let errorDescription: String?
+}
+
+private actor MenuSnapshotLibraryReadProvider: LibraryReadProvider {
+    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+        LibraryReadSnapshot(tracks: [
+            Core.Track(id: "menu-live", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+        ], scannedAt: Date(timeIntervalSince1970: 300))
+    }
 }

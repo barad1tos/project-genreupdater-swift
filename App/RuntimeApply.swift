@@ -28,6 +28,8 @@ extension AppDependencies {
     func applyRuntimeConfigurationAndWait() async {
         let handoff = applyRuntimeConfigurationHead()
         await applyRuntimeConfigurationTail(handoff)
+        // The head rebuilt the tracker; the chrome cache must follow (D6).
+        await refreshIncrementalRunTimestamp()
     }
 
     /// Every configuration-derived value the tail needs, captured at head

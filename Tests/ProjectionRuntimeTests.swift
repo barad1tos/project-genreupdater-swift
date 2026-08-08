@@ -411,18 +411,17 @@ struct ProjectionRuntimeTests {
 
     @Test("the host holds no product-truth state beyond the allowlist")
     func hostStateAllowlist() throws {
-        // The slice-11 exit pin: every remaining @State is a projection
+        // The slice exit pin: every remaining @State is a projection
         // mirror, a browse adapter cache, a backend query RESULT, or UI
-        // ephemera. workflowViewModel and currentRunLifecycle are the
-        // slice-12 handover set — new product truth must land on the
-        // dependency graph, never here.
+        // ephemera. workflowViewModel is the LAST handover item — new
+        // product truth must land on the dependency graph, never here.
         let allowlist: Set = [
             "activityProjection", "reportsProjection", "fixPlanProjection",
             "chromeProjection", "browseProjection",
             "browseDesignArtists", "browseDesignScope", "browseRowIndex", "browseReadSource",
             "selectedRunReport", "runReportDetailRequestID",
-            "selectedRoute", "hasStartedInitialLoad", "queuedManualReload",
-            "workflowViewModel", "workflowNoticeMessage", "currentRunLifecycle",
+            "selectedRoute", "hasStartedInitialLoad",
+            "workflowViewModel", "workflowNoticeMessage",
             "activityCommandNoticeMessage", "activityCommandNoticeID",
             "fixPlanNoticeMessage", "fixPlanNoticeTone", "fixPlanNoticeID",
             "reportNotice", "reportNoticeID",
@@ -432,6 +431,10 @@ struct ProjectionRuntimeTests {
         let declared = source.split(separator: "\n")
             .compactMap { line -> String? in
                 guard let range = line.range(of: "@State private var ") else { return nil }
+                // A multi-binding line would parse as ONE name and count
+                // as ONE raw occurrence — reject the shape outright so
+                // the tripwire cannot weaken silently.
+                #expect(!line.contains(","), "multi-binding @State line: \(line)")
                 let tail = line[range.upperBound...]
                 return tail.prefix { $0.isLetter || $0.isNumber || $0 == "_" }.description
             }
