@@ -174,6 +174,15 @@ public enum DesignAppearanceMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// The Discogs connection as a settings display fact — probed, never
+/// invented; nil means the probe has not run.
+public enum DesignDiscogsState: Equatable, Sendable {
+    case noToken
+    case connected
+    case tokenIssue
+    case unverified
+}
+
 public struct DesignSettingsSnapshot: Equatable, Sendable {
     public static let preview = Self(
         updateBehavior: .both,
@@ -182,7 +191,8 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         testArtists: ["Aphex Twin", "Boards of Canada"],
         appearanceMode: .system,
         isFastAnimationsEnabled: false,
-        isPostWriteVerificationRequired: true
+        isPostWriteVerificationRequired: true,
+        discogsState: .connected
     )
 
     public let updateBehavior: DesignUpdateBehavior
@@ -192,6 +202,7 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
     public let appearanceMode: DesignAppearanceMode
     public let isFastAnimationsEnabled: Bool
     public let isPostWriteVerificationRequired: Bool
+    public let discogsState: DesignDiscogsState
     /// Display-only experience gate (ADR 0002): false hides the Advanced
     /// settings tab; every setting behind it stays effective.
     public let isAdvancedExperience: Bool
@@ -204,6 +215,7 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         appearanceMode: DesignAppearanceMode = .system,
         isFastAnimationsEnabled: Bool = false,
         isPostWriteVerificationRequired: Bool,
+        discogsState: DesignDiscogsState = .unverified,
         isAdvancedExperience: Bool = true
     ) {
         self.updateBehavior = updateBehavior
@@ -213,6 +225,7 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         self.appearanceMode = appearanceMode
         self.isFastAnimationsEnabled = isFastAnimationsEnabled
         self.isPostWriteVerificationRequired = isPostWriteVerificationRequired
+        self.discogsState = discogsState
         self.isAdvancedExperience = isAdvancedExperience
     }
 }
