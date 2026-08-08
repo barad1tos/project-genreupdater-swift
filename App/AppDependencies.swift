@@ -42,10 +42,8 @@ final class AppDependencies {
     private(set) var appState: AppState = .loading
     /// Serialized runtime-apply chain; see `enqueueRuntimeApplyAndPublish`.
     var runtimeApplyQueue: Task<Void, Never>?
-    /// Observable mirror of the chrome projection for Commands and
-    /// MenuBarExtra scenes. `refreshChromeProjection()` is the SOLE
-    /// publisher, keeping mirror and store stream identical (pinned by
-    /// `oneChromeTruthAcrossSurfaces`) — route new publishers through it.
+    /// Chrome mirror for Commands/MenuBarExtra; `refreshChromeProjection()`
+    /// is the SOLE publisher (pinned by `oneChromeTruthAcrossSurfaces`).
     var chrome: ChromeProjection = .empty()
     var config: AppConfiguration
     var isAutoSyncRunning = false
@@ -92,6 +90,7 @@ final class AppDependencies {
     private(set) var checkpointManager: CheckpointManager?
     private(set) var librarySyncService: LibrarySyncService?
     private(set) var runOrchestrator: RunOrchestrator?
+    let lifecycleRelay = LifecycleRelay()
     @ObservationIgnored let discogsAccessStore = DiscogsAccessStore()
     private(set) var runRecordStore: (any RunRecordStore)?
     private(set) var fixPlanStore: (any FixPlanStore)?
@@ -263,17 +262,14 @@ final class AppDependencies {
         previousIncrementalScopeTracks = tracks
     }
 
-    /// Surfaces a corrupted-persistence condition that blocks every future
-    /// settings mutation; called from the command choke point, where the
-    /// fire-and-settle dispatch sites cannot show the message themselves.
+    /// Corrupted-persistence condition blocking future settings mutations;
+    /// called from the command choke point (dispatch sites cannot show it).
     func reportSettingsRevisionCorruption(_ message: String) {
         appState = .error(message)
     }
 
-    /// Persists the configuration WITHOUT applying runtime effects — the
-    /// settings command path owns the apply after this succeeds.
-    /// An explicit successful save also repairs a failed initial load: the
-    /// user has consciously accepted the current values.
+    /// Persists WITHOUT runtime effects (the settings command path owns
+    /// the apply); a successful save also repairs a failed initial load.
     @discardableResult
     func persistConfiguration() -> Bool {
         do {
@@ -474,11 +470,13 @@ final class AppDependencies {
             cache: cache
         )
         librarySyncService = syncService
-        runOrchestrator = makeRunOrchestrator(
+        let createdRunOrchestrator = makeRunOrchestrator(
             syncService: syncService,
             runRecordStore: recordStore,
             processor: processor
         )
+        runOrchestrator = createdRunOrchestrator
+        await lifecycleRelay.attach(to: createdRunOrchestrator)
 
         maintenanceCoordinator = MaintenanceCoordinator(
             databaseVerificationService: syncService,
@@ -785,8 +783,9 @@ extension AppDependencies {
         self.fixPlanStore = fixPlanStore
     }
 
-    func installTestOrchestrator(_ orchestrator: RunOrchestrator) {
+    func installTestOrchestrator(_ orchestrator: RunOrchestrator) async {
         runOrchestrator = orchestrator
+        await lifecycleRelay.attach(to: orchestrator)
     }
 
     func installTestObservationClient(_ client: any AppleScriptClient) {

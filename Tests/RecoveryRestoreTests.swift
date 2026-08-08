@@ -19,7 +19,7 @@ struct RecoveryRestoreTests {
         ]
     )
     func restoresInterruptedWrite(state: RunLifecycleState) async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let record = sampleRunRecord(
             intent: .writeFixes,
@@ -40,7 +40,7 @@ struct RecoveryRestoreTests {
 
     @Test("Restored hold reaches the mutation gate without a write runner")
     func restoresHoldWithoutWriter() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let store = setup.store
         let processor = setup.processor
@@ -53,7 +53,7 @@ struct RecoveryRestoreTests {
                 writeFixPlan: nil
             )
         ))
-        setup.dependencies.installTestOrchestrator(orchestrator)
+        await setup.dependencies.installTestOrchestrator(orchestrator)
         let record = sampleRunRecord(
             intent: .writeFixes,
             state: .writing,
@@ -77,7 +77,7 @@ struct RecoveryRestoreTests {
 
     @Test("Orphaned physical hold reaches the canonical write gate")
     func restoresOrphanedHold() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
         let orchestrator = try #require(setup.dependencies.runOrchestrator)
@@ -93,7 +93,7 @@ struct RecoveryRestoreTests {
 
     @Test("active writer defers restored hold activation until quiescence")
     func defersActiveWriterHold() async throws {
-        let setup = try makeRecoverySetup()
+        let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let gate = AppWriteGate()
         let store = setup.store
@@ -107,7 +107,7 @@ struct RecoveryRestoreTests {
                 restoreRecoveryHold: { await processor.beginRecoveryHold(id: $0) }
             )
         ))
-        setup.dependencies.installTestOrchestrator(orchestrator)
+        await setup.dependencies.installTestOrchestrator(orchestrator)
         let active = Task { await orchestrator.submit(.manualWrite(input: emptyWriteInput())) }
         await gate.waitUntilEntered()
         let record = sampleRunRecord(
@@ -134,7 +134,7 @@ struct RecoveryRestoreTests {
     func restoresCorruptedWrite() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
-        let setup = try makeRecoverySetup(store: store)
+        let setup = try await makeRecoverySetup(store: store)
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let runID = UUID()
         try insertCorruptedRun(id: runID, state: .recoverable, into: container)
@@ -148,7 +148,7 @@ struct RecoveryRestoreTests {
     func holdsOpaqueReadOnly() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
-        let setup = try makeRecoverySetup(store: store)
+        let setup = try await makeRecoverySetup(store: store)
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let runID = UUID()
         try insertCorruptedRun(
@@ -170,7 +170,7 @@ struct RecoveryRestoreTests {
     func holdsConflictingWrite() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
-        let setup = try makeRecoverySetup(store: store)
+        let setup = try await makeRecoverySetup(store: store)
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let runID = UUID()
         let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
@@ -210,7 +210,7 @@ struct RecoveryRestoreTests {
     func holdsBlockedReadOnly() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
-        let setup = try makeRecoverySetup(store: store)
+        let setup = try await makeRecoverySetup(store: store)
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let runID = UUID()
         try insertCorruptedRun(
@@ -233,7 +233,7 @@ struct RecoveryRestoreTests {
 
     @Test("Store failures create a fail-closed batch hold")
     func storeFailureHolds() async throws {
-        let setup = try makeRecoverySetup(
+        let setup = try await makeRecoverySetup(
             store: RunRecordStoreStub(reportsError: CocoaError(.fileReadCorruptFile))
         )
         defer { try? FileManager.default.removeItem(at: setup.directory) }
@@ -250,7 +250,7 @@ struct RecoveryRestoreTests {
             state: .writing,
             finishedAt: nil
         )
-        let setup = try makeRecoverySetup(store: RunRecordStoreStub(
+        let setup = try await makeRecoverySetup(store: RunRecordStoreStub(
             claimError: CocoaError(.fileWriteUnknown),
             storedRecord: record,
             reportPage: RunReportPage(records: [record], skippedCorruptedCount: 0)

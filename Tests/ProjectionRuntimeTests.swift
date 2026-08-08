@@ -187,7 +187,7 @@ struct ProjectionRuntimeTests {
     func observerConvertsRunIntoPublishes() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         fixture.dependencies.installTrackCountSource { 1 }
-        fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+        await fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is outside this observer pin.
@@ -250,7 +250,7 @@ struct ProjectionRuntimeTests {
     func chromeFallbackProbesOrchestrator() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         fixture.dependencies.installTrackCountSource { 1 }
-        fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+        await fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is outside this probe pin.
@@ -377,7 +377,7 @@ struct ProjectionRuntimeTests {
     func menuRunHappyPath() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         fixture.dependencies.installTrackCountSource { 1 }
-        fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+        await fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is outside this wiring pin.
@@ -436,6 +436,56 @@ struct ProjectionRuntimeTests {
         #expect(snapshot.health.totalTracks == facts.tracks.count)
         #expect(snapshot.health.totalTracks == published.healthFacts.counts.totalTracks)
         #expect(snapshot.dryRun.tracks == facts.tracks.count)
+    }
+
+    @Test("a subscription made before initialize receives boundaries")
+    func subscriptionBeforeInitializeReceivesBoundaries() async throws {
+        // The exact race that used to return a permanently dead
+        // .finished stream: the window's .task subscribes before the
+        // orchestrator exists.
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let updates = await fixture.dependencies.runLifecycleUpdates()
+        let terminalTask = Task { await firstTerminal(in: updates) }
+
+        fixture.dependencies.installTrackCountSource { 1 }
+        await fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in
+                // Persistence is outside this wiring pin.
+            }
+        )))
+        _ = await fixture.dependencies.makeMenuActivityCommands().handle(.runManually())
+
+        let terminal = await terminalTask.value
+        #expect(terminal != nil)
+    }
+
+    @Test("a subscription survives an orchestrator rebuild")
+    func subscriptionSurvivesOrchestratorRebuild() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        fixture.dependencies.installTrackCountSource { 1 }
+        await fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in
+                // Persistence is outside this wiring pin.
+            }
+        )))
+
+        let updates = await fixture.dependencies.runLifecycleUpdates()
+        let terminalTask = Task { await firstTerminal(in: updates) }
+
+        // A runtime-apply rebuild replaces the orchestrator; the SAME
+        // subscription must keep delivering (it used to die silently).
+        await fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in
+                // Persistence is outside this wiring pin.
+            }
+        )))
+        _ = await fixture.dependencies.makeMenuActivityCommands().handle(.runManually())
+
+        let terminal = await terminalTask.value
+        #expect(terminal != nil)
     }
 
     @Test("report detail is served by a backend query")
@@ -515,4 +565,11 @@ private final class CurrentFlagSequence: @unchecked Sendable {
     func next() -> Bool {
         values.isEmpty ? false : values.removeFirst()
     }
+}
+
+private func firstTerminal(in updates: LifecycleUpdates) async -> RunLifecycleSnapshot? {
+    for await lifecycle in updates where !lifecycle.isActive {
+        return lifecycle
+    }
+    return nil
 }

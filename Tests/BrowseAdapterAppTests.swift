@@ -255,7 +255,7 @@ struct BrowseHostPublishTests {
         let dependencies = makeDependencies()
         let recorder = ProducedTargetRecorder()
         dependencies.installTrackCountSource { 1 }
-        dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
             synchronizePreview: { _, _ in SyncResult() },
             persistRunRecord: { _ in

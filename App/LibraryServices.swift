@@ -220,13 +220,11 @@ extension AppDependencies {
         runOrchestrator != nil
     }
 
+    /// Subscriptions go through the relay, never the orchestrator
+    /// directly: a subscription made before initialize() finishes (or
+    /// across a runtime-apply rebuild) keeps delivering.
     func runLifecycleUpdates() async -> LifecycleUpdates {
-        guard let runOrchestrator else {
-            libraryServicesLog.warning("Run lifecycle updates requested before run orchestrator is available")
-            return .finished
-        }
-
-        return await runOrchestrator.lifecycleUpdates()
+        await lifecycleRelay.subscribe()
     }
 
     func loadRunReportPage(limit: Int) async -> RunReportPage? {
