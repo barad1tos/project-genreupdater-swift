@@ -348,28 +348,28 @@ struct ProjectionRuntimeTests {
         #expect(stored.configuration.yearRetrieval.apiAuth.discogsTokenReference == "keychain:test")
     }
 
-    @Test("discogs display state maps probe facts before the reference")
+    @Test("discogs display state trusts the credential factory, not the reference")
     func discogsStateMapping() {
         typealias State = DesignRootHostView
+        // missingToken is the factory's verdict AFTER the resolved
+        // reference and the Keychain fallback both came up empty — the
+        // only authoritative no-token signal. A nil issue means a token
+        // exists somewhere (possibly Keychain-only, invisible to the
+        // reference resolver), so it never maps to noToken.
         #expect(State.discogsDisplayState(
-            resolvedTokenIsEmpty: true, issue: .missingToken, isAccessAvailable: nil
+            issue: .missingToken, isAccessAvailable: nil
         ) == .noToken)
         #expect(State.discogsDisplayState(
-            resolvedTokenIsEmpty: false, issue: .other("rejected"), isAccessAvailable: nil
+            issue: .other("rejected"), isAccessAvailable: nil
         ) == .tokenIssue)
-        // The unresolved default placeholder resolves empty → noToken,
-        // even though the RAW reference string is non-empty.
         #expect(State.discogsDisplayState(
-            resolvedTokenIsEmpty: true, issue: nil, isAccessAvailable: nil
-        ) == .noToken)
-        #expect(State.discogsDisplayState(
-            resolvedTokenIsEmpty: false, issue: nil, isAccessAvailable: true
+            issue: nil, isAccessAvailable: true
         ) == .connected)
         #expect(State.discogsDisplayState(
-            resolvedTokenIsEmpty: false, issue: nil, isAccessAvailable: false
+            issue: nil, isAccessAvailable: false
         ) == .tokenIssue)
         #expect(State.discogsDisplayState(
-            resolvedTokenIsEmpty: false, issue: nil, isAccessAvailable: nil
+            issue: nil, isAccessAvailable: nil
         ) == .unverified)
     }
 

@@ -315,20 +315,18 @@ struct DesignRootHostView: View {
             // Writes must always be verified before the app reports them as complete.
             isPostWriteVerificationRequired: true,
             discogsState: Self.discogsDisplayState(
-                resolvedTokenIsEmpty: APIAuthReferenceResolver.resolve(
-                    configuration.yearRetrieval.apiAuth.discogsTokenReference
-                ).isEmpty,
                 issue: dependencies.discogsCredentialIssue,
                 isAccessAvailable: dependencies.isDiscogsAccessAvailable
             )
         )
     }
 
-    /// Probe facts first (the credential handler knows best), then the
-    /// RESOLVED token: the raw reference defaults to a non-empty
-    /// placeholder, so testing it directly made noToken unreachable.
+    /// The client factory is the sole no-token authority: it reports
+    /// missingToken only after the resolved reference AND the Keychain
+    /// fallback both come up empty. Testing the reference string here
+    /// would misread a Keychain-only token as absent (and the raw
+    /// reference defaults to a non-empty placeholder anyway).
     static func discogsDisplayState(
-        resolvedTokenIsEmpty: Bool,
         issue: DiscogsCredentialIssue?,
         isAccessAvailable: Bool?
     ) -> DesignDiscogsState {
@@ -337,9 +335,6 @@ struct DesignRootHostView: View {
         }
         if issue != nil {
             return .tokenIssue
-        }
-        if resolvedTokenIsEmpty {
-            return .noToken
         }
         switch isAccessAvailable {
         case true: return .connected
