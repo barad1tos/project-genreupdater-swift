@@ -48,12 +48,11 @@ extension AppDependencies {
         await projectionStore.nextBrowseInputGeneration()
     }
 
+    /// Publishes an already-built projection so callers pay one build
+    /// per refresh and can compare content against the stored result.
     @discardableResult
-    func publishBrowseProjection(input: BrowseInput, inputGeneration: UInt64) async -> BrowseProjection {
-        await projectionStore.replaceBrowseProjection(
-            BrowseBuilder.makeProjection(input: input),
-            inputGeneration: inputGeneration
-        )
+    func publishBrowseProjection(_ projection: BrowseProjection, inputGeneration: UInt64) async -> BrowseProjection {
+        await projectionStore.replaceBrowseProjection(projection, inputGeneration: inputGeneration)
     }
 
     /// The revalidating browse dispatcher with production wiring: reads

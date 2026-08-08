@@ -182,21 +182,21 @@ struct DesignRootHostView: View {
         if let requestID {
             guard isCurrentLibraryLoad(requestID) else { return }
         }
-        let published = await dependencies.publishBrowseProjection(input: input, inputGeneration: generation)
+        let built = BrowseBuilder.makeProjection(input: input)
+        let published = await dependencies.publishBrowseProjection(built, inputGeneration: generation)
         if let requestID {
             guard isCurrentLibraryLoad(requestID) else { return }
         }
         applyBrowseProjection(published)
-        if browseContentMatches(published, input: input) {
+        if browseContentMatches(published, built: built) {
             browseRowIndex = BrowseBuilder.makeTrackRowIndex(input: input)
         }
     }
 
     /// Whether the stored projection is the one this input produced —
     /// everything but the store-owned revision.
-    private func browseContentMatches(_ published: BrowseProjection, input: BrowseInput) -> Bool {
-        let built = BrowseBuilder.makeProjection(input: input)
-        return published.artists == built.artists
+    private func browseContentMatches(_ published: BrowseProjection, built: BrowseProjection) -> Bool {
+        published.artists == built.artists
             && published.scope == built.scope
             && published.physicalTrackCount == built.physicalTrackCount
             && published.readSource == built.readSource
@@ -504,8 +504,18 @@ struct DesignRootHostView: View {
     }
 
     private func handleTestArtistScopeChange() {
+        // Invalidate in-flight loads SYNCHRONOUSLY: their facts were
+        // snapshotted under the old scope, and a late-starting refresh
+        // would otherwise out-claim the emptied truth published below.
+        libraryLoadRequestID = UUID()
+        // The config change has already persisted (onChange fires after
+        // commit) — browse truth empties in BOTH branches so the surface
+        // never renders the previous scope, even while a run refuses the
+        // reload.
+        emptyBrowseTruthForScopeChange()
+
         guard workflowViewModel?.canStart ?? true else {
-            workflowNoticeMessage = "Finish or reset the current update before changing the test artist scope."
+            workflowNoticeMessage = "Finish or reset the current update before reloading the new test artist scope."
             return
         }
 
@@ -519,13 +529,14 @@ struct DesignRootHostView: View {
         applyWorkflowDefaults()
 
         Task { @MainActor in
-            // Publish the emptied browse truth IMMEDIATELY: the scope
-            // cache invalidates on the changed artists, so a click on the
-            // old projection stale-rejects instead of passing revalidation
-            // against outdated truth — even if the reload below fails.
-            await refreshBrowseTruth([], readSource: browseReadSource, requestID: nil)
             await refreshActivityProjection()
             await loadLibrary(forceRefresh: true)
+        }
+    }
+
+    private func emptyBrowseTruthForScopeChange() {
+        Task { @MainActor in
+            await refreshBrowseTruth([], readSource: browseReadSource, requestID: nil)
         }
     }
 

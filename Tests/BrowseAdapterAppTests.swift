@@ -202,13 +202,19 @@ struct BrowseHostPublishTests {
             readSource: .cachedMirror(scannedAt: nil)
         )
         let firstGeneration = await dependencies.claimBrowseInputGeneration()
-        let first = await dependencies.publishBrowseProjection(input: firstInput, inputGeneration: firstGeneration)
+        let first = await dependencies.publishBrowseProjection(
+            BrowseBuilder.makeProjection(input: firstInput),
+            inputGeneration: firstGeneration
+        )
         let secondInput = await dependencies.makeBrowseInput(
             tracks: [track],
             readSource: .cachedMirror(scannedAt: nil)
         )
         let secondGeneration = await dependencies.claimBrowseInputGeneration()
-        let second = await dependencies.publishBrowseProjection(input: secondInput, inputGeneration: secondGeneration)
+        let second = await dependencies.publishBrowseProjection(
+            BrowseBuilder.makeProjection(input: secondInput),
+            inputGeneration: secondGeneration
+        )
 
         #expect(first.artists.count == 1)
         #expect(second.revision == first.revision)
@@ -225,13 +231,19 @@ struct BrowseHostPublishTests {
             tracks: [Track(id: "new", name: "New", artist: "Clutch", album: "Newer")],
             readSource: .cachedMirror(scannedAt: nil)
         )
-        _ = await dependencies.publishBrowseProjection(input: newerInput, inputGeneration: newerGeneration)
+        _ = await dependencies.publishBrowseProjection(
+            BrowseBuilder.makeProjection(input: newerInput),
+            inputGeneration: newerGeneration
+        )
 
         let olderInput = await dependencies.makeBrowseInput(
             tracks: [Track(id: "old", name: "Old", artist: "Clutch", album: "Older")],
             readSource: .cachedMirror(scannedAt: nil)
         )
-        let result = await dependencies.publishBrowseProjection(input: olderInput, inputGeneration: olderGeneration)
+        let result = await dependencies.publishBrowseProjection(
+            BrowseBuilder.makeProjection(input: olderInput),
+            inputGeneration: olderGeneration
+        )
 
         // The slow older claimant is dropped even though it finished last.
         #expect(result.artists.first?.albums.first?.title == "Newer")
@@ -260,7 +272,10 @@ struct BrowseHostPublishTests {
             readSource: .cachedMirror(scannedAt: nil)
         )
         let generation = await dependencies.claimBrowseInputGeneration()
-        let published = await dependencies.publishBrowseProjection(input: input, inputGeneration: generation)
+        let published = await dependencies.publishBrowseProjection(
+            BrowseBuilder.makeProjection(input: input),
+            inputGeneration: generation
+        )
         let album = try #require(published.artists.first?.albums.first)
         let scopeID = try #require(published.scope?.snapshotID)
 

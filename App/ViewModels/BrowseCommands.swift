@@ -97,7 +97,9 @@ extension BrowseCommands {
         case .temporaryUnavailable:
             "Preview services are unavailable. Try again shortly."
         case .noOp, .navigated, .accepted, .queued, .alreadyCovered:
-            "Nothing to preview for this album."
+            // Covers cancelled runs too — "finished without changes" is
+            // true for both, "nothing to fix" would not be.
+            "The preview finished without changes to review."
         }
     }
 }
