@@ -350,6 +350,15 @@ struct DesignRootHostView: View {
         }
     }
 
+    /// A finished load must refresh the mounted Update screen's scope
+    /// preview, or an empty-to-populated load leaves the Start button
+    /// dead until a mode change remounts it (was the live tail of the
+    /// deleted reconcileUpdateScope).
+    private func refreshWorkflowScopePreview() {
+        guard let workflowViewModel, workflowViewModel.canStart else { return }
+        workflowViewModel.computeScopePreview(tracks: updateWorkflowTracks)
+    }
+
     private var updateWorkflowTracks: [Core.Track] {
         guard workflowViewModel != nil else { return tracks }
         return UpdateTrackScopeResolver.tracksForWorkflow(
@@ -587,6 +596,7 @@ struct DesignRootHostView: View {
         guard isCurrentLibraryLoad(requestID) else { return false }
         tracks = cachedLoad.tracks
         await refreshBrowseTruth(cachedLoad.tracks, readSource: .cachedMirror(scannedAt: nil), requestID: requestID)
+        refreshWorkflowScopePreview()
         await recordLibraryLoad(source: "snapshot", count: cachedLoad.tracks.count, startedAt: loadStart)
         return cachedLoad.hasTracks
     }
@@ -609,6 +619,7 @@ struct DesignRootHostView: View {
         )
         lastScanDate = liveLoad.scanDate
         metricsSnapshot = upsertDashboardMetricsSnapshot(from: liveLoad.tracks, in: modelContext)
+        refreshWorkflowScopePreview()
         await recordLibraryLoad(source: "music", count: liveLoad.tracks.count, startedAt: loadStart)
     }
 

@@ -39,14 +39,13 @@ public actor LifecycleRelay {
         forwardingTask?.cancel()
         attachGeneration += 1
         let generation = attachGeneration
-        // An ACTIVE snapshot of the detached orchestrator would replay
-        // to new subscribers as a run whose terminal boundary can never
-        // arrive through the relay — a phantom running state (the
-        // pitfall-50 class). Terminal snapshots stay: they are honest
-        // history and keep late-subscriber continuity.
-        if latest?.isActive == true {
-            latest = nil
-        }
+        // The detached orchestrator's snapshot never survives a rewire:
+        // an active frame would replay as a run whose terminal can never
+        // arrive (the pitfall-50 phantom), and a terminal frame would
+        // resurrect an intentionally cleared session. The new upstream
+        // replays its OWN currentLifecycle at subscription, so `latest`
+        // repopulates with the truth of the attached orchestrator.
+        latest = nil
         let updates = await orchestrator.lifecycleUpdates()
         forwardingTask = Task { [weak self] in
             for await lifecycle in updates {

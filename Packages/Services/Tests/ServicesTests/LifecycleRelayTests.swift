@@ -185,6 +185,32 @@ struct LifecycleRelayTests {
         #expect(snapshots.allSatisfy { $0.runID == secondRunID })
     }
 
+    @Test("a rewire does not resurrect the previous session's terminal")
+    func reattachDoesNotResurrectOldTerminal() async {
+        // A subscription made AFTER the rewire speaks only the new
+        // upstream's truth: the old session's terminal was intentionally
+        // cleared and must not replay as if it were current.
+        let relay = LifecycleRelay()
+        let first = makeOrchestrator()
+        await relay.attach(to: first)
+        await submitObservation(first)
+        await waitUntil { await relay.latestSnapshot() != nil }
+        let firstRunID = await first.currentLifecycle()?.runID
+
+        let rebuilt = makeOrchestrator()
+        await relay.attach(to: rebuilt)
+        let updates = await relay.subscribe()
+        let firstElementTask = Task {
+            var iterator = updates.makeAsyncIterator()
+            return await iterator.next()
+        }
+        await submitObservation(rebuilt)
+
+        let element = await firstElementTask.value
+        #expect(element != nil)
+        #expect(element?.runID != firstRunID)
+    }
+
     @Test("dropping a consumer removes its relay subscription")
     func droppedConsumerRemovesSubscription() async {
         let relay = LifecycleRelay()
