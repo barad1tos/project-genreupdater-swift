@@ -163,6 +163,7 @@ struct ProjectionRuntimeTests {
                 "replaceChromeProjection", "replaceBrowseProjection",
                 "InputGeneration()", "Builder.makeProjection",
                 "publishBrowseProjection(",
+                "FetchDescriptor<", "modelContext.fetch",
             ] {
                 #expect(
                     !source.contains(forbidden),
@@ -408,6 +409,61 @@ struct ProjectionRuntimeTests {
         #expect(second.revision == first.revision)
     }
 
+    @Test("the backend load chain publishes library facts headlessly")
+    func backendLoadPublishesLibraryFacts() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        await fixture.snapshotService.installSnapshot([
+            Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant", genre: "Rock", year: 2004),
+        ])
+        var appliedCounts: [Int] = []
+        fixture.dependencies.onLibraryLoadApplied = { tracks in
+            appliedCounts.append(tracks.count)
+        }
+
+        await fixture.dependencies.loadLibrary()
+
+        // Facts land on the dependency graph, the projection republishes
+        // from the SAME values, and the post-load hook fires with the
+        // landed tracks (the PR-A scope-preview ledger pin).
+        #expect(fixture.dependencies.libraryTracks.count == 1)
+        let published = await fixture.dependencies.projectionStore.activityProjection()
+        #expect(published.healthFacts.counts.totalTracks == 1)
+        #expect(appliedCounts == [1])
+    }
+
+    @Test("a scope change synchronously empties library truth")
+    func scopeChangeEmptiesLibraryTruth() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        await fixture.snapshotService.installSnapshot([
+            Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+        ])
+        await fixture.dependencies.loadLibrary()
+        #expect(!fixture.dependencies.libraryTracks.isEmpty)
+
+        fixture.dependencies.invalidateLibraryLoadsForScopeChange()
+
+        // Old-scope facts empty synchronously; a stale in-flight token
+        // can no longer land (gate truth table pins the mechanism).
+        #expect(fixture.dependencies.libraryTracks.isEmpty)
+        #expect(fixture.dependencies.libraryMetrics == nil)
+        #expect(fixture.dependencies.lastLibraryScanDate == nil)
+    }
+
+    @Test("a live-load failure falls back to cached tracks")
+    func loadFailureFallsBackToCachedTracks() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        await fixture.snapshotService.installSnapshot([
+            Core.Track(id: "cached", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+        ])
+        fixture.dependencies.installTestLibraryReadProvider(FailingLibraryReadProvider())
+
+        await fixture.dependencies.loadLibrary()
+
+        #expect(fixture.dependencies.libraryLoadError != nil)
+        #expect(fixture.dependencies.libraryTracks.map(\.id) == ["cached"])
+        #expect(!fixture.dependencies.isLibraryLoading)
+    }
+
     @Test("request tokens invalidate across begins")
     func requestTokenGateTruthTable() {
         let gate = RequestTokenGate()
@@ -586,6 +642,12 @@ struct ProjectionRuntimeTests {
         // No work items on the fixture record: dismissal must stay closed
         // even in the recoverable state (builder truth passed through).
         #expect(detail?.canDismissItems == false)
+    }
+}
+
+private actor FailingLibraryReadProvider: LibraryReadProvider {
+    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+        throw MusicLibraryError.fetchFailed(detail: "stubbed live failure")
     }
 }
 

@@ -79,7 +79,7 @@ struct LibraryServicesTests {
 
     @Test("Library load persistence passes captured scope")
     func libraryLoadPersistencePassesCapturedScope() throws {
-        let source = try String(contentsOf: libraryLoadSourceURL(), encoding: .utf8)
+        let source = try String(contentsOf: libraryLoadChainSourceURL(), encoding: .utf8)
         let compactSource = source.replacingOccurrences(
             of: "\\s+",
             with: " ",
@@ -88,7 +88,7 @@ struct LibraryServicesTests {
 
         #expect(
             compactSource.contains(
-                "await dependencies.persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)"
+                "await persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)"
             )
         )
     }

@@ -2,38 +2,6 @@ import Core
 import Foundation
 import Services
 
-enum LibraryLoadError: Equatable {
-    case permissionDenied
-    case restricted
-    case failed(String)
-
-    static func make(from error: Error) -> Self {
-        guard let musicLibraryError = error as? MusicLibraryError else {
-            return .failed(error.localizedDescription)
-        }
-
-        switch musicLibraryError {
-        case .authorizationDenied:
-            return .permissionDenied
-        case .authorizationRestricted:
-            return .restricted
-        case .fetchFailed, .musicAppNotAvailable:
-            return .failed(error.localizedDescription)
-        }
-    }
-
-    var message: String {
-        switch self {
-        case .permissionDenied:
-            "Music library permission denied"
-        case .restricted:
-            "Music library access is restricted on this device"
-        case let .failed(message):
-            message
-        }
-    }
-}
-
 enum LibraryScanState: Equatable {
     case loading
     case ready(lastScanDate: Date?)

@@ -240,6 +240,21 @@ func sampleTrack() -> Track {
     )
 }
 
+func libraryLoadChainSourceURL() throws -> URL {
+    var currentURL = URL(fileURLWithPath: #filePath)
+    currentURL.deleteLastPathComponent()
+
+    for _ in 0 ..< 8 {
+        let candidate = currentURL.appendingPathComponent("App/ViewModels/LibraryLoadChain.swift")
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+        currentURL.deleteLastPathComponent()
+    }
+
+    throw CocoaError(.fileNoSuchFile)
+}
+
 func libraryLoadSourceURL() throws -> URL {
     var currentURL = URL(fileURLWithPath: #filePath)
     currentURL.deleteLastPathComponent()
@@ -261,8 +276,14 @@ actor SnapshotServiceSpy: LibrarySnapshotService {
     private var saveSnapshotCallCount = 0
     private var savedTracks: [Track] = []
 
+    private var seededSnapshot: [Track]?
+
+    func installSnapshot(_ tracks: [Track]) {
+        seededSnapshot = tracks
+    }
+
     func loadSnapshot() async throws -> [Track]? {
-        nil
+        seededSnapshot
     }
 
     func saveSnapshot(_ tracks: [Track]) async throws -> String {

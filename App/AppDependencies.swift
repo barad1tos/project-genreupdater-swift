@@ -8,28 +8,6 @@ import SwiftUI
 private let log = AppLogger.make(category: "dependencies")
 private let configurationSaveErrorPrefix = "Failed to save configuration:"
 
-// MARK: - App State
-
-/// Represents the current state of the application.
-enum AppState {
-    case loading
-    case needsOnboarding
-    case ready
-    case error(String)
-}
-
-/// Initialization failures that must keep the app out of the ready state.
-enum AppInitializationError: LocalizedError {
-    case missingWorkflowPrerequisites([String])
-
-    var errorDescription: String? {
-        switch self {
-        case let .missingWorkflowPrerequisites(names):
-            "Cannot initialize workflow services — missing: \(names.joined(separator: ", "))"
-        }
-    }
-}
-
 // MARK: - App Dependencies
 
 /// Central dependency container and app state manager; injected via
@@ -53,8 +31,21 @@ final class AppDependencies {
     @ObservationIgnored var lifecycleObserverTask: Task<Void, Never>?
     @ObservationIgnored var lastChromeLifecycleRunID: RunID?
     @ObservationIgnored var lastChromeLifecycleState: RunLifecycleState?
-    @ObservationIgnored var cachedActivityLibraryFacts = ActivityLibraryFacts.empty
     @ObservationIgnored var cachedActivityWorkflowFacts = ActivityWorkflowFacts.empty
+    // Library facts (D1): the load chain is the SOLE writer (chrome-
+    // mirror convention, pinned); views and view-models only read.
+    var libraryTracks: [Track] = []
+    var libraryMetrics: MetricsSnapshotValues?
+    var lastLibraryScanDate: Date?
+    var libraryLoadError: LibraryLoadError?
+    var isLibraryLoading = false
+    var isLibraryReadyForUpdates = false
+    @ObservationIgnored let libraryLoadGate = RequestTokenGate()
+    /// Host-registered post-load hook (scope preview) until slice 12.
+    @ObservationIgnored var onLibraryLoadApplied: (@MainActor ([Track]) -> Void)?
+    /// Browse truth application stays host-owned (row-index pairing is
+    /// view state); the chain hands it the landed tracks + read source.
+    @ObservationIgnored var applyBrowseTruthForLoad: (@MainActor ([Track], BrowseReadSource, UInt64) async -> Void)?
     @ObservationIgnored let projectionStore = ProjectionStore()
     private(set) var configurationLoadIssue: String?
     @ObservationIgnored private let configurationSaver: (AppConfiguration) throws -> Void
@@ -765,6 +756,10 @@ extension AppDependencies {
         self.librarySnapshotService = librarySnapshotService
         self.runRecordStore = runRecordStore
         self.fixPlanStore = fixPlanStore
+    }
+
+    func installTestLibraryReadProvider(_ provider: any LibraryReadProvider) {
+        libraryReadProvider = provider
     }
 
     func installTestChangeLogStore(_ store: ChangeLogDataStore) {
