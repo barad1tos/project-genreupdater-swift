@@ -35,6 +35,7 @@ struct DesignRootHostView: View {
     @State private var browseDesignArtists: [DesignUI.Artist] = []
     @State private var browseDesignScope: DesignBrowseScope?
     @State private var browseRowIndex: [String: [BrowseTrackRow]] = [:]
+    @State private var browseReadSource: BrowseReadSource = .cachedMirror(scannedAt: nil)
     @State private var selectedRunReport: RunReportDetailSnapshot?
     @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
@@ -65,6 +66,7 @@ struct DesignRootHostView: View {
             setAppearanceModeAction: setAppearanceMode,
             setFastAnimationsAction: setFastAnimationsEnabled,
             browseTrackRows: browseRows(for:),
+            browseAlbumPreviewAction: performAlbumPreview(albumID:),
             reportRunSelectionAction: selectRunReport,
             recoveryDetailActions: RecoveryDetailActions(
                 applyRemainingFixes: applyRemainingFixes,
@@ -161,10 +163,47 @@ struct DesignRootHostView: View {
     }
 
     private func refreshBrowseTruth(_ loadedTracks: [Core.Track], readSource: BrowseReadSource) async {
+        browseReadSource = readSource
         let input = await dependencies.makeBrowseInput(tracks: loadedTracks, readSource: readSource)
         let published = await dependencies.publishBrowseProjection(input: input)
         applyBrowseProjection(published)
         browseRowIndex = BrowseBuilder.makeTrackRowIndex(input: input)
+    }
+
+    /// Dispatches the typed preview command for one album. Revalidation
+    /// happens in BrowseCommands against the CURRENT store truth; the
+    /// target carries what the user was looking at (ADR 0011).
+    private func performAlbumPreview(albumID: String) {
+        let target = BrowseCommandTarget(
+            albumID: albumID,
+            projectionRevision: browseProjection.revision,
+            scopeSnapshotID: browseProjection.scope?.snapshotID ?? UUID()
+        )
+        let commands = BrowseCommands(
+            currentBrowse: { await dependencies.projectionStore.currentBrowse() },
+            submitAlbumPreview: { try await dependencies.submitPreviewRun(albumTarget: $0) },
+            republishBrowse: { await refreshBrowseTruth(tracks, readSource: browseReadSource) }
+        )
+        Task { @MainActor in
+            let status = await commands.performAlbumPreview(target: target)
+            switch status {
+            case .accepted, .queued, .alreadyCovered:
+                // The produced plan lands on the Update surface through
+                // the existing lifecycle observer chain.
+                selectedRoute = .update
+            case .noOp,
+                 .rejectedStale,
+                 .rejectedInvalid,
+                 .requiresAttention,
+                 .blockedByRecovery,
+                 .blockedByPermission,
+                 .temporaryUnavailable,
+                 .navigated:
+                // The republished projection carries the current truth;
+                // per-node disabled reasons explain refusals in place.
+                break
+            }
+        }
     }
 
     private var designActivitySnapshotInput: DesignActivitySnapshotInput {
