@@ -162,25 +162,29 @@ struct RunRuntimeFactory {
         return scoped
     }
 
-    /// A one-album preview narrows the sync READ to the target's artist
-    /// (the proven test-artists mechanism with a one-artist list) — the
-    /// artist stays complete so FixPlanProducer's matching context holds.
-    /// A target outside a configured test-artist scope fails OPEN to the
-    /// scope: never widen, never guess.
+    /// A one-album preview inside a test-artist scope narrows the sync
+    /// READ to the target's artist — a strict subset of the scope's own
+    /// allow-list semantics, so no track the scope admitted is lost.
+    /// A FULL-LIBRARY preview must NOT narrow: the empty allow-list
+    /// passes every artist spelling, and narrowing it to the browse
+    /// node's grouping artist would drop "X feat. Y" tracks at the
+    /// coordinator gate (groupingArtist strips the feat suffix,
+    /// effectiveArtist keeps it). Identity-aware narrowing for the
+    /// full-library case is ledgered. Empty/unknown target artists and
+    /// out-of-scope targets fail OPEN to the scope: never widen, never
+    /// guess.
     func syncArtistScope(
         scope: ProcessingScopeSnapshot,
         albumTarget: FixPlanAlbumTarget?
     ) -> [String] {
         let scopeArtists = scope.normalizedTestArtists
-        guard let albumTarget else { return scopeArtists }
+        guard let albumTarget,
+              !scopeArtists.isEmpty,
+              ArtistAllowList.normalizedName(albumTarget.artist) != nil,
+              ArtistAllowList.containsNormalized(albumTarget.artist, in: scopeArtists)
+        else { return scopeArtists }
 
-        if scopeArtists.isEmpty {
-            return [albumTarget.artist]
-        }
-        if ArtistAllowList.containsNormalized(albumTarget.artist, in: scopeArtists) {
-            return [albumTarget.artist]
-        }
-        return scopeArtists
+        return [albumTarget.artist]
     }
 }
 

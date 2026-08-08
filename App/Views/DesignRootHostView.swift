@@ -106,6 +106,7 @@ struct DesignRootHostView: View {
         }
         .onChange(of: workflowDashboardState) {
             scheduleActivityProjectionRefresh()
+            advanceQueuedReloadAfterWorkflowRun()
         }
         .onChange(of: workflowViewModel?.pendingVerificationReportSummary) {
             scheduleActivityProjectionRefresh()
@@ -423,6 +424,21 @@ struct DesignRootHostView: View {
 
     /// Every backend publish pulls workflow truth through this
     /// provider; a dead VM (closed window) reads as honest idle (A8).
+    /// Legacy VM runs emit no lifecycle boundaries, so a reload queued
+    /// during one (refused scope change) advances HERE when the VM
+    /// leaves processing — the orchestrator-run path advances through
+    /// observeRunLifecycleUpdates as before.
+    private func advanceQueuedReloadAfterWorkflowRun() {
+        guard queuedManualReload == .waitingForQueued,
+              workflowDashboardState.isProcessing == false,
+              workflowViewModel?.canStart ?? true
+        else { return }
+        queuedManualReload = nil
+        Task { @MainActor in
+            await dependencies.loadLibrary(forceRefresh: true)
+        }
+    }
+
     private func registerWorkflowFactsProvider() {
         let createdViewModel = workflowViewModel
         dependencies.workflowFactsProvider = { [weak createdViewModel] in
@@ -482,9 +498,11 @@ struct DesignRootHostView: View {
         guard workflowViewModel?.canStart ?? true else {
             workflowNoticeMessage = "The new test artist scope loads after the current update finishes."
             // The loaded library stays visible during the run; the new
-            // scope loads at the next terminal boundary through the
-            // queued-reload machine.
-            queuedManualReload = .waitingForQueued
+            // scope loads when the run finishes (VM completion advances
+            // the machine — legacy runs emit no lifecycle boundaries).
+            if queuedManualReload == nil {
+                queuedManualReload = .waitingForQueued
+            }
             return
         }
 

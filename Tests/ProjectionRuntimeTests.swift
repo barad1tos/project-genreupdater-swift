@@ -437,6 +437,11 @@ struct ProjectionRuntimeTests {
             }
 
         #expect(!declared.isEmpty)
+        // Every @State in the file must parse into `declared` — a
+        // declaration shape the parser misses would weaken the tripwire
+        // silently.
+        let rawStateCount = source.components(separatedBy: "@State ").count - 1
+        #expect(declared.count == rawStateCount)
         for name in declared {
             #expect(allowlist.contains(name), "\(name) is not an allowed host @State")
         }
@@ -579,6 +584,24 @@ struct ProjectionRuntimeTests {
 
         #expect(published.healthFacts.counts.totalTracks == 1)
         #expect(fixture.dependencies.libraryTracks.count == 1)
+    }
+
+    @Test("an invalidation during browse application drops late writes")
+    func invalidationDuringBrowseApplicationDropsLateWrites() async throws {
+        // The post-browse-await rechecks are the deciding guards here:
+        // the browse callback itself invalidates the chain mid-apply.
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        fixture.dependencies.installTestLibraryReadProvider(SnapshotLibraryReadProvider())
+        fixture.dependencies.applyBrowseTruthForLoad = { _, readSource, _ in
+            if case .liveLibrary = readSource {
+                fixture.dependencies.invalidateLibraryLoads()
+            }
+        }
+
+        await fixture.dependencies.loadLibrary()
+
+        #expect(fixture.dependencies.lastLibraryScanDate == nil)
+        #expect(fixture.dependencies.libraryMetrics == nil)
     }
 
     @Test("a cancelled live load is not an error")
@@ -834,6 +857,14 @@ private actor GatedLibraryReadProvider: LibraryReadProvider {
         return LibraryReadSnapshot(tracks: [
             Core.Track(id: "stale", name: "Old Scope", artist: "Stale", album: "Stale"),
         ], scannedAt: Date(timeIntervalSince1970: 100))
+    }
+}
+
+private actor SnapshotLibraryReadProvider: LibraryReadProvider {
+    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+        LibraryReadSnapshot(tracks: [
+            Core.Track(id: "live", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+        ], scannedAt: Date(timeIntervalSince1970: 200))
     }
 }
 

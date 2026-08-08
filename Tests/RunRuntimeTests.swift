@@ -107,13 +107,23 @@ struct RunRuntimeTests {
 
         // No target: the scope passes through untouched.
         #expect(factory.syncArtistScope(scope: fullLibrary, albumTarget: nil).isEmpty)
-        // Full library + target: one artist, the minimal super-set the
-        // producer's matching context needs.
-        #expect(factory.syncArtistScope(scope: fullLibrary, albumTarget: target) == ["Clutch"])
-        // In-scope target narrows to that artist.
+        // Full library + target does NOT narrow: the empty allow-list
+        // passes every artist spelling; narrowing to the grouping
+        // artist would drop feat-suffixed tracks at the coordinator
+        // gate (identity-aware narrowing is ledgered).
+        #expect(factory.syncArtistScope(scope: fullLibrary, albumTarget: target).isEmpty)
+        // In-scope target narrows to that artist — a strict subset of
+        // the scope's own gate semantics.
         #expect(factory.syncArtistScope(scope: scoped, albumTarget: target) == ["Clutch"])
+        // Case-divergent spelling still narrows (normalized compare).
+        let casedTarget = FixPlanAlbumTarget(artist: "CLUTCH", album: "Blast Tyrant")
+        #expect(factory.syncArtistScope(scope: scoped, albumTarget: casedTarget) == ["CLUTCH"])
         // Out-of-scope target fails OPEN to the scope — never widen.
         #expect(factory.syncArtistScope(scope: scoped, albumTarget: foreignTarget)
+            == scoped.normalizedTestArtists)
+        // An unknown/blank target artist can never widen the read.
+        let blankTarget = FixPlanAlbumTarget(artist: "   ", album: "Untitled")
+        #expect(factory.syncArtistScope(scope: scoped, albumTarget: blankTarget)
             == scoped.normalizedTestArtists)
     }
 
