@@ -661,13 +661,17 @@ final class StubAgentRegistrar: AgentRegistrar {
     private(set) var unregisterCalls = 0
 
     func register() throws {
-        if let failure { throw failure }
+        if let failure {
+            throw failure
+        }
         registerCalls += 1
         isRegistered = true
     }
 
     func unregister() async throws {
-        if let failure { throw failure }
+        if let failure {
+            throw failure
+        }
         unregisterCalls += 1
         isRegistered = false
     }
