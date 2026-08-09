@@ -104,6 +104,58 @@ struct AlbumIdentityTests {
         ])
     }
 
+    @Test("the album-artist shield covers lookup aliases too")
+    func albumArtistShieldCoversLookupAliases() {
+        // A legal duo WITH an album artist must never grow a split alias:
+        // "Simon & Garfunkel" querying rows for "Simon" would hit an
+        // unrelated artist's cache (PR #162 review, Codex P2).
+        let track = Track(
+            id: "1",
+            name: "The Boxer",
+            artist: "Simon & Garfunkel",
+            album: "Greatest Hits",
+            albumArtist: "Simon & Garfunkel"
+        )
+
+        let keys = AlbumIdentity.lookupKeys(for: track)
+
+        #expect(keys == [
+            "simon & garfunkel\u{1F}greatest hits",
+        ])
+    }
+
+    @Test("legacy featuring rows written by the retired splitter stay reachable")
+    func legacyFeaturingRowsStayReachable() {
+        // The pre-parity splitter cut " featuring " (case-insensitively);
+        // rows persisted under its output must remain findable.
+        let track = Track(
+            id: "1",
+            name: "Song",
+            artist: "Alpha featuring Beta",
+            album: "Album"
+        )
+
+        let keys = AlbumIdentity.lookupKeys(for: track)
+
+        #expect(keys.contains("alpha\u{1F}album"))
+        #expect(keys.contains("alpha featuring beta\u{1F}album"))
+    }
+
+    @Test("legacy case-insensitive feat rows stay reachable")
+    func legacyCaseInsensitiveFeatRowsStayReachable() {
+        let track = Track(
+            id: "1",
+            name: "Song",
+            artist: "Alpha Feat. Beta",
+            album: "Album"
+        )
+
+        let keys = AlbumIdentity.lookupKeys(for: track)
+
+        #expect(keys.contains("alpha\u{1F}album"))
+        #expect(keys.contains("alpha feat. beta\u{1F}album"))
+    }
+
     @Test("legacy raw-name rows stay reachable through lookup aliases")
     func legacyRawNameRowsStayReachableThroughLookupAliases() {
         // Old cache/pending rows were written under the unsplit name;

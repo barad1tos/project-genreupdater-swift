@@ -6,8 +6,8 @@ import OSLog
 
 /// Maps MusicKit IDs to AppleScript database IDs by matching on (name, artist/albumArtist, album).
 ///
-/// MusicKit returns numeric `MusicItemID` strings while AppleScript uses hex
-/// database IDs. These are different ID spaces with no direct translation.
+/// MusicKit returns numeric `MusicItemID` strings while AppleScript uses its
+/// own integer database IDs. These are different ID spaces with no direct translation.
 /// This actor builds a lookup table by matching tracks on their metadata tuple.
 public actor TrackIDMapper: TrackIDMapping {
     private var mapping: [String: String] = [:]

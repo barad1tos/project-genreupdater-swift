@@ -103,6 +103,7 @@ enum FixPlanWrite {
         batchSize: Int,
         timeout: Duration
     ) async throws {
+        let log = AppLogger.make(category: "dependencies")
         var targetsByReadID: [String: (track: Track, appleScriptID: String)] = [:]
         var unmappedCount = 0
         for change in changes {
@@ -110,7 +111,7 @@ enum FixPlanWrite {
                 // The write still fails fast later via writeID; the log
                 // makes the seeding-time skip visible instead of silent.
                 unmappedCount += 1
-                AppLogger.make(category: "dependencies").warning("""
+                log.info("""
                 Write seeding skipped a change without an AppleScript id: \
                 \(change.track.name, privacy: .private) by \(change.track.artist, privacy: .private)
                 """)
@@ -119,8 +120,7 @@ enum FixPlanWrite {
             targetsByReadID[change.track.id] = (change.track, appleScriptID)
         }
         if unmappedCount > 0 {
-            AppLogger.make(category: "dependencies")
-                .warning("Write seeding skipped \(unmappedCount, privacy: .public) unmapped change(s)")
+            log.warning("Write seeding skipped \(unmappedCount, privacy: .public) unmapped change(s)")
         }
         guard !targetsByReadID.isEmpty else { return }
 

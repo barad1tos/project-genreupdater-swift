@@ -148,7 +148,7 @@ public actor MusicLibraryReader {
         }
     }
 
-    /// Fetch a single track by its AppleScript database ID.
+    /// Fetch a single track by its MusicKit item ID.
     public func fetchTrack(byID id: String) async throws -> Core.Track? {
         let musicItemID = MusicItemID(id)
 
