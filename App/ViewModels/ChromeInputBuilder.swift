@@ -58,15 +58,6 @@ extension AppDependencies {
         lastIncrementalRunTimestamp = await incrementalRunTracker?.getLastRunTimestamp()
     }
 
-    /// The orchestrator's cadence hook: a completed observation advances the
-    /// durable mark, then chrome re-reads it so isIncrementalDue flips
-    /// without waiting for the next runtime apply.
-    func advanceIncrementalMark() async {
-        await incrementalRunTracker?.updateLastRunTimestamp()
-        await refreshIncrementalRunTimestamp()
-        await refreshChromeProjection()
-    }
-
     @discardableResult
     func refreshChromeProjection() async -> ChromeProjection {
         // Snapshot before the generation claim (the settings-slot

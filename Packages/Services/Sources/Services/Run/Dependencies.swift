@@ -57,11 +57,6 @@ extension RunOrchestrator {
         /// means no current decision; a nil closure makes freshness
         /// unverifiable and release fails closed.
         public let currentDecisionTarget: (@Sendable (FixPlanID) async -> FixPlanWriteTarget?)?
-        /// Fired when an observation run completes having seen library
-        /// changes — the durable incremental mark advances (Python parity:
-        /// empty runs keep the old mark so the next check passes the
-        /// interval gate again).
-        public let onIncrementalWorkCompleted: (@Sendable () async -> Void)?
         public let now: @Sendable () -> Date
 
         public init(
@@ -83,7 +78,6 @@ extension RunOrchestrator {
                 RunID
             ) async throws -> BatchUpdateResult)? = nil,
             currentDecisionTarget: (@Sendable (FixPlanID) async -> FixPlanWriteTarget?)? = nil,
-            onIncrementalWorkCompleted: (@Sendable () async -> Void)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
             self.synchronizeLibrary = synchronizeLibrary
@@ -94,7 +88,6 @@ extension RunOrchestrator {
             self.write = write
             self.runBatchUpdate = runBatchUpdate
             self.currentDecisionTarget = currentDecisionTarget
-            self.onIncrementalWorkCompleted = onIncrementalWorkCompleted
             self.now = now
         }
     }

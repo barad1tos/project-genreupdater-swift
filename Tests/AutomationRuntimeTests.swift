@@ -488,8 +488,14 @@ struct AutomationRuntimeTests {
         #expect(terminated, "disarm must tear the stream down, not leak the source")
     }
 
-    @Test("a completed observation advances the durable mark and chrome cache")
-    func completedObservationAdvancesDurableMark() async {
+    /// The tracker file is the PROCESSING watermark: the manual incremental
+    /// batch anchors its newTracks window on it (UpdateTrackScopeResolver).
+    /// An observation only looks — advancing the mark here would burn that
+    /// window for tracks nobody processed (PR #160 review, Codex P1 +
+    /// panel convergent). Python parity: the mark moves only at the end of
+    /// a processing run.
+    @Test("a completed observation leaves the processing watermark untouched")
+    func completedObservationLeavesWatermarkUntouched() async {
         let dependencies = makeAutomationTestDependencies()
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
         let tempDirectory = FileManager.default.temporaryDirectory
@@ -506,37 +512,7 @@ struct AutomationRuntimeTests {
                     Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
                 ])
             },
-            persistRunRecord: { _ in },
-            onIncrementalWorkCompleted: { [weak dependencies] in
-                await dependencies?.advanceIncrementalMark()
-            }
-        )))
-        #expect(await tracker.getLastRunTimestamp() == nil)
-
-        await dependencies.submitScheduledObservation()
-
-        #expect(await tracker.getLastRunTimestamp() != nil)
-        #expect(dependencies.lastIncrementalRunTimestamp != nil)
-    }
-
-    @Test("an empty observation leaves the durable mark untouched")
-    func emptyObservationLeavesDurableMarkUntouched() async {
-        let dependencies = makeAutomationTestDependencies()
-        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
-        let tempDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cadence-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDirectory) }
-        let tracker = IncrementalRunTracker(
-            logsBaseDirectory: tempDirectory.path,
-            lastIncrementalRunFile: "last_incremental_run.log"
-        )
-        dependencies.installTestIncrementalRunTracker(tracker)
-        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in },
-            onIncrementalWorkCompleted: { [weak dependencies] in
-                await dependencies?.advanceIncrementalMark()
-            }
+            persistRunRecord: { _ in }
         )))
 
         await dependencies.submitScheduledObservation()
