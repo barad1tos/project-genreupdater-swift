@@ -316,6 +316,92 @@ struct LibrarySyncIdentityTests {
         #expect(Set(result.newTracks.map(\.id)) == ["A1", "A2"])
     }
 
+    @Test("A compilation target admits provider tracks after enrichment")
+    func compilationTargetAdmitsProviderTracksAfterEnrichment() async throws {
+        // Codex P1 (PR #163): MusicKit strips albumArtist, so the album
+        // identity must be judged AFTER mutation-metadata enrichment
+        // restores it — never on the raw snapshot.
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let provider = SyncMockReadProvider()
+        let musicKitTrack = Track(
+            id: "MK1",
+            name: "Hit Song",
+            artist: "Artist One",
+            album: "Best Of"
+        )
+        let enriched = Track(
+            id: "AS1",
+            name: "Hit Song",
+            artist: "Artist One",
+            album: "Best Of",
+            albumArtist: "Various Artists",
+            appleScriptID: "AS1"
+        )
+        await provider.setTracks([musicKitTrack])
+        await bridge.setArtistTracks([enriched], for: "Artist One")
+        await store.setStored([])
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                albumTargetIdentity: AlbumIdentity(
+                    artist: "Various Artists",
+                    album: "Best Of"
+                )
+            ),
+            readProvider: provider
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+
+        #expect(result.newTracks.count == 1)
+        #expect(result.newTracks.first?.albumArtist == "Various Artists")
+    }
+
+    @Test("Album-tag drift is never misread as removal by a scoped preview")
+    func albumTagDriftIsNotMisreadAsRemoval() async throws {
+        // Panel MEDIUM (PR #163): the album identity must narrow RESULT
+        // membership, never the ID baseline — filtering the baseline
+        // turned an album-tag edit into a row deletion.
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let storedTrack = Track(
+            id: "A1",
+            name: "Contact",
+            artist: "Daft Punk",
+            album: "Random Access Memories"
+        )
+        let driftedCurrent = Track(
+            id: "A1",
+            name: "Contact",
+            artist: "Daft Punk",
+            album: "Homework"
+        )
+        await bridge.setLibrary(ids: ["A1"], tracks: ["A1": driftedCurrent])
+        await store.setStored([storedTrack])
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            cache: cache,
+            librarySnapshotService: snapshotService,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                testArtists: ["Daft Punk"],
+                albumTargetIdentity: AlbumIdentity(
+                    artist: "Daft Punk",
+                    album: "Random Access Memories"
+                )
+            )
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+
+        #expect(result.removedTrackIDs.isEmpty)
+        #expect(await store.storedTracks.contains { $0.id == "A1" })
+    }
+
     @Test("Persists identity-only changes and invalidates old and new caches")
     func persistsIdentityOnlyChangesAndInvalidatesOldAndNewCaches() async throws {
         let bridge = SyncMockScriptClient()

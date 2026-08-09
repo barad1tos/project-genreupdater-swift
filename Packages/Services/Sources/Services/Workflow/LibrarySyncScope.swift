@@ -13,10 +13,20 @@ extension LibrarySyncService {
         )
     }
 
-    /// THE admission choke point: stored, AppleScript, and MusicKit loads
-    /// all narrow through the same predicate, so an album-targeted
-    /// preview cannot leak the rest of the library in any path.
+    /// BASELINE scope: allow-list only. Identity narrowing deliberately
+    /// stays OUT of ID-set arithmetic — filtering the stored/library
+    /// baselines by album would convert album-tag drift into deletions
+    /// and explode newIDs in the fallback path (PR #163 review).
     func tracksInConfiguredScope(_ tracks: [Track]) -> [Track] {
+        ArtistAllowList.filter(tracks, allowedArtists: runtimeConfiguration.testArtists)
+    }
+
+    /// RESULT admission: the full predicate (allow-list + album
+    /// identity), applied to classification outputs whose tracks carry
+    /// authoritative metadata — AppleScript results directly, provider
+    /// results only after mutation-metadata enrichment restores the
+    /// albumArtist MusicKit strips.
+    func tracksAdmittedByRequest(_ tracks: [Track]) -> [Track] {
         let request = libraryReadRequest
         return tracks.filter { request.admits($0) }
     }

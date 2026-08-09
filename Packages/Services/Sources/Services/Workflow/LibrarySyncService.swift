@@ -80,9 +80,9 @@ public actor LibrarySyncService {
         // Removed tracks: in store but not in library
         let removedIDs = storedIDSet.subtracting(libraryIDSet).sorted()
 
-        // Fetch full metadata for new tracks; the admission predicate
-        // (allow-list + album identity) narrows at the choke point.
-        let newTracks = try await tracksInConfiguredScope(fetchAppleScriptTracks(
+        // Fetch full metadata for new tracks; the full admission
+        // predicate narrows RESULT membership (never the ID baseline).
+        let newTracks = try await tracksAdmittedByRequest(fetchAppleScriptTracks(
             trackIDs: newIDs,
             scopedTracksByID: librarySnapshot.tracksByID
         ))
@@ -93,7 +93,7 @@ public actor LibrarySyncService {
         var refreshedTracks: [Track] = []
 
         if !commonIDs.isEmpty, try await shouldRefreshCommonTrackMetadata(force: forceMetadataRefresh) {
-            let currentTracks = try await tracksInConfiguredScope(fetchAppleScriptTracks(
+            let currentTracks = try await tracksAdmittedByRequest(fetchAppleScriptTracks(
                 trackIDs: commonIDs,
                 scopedTracksByID: librarySnapshot.tracksByID
             ))
@@ -136,8 +136,9 @@ public actor LibrarySyncService {
         forceMetadataRefresh: Bool
     ) async throws -> SyncResult {
         let snapshot = try await readProvider.loadLibrarySnapshot(request: libraryReadRequest)
-        // The provider honors testArtists; the full admission predicate
-        // (album identity included) applies here at the choke point.
+        // Baseline scope only: MusicKit strips albumArtist, so the album
+        // identity CANNOT be judged here — it applies to results after
+        // mutation-metadata enrichment restores the field (Codex P1).
         let currentTracks = tracksInConfiguredScope(snapshot.tracks)
         let storedTracks = try await loadStoredTracksInConfiguredScope()
         let storedByID = Dictionary(storedTracks.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
@@ -170,9 +171,9 @@ public actor LibrarySyncService {
                 )
             )
         )
-        let newTracks = newTrackCandidates.map { current in
+        let newTracks = tracksAdmittedByRequest(newTrackCandidates.map { current in
             mutationMetadata.tracksByMusicKitID[current.id] ?? current
-        }
+        })
         let removalStoredByID = readProviderRemovalStoredTracks(
             storedByID: storedByID,
             mutationMetadataByID: mutationMetadata.tracksByMusicKitID
@@ -191,9 +192,9 @@ public actor LibrarySyncService {
 
         let result = SyncResult(
             newTracks: newTracks,
-            modifiedTracks: metadataDeltas.modifiedTracks,
-            identityChangedTracks: metadataDeltas.identityChangedTracks,
-            refreshedTracks: metadataDeltas.refreshedTracks,
+            modifiedTracks: tracksAdmittedByRequest(metadataDeltas.modifiedTracks),
+            identityChangedTracks: tracksAdmittedByRequest(metadataDeltas.identityChangedTracks),
+            refreshedTracks: tracksAdmittedByRequest(metadataDeltas.refreshedTracks),
             removedTrackIDs: removedIDs
         )
 

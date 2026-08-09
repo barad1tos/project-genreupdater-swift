@@ -172,9 +172,10 @@ struct RunRuntimeFactory {
     /// The FULL-LIBRARY case narrows through the read request's ALBUM
     /// IDENTITY instead (makeSync passes it): the admission predicate
     /// admits collaboration spellings via lookup aliases, which artist
-    /// strings never could. Empty/unknown target artists and
-    /// out-of-scope targets fail OPEN to the scope: never widen, never
-    /// guess.
+    /// strings never could. In the scoped case both mechanisms apply and
+    /// the allow-list stays the stricter gate (never widen). Empty or
+    /// unknown target artists and out-of-scope targets fail OPEN to the
+    /// scope: never widen, never guess.
     func syncArtistScope(
         scope: ProcessingScopeSnapshot,
         albumTarget: FixPlanAlbumTarget?
