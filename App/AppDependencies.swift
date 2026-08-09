@@ -41,6 +41,10 @@ final class AppDependencies {
     /// at initialize, runtime re-apply, and after a run advances the
     /// tracker. nil = tracker value unavailable (unknown stays unknown).
     @ObservationIgnored var lastIncrementalRunTimestamp: Date?
+    /// The live batch executor (D3): registered with the workflow
+    /// view-model, consumed by the orchestrator's runner bridge. nil =
+    /// no window — a submitted batch fails fast instead of running blind.
+    @ObservationIgnored var batchRunProvider: (@MainActor (BatchRunInput, RunID) async throws -> BatchUpdateResult)?
     // Library facts (D1): the load chain is the SOLE writer (chrome-
     // mirror convention, pinned); views and view-models only read.
     var libraryTracks: [Track] = []
@@ -502,81 +506,6 @@ final class AppDependencies {
         )
     }
 
-    func writeDependencies(
-        store: any RunRecordStore,
-        processor: BatchProcessor,
-        writeFixPlan: (@Sendable (
-            FixPlanWriteInput,
-            RunID,
-            @escaping WorkCheckpointSink
-        ) async throws -> BatchUpdateResult)?
-    ) -> RunOrchestrator.WriteDependencies {
-        RunOrchestrator.WriteDependencies(
-            persistCheckpoint: { runID, checkpoint in
-                try await store.checkpoint(checkpoint, runID: runID)
-            },
-            writeFixPlan: writeFixPlan,
-            beginRecoveryHold: {
-                await processor.beginRecoveryHold()
-            },
-            restoreRecoveryHold: { id in
-                await processor.beginRecoveryHold(id: id)
-            },
-            clearRecoveryHold: { id in
-                try await processor.clearRecovery(batchID: id)
-            }
-        )
-    }
-
-    private func makeRunOrchestrator(
-        syncService: LibrarySyncService,
-        runRecordStore: any RunRecordStore,
-        processor: BatchProcessor
-    ) -> RunOrchestrator {
-        let runtime = makeRunRuntime()
-        let synchronizePreview: (@Sendable (
-            ProcessingScopeSnapshot,
-            FixPlanConfig
-        ) async throws -> SyncResult)? = if let runtime {
-            { scope, configuration in
-                let syncService = try await runtime.makeSync(
-                    configuration: configuration,
-                    scope: scope
-                )
-                return try await syncService.synchronizeNow()
-            }
-        } else {
-            nil
-        }
-        let write = writeDependencies(
-            store: runRecordStore,
-            processor: processor,
-            writeFixPlan: makeWriteRunner(runtime: runtime)
-        )
-
-        return RunOrchestrator(dependencies: RunOrchestrator.Dependencies(
-            synchronizeLibrary: { [syncService] in
-                try await syncService.synchronizeNow()
-            },
-            synchronizePreview: synchronizePreview,
-            persistRunRecord: RunRecordSink.make(
-                store: runRecordStore,
-                // nil after container teardown: the sink skips pruning rather
-                // than deleting against a guessed default limit.
-                historyLimit: { [weak self] in await self?.runHistoryLimit() },
-                pruneFixPlans: { [weak self] in
-                    await self?.pruneFixPlans(runRecordStore: runRecordStore)
-                }
-            ),
-            produceFixPlan: makePreviewProducer(runtime: runtime),
-            releasePreview: { configuration in
-                await runtime?.discard(configuration)
-            },
-            write: write,
-            currentDecisionTarget: makeCurrentDecisionTarget()
-        ))
-    }
-
     func refreshFixPlanProjection() async -> FixPlanProjection {
         let inputGeneration = await projectionStore.nextFixPlanInputGeneration()
         let projection: FixPlanProjection
@@ -630,7 +559,7 @@ final class AppDependencies {
         )
     }
 
-    private func runHistoryLimit() -> Int {
+    func runHistoryLimit() -> Int {
         config.reporting.runHistoryLimit
     }
 
