@@ -21,6 +21,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     public static let defaultITunesScheme = "https"
 
     private let session: URLSession
+    private let rawRequestCache: RawAPIRequestCache?
     private let countryCode: String
     private let entity: String
     private let limit: Int
@@ -34,9 +35,11 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         entity: String = "album",
         limit: Int = 200,
         iTunesConfiguration: ITunesSearchConfiguration = ITunesSearchConfiguration(),
-        lookupFallbackEnabled: Bool = true
+        lookupFallbackEnabled: Bool = true,
+        rawRequestCache: RawAPIRequestCache? = nil
     ) {
         self.session = session
+        self.rawRequestCache = rawRequestCache
         self.countryCode = countryCode
         self.entity = entity
         self.limit = min(max(limit, 1), 200)
@@ -246,6 +249,23 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     }
 
     private func fetchITunesResults(from url: URL) async throws -> [ITunesAlbumResult] {
+        let data = try await fetchITunesData(from: url)
+        return try JSONDecoder().decode(
+            ITunesArtistAlbumsResponse.self,
+            from: data
+        ).results
+    }
+
+    private func fetchITunesData(from url: URL) async throws -> Data {
+        guard let rawRequestCache else {
+            return try await performITunesFetch(from: url)
+        }
+        return try await rawRequestCache.data(api: "itunes", url: url) {
+            try await performITunesFetch(from: url)
+        }
+    }
+
+    private func performITunesFetch(from url: URL) async throws -> Data {
         let (data, response) = try await session.data(from: url)
         guard let httpResponse = response as? HTTPURLResponse else {
             log.warning("iTunes request returned a non-HTTP response")
@@ -257,10 +277,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
             throw ITunesSearchError.unsuccessfulStatusCode(httpResponse.statusCode)
         }
 
-        return try JSONDecoder().decode(
-            ITunesArtistAlbumsResponse.self,
-            from: data
-        ).results
+        return data
     }
 
     private func findArtistID(artist: String) async throws -> Int? {
