@@ -361,6 +361,133 @@ struct AutomationRuntimeTests {
         #expect(emitted, "a write to the watched file must emit an event")
     }
 
+    @Test("an event after the throttle window submits again")
+    func eventAfterThrottleWindowSubmitsAgain() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        await dependencies.submitWatchObservation()
+        dependencies.lastWatchTickAt = Date().addingTimeInterval(-(AppDependencies.watchThrottleInterval + 1))
+        await dependencies.submitWatchObservation()
+
+        let terminals = await records.records.filter { $0.finishedAt != nil }
+        #expect(terminals.count == 2)
+    }
+
+    @Test("a throttled event defers to one trailing tick, never drops")
+    func throttledEventDefersToTrailingTick() async throws {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        // Nearly-expired window: the in-window event must arm a trailing
+        // tick that fires when the remainder elapses (launchd defer
+        // parity), not vanish.
+        dependencies.lastWatchTickAt = Date().addingTimeInterval(-(AppDependencies.watchThrottleInterval - 0.2))
+        await dependencies.submitWatchObservation()
+        #expect(dependencies.automationWatchTrailingTask != nil)
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(3))
+        var landed = false
+        while clock.now < deadline {
+            let terminals = await records.records.filter { $0.finishedAt != nil }
+            if terminals.count == 1 {
+                landed = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(landed, "the trailing tick must service the throttled event")
+        #expect(dependencies.automationWatchTrailingTask == nil)
+    }
+
+    @Test("a path change rebuilds the self-built watcher")
+    func pathChangeRebuildsSelfBuiltWatcher() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WatcherRebuild-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = directory.appendingPathComponent("first.probe")
+        let second = directory.appendingPathComponent("second.probe")
+        try Data("a".utf8).write(to: first)
+        try Data("b".utf8).write(to: second)
+
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.automationStrategy = .libraryChange
+        dependencies.config.paths.musicLibraryPath = first.path
+        await dependencies.applyAutomationStrategy()
+        #expect(dependencies.libraryChangeSourceBuiltPath == first.path)
+
+        // The configured path moves: the next apply must rebuild the
+        // watcher for the new path, not keep watching the old file.
+        dependencies.config.paths.musicLibraryPath = second.path
+        await dependencies.applyAutomationStrategy()
+        #expect(dependencies.libraryChangeSourceBuiltPath == second.path)
+        #expect(dependencies.armedWatchPath == second.path)
+
+        dependencies.config.runtime.automationStrategy = .manualOnly
+        await dependencies.applyAutomationStrategy()
+    }
+
+    @Test("disarming terminates the stub stream")
+    func disarmingTerminatesStubStream() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.automationStrategy = .libraryChange
+        let source = StubLibraryChangeSource(isAvailable: true)
+        dependencies.libraryChangeSource = source
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        await dependencies.applyAutomationStrategy()
+        #expect(dependencies.automationWatchTask != nil)
+        // Pure libraryChange arming publishes the armed fact too.
+        #expect(dependencies.isAutoSyncRunning)
+
+        // Prove the consumer subscribed before disarming: an emitted
+        // event must land as a record first.
+        source.emit()
+        let clock = ContinuousClock()
+        var deadline = clock.now.advanced(by: .seconds(3))
+        var subscribed = false
+        while clock.now < deadline {
+            if await !records.records.isEmpty {
+                subscribed = true
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(subscribed)
+
+        dependencies.config.runtime.automationStrategy = .manualOnly
+        await dependencies.applyAutomationStrategy()
+
+        deadline = clock.now.advanced(by: .seconds(2))
+        var terminated = false
+        while clock.now < deadline {
+            if source.isTerminated {
+                terminated = true
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(terminated, "disarm must tear the stream down, not leak the source")
+    }
+
     private func makeAutomationTestDependencies() -> AppDependencies {
         AppDependencies(
             configurationLoader: { AppConfiguration() },
@@ -382,12 +509,16 @@ private final class SavedStrategiesBox {
 /// subscribes is buffered, not lost.
 final class StubLibraryChangeSource: LibraryChangeSource, @unchecked Sendable {
     let isAvailable: Bool
+    private(set) var isTerminated = false
     private let stream: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation
 
     init(isAvailable: Bool) {
         self.isAvailable = isAvailable
         (stream, continuation) = AsyncStream.makeStream(of: Void.self)
+        continuation.onTermination = { [self] _ in
+            isTerminated = true
+        }
     }
 
     func events() -> AsyncStream<Void> {

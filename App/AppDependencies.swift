@@ -67,6 +67,13 @@ final class AppDependencies {
     /// Injected library-change source; built lazily from the configured
     /// library path, replaceable in tests.
     @ObservationIgnored var libraryChangeSource: (any LibraryChangeSource)?
+    /// The path the self-built watcher was created for; nil for
+    /// test-injected stubs (which must never be clobbered). A differing
+    /// current path rebuilds the watcher on the next apply.
+    @ObservationIgnored var libraryChangeSourceBuiltPath: String?
+    /// One idempotent deferred tick per throttle window: launchd defers
+    /// a throttled invocation, it never drops it.
+    @ObservationIgnored var automationWatchTrailingTask: Task<Void, Never>?
     // Library facts (D1): the load chain is the SOLE writer (chrome-
     // mirror convention, pinned); views and view-models only read.
     var libraryTracks: [Track] = []
