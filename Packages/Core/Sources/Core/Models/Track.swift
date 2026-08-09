@@ -22,10 +22,12 @@ public struct Track: Sendable, Codable, Identifiable, Hashable {
     /// Primary app/read track identity.
     ///
     /// MusicKit-origin tracks use the MusicKit ID. AppleScript-origin tracks use
-    /// the AppleScript persistent ID.
+    /// the AppleScript database ID (`id of trackRef` — the same contract
+    /// as the Python original; NEITHER repo reads `persistent ID`).
     public let id: String
 
-    /// AppleScript persistent ID populated for Music.app mutation metadata.
+    /// AppleScript database ID populated for Music.app mutation metadata;
+    /// stable within a library, reassigned on rebuild or re-import.
     ///
     /// This field is excluded from equality and hashing because it is
     /// enrichment metadata, not the app/read identity. MusicKit-origin tracks

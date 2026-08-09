@@ -81,25 +81,31 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
     /// Returns canonical and legacy lookup identities for a track.
     ///
     /// The first candidate is the canonical album identity. Later candidates preserve legacy caches and pending
-    /// rows that may have been written under effective artist, raw artist, or explicit-feature-stripped artist.
+    /// rows that may have been written under effective artist, raw artist, or a feature-stripped artist.
+    /// Split-artist aliases exist ONLY when albumArtist is absent: with an album artist present the
+    /// shield applies to lookups too — a "Simon & Garfunkel" album must never query rows for "Simon".
     public static func lookupCandidates(for track: Track) -> [Self] {
-        lookupCandidates(
-            artists: [
-                groupingArtist(for: track),
-                track.effectiveArtist,
-                track.artist,
-                explicitPrimaryArtist(track.artist),
-            ],
-            album: track.album
-        )
+        var artists = [
+            groupingArtist(for: track),
+            track.effectiveArtist,
+            track.artist,
+        ]
+        let albumArtist = track.albumArtist?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if albumArtist.isEmpty {
+            artists.append(explicitPrimaryArtist(track.artist))
+            artists.append(legacyFeatureArtist(track.artist))
+        }
+        return lookupCandidates(artists: artists, album: track.album)
     }
 
     /// Returns canonical and legacy lookup identities for a raw artist and album pair.
+    /// A raw pair has no album-artist shield, so the split aliases always apply.
     public static func lookupCandidates(artist: String, album: String) -> [Self] {
         lookupCandidates(
             artists: [
                 artist,
                 explicitPrimaryArtist(artist),
+                legacyFeatureArtist(artist),
             ],
             album: album
         )
@@ -141,11 +147,52 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         }
     }
 
+    /// Verbatim port of Python's normalize_collaboration_artist
+    /// (year_utils.py): the separator LIST ORDER decides (not string
+    /// position), matching is case-sensitive, the left side of the first
+    /// listed separator wins. Deliberate divergences, both pathological
+    /// edge inputs only: the input is trimmed FIRST, so a leading or
+    /// trailing separator fragment (" & Friends", "A & ") no longer
+    /// matches where Python would return "" or "A"; and the empty-left
+    /// fallback below keeps the whole artist as a defensive floor.
     private static func explicitPrimaryArtist(_ artist: String) -> String {
         let trimmed = artist.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
 
-        for separator in explicitFeatureSeparators {
+        for separator in collaborationSeparators {
+            if let range = trimmed.range(of: separator) {
+                let primaryArtist = trimmed[trimmed.startIndex ..< range.lowerBound]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return primaryArtist.isEmpty ? trimmed : primaryArtist
+            }
+        }
+
+        return trimmed
+    }
+
+    private static let collaborationSeparators = [
+        " & ",
+        " feat. ",
+        " feat ",
+        " ft. ",
+        " ft ",
+        " vs. ",
+        " vs ",
+        " with ",
+        " and ",
+        " x ",
+        " X ",
+    ]
+
+    /// The RETIRED pre-parity splitter (feat family + " featuring ",
+    /// case-insensitive): album-year and pending rows persisted before the
+    /// Python-parity switch were written under ITS output, so it survives
+    /// as a lookup alias only — never as a producer of new identities.
+    private static func legacyFeatureArtist(_ artist: String) -> String {
+        let trimmed = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+
+        for separator in legacyFeatureSeparators {
             if let range = trimmed.range(of: separator, options: .caseInsensitive) {
                 let primaryArtist = trimmed[trimmed.startIndex ..< range.lowerBound]
                     .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -156,7 +203,7 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         return trimmed
     }
 
-    private static let explicitFeatureSeparators = [
+    private static let legacyFeatureSeparators = [
         " feat. ",
         " feat ",
         " ft. ",

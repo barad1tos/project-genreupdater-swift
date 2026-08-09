@@ -86,10 +86,14 @@ public struct YearDeterminator: Sendable {
             )
         }
 
+        // Score with the SAME artist the candidates were fetched for
+        // (Python parity: the orchestrator scores with its query artist) —
+        // scoring a split-identity fetch against the raw collab string
+        // would penalize every candidate for an artist mismatch.
         let scored = candidates.map { candidate in
             scorer.scoreRelease(
                 candidate,
-                queryArtist: track.effectiveArtist,
+                queryArtist: AlbumIdentity.groupingArtist(for: track),
                 queryAlbum: track.album,
                 currentYear: effectiveCurrentYear,
                 artistActivityPeriod: artistActivityPeriod,
