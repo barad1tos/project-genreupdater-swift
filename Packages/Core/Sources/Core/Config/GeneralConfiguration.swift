@@ -61,21 +61,48 @@ public struct PythonSettingsConfig: Sendable, Codable {
     }
 }
 
+/// The automation strategy is a domain value, not a boolean (ADR 0003):
+/// it decides trigger sources and cadence, never processing scope, mode,
+/// or write authority. Relocated from Services (RunConfig captures it
+/// per run) — the raw values are persisted in run records and must not
+/// change.
+public enum AutomationStrategy: String, Codable, CaseIterable, Equatable, Sendable, Identifiable {
+    case manualOnly
+    case libraryChange
+    case scheduled
+    case hybrid
+
+    public var id: String {
+        rawValue
+    }
+
+    public var displayName: String {
+        switch self {
+        case .manualOnly: "Manual only"
+        case .libraryChange: "On library change"
+        case .scheduled: "Scheduled"
+        case .hybrid: "Hybrid"
+        }
+    }
+}
+
 public struct RuntimeConfig: Sendable, Codable {
     public var dryRun: Bool = false
     public var cacheTTLSeconds: Int = 1800
     public var incrementalIntervalMinutes: Int = 1
+    public var automationStrategy: AutomationStrategy = .manualOnly
     public var maxRetries: Int = 3
     public var retryDelaySeconds: Double = 1
     public var maxGenericEntries: Int = 10000
 
     private enum CodingKeys: String, CodingKey {
-        case dryRun, cacheTTLSeconds, incrementalIntervalMinutes, maxRetries, retryDelaySeconds, maxGenericEntries
+        case dryRun, cacheTTLSeconds, incrementalIntervalMinutes, automationStrategy, maxRetries, retryDelaySeconds
+        case maxGenericEntries
     }
 
     private enum DecodingKeys: String, CodingKey {
-        case dryRun, cacheTTLSeconds, cacheTtlSeconds, incrementalIntervalMinutes, maxRetries, retryDelaySeconds
-        case maxGenericEntries
+        case dryRun, cacheTTLSeconds, cacheTtlSeconds, incrementalIntervalMinutes, automationStrategy, maxRetries
+        case retryDelaySeconds, maxGenericEntries
         case legacyCacheTTLSeconds = "cache_ttl_seconds"
     }
 
@@ -91,6 +118,11 @@ public struct RuntimeConfig: Sendable, Codable {
             ?? container.decodeIfPresent(Int.self, forKey: .legacyCacheTTLSeconds)
             ?? 1800
         incrementalIntervalMinutes = try container.decodeIfPresent(Int.self, forKey: .incrementalIntervalMinutes) ?? 1
+        // An unknown raw value (a future strategy) must fall back, not
+        // throw: a thrown keyNotFound-style failure silently resets the
+        // user's whole configuration (see ReportingConfig precedent).
+        automationStrategy = try container.decodeIfPresent(String.self, forKey: .automationStrategy)
+            .flatMap(AutomationStrategy.init(rawValue:)) ?? .manualOnly
         maxRetries = try container.decodeIfPresent(Int.self, forKey: .maxRetries) ?? 3
         retryDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .retryDelaySeconds) ?? 1
         maxGenericEntries = try container.decodeIfPresent(Int.self, forKey: .maxGenericEntries) ?? 10000

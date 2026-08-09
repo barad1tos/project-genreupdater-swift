@@ -30,7 +30,6 @@ struct LibrarySyncMutationTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -50,8 +49,7 @@ struct LibrarySyncMutationTests {
 
         let service = LibrarySyncService(
             scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
+            trackStore: store
         )
         let storedTrack = Track(
             id: "MK-1",
@@ -125,7 +123,6 @@ struct LibrarySyncMutationTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -183,7 +180,6 @@ struct LibrarySyncMutationTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -236,7 +232,6 @@ struct LibrarySyncEnrichmentTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -288,7 +283,6 @@ struct LibrarySyncEnrichmentTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 

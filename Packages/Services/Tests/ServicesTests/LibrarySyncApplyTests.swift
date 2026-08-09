@@ -23,8 +23,7 @@ struct LibrarySyncApplyTests {
 
         let service = LibrarySyncService(
             scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
+            trackStore: store
         )
 
         let result = try await service.detectChanges()
@@ -68,8 +67,7 @@ struct LibrarySyncApplyTests {
 
         let service = LibrarySyncService(
             scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
+            trackStore: store
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -134,7 +132,6 @@ struct LibrarySyncApplyTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             librarySnapshotService: snapshotService
         )
@@ -184,7 +181,6 @@ struct LibrarySyncApplyTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             pendingVerificationService: pendingVerification
         )
         return PrereleaseFixture(

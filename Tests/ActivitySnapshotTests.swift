@@ -196,13 +196,15 @@ struct ActivitySnapshotTests {
         #expect(snapshot.issues.first { $0.id == "pending" }?.count == "Unavailable")
     }
 
-    @Test("distinguishes auto sync running and stopped wording before first scan")
-    func distinguishesAutoSyncRunningAndStoppedWordingBeforeFirstScan() {
-        let running = makeSnapshot(from: makeInput(), isAutoSyncRunning: true)
-        let stopped = makeSnapshot(from: makeInput(), isAutoSyncRunning: false)
+    @Test("distinguishes armed and manual wording before first scan")
+    func distinguishesArmedAndManualWordingBeforeFirstScan() {
+        // Armed is not running (slice 13): the activity surface uses the
+        // same vocabulary as chrome.
+        let armed = makeSnapshot(from: makeInput(), isAutomationArmed: true)
+        let manual = makeSnapshot(from: makeInput(), isAutomationArmed: false)
 
-        #expect(running.health.nextRun == "Auto-sync running")
-        #expect(stopped.health.nextRun == "Manual scan only")
+        #expect(armed.health.nextRun == "Automation armed")
+        #expect(manual.health.nextRun == "Manual scan only")
     }
 
     @Test("maps next run from run lifecycle")
@@ -277,7 +279,7 @@ struct ActivitySnapshotTests {
     private func makeSnapshot(
         from input: DesignActivitySnapshotInput,
         runLifecycle: RunLifecycleSnapshot? = nil,
-        isAutoSyncRunning: Bool = false
+        isAutomationArmed: Bool = false
     ) -> DesignDataSnapshot {
         // The snapshot's facts come from the projection (S35/F4): build
         // it from the same fact values so the pins verify one truth.
@@ -299,7 +301,7 @@ struct ActivitySnapshotTests {
                 pendingVerification: input.workflow.pendingVerification,
                 runLifecycle: runLifecycle,
                 isLibrarySyncAvailable: true,
-                isAutoSyncRunning: isAutoSyncRunning,
+                isAutomationArmed: isAutomationArmed,
                 now: input.now
             )
         ))

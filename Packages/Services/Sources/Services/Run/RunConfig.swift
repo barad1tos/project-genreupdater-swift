@@ -1,3 +1,4 @@
+import Core
 import Foundation
 
 public enum RunProcessingMode: String, Codable, Equatable, Sendable {
@@ -8,13 +9,6 @@ public enum RunProcessingMode: String, Codable, Equatable, Sendable {
 public enum WriteAuthority: String, Codable, Equatable, Sendable {
     case readOnly
     case reviewedPlan
-}
-
-public enum AutomationStrategy: String, Codable, Equatable, Sendable {
-    case manualOnly
-    case libraryChange
-    case scheduled
-    case hybrid
 }
 
 /// Immutable runtime choices captured when an orchestrated run starts.

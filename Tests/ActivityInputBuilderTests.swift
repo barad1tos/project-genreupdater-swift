@@ -155,7 +155,7 @@ struct ActivityInputBuilderTests {
             pendingVerification: nil,
             runLifecycle: nil,
             isLibrarySyncAvailable: true,
-            isAutoSyncRunning: false,
+            isAutomationArmed: false,
             now: Date(timeIntervalSince1970: 100)
         )
     }

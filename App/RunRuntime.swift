@@ -29,7 +29,6 @@ struct RunRuntimeFactory {
         return LibrarySyncService(
             scriptBridge: runServices.scripts,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             pendingVerificationService: runServices.pendingVerification,
             librarySnapshotService: AppDependencies.makeSnapshotService(

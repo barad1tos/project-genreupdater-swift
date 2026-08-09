@@ -26,7 +26,6 @@ struct LibrarySyncMappingTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -57,7 +56,6 @@ struct LibrarySyncMappingTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -91,7 +89,6 @@ struct LibrarySyncMappingTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -122,7 +119,6 @@ struct LibrarySyncMappingTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -157,7 +153,6 @@ struct LibrarySyncMappingTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -197,7 +192,6 @@ struct LibrarySyncFallbackTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -226,7 +220,6 @@ struct LibrarySyncFallbackTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -257,7 +250,6 @@ struct LibrarySyncFallbackTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -290,7 +282,6 @@ struct LibrarySyncFallbackTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 
@@ -322,7 +313,6 @@ struct LibrarySyncFallbackTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 

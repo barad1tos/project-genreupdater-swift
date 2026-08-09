@@ -155,7 +155,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
     public let pendingVerification: ActivityPendingVerificationSummary?
     public let runLifecycle: RunLifecycleSnapshot?
     public let isLibrarySyncAvailable: Bool
-    public let isAutoSyncRunning: Bool
+    public let isAutomationArmed: Bool
     public let now: Date
 
     public var effectiveLastScanDate: Date? {
@@ -217,7 +217,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         pendingVerification: ActivityPendingVerificationSummary?,
         runLifecycle: RunLifecycleSnapshot? = nil,
         isLibrarySyncAvailable: Bool,
-        isAutoSyncRunning: Bool,
+        isAutomationArmed: Bool,
         now: Date
     ) {
         self.tracks = tracks
@@ -233,7 +233,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         self.pendingVerification = pendingVerification
         self.runLifecycle = runLifecycle
         self.isLibrarySyncAvailable = isLibrarySyncAvailable
-        self.isAutoSyncRunning = isAutoSyncRunning
+        self.isAutomationArmed = isAutomationArmed
         self.now = now
     }
 }

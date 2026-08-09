@@ -45,6 +45,16 @@ final class AppDependencies {
     /// view-model, consumed by the orchestrator's runner bridge. nil =
     /// no window — a submitted batch fails fast instead of running blind.
     @ObservationIgnored var batchRunProvider: (@MainActor (BatchRunInput, RunID) async throws -> BatchUpdateResult)?
+    /// The armed schedule source (ADR 0003); nil = manual/watch-only
+    /// strategy or missing Pro access. Re-armed by applyAutomationStrategy.
+    @ObservationIgnored var automationScheduleTask: Task<Void, Never>?
+    /// The interval the live loop was armed with — identical inputs
+    /// short-circuit the re-arm so settings edits never reset the tick.
+    @ObservationIgnored var armedScheduleInterval: TimeInterval?
+    /// In-memory tick anchor: observations never advance the durable
+    /// tracker, so re-arms after the first tick anchor here instead of
+    /// firing immediately on every settings apply.
+    @ObservationIgnored var lastScheduledTickAt: Date?
     // Library facts (D1): the load chain is the SOLE writer (chrome-
     // mirror convention, pinned); views and view-models only read.
     var libraryTracks: [Track] = []
@@ -245,11 +255,7 @@ final class AppDependencies {
 
             log.info("All services initialized successfully")
             appState = .ready
-            // Republish chrome now that every probed fact exists — the
-            // bootstrap publish above ran before services were built, and
-            // a fresh session emits no lifecycle event to re-derive it.
-            await refreshChromeProjection()
-            startLifecycleProjectionObserver()
+            await completeLaunch()
         } catch {
             log.error("Initialization failed: \(error.localizedDescription, privacy: .public)")
             appState = .error(error.localizedDescription)
@@ -402,6 +408,18 @@ final class AppDependencies {
         )
     }
 
+    /// The ready tail, extracted so launch-time obligations are
+    /// pinnable: chrome republish (probed facts exist only now), the
+    /// lifecycle observer, and the persisted automation strategy.
+    func completeLaunch() async {
+        // Republish chrome now that every probed fact exists — the
+        // bootstrap publish ran before services were built, and a fresh
+        // session emits no lifecycle event to re-derive it.
+        await refreshChromeProjection()
+        startLifecycleProjectionObserver()
+        await applyAutomationStrategy()
+    }
+
     /// Creates the tracker and primes the chrome due-fact cache (D6).
     private func installIncrementalRunTracker() async {
         incrementalRunTracker = Self.makeIncrementalRunTracker(configuration: config)
@@ -489,7 +507,6 @@ final class AppDependencies {
         LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             pendingVerificationService: pendingVerificationService,
             librarySnapshotService: librarySnapshotService,
@@ -717,6 +734,10 @@ extension AppDependencies {
 
     func installTestObservationClient(_ client: any AppleScriptClient) {
         recoveryObservationClient = client
+    }
+
+    func installTestFeatureGate(_ gate: FeatureGate) {
+        featureGate = gate
     }
 
     func installTestAvailability(_ availability: RecoveryAvailability) {

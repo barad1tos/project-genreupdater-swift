@@ -67,7 +67,6 @@ extension AppDependencies {
         guard libraryLoadGate.isCurrent(token) else { return }
         libraryMetrics = cachedMetrics
         await refreshReportsProjection()
-        await refreshAutoSyncStatus()
         guard libraryLoadGate.isCurrent(token) else { return }
 
         let scopedArtists = LibraryTrackLoader.scopedArtists(from: self)

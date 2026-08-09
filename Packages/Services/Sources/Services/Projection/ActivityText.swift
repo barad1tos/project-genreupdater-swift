@@ -81,8 +81,8 @@ extension ActivityBuilder {
         case .loading:
             // Active/problem runs take precedence over transient library loading copy.
             guard input.effectiveSyncState == .idle else { return nil }
-            if input.isAutoSyncRunning {
-                return "Auto-sync running · reading Music metadata"
+            if input.isAutomationArmed {
+                return "Automation armed · reading Music metadata"
             }
             return "Manual scan in progress"
         case .empty:
@@ -117,7 +117,7 @@ extension ActivityBuilder {
             let relativeTime = relativeTime(from: lastScanDate, to: input.now)
             return relativeTime == "just now" ? "Synced just now" : "Synced \(relativeTime) ago"
         }
-        return input.isAutoSyncRunning ? "Auto-sync running" : "No sync yet"
+        return input.isAutomationArmed ? "Automation armed" : "No sync yet"
     }
 
     static func relativeTime(from date: Date, to now: Date) -> String {

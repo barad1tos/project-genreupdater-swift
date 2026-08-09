@@ -554,7 +554,7 @@ struct ActivityBuilderTests {
             pendingVerification: pendingVerification,
             runLifecycle: environment.runLifecycle,
             isLibrarySyncAvailable: environment.isLibrarySyncAvailable,
-            isAutoSyncRunning: false,
+            isAutomationArmed: false,
             now: environment.now ?? self.now
         )
     }

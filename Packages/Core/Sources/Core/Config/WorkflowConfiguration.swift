@@ -62,7 +62,6 @@ public struct ProcessingConfig: Sendable, Codable {
     public var prereleaseRecheckDays: Int = 30
     public var prereleaseHandling: PrereleaseHandling = .processEditable
     public var releaseYearRestoreThreshold: Int = 5
-    public var incrementalIntervalMinutes: Int = 1
     public var minConfidenceToCache: Int = 50
     public var suspiciousAlbumMinLen: Int = 3
     public var suspiciousManyYears: Int = 3
@@ -71,14 +70,14 @@ public struct ProcessingConfig: Sendable, Codable {
     private enum CodingKeys: String, CodingKey {
         case batchSize, delayBetweenBatches, adaptiveDelay, cacheTTLDays, pendingVerificationIntervalDays
         case skipPrerelease, futureYearThreshold, prereleaseRecheckDays, prereleaseHandling
-        case releaseYearRestoreThreshold, incrementalIntervalMinutes, minConfidenceToCache, suspiciousAlbumMinLen
+        case releaseYearRestoreThreshold, minConfidenceToCache, suspiciousAlbumMinLen
         case suspiciousManyYears, defaultUpdateBehavior
     }
 
     private enum DecodingKeys: String, CodingKey {
         case batchSize, delayBetweenBatches, adaptiveDelay, cacheTTLDays, pendingVerificationIntervalDays
         case skipPrerelease, futureYearThreshold, prereleaseRecheckDays, prereleaseHandling
-        case releaseYearRestoreThreshold, incrementalIntervalMinutes, minConfidenceToCache, suspiciousAlbumMinLen
+        case releaseYearRestoreThreshold, minConfidenceToCache, suspiciousAlbumMinLen
         case suspiciousManyYears, defaultUpdateBehavior
         case cacheTtlDays
     }
@@ -106,7 +105,6 @@ public struct ProcessingConfig: Sendable, Codable {
             Int.self,
             forKey: .releaseYearRestoreThreshold
         ) ?? 5
-        incrementalIntervalMinutes = try container.decodeIfPresent(Int.self, forKey: .incrementalIntervalMinutes) ?? 1
         minConfidenceToCache = try container.decodeIfPresent(Int.self, forKey: .minConfidenceToCache) ?? 50
         suspiciousAlbumMinLen = try container.decodeIfPresent(Int.self, forKey: .suspiciousAlbumMinLen) ?? 3
         suspiciousManyYears = try container.decodeIfPresent(Int.self, forKey: .suspiciousManyYears) ?? 3

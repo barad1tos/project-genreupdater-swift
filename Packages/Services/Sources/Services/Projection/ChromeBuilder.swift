@@ -37,13 +37,16 @@ public struct ChromeSettingsFacts: Sendable {
     }
 }
 
-/// Automation cadence facts.
+/// Automation cadence facts (ADR 0003): the persisted strategy plus
+/// what the runtime actually armed.
 public struct ChromeAutomationFacts: Sendable {
-    public let isAutoSyncRunning: Bool
+    public let strategy: AutomationStrategy
+    public let isScheduleArmed: Bool
     public let isIncrementalDue: Bool?
 
-    public init(isAutoSyncRunning: Bool, isIncrementalDue: Bool?) {
-        self.isAutoSyncRunning = isAutoSyncRunning
+    public init(strategy: AutomationStrategy, isScheduleArmed: Bool, isIncrementalDue: Bool?) {
+        self.strategy = strategy
+        self.isScheduleArmed = isScheduleArmed
         self.isIncrementalDue = isIncrementalDue
     }
 }
@@ -177,7 +180,7 @@ public enum ChromeBuilder {
         input: ChromeInput,
         hold: ChromeRecoveryHold?
     ) -> ChromeAutomationState {
-        if input.run.lifecycle?.isActive == true || input.automation.isAutoSyncRunning {
+        if input.run.lifecycle?.isActive == true {
             return .running
         }
         if hold != nil {
@@ -185,6 +188,10 @@ public enum ChromeBuilder {
         }
         if hasDeniedPermission(input.permissions) {
             return .permissionRequired
+        }
+        if input.automation.isScheduleArmed {
+            // Armed is not running: the source waits for its next tick.
+            return .scheduled
         }
         if input.automation.isIncrementalDue == false {
             return .nothingDue

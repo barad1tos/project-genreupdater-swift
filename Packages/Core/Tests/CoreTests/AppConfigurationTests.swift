@@ -140,6 +140,39 @@ struct AppConfigurationTests {
         #expect(config.development.debugMode == false)
     }
 
+    @Test("Persisted runtime section without automationStrategy decodes as manual")
+    func persistedRuntimeWithoutAutomationStrategyDecodesAsManual() throws {
+        let json = Data(#"{"dryRun": true}"#.utf8)
+
+        let runtime = try JSONDecoder().decode(RuntimeConfig.self, from: json)
+
+        #expect(runtime.dryRun == true)
+        #expect(runtime.automationStrategy == .manualOnly)
+    }
+
+    @Test("Explicit automationStrategy value round-trips")
+    func explicitAutomationStrategyValueRoundTrips() throws {
+        let json = Data(#"{"automationStrategy": "hybrid"}"#.utf8)
+
+        let runtime = try JSONDecoder().decode(RuntimeConfig.self, from: json)
+        #expect(runtime.automationStrategy == .hybrid)
+
+        let reencoded = try JSONDecoder().decode(RuntimeConfig.self, from: JSONEncoder().encode(runtime))
+        #expect(reencoded.automationStrategy == .hybrid)
+    }
+
+    @Test("An unknown automationStrategy raw value falls back to manual")
+    func unknownAutomationStrategyFallsBackToManual() throws {
+        let json = Data(#"{"automationStrategy": "futureStrategy", "maxRetries": 7}"#.utf8)
+
+        let runtime = try JSONDecoder().decode(RuntimeConfig.self, from: json)
+
+        // A thrown decode here would silently reset the user's whole
+        // configuration — the unknown value must degrade, not fail.
+        #expect(runtime.automationStrategy == .manualOnly)
+        #expect(runtime.maxRetries == 7)
+    }
+
     @Test("Persisted reporting section without runHistoryLimit decodes with the default")
     func persistedReportingSectionWithoutRunHistoryLimitDecodesWithDefault() throws {
         let json = Data("""

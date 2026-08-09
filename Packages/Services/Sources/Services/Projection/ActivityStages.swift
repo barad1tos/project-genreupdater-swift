@@ -20,7 +20,7 @@ extension ActivityBuilder {
         if case .completed = input.effectiveSyncState {
             return .diff
         }
-        return input.isAutoSyncRunning ? .watch : .detect
+        return input.isAutomationArmed ? .watch : .detect
     }
 
     static func makeLibraryCurrentStage(input: ActivityProjectionInput) -> ActivityPipelineStage? {
@@ -42,7 +42,7 @@ extension ActivityBuilder {
         [
             ActivityPipelineStageDescriptor(
                 stage: .watch,
-                detail: makeAutomationState(input: input) == .autoSyncRunning ? "Auto-sync running" :
+                detail: makeAutomationState(input: input) == .autoSyncRunning ? "Automation armed" :
                     "Manual scan only",
                 status: watchStatus(input: input, currentStage: currentStage)
             ),
@@ -88,7 +88,7 @@ extension ActivityBuilder {
 
     static func detectDetail(input: ActivityProjectionInput) -> String {
         input.effectiveSyncState.detectDetail
-            ?? (input.isAutoSyncRunning ? "Periodic polling" : "Manual trigger")
+            ?? (input.isAutomationArmed ? "Scheduled checks" : "Manual trigger")
     }
 
     static func detectStatus(

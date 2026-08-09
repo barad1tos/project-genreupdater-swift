@@ -54,8 +54,8 @@ extension ActivityBuilder {
                 id: "automation",
                 kind: .automation,
                 label: "Automation",
-                value: automationState == .autoSyncRunning ? "Running" : "Manual",
-                detail: automationState == .autoSyncRunning ? "Auto-sync running" : "Manual scan only"
+                value: automationState == .autoSyncRunning ? "Armed" : "Manual",
+                detail: automationState == .autoSyncRunning ? "Automation armed" : "Manual scan only"
             ),
             ActivitySummaryCard(
                 id: "delta",

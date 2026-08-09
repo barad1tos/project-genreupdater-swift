@@ -58,7 +58,7 @@ public enum ActivityBuilder {
     }
 
     static func makeAutomationState(input: ActivityProjectionInput) -> ActivityAutomationState {
-        if input.isAutoSyncRunning {
+        if input.isAutomationArmed {
             return .autoSyncRunning
         }
         if input.effectiveLastScanDate != nil {
@@ -86,7 +86,7 @@ public enum ActivityBuilder {
         }
         switch makeAutomationState(input: input) {
         case .autoSyncRunning:
-            return "Auto-sync running"
+            return "Automation armed"
         case .manualScanOnly, .noSyncYet:
             return "Manual scan only"
         }

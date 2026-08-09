@@ -339,25 +339,7 @@ extension AppDependencies {
         }
     }
 
-    func refreshAutoSyncStatus() async {
-        isAutoSyncRunning = await librarySyncService?.isAutoSyncRunning ?? false
-    }
-
-    func setAutoSyncEnabled(_ isEnabled: Bool) async throws {
-        guard let librarySyncService else {
-            throw AppDependencyServiceError.librarySyncUnavailable
-        }
-
-        if isEnabled {
-            let interval = Duration.seconds(max(1, config.runtime.incrementalIntervalMinutes) * 60)
-            try await librarySyncService.startAutoSync(interval: interval)
-        } else {
-            await librarySyncService.stopAutoSync()
-        }
-        isAutoSyncRunning = await librarySyncService.isAutoSyncRunning
-    }
-
-    private func currentKnownTrackCount() async -> Int? {
+    func currentKnownTrackCount() async -> Int? {
         if let trackCountSource {
             return await trackCountSource()
         }

@@ -243,11 +243,11 @@ struct ChromeBuilderTests {
             permissions: ChromePermissions(isMusicAppAvailable: false)
         ))
         let permission = ChromeBuilder.makeProjection(input: makeInput(
-            automation: ChromeAutomationFacts(isAutoSyncRunning: false, isIncrementalDue: false),
+            automation: ChromeAutomationFacts(strategy: .manualOnly, isScheduleArmed: false, isIncrementalDue: false),
             permissions: ChromePermissions(isMusicAppAvailable: false)
         ))
         let nothingDue = ChromeBuilder.makeProjection(input: makeInput(
-            automation: ChromeAutomationFacts(isAutoSyncRunning: false, isIncrementalDue: false)
+            automation: ChromeAutomationFacts(strategy: .manualOnly, isScheduleArmed: false, isIncrementalDue: false)
         ))
         let manual = ChromeBuilder.makeProjection(input: makeInput())
 
@@ -258,13 +258,29 @@ struct ChromeBuilderTests {
         #expect(manual.safety.automationState == .manualOnly)
     }
 
-    @Test("auto-sync alone reads running without an active lifecycle")
-    func autoSyncAloneReadsRunning() {
+    @Test("an armed schedule reads scheduled, not running")
+    func armedScheduleReadsScheduled() {
+        // Armed is not running (slice 13): the source waits for its next
+        // tick; only an active lifecycle reads as running.
         let projection = ChromeBuilder.makeProjection(input: makeInput(
-            automation: ChromeAutomationFacts(isAutoSyncRunning: true, isIncrementalDue: nil)
+            automation: ChromeAutomationFacts(strategy: .scheduled, isScheduleArmed: true, isIncrementalDue: nil)
         ))
 
-        #expect(projection.safety.automationState == .running)
+        #expect(projection.safety.automationState == .scheduled)
+    }
+
+    @Test("armed beats nothing-due; recovery hold beats armed")
+    func armedOrderingInTheTruthTable() {
+        let armedNotDue = ChromeBuilder.makeProjection(input: makeInput(
+            automation: ChromeAutomationFacts(strategy: .scheduled, isScheduleArmed: true, isIncrementalDue: false)
+        ))
+        #expect(armedNotDue.safety.automationState == .scheduled)
+
+        let armedHeld = ChromeBuilder.makeProjection(input: makeInput(
+            recovery: ChromeRecoveryFacts(hasUnresolvedWriteRecovery: true, recoveryRunID: nil),
+            automation: ChromeAutomationFacts(strategy: .scheduled, isScheduleArmed: true, isIncrementalDue: nil)
+        ))
+        #expect(armedHeld.safety.automationState == .recoveryHold)
     }
 
     // MARK: - Permissions and issues
@@ -321,7 +337,7 @@ private func makeInput(
         saveErrorMessage: nil,
         hasLoadFailed: false
     ),
-    automation: ChromeAutomationFacts = ChromeAutomationFacts(isAutoSyncRunning: false, isIncrementalDue: nil),
+    automation: ChromeAutomationFacts = ChromeAutomationFacts(strategy: .manualOnly, isScheduleArmed: false, isIncrementalDue: nil),
     library: ChromeLibraryFacts = ChromeLibraryFacts(physicalTrackCount: nil, scope: nil),
     permissions: ChromePermissions = .unprobed
 ) -> ChromeInput {

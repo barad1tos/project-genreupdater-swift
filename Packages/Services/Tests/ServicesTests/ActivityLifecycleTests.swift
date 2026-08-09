@@ -360,7 +360,7 @@ struct ActivityLifecycleTests {
             pendingVerification: pendingVerification,
             runLifecycle: runLifecycle,
             isLibrarySyncAvailable: isLibrarySyncAvailable,
-            isAutoSyncRunning: false,
+            isAutomationArmed: false,
             now: now ?? self.now
         )
     }

@@ -36,7 +36,6 @@ struct LibrarySyncPendingTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             pendingVerificationService: pending
         )
 

@@ -238,7 +238,12 @@ struct PreviewRunOptionsTests {
         let data = try JSONEncoder().encode(RuntimeConfig())
         let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
+        // automationStrategy is deliberately OUTSIDE the fingerprint's
+        // curated Runtime projection: a strategy never changes processing
+        // scope, mode, or write authority (ADR 0003), so switching it
+        // must not invalidate previews.
         #expect(Set(object.keys) == [
+            "automationStrategy",
             "cacheTTLSeconds",
             "dryRun",
             "incrementalIntervalMinutes",
@@ -260,7 +265,6 @@ struct PreviewRunOptionsTests {
             "defaultUpdateBehavior",
             "delayBetweenBatches",
             "futureYearThreshold",
-            "incrementalIntervalMinutes",
             "minConfidenceToCache",
             "pendingVerificationIntervalDays",
             "prereleaseHandling",

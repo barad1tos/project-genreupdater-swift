@@ -44,7 +44,7 @@ struct ActivityInputContext {
     let pendingVerification: UpdateRunPendingVerificationSummary?
     let runLifecycle: RunLifecycleSnapshot?
     let isLibrarySyncAvailable: Bool
-    let isAutoSyncRunning: Bool
+    let isAutomationArmed: Bool
     let now: Date
 }
 
@@ -93,7 +93,7 @@ extension AppDependencies {
         // across the awaits below (D3).
         let isDryRun = config.runtime.dryRun
         let isLibrarySyncAvailable = isManualRunAvailable
-        let isAutoSyncRunningNow = isAutoSyncRunning
+        let isAutomationArmedNow = isAutoSyncRunning
 
         let inputGeneration = await projectionStore.nextActivityProjectionInputGeneration()
         let queuedWrite = await queuedWriteSummary()
@@ -118,7 +118,7 @@ extension AppDependencies {
             pendingVerification: workflow.pendingVerification,
             runLifecycle: runLifecycle,
             isLibrarySyncAvailable: isLibrarySyncAvailable,
-            isAutoSyncRunning: isAutoSyncRunningNow,
+            isAutomationArmed: isAutomationArmedNow,
             now: Date()
         ))
         return await projectionStore.replaceActivityProjection(
@@ -148,7 +148,7 @@ enum ActivityInputBuilder {
             pendingVerification: makePendingVerification(from: context.pendingVerification),
             runLifecycle: context.runLifecycle,
             isLibrarySyncAvailable: context.isLibrarySyncAvailable,
-            isAutoSyncRunning: context.isAutoSyncRunning,
+            isAutomationArmed: context.isAutomationArmed,
             now: context.now
         )
     }

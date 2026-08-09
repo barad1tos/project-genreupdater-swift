@@ -16,7 +16,6 @@ struct APICacheTab: View {
     @State private var isLoadingStatistics = false
     @State private var isClearingCache = false
     @State var isSyncingLibrary = false
-    @State var isUpdatingAutoSync = false
     @State var librarySyncStatus = ""
 
     var body: some View {
@@ -36,7 +35,6 @@ struct APICacheTab: View {
             loadTokenStatus()
             loadDiscogsHostInput()
             loadCacheStatistics()
-            await dependencies.refreshAutoSyncStatus()
         }
     }
 
