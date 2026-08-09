@@ -55,6 +55,18 @@ final class AppDependencies {
     /// tracker, so re-arms after the first tick anchor here instead of
     /// firing immediately on every settings apply.
     @ObservationIgnored var lastScheduledTickAt: Date?
+    /// The armed watch source consumer; nil = strategy without watch,
+    /// missing Pro, or an unavailable source (sandbox).
+    @ObservationIgnored var automationWatchTask: Task<Void, Never>?
+    /// The path the live watch task was armed on (short-circuit parity
+    /// with armedScheduleInterval).
+    @ObservationIgnored var armedWatchPath: String?
+    /// Python launchd ThrottleInterval parity: watch events inside this
+    /// window coalesce into the earlier tick.
+    @ObservationIgnored var lastWatchTickAt: Date?
+    /// Injected library-change source; built lazily from the configured
+    /// library path, replaceable in tests.
+    @ObservationIgnored var libraryChangeSource: (any LibraryChangeSource)?
     // Library facts (D1): the load chain is the SOLE writer (chrome-
     // mirror convention, pinned); views and view-models only read.
     var libraryTracks: [Track] = []

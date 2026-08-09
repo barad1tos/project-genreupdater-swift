@@ -101,6 +101,7 @@ enum ActivitySnapshotAdapter {
     private static func makeAutomationLabel(_ state: ChromeAutomationState) -> String {
         switch state {
         case .running: "Running"
+        case .watching: "Watching library"
         case .scheduled: "Scheduled"
         case .manualOnly: "Manual trigger"
         case .nothingDue: "Nothing due"
