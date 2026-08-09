@@ -30,6 +30,8 @@ extension AppDependencies {
         await applyRuntimeConfigurationTail(handoff)
         // The head rebuilt the tracker; the chrome cache must follow (D6).
         await refreshIncrementalRunTimestamp()
+        // Strategy or interval changes re-arm the trigger sources.
+        await applyAutomationStrategy()
     }
 
     /// Every configuration-derived value the tail needs, captured at head

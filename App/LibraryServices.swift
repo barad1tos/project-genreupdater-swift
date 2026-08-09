@@ -357,7 +357,7 @@ extension AppDependencies {
         isAutoSyncRunning = await librarySyncService.isAutoSyncRunning
     }
 
-    private func currentKnownTrackCount() async -> Int? {
+    func currentKnownTrackCount() async -> Int? {
         if let trackCountSource {
             return await trackCountSource()
         }

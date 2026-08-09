@@ -45,6 +45,9 @@ final class AppDependencies {
     /// view-model, consumed by the orchestrator's runner bridge. nil =
     /// no window — a submitted batch fails fast instead of running blind.
     @ObservationIgnored var batchRunProvider: (@MainActor (BatchRunInput, RunID) async throws -> BatchUpdateResult)?
+    /// The armed schedule source (ADR 0003); nil = manual/watch-only
+    /// strategy or missing Pro access. Re-armed by applyAutomationStrategy.
+    @ObservationIgnored var automationScheduleTask: Task<Void, Never>?
     // Library facts (D1): the load chain is the SOLE writer (chrome-
     // mirror convention, pinned); views and view-models only read.
     var libraryTracks: [Track] = []
@@ -250,6 +253,7 @@ final class AppDependencies {
             // a fresh session emits no lifecycle event to re-derive it.
             await refreshChromeProjection()
             startLifecycleProjectionObserver()
+            await applyAutomationStrategy()
         } catch {
             log.error("Initialization failed: \(error.localizedDescription, privacy: .public)")
             appState = .error(error.localizedDescription)
@@ -717,6 +721,10 @@ extension AppDependencies {
 
     func installTestObservationClient(_ client: any AppleScriptClient) {
         recoveryObservationClient = client
+    }
+
+    func installTestFeatureGate(_ gate: FeatureGate) {
+        featureGate = gate
     }
 
     func installTestAvailability(_ availability: RecoveryAvailability) {
