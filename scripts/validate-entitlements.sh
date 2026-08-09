@@ -1,96 +1,108 @@
 #!/usr/bin/env bash
-# Validates GenreUpdater.entitlements against the approved whitelist.
-# Runs on macOS CI runners (plutil + PlistBuddy are pre-installed).
+# Validates every code-signed entitlements file against its approved
+# whitelist. Runs on macOS CI runners (plutil + PlistBuddy pre-installed).
 
 set -euo pipefail
 
-ENTITLEMENTS="App/GenreUpdater.entitlements"
 PLIST_BUDDY="/usr/libexec/PlistBuddy"
 ERRORS=0
-
-# Allowed entitlement keys (exhaustive whitelist)
-ALLOWED_KEYS=(
-  "com.apple.security.app-sandbox"
-  "com.apple.security.scripting-targets"
-  "com.apple.security.network.client"
-  "com.apple.developer.ubiquity-kvstore-identifier"
-)
 
 error() {
   echo "ERROR: $1" >&2
   ERRORS=$((ERRORS + 1))
 }
 
-if [ ! -f "$ENTITLEMENTS" ]; then
-  echo "ERROR: Entitlements file not found at $ENTITLEMENTS" >&2
-  exit 1
-fi
+# Whitelist + completeness + syntax for one entitlements file.
+validate_keys() {
+  local entitlements="$1"
+  shift
+  local allowed_keys=("$@")
 
-# Validate plist syntax
-if ! plutil -lint "$ENTITLEMENTS" > /dev/null 2>&1; then
-  echo "ERROR: Entitlements file is not valid plist" >&2
-  exit 1
-fi
+  if [ ! -f "$entitlements" ]; then
+    echo "ERROR: Entitlements file not found at $entitlements" >&2
+    exit 1
+  fi
 
-# Extract top-level keys via PlistBuddy (indent=4 spaces, pattern: "    key = value")
-ACTUAL_KEYS=()
-while IFS= read -r key; do
-  [ -n "$key" ] && ACTUAL_KEYS+=("$key")
-done < <("$PLIST_BUDDY" -c "Print" "$ENTITLEMENTS" 2>/dev/null \
-  | sed -n 's/^    \([^ ].*\) = .*/\1/p')
+  if ! plutil -lint "$entitlements" > /dev/null 2>&1; then
+    echo "ERROR: $entitlements is not valid plist" >&2
+    exit 1
+  fi
 
-if [ "${#ACTUAL_KEYS[@]}" -eq 0 ]; then
-  echo "ERROR: Could not extract any keys from $ENTITLEMENTS" >&2
-  exit 1
-fi
+  local actual_keys=()
+  while IFS= read -r key; do
+    [ -n "$key" ] && actual_keys+=("$key")
+  done < <("$PLIST_BUDDY" -c "Print" "$entitlements" 2>/dev/null \
+    | sed -n 's/^    \([^ ].*\) = .*/\1/p')
 
-# Whitelist check: every key in the file must be in the allowed list
-for actual in "${ACTUAL_KEYS[@]}"; do
-  found=0
-  for allowed in "${ALLOWED_KEYS[@]}"; do
-    if [ "$actual" = "$allowed" ]; then
-      found=1
-      break
+  if [ "${#actual_keys[@]}" -eq 0 ]; then
+    echo "ERROR: Could not extract any keys from $entitlements" >&2
+    exit 1
+  fi
+
+  local actual allowed found
+  for actual in "${actual_keys[@]}"; do
+    found=0
+    for allowed in "${allowed_keys[@]}"; do
+      if [ "$actual" = "$allowed" ]; then
+        found=1
+        break
+      fi
+    done
+    if [ "$found" -eq 0 ]; then
+      error "$entitlements: unexpected entitlement key: $actual"
     fi
   done
-  if [ "$found" -eq 0 ]; then
-    error "Unexpected entitlement key: $actual"
-  fi
-done
 
-# Completeness check: every allowed key must be present
-for allowed in "${ALLOWED_KEYS[@]}"; do
-  found=0
-  for actual in "${ACTUAL_KEYS[@]}"; do
-    if [ "$actual" = "$allowed" ]; then
-      found=1
-      break
+  for allowed in "${allowed_keys[@]}"; do
+    found=0
+    for actual in "${actual_keys[@]}"; do
+      if [ "$actual" = "$allowed" ]; then
+        found=1
+        break
+      fi
+    done
+    if [ "$found" -eq 0 ]; then
+      error "$entitlements: missing required entitlement key: $allowed"
     fi
   done
-  if [ "$found" -eq 0 ]; then
-    error "Missing required entitlement key: $allowed"
-  fi
-done
 
-# Value checks
-SANDBOX=$("$PLIST_BUDDY" -c "Print :com.apple.security.app-sandbox" "$ENTITLEMENTS" 2>/dev/null)
+  if grep -q "temporary-exception" "$entitlements"; then
+    error "$entitlements: forbidden temporary-exception key(s)"
+  fi
+}
+
+# --- App target ---
+APP_ENTITLEMENTS="App/GenreUpdater.entitlements"
+validate_keys "$APP_ENTITLEMENTS" \
+  "com.apple.security.app-sandbox" \
+  "com.apple.security.scripting-targets" \
+  "com.apple.security.network.client" \
+  "com.apple.developer.ubiquity-kvstore-identifier"
+
+SANDBOX=$("$PLIST_BUDDY" -c "Print :com.apple.security.app-sandbox" "$APP_ENTITLEMENTS" 2>/dev/null)
 if [ "$SANDBOX" != "true" ]; then
-  error "app-sandbox must be true, got: $SANDBOX"
+  error "$APP_ENTITLEMENTS: app-sandbox must be true, got: $SANDBOX"
 fi
 
-NETWORK=$("$PLIST_BUDDY" -c "Print :com.apple.security.network.client" "$ENTITLEMENTS" 2>/dev/null)
+NETWORK=$("$PLIST_BUDDY" -c "Print :com.apple.security.network.client" "$APP_ENTITLEMENTS" 2>/dev/null)
 if [ "$NETWORK" != "true" ]; then
-  error "network.client must be true, got: $NETWORK"
+  error "$APP_ENTITLEMENTS: network.client must be true, got: $NETWORK"
 fi
 
-# scripting-targets must contain com.apple.Music
-if ! "$PLIST_BUDDY" -c "Print :com.apple.security.scripting-targets:com.apple.Music" "$ENTITLEMENTS" > /dev/null 2>&1; then
-  error "scripting-targets must contain com.apple.Music"
+if ! "$PLIST_BUDDY" -c "Print :com.apple.security.scripting-targets:com.apple.Music" "$APP_ENTITLEMENTS" > /dev/null 2>&1; then
+  error "$APP_ENTITLEMENTS: scripting-targets must contain com.apple.Music"
 fi
 
-# Forbidden: no temporary-exception keys
-if grep -q "temporary-exception" "$ENTITLEMENTS"; then
-  error "Forbidden: entitlements contain temporary-exception key(s)"
+# --- Bundled waker agent: sandboxed, read-only Music assets, NOTHING else
+# (no network, no scripting, no inherit — it only watches and nudges) ---
+AGENT_ENTITLEMENTS="Agent/GenreUpdaterAgent.entitlements"
+validate_keys "$AGENT_ENTITLEMENTS" \
+  "com.apple.security.app-sandbox" \
+  "com.apple.security.assets.music.read-only"
+
+AGENT_SANDBOX=$("$PLIST_BUDDY" -c "Print :com.apple.security.app-sandbox" "$AGENT_ENTITLEMENTS" 2>/dev/null)
+if [ "$AGENT_SANDBOX" != "true" ]; then
+  error "$AGENT_ENTITLEMENTS: app-sandbox must be true, got: $AGENT_SANDBOX"
 fi
 
 if [ "$ERRORS" -gt 0 ]; then

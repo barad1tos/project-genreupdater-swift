@@ -200,6 +200,50 @@ extension AppDependencies {
         log.info("Watch observation finished as \(String(describing: result.lifecycle?.state), privacy: .public)")
     }
 
+    /// The agent's wake entry (slice 14): the URL carries only intent —
+    /// the strategy, Pro gate, throttle, and orchestrator decide the
+    /// rest through the same watch path as an in-session event. A wake
+    /// under a strategy without watch is ignored: the user's setting
+    /// outranks a stale registered agent.
+    func handleAutomationWake(url: URL) async {
+        guard Self.isAutomationWakeURL(url) else { return }
+        // A cold-launch wake races initialize(): before the gate and
+        // orchestrator exist the submission path would silently drop the
+        // very change the agent woke us for. Park it; completeLaunch
+        // drains after the runtime is armed.
+        guard featureGate != nil, runOrchestrator != nil else {
+            pendingAutomationWakeURL = url
+            return
+        }
+        guard wantsWatchStrategy else { return }
+        // A live in-process source already observes the same file; a
+        // redundant agent nudge would coalesce into a trailing tick and
+        // re-observe an already-recorded change ~5 minutes later.
+        guard automationWatchTask == nil else { return }
+        await submitWatchObservation()
+    }
+
+    /// The parked cold-launch wake, submitted DIRECTLY: the in-process
+    /// watcher armed moments ago never saw the pre-arm change, so the
+    /// armed-source short-circuit must not apply here.
+    func drainPendingAutomationWake() async {
+        guard let url = pendingAutomationWakeURL else { return }
+        pendingAutomationWakeURL = nil
+        guard Self.isAutomationWakeURL(url), wantsWatchStrategy else { return }
+        await submitWatchObservation()
+    }
+
+    private static func isAutomationWakeURL(_ url: URL) -> Bool {
+        url.scheme == "genreupdater"
+            && url.host() == "automation"
+            && url.path() == "/library-change"
+    }
+
+    private var wantsWatchStrategy: Bool {
+        let strategy = config.runtime.automationStrategy
+        return strategy == .libraryChange || strategy == .hybrid
+    }
+
     private func scheduleTrailingWatchTick(after delay: TimeInterval) {
         guard automationWatchTrailingTask == nil else { return }
         automationWatchTrailingTask = Task { [weak self] in

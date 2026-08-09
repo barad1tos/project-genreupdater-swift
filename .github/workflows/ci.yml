@@ -153,6 +153,7 @@ jobs:
         run: >
           swiftlint lint --strict
           App
+          Agent
           Packages/Core/Sources
           Packages/DesignUI/Sources
           Packages/Services/Sources
@@ -162,6 +163,7 @@ jobs:
         run: >
           swiftformat
           App
+          Agent
           Packages/Core/Sources
           Packages/DesignUI/Sources
           Packages/Services/Sources

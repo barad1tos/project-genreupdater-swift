@@ -214,6 +214,7 @@ struct AutomationRuntimeTests {
     func launchCompletionArmsPersistedStrategy() async {
         let dependencies = makeAutomationTestDependencies()
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.installTestAgentRegistrar(StubAgentRegistrar())
         dependencies.config.runtime.automationStrategy = .scheduled
         dependencies.lastScheduledTickAt = Date()
 
@@ -527,6 +528,193 @@ struct AutomationRuntimeTests {
         #expect(dependencies.lastIncrementalRunTimestamp == nil)
     }
 
+    @Test("an agent wake URL lands a file-system observation")
+    func agentWakeSubmitsFileSystemObservation() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.automationStrategy = .libraryChange
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        await dependencies.handleAutomationWake(url: automationWakeURL())
+
+        let stored = await records.records
+        #expect(stored.first?.trigger == .fileSystemEvent)
+        #expect(stored.first?.intent == .observeLibrary)
+    }
+
+    @Test("a wake under the manual strategy submits nothing")
+    func agentWakeUnderManualStrategySubmitsNothing() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.automationStrategy = .manualOnly
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        await dependencies.handleAutomationWake(url: automationWakeURL())
+
+        #expect(await records.records.isEmpty)
+    }
+
+    @Test("a wake on the free tier submits nothing")
+    func agentWakeOnFreeTierSubmitsNothing() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .free))
+        dependencies.config.runtime.automationStrategy = .hybrid
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        await dependencies.handleAutomationWake(url: automationWakeURL())
+
+        #expect(await records.records.isEmpty)
+    }
+
+    @Test("a junk URL submits nothing")
+    func junkURLSubmitsNothing() async throws {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.automationStrategy = .hybrid
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        let junkHost = try #require(URL(string: "genreupdater://something/else"))
+        await dependencies.handleAutomationWake(url: junkHost)
+        let junkPath = try #require(URL(string: "genreupdater://automation/not-a-thing"))
+        await dependencies.handleAutomationWake(url: junkPath)
+
+        #expect(await records.records.isEmpty)
+    }
+
+    /// The convergent HIGH of the PR-161 wave: a cold-launch wake races
+    /// initialize() and used to be silently dropped — the very change the
+    /// agent woke the app for. The wake now parks until completeLaunch
+    /// drains it through the runtime.
+    @Test("a wake before the runtime exists parks and drains at launch")
+    func coldLaunchWakeParksAndDrains() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.config.runtime.automationStrategy = .libraryChange
+
+        // No gate, no orchestrator yet — the pre-fix path dropped here.
+        await dependencies.handleAutomationWake(url: automationWakeURL())
+        #expect(dependencies.pendingAutomationWakeURL != nil)
+
+        let records = AutomationRecordCollector()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.installTestAgentRegistrar(StubAgentRegistrar())
+        dependencies.libraryChangeSource = StubLibraryChangeSource(isAvailable: false)
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        await dependencies.completeLaunch()
+
+        let stored = await records.records
+        #expect(stored.first?.trigger == .fileSystemEvent)
+        #expect(dependencies.pendingAutomationWakeURL == nil)
+
+        dependencies.config.runtime.automationStrategy = .manualOnly
+        await dependencies.applyAutomationStrategy()
+    }
+
+    /// Codex P2: with the in-process watcher armed, an agent nudge is the
+    /// SAME change seen twice — deferring it would re-observe ~5 minutes
+    /// later for nothing. Live wakes yield to the armed source.
+    @Test("a live wake with an armed in-process source is ignored")
+    func liveWakeWithArmedSourceIsIgnored() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.automationStrategy = .libraryChange
+        dependencies.libraryChangeSource = StubLibraryChangeSource(isAvailable: true)
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+        await dependencies.applyAutomationStrategy()
+        #expect(dependencies.automationWatchTask != nil)
+
+        await dependencies.handleAutomationWake(url: automationWakeURL())
+
+        #expect(await records.records.isEmpty)
+
+        dependencies.config.runtime.automationStrategy = .manualOnly
+        await dependencies.applyAutomationStrategy()
+    }
+
+    @Test("the watcher toggle registers and unregisters through the registrar")
+    func watcherToggleDrivesRegistrar() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        let registrar = StubAgentRegistrar()
+        dependencies.installTestAgentRegistrar(registrar)
+
+        let enableFailure = await dependencies.setBackgroundWatcherEnabled(true)
+        #expect(enableFailure == nil)
+        #expect(registrar.registerCalls == 1)
+
+        let disableFailure = await dependencies.setBackgroundWatcherEnabled(false)
+        #expect(disableFailure == nil)
+        #expect(registrar.unregisterCalls == 1)
+    }
+
+    @Test("a lapsed tier cannot enable but can always disable")
+    func lapsedTierCannotEnableButCanDisable() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .free))
+        let registrar = StubAgentRegistrar()
+        registrar.isRegistered = true
+        dependencies.installTestAgentRegistrar(registrar)
+
+        let enableFailure = await dependencies.setBackgroundWatcherEnabled(true)
+        #expect(enableFailure?.isEmpty == false)
+        #expect(registrar.registerCalls == 0)
+
+        // The escape hatch: a registered agent must remain removable.
+        let disableFailure = await dependencies.setBackgroundWatcherEnabled(false)
+        #expect(disableFailure == nil)
+        #expect(registrar.unregisterCalls == 1)
+    }
+
+    @Test("a registrar failure surfaces as a user-facing message")
+    func registrarFailureSurfacesMessage() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        let registrar = StubAgentRegistrar()
+        registrar.failure = AgentRegistrationFailure.denied
+        dependencies.installTestAgentRegistrar(registrar)
+
+        let failure = await dependencies.setBackgroundWatcherEnabled(true)
+        #expect(failure?.isEmpty == false)
+    }
+
+    @Test("a missing registrar reports unavailability instead of crashing")
+    func missingRegistrarReportsUnavailability() async {
+        let dependencies = makeAutomationTestDependencies()
+
+        let failure = await dependencies.setBackgroundWatcherEnabled(true)
+        #expect(failure?.isEmpty == false)
+    }
+
+    private func automationWakeURL() -> URL {
+        guard let url = URL(string: "genreupdater://automation/library-change") else {
+            fatalError("the wake URL constant is unparseable")
+        }
+        return url
+    }
+
     private func makeAutomationTestDependencies() -> AppDependencies {
         AppDependencies(
             configurationLoader: { AppConfiguration() },
@@ -541,6 +729,40 @@ struct AutomationRuntimeTests {
 @MainActor
 private final class SavedStrategiesBox {
     var values: [AutomationStrategy] = []
+}
+
+/// Records registration calls; a set failure throws instead.
+@MainActor
+final class StubAgentRegistrar: AgentRegistrar {
+    var isRegistered = false
+    var needsApproval = false
+    var failure: Error?
+    private(set) var registerCalls = 0
+    private(set) var unregisterCalls = 0
+
+    func register() throws {
+        if let failure {
+            throw failure
+        }
+        registerCalls += 1
+        isRegistered = true
+    }
+
+    func unregister() async throws {
+        if let failure {
+            throw failure
+        }
+        unregisterCalls += 1
+        isRegistered = false
+    }
+
+    func openApprovalSettings() {
+        // Settings deep links are outside pin scope.
+    }
+}
+
+enum AgentRegistrationFailure: Error {
+    case denied
 }
 
 /// A hand-driven source: tests emit events and control availability.

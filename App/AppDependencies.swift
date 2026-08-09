@@ -75,6 +75,13 @@ final class AppDependencies {
     /// One idempotent deferred tick per throttle window: launchd defers
     /// a throttled invocation, it never drops it.
     @ObservationIgnored var automationWatchTrailingTask: Task<Void, Never>?
+    /// Registration surface for the bundled thin-waker agent; nil until
+    /// initialize wires the SMAppService implementation.
+    @ObservationIgnored private(set) var agentRegistrar: (any AgentRegistrar)?
+    /// A cold-launch agent wake parked until the runtime is armed; the
+    /// completeLaunch tail drains it (the pre-arm change would otherwise
+    /// be lost — the in-process watcher never saw it).
+    @ObservationIgnored var pendingAutomationWakeURL: URL?
     // Library facts (D1): the load chain is the SOLE writer (chrome-
     // mirror convention, pinned); views and view-models only read.
     var libraryTracks: [Track] = []
@@ -437,7 +444,11 @@ final class AppDependencies {
         // session emits no lifecycle event to re-derive it.
         await refreshChromeProjection()
         startLifecycleProjectionObserver()
+        if agentRegistrar == nil {
+            agentRegistrar = SMAppServiceRegistrar()
+        }
         await applyAutomationStrategy()
+        await drainPendingAutomationWake()
     }
 
     /// Creates the tracker and primes the chrome due-fact cache (D6).
@@ -762,6 +773,10 @@ extension AppDependencies {
 
     func installTestIncrementalRunTracker(_ tracker: IncrementalRunTracker) {
         incrementalRunTracker = tracker
+    }
+
+    func installTestAgentRegistrar(_ registrar: any AgentRegistrar) {
+        agentRegistrar = registrar
     }
 
     func installTestAvailability(_ availability: RecoveryAvailability) {

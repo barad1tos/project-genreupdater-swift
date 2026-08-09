@@ -35,6 +35,9 @@ struct GenreUpdaterApp: App {
                     await dependencies.initialize()
                     applyAppKitAppearance(appearanceMode)
                 }
+                .onOpenURL { url in
+                    Task { await dependencies.handleAutomationWake(url: url) }
+                }
         }
         .defaultSize(width: 1280, height: 800)
         .commands {

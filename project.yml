@@ -30,14 +30,26 @@ targets:
     platform: macOS
     sources:
       - App
+      - path: Resources/LaunchAgents/com.genreupdater.agent.plist
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchAgents
     resources:
       - path: Resources
         buildPhase: resources
+        excludes:
+          - LaunchAgents
     dependencies:
       - package: Core
       - package: Services
       - package: SharedUI
       - package: DesignUI
+      - target: GenreUpdaterAgent
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
     postBuildScripts:
       - name: Compile and copy AppleScript files to bundle
         script: |
@@ -81,6 +93,29 @@ targets:
         CFBundleVersion: "1"
         LSMinimumSystemVersion: "15.0"
         NSAppleMusicUsageDescription: "Genre Updater needs access to your Music library to read and update track metadata."
+        CFBundleURLTypes:
+          - CFBundleURLName: com.genreupdater.automation
+            CFBundleURLSchemes:
+              - genreupdater
+
+  GenreUpdaterAgent:
+    type: tool
+    platform: macOS
+    sources:
+      - Agent
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.genreupdater.agent
+        PRODUCT_NAME: GenreUpdaterAgent
+        CODE_SIGN_ENTITLEMENTS: Agent/GenreUpdaterAgent.entitlements
+        CODE_SIGN_STYLE: Automatic
+        INFOPLIST_FILE: Agent/Info.plist
+        CREATE_INFOPLIST_SECTION_IN_BINARY: true
+      configs:
+        Debug:
+          ENABLE_APP_SANDBOX: false
+        Release:
+          ENABLE_APP_SANDBOX: true
 
   GenreUpdaterTests:
     type: bundle.unit-test
