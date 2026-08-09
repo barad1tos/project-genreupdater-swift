@@ -1,5 +1,24 @@
 import Core
+import Foundation
 import Services
+
+/// The batch work stashed between submit and the orchestrator's runner
+/// firing (D3): tracks and context stay screen-side; only options and
+/// count travel in the run request.
+struct PendingBatchExecution {
+    let tracksByIndex: [Track]
+    let contextTracks: [Track]
+    let preflightOutcome: PendingEntryOutcome
+    let options: UpdateOptions
+}
+
+enum WorkflowBatchError: LocalizedError {
+    case noPendingExecution
+
+    var errorDescription: String? {
+        "The batch runner fired without a pending execution"
+    }
+}
 
 extension WorkflowViewModel {
     // MARK: - Batch Processing (Full Library mode)
@@ -12,6 +31,12 @@ extension WorkflowViewModel {
         let tracksByIndex = Self.sortedForBatchProcessing(tracks)
         guard !tracksByIndex.isEmpty else {
             phase = .error("No tracks in the current scope")
+            progress = nil
+            currentTrackID = nil
+            return
+        }
+        guard let submitBatchRun else {
+            phase = .error("Run service is unavailable")
             progress = nil
             currentTrackID = nil
             return
@@ -36,54 +61,120 @@ extension WorkflowViewModel {
             minConfidence: confidencePercentage,
             autoAccept: true
         )
-
-        let progressHandler = makeBatchProgressHandler(tracksByIndex: tracksByIndex)
+        pendingBatchExecution = PendingBatchExecution(
+            tracksByIndex: tracksByIndex,
+            contextTracks: contextTracks ?? tracksByIndex,
+            preflightOutcome: preflightOutcome,
+            options: options
+        )
 
         processingTask = Task {
             do {
-                await invalidateAlbumYearCacheIfNeeded()
-
-                let context = await batchContext(for: tracksByIndex, contextTracks: contextTracks ?? tracksByIndex)
-                let operation = makeBatchTrackOperation(
-                    updateCoordinator: updateCoordinator,
-                    options: options,
-                    albumTracksByTrackID: context.albums,
-                    artistTracksByTrackID: context.artists
+                let submission = try await submitBatchRun(
+                    BatchRunInput(options: options, trackCount: tracksByIndex.count)
                 )
-
-                let entries = try await batchProcessor.process(
-                    tracks: tracksByIndex,
-                    operation: operation,
-                    progressHandler: progressHandler
-                )
-
-                await finishBatchProcessing(
-                    preflightOutcome: preflightOutcome,
-                    batchEntries: entries,
-                    tracks: tracksByIndex
-                )
-            } catch is CancellationError {
-                finishCancelledBatch(preflightOutcome: preflightOutcome)
-                phase = .configure
-                progress = nil
-            } catch let error as AppleScriptOutcomeError {
-                await holdUnknownBatch(error, preflightOutcome: preflightOutcome)
-            } catch let batchError as BatchProcessorError {
-                handleBatchProcessingError(batchError, preflightOutcome: preflightOutcome)
+                applyBatchSubmissionResult(submission)
             } catch {
-                retainPreflightOutcome(preflightOutcome)
+                pendingBatchExecution = nil
                 phase = .error(error.localizedDescription)
                 progress = nil
             }
         }
     }
 
-    private func holdUnknownBatch(
-        _ error: AppleScriptOutcomeError,
-        preflightOutcome: PendingEntryOutcome
-    ) async {
-        retainPreflightOutcome(preflightOutcome)
-        await handleUnknownOutcome(error)
+    /// The orchestrator's runner target (D3): executes the stashed work
+    /// through the same coordinator path with the same screen progress;
+    /// every failure rethrows AFTER applying its screen state so the run
+    /// record stays honest.
+    func performBatchRunWork(input _: BatchRunInput, runID _: RunID) async throws -> BatchUpdateResult {
+        guard let execution = pendingBatchExecution else {
+            throw WorkflowBatchError.noPendingExecution
+        }
+        pendingBatchExecution = nil
+        let tracksByIndex = execution.tracksByIndex
+        let progressHandler = makeBatchProgressHandler(tracksByIndex: tracksByIndex)
+        do {
+            await invalidateAlbumYearCacheIfNeeded()
+
+            let context = await batchContext(for: tracksByIndex, contextTracks: execution.contextTracks)
+            let operation = makeBatchTrackOperation(
+                updateCoordinator: updateCoordinator,
+                options: execution.options,
+                albumTracksByTrackID: context.albums,
+                artistTracksByTrackID: context.artists
+            )
+
+            let entries = try await batchProcessor.process(
+                tracks: tracksByIndex,
+                operation: operation,
+                progressHandler: progressHandler
+            )
+
+            await finishBatchProcessing(
+                preflightOutcome: execution.preflightOutcome,
+                batchEntries: entries,
+                tracks: tracksByIndex
+            )
+            return result ?? BatchUpdateResult(
+                entries: entries,
+                noOpEntries: batchNoOpEntries,
+                failedTrackIDs: batchFailedTrackIDs,
+                errorDescriptions: batchFailureDescriptions
+            )
+        } catch is CancellationError {
+            finishCancelledBatch(preflightOutcome: execution.preflightOutcome)
+            phase = .configure
+            progress = nil
+            throw CancellationError()
+        } catch let error as AppleScriptOutcomeError {
+            // The orchestrator routes this to recovery and holds through
+            // the SAME processor; the screen keeps only the failure phase
+            // (a second view-model hold would double-lock the processor).
+            retainPreflightOutcome(execution.preflightOutcome)
+            phase = .error(error.localizedDescription)
+            progress = nil
+            throw error
+        } catch let batchError as BatchProcessorError {
+            if case let .cancelled(liveProcessedCount, liveTotalCount) = batchError {
+                finishCancelledBatch(
+                    preflightOutcome: execution.preflightOutcome,
+                    liveProcessedCount: liveProcessedCount,
+                    liveTotalCount: liveTotalCount
+                )
+                phase = .configure
+                progress = nil
+                throw CancellationError()
+            }
+            handleBatchProcessingError(batchError, preflightOutcome: execution.preflightOutcome)
+            throw batchError
+        } catch {
+            retainPreflightOutcome(execution.preflightOutcome)
+            phase = .error(error.localizedDescription)
+            progress = nil
+            throw error
+        }
+    }
+
+    private func applyBatchSubmissionResult(_ submission: RunSubmissionResult) {
+        switch submission {
+        case .queued, .alreadyCovered:
+            // The runner fires when the active run finishes; the batch
+            // progress handler takes the screen over from there.
+            progress = ProgressUpdate(
+                phase: .fetching,
+                current: 0,
+                total: totalCount,
+                message: "Waiting for the active run to finish"
+            )
+        case .recoveryRequired:
+            pendingBatchExecution = nil
+            phase = .error("Recovery needs attention before this run can start")
+            progress = nil
+        case .completed, .completedNoOp, .failed, .cancelled, .recoverable:
+            // Terminal screen state was applied inside performBatchRunWork
+            // (or its error taxonomy) before the orchestrator returned.
+            break
+        }
     }
 
     private func finishBatchProcessing(

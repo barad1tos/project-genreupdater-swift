@@ -364,50 +364,10 @@ struct DesignRootHostView: View {
         else { return }
 
         workflowViewModel = WorkflowViewModel(
-            dependencies: WorkflowViewModel.Dependencies(
-                updateCoordinator: coordinator,
-                batchProcessor: processor,
-                changePreviewPipeline: pipeline,
-                pendingVerificationService: dependencies.pendingVerificationService,
-                featureGate: dependencies.featureGate,
-                recordProcessedTracks: { count in
-                    dependencies.subscriptionService?.incrementFreeTracksUsed(by: count)
-                },
-                runMaintenancePreflight: {
-                    await dependencies.runMaintenancePreflight()
-                },
-                ensureRecoveryHold: {
-                    await dependencies.ensureRecoveryHold()
-                },
-                clearRecovery: { id in
-                    try await dependencies.clearRecoveryHold(id: id)
-                },
-                prepareMutationMetadata: { mutationTracks in
-                    _ = try await dependencies.refreshTrackIDMappingOrThrow(
-                        musicKitTracks: mutationTracks,
-                        scopedArtists: dependencies.config.development.testArtists,
-                        mergeExisting: true
-                    )
-                },
-                resolveIncrementalTracks: { incrementalTracks, options in
-                    let lastRunTime = await dependencies.incrementalRunTracker?.getLastRunTimestamp()
-                    return UpdateTrackScopeResolver.incrementalTracks(
-                        incrementalTracks,
-                        lastRunTime: lastRunTime,
-                        previousTracks: dependencies.previousIncrementalScopeTracks,
-                        options: options
-                    )
-                },
-                invalidateAlbumYearCache: {
-                    await dependencies.cacheService?.invalidateAllAlbumYears()
-                },
-                updateIncrementalRunTimestamp: {
-                    await dependencies.incrementalRunTracker?.updateLastRunTimestamp()
-                    await dependencies.refreshIncrementalRunTimestamp()
-                },
-                problematicAlbumReportMinAttempts: {
-                    max(1, Int(dependencies.config.reporting.minAttemptsForReport.rounded()))
-                }
+            dependencies: makeWorkflowDependencies(
+                coordinator: coordinator,
+                pipeline: pipeline,
+                processor: processor
             ),
             defaults: WorkflowViewModel.Defaults(
                 updateGenre: configuredUpdateSelection.updateGenre,
@@ -418,6 +378,74 @@ struct DesignRootHostView: View {
             )
         )
         registerWorkflowFactsProvider()
+        registerBatchRunProvider()
+    }
+
+    private func makeWorkflowDependencies(
+        coordinator: UpdateCoordinator,
+        pipeline: ChangePreviewPipeline,
+        processor: BatchProcessor
+    ) -> WorkflowViewModel.Dependencies {
+        WorkflowViewModel.Dependencies(
+            updateCoordinator: coordinator,
+            batchProcessor: processor,
+            changePreviewPipeline: pipeline,
+            pendingVerificationService: dependencies.pendingVerificationService,
+            featureGate: dependencies.featureGate,
+            recordProcessedTracks: { count in
+                dependencies.subscriptionService?.incrementFreeTracksUsed(by: count)
+            },
+            runMaintenancePreflight: {
+                await dependencies.runMaintenancePreflight()
+            },
+            ensureRecoveryHold: {
+                await dependencies.ensureRecoveryHold()
+            },
+            clearRecovery: { id in
+                try await dependencies.clearRecoveryHold(id: id)
+            },
+            prepareMutationMetadata: { mutationTracks in
+                _ = try await dependencies.refreshTrackIDMappingOrThrow(
+                    musicKitTracks: mutationTracks,
+                    scopedArtists: dependencies.config.development.testArtists,
+                    mergeExisting: true
+                )
+            },
+            resolveIncrementalTracks: { incrementalTracks, options in
+                let lastRunTime = await dependencies.incrementalRunTracker?.getLastRunTimestamp()
+                return UpdateTrackScopeResolver.incrementalTracks(
+                    incrementalTracks,
+                    lastRunTime: lastRunTime,
+                    previousTracks: dependencies.previousIncrementalScopeTracks,
+                    options: options
+                )
+            },
+            invalidateAlbumYearCache: {
+                await dependencies.cacheService?.invalidateAllAlbumYears()
+            },
+            updateIncrementalRunTimestamp: {
+                await dependencies.incrementalRunTracker?.updateLastRunTimestamp()
+                await dependencies.refreshIncrementalRunTimestamp()
+            },
+            submitBatchRun: { input in
+                try await dependencies.submitBatchRun(input: input)
+            },
+            problematicAlbumReportMinAttempts: {
+                max(1, Int(dependencies.config.reporting.minAttemptsForReport.rounded()))
+            }
+        )
+    }
+
+    /// The orchestrator's batch runner reaches the LIVE view-model
+    /// through this provider (D3); a dead one fails the run fast.
+    private func registerBatchRunProvider() {
+        let createdViewModel = workflowViewModel
+        dependencies.batchRunProvider = { [weak createdViewModel] input, runID in
+            guard let createdViewModel else {
+                throw AppDependencyServiceError.batchRunnerUnavailable
+            }
+            return try await createdViewModel.performBatchRunWork(input: input, runID: runID)
+        }
     }
 
     /// Every backend publish pulls workflow truth through this

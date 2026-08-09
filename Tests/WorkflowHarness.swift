@@ -94,14 +94,47 @@ private func assembleWorkflowFixture(_ input: WorkflowFixtureInput) -> WorkflowF
     let clearRecovery = input.options.clearRecovery ?? { id in
         try await processor.clearRecovery(batchID: id)
     }
+    let relay = BatchRunRelay()
+    let orchestrator = RunOrchestrator(dependencies: .init(
+        synchronizeLibrary: { SyncResult() },
+        persistRunRecord: { _ in },
+        runBatchUpdate: { batchInput, runID in
+            try await relay.perform(batchInput, runID)
+        }
+    ))
     let viewModel = makeFixtureViewModel(
         input: input,
         coordinator: coordinator,
         processor: processor,
         gate: gate,
-        clearRecovery: clearRecovery
+        clearRecovery: clearRecovery,
+        submitBatchRun: { batchInput in
+            await orchestrator.submit(.manualBatchUpdate(
+                input: batchInput,
+                requestedTestArtists: [],
+                knownTrackCount: batchInput.trackCount
+            ))
+        }
     )
+    relay.viewModel = viewModel
     return WorkflowFixture(viewModel: viewModel, scriptClient: scriptClient, batchProcessor: processor)
+}
+
+/// A production-shaped bridge for fixtures: the orchestrator's Sendable
+/// runner slot reaches the fixture's view-model exactly like the app's
+/// batchRunProvider does.
+@MainActor
+private final class BatchRunRelay {
+    weak var viewModel: WorkflowViewModel?
+
+    nonisolated init() {}
+
+    func perform(_ input: BatchRunInput, _ runID: RunID) async throws -> BatchUpdateResult {
+        guard let viewModel else {
+            throw AppDependencyServiceError.batchRunnerUnavailable
+        }
+        return try await viewModel.performBatchRunWork(input: input, runID: runID)
+    }
 }
 
 @MainActor
@@ -136,7 +169,8 @@ private func makeFixtureViewModel(
     coordinator: UpdateCoordinator,
     processor: BatchProcessor,
     gate: FeatureGate,
-    clearRecovery: @escaping (UUID) async throws -> Void
+    clearRecovery: @escaping (UUID) async throws -> Void,
+    submitBatchRun: ((BatchRunInput) async throws -> RunSubmissionResult)? = nil
 ) -> WorkflowViewModel {
     WorkflowViewModel(
         dependencies: WorkflowViewModel.Dependencies(
@@ -152,6 +186,7 @@ private func makeFixtureViewModel(
             resolveIncrementalTracks: input.resolveIncrementalTracks,
             invalidateAlbumYearCache: input.options.invalidateAlbumYearCache,
             updateIncrementalRunTimestamp: input.options.updateIncrementalRunTimestamp,
+            submitBatchRun: submitBatchRun,
             problematicAlbumReportMinAttempts: input.options.problematicAlbumReportMinAttempts
         )
     )

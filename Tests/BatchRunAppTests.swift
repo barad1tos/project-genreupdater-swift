@@ -62,6 +62,50 @@ struct BatchRunAppTests {
         #expect(terminal?.failureMessage?.contains("Batch runner is unavailable") == true)
     }
 
+    @Test("a full-library batch flows through the orchestrator to done")
+    func fullLibraryBatchFlowsThroughOrchestratorToDone() async throws {
+        let fixture = makeWorkflowFixture()
+        let viewModel = fixture.viewModel
+        viewModel.updateGenre = true
+        viewModel.updateYear = false
+
+        viewModel.startBatchProcessing(tracks: [
+            Track(id: "batch-1", name: "Song", artist: "Artist", album: "Album", genre: "Old"),
+        ])
+        await viewModel.processingTask?.value
+
+        guard case .done = viewModel.phase else {
+            Issue.record("Expected done phase, got \(viewModel.phase)")
+            return
+        }
+        #expect(viewModel.result != nil)
+        #expect(viewModel.pendingBatchExecution == nil)
+    }
+
+    @Test("an uncertain batch outcome leaves recovery to the orchestrator")
+    func uncertainBatchOutcomeLeavesRecoveryToOrchestrator() async throws {
+        let fixture = makeWorkflowFixture(
+            apiService: DashboardStateAPIService(year: 2013, confidence: 100),
+            configure: { options in
+                options.outcomeTrackIDs = ["unknown-batch"]
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+
+        viewModel.startBatchProcessing(tracks: [batchYearTrack(id: "unknown-batch")])
+        await viewModel.processingTask?.value
+
+        guard case .error = viewModel.phase else {
+            Issue.record("Expected error phase, got \(viewModel.phase)")
+            return
+        }
+        // Ownership moved: the run's recovery hold lives with the
+        // orchestrator's processor call, not a second view-model hold.
+        #expect(viewModel.recoveryHoldID == nil)
+    }
+
     private func makeBatchTestDependencies() -> AppDependencies {
         AppDependencies(
             configurationLoader: { AppConfiguration() },
