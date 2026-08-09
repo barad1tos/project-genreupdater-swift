@@ -333,8 +333,14 @@ extension UpdateCoordinator {
             return (yearResult, yearResult.isDefinitive ? "Definitive" : "API")
         }
 
+        let normalizedArtist = normalizeForMatching(identity.artist)
         let artistActivityPeriod = await apiOrchestrator.getArtistActivityPeriod(
-            normalizedArtist: normalizeForMatching(identity.artist)
+            normalizedArtist: normalizedArtist
+        )
+        // Python parity (orchestrator.py:1079): the artist's region rides
+        // next to the activity period into release-country scoring.
+        let artistCountry = await apiOrchestrator.getArtistRegion(
+            normalizedArtist: normalizedArtist
         )
         let scoringAlbumTracks = ignoreLocalAlbumYears ? [] : albumTracks
         let determination = yearDeterminator.determineYear(
@@ -343,6 +349,7 @@ extension UpdateCoordinator {
             albumTracks: scoringAlbumTracks,
             currentYear: track.year,
             artistActivityPeriod: artistActivityPeriod,
+            artistCountry: artistCountry,
             albumTypeInfo: albumTypeInfo
         )
         return (determination.yearResult, determination.source.rawValue.capitalized)

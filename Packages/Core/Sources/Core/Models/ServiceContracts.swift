@@ -48,6 +48,11 @@ public protocol ExternalAPIService: Sendable {
 
     func getArtistActivityPeriod(normalizedArtist: String) async throws -> (start: Int?, end: Int?)
     func getArtistStartYear(normalizedArtist: String) async throws -> Int?
+    /// The artist's region NAME for release-country scoring; nil when
+    /// the lookup SUCCEEDED but found no region (cacheable miss). A
+    /// transport/decoding failure THROWS so callers never confuse it
+    /// with a confirmed absence. Only MusicBrainz answers.
+    func getArtistRegion(artist: String) async throws -> String?
     func initialize(force: Bool) async throws
     func close() async
 }
@@ -68,6 +73,10 @@ extension ExternalAPIService {
 
     public func close() async {
         // Services without retained connections have nothing to release.
+    }
+
+    public func getArtistRegion(artist _: String) async throws -> String? {
+        nil
     }
 }
 
