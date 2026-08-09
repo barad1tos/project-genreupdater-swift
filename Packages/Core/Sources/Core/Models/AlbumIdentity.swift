@@ -141,12 +141,17 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         }
     }
 
+    /// Verbatim port of Python's normalize_collaboration_artist
+    /// (year_utils.py): the separator LIST ORDER decides (not string
+    /// position), matching is case-sensitive, the left side of the first
+    /// listed separator wins. Sole deliberate divergence: an empty left
+    /// side falls back to the whole artist where Python returns "".
     private static func explicitPrimaryArtist(_ artist: String) -> String {
         let trimmed = artist.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
 
-        for separator in explicitFeatureSeparators {
-            if let range = trimmed.range(of: separator, options: .caseInsensitive) {
+        for separator in collaborationSeparators {
+            if let range = trimmed.range(of: separator) {
                 let primaryArtist = trimmed[trimmed.startIndex ..< range.lowerBound]
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 return primaryArtist.isEmpty ? trimmed : primaryArtist
@@ -156,12 +161,18 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         return trimmed
     }
 
-    private static let explicitFeatureSeparators = [
+    private static let collaborationSeparators = [
+        " & ",
         " feat. ",
         " feat ",
         " ft. ",
         " ft ",
-        " featuring ",
+        " vs. ",
+        " vs ",
+        " with ",
+        " and ",
+        " x ",
+        " X ",
     ]
 }
 

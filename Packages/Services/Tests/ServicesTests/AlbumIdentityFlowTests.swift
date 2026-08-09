@@ -101,8 +101,11 @@ struct AlbumIdentityFlowTests {
         #expect(yearChange.source == "Cache")
     }
 
-    @Test("Year cache lookup does not use broad ampersand aliases without album artist")
-    func yearCacheLookupDoesNotUseBroadAmpersandAliasesWithoutAlbumArtist() async throws {
+    @Test("Year cache lookup rides the Python-split identity without album artist")
+    func yearCacheLookupRidesPythonSplitIdentityWithoutAlbumArtist() async throws {
+        // Slice-15 full-parity adjudication: without an albumArtist the
+        // identity artist is Python's collaboration split, so a year
+        // cached under the primary name IS a legitimate hit.
         let cache = MockCacheService()
         await cache.storeAlbumYear(
             artist: "Daft Punk",
@@ -125,7 +128,9 @@ struct AlbumIdentityFlowTests {
             dryRun: true
         )
 
-        #expect(!changes.contains { $0.changeType == .yearUpdate })
+        let yearChange = try #require(changes.first { $0.changeType == .yearUpdate })
+        #expect(yearChange.newValue == "2013")
+        #expect(yearChange.source == "Cache")
     }
 
     @Test("Year cache store uses album identity artist")
