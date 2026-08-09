@@ -223,6 +223,9 @@ public actor RunOrchestrator {
         if case .finished(.completedNoOp, _) = completed.phase {
             return .completedNoOp(completed)
         }
+        if intent == .observeLibrary {
+            await dependencies.onIncrementalWorkCompleted?()
+        }
         return .completed(completed)
     }
 
