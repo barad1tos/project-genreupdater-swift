@@ -78,7 +78,10 @@ extension AppDependencies {
             },
             write: write,
             runBatchUpdate: makeBatchRunnerBridge(),
-            currentDecisionTarget: makeCurrentDecisionTarget()
+            currentDecisionTarget: makeCurrentDecisionTarget(),
+            onIncrementalWorkCompleted: { [weak self] in
+                await self?.advanceIncrementalMark()
+            }
         ))
     }
 

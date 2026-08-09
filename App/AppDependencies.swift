@@ -759,6 +759,10 @@ extension AppDependencies {
         featureGate = gate
     }
 
+    func installTestIncrementalRunTracker(_ tracker: IncrementalRunTracker) {
+        incrementalRunTracker = tracker
+    }
+
     func installTestAvailability(_ availability: RecoveryAvailability) {
         recoveryAvailability = availability
     }
