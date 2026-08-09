@@ -527,6 +527,80 @@ struct AutomationRuntimeTests {
         #expect(dependencies.lastIncrementalRunTimestamp == nil)
     }
 
+    @Test("an agent wake URL lands a file-system observation")
+    func agentWakeSubmitsFileSystemObservation() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.automationStrategy = .libraryChange
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        await dependencies.handleAutomationWake(url: automationWakeURL())
+
+        let stored = await records.records
+        #expect(stored.first?.trigger == .fileSystemEvent)
+        #expect(stored.first?.intent == .observeLibrary)
+    }
+
+    @Test("a wake under the manual strategy submits nothing")
+    func agentWakeUnderManualStrategySubmitsNothing() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.automationStrategy = .manualOnly
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        await dependencies.handleAutomationWake(url: automationWakeURL())
+
+        #expect(await records.records.isEmpty)
+    }
+
+    @Test("a wake on the free tier submits nothing")
+    func agentWakeOnFreeTierSubmitsNothing() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .free))
+        dependencies.config.runtime.automationStrategy = .hybrid
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        await dependencies.handleAutomationWake(url: automationWakeURL())
+
+        #expect(await records.records.isEmpty)
+    }
+
+    @Test("a junk URL submits nothing")
+    func junkURLSubmitsNothing() async throws {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.automationStrategy = .hybrid
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        let junk = try #require(URL(string: "genreupdater://something/else"))
+        await dependencies.handleAutomationWake(url: junk)
+
+        #expect(await records.records.isEmpty)
+    }
+
+    private func automationWakeURL() -> URL {
+        guard let url = URL(string: "genreupdater://automation/library-change") else {
+            fatalError("the wake URL constant is unparseable")
+        }
+        return url
+    }
+
     private func makeAutomationTestDependencies() -> AppDependencies {
         AppDependencies(
             configurationLoader: { AppConfiguration() },

@@ -93,6 +93,10 @@ targets:
         CFBundleVersion: "1"
         LSMinimumSystemVersion: "15.0"
         NSAppleMusicUsageDescription: "Genre Updater needs access to your Music library to read and update track metadata."
+        CFBundleURLTypes:
+          - CFBundleURLName: com.genreupdater.automation
+            CFBundleURLSchemes:
+              - genreupdater
 
   GenreUpdaterAgent:
     type: tool

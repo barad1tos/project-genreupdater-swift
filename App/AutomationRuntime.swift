@@ -200,6 +200,20 @@ extension AppDependencies {
         log.info("Watch observation finished as \(String(describing: result.lifecycle?.state), privacy: .public)")
     }
 
+    /// The agent's wake entry (slice 14): the URL carries only intent —
+    /// the strategy, Pro gate, throttle, and orchestrator decide the
+    /// rest through the same watch path as an in-session event. A wake
+    /// under a strategy without watch is ignored: the user's setting
+    /// outranks a stale registered agent.
+    func handleAutomationWake(url: URL) async {
+        guard url.scheme == "genreupdater",
+              url.host() == "automation",
+              url.path() == "/library-change" else { return }
+        let strategy = config.runtime.automationStrategy
+        guard strategy == .libraryChange || strategy == .hybrid else { return }
+        await submitWatchObservation()
+    }
+
     private func scheduleTrailingWatchTick(after delay: TimeInterval) {
         guard automationWatchTrailingTask == nil else { return }
         automationWatchTrailingTask = Task { [weak self] in
