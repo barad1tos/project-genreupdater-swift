@@ -29,6 +29,8 @@ struct WorkflowFixtureOptions {
     var invalidateAlbumYearCache: (() async -> Void)?
     var updateIncrementalRunTimestamp: (() async -> Void)?
     var failRunRecordPersistence = false
+    var failTerminalRunRecordPersistence = false
+    var recordProcessedTracks: (Int) -> Void = { _ in }
 }
 
 private struct WorkflowFixtureInput {
@@ -99,10 +101,11 @@ private func assembleWorkflowFixture(_ input: WorkflowFixtureInput) -> WorkflowF
     let runRecords = FixtureRunRecords()
     let observationGate = FixtureSyncGate()
     let failPersistence = input.options.failRunRecordPersistence
+    let failTerminalPersistence = input.options.failTerminalRunRecordPersistence
     let orchestrator = RunOrchestrator(dependencies: .init(
         synchronizeLibrary: { await observationGate.sync() },
         persistRunRecord: { record in
-            if failPersistence {
+            if failPersistence || (failTerminalPersistence && record.finishedAt != nil) {
                 throw FixtureRecordWriteError()
             }
             await runRecords.append(record)
@@ -201,6 +204,7 @@ private func makeFixtureViewModel(
             changePreviewPipeline: ChangePreviewPipeline(),
             pendingVerificationService: input.pendingVerificationService,
             featureGate: gate,
+            recordProcessedTracks: input.options.recordProcessedTracks,
             runMaintenancePreflight: input.options.runMaintenancePreflight,
             ensureRecoveryHold: input.options.ensureRecoveryHold,
             clearRecovery: clearRecovery,
@@ -276,7 +280,9 @@ actor FixtureSyncGate {
     }
 
     func waitUntilEntered() async {
-        if isEntered { return }
+        if isEntered {
+            return
+        }
         await withCheckedContinuation { continuation in
             enterContinuations.append(continuation)
         }

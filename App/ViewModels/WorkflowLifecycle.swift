@@ -14,16 +14,19 @@ extension WorkflowViewModel {
             // observe cancellation, so clear visible processing state immediately.
             finishCancelledProcessing()
         }
-        if mode == .fullLibrary {
-            // A queued batch has no running processor to cancel: purging
-            // the pending trigger and the stash makes cancel real before
-            // the run ever starts; the fallback (a trigger that already
-            // escaped the purge) finds no stash and records cancelled.
-            if pendingBatchExecution != nil {
-                pendingBatchExecution = nil
-                trackStatuses = [:]
-                finishCancelledProcessing()
-            }
+        // A queued or submitted batch has no running processor to cancel:
+        // purging the pending trigger and the stash makes cancel real
+        // before the run ever starts; the fallback (a trigger that
+        // escaped the purge) finds no stash and records cancelled. The
+        // stash gate — not the mode — decides: applyAccepted runs in
+        // smart-filter and pending-verification modes too.
+        let hadPendingBatch = pendingBatchExecution != nil
+        if hadPendingBatch {
+            pendingBatchExecution = nil
+            trackStatuses = [:]
+            finishCancelledProcessing()
+        }
+        if mode == .fullLibrary || hadPendingBatch {
             Task { [discardQueuedBatchRuns, batchProcessor] in
                 await discardQueuedBatchRuns?()
                 await batchProcessor.cancel()

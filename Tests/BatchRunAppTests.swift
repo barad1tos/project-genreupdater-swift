@@ -63,7 +63,7 @@ struct BatchRunAppTests {
     }
 
     @Test("a full-library batch flows through the orchestrator to done")
-    func fullLibraryBatchFlowsThroughOrchestratorToDone() async throws {
+    func fullLibraryBatchFlowsThroughOrchestratorToDone() async {
         let fixture = makeWorkflowFixture()
         let viewModel = fixture.viewModel
         viewModel.updateGenre = true
@@ -83,7 +83,7 @@ struct BatchRunAppTests {
     }
 
     @Test("an uncertain batch outcome leaves recovery to the orchestrator")
-    func uncertainBatchOutcomeLeavesRecoveryToOrchestrator() async throws {
+    func uncertainBatchOutcomeLeavesRecoveryToOrchestrator() async {
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2013, confidence: 100),
             configure: { options in
@@ -107,7 +107,7 @@ struct BatchRunAppTests {
     }
 
     @Test("a pre-runner terminal lands on the failure, not a stuck screen")
-    func preRunnerTerminalLandsOnFailure() async throws {
+    func preRunnerTerminalLandsOnFailure() async {
         let fixture = makeWorkflowFixture(configure: { options in
             options.failRunRecordPersistence = true
         })
@@ -188,6 +188,109 @@ struct BatchRunAppTests {
         #expect(batchRecords.allSatisfy { $0.finishedAt == nil || $0.state == .cancelled })
     }
 
+    @Test("apply-accepted flows through the orchestrator to a record")
+    func applyAcceptedFlowsThroughOrchestratorToRecord() async {
+        let metered = MeteredTracksBox()
+        let fixture = makeWorkflowFixture(configure: { options in
+            options.recordProcessedTracks = { metered.count += $0 }
+        })
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [makeProposedChange(id: "apply-1", isAccepted: true)]
+
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+
+        guard case .done = viewModel.phase else {
+            Issue.record("Expected done phase, got \(viewModel.phase)")
+            return
+        }
+        let batchRecords = await fixture.runRecords.records.filter { $0.intent == .batchUpdate }
+        #expect(batchRecords.last?.state == .completed)
+        #expect(viewModel.pendingBatchExecution == nil)
+        // The free-tier metering call lives inside the runner section
+        // now; a taxonomy refactor must not drop it.
+        #expect(metered.count == 1)
+    }
+
+    @Test("a lost terminal record surfaces recovery instead of a done screen")
+    func lostTerminalRecordSurfacesRecovery() async {
+        let fixture = makeWorkflowFixture(configure: { options in
+            options.failTerminalRunRecordPersistence = true
+        })
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [makeProposedChange(id: "apply-lost", isAccepted: true)]
+
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+
+        // The writes applied but the terminal record could not persist:
+        // the orchestrator holds recovery, and a done screen would hide
+        // that until the next write attempt.
+        guard case .error = viewModel.phase else {
+            Issue.record("Expected error phase, got \(viewModel.phase)")
+            return
+        }
+    }
+
+    @Test("cancelling a queued smart-filter apply keeps the library untouched")
+    func cancellingQueuedSmartFilterApplyKeepsLibraryUntouched() async throws {
+        let fixture = makeWorkflowFixture()
+        let viewModel = fixture.viewModel
+        await fixture.observationGate.arm()
+        let observation = Task {
+            await fixture.orchestrator.submit(.manualObservation(requestedTestArtists: [], knownTrackCount: nil))
+        }
+        await fixture.observationGate.waitUntilEntered()
+
+        viewModel.mode = .smartFilter
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [makeProposedChange(id: "sf-apply", isAccepted: true)]
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+        #expect(viewModel.pendingBatchExecution != nil)
+
+        viewModel.cancel()
+        #expect(viewModel.pendingBatchExecution == nil)
+
+        await fixture.observationGate.release()
+        _ = await observation.value
+        try await Task.sleep(for: .milliseconds(200))
+
+        // The stash gate — not the mode — makes cancel real: no write
+        // and no unwanted terminal may appear after an explicit cancel.
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+        let batchRecords = await fixture.runRecords.records.filter { $0.intent == .batchUpdate }
+        #expect(batchRecords.allSatisfy { $0.finishedAt == nil || $0.state == .cancelled })
+    }
+
+    @Test("an uncertain apply leaves recovery to the orchestrator")
+    func uncertainApplyLeavesRecoveryToOrchestrator() async {
+        let fixture = makeWorkflowFixture(configure: { options in
+            options.outcomeTrackIDs = ["apply-unknown"]
+        })
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [makeProposedChange(id: "apply-unknown", isAccepted: true)]
+
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+
+        guard case .error = viewModel.phase else {
+            Issue.record("Expected error phase, got \(viewModel.phase)")
+            return
+        }
+        #expect(viewModel.recoveryHoldID == nil)
+        #expect(await fixture.batchProcessor.recoveryHoldID() != nil)
+        let batchRecords = await fixture.runRecords.records.filter { $0.intent == .batchUpdate }
+        #expect(batchRecords.last?.state == .recoverable)
+    }
+
     @Test("the batch request carries the configured test-artist scope")
     func batchRequestCarriesTestArtistScope() async throws {
         let dependencies = makeBatchTestDependencies()
@@ -249,4 +352,11 @@ private actor RecordCollector {
 @MainActor
 private final class ReceivedRunBox {
     var runID: RunID?
+}
+
+/// The metering closure runs on MainActor with the view-model; a box
+/// keeps the accumulated count observable.
+@MainActor
+final class MeteredTracksBox {
+    var count = 0
 }
