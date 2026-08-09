@@ -489,7 +489,7 @@ struct AutomationRuntimeTests {
     }
 
     @Test("a completed observation advances the durable mark and chrome cache")
-    func completedObservationAdvancesDurableMark() async throws {
+    func completedObservationAdvancesDurableMark() async {
         let dependencies = makeAutomationTestDependencies()
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
         let tempDirectory = FileManager.default.temporaryDirectory
@@ -520,7 +520,7 @@ struct AutomationRuntimeTests {
     }
 
     @Test("an empty observation leaves the durable mark untouched")
-    func emptyObservationLeavesDurableMarkUntouched() async throws {
+    func emptyObservationLeavesDurableMarkUntouched() async {
         let dependencies = makeAutomationTestDependencies()
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
         let tempDirectory = FileManager.default.temporaryDirectory
