@@ -23,12 +23,21 @@ extension APIOrchestrator {
             return cachedRegion == ArtistRegionCache.notFoundSentinel ? nil : cachedRegion
         }
 
-        let region = await musicBrainz.getArtistRegion(artist: normalizedArtist)
-        await cache?.set(
-            key: cacheKey,
-            value: region ?? ArtistRegionCache.notFoundSentinel,
-            ttl: region == nil ? ArtistRegionCache.negativeTTL : ArtistRegionCache.positiveTTL
-        )
-        return region
+        do {
+            let region = try await musicBrainz.getArtistRegion(artist: normalizedArtist)
+            await cache?.set(
+                key: cacheKey,
+                value: region ?? ArtistRegionCache.notFoundSentinel,
+                ttl: region == nil ? ArtistRegionCache.negativeTTL : ArtistRegionCache.positiveTTL
+            )
+            return region
+        } catch {
+            // A transient failure is NOT an absence: cache nothing so the
+            // next album retries as soon as MusicBrainz recovers.
+            AppLogger.api.warning(
+                "Artist region lookup failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
     }
 }

@@ -377,8 +377,11 @@ struct MockAPIService: ExternalAPIService {
         return artistStartYear
     }
 
-    func getArtistRegion(artist _: String) async -> String? {
-        artistRegion
+    func getArtistRegion(artist _: String) async throws -> String? {
+        if shouldThrow {
+            throw MockAPIError.intentional
+        }
+        return artistRegion
     }
 
     func initialize(force _: Bool) async throws {

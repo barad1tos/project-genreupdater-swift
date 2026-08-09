@@ -276,16 +276,12 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
 
     /// Python get_artist_region parity: the first non-empty of
     /// area → begin-area → end-area NAME (a region name, not a code —
-    /// the scorer's comparison wart is the ported contract). Failures
-    /// degrade to nil: region context is a bonus, never a blocker.
-    public func getArtistRegion(artist: String) async -> String? {
-        do {
-            guard let mbArtist = try await fetchFirstArtist(named: artist) else { return nil }
-            return Self.artistRegion(from: mbArtist)
-        } catch {
-            log.info("Artist region lookup failed for \(artist, privacy: .private)")
-            return nil
-        }
+    /// the scorer's comparison wart is the ported contract). nil means
+    /// the search SUCCEEDED without a region; transport failures THROW
+    /// so the memoization layer never caches an outage as an absence.
+    public func getArtistRegion(artist: String) async throws -> String? {
+        guard let mbArtist = try await fetchFirstArtist(named: artist) else { return nil }
+        return Self.artistRegion(from: mbArtist)
     }
 
     static func artistRegion(from artist: MBArtist) -> String? {

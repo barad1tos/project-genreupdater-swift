@@ -36,6 +36,32 @@ struct YearDeterminatorTests {
         #expect(withRegion.yearResult.confidence > without.yearResult.confidence)
     }
 
+    @Test("A region NAME unlocks the major-market bonus — the realistic path")
+    func regionNameUnlocksMajorMarketBonus() {
+        // Real MB data supplies full region names ("United Kingdom"),
+        // which never equal release codes — the ported wart means the
+        // region's practical effect is unlocking the major-market bonus.
+        let track = makeTrack()
+        let candidate = makeCandidate(
+            year: 1994,
+            releaseType: .single,
+            status: .promotional,
+            country: "US"
+        )
+
+        let without = determinator.determineYear(
+            candidates: [candidate],
+            track: track
+        )
+        let withRegion = determinator.determineYear(
+            candidates: [candidate],
+            track: track,
+            artistCountry: "United Kingdom"
+        )
+
+        #expect(withRegion.yearResult.confidence > without.yearResult.confidence)
+    }
+
     // MARK: - Helpers
 
     private func makeTrack(

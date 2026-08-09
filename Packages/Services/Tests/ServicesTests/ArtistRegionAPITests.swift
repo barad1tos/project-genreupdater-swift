@@ -50,6 +50,30 @@ struct ArtistRegionAPITests {
         #expect(await second.getArtistRegion(normalizedArtist: "unknown artist") == nil)
     }
 
+    @Test("A transient failure caches NOTHING — the next call retries")
+    func transientFailureCachesNothing() async {
+        // Codex P2 (PR #164): an outage must never masquerade as a
+        // confirmed 24h absence.
+        let cache = MockCacheService()
+        let failing = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(shouldThrow: true),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService(),
+            cache: cache
+        )
+
+        #expect(await failing.getArtistRegion(normalizedArtist: "okean elzy") == nil)
+
+        let recovered = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(artistRegion: "Ukraine"),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService(),
+            cache: cache
+        )
+
+        #expect(await recovered.getArtistRegion(normalizedArtist: "okean elzy") == "Ukraine")
+    }
+
     @Test("No cache still answers from the client")
     func worksWithoutCache() async {
         let orchestrator = makeAPIOrchestrator(
