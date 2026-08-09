@@ -42,7 +42,7 @@ struct RunObservationTests {
 @Suite("Incremental cadence hook")
 struct IncrementalCadenceHookTests {
     @Test("completed observation fires the hook once")
-    func completedObservationFires() async throws {
+    func completedObservationFires() async {
         let hook = HookProbe()
         let orchestrator = makeOrchestrator(
             syncResult: SyncResult(newTracks: [
@@ -62,11 +62,11 @@ struct IncrementalCadenceHookTests {
             Issue.record("Expected completed, got \(result)")
             return
         }
-        #expect(await hook.count == 1)
+        #expect(await hook.fireCount == 1)
     }
 
     @Test("no-op observation never advances the mark")
-    func noOpObservationDoesNotFire() async throws {
+    func noOpObservationDoesNotFire() async {
         let hook = HookProbe()
         let orchestrator = makeOrchestrator(syncResult: SyncResult(), hook: hook)
 
@@ -81,11 +81,11 @@ struct IncrementalCadenceHookTests {
             Issue.record("Expected completedNoOp, got \(result)")
             return
         }
-        #expect(await hook.count == 0)
+        #expect(await hook.isEmpty)
     }
 
     @Test("failed observation never advances the mark")
-    func failedObservationDoesNotFire() async throws {
+    func failedObservationDoesNotFire() async {
         let hook = HookProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { throw SyncFailure.unavailable },
@@ -103,11 +103,11 @@ struct IncrementalCadenceHookTests {
             Issue.record("Expected failed, got \(result)")
             return
         }
-        #expect(await hook.count == 0)
+        #expect(await hook.isEmpty)
     }
 
     @Test("manual check advances through the same hook")
-    func manualObservationFires() async throws {
+    func manualObservationFires() async {
         let hook = HookProbe()
         let orchestrator = makeOrchestrator(
             syncResult: SyncResult(newTracks: [
@@ -125,11 +125,11 @@ struct IncrementalCadenceHookTests {
             Issue.record("Expected completed, got \(result)")
             return
         }
-        #expect(await hook.count == 1)
+        #expect(await hook.fireCount == 1)
     }
 
     @Test("completed preview stays outside the cadence contract")
-    func completedPreviewDoesNotFire() async throws {
+    func completedPreviewDoesNotFire() async {
         let hook = HookProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: {
@@ -160,7 +160,7 @@ struct IncrementalCadenceHookTests {
             Issue.record("Expected completed, got \(result)")
             return
         }
-        #expect(await hook.count == 0)
+        #expect(await hook.isEmpty)
     }
 
     private func makeOrchestrator(syncResult: SyncResult, hook: HookProbe) -> RunOrchestrator {
@@ -178,10 +178,14 @@ private enum SyncFailure: Error {
 }
 
 private actor HookProbe {
-    private(set) var count = 0
+    private(set) var fireCount = 0
+
+    var isEmpty: Bool {
+        fireCount == 0
+    }
 
     func fire() {
-        count += 1
+        fireCount += 1
     }
 }
 
