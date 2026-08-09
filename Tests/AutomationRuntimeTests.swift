@@ -13,6 +13,7 @@ struct AutomationRuntimeTests {
     @Test("a scheduled tick submits a background observation with a record")
     func scheduledTickSubmitsBackgroundObservation() async {
         let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
@@ -36,6 +37,7 @@ struct AutomationRuntimeTests {
             persistRunRecord: { await records.append($0) }
         ))
         let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
         await dependencies.installTestOrchestrator(orchestrator)
 
         await gate.arm()
@@ -77,10 +79,11 @@ struct AutomationRuntimeTests {
         await dependencies.applyAutomationStrategy()
         #expect(dependencies.automationScheduleTask != nil)
 
-        // Switching back to manual disarms the source.
+        // Switching back to manual disarms the source AND publishes it.
         dependencies.config.runtime.automationStrategy = .manualOnly
         await dependencies.applyAutomationStrategy()
         #expect(dependencies.automationScheduleTask == nil)
+        #expect(!dependencies.isAutoSyncRunning)
     }
 
     @Test("the strategy command persists the choice and re-arms the runtime")
@@ -115,6 +118,112 @@ struct AutomationRuntimeTests {
         await dependencies.applyAutomationStrategy()
 
         #expect(dependencies.automationScheduleTask == nil)
+    }
+
+    @Test("an armed loop with no anchor fires its first tick immediately")
+    func armedLoopFiresFirstTickImmediately() async throws {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.automationStrategy = .scheduled
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        // No tracker and no in-memory tick anchor → fail open, tick now.
+        await dependencies.applyAutomationStrategy()
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(3))
+        var landed = false
+        while clock.now < deadline {
+            if await records.records.first?.trigger == .backgroundSync {
+                landed = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(landed, "the armed loop must actually submit its first tick")
+
+        dependencies.config.runtime.automationStrategy = .manualOnly
+        await dependencies.applyAutomationStrategy()
+    }
+
+    @Test("an identical re-arm keeps the live loop instead of resetting it")
+    func identicalRearmKeepsLiveLoop() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.automationStrategy = .scheduled
+        dependencies.lastScheduledTickAt = Date()
+
+        await dependencies.applyAutomationStrategy()
+        let firstTask = dependencies.automationScheduleTask
+        #expect(firstTask != nil)
+
+        // A settings apply with unchanged strategy+interval must NOT
+        // cancel and re-create the loop (each reset re-anchors the
+        // tick); a re-arm would cancel the first task.
+        await dependencies.applyAutomationStrategy()
+        #expect(firstTask?.isCancelled == false)
+        #expect(dependencies.automationScheduleTask != nil)
+
+        dependencies.config.runtime.automationStrategy = .manualOnly
+        await dependencies.applyAutomationStrategy()
+    }
+
+    @Test("schedule delay math is pure Python parity")
+    func scheduleDelayMathIsPythonParity() {
+        let now = Date(timeIntervalSince1970: 1000)
+        #expect(AppDependencies.scheduleDelay(anchor: nil, now: now, interval: 60) == 0)
+        #expect(AppDependencies.scheduleDelay(anchor: now.addingTimeInterval(-90), now: now, interval: 60) == 0)
+        #expect(AppDependencies.scheduleDelay(anchor: now.addingTimeInterval(-20), now: now, interval: 60) == 40)
+    }
+
+    @Test("a lapsed gate disarms the loop at the next tick")
+    func lapsedGateDisarmsAtTick() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .free))
+        dependencies.automationScheduleTask = Task {}
+        dependencies.isAutoSyncRunning = true
+
+        await dependencies.submitScheduledObservation()
+
+        #expect(dependencies.automationScheduleTask == nil)
+        #expect(!dependencies.isAutoSyncRunning)
+    }
+
+    @Test("hybrid arms the schedule source; libraryChange arms nothing yet")
+    func hybridArmsAndLibraryChangeDoesNot() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.lastScheduledTickAt = Date()
+
+        dependencies.config.runtime.automationStrategy = .hybrid
+        await dependencies.applyAutomationStrategy()
+        #expect(dependencies.automationScheduleTask != nil)
+
+        dependencies.config.runtime.automationStrategy = .libraryChange
+        await dependencies.applyAutomationStrategy()
+        // The watch source is a later slice: libraryChange must not
+        // silently inherit periodic checks.
+        #expect(dependencies.automationScheduleTask == nil)
+    }
+
+    @Test("launch completion arms the persisted strategy")
+    func launchCompletionArmsPersistedStrategy() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.automationStrategy = .scheduled
+        dependencies.lastScheduledTickAt = Date()
+
+        await dependencies.completeLaunch()
+
+        #expect(dependencies.automationScheduleTask != nil)
+        #expect(dependencies.isAutoSyncRunning)
+
+        dependencies.config.runtime.automationStrategy = .manualOnly
+        await dependencies.applyAutomationStrategy()
     }
 
     private func makeAutomationTestDependencies() -> AppDependencies {

@@ -410,7 +410,7 @@ struct ActivityCommandsTests {
             ),
             pendingVerification: nil,
             isLibrarySyncAvailable: true,
-            isAutoSyncRunning: false,
+            isAutomationArmed: false,
             now: Date(timeIntervalSince1970: 1_800_000_480)
         ))
         let harness = ActivityFixtures.Harness(projection: projection)
@@ -979,7 +979,7 @@ private func makeActiveProjection(
         pendingVerification: nil,
         runLifecycle: lifecycle,
         isLibrarySyncAvailable: true,
-        isAutoSyncRunning: false,
+        isAutomationArmed: false,
         now: Date(timeIntervalSince1970: 1_800_000_480)
     )).withRevision(revision)
 }

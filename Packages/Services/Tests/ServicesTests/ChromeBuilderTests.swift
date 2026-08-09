@@ -269,6 +269,20 @@ struct ChromeBuilderTests {
         #expect(projection.safety.automationState == .scheduled)
     }
 
+    @Test("armed beats nothing-due; recovery hold beats armed")
+    func armedOrderingInTheTruthTable() {
+        let armedNotDue = ChromeBuilder.makeProjection(input: makeInput(
+            automation: ChromeAutomationFacts(strategy: .scheduled, isScheduleArmed: true, isIncrementalDue: false)
+        ))
+        #expect(armedNotDue.safety.automationState == .scheduled)
+
+        let armedHeld = ChromeBuilder.makeProjection(input: makeInput(
+            recovery: ChromeRecoveryFacts(hasUnresolvedWriteRecovery: true, recoveryRunID: nil),
+            automation: ChromeAutomationFacts(strategy: .scheduled, isScheduleArmed: true, isIncrementalDue: nil)
+        ))
+        #expect(armedHeld.safety.automationState == .recoveryHold)
+    }
+
     // MARK: - Permissions and issues
 
     @Test("unprobed permissions pass through unasserted")

@@ -223,7 +223,7 @@ struct ActivityReportTests {
                 pendingVerification: nil,
                 runLifecycle: nil,
                 isLibrarySyncAvailable: true,
-                isAutoSyncRunning: false,
+                isAutomationArmed: false,
                 now: input.now
             )
         ))

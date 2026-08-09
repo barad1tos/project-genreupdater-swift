@@ -12,21 +12,36 @@ private let log = AppLogger.make(category: "automation-runtime")
 /// until then the sources live for the app process only.
 extension AppDependencies {
     /// Re-arms trigger sources from the persisted strategy. Called at
-    /// initialize and after every runtime configuration apply, so a
-    /// strategy or interval change takes effect immediately.
+    /// launch completion and after every runtime configuration apply.
+    /// Identical arming inputs keep the live loop — otherwise every
+    /// settings edit would reset the schedule and, with a stale
+    /// tracker, fire an immediate observation per edit.
     func applyAutomationStrategy() async {
-        automationScheduleTask?.cancel()
-        automationScheduleTask = nil
-        defer { isAutoSyncRunning = automationScheduleTask != nil }
-
         let strategy = config.runtime.automationStrategy
-        guard strategy == .scheduled || strategy == .hybrid else { return }
-        guard let featureGate, featureGate.canAccess(.autoSync) else {
-            log.info("Automation strategy \(strategy.rawValue, privacy: .public) requires Pro; staying manual")
+        let interval = TimeInterval(max(1, config.runtime.incrementalIntervalMinutes)) * 60
+        let isEligible = (strategy == .scheduled || strategy == .hybrid)
+            && featureGate?.canAccess(.autoSync) == true
+
+        if isEligible, automationScheduleTask != nil, armedScheduleInterval == interval {
             return
         }
 
-        let interval = TimeInterval(max(1, config.runtime.incrementalIntervalMinutes)) * 60
+        automationScheduleTask?.cancel()
+        automationScheduleTask = nil
+        armedScheduleInterval = nil
+        defer { isAutoSyncRunning = automationScheduleTask != nil }
+
+        guard isEligible else {
+            if strategy != .manualOnly {
+                log
+                    .info(
+                        "Automation strategy \(strategy.rawValue, privacy: .public) has no armable source (gate or watch pending)"
+                    )
+            }
+            return
+        }
+
+        armedScheduleInterval = interval
         automationScheduleTask = Task { [weak self] in
             var delay = await self?.initialScheduleDelay(interval: interval) ?? interval
             while !Task.isCancelled {
@@ -46,22 +61,40 @@ extension AppDependencies {
             )
     }
 
-    /// Python parity (can_run_incremental): the first tick fires
-    /// immediately when the persisted last-run timestamp is stale or
-    /// unreadable (fail open); otherwise it waits out the remainder.
+    /// Pure schedule math (Python can_run_incremental parity): a missing
+    /// anchor fires immediately (fail open); an overdue anchor fires
+    /// immediately; otherwise wait out the remainder.
+    static func scheduleDelay(anchor: Date?, now: Date, interval: TimeInterval) -> TimeInterval {
+        guard let anchor else { return 0 }
+        let elapsed = now.timeIntervalSince(anchor)
+        return elapsed >= interval ? 0 : interval - elapsed
+    }
+
+    /// The anchor is the LATER of the durable tracker timestamp and the
+    /// in-memory last tick: observations never advance the tracker, so
+    /// without the tick anchor every re-arm after the first tick would
+    /// fire immediately.
     private func initialScheduleDelay(interval: TimeInterval) async -> TimeInterval {
-        guard let lastRun = await incrementalRunTracker?.getLastRunTimestamp() else { return 0 }
-        let elapsed = Date().timeIntervalSince(lastRun)
-        guard elapsed < interval else { return 0 }
-        return interval - elapsed
+        let trackerLastRun = await incrementalRunTracker?.getLastRunTimestamp()
+        let anchor = [trackerLastRun, lastScheduledTickAt].compactMap(\.self).max()
+        return Self.scheduleDelay(anchor: anchor, now: Date(), interval: interval)
     }
 
     /// One scheduled tick = one observation submitted through the
-    /// orchestrator. The arbiter ranks .backgroundSync below every
-    /// manual intent, so a tick during an active run queues or is
-    /// covered — never displaces user work (ADR 0003 priorities).
+    /// orchestrator; the arbiter absorbs or queues it against any active
+    /// run (ADR 0003 priorities). The gate is re-checked per tick so a
+    /// lapsed subscription disarms mid-session instead of ticking on.
     func submitScheduledObservation() async {
+        guard featureGate?.canAccess(.autoSync) == true else {
+            automationScheduleTask?.cancel()
+            automationScheduleTask = nil
+            armedScheduleInterval = nil
+            isAutoSyncRunning = false
+            log.info("Automation gate lapsed; schedule source disarmed")
+            return
+        }
         guard let runOrchestrator else { return }
+        lastScheduledTickAt = Date()
         let request = await RunRequest.observation(
             trigger: .backgroundSync,
             requestedTestArtists: config.development.testArtists,
