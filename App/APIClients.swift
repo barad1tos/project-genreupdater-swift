@@ -268,7 +268,9 @@ extension AppDependencies {
         return APIServiceContext(
             services: APIOrchestratorServices(
                 musicBrainz: musicBrainz,
-                discogs: discogsContext.client,
+                // The credential factories predate the raw cache, so the
+                // composition root attaches it to the built client.
+                discogs: discogsContext.client.withRawRequestCache(rawRequestCache),
                 appleMusic: appleMusic
             ),
             disabledSources: discogsContext.disabledSources

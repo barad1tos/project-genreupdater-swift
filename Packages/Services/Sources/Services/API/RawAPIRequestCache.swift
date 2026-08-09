@@ -3,10 +3,9 @@ import CryptoKit
 import Foundation
 import OSLog
 
-/// A cached miss: the request failed after retries and the failure itself
-/// is cached (Python request_executor parity — the eternal-negative wart
-/// is the ported contract). Callers treat it as the fast network failure
-/// it represents.
+/// A cached miss. Reserved for entries written by a layer that KNOWS the
+/// failure is final; this seam never writes one (see the type doc).
+/// Callers treat it as the fast network failure it represents.
 public enum RawAPIRequestCacheError: Error, Equatable {
     case cachedFailure
 }
@@ -18,11 +17,19 @@ private struct RawRequestEntry: Codable {
 
 /// The shared pre-limiter response cache all three API clients front their
 /// HTTP fetches with (Python request_executor.execute_request parity):
-/// a hit returns before auth, rate limiting, and the network; both
-/// polarities share one TTL. Keys are order-insensitive over query items.
+/// a hit returns before auth, rate limiting, and the network. Keys are
+/// order-insensitive over query items.
+///
+/// Deliberate divergence: Python caches a failure ({}) because its retry
+/// loop lives INSIDE execute_request, so a cached failure is always
+/// post-retry. Swift's retry layer sits ABOVE this seam, so caching here
+/// would freeze the FIRST transient 429/503 for the whole TTL — this
+/// seam therefore never writes a miss. Only responses that parse as JSON
+/// are stored, mirroring Python caching the parsed dict.
 public struct RawAPIRequestCache: Sendable {
     private let cache: any CacheService
     private let ttl: TimeInterval
+    private let log = AppLogger.api
 
     public init(cache: any CacheService, ttl: TimeInterval) {
         self.cache = cache
@@ -42,17 +49,16 @@ public struct RawAPIRequestCache: Sendable {
             return payload
         }
 
-        do {
-            let payload = try await fetch()
-            await cache.set(key: key, value: RawRequestEntry(payload: payload), ttl: ttl)
+        let payload = try await fetch()
+        // Python caches the PARSED response, so a truncated or HTML body
+        // never becomes a cache entry; a JSON sanity check is the same
+        // gate without decoding twice into client-specific types.
+        guard (try? JSONSerialization.jsonObject(with: payload)) != nil else {
+            log.warning("Raw response for \(api, privacy: .public) is not JSON; not cached")
             return payload
-        } catch is CancellationError {
-            // A cancelled request says nothing about the endpoint.
-            throw CancellationError()
-        } catch {
-            await cache.set(key: key, value: RawRequestEntry(payload: nil), ttl: ttl)
-            throw error
         }
+        await cache.set(key: key, value: RawRequestEntry(payload: payload), ttl: ttl)
+        return payload
     }
 
     /// Deterministic, order-insensitive request identity (Python sorts
@@ -63,7 +69,8 @@ public struct RawAPIRequestCache: Sendable {
             .map { "\($0.name)=\($0.value ?? "")" }
             .sorted()
             .joined(separator: "&")
-        let base = "\(components?.scheme ?? "")://\(components?.host ?? "")\(components?.path ?? "")"
+        let port = components?.port.map { ":\($0)" } ?? ""
+        let base = "\(components?.scheme ?? "")://\(components?.host ?? "")\(port)\(components?.path ?? "")"
         let canonical = "\(api)|\(base)?\(sortedQuery)"
         let digest = SHA256.hash(data: Data(canonical.utf8))
         let hex = digest.map { String(format: "%02x", $0) }.joined()

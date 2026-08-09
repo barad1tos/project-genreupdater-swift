@@ -33,7 +33,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     private let session: URLSession
     private let rateLimiter: TokenBucketRateLimiter
     private let token: String?
-    private let rawRequestCache: RawAPIRequestCache?
+    private var rawRequestCache: RawAPIRequestCache?
     private let baseURL: URL
     private let log = AppLogger.api
 
@@ -600,6 +600,15 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     ///
     /// Handles HTTP status codes: 200 (success), 401 (unauthorized),
     /// 429 (rate limited), and all other codes as generic HTTP errors.
+    /// The Discogs client is built through credential factories that
+    /// predate the raw cache; the composition root attaches it here so
+    /// every source shares one pre-limiter cache.
+    public func withRawRequestCache(_ cache: RawAPIRequestCache?) -> Self {
+        var copy = self
+        copy.rawRequestCache = cache
+        return copy
+    }
+
     private func fetchWithRateLimit(url: URL) async throws -> Data {
         guard let rawRequestCache else {
             return try await performRateLimitedFetch(url: url)

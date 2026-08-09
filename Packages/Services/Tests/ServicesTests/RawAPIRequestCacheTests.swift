@@ -18,20 +18,24 @@ struct RawAPIRequestCacheTests {
 
         let first = try await raw.data(api: "mb", url: target) {
             await counter.increment()
-            return Data("payload".utf8)
+            return Data("{\"payload\":1}".utf8)
         }
         let second = try await raw.data(api: "mb", url: target) {
             await counter.increment()
-            return Data("DIFFERENT".utf8)
+            return Data("{\"other\":2}".utf8)
         }
 
-        #expect(first == Data("payload".utf8))
-        #expect(second == Data("payload".utf8))
+        #expect(first == Data("{\"payload\":1}".utf8))
+        #expect(second == Data("{\"payload\":1}".utf8))
         #expect(await counter.count == 1)
     }
 
-    @Test("A failed fetch caches the miss and a cached miss fails fast")
-    func failureCachesMiss() async throws {
+    @Test("A failure caches NOTHING — retries live above this seam")
+    func failureCachesNothing() async throws {
+        // Codex P1: Python caches a failure because its retry loop runs
+        // INSIDE execute_request; Swift's retry layer sits above this
+        // seam, so caching here would freeze the FIRST transient 429/503
+        // for the whole TTL.
         let cache = MockCacheService()
         let raw = RawAPIRequestCache(cache: cache, ttl: 3600)
         let counter = FetchCounter()
@@ -43,14 +47,36 @@ struct RawAPIRequestCacheTests {
                 throw FetchFailure.boom
             }
         }
-        await #expect(throws: RawAPIRequestCacheError.self) {
-            try await raw.data(api: "mb", url: target) {
-                await counter.increment()
-                return Data()
-            }
+        let recovered = try await raw.data(api: "mb", url: target) {
+            await counter.increment()
+            return Data("{\"ok\":true}".utf8)
         }
 
-        #expect(await counter.count == 1)
+        #expect(recovered == Data("{\"ok\":true}".utf8))
+        #expect(await counter.count == 2)
+    }
+
+    @Test("A non-JSON body is returned but never cached")
+    func nonJSONBodyIsNotCached() async throws {
+        // Python caches the PARSED response, so a proxy error page or a
+        // truncated body can never become a cache entry.
+        let cache = MockCacheService()
+        let raw = RawAPIRequestCache(cache: cache, ttl: 3600)
+        let counter = FetchCounter()
+        let target = try #require(url)
+
+        let first = try await raw.data(api: "mb", url: target) {
+            await counter.increment()
+            return Data("<html>502</html>".utf8)
+        }
+        let second = try await raw.data(api: "mb", url: target) {
+            await counter.increment()
+            return Data("{\"ok\":true}".utf8)
+        }
+
+        #expect(first == Data("<html>502</html>".utf8))
+        #expect(second == Data("{\"ok\":true}".utf8))
+        #expect(await counter.count == 2)
     }
 
     @Test("Cancellation caches nothing")
@@ -68,10 +94,10 @@ struct RawAPIRequestCacheTests {
         }
         let recovered = try await raw.data(api: "mb", url: target) {
             await counter.increment()
-            return Data("late".utf8)
+            return Data("{\"late\":true}".utf8)
         }
 
-        #expect(recovered == Data("late".utf8))
+        #expect(recovered == Data("{\"late\":true}".utf8))
         #expect(await counter.count == 2)
     }
 
@@ -92,6 +118,14 @@ struct RawAPIRequestCacheTests {
         #expect(
             RawAPIRequestCache.cacheKey(api: "mb", url: ordered)
                 != RawAPIRequestCache.cacheKey(api: "discogs", url: ordered)
+        )
+
+        // Custom base URLs may differ only by port (Codex P2).
+        let plain = try #require(URL(string: "https://host/search?a=1"))
+        let ported = try #require(URL(string: "https://host:8443/search?a=1"))
+        #expect(
+            RawAPIRequestCache.cacheKey(api: "mb", url: plain)
+                != RawAPIRequestCache.cacheKey(api: "mb", url: ported)
         )
     }
 }
