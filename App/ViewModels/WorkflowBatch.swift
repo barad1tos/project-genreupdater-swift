@@ -99,6 +99,10 @@ extension WorkflowViewModel {
                     BatchRunInput(options: options, trackCount: tracksByIndex.count)
                 )
                 applyBatchSubmissionResult(submission)
+            } catch is CancellationError {
+                pendingBatchExecution = nil
+                phase = .configure
+                progress = nil
             } catch {
                 pendingBatchExecution = nil
                 phase = .error(error.localizedDescription)

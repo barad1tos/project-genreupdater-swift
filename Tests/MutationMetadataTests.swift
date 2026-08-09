@@ -182,6 +182,14 @@ struct MutationMetadataTests {
 
         #expect(await recorder.recordedCallCount() == 1)
         #expect(await recorder.preparedTrackIDs == ["accepted"])
+        // Two proposals on ONE track: the run-input trackCount counts
+        // unique tracks — collapsing it to proposal count would fail
+        // every genre+year apply on the same track as staleExecution.
+        guard case .done = viewModel.phase else {
+            Issue.record("Expected done phase, got \(viewModel.phase)")
+            return
+        }
+        #expect(await fixture.scriptClient.updatedProperties().map(\.property).sorted() == ["genre", "year"])
     }
 
     @Test("preparation failure surfaces workflow error")

@@ -434,6 +434,10 @@ final class WorkflowViewModel {
                     BatchRunInput(options: options, trackCount: acceptedTracks.count)
                 )
                 applyBatchSubmissionResult(submission)
+            } catch is CancellationError {
+                pendingBatchExecution = nil
+                phase = .configure
+                progress = nil
             } catch {
                 pendingBatchExecution = nil
                 phase = .error(error.localizedDescription)

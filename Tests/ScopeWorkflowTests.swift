@@ -77,6 +77,11 @@ struct ScopeWorkflowTests {
         #expect(viewModel.failedTracks.isEmpty)
         #expect(viewModel.failedCount == 0)
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+
+        // The record must say what the user did: swallowing the
+        // cancellation in the runner would record a completed run.
+        let batchRecords = await fixture.runRecords.records.filter { $0.intent == .batchUpdate }
+        #expect(batchRecords.last?.state == .cancelled)
     }
 
     @Test("full library preview only avoids batch writes")

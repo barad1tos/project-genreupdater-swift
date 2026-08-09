@@ -29,6 +29,7 @@ struct WorkflowFixtureOptions {
     var invalidateAlbumYearCache: (() async -> Void)?
     var updateIncrementalRunTimestamp: (() async -> Void)?
     var failRunRecordPersistence = false
+    var recordProcessedTracks: (Int) -> Void = { _ in }
 }
 
 private struct WorkflowFixtureInput {
@@ -201,6 +202,7 @@ private func makeFixtureViewModel(
             changePreviewPipeline: ChangePreviewPipeline(),
             pendingVerificationService: input.pendingVerificationService,
             featureGate: gate,
+            recordProcessedTracks: input.options.recordProcessedTracks,
             runMaintenancePreflight: input.options.runMaintenancePreflight,
             ensureRecoveryHold: input.options.ensureRecoveryHold,
             clearRecovery: clearRecovery,
