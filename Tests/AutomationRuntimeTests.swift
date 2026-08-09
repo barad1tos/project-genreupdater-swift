@@ -506,17 +506,23 @@ struct AutomationRuntimeTests {
             lastIncrementalRunFile: "last_incremental_run.log"
         )
         dependencies.installTestIncrementalRunTracker(tracker)
+        let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: {
                 SyncResult(newTracks: [
                     Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
                 ])
             },
-            persistRunRecord: { _ in }
+            persistRunRecord: { await records.append($0) }
         )))
 
         await dependencies.submitScheduledObservation()
 
+        // Positive control: without proof the observation COMPLETED, the
+        // nil asserts below would pass vacuously on a broken fixture.
+        let terminal = await records.records.last
+        #expect(terminal?.intent == .observeLibrary)
+        #expect(terminal?.finishedAt != nil)
         #expect(await tracker.getLastRunTimestamp() == nil)
         #expect(dependencies.lastIncrementalRunTimestamp == nil)
     }
