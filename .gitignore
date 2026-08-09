@@ -30,3 +30,6 @@ build/
 
 # Local tool caches
 /tools
+
+# Local working memory — plans, ledgers, and analyses never ship
+.planning/
