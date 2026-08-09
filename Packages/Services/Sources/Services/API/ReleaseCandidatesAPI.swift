@@ -16,6 +16,45 @@ extension APIOrchestrator {
         currentLibraryYear: Int?,
         earliestTrackAddedYear: Int?
     ) async -> [ReleaseCandidate] {
+        let standard = await fetchReleaseCandidatesOnce(
+            artist: artist,
+            album: album,
+            currentLibraryYear: currentLibraryYear,
+            earliestTrackAddedYear: earliestTrackAddedYear
+        )
+        guard standard.isEmpty else { return standard }
+
+        // Python _try_alternative_search parity: ONLY an empty standard
+        // aggregate earns one retry with the rewritten query — never a
+        // first-query rewrite.
+        let strategy = detectSearchStrategy(
+            artist: artist,
+            album: album,
+            soundtrackPatterns: soundtrackPatterns,
+            variousArtistsNames: variousArtistsNames
+        )
+        guard strategy.strategy != .normal else { return standard }
+
+        let altArtist = strategy.modifiedArtist ?? ""
+        let altAlbum = strategy.modifiedAlbum ?? album
+        AppLogger.api.info("""
+        Alternative search (\(strategy.strategy.rawValue, privacy: .public)) for \
+        \(artist, privacy: .private) - \(album, privacy: .private)
+        """)
+        return await fetchReleaseCandidatesOnce(
+            artist: altArtist,
+            album: altAlbum,
+            currentLibraryYear: currentLibraryYear,
+            earliestTrackAddedYear: earliestTrackAddedYear
+        )
+    }
+
+    private func fetchReleaseCandidatesOnce(
+        artist: String,
+        album: String,
+        currentLibraryYear: Int?,
+        earliestTrackAddedYear: Int?
+    ) async -> [ReleaseCandidate] {
         let log = AppLogger.api
         if let reachability, await !reachability.isConnected {
             log.info("Skipping API candidate calls: network offline")
