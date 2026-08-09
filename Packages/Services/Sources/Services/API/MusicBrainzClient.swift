@@ -22,6 +22,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     private let userAgent: String
     private let session: URLSession
     private let rateLimiter: TokenBucketRateLimiter
+    private let rawRequestCache: RawAPIRequestCache?
     private let log = AppLogger.api
 
     /// Creates a MusicBrainz API client.
@@ -34,7 +35,8 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         appName: String = "GenreUpdater/1.0",
         contactEmail: String = "",
         session: URLSession = .shared,
-        rateLimiter: TokenBucketRateLimiter? = nil
+        rateLimiter: TokenBucketRateLimiter? = nil,
+        rawRequestCache: RawAPIRequestCache? = nil
     ) {
         let trimmedAppName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveAppName = trimmedAppName.isEmpty ? "GenreUpdater/1.0" : trimmedAppName
@@ -44,6 +46,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             self.userAgent = "\(effectiveAppName) (\(contactEmail); https://github.com/barad1tos/project-genreupdater-swift)"
         }
         self.session = session
+        self.rawRequestCache = rawRequestCache
         self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
             maxTokens: 1,
             refillInterval: .seconds(1)
@@ -416,6 +419,15 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     /// Handles HTTP status codes: 200 (success), 400 (bad request),
     /// 503 (service unavailable), and all other codes as generic HTTP errors.
     private func fetchWithRateLimit(url: URL) async throws -> Data {
+        guard let rawRequestCache else {
+            return try await performRateLimitedFetch(url: url)
+        }
+        return try await rawRequestCache.data(api: "musicbrainz", url: url) {
+            try await performRateLimitedFetch(url: url)
+        }
+    }
+
+    private func performRateLimitedFetch(url: URL) async throws -> Data {
         let waitTime = await rateLimiter.acquire()
         if waitTime > .zero {
             log.debug("Rate limited, waited \(waitTime, privacy: .public)")

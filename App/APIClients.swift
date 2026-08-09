@@ -145,6 +145,18 @@ actor DiscogsAccessStore {
 }
 
 extension AppDependencies {
+    private static func makeRawRequestCache(
+        configuration: AppConfiguration,
+        cache: (any CacheService)?
+    ) -> RawAPIRequestCache? {
+        cache.map {
+            RawAPIRequestCache(
+                cache: $0,
+                ttl: GRDBCacheService.resolvedAPIResultTTL(configuration: configuration) ?? 900
+            )
+        }
+    }
+
     static func makeAPIOrchestrator(
         configuration: AppConfiguration,
         cache: (any CacheService)?,
@@ -166,7 +178,8 @@ extension AppDependencies {
         let serviceContext = makeAPIServiceContext(
             configuration: configuration,
             discogsContext: discogsContext,
-            factoryOverrides: factoryOverrides
+            factoryOverrides: factoryOverrides,
+            rawRequestCache: makeRawRequestCache(configuration: configuration, cache: cache)
         )
         return makeAPIOrchestrator(
             configuration: configuration,
@@ -198,7 +211,8 @@ extension AppDependencies {
         let serviceContext = makeAPIServiceContext(
             configuration: configuration,
             discogsContext: discogsContext,
-            factoryOverrides: factoryOverrides
+            factoryOverrides: factoryOverrides,
+            rawRequestCache: makeRawRequestCache(configuration: configuration, cache: cache)
         )
         return makeAPIOrchestrator(
             configuration: configuration,
@@ -233,7 +247,8 @@ extension AppDependencies {
     private static func makeAPIServiceContext(
         configuration: AppConfiguration,
         discogsContext: DiscogsClientContext,
-        factoryOverrides: APIClientFactoryOverrides
+        factoryOverrides: APIClientFactoryOverrides,
+        rawRequestCache: RawAPIRequestCache? = nil
     ) -> APIServiceContext {
         let apiAuth = configuration.yearRetrieval.apiAuth
         let contactEmail = APIAuthReferenceResolver.resolve(
@@ -243,9 +258,13 @@ extension AppDependencies {
         let musicBrainz = factoryOverrides.musicBrainz ?? MusicBrainzClient(
             appName: apiAuth.musicBrainzAppName,
             contactEmail: contactEmail,
-            rateLimiter: makeMusicBrainzRateLimiter(configuration: configuration)
+            rateLimiter: makeMusicBrainzRateLimiter(configuration: configuration),
+            rawRequestCache: rawRequestCache
         )
-        let appleMusic = factoryOverrides.appleMusic ?? makeCatalogClient(configuration: configuration)
+        let appleMusic = factoryOverrides.appleMusic ?? makeCatalogClient(
+            configuration: configuration,
+            rawRequestCache: rawRequestCache
+        )
         return APIServiceContext(
             services: APIOrchestratorServices(
                 musicBrainz: musicBrainz,
@@ -375,13 +394,17 @@ extension AppDependencies {
         DiscogsClient(contactEmail: contactEmail, rateLimiter: rateLimiter, baseURL: baseURL)
     }
 
-    static func makeCatalogClient(configuration: AppConfiguration) -> CatalogSearchClient {
+    static func makeCatalogClient(
+        configuration: AppConfiguration,
+        rawRequestCache: RawAPIRequestCache? = nil
+    ) -> CatalogSearchClient {
         let itunesSearch = configuration.yearRetrieval.itunesSearch
         return CatalogSearchClient(
             countryCode: itunesSearch.normalizedCountryCode,
             entity: itunesSearch.entity,
             limit: itunesSearch.clampedLimit,
-            lookupFallbackEnabled: itunesSearch.lookupFallbackEnabled
+            lookupFallbackEnabled: itunesSearch.lookupFallbackEnabled,
+            rawRequestCache: rawRequestCache
         )
     }
 

@@ -33,6 +33,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     private let session: URLSession
     private let rateLimiter: TokenBucketRateLimiter
     private let token: String?
+    private let rawRequestCache: RawAPIRequestCache?
     private let baseURL: URL
     private let log = AppLogger.api
 
@@ -55,7 +56,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         contactEmail: String = "",
         session: URLSession = .shared,
         rateLimiter: TokenBucketRateLimiter? = nil,
-        baseURL: URL = Self.defaultBaseURL
+        baseURL: URL = Self.defaultBaseURL,
+        rawRequestCache: RawAPIRequestCache? = nil
     ) {
         if contactEmail.isEmpty {
             self.userAgent = "GenreUpdater/1.0"
@@ -63,6 +65,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             self.userAgent = "GenreUpdater/1.0 (\(contactEmail))"
         }
         self.token = token
+        self.rawRequestCache = rawRequestCache
         self.session = session
         self.baseURL = baseURL
         self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
@@ -598,6 +601,15 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     /// Handles HTTP status codes: 200 (success), 401 (unauthorized),
     /// 429 (rate limited), and all other codes as generic HTTP errors.
     private func fetchWithRateLimit(url: URL) async throws -> Data {
+        guard let rawRequestCache else {
+            return try await performRateLimitedFetch(url: url)
+        }
+        return try await rawRequestCache.data(api: "discogs", url: url) {
+            try await performRateLimitedFetch(url: url)
+        }
+    }
+
+    private func performRateLimitedFetch(url: URL) async throws -> Data {
         let waitTime = await rateLimiter.acquire()
         if waitTime > .zero {
             log.debug("Discogs rate limited, waited \(waitTime, privacy: .public)")
