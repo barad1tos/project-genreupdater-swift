@@ -594,6 +594,40 @@ struct AutomationRuntimeTests {
         #expect(await records.records.isEmpty)
     }
 
+    @Test("the watcher toggle registers and unregisters through the registrar")
+    func watcherToggleDrivesRegistrar() async {
+        let dependencies = makeAutomationTestDependencies()
+        let registrar = StubAgentRegistrar()
+        dependencies.installTestAgentRegistrar(registrar)
+
+        let enableFailure = await dependencies.setBackgroundWatcherEnabled(true)
+        #expect(enableFailure == nil)
+        #expect(registrar.registerCalls == 1)
+
+        let disableFailure = await dependencies.setBackgroundWatcherEnabled(false)
+        #expect(disableFailure == nil)
+        #expect(registrar.unregisterCalls == 1)
+    }
+
+    @Test("a registrar failure surfaces as a user-facing message")
+    func registrarFailureSurfacesMessage() async {
+        let dependencies = makeAutomationTestDependencies()
+        let registrar = StubAgentRegistrar()
+        registrar.failure = AgentRegistrationFailure.denied
+        dependencies.installTestAgentRegistrar(registrar)
+
+        let failure = await dependencies.setBackgroundWatcherEnabled(true)
+        #expect(failure?.isEmpty == false)
+    }
+
+    @Test("a missing registrar reports unavailability instead of crashing")
+    func missingRegistrarReportsUnavailability() async {
+        let dependencies = makeAutomationTestDependencies()
+
+        let failure = await dependencies.setBackgroundWatcherEnabled(true)
+        #expect(failure?.isEmpty == false)
+    }
+
     private func automationWakeURL() -> URL {
         guard let url = URL(string: "genreupdater://automation/library-change") else {
             fatalError("the wake URL constant is unparseable")
@@ -615,6 +649,36 @@ struct AutomationRuntimeTests {
 @MainActor
 private final class SavedStrategiesBox {
     var values: [AutomationStrategy] = []
+}
+
+/// Records registration calls; a set failure throws instead.
+@MainActor
+final class StubAgentRegistrar: AgentRegistrar {
+    var isRegistered = false
+    var needsApproval = false
+    var failure: Error?
+    private(set) var registerCalls = 0
+    private(set) var unregisterCalls = 0
+
+    func register() throws {
+        if let failure { throw failure }
+        registerCalls += 1
+        isRegistered = true
+    }
+
+    func unregister() async throws {
+        if let failure { throw failure }
+        unregisterCalls += 1
+        isRegistered = false
+    }
+
+    func openApprovalSettings() {
+        // Settings deep links are outside pin scope.
+    }
+}
+
+enum AgentRegistrationFailure: Error {
+    case denied
 }
 
 /// A hand-driven source: tests emit events and control availability.

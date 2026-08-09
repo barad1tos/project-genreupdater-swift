@@ -42,7 +42,54 @@ extension APICacheTab {
                         value: "\(dependencies.config.runtime.incrementalIntervalMinutes)m"
                     )
                 }
+
+                BackgroundWatcherRow()
             }
+        }
+    }
+
+    /// Explicit opt-in (App Review 2.4.5(iii)): the toggle drives
+    /// SMAppService registration and never flips itself. requiresApproval
+    /// (revoked consent) deep-links to the Login Items pane.
+    struct BackgroundWatcherRow: View {
+        @Environment(AppDependencies.self) private var dependencies
+        @State private var isEnabled = false
+        @State private var needsApproval = false
+        @State private var failureMessage: String?
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Toggle("Watch library while the app is closed", isOn: toggleBinding)
+                if needsApproval {
+                    Button("Approve in Login Items…") {
+                        dependencies.agentRegistrar?.openApprovalSettings()
+                    }
+                    .buttonStyle(.link)
+                }
+                if let failureMessage {
+                    Text(failureMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+            .onAppear(perform: refreshFromRegistrar)
+        }
+
+        private var toggleBinding: Binding<Bool> {
+            Binding(
+                get: { isEnabled },
+                set: { newValue in
+                    Task {
+                        failureMessage = await dependencies.setBackgroundWatcherEnabled(newValue)
+                        refreshFromRegistrar()
+                    }
+                }
+            )
+        }
+
+        private func refreshFromRegistrar() {
+            isEnabled = dependencies.agentRegistrar?.isRegistered == true
+            needsApproval = dependencies.agentRegistrar?.needsApproval == true
         }
     }
 
