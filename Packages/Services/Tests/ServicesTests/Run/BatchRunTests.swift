@@ -243,6 +243,58 @@ struct BatchRunTests {
         _ = await batch.value
     }
 
+    @Test("a failing record store keeps the batch runner un-invoked")
+    func failingStoreKeepsBatchRunnerUninvoked() async {
+        let runnerProbe = RunnerInvocationProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in throw RecordWriteError() },
+            runBatchUpdate: { _, _ in
+                await runnerProbe.record()
+                return BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
+            }
+        ))
+
+        let result = await orchestrator.submit(manualBatch())
+
+        // The terminal shape follows the write's unstored-record routing;
+        // the load-bearing guarantee is that no library mutation started.
+        #expect(result.lifecycle?.isActive == false)
+        #expect(await runnerProbe.callCount == 0)
+    }
+
+    @Test("recovery restoration discards a queued batch fail-closed")
+    func recoveryRestorationDiscardsQueuedBatch() async throws {
+        let gate = WriteSyncGate()
+        let runnerProbe = RunnerInvocationProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { await gate.sync() },
+            persistRunRecord: ignoreRunRecord,
+            runBatchUpdate: { _, _ in
+                await runnerProbe.record()
+                return BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
+            }
+        ))
+
+        let observation = Task {
+            await orchestrator.submit(.manualObservation(requestedTestArtists: [], knownTrackCount: nil))
+        }
+        await gate.waitUntilCount(1)
+        let queued = await orchestrator.submit(manualBatch())
+        guard case .queued = queued else {
+            Issue.record("Expected queued, got \(queued)")
+            return
+        }
+
+        await orchestrator.restoreRecovery(recoveryRecord())
+        await gate.release()
+        _ = await observation.value
+
+        // The write block discards pending mutating runs fail-closed: a
+        // batch must never execute against an uncertain library state.
+        #expect(await runnerProbe.callCount == 0)
+    }
+
     @Test("a batch record round-trips through the store")
     func batchRecordRoundTripsThroughStore() async throws {
         let store = try makeRunStore()
@@ -313,6 +365,14 @@ private actor HoldProbe {
     func begin() -> UUID {
         callCount += 1
         return UUID()
+    }
+}
+
+private actor RunnerInvocationProbe {
+    private(set) var callCount = 0
+
+    func record() {
+        callCount += 1
     }
 }
 

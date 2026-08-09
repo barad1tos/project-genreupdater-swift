@@ -247,6 +247,12 @@ struct WorkflowPendingCancelTests {
         #expect(viewModel.trackStatuses.isEmpty)
         #expect(viewModel.failedTracks.isEmpty)
         #expect(viewModel.failedCount == 0)
+
+        // The record must say what the user did: a cancelled run, not a
+        // failed one (the BatchProcessorError.cancelled translation).
+        await viewModel.processingTask?.value
+        let batchRecords = await fixture.runRecords.records.filter { $0.intent == .batchUpdate }
+        #expect(batchRecords.last?.state == .cancelled)
     }
 
     @Test("cancelling pending preflight does not start live batch")

@@ -106,6 +106,136 @@ struct BatchRunAppTests {
         #expect(viewModel.recoveryHoldID == nil)
     }
 
+    @Test("a pre-runner terminal lands on the failure, not a stuck screen")
+    func preRunnerTerminalLandsOnFailure() async throws {
+        let fixture = makeWorkflowFixture(configure: { options in
+            options.failRunRecordPersistence = true
+        })
+        let viewModel = fixture.viewModel
+
+        viewModel.startBatchProcessing(tracks: [
+            Track(id: "t1", name: "Song", artist: "Artist", album: "Album"),
+        ])
+        await viewModel.processingTask?.value
+
+        guard case .error = viewModel.phase else {
+            Issue.record("Expected error phase, got \(viewModel.phase)")
+            return
+        }
+        #expect(viewModel.pendingBatchExecution == nil)
+    }
+
+    @Test("the stash survives a queued submission and the batch executes")
+    func stashSurvivesQueuedSubmissionAndExecutes() async throws {
+        let fixture = makeWorkflowFixture()
+        let viewModel = fixture.viewModel
+        await fixture.observationGate.arm()
+        let observation = Task {
+            await fixture.orchestrator.submit(.manualObservation(requestedTestArtists: [], knownTrackCount: nil))
+        }
+        await fixture.observationGate.waitUntilEntered()
+
+        viewModel.startBatchProcessing(tracks: [
+            Track(id: "q1", name: "Song", artist: "Artist", album: "Album"),
+        ])
+        await viewModel.processingTask?.value
+        #expect(viewModel.pendingBatchExecution != nil)
+
+        await fixture.observationGate.release()
+        _ = await observation.value
+        try await waitForTerminalPhase(viewModel)
+
+        guard case .done = viewModel.phase else {
+            Issue.record("Expected done phase, got \(viewModel.phase)")
+            return
+        }
+        #expect(viewModel.pendingBatchExecution == nil)
+    }
+
+    @Test("cancelling a queued batch records an honest cancelled run")
+    func cancellingQueuedBatchRecordsCancelledRun() async throws {
+        let fixture = makeWorkflowFixture()
+        let viewModel = fixture.viewModel
+        await fixture.observationGate.arm()
+        let observation = Task {
+            await fixture.orchestrator.submit(.manualObservation(requestedTestArtists: [], knownTrackCount: nil))
+        }
+        await fixture.observationGate.waitUntilEntered()
+
+        viewModel.startBatchProcessing(tracks: [
+            Track(id: "c1", name: "Song", artist: "Artist", album: "Album"),
+        ])
+        await viewModel.processingTask?.value
+        viewModel.cancel()
+
+        guard case .configure = viewModel.phase else {
+            Issue.record("Expected configure phase after cancel, got \(viewModel.phase)")
+            return
+        }
+        #expect(viewModel.pendingBatchExecution == nil)
+
+        await fixture.observationGate.release()
+        _ = await observation.value
+        try await waitForBatchRecordTerminal(fixture)
+
+        let batchRecords = await fixture.runRecords.records.filter { $0.intent == .batchUpdate }
+        #expect(batchRecords.last?.state == .cancelled)
+    }
+
+    @Test("the batch request carries the configured test-artist scope")
+    func batchRequestCarriesTestArtistScope() async throws {
+        let dependencies = makeBatchTestDependencies()
+        dependencies.config.development.testArtists = ["Clutch"]
+        let records = RecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { await records.append($0) },
+            runBatchUpdate: dependencies.makeBatchRunnerBridge()
+        )))
+        dependencies.batchRunProvider = { _, _ in
+            BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
+        }
+
+        _ = try await dependencies.submitBatchRun(
+            input: BatchRunInput(options: UpdateOptions(), trackCount: 1)
+        )
+
+        #expect(await records.records.first?.scope.source == .testArtists)
+    }
+
+    private func waitForTerminalPhase(
+        _ viewModel: WorkflowViewModel,
+        timeout: Duration = .seconds(5)
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            switch viewModel.phase {
+            case .done, .error, .configure:
+                return
+            default:
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        Issue.record("Timed out waiting for a terminal phase; last: \(viewModel.phase)")
+    }
+
+    private func waitForBatchRecordTerminal(
+        _ fixture: WorkflowFixture,
+        timeout: Duration = .seconds(5)
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            let records = await fixture.runRecords.records
+            if records.contains(where: { $0.intent == .batchUpdate && $0.finishedAt != nil }) {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("Timed out waiting for a terminal batch record")
+    }
+
     private func makeBatchTestDependencies() -> AppDependencies {
         AppDependencies(
             configurationLoader: { AppConfiguration() },

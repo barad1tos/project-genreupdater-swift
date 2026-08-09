@@ -28,6 +28,7 @@ struct WorkflowFixtureOptions {
     var clearRecovery: ((UUID) async throws -> Void)?
     var invalidateAlbumYearCache: (() async -> Void)?
     var updateIncrementalRunTimestamp: (() async -> Void)?
+    var failRunRecordPersistence = false
 }
 
 private struct WorkflowFixtureInput {
@@ -95,9 +96,17 @@ private func assembleWorkflowFixture(_ input: WorkflowFixtureInput) -> WorkflowF
         try await processor.clearRecovery(batchID: id)
     }
     let relay = BatchRunRelay()
+    let runRecords = FixtureRunRecords()
+    let observationGate = FixtureSyncGate()
+    let failPersistence = input.options.failRunRecordPersistence
     let orchestrator = RunOrchestrator(dependencies: .init(
-        synchronizeLibrary: { SyncResult() },
-        persistRunRecord: { _ in },
+        synchronizeLibrary: { await observationGate.sync() },
+        persistRunRecord: { record in
+            if failPersistence {
+                throw FixtureRecordWriteError()
+            }
+            await runRecords.append(record)
+        },
         runBatchUpdate: { batchInput, runID in
             try await relay.perform(batchInput, runID)
         }
@@ -117,8 +126,17 @@ private func assembleWorkflowFixture(_ input: WorkflowFixtureInput) -> WorkflowF
         }
     )
     relay.viewModel = viewModel
-    return WorkflowFixture(viewModel: viewModel, scriptClient: scriptClient, batchProcessor: processor)
+    return WorkflowFixture(
+        viewModel: viewModel,
+        scriptClient: scriptClient,
+        batchProcessor: processor,
+        runRecords: runRecords,
+        observationGate: observationGate,
+        orchestrator: orchestrator
+    )
 }
+
+struct FixtureRecordWriteError: Error {}
 
 /// A production-shaped bridge for fixtures: the orchestrator's Sendable
 /// runner slot reaches the fixture's view-model exactly like the app's
@@ -213,6 +231,59 @@ struct WorkflowFixture {
     let viewModel: WorkflowViewModel
     let scriptClient: DashboardStateScriptClient
     let batchProcessor: BatchProcessor
+    let runRecords: FixtureRunRecords
+    let observationGate: FixtureSyncGate
+    let orchestrator: RunOrchestrator
+}
+
+actor FixtureRunRecords {
+    private(set) var records: [RunRecord] = []
+
+    func append(_ record: RunRecord) {
+        records.append(record)
+    }
+}
+
+/// Arms an orchestrator observation that blocks until released, so app
+/// pins can observe the queued-batch path deterministically.
+actor FixtureSyncGate {
+    private var isArmed = false
+    private var isReleased = false
+    private var isEntered = false
+    private var enterContinuations: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func arm() {
+        isArmed = true
+    }
+
+    func sync() async -> SyncResult {
+        guard isArmed, !isReleased else { return SyncResult() }
+        isEntered = true
+        for continuation in enterContinuations {
+            continuation.resume()
+        }
+        enterContinuations = []
+        await withCheckedContinuation { continuation in
+            releaseContinuations.append(continuation)
+        }
+        return SyncResult()
+    }
+
+    func waitUntilEntered() async {
+        if isEntered { return }
+        await withCheckedContinuation { continuation in
+            enterContinuations.append(continuation)
+        }
+    }
+
+    func release() {
+        isReleased = true
+        for continuation in releaseContinuations {
+            continuation.resume()
+        }
+        releaseContinuations = []
+    }
 }
 
 actor MutationPreparationRecorder {

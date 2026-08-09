@@ -85,7 +85,7 @@ extension RunOrchestrator {
     }
 
     public func restoreRecovery(_ record: RunRecord) async {
-        guard record.intent == .writeFixes,
+        guard record.intent.isMutating,
               record.finishedAt == nil,
               record.state.needsWriteRecovery
         else { return }
@@ -214,7 +214,7 @@ extension RunOrchestrator {
 
         switch recoveryState {
         case .clear:
-            if activeRun?.intent == .writeFixes {
+            if activeRun?.intent.isMutating == true {
                 recoveryState = .pending(candidate)
             } else {
                 await activateRecovery(candidate)

@@ -16,7 +16,7 @@ extension AppDependencies {
     private func discoverAndAdmitRecoveryHold() async -> Bool {
         let activeLifecycle = await runOrchestrator?.activeLifecycle()
         let activeRunID = activeLifecycle?.runID
-        let existingID: UUID? = if activeLifecycle?.intent == .writeFixes {
+        let existingID: UUID? = if activeLifecycle?.intent.isMutating == true {
             nil
         } else {
             await batchProcessor?.recoveryHoldID()
@@ -29,7 +29,7 @@ extension AppDependencies {
             let candidates = page.records.filter {
                 $0.finishedAt == nil
                     && $0.runID != activeRunID
-                    && $0.intent == .writeFixes
+                    && $0.intent.isMutating
                     && $0.state.needsWriteRecovery
             }
 
@@ -493,7 +493,7 @@ extension AppDependencies {
     }
 
     private func restoreRecoveryHold(for candidate: RunRecord, preferredID: UUID?) async -> Bool {
-        guard candidate.intent == .writeFixes,
+        guard candidate.intent.isMutating,
               candidate.state.needsWriteRecovery
         else { return false }
         guard let runRecordStore else { return true }

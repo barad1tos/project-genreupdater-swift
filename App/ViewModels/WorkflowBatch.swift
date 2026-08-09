@@ -13,10 +13,10 @@ struct PendingBatchExecution {
 }
 
 enum WorkflowBatchError: LocalizedError {
-    case noPendingExecution
+    case staleExecution
 
     var errorDescription: String? {
-        "The batch runner fired without a pending execution"
+        "The batch runner fired with work that no longer matches its run request"
     }
 }
 
@@ -86,41 +86,23 @@ extension WorkflowViewModel {
     /// through the same coordinator path with the same screen progress;
     /// every failure rethrows AFTER applying its screen state so the run
     /// record stays honest.
-    func performBatchRunWork(input _: BatchRunInput, runID _: RunID) async throws -> BatchUpdateResult {
+    func performBatchRunWork(input: BatchRunInput, runID _: RunID) async throws -> BatchUpdateResult {
         guard let execution = pendingBatchExecution else {
-            throw WorkflowBatchError.noPendingExecution
+            // The stash is cleared by cancel(): a queued trigger firing
+            // after the user cancelled records an honest cancelled run.
+            throw CancellationError()
+        }
+        guard input.options == execution.options,
+              input.trackCount == execution.tracksByIndex.count
+        else {
+            // The record must never claim input A while the runner
+            // executes stash B (divergence would be a silent lie).
+            pendingBatchExecution = nil
+            throw WorkflowBatchError.staleExecution
         }
         pendingBatchExecution = nil
-        let tracksByIndex = execution.tracksByIndex
-        let progressHandler = makeBatchProgressHandler(tracksByIndex: tracksByIndex)
         do {
-            await invalidateAlbumYearCacheIfNeeded()
-
-            let context = await batchContext(for: tracksByIndex, contextTracks: execution.contextTracks)
-            let operation = makeBatchTrackOperation(
-                updateCoordinator: updateCoordinator,
-                options: execution.options,
-                albumTracksByTrackID: context.albums,
-                artistTracksByTrackID: context.artists
-            )
-
-            let entries = try await batchProcessor.process(
-                tracks: tracksByIndex,
-                operation: operation,
-                progressHandler: progressHandler
-            )
-
-            await finishBatchProcessing(
-                preflightOutcome: execution.preflightOutcome,
-                batchEntries: entries,
-                tracks: tracksByIndex
-            )
-            return result ?? BatchUpdateResult(
-                entries: entries,
-                noOpEntries: batchNoOpEntries,
-                failedTrackIDs: batchFailedTrackIDs,
-                errorDescriptions: batchFailureDescriptions
-            )
+            return try await executeBatchWork(execution)
         } catch is CancellationError {
             finishCancelledBatch(preflightOutcome: execution.preflightOutcome)
             phase = .configure
@@ -155,26 +137,93 @@ extension WorkflowViewModel {
         }
     }
 
+    private func executeBatchWork(_ execution: PendingBatchExecution) async throws -> BatchUpdateResult {
+        let tracksByIndex = execution.tracksByIndex
+        let progressHandler = makeBatchProgressHandler(tracksByIndex: tracksByIndex)
+        await invalidateAlbumYearCacheIfNeeded()
+
+        let context = await batchContext(for: tracksByIndex, contextTracks: execution.contextTracks)
+        let operation = makeBatchTrackOperation(
+            updateCoordinator: updateCoordinator,
+            options: execution.options,
+            albumTracksByTrackID: context.albums,
+            artistTracksByTrackID: context.artists
+        )
+
+        let entries = try await batchProcessor.process(
+            tracks: tracksByIndex,
+            operation: operation,
+            progressHandler: progressHandler
+        )
+
+        await finishBatchProcessing(
+            preflightOutcome: execution.preflightOutcome,
+            batchEntries: entries,
+            tracks: tracksByIndex
+        )
+        // The record reports THIS run's work only: preflight verification
+        // writes happened before submit and stay merged into the screen
+        // state (`result`), never the run record.
+        return BatchUpdateResult(
+            entries: entries,
+            noOpEntries: batchNoOpEntries,
+            failedTrackIDs: batchFailedTrackIDs,
+            errorDescriptions: batchFailureDescriptions
+        )
+    }
+
     private func applyBatchSubmissionResult(_ submission: RunSubmissionResult) {
         switch submission {
-        case .queued, .alreadyCovered:
+        case .queued:
             // The runner fires when the active run finishes; the batch
-            // progress handler takes the screen over from there.
+            // progress handler takes the screen over from there. Cancel
+            // stays live: it clears the stash, and the fired trigger
+            // then records an honest cancelled run.
             progress = ProgressUpdate(
                 phase: .fetching,
                 current: 0,
                 total: totalCount,
                 message: "Waiting for the active run to finish"
             )
+        case .alreadyCovered:
+            // A covered submission never fires the runner — waiting for
+            // it would park the screen forever.
+            pendingBatchExecution = nil
+            phase = .error("An equivalent run is already active; its results will cover this request")
+            progress = nil
         case .recoveryRequired:
+            // Defensive only: the submit-time recovery block guards the
+            // write slot (writeFixes), so batches reach the processor's
+            // own recoveryRequired error instead of this response.
             pendingBatchExecution = nil
             phase = .error("Recovery needs attention before this run can start")
             progress = nil
-        case .completed, .completedNoOp, .failed, .cancelled, .recoverable:
+        case let .failed(lifecycle), let .recoverable(lifecycle, _):
+            applyPreRunnerTerminalIfNeeded(
+                message: lifecycle.failureMessage ?? "Run failed before processing started"
+            )
+        case .cancelled:
+            if pendingBatchExecution != nil {
+                pendingBatchExecution = nil
+                phase = .configure
+                progress = nil
+            }
+        case .completed, .completedNoOp:
             // Terminal screen state was applied inside performBatchRunWork
-            // (or its error taxonomy) before the orchestrator returned.
+            // before the orchestrator returned.
             break
         }
+    }
+
+    /// A run can die BEFORE the runner consumes the stash (record store
+    /// failure at preflight, an unavailable runner bridge): the remaining
+    /// stash is the proof, and the screen must land on the failure
+    /// instead of waiting for a runner that never fired.
+    private func applyPreRunnerTerminalIfNeeded(message: String) {
+        guard pendingBatchExecution != nil else { return }
+        pendingBatchExecution = nil
+        phase = .error(message)
+        progress = nil
     }
 
     private func finishBatchProcessing(
