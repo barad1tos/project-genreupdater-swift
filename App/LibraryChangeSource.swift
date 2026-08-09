@@ -1,6 +1,8 @@
 import Core
 import Foundation
 
+private let log = AppLogger.make(category: "library-watch")
+
 /// An event source for library-change automation (ADR 0003 watch/hybrid).
 /// The in-process implementation watches the Music library file; the
 /// slice-14 launchd agent (WatchPaths) becomes the windowless source.
@@ -36,6 +38,10 @@ final class MusicLibraryFileWatcher: LibraryChangeSource {
     func events() -> AsyncStream<Void> {
         let descriptor = open(path, O_EVTONLY)
         guard descriptor >= 0 else {
+            // The availability probe (access) can pass while open fails —
+            // fd exhaustion or a partial sandbox profile. Say so instead
+            // of letting the armed loop retry in silence.
+            log.info("Watch descriptor open failed for the configured library path")
             return AsyncStream { $0.finish() }
         }
         return AsyncStream { continuation in
