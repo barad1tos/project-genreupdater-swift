@@ -141,11 +141,13 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         limit: Int = 5
     ) -> URL? {
         var components = URLComponents(string: "\(baseURL)/release-group")
+        // An empty artist is the album-only alternative search (Python
+        // parity: Various Artists and flagged soundtracks drop the artist).
+        let query = artist.isEmpty
+            ? "release:\"\(album)\""
+            : "artist:\"\(artist)\" AND release:\"\(album)\""
         components?.queryItems = [
-            URLQueryItem(
-                name: "query",
-                value: "artist:\"\(artist)\" AND release:\"\(album)\""
-            ),
+            URLQueryItem(name: "query", value: query),
             URLQueryItem(name: "fmt", value: "json"),
             URLQueryItem(name: "limit", value: String(limit)),
         ]

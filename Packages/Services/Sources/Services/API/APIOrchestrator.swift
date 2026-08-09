@@ -98,6 +98,8 @@ public struct APIOrchestratorConfiguration: Sendable {
     public var maxAPIRetries: Int
     public var apiRetryDelaySeconds: Double
     public var sourcePriorityConfiguration: APISourcePriorityConfiguration
+    public var soundtrackPatterns: [String]
+    public var variousArtistsNames: [String]
 
     public init() {
         reachability = nil
@@ -112,6 +114,8 @@ public struct APIOrchestratorConfiguration: Sendable {
         maxAPIRetries = 0
         apiRetryDelaySeconds = 1
         sourcePriorityConfiguration = APISourcePriorityConfiguration()
+        soundtrackPatterns = SearchStrategyDefaults.soundtrackPatterns
+        variousArtistsNames = SearchStrategyDefaults.variousArtistsNames
     }
 
     /// Maps every config-derived field from `AppConfiguration`.
@@ -128,6 +132,8 @@ public struct APIOrchestratorConfiguration: Sendable {
         maxAPIRetries = configuration.runtime.maxRetries
         apiRetryDelaySeconds = configuration.runtime.retryDelaySeconds
         sourcePriorityConfiguration = APISourcePriorityConfiguration(configuration: configuration)
+        soundtrackPatterns = configuration.albumTypeDetection.soundtrackPatterns
+        variousArtistsNames = configuration.albumTypeDetection.variousArtistsNames
     }
 }
 
@@ -167,6 +173,8 @@ public actor APIOrchestrator {
     private let maxConcurrentSourceCalls: Int
     let apiRetryConfiguration: APIRetryConfiguration
     let sourcePriorityConfiguration: APISourcePriorityConfiguration
+    let soundtrackPatterns: [String]
+    let variousArtistsNames: [String]
     private let log = AppLogger.api
 
     /// Creates an orchestrator with three API sources and a per-source timeout.
@@ -190,6 +198,8 @@ public actor APIOrchestrator {
         candidateResultTTL = configuration.candidateResultTTL.flatMap { $0 > 0 ? $0 : nil }
         disabledSources = configuration.disabledSources
         maxConcurrentSourceCalls = max(1, configuration.maxConcurrentSourceCalls)
+        soundtrackPatterns = configuration.soundtrackPatterns
+        variousArtistsNames = configuration.variousArtistsNames
         apiRetryConfiguration = APIRetryConfiguration(
             maxRetries: configuration.maxAPIRetries,
             delaySeconds: configuration.apiRetryDelaySeconds
