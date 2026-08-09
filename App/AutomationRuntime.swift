@@ -18,9 +18,15 @@ extension AppDependencies {
     /// tracker, fire an immediate observation per edit.
     func applyAutomationStrategy() async {
         let strategy = config.runtime.automationStrategy
+        let hasGate = featureGate?.canAccess(.autoSync) == true
+        applyScheduleSource(strategy: strategy, hasGate: hasGate)
+        applyWatchSource(strategy: strategy, hasGate: hasGate)
+        isAutoSyncRunning = automationScheduleTask != nil || automationWatchTask != nil
+    }
+
+    private func applyScheduleSource(strategy: AutomationStrategy, hasGate: Bool) {
         let interval = TimeInterval(max(1, config.runtime.incrementalIntervalMinutes)) * 60
-        let isEligible = (strategy == .scheduled || strategy == .hybrid)
-            && featureGate?.canAccess(.autoSync) == true
+        let isEligible = (strategy == .scheduled || strategy == .hybrid) && hasGate
 
         if isEligible, automationScheduleTask != nil, armedScheduleInterval == interval {
             return
@@ -29,17 +35,8 @@ extension AppDependencies {
         automationScheduleTask?.cancel()
         automationScheduleTask = nil
         armedScheduleInterval = nil
-        defer { isAutoSyncRunning = automationScheduleTask != nil }
 
-        guard isEligible else {
-            if strategy != .manualOnly {
-                log
-                    .info(
-                        "Automation strategy \(strategy.rawValue, privacy: .public) has no armable source (gate or watch pending)"
-                    )
-            }
-            return
-        }
+        guard isEligible else { return }
 
         armedScheduleInterval = interval
         automationScheduleTask = Task { [weak self] in
@@ -59,6 +56,74 @@ extension AppDependencies {
             .info(
                 "Schedule source armed at \(Int(interval), privacy: .public)s for \(strategy.rawValue, privacy: .public)"
             )
+    }
+
+    /// Python launchd WatchPaths parity, in-process: one observation per
+    /// library mutation, throttled with launchd's defer semantics. An
+    /// unavailable source (sandbox, missing library) degrades honestly.
+    private func applyWatchSource(strategy: AutomationStrategy, hasGate: Bool) {
+        let wantsWatch = (strategy == .libraryChange || strategy == .hybrid) && hasGate
+        guard wantsWatch else {
+            teardownWatchSource()
+            return
+        }
+
+        let path = config.paths.musicLibraryPath
+        let source = resolvedLibraryChangeSource(path: path)
+        guard source.isAvailable else {
+            teardownWatchSource()
+            log.info("Watch source unavailable; automation continues with whatever the strategy schedules")
+            return
+        }
+
+        if automationWatchTask != nil, armedWatchPath == path {
+            return
+        }
+        teardownWatchSource()
+
+        armedWatchPath = path
+        automationWatchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let stream = self.libraryChangeSource?.events()
+                guard let stream else { return }
+                for await _ in stream {
+                    if Task.isCancelled {
+                        return
+                    }
+                    await self.submitWatchObservation()
+                }
+                if Task.isCancelled {
+                    return
+                }
+                // The stream finished (rename/delete replaced the vnode,
+                // or the file vanished): re-open on the path after a beat.
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
+        log.info("Watch source armed for \(strategy.rawValue, privacy: .public)")
+    }
+
+    private func teardownWatchSource() {
+        automationWatchTask?.cancel()
+        automationWatchTask = nil
+        armedWatchPath = nil
+        automationWatchTrailingTask?.cancel()
+        automationWatchTrailingTask = nil
+    }
+
+    /// Tests install their own source (builtPath stays nil and the stub
+    /// is never clobbered); the self-built watcher rebuilds when the
+    /// configured path changes.
+    private func resolvedLibraryChangeSource(path: String) -> any LibraryChangeSource {
+        if let libraryChangeSource,
+           libraryChangeSourceBuiltPath == nil || libraryChangeSourceBuiltPath == path {
+            return libraryChangeSource
+        }
+        let watcher = MusicLibraryFileWatcher(libraryPath: path)
+        libraryChangeSource = watcher
+        libraryChangeSourceBuiltPath = path
+        return watcher
     }
 
     /// Pure schedule math (Python can_run_incremental parity): a missing
@@ -102,5 +167,46 @@ extension AppDependencies {
         )
         let result = await runOrchestrator.submit(request)
         log.info("Scheduled observation finished as \(String(describing: result.lifecycle?.state), privacy: .public)")
+    }
+
+    /// Python launchd ThrottleInterval (300 s): mutation bursts coalesce
+    /// into one observation; the gate is re-checked per event.
+    static let watchThrottleInterval: TimeInterval = 300
+
+    func submitWatchObservation() async {
+        guard featureGate?.canAccess(.autoSync) == true else {
+            teardownWatchSource()
+            isAutoSyncRunning = automationScheduleTask != nil
+            log.info("Automation gate lapsed; watch source disarmed")
+            return
+        }
+        if let lastWatchTickAt {
+            let elapsed = Date().timeIntervalSince(lastWatchTickAt)
+            if elapsed < Self.watchThrottleInterval {
+                // launchd DEFERS a throttled invocation, never drops it:
+                // one idempotent trailing tick services the window.
+                scheduleTrailingWatchTick(after: Self.watchThrottleInterval - elapsed)
+                return
+            }
+        }
+        guard let runOrchestrator else { return }
+        lastWatchTickAt = Date()
+        let request = await RunRequest.observation(
+            trigger: .fileSystemEvent,
+            requestedTestArtists: config.development.testArtists,
+            knownTrackCount: currentKnownTrackCount()
+        )
+        let result = await runOrchestrator.submit(request)
+        log.info("Watch observation finished as \(String(describing: result.lifecycle?.state), privacy: .public)")
+    }
+
+    private func scheduleTrailingWatchTick(after delay: TimeInterval) {
+        guard automationWatchTrailingTask == nil else { return }
+        automationWatchTrailingTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled else { return }
+            automationWatchTrailingTask = nil
+            await submitWatchObservation()
+        }
     }
 }

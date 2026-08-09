@@ -269,6 +269,30 @@ struct ChromeBuilderTests {
         #expect(projection.safety.automationState == .scheduled)
     }
 
+    @Test("an armed watcher reads watching and outranks the schedule")
+    func armedWatcherReadsWatching() {
+        let watching = ChromeBuilder.makeProjection(input: makeInput(
+            automation: ChromeAutomationFacts(
+                strategy: .hybrid,
+                isScheduleArmed: true,
+                isWatchArmed: true,
+                isIncrementalDue: nil
+            )
+        ))
+        #expect(watching.safety.automationState == .watching)
+
+        let heldWatcher = ChromeBuilder.makeProjection(input: makeInput(
+            recovery: ChromeRecoveryFacts(hasUnresolvedWriteRecovery: true, recoveryRunID: nil),
+            automation: ChromeAutomationFacts(
+                strategy: .libraryChange,
+                isScheduleArmed: false,
+                isWatchArmed: true,
+                isIncrementalDue: nil
+            )
+        ))
+        #expect(heldWatcher.safety.automationState == .recoveryHold)
+    }
+
     @Test("armed beats nothing-due; recovery hold beats armed")
     func armedOrderingInTheTruthTable() {
         let armedNotDue = ChromeBuilder.makeProjection(input: makeInput(

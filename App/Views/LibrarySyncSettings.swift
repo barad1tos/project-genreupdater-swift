@@ -30,10 +30,8 @@ extension APICacheTab {
                 // The persisted strategy (ADR 0003) replaces the volatile
                 // Start/Stop toggle: the command path persists the choice
                 // and the runtime re-arms its trigger sources on apply.
-                // Only strategies with an armable source are offered;
-                // libraryChange/hybrid rows arrive with the watch source.
                 Picker("Automation", selection: configBinding(dependencies, \.runtime.automationStrategy)) {
-                    ForEach([AutomationStrategy.manualOnly, .scheduled]) { strategy in
+                    ForEach(AutomationStrategy.allCases) { strategy in
                         Text(strategy.displayName).tag(strategy)
                     }
                 }

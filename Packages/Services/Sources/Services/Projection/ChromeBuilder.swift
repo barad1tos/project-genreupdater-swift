@@ -42,11 +42,18 @@ public struct ChromeSettingsFacts: Sendable {
 public struct ChromeAutomationFacts: Sendable {
     public let strategy: AutomationStrategy
     public let isScheduleArmed: Bool
+    public let isWatchArmed: Bool
     public let isIncrementalDue: Bool?
 
-    public init(strategy: AutomationStrategy, isScheduleArmed: Bool, isIncrementalDue: Bool?) {
+    public init(
+        strategy: AutomationStrategy,
+        isScheduleArmed: Bool,
+        isWatchArmed: Bool = false,
+        isIncrementalDue: Bool?
+    ) {
         self.strategy = strategy
         self.isScheduleArmed = isScheduleArmed
+        self.isWatchArmed = isWatchArmed
         self.isIncrementalDue = isIncrementalDue
     }
 }
@@ -188,6 +195,10 @@ public enum ChromeBuilder {
         }
         if hasDeniedPermission(input.permissions) {
             return .permissionRequired
+        }
+        if input.automation.isWatchArmed {
+            // Armed is not running: the watcher waits for a mutation.
+            return .watching
         }
         if input.automation.isScheduleArmed {
             // Armed is not running: the source waits for its next tick.

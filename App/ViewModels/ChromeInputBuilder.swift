@@ -20,6 +20,7 @@ extension AppDependencies {
         let automation = ChromeAutomationFacts(
             strategy: config.runtime.automationStrategy,
             isScheduleArmed: automationScheduleTask != nil,
+            isWatchArmed: automationWatchTask != nil,
             // Cached tracker read (D6): nil = value unavailable —
             // unknown stays unknown rather than guessing due.
             isIncrementalDue: lastIncrementalRunTimestamp.map { lastRun in

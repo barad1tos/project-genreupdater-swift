@@ -51,6 +51,7 @@ public struct ChromeRecoveryHold: Equatable, Sendable {
 /// internal consumers (the watch case arrives with its source).
 public enum ChromeAutomationState: String, Equatable, Sendable {
     case running
+    case watching
     case scheduled
     case manualOnly
     case nothingDue
