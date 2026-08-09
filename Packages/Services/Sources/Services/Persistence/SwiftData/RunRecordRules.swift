@@ -117,7 +117,7 @@ extension RunRecordDataStore {
         else { return false }
         var transitions = payload?.transitions ?? fallback?.transitions ?? []
         let hasStateMismatch = transitions.last?.state.rawValue != row.stateRaw
-        guard intent != .writeFixes || !hasStateMismatch else { return false }
+        guard !intent.isMutating || !hasStateMismatch else { return false }
         if let payloadState = transitions.last?.state,
            hasStateMismatch,
            isTerminalState(payloadState) || payloadState.needsWriteRecovery {
@@ -138,7 +138,7 @@ extension RunRecordDataStore {
         }
         let configuration = payload?.configuration ?? fallback?.configuration
         guard configuration?.scopeID == nil || configuration?.scopeID == scope.id else { return false }
-        return intent == .writeFixes || writeEvidenceField(
+        return intent.isMutating || writeEvidenceField(
             configuration: configuration,
             writeTarget: payload?.writeTarget ?? fallback?.writeTarget,
             recoveryID: payload?.recoveryID ?? fallback?.recoveryID,

@@ -182,7 +182,10 @@ struct BatchRunAppTests {
         // fallback recorded cancelled — never a completed/failed run the
         // user did not want.
         let batchRecords = await fixture.runRecords.records.filter { $0.intent == .batchUpdate }
-        #expect(batchRecords.allSatisfy { $0.state == .cancelled })
+        // The append-only collector may retain the fallback path's OPEN
+        // preflight row; only a terminal row other than cancelled would
+        // betray an unwanted run.
+        #expect(batchRecords.allSatisfy { $0.finishedAt == nil || $0.state == .cancelled })
     }
 
     @Test("the batch request carries the configured test-artist scope")
