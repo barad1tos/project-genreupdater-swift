@@ -24,7 +24,7 @@ final class AppDependencies {
     /// is the SOLE publisher (pinned by `oneChromeTruthAcrossSurfaces`).
     var chrome: ChromeProjection = .empty()
     var config: AppConfiguration
-    var isAutoSyncRunning = false
+    var isAutomationArmed = false
     @ObservationIgnored var cachedBrowseScopeSnapshot: ProcessingScopeSnapshot?
     /// Last observed run boundary; written only by the lifecycle observer.
     @ObservationIgnored var currentLifecycleSnapshot: RunLifecycleSnapshot?

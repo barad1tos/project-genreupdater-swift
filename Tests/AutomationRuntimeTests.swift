@@ -83,7 +83,7 @@ struct AutomationRuntimeTests {
         dependencies.config.runtime.automationStrategy = .manualOnly
         await dependencies.applyAutomationStrategy()
         #expect(dependencies.automationScheduleTask == nil)
-        #expect(!dependencies.isAutoSyncRunning)
+        #expect(!dependencies.isAutomationArmed)
     }
 
     @Test("the strategy command persists the choice and re-arms the runtime")
@@ -106,7 +106,7 @@ struct AutomationRuntimeTests {
         // The command's runtime apply re-arms the schedule source.
         await dependencies.runtimeApplyQueue?.value
         #expect(dependencies.automationScheduleTask != nil)
-        #expect(dependencies.isAutoSyncRunning)
+        #expect(dependencies.isAutomationArmed)
     }
 
     @Test("a free tier never arms an automation source")
@@ -185,12 +185,12 @@ struct AutomationRuntimeTests {
         let dependencies = makeAutomationTestDependencies()
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .free))
         dependencies.automationScheduleTask = Task {}
-        dependencies.isAutoSyncRunning = true
+        dependencies.isAutomationArmed = true
 
         await dependencies.submitScheduledObservation()
 
         #expect(dependencies.automationScheduleTask == nil)
-        #expect(!dependencies.isAutoSyncRunning)
+        #expect(!dependencies.isAutomationArmed)
     }
 
     @Test("hybrid arms the schedule source; libraryChange arms nothing yet")
@@ -220,7 +220,7 @@ struct AutomationRuntimeTests {
         await dependencies.completeLaunch()
 
         #expect(dependencies.automationScheduleTask != nil)
-        #expect(dependencies.isAutoSyncRunning)
+        #expect(dependencies.isAutomationArmed)
 
         dependencies.config.runtime.automationStrategy = .manualOnly
         await dependencies.applyAutomationStrategy()
@@ -292,7 +292,7 @@ struct AutomationRuntimeTests {
 
         #expect(dependencies.automationScheduleTask != nil)
         #expect(dependencies.automationWatchTask == nil)
-        #expect(dependencies.isAutoSyncRunning)
+        #expect(dependencies.isAutomationArmed)
 
         dependencies.config.runtime.automationStrategy = .manualOnly
         await dependencies.applyAutomationStrategy()
@@ -456,7 +456,7 @@ struct AutomationRuntimeTests {
         await dependencies.applyAutomationStrategy()
         #expect(dependencies.automationWatchTask != nil)
         // Pure libraryChange arming publishes the armed fact too.
-        #expect(dependencies.isAutoSyncRunning)
+        #expect(dependencies.isAutomationArmed)
 
         // Prove the consumer subscribed before disarming: an emitted
         // event must land as a record first.

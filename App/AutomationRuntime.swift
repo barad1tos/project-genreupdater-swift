@@ -21,7 +21,7 @@ extension AppDependencies {
         let hasGate = featureGate?.canAccess(.autoSync) == true
         applyScheduleSource(strategy: strategy, hasGate: hasGate)
         applyWatchSource(strategy: strategy, hasGate: hasGate)
-        isAutoSyncRunning = automationScheduleTask != nil || automationWatchTask != nil
+        isAutomationArmed = automationScheduleTask != nil || automationWatchTask != nil
     }
 
     private func applyScheduleSource(strategy: AutomationStrategy, hasGate: Bool) {
@@ -154,7 +154,7 @@ extension AppDependencies {
             automationScheduleTask?.cancel()
             automationScheduleTask = nil
             armedScheduleInterval = nil
-            isAutoSyncRunning = false
+            isAutomationArmed = false
             log.info("Automation gate lapsed; schedule source disarmed")
             return
         }
@@ -176,7 +176,7 @@ extension AppDependencies {
     func submitWatchObservation() async {
         guard featureGate?.canAccess(.autoSync) == true else {
             teardownWatchSource()
-            isAutoSyncRunning = automationScheduleTask != nil
+            isAutomationArmed = automationScheduleTask != nil
             log.info("Automation gate lapsed; watch source disarmed")
             return
         }
