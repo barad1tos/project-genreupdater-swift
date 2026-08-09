@@ -391,49 +391,58 @@ final class WorkflowViewModel {
 
     // MARK: - Apply Accepted Changes
 
-    /// Apply only the accepted proposed changes from the review phase.
+    /// Apply only the accepted proposed changes from the review phase —
+    /// as an orchestrator run (slice-12 PR C): the record and recovery
+    /// belong to the run; this screen keeps only progress and phases.
     func applyAccepted() {
         guard !previewOnly else { return }
         guard !isProcessing else { return }
 
         let accepted = proposedChanges.filter(\.isAccepted)
         guard !accepted.isEmpty else { return }
+        guard let submitBatchRun else {
+            phase = .error("Run service is unavailable")
+            progress = nil
+            return
+        }
 
         phase = .applying
 
         processingTask = Task {
             guard await !stopForRecoveryHold() else { return }
+            let acceptedTracks = Self.uniqueTracks(accepted.map(\.track))
+            guard await prepareMutationMetadataIfNeeded(tracks: acceptedTracks) else { return }
 
+            let options = UpdateOptions(
+                updateGenre: updateGenre,
+                updateYear: updateYear,
+                repairExistingGenreMismatches: mode == .fullLibrary,
+                forceYearLookup: forceYearLookup,
+                cleanTrackNames: cleanTrackNames,
+                cleanAlbumNames: cleanAlbumNames,
+                minConfidence: confidencePercentage,
+                autoAccept: false
+            )
+            totalCount = max(totalCount, acceptedTracks.count)
+            pendingBatchExecution = .applyAccepted(AcceptedChangesBatch(
+                accepted: accepted,
+                trackCount: acceptedTracks.count,
+                options: options
+            ))
             do {
-                let acceptedTracks = Self.uniqueTracks(accepted.map(\.track))
-                guard await prepareMutationMetadataIfNeeded(tracks: acceptedTracks) else { return }
-
-                let progressHandler = makeApplyProgressHandler()
-                let coordinator = updateCoordinator
-                let batchResult = try await batchProcessor.performRecoverableWrite {
-                    try await coordinator.applyAcceptedChanges(
-                        accepted,
-                        progressHandler: progressHandler
-                    )
-                }
-
-                result = batchResult
-                recordAppliedTrackUsage(from: batchResult)
-                phase = .done
-                progress = nil
-            } catch is CancellationError {
-                phase = .configure
-                progress = nil
-            } catch let error as AppleScriptOutcomeError {
-                await handleUnknownOutcome(error)
+                let submission = try await submitBatchRun(
+                    BatchRunInput(options: options, trackCount: acceptedTracks.count)
+                )
+                applyBatchSubmissionResult(submission)
             } catch {
+                pendingBatchExecution = nil
                 phase = .error(error.localizedDescription)
                 progress = nil
             }
         }
     }
 
-    private func makeApplyProgressHandler() -> @Sendable (ProgressUpdate) -> Void {
+    func makeApplyProgressHandler() -> @Sendable (ProgressUpdate) -> Void {
         { [weak self] update in
             Task { @MainActor in
                 self?.progress = update

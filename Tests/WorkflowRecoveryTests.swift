@@ -18,9 +18,12 @@ struct WorkflowRecoveryTests {
 
         viewModel.applyAccepted()
         await viewModel.processingTask?.value
-        let recoveryID = viewModel.recoveryHoldID
-        #expect(recoveryID != nil)
-        #expect(!viewModel.canStart)
+        // Option A (slice-12 PR C): recovery belongs to the run — no
+        // view-model hold; the processor hold installed by
+        // performRecoverableWrite blocks the next write attempt.
+        #expect(viewModel.recoveryHoldID == nil)
+        let processorHold = await fixture.batchProcessor.recoveryHoldID()
+        #expect(processorHold != nil)
 
         viewModel.configureFullLibraryScope(tracks: [Track(id: "safe", name: "Safe", artist: "Artist", album: "Album")])
         viewModel.updateGenre = true
@@ -31,6 +34,10 @@ struct WorkflowRecoveryTests {
         viewModel.applyAccepted()
         await viewModel.processingTask?.value
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+        // The blocked second attempt adopts the processor hold, so the
+        // view-model's clear flow remains reachable.
+        #expect(viewModel.recoveryHoldID == processorHold)
+        #expect(!viewModel.canStart)
 
         await viewModel.clearRecoveryHold()
         #expect(viewModel.recoveryHoldID == nil)

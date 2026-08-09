@@ -3,12 +3,37 @@ import Foundation
 import Services
 
 /// The batch work stashed between submit and the orchestrator's runner
-/// firing (D3): tracks and context stay screen-side; only options and
+/// firing (D3): tracks and changes stay screen-side; only options and
 /// count travel in the run request.
-struct PendingBatchExecution {
+enum PendingBatchExecution {
+    case fullLibrary(FullLibraryBatch)
+    case applyAccepted(AcceptedChangesBatch)
+
+    var options: UpdateOptions {
+        switch self {
+        case let .fullLibrary(batch): batch.options
+        case let .applyAccepted(apply): apply.options
+        }
+    }
+
+    var trackCount: Int {
+        switch self {
+        case let .fullLibrary(batch): batch.tracksByIndex.count
+        case let .applyAccepted(apply): apply.trackCount
+        }
+    }
+}
+
+struct FullLibraryBatch {
     let tracksByIndex: [Track]
     let contextTracks: [Track]
     let preflightOutcome: PendingEntryOutcome
+    let options: UpdateOptions
+}
+
+struct AcceptedChangesBatch {
+    let accepted: [ProposedChange]
+    let trackCount: Int
     let options: UpdateOptions
 }
 
@@ -61,12 +86,12 @@ extension WorkflowViewModel {
             minConfidence: confidencePercentage,
             autoAccept: true
         )
-        pendingBatchExecution = PendingBatchExecution(
+        pendingBatchExecution = .fullLibrary(FullLibraryBatch(
             tracksByIndex: tracksByIndex,
             contextTracks: contextTracks ?? tracksByIndex,
             preflightOutcome: preflightOutcome,
             options: options
-        )
+        ))
 
         processingTask = Task {
             do {
@@ -93,7 +118,7 @@ extension WorkflowViewModel {
             throw CancellationError()
         }
         guard input.options == execution.options,
-              input.trackCount == execution.tracksByIndex.count
+              input.trackCount == execution.trackCount
         else {
             // The record must never claim input A while the runner
             // executes stash B (divergence would be a silent lie). The
@@ -102,6 +127,15 @@ extension WorkflowViewModel {
             throw WorkflowBatchError.staleExecution
         }
         pendingBatchExecution = nil
+        switch execution {
+        case let .fullLibrary(batch):
+            return try await runFullLibraryBatch(batch)
+        case let .applyAccepted(apply):
+            return try await runAcceptedChanges(apply)
+        }
+    }
+
+    private func runFullLibraryBatch(_ execution: FullLibraryBatch) async throws -> BatchUpdateResult {
         do {
             return try await executeBatchWork(execution)
         } catch is CancellationError {
@@ -138,7 +172,7 @@ extension WorkflowViewModel {
         }
     }
 
-    private func executeBatchWork(_ execution: PendingBatchExecution) async throws -> BatchUpdateResult {
+    private func executeBatchWork(_ execution: FullLibraryBatch) async throws -> BatchUpdateResult {
         let tracksByIndex = execution.tracksByIndex
         let progressHandler = makeBatchProgressHandler(tracksByIndex: tracksByIndex)
         await invalidateAlbumYearCacheIfNeeded()
@@ -173,7 +207,37 @@ extension WorkflowViewModel {
         )
     }
 
-    private func applyBatchSubmissionResult(_ submission: RunSubmissionResult) {
+    /// The apply-accepted runner section (PR C, Option A): the same
+    /// recoverable write as before, but recovery belongs to the run —
+    /// the orchestrator's finishRecoverableRun finds the processor hold
+    /// performRecoverableWrite installed; this screen keeps the phase.
+    private func runAcceptedChanges(_ apply: AcceptedChangesBatch) async throws -> BatchUpdateResult {
+        let progressHandler = makeApplyProgressHandler()
+        let coordinator = updateCoordinator
+        do {
+            let batchResult = try await batchProcessor.performRecoverableWrite {
+                try await coordinator.applyAcceptedChanges(
+                    apply.accepted,
+                    progressHandler: progressHandler
+                )
+            }
+            result = batchResult
+            recordAppliedTrackUsage(from: batchResult)
+            phase = .done
+            progress = nil
+            return batchResult
+        } catch is CancellationError {
+            phase = .configure
+            progress = nil
+            throw CancellationError()
+        } catch {
+            phase = .error(error.localizedDescription)
+            progress = nil
+            throw error
+        }
+    }
+
+    func applyBatchSubmissionResult(_ submission: RunSubmissionResult) {
         switch submission {
         case .queued:
             // The runner fires when the active run finishes; the batch

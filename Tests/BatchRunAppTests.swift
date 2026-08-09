@@ -188,6 +188,49 @@ struct BatchRunAppTests {
         #expect(batchRecords.allSatisfy { $0.finishedAt == nil || $0.state == .cancelled })
     }
 
+    @Test("apply-accepted flows through the orchestrator to a record")
+    func applyAcceptedFlowsThroughOrchestratorToRecord() async throws {
+        let fixture = makeWorkflowFixture()
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [makeProposedChange(id: "apply-1", isAccepted: true)]
+
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+
+        guard case .done = viewModel.phase else {
+            Issue.record("Expected done phase, got \(viewModel.phase)")
+            return
+        }
+        let batchRecords = await fixture.runRecords.records.filter { $0.intent == .batchUpdate }
+        #expect(batchRecords.last?.state == .completed)
+        #expect(viewModel.pendingBatchExecution == nil)
+    }
+
+    @Test("an uncertain apply leaves recovery to the orchestrator")
+    func uncertainApplyLeavesRecoveryToOrchestrator() async throws {
+        let fixture = makeWorkflowFixture(configure: { options in
+            options.outcomeTrackIDs = ["apply-unknown"]
+        })
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [makeProposedChange(id: "apply-unknown", isAccepted: true)]
+
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+
+        guard case .error = viewModel.phase else {
+            Issue.record("Expected error phase, got \(viewModel.phase)")
+            return
+        }
+        #expect(viewModel.recoveryHoldID == nil)
+        #expect(await fixture.batchProcessor.recoveryHoldID() != nil)
+        let batchRecords = await fixture.runRecords.records.filter { $0.intent == .batchUpdate }
+        #expect(batchRecords.last?.state == .recoverable)
+    }
+
     @Test("the batch request carries the configured test-artist scope")
     func batchRequestCarriesTestArtistScope() async throws {
         let dependencies = makeBatchTestDependencies()
