@@ -20,7 +20,7 @@ extension AppDependencies {
 
         let strategy = config.runtime.automationStrategy
         guard strategy == .scheduled || strategy == .hybrid else { return }
-        guard let featureGate, await featureGate.canAccess(.autoSync) else {
+        guard let featureGate, featureGate.canAccess(.autoSync) else {
             log.info("Automation strategy \(strategy.rawValue, privacy: .public) requires Pro; staying manual")
             return
         }
