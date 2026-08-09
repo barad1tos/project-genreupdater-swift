@@ -111,13 +111,24 @@ struct MBArtist: Codable {
     let name: String
     let lifeSpan: MBLifeSpan?
     let type: String?
+    let area: MBArea?
+    let beginArea: MBArea?
+    let endArea: MBArea?
 
     private enum CodingKeys: String, CodingKey {
         case id
         case name
         case lifeSpan = "life-span"
         case type
+        case area
+        case beginArea = "begin-area"
+        case endArea = "end-area"
     }
+}
+
+/// A MusicBrainz area (country/region/city) attached to an artist.
+struct MBArea: Codable {
+    let name: String?
 }
 
 /// The active period of a MusicBrainz artist.

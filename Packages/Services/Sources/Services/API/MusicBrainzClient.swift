@@ -274,6 +274,29 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         try await fetchFirstArtist(named: artist)?.name
     }
 
+    /// Python get_artist_region parity: the first non-empty of
+    /// area → begin-area → end-area NAME (a region name, not a code —
+    /// the scorer's comparison wart is the ported contract). Failures
+    /// degrade to nil: region context is a bonus, never a blocker.
+    public func getArtistRegion(artist: String) async -> String? {
+        do {
+            guard let mbArtist = try await fetchFirstArtist(named: artist) else { return nil }
+            return Self.artistRegion(from: mbArtist)
+        } catch {
+            log.info("Artist region lookup failed for \(artist, privacy: .private)")
+            return nil
+        }
+    }
+
+    static func artistRegion(from artist: MBArtist) -> String? {
+        for area in [artist.area, artist.beginArea, artist.endArea] {
+            if let name = area?.name, !name.isEmpty {
+                return name
+            }
+        }
+        return nil
+    }
+
     private func fetchFirstArtist(named artist: String) async throws -> MBArtist? {
         guard let url = Self.buildArtistSearchURL(artist: artist) else {
             log.warning("Failed to build artist search URL for \(artist, privacy: .private)")

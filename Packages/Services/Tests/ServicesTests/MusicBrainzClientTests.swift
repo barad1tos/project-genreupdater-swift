@@ -7,6 +7,75 @@ import Testing
 
 @Suite("MusicBrainzClient — MusicBrainz API JSON parsing and URL building")
 struct MusicBrainzClientTests {
+    // MARK: - Artist Region (Python get_artist_region parity)
+
+    @Test("Parse artist areas and pick region by Python precedence")
+    func artistRegionPrecedence() throws {
+        let json = """
+        {
+            "artists": [
+                {
+                    "id": "a1",
+                    "name": "Metallica",
+                    "area": {"name": "United States"},
+                    "begin-area": {"name": "Los Angeles"}
+                }
+            ]
+        }
+        """
+
+        let response = try JSONDecoder().decode(MBArtistSearchResponse.self, from: Data(json.utf8))
+        let artist = try #require(response.artists.first)
+
+        #expect(MusicBrainzClient.artistRegion(from: artist) == "United States")
+    }
+
+    @Test("Region falls back to begin-area then end-area")
+    func artistRegionFallsBack() throws {
+        let beginOnly = """
+        {"artists": [{"id": "a2", "name": "X", "begin-area": {"name": "Kyiv"}}]}
+        """
+        let endOnly = """
+        {"artists": [{"id": "a3", "name": "Y", "end-area": {"name": "Berlin"}}]}
+        """
+
+        let beginArtist = try #require(
+            try JSONDecoder().decode(MBArtistSearchResponse.self, from: Data(beginOnly.utf8)).artists.first
+        )
+        let endArtist = try #require(
+            try JSONDecoder().decode(MBArtistSearchResponse.self, from: Data(endOnly.utf8)).artists.first
+        )
+
+        #expect(MusicBrainzClient.artistRegion(from: beginArtist) == "Kyiv")
+        #expect(MusicBrainzClient.artistRegion(from: endArtist) == "Berlin")
+    }
+
+    @Test("No areas means no region")
+    func artistRegionAbsent() throws {
+        let json = """
+        {"artists": [{"id": "a4", "name": "Z"}]}
+        """
+
+        let artist = try #require(
+            try JSONDecoder().decode(MBArtistSearchResponse.self, from: Data(json.utf8)).artists.first
+        )
+
+        #expect(MusicBrainzClient.artistRegion(from: artist) == nil)
+    }
+
+    @Test("An empty area name is skipped in precedence")
+    func emptyAreaNameSkipped() throws {
+        let json = """
+        {"artists": [{"id": "a5", "name": "W", "area": {"name": ""}, "begin-area": {"name": "Oslo"}}]}
+        """
+
+        let artist = try #require(
+            try JSONDecoder().decode(MBArtistSearchResponse.self, from: Data(json.utf8)).artists.first
+        )
+
+        #expect(MusicBrainzClient.artistRegion(from: artist) == "Oslo")
+    }
+
     // MARK: - JSON Parsing
 
     @Test("Parse release group search response")
