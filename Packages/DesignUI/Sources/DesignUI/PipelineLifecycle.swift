@@ -74,7 +74,7 @@ public enum PipelineAutomationState: Equatable, Sendable {
     public var summaryValue: String {
         switch self {
         case .autoSyncRunning:
-            "Running"
+            "Armed"
         case .manualScanOnly:
             "Manual"
         case .noSyncYet:
@@ -85,7 +85,7 @@ public enum PipelineAutomationState: Equatable, Sendable {
     public var stageDetail: String {
         switch self {
         case .autoSyncRunning:
-            "Auto-sync running"
+            "Automation armed"
         case .manualScanOnly:
             "Manual scan only"
         case .noSyncYet:
