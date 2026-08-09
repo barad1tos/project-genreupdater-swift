@@ -8,6 +8,34 @@ import Testing
 struct YearDeterminatorTests {
     let determinator = YearDeterminator()
 
+    // MARK: - Artist region wiring (slice 16)
+
+    @Test("The artist region context lifts a matching-country candidate")
+    func artistRegionLiftsMatchingCountry() {
+        let track = makeTrack()
+        // Weak enough that confidence sits below the 100 clamp, so the
+        // country bonus is visible in the comparison.
+        let candidate = makeCandidate(
+            year: 1994,
+            releaseType: .single,
+            status: .promotional,
+            country: "UA"
+        )
+
+        let without = determinator.determineYear(
+            candidates: [candidate],
+            track: track
+        )
+        let withRegion = determinator.determineYear(
+            candidates: [candidate],
+            track: track,
+            artistCountry: "UA"
+        )
+
+        #expect(withRegion.yearResult.year == 1994)
+        #expect(withRegion.yearResult.confidence > without.yearResult.confidence)
+    }
+
     // MARK: - Helpers
 
     private func makeTrack(
