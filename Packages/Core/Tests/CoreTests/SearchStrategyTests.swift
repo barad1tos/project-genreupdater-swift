@@ -95,6 +95,53 @@ struct SearchStrategyTests {
         #expect(detect(album: "").strategy == .normal)
     }
 
+    @Test("A bracket-only album never retries with an empty query")
+    func bracketOnlyAlbumStaysNormal() {
+        // Python guards `if has_unusual and stripped`: an empty strip
+        // result means no rewrite — Discogs would otherwise answer an
+        // empty release_title with the artist's whole discography.
+        #expect(detect(album: "[UNRELEASED DEMOS 1997]").strategy == .normal)
+        #expect(detect(album: "[LIVE]").strategy == .normal)
+    }
+
+    @Test("Caseless scripts never count as uppercase")
+    func caselessScriptsAreNotUppercase() {
+        // Python str.isupper() needs a cased character; CJK content in
+        // short brackets stays normal on both sides.
+        #expect(detect(album: "Album [日本盤]").strategy == .normal)
+    }
+
+    @Test("Inner brackets strip to a spaced join — documented divergence")
+    func innerBracketsStripToSpacedJoin() {
+        // Python's re.sub("") would glue "SermonLive"; the port joins
+        // with a space deliberately.
+        let info = detect(album: "Sermon [MESSAGE FROM THE CLERGY] Live")
+
+        #expect(info.strategy == .stripBrackets)
+        #expect(info.modifiedAlbum == "Sermon Live")
+    }
+
+    @Test("An explicitly empty pattern list disables the detection")
+    func emptyListsDisableDetection() {
+        // Python's is-not-None semantics: [] means OFF, not defaults —
+        // emptying the Settings lists must actually disable the fallback.
+        let soundtrack = detectSearchStrategy(
+            artist: "Hans Zimmer",
+            album: "Dune - Original Score",
+            soundtrackPatterns: [],
+            variousArtistsNames: SearchStrategyDefaults.variousArtistsNames
+        )
+        let various = detectSearchStrategy(
+            artist: "Various Artists",
+            album: "Now 42",
+            soundtrackPatterns: SearchStrategyDefaults.soundtrackPatterns,
+            variousArtistsNames: []
+        )
+
+        #expect(soundtrack.strategy == .normal)
+        #expect(various.strategy == .normal)
+    }
+
     private func detect(
         artist: String = "Artist",
         album: String
@@ -102,8 +149,8 @@ struct SearchStrategyTests {
         detectSearchStrategy(
             artist: artist,
             album: album,
-            soundtrackPatterns: [],
-            variousArtistsNames: []
+            soundtrackPatterns: SearchStrategyDefaults.soundtrackPatterns,
+            variousArtistsNames: SearchStrategyDefaults.variousArtistsNames
         )
     }
 }

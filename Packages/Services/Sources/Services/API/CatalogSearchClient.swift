@@ -306,7 +306,10 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         return results.compactMap { result in
             let resultArtist = normalizeForMatching(result.artistName ?? "")
             let resultAlbum = normalizeForMatching(result.collectionName ?? "")
-            guard resultArtist == normalizedArtist,
+            // An empty query artist is the album-only alternative search
+            // (Various Artists parity) — album equality carries the match.
+            let artistMatches = normalizedArtist.isEmpty || resultArtist == normalizedArtist
+            guard artistMatches,
                   resultAlbum == normalizedAlbum,
                   let year = year(from: result)
             else {

@@ -114,8 +114,8 @@ public struct APIOrchestratorConfiguration: Sendable {
         maxAPIRetries = 0
         apiRetryDelaySeconds = 1
         sourcePriorityConfiguration = APISourcePriorityConfiguration()
-        soundtrackPatterns = []
-        variousArtistsNames = []
+        soundtrackPatterns = SearchStrategyDefaults.soundtrackPatterns
+        variousArtistsNames = SearchStrategyDefaults.variousArtistsNames
     }
 
     /// Maps every config-derived field from `AppConfiguration`.

@@ -31,20 +31,25 @@ public struct SearchStrategyInfo: Sendable, Equatable {
     }
 }
 
-private let defaultSoundtrackPatterns = [
-    "soundtrack",
-    "original score",
-    "OST",
-    "motion picture",
-    "film score",
-]
+/// The Python module's built-in pattern sets. Callers seed these when no
+/// configuration exists; an explicitly EMPTY configured list stays empty
+/// and disables the detection (Python's is-not-None semantics).
+public enum SearchStrategyDefaults {
+    public static let soundtrackPatterns = [
+        "soundtrack",
+        "original score",
+        "OST",
+        "motion picture",
+        "film score",
+    ]
 
-private let defaultVariousArtistsNames = [
-    "Various Artists",
-    "Various",
-    "VA",
-    "Різні виконавці",
-]
+    public static let variousArtistsNames = [
+        "Various Artists",
+        "Various",
+        "VA",
+        "Різні виконавці",
+    ]
+}
 
 /// Short tags like [CD1] are normal; longer content like
 /// [MESSAGE FROM THE CLERGY] is unusual (Python threshold).
@@ -62,13 +67,10 @@ public func detectSearchStrategy(
         return SearchStrategyInfo(strategy: .normal)
     }
 
-    let soundtrack = soundtrackPatterns.isEmpty ? defaultSoundtrackPatterns : soundtrackPatterns
-    let various = variousArtistsNames.isEmpty ? defaultVariousArtistsNames : variousArtistsNames
-
-    if let info = soundtrackStrategy(album: album, patterns: soundtrack) {
+    if let info = soundtrackStrategy(album: album, patterns: soundtrackPatterns) {
         return info
     }
-    if isVariousArtists(artist: artist, names: various) {
+    if isVariousArtists(artist: artist, names: variousArtistsNames) {
         return SearchStrategyInfo(
             strategy: .variousArtists,
             detectedPattern: artist,
@@ -94,10 +96,16 @@ private func soundtrackStrategy(album: String, patterns: [String]) -> SearchStra
 
     if let range = albumLower.range(of: pattern.lowercased()),
        range.lowerBound != albumLower.startIndex {
-        let prefixEnd = album.index(album.startIndex, offsetBy: albumLower.distance(
-            from: albumLower.startIndex,
-            to: range.lowerBound
-        ))
+        // lowercased() preserves grapheme counts for all known Unicode
+        // data; limitedBy is the free hardening against the theoretical
+        // expansion case (a miss falls back to no-rewrite).
+        guard let prefixEnd = album.index(
+            album.startIndex,
+            offsetBy: albumLower.distance(from: albumLower.startIndex, to: range.lowerBound),
+            limitedBy: album.endIndex
+        ) else {
+            return SearchStrategyInfo(strategy: .soundtrack, detectedPattern: pattern)
+        }
         var movieName = String(album[album.startIndex ..< prefixEnd])
             .trimmingCharacters(in: .whitespacesAndNewlines)
         // Python rstrip "([-–—": trailing opener/dash characters fall off.
@@ -131,11 +139,20 @@ private func unusualBracketStrip(album: String) -> String? {
     if normalBracketContent.contains(where: { contentLower.contains($0) }) {
         return nil
     }
-    let isAllUppercase = content == content.uppercased() && content.rangeOfCharacter(from: .letters) != nil
+    // Python str.isupper(): at least one CASED character, all cased ones
+    // uppercase — caseless scripts (CJK, digits) never qualify.
+    let isAllUppercase = content == content.uppercased() && content != content.lowercased()
     guard content.count > unusualBracketMinLength || isAllUppercase else {
         return nil
     }
-    return album
+    // Deliberate divergence: Python's re.sub("") glues surrounding words
+    // together ("Sermon [X] Live" → "SermonLive"); joining with a space
+    // keeps the query searchable.
+    let stripped = album
         .replacingOccurrences(of: #"\s*\[[^\]]+\]\s*"#, with: " ", options: .regularExpression)
         .trimmingCharacters(in: .whitespacesAndNewlines)
+    // Python guards `if has_unusual and stripped` — a bracket-only album
+    // must NOT retry with an empty query (Discogs would answer with the
+    // artist's whole discography).
+    return stripped.isEmpty ? nil : stripped
 }
