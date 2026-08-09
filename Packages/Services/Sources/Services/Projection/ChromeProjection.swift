@@ -47,10 +47,11 @@ public struct ChromeRecoveryHold: Equatable, Sendable {
     }
 }
 
-/// Compact automation state for chrome. Watch/schedule/hybrid cases arrive
-/// with slice 12; adding cases is additive for internal consumers.
+/// Compact automation state for chrome; adding cases is additive for
+/// internal consumers (the watch case arrives with its source).
 public enum ChromeAutomationState: String, Equatable, Sendable {
     case running
+    case scheduled
     case manualOnly
     case nothingDue
     case recoveryHold

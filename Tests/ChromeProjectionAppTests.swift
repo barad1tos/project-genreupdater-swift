@@ -152,7 +152,7 @@ struct ChromeProjectionAppTests {
             run: ChromeRunFacts(lifecycle: nil, isRunServiceAvailable: true),
             recovery: ChromeRecoveryFacts(hasUnresolvedWriteRecovery: true, recoveryRunID: nil),
             settings: ChromeSettingsFacts(isPreviewMode: false, saveErrorMessage: nil, hasLoadFailed: false),
-            automation: ChromeAutomationFacts(isAutoSyncRunning: false, isIncrementalDue: nil),
+            automation: ChromeAutomationFacts(strategy: .manualOnly, isScheduleArmed: false, isIncrementalDue: nil),
             library: ChromeLibraryFacts(physicalTrackCount: nil, scope: scope),
             permissions: .unprobed
         ))
