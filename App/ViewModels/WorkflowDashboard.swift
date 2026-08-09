@@ -1,5 +1,21 @@
 // WorkflowDashboard.swift -- Dashboard adapter for workflow progress.
 
+struct WorkflowDashboardState: Equatable {
+    let proposedChangeCount: Int
+    let acceptedChangeCount: Int
+    let failedWriteCount: Int
+    let isProcessing: Bool
+    let phaseLabel: String
+
+    static let empty = Self(
+        proposedChangeCount: 0,
+        acceptedChangeCount: 0,
+        failedWriteCount: 0,
+        isProcessing: false,
+        phaseLabel: "Idle"
+    )
+}
+
 extension WorkflowViewModel {
     var dashboardState: WorkflowDashboardState {
         switch phase {

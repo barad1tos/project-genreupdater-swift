@@ -76,9 +76,9 @@ enum TrackProcessingStatus: Equatable {
 
 /// Unified ViewModel driving genre/year updates for any track selection mode.
 ///
-/// Owns the whole update workflow (dry-run → preview → apply)
-/// and `BatchViewModel` (start/pause/resume/cancel with progress) into one
-/// workflow whose scope is always the effective processing scope:
+/// Owns the whole update workflow — dry-run, preview, apply, and the
+/// start/pause/resume/cancel progress controls — over the effective
+/// processing scope:
 /// - **Full Library**: Batch-processes the entire library (feature-gated)
 /// - **Smart Filter**: Targets tracks missing genres, years, or with low confidence
 @Observable @MainActor

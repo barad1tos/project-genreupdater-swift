@@ -6,7 +6,9 @@ import Foundation
 /// Summarizes proposed changes from a dry-run analysis without applying them.
 ///
 /// Built by `WorkflowViewModel` after a dry-run completes, surfacing counts
-/// by change type and affected tracks for the summary sheet.
+/// by change type and affected tracks. The aggregation has no UI reader right
+/// now: the screen that rendered it went out with the pre-DesignUI App views,
+/// and the DesignUI dry-run surface has not claimed it yet.
 public struct DryRunReport: Sendable {
     /// All proposed changes that passed the confidence threshold.
     public let proposedChanges: [ProposedChange]
