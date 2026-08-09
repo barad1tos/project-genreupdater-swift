@@ -1,4 +1,4 @@
-// WorkflowViewModel.swift — Unified update workflow (replaces UpdateViewModel + BatchViewModel).
+// WorkflowViewModel.swift — Unified update workflow: dry-run, preview, apply.
 
 import Core
 import Foundation
@@ -76,7 +76,7 @@ enum TrackProcessingStatus: Equatable {
 
 /// Unified ViewModel driving genre/year updates for any track selection mode.
 ///
-/// Merges the responsibilities of `UpdateViewModel` (dry-run → preview → apply)
+/// Owns the whole update workflow (dry-run → preview → apply)
 /// and `BatchViewModel` (start/pause/resume/cancel with progress) into one
 /// workflow whose scope is always the effective processing scope:
 /// - **Full Library**: Batch-processes the entire library (feature-gated)

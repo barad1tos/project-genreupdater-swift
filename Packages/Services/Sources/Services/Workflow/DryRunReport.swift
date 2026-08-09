@@ -5,7 +5,7 @@ import Foundation
 
 /// Summarizes proposed changes from a dry-run analysis without applying them.
 ///
-/// Built by `UpdateViewModel` after a dry-run completes, surfacing counts
+/// Built by `WorkflowViewModel` after a dry-run completes, surfacing counts
 /// by change type and affected tracks for the summary sheet.
 public struct DryRunReport: Sendable {
     /// All proposed changes that passed the confidence threshold.
