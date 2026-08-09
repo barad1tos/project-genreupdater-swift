@@ -93,6 +93,9 @@ public actor LibrarySyncService {
         var refreshedTracks: [Track] = []
 
         if !commonIDs.isEmpty, try await shouldRefreshCommonTrackMetadata(force: forceMetadataRefresh) {
+            // Known trade: a track drifting OUT of the target album is
+            // rejected here, so its old-album invalidation defers to the
+            // next unscoped sync — transient staleness, never deletion.
             let currentTracks = try await tracksAdmittedByRequest(fetchAppleScriptTracks(
                 trackIDs: commonIDs,
                 scopedTracksByID: librarySnapshot.tracksByID

@@ -359,6 +359,46 @@ struct LibrarySyncIdentityTests {
         #expect(result.newTracks.first?.albumArtist == "Various Artists")
     }
 
+    @Test("A provider stray track never enters an album-targeted result")
+    func providerStrayTrackNeverEntersAlbumTargetedResult() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let provider = SyncMockReadProvider()
+        let albumTrack = Track(
+            id: "MK1",
+            name: "Hit Song",
+            artist: "Various Artists",
+            album: "Best Of",
+            albumArtist: "Various Artists",
+            appleScriptID: "AS1"
+        )
+        let strayTrack = Track(
+            id: "MK2",
+            name: "Elsewhere Song",
+            artist: "Someone Else",
+            album: "Elsewhere",
+            albumArtist: "Someone Else",
+            appleScriptID: "AS2"
+        )
+        await provider.setTracks([albumTrack, strayTrack])
+        await store.setStored([])
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                albumTargetIdentity: AlbumIdentity(
+                    artist: "Various Artists",
+                    album: "Best Of"
+                )
+            ),
+            readProvider: provider
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+
+        #expect(result.newTracks.map(\.id) == ["MK1"])
+    }
+
     @Test("Album-tag drift is never misread as removal by a scoped preview")
     func albumTagDriftIsNotMisreadAsRemoval() async throws {
         // Panel MEDIUM (PR #163): the album identity must narrow RESULT
