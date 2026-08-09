@@ -48,6 +48,9 @@ public protocol ExternalAPIService: Sendable {
 
     func getArtistActivityPeriod(normalizedArtist: String) async throws -> (start: Int?, end: Int?)
     func getArtistStartYear(normalizedArtist: String) async throws -> Int?
+    /// The artist's region NAME for release-country scoring; nil when
+    /// unknown. Only MusicBrainz answers; other sources use the default.
+    func getArtistRegion(artist: String) async -> String?
     func initialize(force: Bool) async throws
     func close() async
 }
@@ -68,6 +71,10 @@ extension ExternalAPIService {
 
     public func close() async {
         // Services without retained connections have nothing to release.
+    }
+
+    public func getArtistRegion(artist _: String) async -> String? {
+        nil
     }
 }
 
