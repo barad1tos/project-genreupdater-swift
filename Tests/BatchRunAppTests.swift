@@ -63,7 +63,7 @@ struct BatchRunAppTests {
     }
 
     @Test("a full-library batch flows through the orchestrator to done")
-    func fullLibraryBatchFlowsThroughOrchestratorToDone() async throws {
+    func fullLibraryBatchFlowsThroughOrchestratorToDone() async {
         let fixture = makeWorkflowFixture()
         let viewModel = fixture.viewModel
         viewModel.updateGenre = true
@@ -83,7 +83,7 @@ struct BatchRunAppTests {
     }
 
     @Test("an uncertain batch outcome leaves recovery to the orchestrator")
-    func uncertainBatchOutcomeLeavesRecoveryToOrchestrator() async throws {
+    func uncertainBatchOutcomeLeavesRecoveryToOrchestrator() async {
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2013, confidence: 100),
             configure: { options in
@@ -107,7 +107,7 @@ struct BatchRunAppTests {
     }
 
     @Test("a pre-runner terminal lands on the failure, not a stuck screen")
-    func preRunnerTerminalLandsOnFailure() async throws {
+    func preRunnerTerminalLandsOnFailure() async {
         let fixture = makeWorkflowFixture(configure: { options in
             options.failRunRecordPersistence = true
         })
@@ -189,7 +189,7 @@ struct BatchRunAppTests {
     }
 
     @Test("apply-accepted flows through the orchestrator to a record")
-    func applyAcceptedFlowsThroughOrchestratorToRecord() async throws {
+    func applyAcceptedFlowsThroughOrchestratorToRecord() async {
         let metered = MeteredTracksBox()
         let fixture = makeWorkflowFixture(configure: { options in
             options.recordProcessedTracks = { metered.count += $0 }
@@ -212,6 +212,28 @@ struct BatchRunAppTests {
         // The free-tier metering call lives inside the runner section
         // now; a taxonomy refactor must not drop it.
         #expect(metered.count == 1)
+    }
+
+    @Test("a lost terminal record surfaces recovery instead of a done screen")
+    func lostTerminalRecordSurfacesRecovery() async {
+        let fixture = makeWorkflowFixture(configure: { options in
+            options.failTerminalRunRecordPersistence = true
+        })
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [makeProposedChange(id: "apply-lost", isAccepted: true)]
+
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+
+        // The writes applied but the terminal record could not persist:
+        // the orchestrator holds recovery, and a done screen would hide
+        // that until the next write attempt.
+        guard case .error = viewModel.phase else {
+            Issue.record("Expected error phase, got \(viewModel.phase)")
+            return
+        }
     }
 
     @Test("cancelling a queued smart-filter apply keeps the library untouched")
@@ -247,7 +269,7 @@ struct BatchRunAppTests {
     }
 
     @Test("an uncertain apply leaves recovery to the orchestrator")
-    func uncertainApplyLeavesRecoveryToOrchestrator() async throws {
+    func uncertainApplyLeavesRecoveryToOrchestrator() async {
         let fixture = makeWorkflowFixture(configure: { options in
             options.outcomeTrackIDs = ["apply-unknown"]
         })

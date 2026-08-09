@@ -267,10 +267,20 @@ extension WorkflowViewModel {
             pendingBatchExecution = nil
             phase = .error("Recovery needs attention before this run can start")
             progress = nil
-        case let .failed(lifecycle), let .recoverable(lifecycle, _):
+        case let .failed(lifecycle):
             applyPreRunnerTerminalIfNeeded(
                 message: lifecycle.failureMessage ?? "Run failed before processing started"
             )
+        case let .recoverable(_, reason):
+            if pendingBatchExecution != nil {
+                applyPreRunnerTerminalIfNeeded(message: reason)
+            } else if case .done = phase {
+                // The runner finished the screen, but finalization
+                // installed a recovery hold — a done screen would hide
+                // it until the next write attempt.
+                phase = .error(reason)
+                progress = nil
+            }
         case .cancelled:
             if pendingBatchExecution != nil {
                 pendingBatchExecution = nil
