@@ -74,6 +74,9 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
     public let logsBaseDirectory: String
     public let lastDatabaseVerifyLog: String
     public let testArtists: [String]
+    /// A preview's album target: every load path narrows through the
+    /// read request's admission predicate when this is set.
+    public let albumTargetIdentity: AlbumIdentity?
 
     public init(
         idsBatchSize: Int = BatchProcessingConfig().idsBatchSize,
@@ -84,7 +87,8 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         forceMetadataScanIntervalDays: Int = 7,
         logsBaseDirectory: String = PathsConfig().logsBaseDirectory,
         lastDatabaseVerifyLog: String = LoggingConfig().lastDatabaseVerifyLog,
-        testArtists: [String] = []
+        testArtists: [String] = [],
+        albumTargetIdentity: AlbumIdentity? = nil
     ) {
         self.idsBatchSize = BatchProcessingConfig.clampIDBatch(idsBatchSize)
         self.fullLibraryFetchTimeout = fullLibraryFetchTimeout
@@ -95,9 +99,10 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         self.logsBaseDirectory = logsBaseDirectory
         self.lastDatabaseVerifyLog = lastDatabaseVerifyLog
         self.testArtists = ArtistAllowList.normalized(testArtists)
+        self.albumTargetIdentity = albumTargetIdentity
     }
 
-    public init(configuration: AppConfiguration) {
+    public init(configuration: AppConfiguration, albumTargetIdentity: AlbumIdentity? = nil) {
         self.init(
             idsBatchSize: configuration.applescript.batchProcessing.idsBatchSize,
             fullLibraryFetchTimeout: configuration.applescript.timeouts.fullLibraryFetch,
@@ -106,7 +111,8 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
             databaseVerificationIntervalDays: configuration.databaseVerification.autoVerifyDays,
             logsBaseDirectory: configuration.paths.effectiveLogsBaseDirectory,
             lastDatabaseVerifyLog: configuration.logging.lastDatabaseVerifyLog,
-            testArtists: configuration.development.testArtists
+            testArtists: configuration.development.testArtists,
+            albumTargetIdentity: albumTargetIdentity
         )
     }
 }

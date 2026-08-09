@@ -35,7 +35,12 @@ struct RunRuntimeFactory {
                 cache: cache,
                 configuration: appConfiguration
             ),
-            runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: appConfiguration),
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                configuration: appConfiguration,
+                albumTargetIdentity: configuration.albumTarget.map {
+                    AlbumIdentity(artist: $0.artist, album: $0.album)
+                }
+            ),
             readProvider: runServices.readProvider
         )
     }
@@ -164,12 +169,10 @@ struct RunRuntimeFactory {
     /// A one-album preview inside a test-artist scope narrows the sync
     /// READ to the target's artist — a strict subset of the scope's own
     /// allow-list semantics, so no track the scope admitted is lost.
-    /// A FULL-LIBRARY preview must NOT narrow: the empty allow-list
-    /// passes every artist spelling, and narrowing it to the browse
-    /// node's grouping artist would drop "X feat. Y" tracks at the
-    /// coordinator gate (groupingArtist strips the feat suffix,
-    /// effectiveArtist keeps it). Identity-aware narrowing for the
-    /// full-library case is ledgered. Empty/unknown target artists and
+    /// The FULL-LIBRARY case narrows through the read request's ALBUM
+    /// IDENTITY instead (makeSync passes it): the admission predicate
+    /// admits collaboration spellings via lookup aliases, which artist
+    /// strings never could. Empty/unknown target artists and
     /// out-of-scope targets fail OPEN to the scope: never widen, never
     /// guess.
     func syncArtistScope(

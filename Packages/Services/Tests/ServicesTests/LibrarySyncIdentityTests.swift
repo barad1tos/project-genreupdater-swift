@@ -267,6 +267,55 @@ struct LibrarySyncIdentityTests {
         #expect(await snapshotService.wasCleared())
     }
 
+    @Test("An album-targeted sync narrows to the album including collab spellings")
+    func albumTargetedSyncNarrowsToAlbum() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let albumTrack = Track(
+            id: "A1",
+            name: "Contact",
+            artist: "Daft Punk",
+            album: "Random Access Memories"
+        )
+        let featTrack = Track(
+            id: "A2",
+            name: "Get Lucky",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories"
+        )
+        let strayTrack = Track(
+            id: "S1",
+            name: "Elsewhere Song",
+            artist: "Someone Else",
+            album: "Elsewhere"
+        )
+        await bridge.setLibrary(
+            ids: ["A1", "A2", "S1"],
+            tracks: ["A1": albumTrack, "A2": featTrack, "S1": strayTrack]
+        )
+        await store.setStored([])
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            cache: cache,
+            librarySnapshotService: snapshotService,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                albumTargetIdentity: AlbumIdentity(
+                    artist: "Daft Punk",
+                    album: "Random Access Memories"
+                )
+            )
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+
+        // The collab spelling stays admitted (the alias list), the
+        // stray track never enters the sync result on ANY path.
+        #expect(Set(result.newTracks.map(\.id)) == ["A1", "A2"])
+    }
+
     @Test("Persists identity-only changes and invalidates old and new caches")
     func persistsIdentityOnlyChangesAndInvalidatesOldAndNewCaches() async throws {
         let bridge = SyncMockScriptClient()

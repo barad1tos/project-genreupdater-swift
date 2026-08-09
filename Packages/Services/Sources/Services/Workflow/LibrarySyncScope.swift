@@ -7,11 +7,18 @@ struct LibrarySyncAppleScriptScopeSnapshot {
 
 extension LibrarySyncService {
     var libraryReadRequest: LibraryReadRequest {
-        LibraryReadRequest(testArtists: runtimeConfiguration.testArtists)
+        LibraryReadRequest(
+            testArtists: runtimeConfiguration.testArtists,
+            albumIdentity: runtimeConfiguration.albumTargetIdentity
+        )
     }
 
+    /// THE admission choke point: stored, AppleScript, and MusicKit loads
+    /// all narrow through the same predicate, so an album-targeted
+    /// preview cannot leak the rest of the library in any path.
     func tracksInConfiguredScope(_ tracks: [Track]) -> [Track] {
-        ArtistAllowList.filter(tracks, allowedArtists: runtimeConfiguration.testArtists)
+        let request = libraryReadRequest
+        return tracks.filter { request.admits($0) }
     }
 
     func loadStoredTracksInConfiguredScope() async throws -> [Track] {

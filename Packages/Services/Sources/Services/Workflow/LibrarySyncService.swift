@@ -80,11 +80,12 @@ public actor LibrarySyncService {
         // Removed tracks: in store but not in library
         let removedIDs = storedIDSet.subtracting(libraryIDSet).sorted()
 
-        // Fetch full metadata for new tracks
-        let newTracks = try await fetchAppleScriptTracks(
+        // Fetch full metadata for new tracks; the admission predicate
+        // (allow-list + album identity) narrows at the choke point.
+        let newTracks = try await tracksInConfiguredScope(fetchAppleScriptTracks(
             trackIDs: newIDs,
             scopedTracksByID: librarySnapshot.tracksByID
-        )
+        ))
 
         let commonIDs = libraryIDSet.intersection(storedIDSet)
         var modifiedTracks: [Track] = []
@@ -92,10 +93,10 @@ public actor LibrarySyncService {
         var refreshedTracks: [Track] = []
 
         if !commonIDs.isEmpty, try await shouldRefreshCommonTrackMetadata(force: forceMetadataRefresh) {
-            let currentTracks = try await fetchAppleScriptTracks(
+            let currentTracks = try await tracksInConfiguredScope(fetchAppleScriptTracks(
                 trackIDs: commonIDs,
                 scopedTracksByID: librarySnapshot.tracksByID
-            )
+            ))
             for current in currentTracks {
                 guard let stored = storedByID[current.id] else { continue }
                 if hasTrackChanged(current: current, stored: stored) {
@@ -135,7 +136,9 @@ public actor LibrarySyncService {
         forceMetadataRefresh: Bool
     ) async throws -> SyncResult {
         let snapshot = try await readProvider.loadLibrarySnapshot(request: libraryReadRequest)
-        let currentTracks = snapshot.tracks
+        // The provider honors testArtists; the full admission predicate
+        // (album identity included) applies here at the choke point.
+        let currentTracks = tracksInConfiguredScope(snapshot.tracks)
         let storedTracks = try await loadStoredTracksInConfiguredScope()
         let storedByID = Dictionary(storedTracks.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         let currentByID = Dictionary(currentTracks.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
