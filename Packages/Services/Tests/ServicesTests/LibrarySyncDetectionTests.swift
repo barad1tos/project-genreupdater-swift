@@ -22,8 +22,7 @@ struct LibrarySyncDetectionTests {
 
         let service = LibrarySyncService(
             scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
+            trackStore: store
         )
 
         let result = try await service.detectChanges()
@@ -48,8 +47,7 @@ struct LibrarySyncDetectionTests {
 
         let service = LibrarySyncService(
             scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
+            trackStore: store
         )
 
         let result = try await service.detectChanges()
@@ -95,8 +93,7 @@ struct LibrarySyncDetectionTests {
 
         let service = LibrarySyncService(
             scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
+            trackStore: store
         )
 
         let result = try await service.detectChanges(forceMetadataRefresh: true)
@@ -133,8 +130,7 @@ struct LibrarySyncDetectionTests {
 
         let service = LibrarySyncService(
             scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
+            trackStore: store
         )
 
         let result = try await service.detectChanges(forceMetadataRefresh: true)
@@ -162,8 +158,7 @@ struct LibrarySyncDetectionTests {
 
         let service = LibrarySyncService(
             scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
+            trackStore: store
         )
 
         let result = try await service.detectChanges(forceMetadataRefresh: true)
@@ -205,8 +200,7 @@ struct LibrarySyncDetectionTests {
 
         let service = LibrarySyncService(
             scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
+            trackStore: store
         )
 
         let result = try await service.detectChanges(forceMetadataRefresh: true)
@@ -230,7 +224,6 @@ struct LibrarySyncConfigTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 idsBatchSize: 7,
                 fullLibraryFetchTimeout: .seconds(11),
@@ -258,8 +251,7 @@ struct LibrarySyncConfigTests {
 
         let service = LibrarySyncService(
             scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
+            trackStore: store
         )
         await service.updateRuntimeConfiguration(LibrarySyncRuntimeConfiguration(
             idsBatchSize: 3,
@@ -290,8 +282,7 @@ struct LibrarySyncConfigTests {
 
         let service = LibrarySyncService(
             scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
+            trackStore: store
         )
 
         await #expect(throws: AppleScriptBridgeError.self) {
@@ -300,37 +291,4 @@ struct LibrarySyncConfigTests {
         #expect(try await store.trackCount() == 1)
     }
 
-    @Test("Auto-sync denied for non-Pro tier")
-    func autoSyncDeniedForFreeTier() async {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
-
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
-        )
-
-        await #expect(throws: LibrarySyncError.self) {
-            try await service.startAutoSync(interval: .seconds(60))
-        }
-    }
-
-    @Test("Auto-sync denied for weekPass tier")
-    func autoSyncDeniedForWeekPass() async {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .weekPass)
-
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            featureGate: gate
-        )
-
-        await #expect(throws: LibrarySyncError.self) {
-            try await service.startAutoSync(interval: .seconds(60))
-        }
-    }
 }

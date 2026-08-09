@@ -17,6 +17,7 @@ extension AppDependencies {
     func applyAutomationStrategy() async {
         automationScheduleTask?.cancel()
         automationScheduleTask = nil
+        defer { isAutoSyncRunning = automationScheduleTask != nil }
 
         let strategy = config.runtime.automationStrategy
         guard strategy == .scheduled || strategy == .hybrid else { return }

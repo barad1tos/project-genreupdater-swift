@@ -27,23 +27,21 @@ extension APICacheTab {
             }
 
             FeatureGatedView(feature: .autoSync) {
+                // The persisted strategy (ADR 0003) replaces the volatile
+                // Start/Stop toggle: the command path persists the choice
+                // and the runtime re-arms its trigger sources on apply.
+                Picker("Automation", selection: configBinding(dependencies, \.runtime.automationStrategy)) {
+                    ForEach(AutomationStrategy.allCases) { strategy in
+                        Text(strategy.displayName).tag(strategy)
+                    }
+                }
+
                 Stepper(value: configBinding(dependencies, \.runtime.incrementalIntervalMinutes), in: 1 ... 1440) {
                     LabeledContent(
-                        "Auto-sync interval",
+                        "Check interval",
                         value: "\(dependencies.config.runtime.incrementalIntervalMinutes)m"
                     )
                 }
-                .disabled(dependencies.isAutoSyncRunning || isUpdatingAutoSync)
-
-                Button {
-                    setAutoSyncEnabled(!dependencies.isAutoSyncRunning)
-                } label: {
-                    Label(
-                        dependencies.isAutoSyncRunning ? "Stop Auto-Sync" : "Start Auto-Sync",
-                        systemImage: dependencies.isAutoSyncRunning ? "pause.circle" : "play.circle"
-                    )
-                }
-                .disabled(isUpdatingAutoSync || dependencies.librarySyncService == nil)
             }
         }
     }
@@ -64,27 +62,6 @@ extension APICacheTab {
                 await MainActor.run {
                     librarySyncStatus = "Sync failed: \(error.localizedDescription)"
                     isSyncingLibrary = false
-                }
-            }
-        }
-    }
-
-    func setAutoSyncEnabled(_ isEnabled: Bool) {
-        guard !isUpdatingAutoSync else { return }
-        isUpdatingAutoSync = true
-        librarySyncStatus = isEnabled ? "Starting auto-sync..." : "Stopping auto-sync..."
-
-        Task {
-            do {
-                try await dependencies.setAutoSyncEnabled(isEnabled)
-                await MainActor.run {
-                    librarySyncStatus = isEnabled ? "Auto-sync started" : "Auto-sync stopped"
-                    isUpdatingAutoSync = false
-                }
-            } catch {
-                await MainActor.run {
-                    librarySyncStatus = "Auto-sync failed: \(error.localizedDescription)"
-                    isUpdatingAutoSync = false
                 }
             }
         }

@@ -305,25 +305,3 @@ func expectSyncCachesPreserved(_ cache: MockCacheService, artist: String, album:
     #expect(albumYear?.year == 1970)
     #expect(apiResult?.year == 1970)
 }
-
-// MARK: - LibrarySyncError Tests
-
-@Suite("LibrarySyncError — error descriptions")
-struct LibrarySyncErrorTests {
-    @Test("featureNotAvailable includes feature and tier info")
-    func featureNotAvailable() {
-        let error = LibrarySyncError.featureNotAvailable(
-            feature: .autoSync,
-            currentTier: .free
-        )
-        let description = error.errorDescription ?? ""
-        #expect(description.contains("autoSync"))
-        #expect(description.contains("free"))
-    }
-
-    @Test("syncAlreadyRunning has a description")
-    func syncAlreadyRunning() {
-        let error = LibrarySyncError.syncAlreadyRunning
-        #expect(error.errorDescription?.isEmpty == false)
-    }
-}

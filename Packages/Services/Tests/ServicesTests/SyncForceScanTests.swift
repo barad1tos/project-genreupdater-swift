@@ -119,7 +119,6 @@ struct SyncForceScanTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             librarySnapshotService: snapshotService,
             currentDate: dateProvider
         )

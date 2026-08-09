@@ -9,20 +9,17 @@ import OSLog
 public actor LibrarySyncService {
     let scriptBridge: any AppleScriptClient
     let trackStore: any TrackStateStore
-    private let featureGate: FeatureGate
     private let cache: (any CacheService)?
     private let readProvider: (any LibraryReadProvider)?
     private var pendingVerificationService: (any PendingVerificationService)?
     private var librarySnapshotService: (any LibrarySnapshotService)?
     private(set) var runtimeConfiguration: LibrarySyncRuntimeConfiguration
     private let currentDate: @Sendable () -> Date
-    private var autoSyncTask: Task<Void, Never>?
     private let log = Logger(subsystem: "com.genreupdater", category: "LibrarySyncService")
 
     public init(
         scriptBridge: any AppleScriptClient,
         trackStore: any TrackStateStore,
-        featureGate: FeatureGate,
         cache: (any CacheService)? = nil,
         pendingVerificationService: (any PendingVerificationService)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
@@ -32,7 +29,6 @@ public actor LibrarySyncService {
     ) {
         self.scriptBridge = scriptBridge
         self.trackStore = trackStore
-        self.featureGate = featureGate
         self.cache = cache
         self.readProvider = readProvider
         self.pendingVerificationService = pendingVerificationService
@@ -522,64 +518,6 @@ public actor LibrarySyncService {
         let result = try await detectChanges(forceMetadataRefresh: forceMetadataRefresh)
         try await applyDetectedChanges(result)
         return result
-    }
-
-    // MARK: Auto Sync
-
-    /// Start periodic background sync (Pro only).
-    public func startAutoSync(interval: Duration) async throws {
-        guard await featureGate.canAccess(.autoSync) else {
-            throw await LibrarySyncError.featureNotAvailable(
-                feature: .autoSync,
-                currentTier: featureGate.currentTier
-            )
-        }
-        guard autoSyncTask == nil else {
-            throw LibrarySyncError.syncAlreadyRunning
-        }
-
-        log.info("Starting auto-sync with interval \(interval, privacy: .public)")
-        autoSyncTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: interval)
-                } catch {
-                    break
-                }
-                guard let self else { break }
-                do {
-                    let result = try await self.synchronizeNow()
-                    if result.hasChanges {
-                        self.log
-                            .info(
-                                """
-                                Auto-sync applied changes: \
-                                \(result.newTracks.count, privacy: .public) new, \
-                                \(result.modifiedTracks.count, privacy: .public) modified, \
-                                \(result.identityChangedTracks.count, privacy: .public) identity changed, \
-                                \(result.refreshedTracks.count, privacy: .public) refreshed, \
-                                \(result.removedTrackIDs.count, privacy: .public) removed
-                                """
-                            )
-                    }
-                } catch {
-                    self.log.error("Auto-sync error: \(error.localizedDescription, privacy: .public)")
-                }
-            }
-        }
-    }
-
-    /// Stop the background auto-sync loop.
-    public func stopAutoSync() {
-        autoSyncTask?.cancel()
-        autoSyncTask = nil
-        log.info("Auto-sync stopped")
-    }
-
-    /// Whether auto-sync is currently running.
-    public var isAutoSyncRunning: Bool {
-        guard let task = autoSyncTask else { return false }
-        return !task.isCancelled
     }
 
     // MARK: Helpers

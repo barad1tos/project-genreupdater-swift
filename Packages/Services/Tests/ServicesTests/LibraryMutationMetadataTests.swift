@@ -146,7 +146,6 @@ struct LibraryMutationMetadataTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: featureGate,
             readProvider: readProvider
         )
         return SyncContext(

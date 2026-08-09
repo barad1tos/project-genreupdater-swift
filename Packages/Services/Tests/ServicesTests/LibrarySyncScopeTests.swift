@@ -41,7 +41,6 @@ struct LibrarySyncScopeTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(testArtists: [" Aphex Twin "]),
             readProvider: readProvider
         )
@@ -99,7 +98,6 @@ struct LibrarySyncScopeTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(testArtists: [" Aphex Twin "])
         )
 
@@ -140,7 +138,6 @@ struct LibrarySyncScopeTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(testArtists: ["Aphex Twin"])
         )
 

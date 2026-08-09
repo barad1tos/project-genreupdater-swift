@@ -493,7 +493,6 @@ final class AppDependencies {
         LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             pendingVerificationService: pendingVerificationService,
             librarySnapshotService: librarySnapshotService,

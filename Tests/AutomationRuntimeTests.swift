@@ -83,6 +83,29 @@ struct AutomationRuntimeTests {
         #expect(dependencies.automationScheduleTask == nil)
     }
 
+    @Test("the strategy command persists the choice and re-arms the runtime")
+    func strategyCommandPersistsAndRearms() async {
+        let savedStrategies = SavedStrategiesBox()
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { configuration in
+                savedStrategies.values.append(configuration.runtime.automationStrategy)
+            }
+        )
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+
+        let status = mutateConfiguration(dependencies) { configuration in
+            configuration.runtime.automationStrategy = .scheduled
+        }
+        #expect(status == .accepted)
+        #expect(savedStrategies.values.last == .scheduled)
+
+        // The command's runtime apply re-arms the schedule source.
+        await dependencies.runtimeApplyQueue?.value
+        #expect(dependencies.automationScheduleTask != nil)
+        #expect(dependencies.isAutoSyncRunning)
+    }
+
     @Test("a free tier never arms an automation source")
     func freeTierNeverArms() async {
         let dependencies = makeAutomationTestDependencies()
@@ -102,6 +125,12 @@ struct AutomationRuntimeTests {
             }
         )
     }
+}
+
+/// The saver closure runs synchronously on MainActor with the command.
+@MainActor
+private final class SavedStrategiesBox {
+    var values: [AutomationStrategy] = []
 }
 
 private actor AutomationRecordCollector {

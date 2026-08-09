@@ -66,11 +66,24 @@ public struct PythonSettingsConfig: Sendable, Codable {
 /// or write authority. Relocated from Services (RunConfig captures it
 /// per run) — the raw values are persisted in run records and must not
 /// change.
-public enum AutomationStrategy: String, Codable, CaseIterable, Equatable, Sendable {
+public enum AutomationStrategy: String, Codable, CaseIterable, Equatable, Sendable, Identifiable {
     case manualOnly
     case libraryChange
     case scheduled
     case hybrid
+
+    public var id: String {
+        rawValue
+    }
+
+    public var displayName: String {
+        switch self {
+        case .manualOnly: "Manual only"
+        case .libraryChange: "On library change"
+        case .scheduled: "Scheduled"
+        case .hybrid: "Hybrid"
+        }
+    }
 }
 
 public struct RuntimeConfig: Sendable, Codable {

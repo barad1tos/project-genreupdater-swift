@@ -43,7 +43,6 @@ struct LibrarySyncRemovalTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             readProvider: readProvider
         )
 

@@ -33,7 +33,6 @@ struct LibrarySyncVerifyTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 logsBaseDirectory: logDirectory.path,
                 lastDatabaseVerifyLog: "last.log"
@@ -71,7 +70,6 @@ struct LibrarySyncVerifyTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 logsBaseDirectory: logDirectory.path,
                 lastDatabaseVerifyLog: "last.log"
@@ -106,7 +104,6 @@ struct LibrarySyncVerifyTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 logsBaseDirectory: logDirectory.path,
                 lastDatabaseVerifyLog: "last.log"
@@ -144,7 +141,6 @@ struct LibrarySyncVerifyTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 logsBaseDirectory: logDirectory.path,
                 lastDatabaseVerifyLog: "last.log"
@@ -182,7 +178,6 @@ struct LibrarySyncVerifyTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 logsBaseDirectory: logDirectory.path,
                 lastDatabaseVerifyLog: "last.log"
@@ -220,7 +215,6 @@ struct LibrarySyncVerifyTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             librarySnapshotService: snapshotService,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
@@ -274,7 +268,6 @@ struct LibrarySyncVerifyTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             pendingVerificationService: pending,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 logsBaseDirectory: logDirectory.path,
@@ -305,7 +298,6 @@ struct LibrarySyncVerifyTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 databaseVerificationIntervalDays: 7,
                 logsBaseDirectory: logDirectory.path,

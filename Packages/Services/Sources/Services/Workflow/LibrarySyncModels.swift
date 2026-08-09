@@ -3,20 +3,6 @@ import Foundation
 
 // MARK: - Sync Error
 
-public enum LibrarySyncError: Error, LocalizedError {
-    case featureNotAvailable(feature: AppFeature, currentTier: Tier)
-    case syncAlreadyRunning
-
-    public var errorDescription: String? {
-        switch self {
-        case let .featureNotAvailable(feature, tier):
-            "\(feature.rawValue) requires a higher tier than \(tier)"
-        case .syncAlreadyRunning:
-            "Auto-sync is already running"
-        }
-    }
-}
-
 // MARK: - Sync Result
 
 /// Result of comparing the current library state against the last known state.

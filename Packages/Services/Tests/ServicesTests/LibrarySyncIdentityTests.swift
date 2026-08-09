@@ -253,7 +253,6 @@ struct LibrarySyncIdentityTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             librarySnapshotService: snapshotService
         )
@@ -298,7 +297,6 @@ struct LibrarySyncIdentityTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             librarySnapshotService: snapshotService
         )
@@ -347,7 +345,6 @@ struct LibrarySyncIdentityTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             librarySnapshotService: snapshotService
         )
@@ -397,7 +394,6 @@ struct LibrarySyncIdentityTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             librarySnapshotService: snapshotService
         )
@@ -447,7 +443,6 @@ struct LibrarySyncIdentityTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             librarySnapshotService: snapshotService
         )
@@ -481,7 +476,6 @@ struct LibrarySyncIdentityTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             librarySnapshotService: snapshotService
         )
@@ -526,7 +520,6 @@ struct LibrarySyncIdentityTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             librarySnapshotService: snapshotService
         )
@@ -573,7 +566,6 @@ struct LibrarySyncIdentityTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             librarySnapshotService: snapshotService
         )
@@ -618,7 +610,6 @@ struct LibrarySyncIdentityTests {
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             cache: cache,
             librarySnapshotService: snapshotService
         )
@@ -648,7 +639,6 @@ struct LibrarySyncIdentityTests {
         return LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            featureGate: gate,
             pendingVerificationService: pendingVerification
         )
     }
