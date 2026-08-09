@@ -83,7 +83,7 @@ struct AutomationRuntimeTests {
         dependencies.config.runtime.automationStrategy = .manualOnly
         await dependencies.applyAutomationStrategy()
         #expect(dependencies.automationScheduleTask == nil)
-        #expect(!dependencies.isAutoSyncRunning)
+        #expect(!dependencies.isAutomationArmed)
     }
 
     @Test("the strategy command persists the choice and re-arms the runtime")
@@ -106,7 +106,7 @@ struct AutomationRuntimeTests {
         // The command's runtime apply re-arms the schedule source.
         await dependencies.runtimeApplyQueue?.value
         #expect(dependencies.automationScheduleTask != nil)
-        #expect(dependencies.isAutoSyncRunning)
+        #expect(dependencies.isAutomationArmed)
     }
 
     @Test("a free tier never arms an automation source")
@@ -185,12 +185,12 @@ struct AutomationRuntimeTests {
         let dependencies = makeAutomationTestDependencies()
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .free))
         dependencies.automationScheduleTask = Task {}
-        dependencies.isAutoSyncRunning = true
+        dependencies.isAutomationArmed = true
 
         await dependencies.submitScheduledObservation()
 
         #expect(dependencies.automationScheduleTask == nil)
-        #expect(!dependencies.isAutoSyncRunning)
+        #expect(!dependencies.isAutomationArmed)
     }
 
     @Test("hybrid arms the schedule source; libraryChange arms nothing yet")
@@ -220,7 +220,7 @@ struct AutomationRuntimeTests {
         await dependencies.completeLaunch()
 
         #expect(dependencies.automationScheduleTask != nil)
-        #expect(dependencies.isAutoSyncRunning)
+        #expect(dependencies.isAutomationArmed)
 
         dependencies.config.runtime.automationStrategy = .manualOnly
         await dependencies.applyAutomationStrategy()
@@ -292,7 +292,7 @@ struct AutomationRuntimeTests {
 
         #expect(dependencies.automationScheduleTask != nil)
         #expect(dependencies.automationWatchTask == nil)
-        #expect(dependencies.isAutoSyncRunning)
+        #expect(dependencies.isAutomationArmed)
 
         dependencies.config.runtime.automationStrategy = .manualOnly
         await dependencies.applyAutomationStrategy()
@@ -456,7 +456,7 @@ struct AutomationRuntimeTests {
         await dependencies.applyAutomationStrategy()
         #expect(dependencies.automationWatchTask != nil)
         // Pure libraryChange arming publishes the armed fact too.
-        #expect(dependencies.isAutoSyncRunning)
+        #expect(dependencies.isAutomationArmed)
 
         // Prove the consumer subscribed before disarming: an emitted
         // event must land as a record first.
@@ -486,6 +486,45 @@ struct AutomationRuntimeTests {
             try? await Task.sleep(for: .milliseconds(10))
         }
         #expect(terminated, "disarm must tear the stream down, not leak the source")
+    }
+
+    /// The tracker file is the PROCESSING watermark: the manual incremental
+    /// batch anchors its newTracks window on it (UpdateTrackScopeResolver).
+    /// An observation only looks — advancing the mark here would burn that
+    /// window for tracks nobody processed (PR #160 review, Codex P1 +
+    /// panel convergent). Python parity: the mark moves only at the end of
+    /// a processing run.
+    @Test("a completed observation leaves the processing watermark untouched")
+    func completedObservationLeavesWatermarkUntouched() async {
+        let dependencies = makeAutomationTestDependencies()
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cadence-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let tracker = IncrementalRunTracker(
+            logsBaseDirectory: tempDirectory.path,
+            lastIncrementalRunFile: "last_incremental_run.log"
+        )
+        dependencies.installTestIncrementalRunTracker(tracker)
+        let records = AutomationRecordCollector()
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: {
+                SyncResult(newTracks: [
+                    Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
+                ])
+            },
+            persistRunRecord: { await records.append($0) }
+        )))
+
+        await dependencies.submitScheduledObservation()
+
+        // Positive control: without proof the observation COMPLETED, the
+        // nil asserts below would pass vacuously on a broken fixture.
+        let terminal = await records.records.last
+        #expect(terminal?.intent == .observeLibrary)
+        #expect(terminal?.finishedAt != nil)
+        #expect(await tracker.getLastRunTimestamp() == nil)
+        #expect(dependencies.lastIncrementalRunTimestamp == nil)
     }
 
     private func makeAutomationTestDependencies() -> AppDependencies {

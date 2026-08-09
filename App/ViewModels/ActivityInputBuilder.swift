@@ -93,7 +93,7 @@ extension AppDependencies {
         // across the awaits below (D3).
         let isDryRun = config.runtime.dryRun
         let isLibrarySyncAvailable = isManualRunAvailable
-        let isAutomationArmedNow = isAutoSyncRunning
+        let isAutomationArmedNow = isAutomationArmed
 
         let inputGeneration = await projectionStore.nextActivityProjectionInputGeneration()
         let queuedWrite = await queuedWriteSummary()

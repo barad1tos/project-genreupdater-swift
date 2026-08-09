@@ -325,6 +325,9 @@ extension WorkflowViewModel {
         failedCount = currentFailures.count
         processedCount = preflightOutcome.processedCount + tracks.count
         totalCount = max(totalCount, processedCount)
+        // Stricter than the Python original on purpose: a forced Python run
+        // advances the mark even with per-track failures; holding the mark
+        // back keeps failed tracks inside the next incremental window.
         if currentFailures.isEmpty {
             await updateIncrementalRunTimestamp?()
         }

@@ -95,7 +95,7 @@ struct DesignRootHostView: View {
         .onChange(of: dependencies.config.development.testArtists) {
             handleTestArtistScopeChange()
         }
-        .onChange(of: dependencies.isAutoSyncRunning) {
+        .onChange(of: dependencies.isAutomationArmed) {
             scheduleActivityProjectionRefresh()
             // The toggle flips a chrome automation fact without crossing
             // any lifecycle or settings boundary.

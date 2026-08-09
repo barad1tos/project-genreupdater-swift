@@ -24,7 +24,7 @@ final class AppDependencies {
     /// is the SOLE publisher (pinned by `oneChromeTruthAcrossSurfaces`).
     var chrome: ChromeProjection = .empty()
     var config: AppConfiguration
-    var isAutoSyncRunning = false
+    var isAutomationArmed = false
     @ObservationIgnored var cachedBrowseScopeSnapshot: ProcessingScopeSnapshot?
     /// Last observed run boundary; written only by the lifecycle observer.
     @ObservationIgnored var currentLifecycleSnapshot: RunLifecycleSnapshot?
@@ -52,7 +52,8 @@ final class AppDependencies {
     /// short-circuit the re-arm so settings edits never reset the tick.
     @ObservationIgnored var armedScheduleInterval: TimeInterval?
     /// In-memory tick anchor: observations never advance the durable
-    /// tracker, so re-arms after the first tick anchor here instead of
+    /// tracker (it is the PROCESSING watermark — only batch runs move
+    /// it), so re-arms after the first tick anchor here instead of
     /// firing immediately on every settings apply.
     @ObservationIgnored var lastScheduledTickAt: Date?
     /// The armed watch source consumer; nil = strategy without watch,
@@ -757,6 +758,10 @@ extension AppDependencies {
 
     func installTestFeatureGate(_ gate: FeatureGate) {
         featureGate = gate
+    }
+
+    func installTestIncrementalRunTracker(_ tracker: IncrementalRunTracker) {
+        incrementalRunTracker = tracker
     }
 
     func installTestAvailability(_ availability: RecoveryAvailability) {
