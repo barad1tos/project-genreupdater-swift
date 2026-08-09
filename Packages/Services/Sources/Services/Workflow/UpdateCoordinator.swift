@@ -382,7 +382,7 @@ public actor UpdateCoordinator {
 
     /// Returns album-level context for each track after writable metadata enrichment.
     ///
-    /// MusicKit tracks can miss AppleScript-only fields such as `albumArtist`, persistent IDs, and write
+    /// MusicKit tracks can miss AppleScript-only fields such as `albumArtist`, database IDs, and write
     /// eligibility. This helper refreshes that metadata first, filters non-processable tracks, and then groups
     /// by `AlbumIdentity` so preview and live workflow paths use the same album context.
     public func albumContextTracksByTrackID(
