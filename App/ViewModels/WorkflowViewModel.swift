@@ -189,6 +189,8 @@ final class WorkflowViewModel {
     let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
     let invalidateAlbumYearCache: (() async -> Void)?
     let updateIncrementalRunTimestamp: (() async -> Void)?
+    let submitBatchRun: ((BatchRunInput) async throws -> RunSubmissionResult)?
+    let discardQueuedBatchRuns: (() async -> Void)?
     let problematicAlbumReportMinAttempts: () -> Int
     var defaultUpdateGenre: Bool
     var defaultUpdateYear: Bool
@@ -196,6 +198,10 @@ final class WorkflowViewModel {
     var defaultMinConfidence: Double
     var defaultReleaseYearRestoreThreshold: Int
     var processingTask: Task<Void, Never>?
+    /// The stashed work the orchestrator's runner consumes (D3): tracks
+    /// and context stay screen-side; only options and count travel in
+    /// the run request.
+    var pendingBatchExecution: PendingBatchExecution?
 
     init(
         dependencies: Dependencies,
@@ -214,6 +220,8 @@ final class WorkflowViewModel {
         resolveIncrementalTracks = dependencies.resolveIncrementalTracks
         invalidateAlbumYearCache = dependencies.invalidateAlbumYearCache
         updateIncrementalRunTimestamp = dependencies.updateIncrementalRunTimestamp
+        submitBatchRun = dependencies.submitBatchRun
+        discardQueuedBatchRuns = dependencies.discardQueuedBatchRuns
         problematicAlbumReportMinAttempts = dependencies.problematicAlbumReportMinAttempts
         defaultUpdateGenre = defaults.updateGenre
         defaultUpdateYear = defaults.updateYear

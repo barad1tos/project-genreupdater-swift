@@ -39,6 +39,7 @@ enum AppDependencyServiceError: LocalizedError, Equatable {
     case recoveryObservationBlocked(RecoveryPreflightBlocker)
     case runRecordStoreUnavailable
     case runOrchestratorUnavailable
+    case batchRunnerUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -58,6 +59,8 @@ enum AppDependencyServiceError: LocalizedError, Equatable {
             "Run record store is unavailable"
         case .runOrchestratorUnavailable:
             "Run orchestrator is unavailable"
+        case .batchRunnerUnavailable:
+            "Batch runner is unavailable without an open workflow window"
         }
     }
 }

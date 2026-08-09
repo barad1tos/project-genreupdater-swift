@@ -7,7 +7,7 @@ extension RunRecordDataStore {
             sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
         )
         return try makePage(from: modelContext.fetch(descriptor)) {
-            $0.finishedAt == nil && RunIntent(rawValue: $0.intentRaw) == .writeFixes
+            $0.finishedAt == nil && (RunIntent(rawValue: $0.intentRaw)?.isMutating ?? false)
         }
     }
 

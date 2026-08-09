@@ -71,6 +71,7 @@ extension RunOrchestrator {
     enum RunWorkError: LocalizedError {
         case missingFixPlanProducer
         case missingWriteRunner
+        case missingBatchRunner
         case recoveryPending
         case writeFailure(
             failedOperationCount: Int,
@@ -85,6 +86,8 @@ extension RunOrchestrator {
                 "Fix plan producer is unavailable"
             case .missingWriteRunner:
                 "Fix plan write runner is unavailable"
+            case .missingBatchRunner:
+                "Batch update runner is unavailable"
             case .recoveryPending:
                 "A restored recovery hold blocks the next write attempt"
             case let .writeFailure(failedOperationCount, failedTrackCount, reasons, isPartial):
@@ -109,5 +112,20 @@ extension RunOrchestrator {
             let details = reasons.filter { !$0.isEmpty }.joined(separator: "; ")
             return details.isEmpty ? summary : "\(summary). Errors: \(details)"
         }
+    }
+}
+
+extension RunOrchestrator {
+    /// A finalization failure keeps recovery authority: the Music.app writes
+    /// are physically durable (batch and single-write outcomes are both
+    /// checkpointed at the verification boundary by then; the year-revert
+    /// origin has no checkpoint sink), but undo and history evidence stays
+    /// incomplete until recovery closes the run. Matches the unwrapped error
+    /// only — wrapping it en route would silently downgrade the routing.
+    static func isFinalizationFailure(_ error: any Error) -> Bool {
+        if case UpdateCoordinatorError.writeFinalizationFailed = error {
+            return true
+        }
+        return false
     }
 }

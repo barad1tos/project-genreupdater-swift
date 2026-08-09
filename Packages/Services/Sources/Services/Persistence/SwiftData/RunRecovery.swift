@@ -19,7 +19,7 @@ extension RunRecordDataStore {
             guard let row = try modelContext.fetch(descriptor).first else { return nil }
             let record = try makeRecord(from: row)
             guard record.finishedAt == nil,
-                  record.intent == .writeFixes,
+                  record.intent.isMutating,
                   record.state.needsWriteRecovery
             else { return nil }
             if let claimedID = record.recoveryID {

@@ -420,6 +420,13 @@ struct ArbiterTests {
                     knownTrackCount: knownTrackCount
                 )
             )
+        case .batchUpdate:
+            RunRequest.batchUpdate(
+                trigger: trigger,
+                input: BatchRunInput(options: UpdateOptions(), trackCount: knownTrackCount ?? 0),
+                requestedTestArtists: requestedTestArtists,
+                knownTrackCount: knownTrackCount
+            )
         }
     }
 
@@ -468,6 +475,19 @@ struct ArbiterTests {
                 writeTarget: writeTarget ?? Self.writeTarget("00000000-0000-0000-0000-000000000999"),
                 startedAt: startedAt,
                 phase: .active(.syncingLibrary)
+            )
+        case .batchUpdate:
+            return RunLifecycleSnapshot(
+                runID: RunID(),
+                request: .batchUpdate(
+                    trigger: trigger,
+                    input: BatchRunInput(options: UpdateOptions(), trackCount: knownTrackCount ?? 0),
+                    requestedTestArtists: requestedTestArtists,
+                    knownTrackCount: knownTrackCount
+                ),
+                scope: scope,
+                startedAt: startedAt,
+                phase: .active(.writing)
             )
         }
     }
