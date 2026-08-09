@@ -51,9 +51,9 @@ final class AppDependencies {
     /// The interval the live loop was armed with — identical inputs
     /// short-circuit the re-arm so settings edits never reset the tick.
     @ObservationIgnored var armedScheduleInterval: TimeInterval?
-    /// In-memory tick anchor: observations never advance the durable
-    /// tracker, so re-arms after the first tick anchor here instead of
-    /// firing immediately on every settings apply.
+    /// In-memory tick anchor: only a completed observation advances the
+    /// durable tracker, so after empty ticks a re-arm anchors here
+    /// instead of firing immediately on every settings apply.
     @ObservationIgnored var lastScheduledTickAt: Date?
     /// The armed watch source consumer; nil = strategy without watch,
     /// missing Pro, or an unavailable source (sandbox).

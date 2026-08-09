@@ -136,9 +136,9 @@ extension AppDependencies {
     }
 
     /// The anchor is the LATER of the durable tracker timestamp and the
-    /// in-memory last tick: observations never advance the tracker, so
-    /// without the tick anchor every re-arm after the first tick would
-    /// fire immediately.
+    /// in-memory last tick: empty observations never advance the
+    /// tracker, so without the tick anchor every re-arm after an empty
+    /// tick would fire immediately.
     private func initialScheduleDelay(interval: TimeInterval) async -> TimeInterval {
         let trackerLastRun = await incrementalRunTracker?.getLastRunTimestamp()
         let anchor = [trackerLastRun, lastScheduledTickAt].compactMap(\.self).max()
