@@ -152,7 +152,7 @@ extension AppDependencies {
         cache.map {
             RawAPIRequestCache(
                 cache: $0,
-                ttl: GRDBCacheService.resolvedAPIResultTTL(configuration: configuration) ?? 900
+                ttl: GRDBCacheService.resolvedAPIResultTTL(configuration: configuration)
             )
         }
     }

@@ -79,6 +79,52 @@ struct RawAPIRequestCacheTests {
         #expect(await counter.count == 2)
     }
 
+    @Test("An oversized body is returned but never cached")
+    func oversizedBodyIsNotCached() async throws {
+        // Panel M5: raw bodies share the generic table's row budget with
+        // the derived caches — a huge iTunes page must not evict them.
+        let cache = MockCacheService()
+        let raw = RawAPIRequestCache(cache: cache, ttl: 3600)
+        let counter = FetchCounter()
+        let target = try #require(url)
+        let huge = Data(("[" + String(repeating: "1,", count: 200_000) + "1]").utf8)
+        #expect(huge.count > RawAPIRequestCache.maximumCachedBodyBytes)
+
+        _ = try await raw.data(api: "itunes", url: target) {
+            await counter.increment()
+            return huge
+        }
+        _ = try await raw.data(api: "itunes", url: target) {
+            await counter.increment()
+            return Data("{\"ok\":true}".utf8)
+        }
+
+        #expect(await counter.count == 2)
+    }
+
+    @Test("Entries expire with the configured TTL")
+    func entriesExpireWithTTL() async throws {
+        // The headline claim needs its own guard: a nil TTL would make
+        // every pin above pass while entries never expired.
+        let cache = MockCacheService()
+        let raw = RawAPIRequestCache(cache: cache, ttl: 0.05)
+        let counter = FetchCounter()
+        let target = try #require(url)
+
+        _ = try await raw.data(api: "mb", url: target) {
+            await counter.increment()
+            return Data("{\"first\":1}".utf8)
+        }
+        try await Task.sleep(for: .milliseconds(120))
+        let refreshed = try await raw.data(api: "mb", url: target) {
+            await counter.increment()
+            return Data("{\"second\":2}".utf8)
+        }
+
+        #expect(refreshed == Data("{\"second\":2}".utf8))
+        #expect(await counter.count == 2)
+    }
+
     @Test("Cancellation caches nothing")
     func cancellationCachesNothing() async throws {
         let cache = MockCacheService()

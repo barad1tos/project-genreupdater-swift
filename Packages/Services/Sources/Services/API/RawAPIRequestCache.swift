@@ -27,6 +27,12 @@ private struct RawRequestEntry: Codable {
 /// seam therefore never writes a miss. Only responses that parse as JSON
 /// are stored, mirroring Python caching the parsed dict.
 public struct RawAPIRequestCache: Sendable {
+    /// Raw bodies share the generic table's row budget with the derived
+    /// caches (release candidates, artist regions). An iTunes search at
+    /// limit=200 is hundreds of KB, base64-inflated — without a ceiling
+    /// one library run would evict every derived entry.
+    static let maximumCachedBodyBytes = 256 * 1024
+
     private let cache: any CacheService
     private let ttl: TimeInterval
     private let log = AppLogger.api
@@ -55,6 +61,10 @@ public struct RawAPIRequestCache: Sendable {
         // gate without decoding twice into client-specific types.
         guard (try? JSONSerialization.jsonObject(with: payload)) != nil else {
             log.warning("Raw response for \(api, privacy: .public) is not JSON; not cached")
+            return payload
+        }
+        guard payload.count <= Self.maximumCachedBodyBytes else {
+            log.debug("Raw response for \(api, privacy: .public) exceeds the cache ceiling; not cached")
             return payload
         }
         await cache.set(key: key, value: RawRequestEntry(payload: payload), ttl: ttl)
