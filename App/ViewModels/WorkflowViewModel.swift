@@ -190,6 +190,7 @@ final class WorkflowViewModel {
     let invalidateAlbumYearCache: (() async -> Void)?
     let updateIncrementalRunTimestamp: (() async -> Void)?
     let submitBatchRun: ((BatchRunInput) async throws -> RunSubmissionResult)?
+    let discardQueuedBatchRuns: (() async -> Void)?
     let problematicAlbumReportMinAttempts: () -> Int
     var defaultUpdateGenre: Bool
     var defaultUpdateYear: Bool
@@ -220,6 +221,7 @@ final class WorkflowViewModel {
         invalidateAlbumYearCache = dependencies.invalidateAlbumYearCache
         updateIncrementalRunTimestamp = dependencies.updateIncrementalRunTimestamp
         submitBatchRun = dependencies.submitBatchRun
+        discardQueuedBatchRuns = dependencies.discardQueuedBatchRuns
         problematicAlbumReportMinAttempts = dependencies.problematicAlbumReportMinAttempts
         defaultUpdateGenre = defaults.updateGenre
         defaultUpdateYear = defaults.updateYear

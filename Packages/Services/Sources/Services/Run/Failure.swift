@@ -114,3 +114,18 @@ extension RunOrchestrator {
         }
     }
 }
+
+extension RunOrchestrator {
+    /// A finalization failure keeps recovery authority: the Music.app writes
+    /// are physically durable (batch and single-write outcomes are both
+    /// checkpointed at the verification boundary by then; the year-revert
+    /// origin has no checkpoint sink), but undo and history evidence stays
+    /// incomplete until recovery closes the run. Matches the unwrapped error
+    /// only — wrapping it en route would silently downgrade the routing.
+    static func isFinalizationFailure(_ error: any Error) -> Bool {
+        if case UpdateCoordinatorError.writeFinalizationFailed = error {
+            return true
+        }
+        return false
+    }
+}

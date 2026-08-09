@@ -295,6 +295,63 @@ struct BatchRunTests {
         #expect(await runnerProbe.callCount == 0)
     }
 
+    @Test("a production batch record survives the real store's validation")
+    func productionBatchRecordSurvivesRealStore() async throws {
+        // The orchestrator's actual record shapes — open [created,
+        // writing] and terminal with a write summary — must pass the
+        // store's evidence gates, or every real batch dies unstored.
+        let store = try makeRunStore()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await store.upsert($0) },
+            runBatchUpdate: { _, _ in
+                BatchUpdateResult(entries: [writeEntry()], failedTrackIDs: [], errorDescriptions: [])
+            }
+        ))
+
+        let result = await orchestrator.submit(manualBatch())
+
+        guard case .completed = result else {
+            Issue.record("Expected completed, got \(result)")
+            return
+        }
+        let runID = try #require(result.lifecycle?.runID)
+        let loaded = try await store.record(for: runID)
+        #expect(loaded?.intent == .batchUpdate)
+        #expect(loaded?.state == .completed)
+        #expect(loaded?.writeSummary?.applied == 1)
+    }
+
+    @Test("cancelling before start discards the pending batch trigger")
+    func discardPendingBatchRunsDropsQueuedTrigger() async throws {
+        let gate = WriteSyncGate()
+        let runnerProbe = RunnerInvocationProbe()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { await gate.sync() },
+            persistRunRecord: ignoreRunRecord,
+            runBatchUpdate: { _, _ in
+                await runnerProbe.record()
+                return BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
+            }
+        ))
+
+        let observation = Task {
+            await orchestrator.submit(.manualObservation(requestedTestArtists: [], knownTrackCount: nil))
+        }
+        await gate.waitUntilCount(1)
+        let queued = await orchestrator.submit(manualBatch())
+        guard case .queued = queued else {
+            Issue.record("Expected queued, got \(queued)")
+            return
+        }
+
+        await orchestrator.discardPendingBatchRuns()
+        await gate.release()
+        _ = await observation.value
+
+        #expect(await runnerProbe.callCount == 0)
+    }
+
     @Test("a batch record round-trips through the store")
     func batchRecordRoundTripsThroughStore() async throws {
         let store = try makeRunStore()

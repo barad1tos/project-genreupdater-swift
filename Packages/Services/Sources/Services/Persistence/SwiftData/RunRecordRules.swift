@@ -41,13 +41,20 @@ extension RunRecordDataStore {
            writeAuthorityRaw != payload.configuration?.writeAuthority.rawValue {
             throw RunRecordPersistenceError.corruptedField(name: "writeAuthority", runID: persisted.runID)
         }
-        if intent != .writeFixes,
+        if intent.isMutating == false,
            let field = Self.writeEvidenceField(
                configuration: payload.configuration,
                writeTarget: payload.writeTarget,
                recoveryID: payload.recoveryID,
                transitions: payload.transitions,
                writeSummary: payload.writeSummary
+           ) {
+            throw RunRecordPersistenceError.corruptedField(name: field, runID: persisted.runID)
+        }
+        if intent == .batchUpdate,
+           let field = Self.batchForbiddenEvidenceField(
+               configuration: payload.configuration,
+               writeTarget: payload.writeTarget
            ) {
             throw RunRecordPersistenceError.corruptedField(name: field, runID: persisted.runID)
         }
@@ -179,16 +186,7 @@ extension RunRecordDataStore {
         else {
             throw RunRecordPersistenceError.invalidField(name: "workItems", runID: record.runID.rawValue)
         }
-        if record.intent != .writeFixes,
-           let field = writeEvidenceField(
-               configuration: record.configuration,
-               writeTarget: record.writeTarget,
-               recoveryID: record.recoveryID,
-               transitions: record.transitions,
-               writeSummary: record.writeSummary
-           ) {
-            throw RunRecordPersistenceError.invalidField(name: field, runID: record.runID.rawValue)
-        }
+        try Self.validateIntentEvidence(record)
         guard record.workItems.isEmpty || record.configuration != nil else {
             throw RunRecordPersistenceError.invalidField(name: "configuration", runID: record.runID.rawValue)
         }
@@ -256,6 +254,42 @@ extension RunRecordDataStore {
               let scope = try? JSONDecoder().decode(ProcessingScopeSnapshot.self, from: row.scopeData)
         else { return true }
         return configuration.scopeID != scope.id
+    }
+
+    private static func validateIntentEvidence(_ record: RunRecord) throws {
+        if record.intent.isMutating == false,
+           let field = writeEvidenceField(
+               configuration: record.configuration,
+               writeTarget: record.writeTarget,
+               recoveryID: record.recoveryID,
+               transitions: record.transitions,
+               writeSummary: record.writeSummary
+           ) {
+            throw RunRecordPersistenceError.invalidField(name: field, runID: record.runID.rawValue)
+        }
+        if record.intent == .batchUpdate,
+           let field = Self.batchForbiddenEvidenceField(
+               configuration: record.configuration,
+               writeTarget: record.writeTarget
+           ) {
+            throw RunRecordPersistenceError.invalidField(name: field, runID: record.runID.rawValue)
+        }
+    }
+
+    /// A batch legitimately carries writing transitions, a write
+    /// summary, and a recovery ID — but never a plan's write target or
+    /// reviewed-plan authority.
+    static func batchForbiddenEvidenceField(
+        configuration: RunConfig?,
+        writeTarget: FixPlanWriteTarget?
+    ) -> String? {
+        if configuration?.writeAuthority == .reviewedPlan {
+            return "configuration.writeAuthority"
+        }
+        if writeTarget != nil {
+            return "writeTarget"
+        }
+        return nil
     }
 
     static func writeEvidenceField(

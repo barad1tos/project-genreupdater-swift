@@ -123,6 +123,9 @@ private func assembleWorkflowFixture(_ input: WorkflowFixtureInput) -> WorkflowF
                 requestedTestArtists: [],
                 knownTrackCount: batchInput.trackCount
             ))
+        },
+        discardQueuedBatchRuns: {
+            await orchestrator.discardPendingBatchRuns()
         }
     )
     relay.viewModel = viewModel
@@ -188,7 +191,8 @@ private func makeFixtureViewModel(
     processor: BatchProcessor,
     gate: FeatureGate,
     clearRecovery: @escaping (UUID) async throws -> Void,
-    submitBatchRun: ((BatchRunInput) async throws -> RunSubmissionResult)? = nil
+    submitBatchRun: ((BatchRunInput) async throws -> RunSubmissionResult)? = nil,
+    discardQueuedBatchRuns: (() async -> Void)? = nil
 ) -> WorkflowViewModel {
     WorkflowViewModel(
         dependencies: WorkflowViewModel.Dependencies(
@@ -205,6 +209,7 @@ private func makeFixtureViewModel(
             invalidateAlbumYearCache: input.options.invalidateAlbumYearCache,
             updateIncrementalRunTimestamp: input.options.updateIncrementalRunTimestamp,
             submitBatchRun: submitBatchRun,
+            discardQueuedBatchRuns: discardQueuedBatchRuns,
             problematicAlbumReportMinAttempts: input.options.problematicAlbumReportMinAttempts
         )
     )

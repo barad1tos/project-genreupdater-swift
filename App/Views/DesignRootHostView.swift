@@ -430,6 +430,9 @@ struct DesignRootHostView: View {
             submitBatchRun: { input in
                 try await dependencies.submitBatchRun(input: input)
             },
+            discardQueuedBatchRuns: {
+                await dependencies.runOrchestrator?.discardPendingBatchRuns()
+            },
             problematicAlbumReportMinAttempts: {
                 max(1, Int(dependencies.config.reporting.minAttemptsForReport.rounded()))
             }

@@ -27,7 +27,7 @@ public enum ReportsBuilder {
         var seenRecoveryIDs = Set<String>()
         let recoveryRunIDs = (input.records.compactMap { record -> String? in
             guard record.finishedAt == nil,
-                  record.intent == .writeFixes,
+                  record.intent.isMutating,
                   record.state.needsWriteRecovery,
                   record.runID != input.activeRunID
             else { return nil }

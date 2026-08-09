@@ -15,14 +15,19 @@ extension WorkflowViewModel {
             finishCancelledProcessing()
         }
         if mode == .fullLibrary {
-            // A queued batch has no running processor to cancel: clearing
-            // the stash makes the eventual trigger record an honest
-            // cancelled run, and the waiting screen resets immediately.
+            // A queued batch has no running processor to cancel: purging
+            // the pending trigger and the stash makes cancel real before
+            // the run ever starts; the fallback (a trigger that already
+            // escaped the purge) finds no stash and records cancelled.
             if pendingBatchExecution != nil {
                 pendingBatchExecution = nil
+                trackStatuses = [:]
                 finishCancelledProcessing()
             }
-            Task { await batchProcessor.cancel() }
+            Task { [discardQueuedBatchRuns, batchProcessor] in
+                await discardQueuedBatchRuns?()
+                await batchProcessor.cancel()
+            }
         }
     }
 

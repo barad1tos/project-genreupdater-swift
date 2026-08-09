@@ -96,8 +96,9 @@ extension WorkflowViewModel {
               input.trackCount == execution.tracksByIndex.count
         else {
             // The record must never claim input A while the runner
-            // executes stash B (divergence would be a silent lie).
-            pendingBatchExecution = nil
+            // executes stash B (divergence would be a silent lie). The
+            // stash stays for its legitimate trigger — destroying it here
+            // would park that later run on a foreign failure.
             throw WorkflowBatchError.staleExecution
         }
         pendingBatchExecution = nil

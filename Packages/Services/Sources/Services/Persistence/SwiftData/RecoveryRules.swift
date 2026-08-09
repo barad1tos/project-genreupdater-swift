@@ -218,7 +218,7 @@ extension RunRecordDataStore {
         fallback: RecoveryPayload?
     ) -> Bool {
         fallback?.isWriteRecoveryRequired == true
-            || RunIntent(rawValue: row.intentRaw) == .writeFixes
+            || RunIntent(rawValue: row.intentRaw)?.isMutating == true
             || writeEvidenceField(
                 configuration: payload?.configuration ?? fallback?.configuration,
                 writeTarget: payload?.writeTarget ?? fallback?.writeTarget,

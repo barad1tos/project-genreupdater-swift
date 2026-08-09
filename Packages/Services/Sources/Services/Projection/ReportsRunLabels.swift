@@ -14,7 +14,7 @@ enum ReportsRunLabels {
         }
         switch state {
         case .running:
-            return record.intent == .writeFixes ? .recoveryNeeded : .failed
+            return record.intent.isMutating ? .recoveryNeeded : .failed
         case .awaitingReview,
              .completed,
              .completedNoOp,

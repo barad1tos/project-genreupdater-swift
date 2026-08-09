@@ -18,6 +18,7 @@ extension WorkflowViewModel {
         let invalidateAlbumYearCache: (() async -> Void)?
         let updateIncrementalRunTimestamp: (() async -> Void)?
         let submitBatchRun: ((BatchRunInput) async throws -> RunSubmissionResult)?
+        let discardQueuedBatchRuns: (() async -> Void)?
         let problematicAlbumReportMinAttempts: () -> Int
 
         init(
@@ -40,6 +41,7 @@ extension WorkflowViewModel {
             invalidateAlbumYearCache: (() async -> Void)? = nil,
             updateIncrementalRunTimestamp: (() async -> Void)? = nil,
             submitBatchRun: ((BatchRunInput) async throws -> RunSubmissionResult)? = nil,
+            discardQueuedBatchRuns: (() async -> Void)? = nil,
             problematicAlbumReportMinAttempts: @escaping () -> Int = { 3 }
         ) {
             self.updateCoordinator = updateCoordinator
@@ -56,6 +58,7 @@ extension WorkflowViewModel {
             self.invalidateAlbumYearCache = invalidateAlbumYearCache
             self.updateIncrementalRunTimestamp = updateIncrementalRunTimestamp
             self.submitBatchRun = submitBatchRun
+            self.discardQueuedBatchRuns = discardQueuedBatchRuns
             self.problematicAlbumReportMinAttempts = problematicAlbumReportMinAttempts
         }
     }
