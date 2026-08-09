@@ -97,6 +97,8 @@ enum ReportsRunLabels {
             "Preview"
         case .writeFixes:
             "Auto-fix"
+        case .batchUpdate:
+            "Library update"
         }
     }
 
@@ -208,7 +210,8 @@ enum ReportsRunLabels {
     static func showsSyncSummary(for intent: RunIntent) -> Bool {
         switch intent {
         case .observeLibrary,
-             .writeFixes:
+             .writeFixes,
+             .batchUpdate:
             true
         case .previewFixes:
             false

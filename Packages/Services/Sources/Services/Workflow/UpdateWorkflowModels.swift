@@ -80,7 +80,7 @@ public struct PendingAlbumVerificationResult: Sendable {
 }
 
 /// Configuration for an update operation.
-public struct UpdateOptions: Sendable {
+public struct UpdateOptions: Equatable, Sendable {
     public let updateGenre: Bool
     public let updateYear: Bool
     public let repairExistingGenreMismatches: Bool

@@ -156,6 +156,10 @@ private enum IntentPriority {
     static let observeLibrary = 0
     static let previewFixes = 1
     static let writeFixes = 2
+    /// Same tier as writeFixes: a batch is a mutating run. Its nil write
+    /// target makes two same-scope batches cover each other while a batch
+    /// and a plan write never do.
+    static let batchUpdate = 2
 }
 
 extension RunTrigger {
@@ -175,6 +179,7 @@ extension RunIntent {
         case .observeLibrary: IntentPriority.observeLibrary
         case .previewFixes: IntentPriority.previewFixes
         case .writeFixes: IntentPriority.writeFixes
+        case .batchUpdate: IntentPriority.batchUpdate
         }
     }
 }

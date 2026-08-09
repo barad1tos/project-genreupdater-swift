@@ -142,7 +142,7 @@ public actor RunOrchestrator {
                 from: activeRun ?? lifecycle,
                 failureMessage: error.localizedDescription
             )
-        } catch let error as AppleScriptOutcomeError where request.intent == .writeFixes {
+        } catch let error as AppleScriptOutcomeError where request.intent.isMutating {
             await releasePreview(request)
             log.error("""
             Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) requires recovery after \
@@ -213,7 +213,7 @@ public actor RunOrchestrator {
             failureMessage: nil,
             finishedAt: completed.finishedAt
         )
-        if intent == .writeFixes, !isStored {
+        if intent.isMutating, !isStored {
             activeTransitions.removeLast()
             if reporting.hasWriteProgress || (work.writeSummary?.applied ?? 0) > 0 {
                 return await finishUnstoredWrite(
@@ -251,7 +251,7 @@ public actor RunOrchestrator {
             failureMessage: nil,
             finishedAt: nil
         )
-        guard request.intent == .writeFixes, !isStored else { return nil }
+        guard request.intent.isMutating, !isStored else { return nil }
         await releasePreview(request)
         return await finishFailedRun(
             from: lifecycle,
@@ -323,6 +323,8 @@ public actor RunOrchestrator {
             )
         case let .writeFixes(writeInput):
             return try await performWrite(writeInput, from: lifecycle)
+        case let .batchUpdate(input):
+            return try await performBatch(input, from: lifecycle)
         }
     }
 
@@ -418,7 +420,7 @@ public actor RunOrchestrator {
             finishedAt: failed.finishedAt
         )
         let hasWriteEffects = (writeSummary?.applied ?? 0) > 0 || source.hasWriteProgress
-        if source.intent == .writeFixes, !isStored, !isTerminalRetry, !hasWriteEffects {
+        if source.intent.isMutating, !isStored, !isTerminalRetry, !hasWriteEffects {
             activeTransitions.removeLast()
             return await finishFailedRun(
                 from: reporting,
@@ -429,7 +431,7 @@ public actor RunOrchestrator {
                 isTerminalRetry: true
             )
         }
-        if source.intent == .writeFixes, !isStored {
+        if source.intent.isMutating, !isStored {
             activeTransitions.removeLast()
             return await finishUnstoredWrite(
                 from: reporting,
@@ -575,7 +577,7 @@ public actor RunOrchestrator {
             failureMessage: cancelled.failureMessage,
             finishedAt: cancelled.finishedAt
         )
-        if lifecycle.intent == .writeFixes, !isStored {
+        if lifecycle.intent.isMutating, !isStored {
             activeTransitions.removeLast()
             if lifecycle.hasWriteProgress {
                 return await finishUnstoredWrite(
@@ -607,8 +609,8 @@ public actor RunOrchestrator {
     }
 
     func discardPendingWrites() {
-        // Queue acknowledgements are not completion handles; recovery cancels pending writes fail-closed.
-        pendingTriggers.removeAll { $0.request.intent == .writeFixes }
+        // Queue acknowledgements are not completion handles; recovery cancels pending mutating runs fail-closed.
+        pendingTriggers.removeAll { $0.request.intent.isMutating }
     }
 
     private func beginRun(
@@ -618,7 +620,7 @@ public actor RunOrchestrator {
         switch request.kind {
         case .observeLibrary, .previewFixes:
             lifecycle.beginningSync()
-        case .writeFixes:
+        case .writeFixes, .batchUpdate:
             lifecycle.beginningWriting()
         }
     }

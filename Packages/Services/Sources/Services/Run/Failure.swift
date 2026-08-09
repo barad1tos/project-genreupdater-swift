@@ -71,6 +71,7 @@ extension RunOrchestrator {
     enum RunWorkError: LocalizedError {
         case missingFixPlanProducer
         case missingWriteRunner
+        case missingBatchRunner
         case recoveryPending
         case writeFailure(
             failedOperationCount: Int,
@@ -85,6 +86,8 @@ extension RunOrchestrator {
                 "Fix plan producer is unavailable"
             case .missingWriteRunner:
                 "Fix plan write runner is unavailable"
+            case .missingBatchRunner:
+                "Batch update runner is unavailable"
             case .recoveryPending:
                 "A restored recovery hold blocks the next write attempt"
             case let .writeFailure(failedOperationCount, failedTrackCount, reasons, isPartial):

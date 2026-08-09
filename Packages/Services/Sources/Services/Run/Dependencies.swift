@@ -46,6 +46,12 @@ extension RunOrchestrator {
         ) async throws -> FixPlanProduction)?
         public let releasePreview: (@Sendable (FixPlanConfig) async -> Void)?
         public let write: WriteDependencies?
+        /// Runs the full-library batch against the live view-model; the
+        /// change-log entries persist inside, only the run record is new.
+        public let runBatchUpdate: (@Sendable (
+            BatchRunInput,
+            RunID
+        ) async throws -> BatchUpdateResult)?
         /// The currently authoritative write target for a plan, used to prove
         /// a queued write's consent is still fresh before release. nil result
         /// means no current decision; a nil closure makes freshness
@@ -67,6 +73,10 @@ extension RunOrchestrator {
             ) async throws -> FixPlanProduction)? = nil,
             releasePreview: (@Sendable (FixPlanConfig) async -> Void)? = nil,
             write: WriteDependencies? = nil,
+            runBatchUpdate: (@Sendable (
+                BatchRunInput,
+                RunID
+            ) async throws -> BatchUpdateResult)? = nil,
             currentDecisionTarget: (@Sendable (FixPlanID) async -> FixPlanWriteTarget?)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
@@ -76,6 +86,7 @@ extension RunOrchestrator {
             self.produceFixPlan = produceFixPlan
             self.releasePreview = releasePreview
             self.write = write
+            self.runBatchUpdate = runBatchUpdate
             self.currentDecisionTarget = currentDecisionTarget
             self.now = now
         }

@@ -21,24 +21,50 @@ public enum RunIntent: String, Codable, Equatable, Sendable {
     case observeLibrary
     case previewFixes
     case writeFixes
+    case batchUpdate
+
+    /// Mutating runs share the record-integrity and recovery guarantees:
+    /// they fail fast without run history and route uncertain script
+    /// outcomes to recovery instead of a plain failure.
+    public var isMutating: Bool {
+        switch self {
+        case .observeLibrary, .previewFixes: false
+        case .writeFixes, .batchUpdate: true
+        }
+    }
+}
+
+/// The work identity a full-library batch run carries: enough for the
+/// arbiter to rank and cover it and for the record to stay honest. The
+/// tracks themselves stay with the live view-model the runner reaches.
+public struct BatchRunInput: Equatable, Sendable {
+    public let options: UpdateOptions
+    public let trackCount: Int
+
+    public init(options: UpdateOptions, trackCount: Int) {
+        self.options = options
+        self.trackCount = trackCount
+    }
 }
 
 public enum RunRequestKind: Equatable, Sendable {
     case observeLibrary
     case previewFixes(FixPlanConfig)
     case writeFixes(FixPlanWriteInput)
+    case batchUpdate(BatchRunInput)
 
     public var intent: RunIntent {
         switch self {
         case .observeLibrary: .observeLibrary
         case .previewFixes: .previewFixes
         case .writeFixes: .writeFixes
+        case .batchUpdate: .batchUpdate
         }
     }
 
     public var writeTarget: FixPlanWriteTarget? {
         switch self {
-        case .observeLibrary, .previewFixes: nil
+        case .observeLibrary, .previewFixes, .batchUpdate: nil
         case let .writeFixes(input): input.target
         }
     }
@@ -165,6 +191,35 @@ public struct RunRequest: Equatable, Sendable {
         preview(
             trigger: .manualCheck,
             configuration: configuration,
+            requestedTestArtists: requestedTestArtists,
+            knownTrackCount: knownTrackCount
+        )
+    }
+
+    public static func batchUpdate(
+        id: RunRequestID = RunRequestID(),
+        trigger: RunTrigger,
+        input: BatchRunInput,
+        requestedTestArtists: [String],
+        knownTrackCount: Int?
+    ) -> Self {
+        Self(
+            id: id,
+            trigger: trigger,
+            kind: .batchUpdate(input),
+            requestedTestArtists: requestedTestArtists,
+            knownTrackCount: knownTrackCount
+        )
+    }
+
+    public static func manualBatchUpdate(
+        input: BatchRunInput,
+        requestedTestArtists: [String],
+        knownTrackCount: Int?
+    ) -> Self {
+        batchUpdate(
+            trigger: .manualCheck,
+            input: input,
             requestedTestArtists: requestedTestArtists,
             knownTrackCount: knownTrackCount
         )
