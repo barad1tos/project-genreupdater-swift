@@ -42,9 +42,12 @@ extension APICacheTab {
                         value: "\(dependencies.config.runtime.incrementalIntervalMinutes)m"
                     )
                 }
-
-                BackgroundWatcherRow()
             }
+
+            // Outside the feature gate on purpose: a lapsed subscription
+            // must still be able to turn a REGISTERED agent off — the
+            // enable path is gated inside setBackgroundWatcherEnabled.
+            BackgroundWatcherRow()
         }
     }
 

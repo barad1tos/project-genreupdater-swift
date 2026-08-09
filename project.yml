@@ -107,7 +107,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.genreupdater.agent
         PRODUCT_NAME: GenreUpdaterAgent
-        CODE_SIGN_ENTITLEMENTS: App/GenreUpdaterAgent.entitlements
+        CODE_SIGN_ENTITLEMENTS: Agent/GenreUpdaterAgent.entitlements
         CODE_SIGN_STYLE: Automatic
         INFOPLIST_FILE: Agent/Info.plist
         CREATE_INFOPLIST_SECTION_IN_BINARY: true

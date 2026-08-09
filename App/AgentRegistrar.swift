@@ -32,7 +32,18 @@ struct SMAppServiceRegistrar: AgentRegistrar {
     }
 
     func unregister() async throws {
-        try await service.unregister()
+        // The async variant sends the non-Sendable SMAppService across
+        // actors (a CI-only strict-concurrency error); the callback
+        // variant runs the call synchronously on this actor.
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            service.unregister { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
     }
 
     func openApprovalSettings() {
@@ -46,6 +57,12 @@ extension AppDependencies {
     func setBackgroundWatcherEnabled(_ isEnabled: Bool) async -> String? {
         guard let agentRegistrar else {
             return "Background watcher is unavailable in this build"
+        }
+        // Enabling is Pro-gated; disabling must ALWAYS work, so a lapsed
+        // subscription can still unregister the agent (the row stays
+        // visible outside the feature gate for exactly this reason).
+        if isEnabled, featureGate?.canAccess(.autoSync) != true {
+            return "Background watching requires an active subscription"
         }
         do {
             if isEnabled {

@@ -18,5 +18,7 @@
 	<integer>300</integer>
 	<key>Nice</key>
 	<integer>10</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
 </dict>
 </plist>
