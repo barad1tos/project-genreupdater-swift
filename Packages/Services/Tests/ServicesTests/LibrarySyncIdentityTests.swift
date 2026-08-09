@@ -267,6 +267,181 @@ struct LibrarySyncIdentityTests {
         #expect(await snapshotService.wasCleared())
     }
 
+    @Test("An album-targeted sync narrows to the album including collab spellings")
+    func albumTargetedSyncNarrowsToAlbum() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let albumTrack = Track(
+            id: "A1",
+            name: "Contact",
+            artist: "Daft Punk",
+            album: "Random Access Memories"
+        )
+        let featTrack = Track(
+            id: "A2",
+            name: "Get Lucky",
+            artist: "Daft Punk feat. Pharrell Williams",
+            album: "Random Access Memories"
+        )
+        let strayTrack = Track(
+            id: "S1",
+            name: "Elsewhere Song",
+            artist: "Someone Else",
+            album: "Elsewhere"
+        )
+        await bridge.setLibrary(
+            ids: ["A1", "A2", "S1"],
+            tracks: ["A1": albumTrack, "A2": featTrack, "S1": strayTrack]
+        )
+        await store.setStored([])
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            cache: cache,
+            librarySnapshotService: snapshotService,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                albumTargetIdentity: AlbumIdentity(
+                    artist: "Daft Punk",
+                    album: "Random Access Memories"
+                )
+            )
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+
+        // The collab spelling stays admitted (the alias list), the
+        // stray track never enters the sync result on ANY path.
+        #expect(Set(result.newTracks.map(\.id)) == ["A1", "A2"])
+    }
+
+    @Test("A compilation target admits provider tracks after enrichment")
+    func compilationTargetAdmitsProviderTracksAfterEnrichment() async throws {
+        // Codex P1 (PR #163): MusicKit strips albumArtist, so the album
+        // identity must be judged AFTER mutation-metadata enrichment
+        // restores it — never on the raw snapshot.
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let provider = SyncMockReadProvider()
+        let musicKitTrack = Track(
+            id: "MK1",
+            name: "Hit Song",
+            artist: "Artist One",
+            album: "Best Of"
+        )
+        let enriched = Track(
+            id: "AS1",
+            name: "Hit Song",
+            artist: "Artist One",
+            album: "Best Of",
+            albumArtist: "Various Artists",
+            appleScriptID: "AS1"
+        )
+        await provider.setTracks([musicKitTrack])
+        await bridge.setArtistTracks([enriched], for: "Artist One")
+        await store.setStored([])
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                albumTargetIdentity: AlbumIdentity(
+                    artist: "Various Artists",
+                    album: "Best Of"
+                )
+            ),
+            readProvider: provider
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+
+        #expect(result.newTracks.count == 1)
+        #expect(result.newTracks.first?.albumArtist == "Various Artists")
+    }
+
+    @Test("A provider stray track never enters an album-targeted result")
+    func providerStrayTrackNeverEntersAlbumTargetedResult() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let provider = SyncMockReadProvider()
+        let albumTrack = Track(
+            id: "MK1",
+            name: "Hit Song",
+            artist: "Various Artists",
+            album: "Best Of",
+            albumArtist: "Various Artists",
+            appleScriptID: "AS1"
+        )
+        let strayTrack = Track(
+            id: "MK2",
+            name: "Elsewhere Song",
+            artist: "Someone Else",
+            album: "Elsewhere",
+            albumArtist: "Someone Else",
+            appleScriptID: "AS2"
+        )
+        await provider.setTracks([albumTrack, strayTrack])
+        await store.setStored([])
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                albumTargetIdentity: AlbumIdentity(
+                    artist: "Various Artists",
+                    album: "Best Of"
+                )
+            ),
+            readProvider: provider
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+
+        #expect(result.newTracks.map(\.id) == ["MK1"])
+    }
+
+    @Test("Album-tag drift is never misread as removal by a scoped preview")
+    func albumTagDriftIsNotMisreadAsRemoval() async throws {
+        // Panel MEDIUM (PR #163): the album identity must narrow RESULT
+        // membership, never the ID baseline — filtering the baseline
+        // turned an album-tag edit into a row deletion.
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let storedTrack = Track(
+            id: "A1",
+            name: "Contact",
+            artist: "Daft Punk",
+            album: "Random Access Memories"
+        )
+        let driftedCurrent = Track(
+            id: "A1",
+            name: "Contact",
+            artist: "Daft Punk",
+            album: "Homework"
+        )
+        await bridge.setLibrary(ids: ["A1"], tracks: ["A1": driftedCurrent])
+        await store.setStored([storedTrack])
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            cache: cache,
+            librarySnapshotService: snapshotService,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                testArtists: ["Daft Punk"],
+                albumTargetIdentity: AlbumIdentity(
+                    artist: "Daft Punk",
+                    album: "Random Access Memories"
+                )
+            )
+        )
+
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+
+        #expect(result.removedTrackIDs.isEmpty)
+        #expect(await store.storedTracks.contains { $0.id == "A1" })
+    }
+
     @Test("Persists identity-only changes and invalidates old and new caches")
     func persistsIdentityOnlyChangesAndInvalidatesOldAndNewCaches() async throws {
         let bridge = SyncMockScriptClient()
