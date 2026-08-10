@@ -132,7 +132,8 @@ struct UpdatePreviewSection: View {
             .font(.callout)
             .lineLimit(1)
 
-            ConfidenceBadge(confidence: Double(change.confidence) / 100.0)
+            // Scores are unclamped (a perfect match is 125); the badge renders a percentage.
+            ConfidenceBadge(confidence: min(1.0, max(0, Double(change.confidence) / 100.0)))
 
             if !change.source.isEmpty {
                 Text(change.source)

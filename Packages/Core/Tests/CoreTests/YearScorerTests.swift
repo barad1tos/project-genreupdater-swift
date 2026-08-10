@@ -40,12 +40,20 @@ struct YearScorerScoringTests {
         #expect(result.breakdown.artistMatch == scorer.config.artistExactMatchBonus)
     }
 
-    @Test("Fuzzy artist match gives bonus")
-    func artistFuzzyMatch() {
+    @Test("Leading The is not stripped, so it scores as a substring match")
+    func artistLeadingArticleIsSubstring() {
         let candidate = makeCandidate(artist: "The Beatles", album: "Test", year: 2000)
         let result = scorer.scoreRelease(candidate, queryArtist: "Beatles", queryAlbum: "Test")
-        // After normalization: "beatles" == "beatles" → exact match bonus
-        #expect(result.breakdown.artistMatch == scorer.config.artistExactMatchBonus)
+        // Python's ReleaseScorer._normalize_name keeps the article, so
+        // "beatles" is a substring of "the beatles" rather than equal to it.
+        #expect(result.breakdown.artistMatch == scorer.config.artistSubstringPenalty)
+    }
+
+    @Test("Featuring credit scores as a substring match, not an exact one")
+    func artistFeaturingCreditIsSubstring() {
+        let candidate = makeCandidate(artist: "Eminem feat. Rihanna", album: "Test", year: 2000)
+        let result = scorer.scoreRelease(candidate, queryArtist: "Eminem", queryAlbum: "Test")
+        #expect(result.breakdown.artistMatch == scorer.config.artistSubstringPenalty)
     }
 
     @Test("Artist substring gives penalty")
