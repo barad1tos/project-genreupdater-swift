@@ -61,7 +61,9 @@ public final class FeatureGate {
     public init(
         fixedTier: Tier,
         freeTracksUsed: Int = 0,
-        usageRecorder: @escaping (Int) -> Void = { _ in }
+        usageRecorder: @escaping (Int) -> Void = { _ in
+            // Fixed-tier previews and tests opt in when they need persistent usage effects.
+        }
     ) {
         tierProvider = { fixedTier }
         freeTracksUsedProvider = { freeTracksUsed }

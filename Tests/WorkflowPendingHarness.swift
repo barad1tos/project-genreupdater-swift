@@ -36,7 +36,9 @@ struct RandomAccessWorkflowFixtureOptions {
     var ensureRecoveryHold: () async -> Bool = { false }
     var prepareMutationMetadata: (([Track]) async throws -> Void)? = noOpPrepareMutationMetadata
     var updateIncrementalRunTimestamp: (() async -> Void)?
-    var recordTrackUsage: (Int) -> Void = { _ in }
+    var recordTrackUsage: (Int) -> Void = { _ in
+        // Pending fixtures opt in only when the scenario asserts allowance usage.
+    }
 }
 
 enum PendingPreflightState {

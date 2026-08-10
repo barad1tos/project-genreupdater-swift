@@ -30,7 +30,9 @@ struct WorkflowFixtureOptions {
     var updateIncrementalRunTimestamp: (() async -> Void)?
     var failRunRecordPersistence = false
     var failTerminalRunRecordPersistence = false
-    var recordTrackUsage: (Int) -> Void = { _ in }
+    var recordTrackUsage: (Int) -> Void = { _ in
+        // Most workflow fixtures do not observe subscription persistence.
+    }
     var featureGate: FeatureGate?
 }
 
