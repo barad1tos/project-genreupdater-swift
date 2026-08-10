@@ -76,13 +76,19 @@ public actor CachedAnalyticsService: AnalyticsService {
 
     private func append(_ event: AnalyticsEvent) async {
         var events: [AnalyticsEvent] = await cache.get(key: Self.eventsCacheKey) ?? []
-        events.append(event)
 
-        let maxEvents = max(1, configuration.maxEvents)
-        if events.count > maxEvents {
-            events.removeFirst(events.count - maxEvents)
+        // Python parity (_record_function_call, analytics.py:305-309): prune
+        // BEFORE recording, drop a batch of 10% (at least 5) rather than the
+        // exact overflow, and treat a non-positive cap as "no limit".
+        // `max(1, maxEvents)` inverted that last one — a user setting 0 to
+        // disable the cap was left holding a single event.
+        let maxEvents = configuration.maxEvents
+        if maxEvents > 0, events.count >= maxEvents {
+            let prune = max(5, maxEvents / 10)
+            events.removeFirst(min(prune, events.count))
         }
 
+        events.append(event)
         await cache.set(key: Self.eventsCacheKey, value: events, ttl: nil)
     }
 

@@ -35,9 +35,53 @@ struct CachedAnalyticsServiceTests {
         await service.trackEvent("third", duration: .seconds(5), metadata: ["source": "snapshot"])
 
         let events: [AnalyticsEvent]? = await cache.get(key: CachedAnalyticsService.eventsCacheKey)
-        #expect(events?.map(\.eventType) == ["second", "third"])
-        #expect(events?.first?.durationBucket == "medium")
+        // Python prunes a batch of max(5, cap/10) BEFORE recording, so a cap
+        // this small is emptied outright and only the new event survives
+        // (analytics.py:305-309). The previous expectation of ["second",
+        // "third"] encoded Swift's exact-overflow trim, not Python's.
+        #expect(events?.map(\.eventType) == ["third"])
         #expect(events?.last?.durationBucket == "long")
         #expect(events?.last?.metadata["source"] == "snapshot")
+    }
+
+    @Test("A non-positive maxEvents disables pruning instead of capping at one")
+    func nonPositiveMaxEventsDisablesPruning() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        var configuration = AnalyticsConfig()
+        configuration.enabled = true
+        configuration.maxEvents = 0
+        let service = CachedAnalyticsService(cache: cache, configuration: configuration)
+
+        for index in 0 ..< 8 {
+            await service.trackEvent("event-\(index)", duration: .seconds(1), metadata: [:])
+        }
+
+        // Python gates pruning on `0 < max_events`; clamping to 1 turned
+        // "no limit" into "keep exactly one".
+        let events: [AnalyticsEvent]? = await cache.get(key: CachedAnalyticsService.eventsCacheKey)
+        #expect(events?.count == 8)
+    }
+
+    @Test("A realistic cap prunes in batches and keeps the window below it")
+    func realisticCapPrunesInBatches() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        var configuration = AnalyticsConfig()
+        configuration.enabled = true
+        configuration.maxEvents = 50
+        let service = CachedAnalyticsService(cache: cache, configuration: configuration)
+
+        for index in 0 ..< 52 {
+            await service.trackEvent("event-\(index)", duration: .seconds(1), metadata: [:])
+        }
+
+        // At 50 the batch drops max(5, 5) = 5, so the window lands at 46-50
+        // rather than pinned to the cap, and the oldest events are the ones gone.
+        let events: [AnalyticsEvent]? = await cache.get(key: CachedAnalyticsService.eventsCacheKey)
+        let types = try #require(events?.map(\.eventType))
+        #expect(types.count == 47)
+        #expect(types.first == "event-5")
+        #expect(types.last == "event-51")
     }
 }
