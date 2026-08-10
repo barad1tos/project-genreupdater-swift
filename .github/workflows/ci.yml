@@ -85,11 +85,11 @@ jobs:
       # them, which is why their coverage read as ~0 — nothing was measuring.
       # No threshold yet: a floor set at today's number would ratify the hole.
       - name: Test SharedUI
-        run: swift test --package-path Packages/SharedUI
+        run: swift test --package-path Packages/SharedUI --enable-code-coverage
         timeout-minutes: 5
 
       - name: Test DesignUI
-        run: swift test --package-path Packages/DesignUI
+        run: swift test --package-path Packages/DesignUI --enable-code-coverage
         timeout-minutes: 5
 
       - name: Check coverage thresholds
@@ -194,6 +194,7 @@ jobs:
       - name: Scan for unused code (Periphery)
         run: |
           BASELINE=$(cat .periphery-baseline)
+          set +e
           periphery scan \
             --project GenreUpdater.xcodeproj \
             --schemes GenreUpdater \
@@ -204,10 +205,30 @@ jobs:
             --retain-assign-only-properties \
             --retain-objc-accessible \
             --exclude-tests \
-            --quiet > periphery-report.txt 2>&1 || true
+            --quiet > periphery-report.txt 2>&1
+          STATUS=$?
+          set -e
+          # Without --strict, findings do not set the exit status, so a nonzero
+          # code means the scan itself failed — an unreadable index, a rejected
+          # option after a tool update. Swallowing it would let the error text
+          # land in the report, yield a count of 0, and pass the ratchet as an
+          # improvement: this gate reporting success for a scan that never ran,
+          # which is the exact fault it was written to fix.
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::Periphery scan failed with exit ${STATUS}"
+            cat periphery-report.txt
+            exit 1
+          fi
           COUNT=$(grep -c "warning: Unused" periphery-report.txt || true)
           echo "Unused declarations: ${COUNT} (baseline: ${BASELINE})"
           grep "warning: Unused" periphery-report.txt || true
+          # A clean exit over an empty report is the other way a broken scan
+          # looks like success — a wrong scheme indexes nothing at all.
+          if [ "$COUNT" -eq 0 ] && [ "$BASELINE" -gt 0 ]; then
+            echo "::error::Scan reported zero declarations against a baseline of ${BASELINE}; treating as a failed scan"
+            cat periphery-report.txt
+            exit 1
+          fi
           if [ "$COUNT" -gt "$BASELINE" ]; then
             echo "::error::Unused declarations rose from ${BASELINE} to ${COUNT}"
             exit 1
