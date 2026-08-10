@@ -219,6 +219,34 @@ struct BatchRunAppTests {
         #expect(subscription.freeTracksUsed == 1)
     }
 
+    @Test("a pro user keeps the free allowance after a successful batch")
+    func proBatchKeepsAllowance() async throws {
+        let defaultsSuite = "BatchRunAppTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let subscription = SubscriptionService(
+            counterStore: MemoryCounterStore(),
+            userDefaults: defaults
+        )
+        let gate = AppDependencies.makeFeatureGate(for: subscription, fixedTier: .pro)
+        let fixture = makeWorkflowFixture(configure: { options in
+            options.featureGate = gate
+        })
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [makeProposedChange(id: "pro-apply-1", isAccepted: true)]
+
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+
+        guard case .done = viewModel.phase else {
+            Issue.record("Expected done phase, got \(viewModel.phase)")
+            return
+        }
+        #expect(subscription.freeTracksUsed == 0)
+    }
+
     @Test("a lost terminal record surfaces recovery instead of a done screen")
     func lostTerminalRecordSurfacesRecovery() async {
         let fixture = makeWorkflowFixture(configure: { options in
