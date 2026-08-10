@@ -290,7 +290,6 @@ public struct YearLogicConfig: Sendable, Codable {
     public var definitiveScoreThreshold: Int = 50
     public var definitiveScoreDiff: Int = 15
     public var minConfidenceForNewYear: Double = 30
-    public var preferredCountries: [String] = ["us", "gb", "de", "fr", "jp"]
     public var majorMarketCodes: [String] = ["us", "gb", "uk", "de", "jp", "fr", "ca", "au"]
     public var dominantYearMinConfidence: Double = 0.8
 
@@ -308,7 +307,6 @@ public struct ScoringConfig: Sendable, Codable {
 
     public var albumExactMatchBonus: Int = 25
     public var perfectMatchBonus: Int = 10
-    public var albumVariationBonus: Int = 10
     public var albumSubstringPenalty: Int = -5
     public var albumUnrelatedPenalty: Int = -40
 

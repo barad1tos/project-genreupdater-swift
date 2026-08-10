@@ -233,10 +233,9 @@ public struct AnalyticsConfig: Sendable, Codable {
     public var maxEvents: Int = 10000
     public var compactTime: Bool = true
     public var timeFormat: String = "%Y-%m-%d %H:%M:%S"
-    public var enableGarbageCollection: Bool = true
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, durationThresholds, maxEvents, compactTime, timeFormat, enableGarbageCollection
+        case enabled, durationThresholds, maxEvents, compactTime, timeFormat
     }
 
     public init() {
@@ -253,7 +252,6 @@ public struct AnalyticsConfig: Sendable, Codable {
         maxEvents = try container.decodeIfPresent(Int.self, forKey: .maxEvents) ?? 10000
         compactTime = try container.decodeIfPresent(Bool.self, forKey: .compactTime) ?? true
         timeFormat = try container.decodeIfPresent(String.self, forKey: .timeFormat) ?? "%Y-%m-%d %H:%M:%S"
-        enableGarbageCollection = try container.decodeIfPresent(Bool.self, forKey: .enableGarbageCollection) ?? true
     }
 }
 
@@ -307,7 +305,6 @@ public struct LoggingConfig: Sendable, Codable {
     public var maxRuns: Int = 3
     public var mainLogFile: String = "main/main.log"
     public var analyticsLogFile: String = "analytics/analytics.log"
-    public var dryRunReportFile: String = "reports/dry_run_report.html"
     public var lastIncrementalRunFile: String = "last_incremental_run.log"
     public var pendingVerificationFile: String = "csv/pending_year_verification.csv"
     public var lastDatabaseVerifyLog: String = "main/last_db_verify.log"

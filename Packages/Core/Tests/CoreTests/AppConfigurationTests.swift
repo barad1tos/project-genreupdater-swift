@@ -186,6 +186,39 @@ struct AppConfigurationTests {
         #expect(reporting.runHistoryLimit == 500)
     }
 
+    @Test("Sections still carrying the deleted keys decode")
+    func persistedSectionsWithDeletedKeysDecode() throws {
+        // Only the four fields Python does not read either are gone. Removing a
+        // property makes decoding more permissive — an unknown key is ignored —
+        // but the synthesized-Decodable sections still demand every surviving
+        // key, so the honest shape is a full section plus the stale keys.
+        let analytics = try decodeWithStaleKeys(
+            AnalyticsConfig(),
+            stale: ["enableGarbageCollection": false]
+        )
+        #expect(analytics.maxEvents == 10000)
+
+        let logging = try decodeWithStaleKeys(
+            LoggingConfig(),
+            stale: ["dryRunReportFile": "reports/dry_run_report.html"]
+        )
+        #expect(logging.lastIncrementalRunFile == "last_incremental_run.log")
+
+        let scoring = try decodeWithStaleKeys(ScoringConfig(), stale: ["albumVariationBonus": 10])
+        #expect(scoring.albumSubstringPenalty == -5)
+
+        let logic = try decodeWithStaleKeys(YearLogicConfig(), stale: ["preferredCountries": ["us"]])
+        #expect(logic.minValidYear == 1900)
+    }
+
+    private func decodeWithStaleKeys<T: Codable>(_ value: T, stale: [String: Any]) throws -> T {
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(value))
+        var object = try #require(encoded as? [String: Any])
+        object.merge(stale) { current, _ in current }
+        let data = try JSONSerialization.data(withJSONObject: object)
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
     @Test("Explicit runHistoryLimit value decodes")
     func explicitRunHistoryLimitValueDecodes() throws {
         let json = Data(#"{"runHistoryLimit": 200}"#.utf8)
