@@ -201,12 +201,17 @@ jobs:
       # survived to slice 17. This scans the whole project through the index
       # xcode-gate already produced, so --retain-public is unnecessary.
       #
-      # A ratchet, not a clean bill: ~70% of the current findings are false
-      # positives (protocol witnesses, closure-indirect calls), triaged in the
-      # slice-17 ledger. Growth fails the build; the standing debt stays visible.
+      # A ratchet, not a clean bill: unused declarations and redundant public
+      # access are separate debt categories, so neither can hide growth in the
+      # other. Every warning stays visible; an unknown category fails closed.
       - name: Scan for unused code (Periphery)
         run: |
-          BASELINE=$(cat .periphery-baseline)
+          UNUSED_BASELINE=$(awk -F= '$1 == "unused" { print $2 }' .periphery-baseline)
+          ACCESSIBILITY_BASELINE=$(awk -F= '$1 == "redundant_public_accessibility" { print $2 }' .periphery-baseline)
+          if [[ ! $UNUSED_BASELINE =~ ^[0-9]+$ || ! $ACCESSIBILITY_BASELINE =~ ^[0-9]+$ ]]; then
+            echo "::error::Periphery baselines must be non-negative integers"
+            exit 1
+          fi
           set +e
           periphery scan \
             --project GenreUpdater.xcodeproj \
@@ -232,22 +237,38 @@ jobs:
             cat periphery-report.txt
             exit 1
           fi
-          COUNT=$(grep -c "warning: Unused" periphery-report.txt || true)
-          echo "Unused declarations: ${COUNT} (baseline: ${BASELINE})"
-          grep "warning: Unused" periphery-report.txt || true
+          UNUSED_COUNT=$(grep -c "warning: Unused" periphery-report.txt || true)
+          ACCESSIBILITY_COUNT=$(grep -c "warning: Redundant public accessibility" periphery-report.txt || true)
+          WARNING_COUNT=$(grep -c "warning:" periphery-report.txt || true)
+          KNOWN_WARNING_COUNT=$((UNUSED_COUNT + ACCESSIBILITY_COUNT))
+          BASELINE_WARNING_COUNT=$((UNUSED_BASELINE + ACCESSIBILITY_BASELINE))
+          echo "Unused declarations: ${UNUSED_COUNT} (baseline: ${UNUSED_BASELINE})"
+          echo "Redundant public accessibility: ${ACCESSIBILITY_COUNT} (baseline: ${ACCESSIBILITY_BASELINE})"
+          grep "warning:" periphery-report.txt || true
           # A clean exit over an empty report is the other way a broken scan
           # looks like success — a wrong scheme indexes nothing at all.
-          if [ "$COUNT" -eq 0 ] && [ "$BASELINE" -gt 0 ]; then
-            echo "::error::Scan reported zero declarations against a baseline of ${BASELINE}; treating as a failed scan"
+          if [ "$WARNING_COUNT" -eq 0 ] && [ "$BASELINE_WARNING_COUNT" -gt 0 ]; then
+            echo "::error::Scan reported zero warnings against nonzero baselines; treating as a failed scan"
             cat periphery-report.txt
             exit 1
           fi
-          if [ "$COUNT" -gt "$BASELINE" ]; then
-            echo "::error::Unused declarations rose from ${BASELINE} to ${COUNT}"
+          if [ "$WARNING_COUNT" -ne "$KNOWN_WARNING_COUNT" ]; then
+            echo "::error::Periphery reported an unclassified warning category"
             exit 1
           fi
-          if [ "$COUNT" -lt "$BASELINE" ]; then
-            echo "::notice::Unused declarations fell to ${COUNT}; lower .periphery-baseline to lock it in"
+          if [ "$UNUSED_COUNT" -gt "$UNUSED_BASELINE" ]; then
+            echo "::error::Unused declarations rose from ${UNUSED_BASELINE} to ${UNUSED_COUNT}"
+            exit 1
+          fi
+          if [ "$ACCESSIBILITY_COUNT" -gt "$ACCESSIBILITY_BASELINE" ]; then
+            echo "::error::Redundant public accessibility rose from ${ACCESSIBILITY_BASELINE} to ${ACCESSIBILITY_COUNT}"
+            exit 1
+          fi
+          if [ "$UNUSED_COUNT" -lt "$UNUSED_BASELINE" ]; then
+            echo "::notice::Unused declarations fell to ${UNUSED_COUNT}; lower its baseline to lock it in"
+          fi
+          if [ "$ACCESSIBILITY_COUNT" -lt "$ACCESSIBILITY_BASELINE" ]; then
+            echo "::notice::Redundant public accessibility fell to ${ACCESSIBILITY_COUNT}; lower its baseline to lock it in"
           fi
 
   gate:
