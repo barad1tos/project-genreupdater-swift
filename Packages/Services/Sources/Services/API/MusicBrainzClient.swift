@@ -171,6 +171,22 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         return components?.url
     }
 
+    /// Escapes a value for use inside a Lucene quoted phrase.
+    ///
+    /// A quoted phrase treats every metacharacter literally except `\` and `"`,
+    /// so those two are the whole job — Python escapes its full metacharacter
+    /// list only because it sends an unquoted, non-fielded query. Backslash
+    /// goes first or it would double-escape the quotes added after it.
+    ///
+    /// Without this, an artist name carrying a quote rewrites the query: a
+    /// library entry named `Radiohead" OR artist:"Metallica` returns Metallica,
+    /// and with `limit=1` the caller silently adopts the wrong artist's region.
+    static func escapeLucenePhrase(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
     /// Builds an artist search URL for the given artist name.
     ///
     /// Query format: `artist:"<artist>"` with `&fmt=json`.
@@ -179,7 +195,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         components?.queryItems = [
             URLQueryItem(
                 name: "query",
-                value: "artist:\"\(artist)\""
+                value: "artist:\"\(escapeLucenePhrase(artist))\""
             ),
             URLQueryItem(name: "fmt", value: "json"),
             URLQueryItem(name: "limit", value: "1"),
