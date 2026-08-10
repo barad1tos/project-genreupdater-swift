@@ -84,8 +84,14 @@ public actor CachedAnalyticsService: AnalyticsService {
         // disable the cap was left holding a single event.
         let maxEvents = configuration.maxEvents
         if maxEvents > 0, events.count >= maxEvents {
-            let prune = max(5, maxEvents / 10)
-            events.removeFirst(min(prune, events.count))
+            // Python's batch, plus whatever it takes to actually fit under the
+            // cap. Python only ever sets max_events at construction, so a batch
+            // of 10% always sufficed there; `updateConfiguration` can lower the
+            // cap here, and 10% of the NEW cap would leave the old buffer
+            // hovering thousands of events above it.
+            let batch = max(5, maxEvents / 10)
+            let toFitNewEvent = events.count - maxEvents + 1
+            events.removeFirst(min(max(batch, toFitNewEvent), events.count))
         }
 
         events.append(event)

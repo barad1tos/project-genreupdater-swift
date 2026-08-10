@@ -63,6 +63,32 @@ struct CachedAnalyticsServiceTests {
         #expect(events?.count == 8)
     }
 
+    @Test("Lowering the cap at runtime converges on the next event")
+    func loweringTheCapConvergesOnTheNextEvent() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        var configuration = AnalyticsConfig()
+        configuration.enabled = true
+        configuration.maxEvents = 200
+        let service = CachedAnalyticsService(cache: cache, configuration: configuration)
+
+        for index in 0 ..< 200 {
+            await service.trackEvent("event-\(index)", duration: .seconds(1), metadata: [:])
+        }
+
+        configuration.maxEvents = 10
+        await service.updateConfiguration(configuration)
+        await service.trackEvent("after-lowering", duration: .seconds(1), metadata: [:])
+
+        // A 10% batch of the NEW cap is 5 events, which would leave the buffer
+        // sitting near 200 for a long time. Settings apply through
+        // updateConfiguration at runtime, which Python never does.
+        let events: [AnalyticsEvent]? = await cache.get(key: CachedAnalyticsService.eventsCacheKey)
+        let types = try #require(events?.map(\.eventType))
+        #expect(types.count <= 10)
+        #expect(types.last == "after-lowering")
+    }
+
     @Test("A realistic cap prunes in batches and keeps the window below it")
     func realisticCapPrunesInBatches() async throws {
         let cache = try GRDBCacheService.createInMemory()
