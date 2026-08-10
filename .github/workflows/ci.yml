@@ -222,12 +222,16 @@ jobs:
             --retain-assign-only-properties \
             --retain-objc-accessible \
             --exclude-tests \
-            --quiet > periphery-report.txt 2>&1
+            --disable-update-check \
+            --verbose \
+            --write-results periphery-report.txt \
+            > periphery-scan.log 2>&1
           SCAN_STATUS=$?
           set -e
           bash scripts/validate-periphery-report.sh \
             .periphery-baseline \
             periphery-report.txt \
+            periphery-scan.log \
             "$SCAN_STATUS"
 
   gate:

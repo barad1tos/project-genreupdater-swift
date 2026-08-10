@@ -2,14 +2,15 @@
 
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
-    echo "Usage: $0 <baseline> <report> <scan-status>"
+if [[ $# -ne 4 ]]; then
+    echo "Usage: $0 <baseline> <report> <scan-log> <scan-status>"
     exit 2
 fi
 
 BASELINE_PATH=$1
 REPORT_PATH=$2
-SCAN_STATUS=$3
+SCAN_LOG_PATH=$3
+SCAN_STATUS=$4
 
 if [[ ! $SCAN_STATUS =~ ^[0-9]+$ ]]; then
     echo "::error::Periphery scan status must be a non-negative integer"
@@ -18,12 +19,21 @@ fi
 
 if [[ $SCAN_STATUS -ne 0 ]]; then
     echo "::error::Periphery scan failed with exit code $SCAN_STATUS"
+    [[ -f $SCAN_LOG_PATH ]] && cat "$SCAN_LOG_PATH"
     [[ -f $REPORT_PATH ]] && cat "$REPORT_PATH"
     exit 1
 fi
 
-if [[ ! -f $BASELINE_PATH || ! -f $REPORT_PATH ]]; then
-    echo "::error::Periphery baseline and report files must exist"
+if [[ ! -f $BASELINE_PATH || ! -f $REPORT_PATH || ! -f $SCAN_LOG_PATH ]]; then
+    echo "::error::Periphery baseline, report, and scan log files must exist"
+    exit 1
+fi
+
+if ! grep -Eq '^\[xcode:project\] Loading .*/GenreUpdater\.xcodeproj$' "$SCAN_LOG_PATH" \
+    || ! grep -Fxq '* Analyzing...' "$SCAN_LOG_PATH" \
+    || ! grep -Eq '^\[index:swift:phase:one\] .+ \(Genre_Updater\) \([0-9.]+s\)$' "$SCAN_LOG_PATH"; then
+    echo "::error::Periphery scan log does not prove analysis of the GenreUpdater app target"
+    cat "$SCAN_LOG_PATH"
     exit 1
 fi
 
