@@ -28,10 +28,6 @@ enum WorkflowMode: String, CaseIterable, Identifiable {
         case .releaseYearRestore: "arrow.uturn.backward.circle"
         }
     }
-
-    var requiresFeatureGate: Bool {
-        self == .fullLibrary
-    }
 }
 
 // MARK: - Smart Filter Type
@@ -181,7 +177,6 @@ final class WorkflowViewModel {
     let changePreviewPipeline: ChangePreviewPipeline
     let pendingVerificationService: (any PendingVerificationService)?
     let featureGate: FeatureGate?
-    let recordProcessedTracks: (Int) -> Void
     let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
     let ensureRecoveryHold: () async -> Bool
     let clearRecovery: (UUID) async throws -> Void
@@ -212,7 +207,6 @@ final class WorkflowViewModel {
         changePreviewPipeline = dependencies.changePreviewPipeline
         pendingVerificationService = dependencies.pendingVerificationService
         featureGate = dependencies.featureGate
-        recordProcessedTracks = dependencies.recordProcessedTracks
         runMaintenancePreflight = dependencies.runMaintenancePreflight
         ensureRecoveryHold = dependencies.ensureRecoveryHold
         clearRecovery = dependencies.clearRecovery

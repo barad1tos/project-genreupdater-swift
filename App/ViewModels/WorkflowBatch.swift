@@ -220,15 +220,17 @@ extension WorkflowViewModel {
         let coordinator = updateCoordinator
         do {
             let batchResult = try await batchProcessor.performRecoverableWrite(
-                trackCount: Set(apply.accepted.map(\.track.id)).count
-            ) {
-                try await coordinator.applyAcceptedChanges(
-                    apply.accepted,
-                    progressHandler: progressHandler
-                )
-            }
+                trackCount: Set(apply.accepted.map(\.track.id)).count,
+                appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+                partialTrackIDs: { _ in [] },
+                operation: {
+                    try await coordinator.applyAcceptedChanges(
+                        apply.accepted,
+                        progressHandler: progressHandler
+                    )
+                }
+            )
             result = batchResult
-            recordAppliedTrackUsage(from: batchResult)
             phase = .done
             progress = nil
             return batchResult

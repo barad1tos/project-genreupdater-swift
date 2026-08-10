@@ -51,7 +51,11 @@ extension UpdateCoordinator {
                 wasCancelled = true
                 break
             } catch let error as AppleScriptOutcomeError {
-                throw error
+                guard !entries.isEmpty else { throw error }
+                throw PartialWriteError(
+                    appliedTrackIDs: Set(entries.map(\.trackID)),
+                    underlyingError: error
+                )
             } catch {
                 failedTrackIDs.append(track.id)
                 errorDescriptions.append(error.localizedDescription)

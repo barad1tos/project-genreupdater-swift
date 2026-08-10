@@ -6,6 +6,26 @@ import Testing
 
 @Suite("Fix plan write factory")
 struct FixPlanFactoryTests {
+    @Test("a free user spends one track after applying a reviewed fix plan")
+    @MainActor
+    func freePlanConsumesAllowance() async throws {
+        let usage = MeteredTracksBox()
+        let gate = FeatureGate(
+            fixedTier: .free,
+            usageRecorder: { usage.count += $0 }
+        )
+        let fixture = await makeWriteFixture(
+            hasInitialRecovery: false,
+            featureGate: gate
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        await fixture.script.returnChangedOutcome()
+
+        _ = try await fixture.run(fixture.input)
+
+        #expect(usage.count == 1)
+    }
+
     @Test("Fix plan writer enforces recovery admission")
     @MainActor
     func enforcesRecovery() async throws {
@@ -199,7 +219,10 @@ private struct WriteFixture {
 }
 
 @MainActor
-private func makeWriteFixture(hasInitialRecovery: Bool) async -> WriteFixture {
+private func makeWriteFixture(
+    hasInitialRecovery: Bool,
+    featureGate: FeatureGate? = nil
+) async -> WriteFixture {
     let item = makeItem()
     let plan = makePlan(item)
     let decision = FixPlanReviewDecision(
@@ -217,7 +240,7 @@ private func makeWriteFixture(hasInitialRecovery: Bool) async -> WriteFixture {
         .appendingPathComponent("FixPlanFactoryTests-\(UUID().uuidString)")
     let processor = BatchProcessor(
         checkpointManager: CheckpointManager(directory: directory),
-        featureGate: FeatureGate(fixedTier: .pro)
+        featureGate: featureGate ?? FeatureGate(fixedTier: .pro)
     )
     let coordinator = makeCoordinator(script: script, mapper: mapper, directory: directory)
     let recovery = RecoveryProbe(isHeld: hasInitialRecovery)

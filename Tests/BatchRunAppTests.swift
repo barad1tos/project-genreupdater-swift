@@ -1,8 +1,8 @@
 import Core
 import Foundation
-import Services
 import Testing
 @testable import Genre_Updater
+@testable import Services
 
 /// D3 (slice 12): the orchestrator's batch runner bridge reaches the
 /// registered live provider, and a windowless submit fails fast with an
@@ -188,11 +188,18 @@ struct BatchRunAppTests {
         #expect(batchRecords.allSatisfy { $0.finishedAt == nil || $0.state == .cancelled })
     }
 
-    @Test("apply-accepted flows through the orchestrator to a record")
-    func applyAcceptedFlowsThroughOrchestratorToRecord() async {
-        let metered = MeteredTracksBox()
+    @Test("a free user sees one used track after a successful batch")
+    func freeBatchConsumesAllowance() async throws {
+        let defaultsSuite = "BatchRunAppTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let subscription = SubscriptionService(
+            counterStore: MemoryCounterStore(),
+            userDefaults: defaults
+        )
+        let gate = AppDependencies.makeFeatureGate(for: subscription)
         let fixture = makeWorkflowFixture(configure: { options in
-            options.recordProcessedTracks = { metered.count += $0 }
+            options.featureGate = gate
         })
         let viewModel = fixture.viewModel
         viewModel.phase = .review
@@ -209,9 +216,7 @@ struct BatchRunAppTests {
         let batchRecords = await fixture.runRecords.records.filter { $0.intent == .batchUpdate }
         #expect(batchRecords.last?.state == .completed)
         #expect(viewModel.pendingBatchExecution == nil)
-        // The free-tier metering call lives inside the runner section
-        // now; a taxonomy refactor must not drop it.
-        #expect(metered.count == 1)
+        #expect(subscription.freeTracksUsed == 1)
     }
 
     @Test("a lost terminal record surfaces recovery instead of a done screen")
@@ -359,4 +364,16 @@ private final class ReceivedRunBox {
 @MainActor
 final class MeteredTracksBox {
     var count = 0
+}
+
+private final class MemoryCounterStore: SubscriptionCounterStore {
+    private var values: [String: Int64] = [:]
+
+    func counter(forKey key: String) -> Int64 {
+        values[key, default: 0]
+    }
+
+    func setCounter(_ value: Int64, forKey key: String) {
+        values[key] = value
+    }
 }

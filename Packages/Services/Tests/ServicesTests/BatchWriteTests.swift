@@ -229,11 +229,17 @@ struct BatchWriteTests {
         await fixture.bridge.setFetchedTracks([track])
         let proposals = acceptedProposals(for: track)
 
-        await #expect(throws: AppleScriptOutcomeError.self) {
+        do {
             _ = try await fixture.coordinator.applyAcceptedChanges(
                 proposals,
                 progressHandler: ignoreProgress
             )
+            Issue.record("Expected a partially applied batch outcome")
+        } catch let error as PartialWriteError {
+            #expect(error.appliedTrackIDs == [track.id])
+            #expect(error.underlyingError is AppleScriptOutcomeError)
+        } catch {
+            Issue.record("Expected PartialWriteError, got \(error)")
         }
 
         let batches = await fixture.bridge.batchUpdates

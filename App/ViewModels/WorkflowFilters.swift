@@ -57,10 +57,4 @@ extension WorkflowViewModel {
             return false
         }
     }
-
-    func recordAppliedTrackUsage(from result: BatchUpdateResult) {
-        let appliedTrackCount = Set(result.entries.map(\.trackID)).count
-        guard appliedTrackCount > 0 else { return }
-        recordProcessedTracks(appliedTrackCount)
-    }
 }

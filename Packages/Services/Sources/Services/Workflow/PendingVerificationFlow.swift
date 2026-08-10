@@ -28,6 +28,18 @@ extension UpdateCoordinator {
             return PendingAlbumVerificationResult(entries: [], resolvedYear: nil)
         }
 
+        return try await applyPendingVerificationYear(
+            year,
+            result: yearResult,
+            albumTracks: albumTracks
+        )
+    }
+
+    private func applyPendingVerificationYear(
+        _ year: Int,
+        result: YearResult,
+        albumTracks: [Track]
+    ) async throws -> PendingAlbumVerificationResult {
         var entries: [ChangeLogEntry] = []
         var unchangedTrackIDs: [String] = []
         var failedTrackIDs: [String] = []
@@ -38,8 +50,8 @@ extension UpdateCoordinator {
                 changeType: .yearUpdate,
                 oldValue: track.year.map(String.init),
                 newValue: String(year),
-                confidence: yearResult.confidence,
-                source: yearResult.isDefinitive ? "Definitive" : "API"
+                confidence: result.confidence,
+                source: result.isDefinitive ? "Definitive" : "API"
             )
             guard runtimeConfiguration.allowsChange(change) else {
                 failedTrackIDs.append(track.id)
@@ -48,14 +60,22 @@ extension UpdateCoordinator {
                 )
                 continue
             }
-            if let entry = try await applyPendingVerificationChange(
-                change,
-                failedTrackIDs: &failedTrackIDs,
-                errorDescriptions: &errorDescriptions
-            ) {
-                entries.append(entry)
-            } else {
-                unchangedTrackIDs.append(track.id)
+            do {
+                if let entry = try await applyPendingVerificationChange(
+                    change,
+                    failedTrackIDs: &failedTrackIDs,
+                    errorDescriptions: &errorDescriptions
+                ) {
+                    entries.append(entry)
+                } else {
+                    unchangedTrackIDs.append(track.id)
+                }
+            } catch {
+                guard !entries.isEmpty else { throw error }
+                throw PartialWriteError(
+                    appliedTrackIDs: Set(entries.map(\.trackID)),
+                    underlyingError: error
+                )
             }
         }
 
@@ -66,7 +86,7 @@ extension UpdateCoordinator {
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions,
             canClearPendingEntry: failedTrackIDs.isEmpty
-                && (yearResult.isDefinitive || !entries.isEmpty || !unchangedTrackIDs.isEmpty)
+                && (result.isDefinitive || !entries.isEmpty || !unchangedTrackIDs.isEmpty)
         )
     }
 

@@ -9,7 +9,6 @@ extension WorkflowViewModel {
         let changePreviewPipeline: ChangePreviewPipeline
         let pendingVerificationService: (any PendingVerificationService)?
         let featureGate: FeatureGate?
-        let recordProcessedTracks: (Int) -> Void
         let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
         let ensureRecoveryHold: () async -> Bool
         let clearRecovery: (UUID) async throws -> Void
@@ -27,9 +26,6 @@ extension WorkflowViewModel {
             changePreviewPipeline: ChangePreviewPipeline,
             pendingVerificationService: (any PendingVerificationService)? = nil,
             featureGate: FeatureGate? = nil,
-            recordProcessedTracks: @escaping (Int) -> Void = { _ in
-                // Default for tests/previews; production injects subscription metering.
-            },
             runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
             ensureRecoveryHold: @escaping () async -> Bool = { false },
             clearRecovery: @escaping (UUID) async throws -> Void,
@@ -49,7 +45,6 @@ extension WorkflowViewModel {
             self.changePreviewPipeline = changePreviewPipeline
             self.pendingVerificationService = pendingVerificationService
             self.featureGate = featureGate
-            self.recordProcessedTracks = recordProcessedTracks
             self.runMaintenancePreflight = runMaintenancePreflight
             self.ensureRecoveryHold = ensureRecoveryHold
             self.clearRecovery = clearRecovery

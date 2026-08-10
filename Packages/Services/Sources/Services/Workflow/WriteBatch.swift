@@ -41,6 +41,8 @@ extension UpdateCoordinator {
             batchOutcome = verifiedBatchOutcome
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as PartialWriteError {
+            throw error
         } catch let error as WorkCheckpointError {
             throw error
         } catch let error as AppleScriptOutcomeError {
@@ -316,6 +318,8 @@ extension UpdateCoordinator {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as PartialWriteError {
+            throw error
         } catch let error as WorkCheckpointError {
             throw error
         } catch let outcome as AppleScriptOutcomeError {

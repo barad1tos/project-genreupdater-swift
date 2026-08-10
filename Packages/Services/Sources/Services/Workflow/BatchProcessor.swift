@@ -27,6 +27,22 @@ public enum BatchProcessorError: Error, LocalizedError {
     }
 }
 
+/// Carries successful track writes completed before a later operation failed.
+public struct PartialWriteError: Error, Sendable {
+    public let appliedTrackIDs: Set<String>
+    public let underlyingError: any Error
+
+    public init(appliedTrackIDs: Set<String>, underlyingError: any Error) {
+        if let partialWrite = underlyingError as? Self {
+            self.appliedTrackIDs = appliedTrackIDs.union(partialWrite.appliedTrackIDs)
+            self.underlyingError = partialWrite.underlyingError
+        } else {
+            self.appliedTrackIDs = appliedTrackIDs
+            self.underlyingError = underlyingError
+        }
+    }
+}
+
 // MARK: - Resume State
 
 /// State loaded from a checkpoint for resume operations.
@@ -181,26 +197,57 @@ public actor BatchProcessor {
         return recoveryID
     }
 
-    /// - Parameter trackCount: distinct tracks this write may touch. Required
-    ///   rather than defaulted so the compiler names every write path when the
-    ///   gate moves; a default would let a caller opt out in silence.
+    /// - Parameters:
+    ///   - trackCount: Distinct tracks this write may touch. Required rather
+    ///     than defaulted so the compiler names every write path when the gate
+    ///     moves; a default would let a caller opt out in silence.
+    ///   - appliedTrackIDs: Projects the distinct tracks actually changed by a
+    ///     successful operation. Failed and no-op writes must not be returned.
+    ///   - partialTrackIDs: Projects known successful changes carried by a
+    ///     thrown partial outcome. Unknown outcomes must return an empty set.
+    ///   - operation: Performs the admitted write and returns its result.
     public func performRecoverableWrite<Value: Sendable>(
         trackCount: Int,
+        appliedTrackIDs: @Sendable (Value) -> Set<String>,
+        partialTrackIDs: @Sendable (any Error) -> Set<String>,
         operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
         try await reserveWrite(requiresBatchFeature: false, trackCount: trackCount)
         defer { isWriteReserved = false }
         do {
-            return try await operation()
-        } catch let outcome as AppleScriptOutcomeError {
+            let result = try await operation()
+            await featureGate.recordTrackUsage(for: appliedTrackIDs(result))
+            return result
+        } catch {
+            let writeError: any Error
+            let recordedTrackIDs: Set<String>
+            if let partialWrite = error as? PartialWriteError {
+                writeError = partialWrite.underlyingError
+                recordedTrackIDs = partialWrite.appliedTrackIDs.union(partialTrackIDs(writeError))
+            } else {
+                writeError = error
+                recordedTrackIDs = partialTrackIDs(error)
+            }
+
+            await featureGate.recordTrackUsage(for: recordedTrackIDs)
+            await preserveRecovery(for: writeError)
+            throw writeError
+        }
+    }
+
+    private func preserveRecovery(for error: any Error) async {
+        if let outcome = error as? AppleScriptOutcomeError {
             let recoveryID = activateRecovery(batchID: UUID(), completion: outcome.completion)
             await persistRecoveryPlaceholder(batchID: recoveryID)
-            throw outcome
-        } catch let WorkCheckpointError.store(failure) where failure.completion != nil {
-            let recoveryID = activateRecovery(batchID: UUID(), completion: failure.completion)
-            await persistRecoveryPlaceholder(batchID: recoveryID)
-            throw WorkCheckpointError.store(failure)
+            return
         }
+
+        guard let checkpointError = error as? WorkCheckpointError,
+              case let .store(failure) = checkpointError,
+              let completion = failure.completion
+        else { return }
+        let recoveryID = activateRecovery(batchID: UUID(), completion: completion)
+        await persistRecoveryPlaceholder(batchID: recoveryID)
     }
 
     // MARK: Process

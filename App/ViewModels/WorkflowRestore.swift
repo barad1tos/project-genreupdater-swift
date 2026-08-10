@@ -23,14 +23,17 @@ extension WorkflowViewModel {
                 let threshold = releaseYearRestoreThreshold
                 let coordinator = updateCoordinator
                 restoreResult = try await batchProcessor.performRecoverableWrite(
-                    trackCount: Set(scopedTracks.map(\.id)).count
-                ) {
-                    try await coordinator.restoreReleaseYears(
-                        in: scopedTracks,
-                        threshold: threshold,
-                        progressHandler: progressHandler
-                    )
-                }
+                    trackCount: Set(scopedTracks.map(\.id)).count,
+                    appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+                    partialTrackIDs: { _ in [] },
+                    operation: {
+                        try await coordinator.restoreReleaseYears(
+                            in: scopedTracks,
+                            threshold: threshold,
+                            progressHandler: progressHandler
+                        )
+                    }
+                )
             } catch let error as AppleScriptOutcomeError {
                 await handleUnknownOutcome(error)
                 return

@@ -49,6 +49,21 @@ private enum KVSKey {
     static let weekPassPurchaseCount = "weekPassPurchaseCount"
 }
 
+protocol SubscriptionCounterStore: AnyObject {
+    func counter(forKey key: String) -> Int64
+    func setCounter(_ value: Int64, forKey key: String)
+}
+
+extension NSUbiquitousKeyValueStore: SubscriptionCounterStore {
+    func counter(forKey key: String) -> Int64 {
+        longLong(forKey: key)
+    }
+
+    func setCounter(_ value: Int64, forKey key: String) {
+        set(NSNumber(value: value), forKey: key)
+    }
+}
+
 // MARK: - SubscriptionService
 
 @MainActor
@@ -70,7 +85,7 @@ public final class SubscriptionService {
     // MARK: - Internal State
 
     @ObservationIgnored private var transactionListener: Task<Void, Never>?
-    private let iCloudStore: NSUbiquitousKeyValueStore
+    private let counterStore: any SubscriptionCounterStore
     private let userDefaults: UserDefaults
     private let dateProvider: @Sendable () -> Date
 
@@ -78,12 +93,24 @@ public final class SubscriptionService {
 
     // MARK: - Init
 
-    public init(
+    public convenience init(
         iCloudStore: NSUbiquitousKeyValueStore = .default,
         userDefaults: UserDefaults = .standard,
         dateProvider: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.iCloudStore = iCloudStore
+        self.init(
+            counterStore: iCloudStore,
+            userDefaults: userDefaults,
+            dateProvider: dateProvider
+        )
+    }
+
+    init(
+        counterStore: any SubscriptionCounterStore,
+        userDefaults: UserDefaults,
+        dateProvider: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.counterStore = counterStore
         self.userDefaults = userDefaults
         self.dateProvider = dateProvider
     }
@@ -142,7 +169,7 @@ public final class SubscriptionService {
 
     public func incrementFreeTracksUsed(by count: Int) {
         freeTracksUsed += count
-        iCloudStore.set(Int64(freeTracksUsed), forKey: KVSKey.freeTracksUsed)
+        counterStore.setCounter(Int64(freeTracksUsed), forKey: KVSKey.freeTracksUsed)
         userDefaults.set(freeTracksUsed, forKey: Self.localCounterKey)
 
         log.debug("Free tracks used: \(self.freeTracksUsed, privacy: .public)")
@@ -253,12 +280,12 @@ public final class SubscriptionService {
     // MARK: - Internal: iCloud Counters
 
     private func loadICloudCounters() {
-        let iCloudValue = Int(iCloudStore.longLong(forKey: KVSKey.freeTracksUsed))
+        let iCloudValue = Int(counterStore.counter(forKey: KVSKey.freeTracksUsed))
         let localValue = userDefaults.integer(forKey: Self.localCounterKey)
         freeTracksUsed = max(iCloudValue, localValue)
         userDefaults.set(freeTracksUsed, forKey: Self.localCounterKey)
 
-        weekPassPurchaseCount = Int(iCloudStore.longLong(forKey: KVSKey.weekPassPurchaseCount))
+        weekPassPurchaseCount = Int(counterStore.counter(forKey: KVSKey.weekPassPurchaseCount))
         log.debug(
             "Counters loaded: tracks=\(self.freeTracksUsed, privacy: .public) (iCloud=\(iCloudValue, privacy: .public), local=\(localValue, privacy: .public)), weekPasses=\(self.weekPassPurchaseCount, privacy: .public)"
         )
@@ -267,7 +294,7 @@ public final class SubscriptionService {
     private func trackWeekPassPurchaseIfNeeded(_ transaction: Transaction) {
         guard transaction.productID == SubscriptionProductID.weekPass else { return }
         weekPassPurchaseCount += 1
-        iCloudStore.set(Int64(weekPassPurchaseCount), forKey: KVSKey.weekPassPurchaseCount)
+        counterStore.setCounter(Int64(weekPassPurchaseCount), forKey: KVSKey.weekPassPurchaseCount)
     }
 }
 

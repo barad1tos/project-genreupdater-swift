@@ -612,6 +612,33 @@ struct ScopeWorkflowTests {
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 
+    @Test("a free user spends one track after restoring a release year")
+    func freeRestoreConsumesAllowance() async {
+        let usage = MeteredTracksBox()
+        let fixture = makeWorkflowFixture(configure: { options in
+            options.tier = .free
+            options.recordTrackUsage = { usage.count += $0 }
+        })
+        let viewModel = fixture.viewModel
+        viewModel.mode = .releaseYearRestore
+        viewModel.releaseYearRestoreThreshold = 5
+
+        viewModel.start(tracks: [
+            Track(
+                id: "plainsong",
+                name: "Plainsong",
+                artist: "The Cure",
+                album: "Disintegration",
+                year: 2025,
+                releaseYear: 1989
+            ),
+        ])
+        await viewModel.processingTask?.value
+
+        #expect(viewModel.result?.entries.map(\.trackID) == ["plainsong"])
+        #expect(usage.count == 1)
+    }
+
     @Test("release year restore marks failed writes in track status")
     func releaseYearRestoreMarksFailedWritesInTrackStatus() async {
         let fixture = makeWorkflowFixture(failingWriteTrackIDs: ["restore-failed"])

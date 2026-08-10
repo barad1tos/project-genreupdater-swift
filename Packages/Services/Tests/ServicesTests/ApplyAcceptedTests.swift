@@ -323,6 +323,64 @@ struct ApplyAcceptedTests {
         #expect(written.isEmpty)
     }
 
+    @Test("Accepted changes preserve successes before an unknown outcome")
+    func acceptedChangesPreserveSuccessesBeforeUnknownOutcome() async throws {
+        let fixture = await makeCoordinator()
+        let firstTrack = makeEditableTrack(id: "T1", genre: "Rock", year: 1999)
+        let secondTrack = makeEditableTrack(id: "T2", genre: "Rock", year: 1999)
+        await fixture.bridge.setWriteError(
+            AppleScriptOutcomeError(scriptName: "update_property", reason: "unverifiable response"),
+            for: secondTrack.id
+        )
+        let proposals = [firstTrack, secondTrack].map { track in
+            ProposedChange(
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Electronic",
+                confidence: 80,
+                source: "Library",
+                isAccepted: true
+            )
+        }
+
+        do {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                proposals,
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+            Issue.record("Expected the second write outcome to remain unknown")
+        } catch let error as PartialWriteError {
+            #expect(error.appliedTrackIDs == [firstTrack.id])
+            #expect(error.underlyingError is AppleScriptOutcomeError)
+        } catch {
+            Issue.record("Expected PartialWriteError, got \(error)")
+        }
+    }
+
+    @Test("A reviewed group preserves successes before an unknown outcome")
+    func reviewedGroupPreservesSuccessesBeforeUnknownOutcome() async throws {
+        let fixture = await makeCoordinator()
+        let track = makeEditableTrack(id: "T1", genre: "Rock", year: 1999)
+        await fixture.bridge.setWriteError(
+            AppleScriptOutcomeError(scriptName: "update_property", reason: "unverifiable response"),
+            forProperty: "year"
+        )
+
+        do {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                acceptedProposals(for: track),
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+            Issue.record("Expected the year outcome to remain unknown")
+        } catch let error as PartialWriteError {
+            #expect(error.appliedTrackIDs == [track.id])
+            #expect(error.underlyingError is AppleScriptOutcomeError)
+        } catch {
+            Issue.record("Expected PartialWriteError, got \(error)")
+        }
+    }
+
     @Test("Partially applied reviewed batches report an unknown outcome")
     func partialBatchIsUnknown() async throws {
         let mapper = TrackIDMapper()
@@ -344,11 +402,17 @@ struct ApplyAcceptedTests {
         await fixture.bridge.setFetchedTracks([appleScriptTrack])
         let proposals = acceptedProposals(for: musicKitTrack)
 
-        await #expect(throws: AppleScriptOutcomeError.self) {
+        do {
             _ = try await fixture.coordinator.applyAcceptedChanges(
                 proposals,
                 progressHandler: ignoreAcceptedChangeProgress
             )
+            Issue.record("Expected a partially applied batch outcome")
+        } catch let error as PartialWriteError {
+            #expect(error.appliedTrackIDs == [musicKitTrack.id])
+            #expect(error.underlyingError is AppleScriptOutcomeError)
+        } catch {
+            Issue.record("Expected PartialWriteError, got \(error)")
         }
 
         let batches = await fixture.bridge.batchUpdates

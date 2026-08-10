@@ -160,49 +160,54 @@ enum FixPlanWrite {
                 guard case let .track(identity) = item.target else { return nil }
                 return identity.readID
             }).count
-            return try await dependencies.batchProcessor.performRecoverableWrite(trackCount: trackCount) {
-                guard let plan = try await dependencies.fixPlanStore.plan(
-                    id: input.target.planID,
-                    revision: input.target.planRevision
-                ) else {
-                    throw Failure.missingPlan(input.target.planID)
-                }
-                guard let decision = try await dependencies.fixPlanStore.currentDecision(
-                    for: input.target.planID
-                ) else {
-                    throw Failure.missingDecision(input.target.planID)
-                }
-                guard decision.planRevision == input.target.planRevision,
-                      decision.revision == input.target.decisionRevision
-                else {
-                    throw Failure.staleDecision
-                }
-                try validateInput(input, plan: plan, decision: decision)
+            return try await dependencies.batchProcessor.performRecoverableWrite(
+                trackCount: trackCount,
+                appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+                partialTrackIDs: { _ in [] },
+                operation: {
+                    guard let plan = try await dependencies.fixPlanStore.plan(
+                        id: input.target.planID,
+                        revision: input.target.planRevision
+                    ) else {
+                        throw Failure.missingPlan(input.target.planID)
+                    }
+                    guard let decision = try await dependencies.fixPlanStore.currentDecision(
+                        for: input.target.planID
+                    ) else {
+                        throw Failure.missingDecision(input.target.planID)
+                    }
+                    guard decision.planRevision == input.target.planRevision,
+                          decision.revision == input.target.decisionRevision
+                    else {
+                        throw Failure.staleDecision
+                    }
+                    try validateInput(input, plan: plan, decision: decision)
 
-                let changes = try proposedChanges(from: plan, decision: decision)
-                let acceptedChanges = changes.filter(\.isAccepted)
-                guard !acceptedChanges.isEmpty else {
-                    throw Failure.noAcceptedItems
-                }
+                    let changes = try proposedChanges(from: plan, decision: decision)
+                    let acceptedChanges = changes.filter(\.isAccepted)
+                    guard !acceptedChanges.isEmpty else {
+                        throw Failure.noAcceptedItems
+                    }
 
-                let runtime = try await dependencies.makeRuntime(plan.configuration, input.scope)
-                let scriptConfiguration = plan.configuration.appConfiguration.applescript
-                try await prepareWriteIDs(
-                    for: acceptedChanges,
-                    mapper: dependencies.mapper,
-                    scriptClient: runtime.scripts,
-                    batchSize: scriptConfiguration.batchProcessing.idsBatchSize,
-                    timeout: scriptConfiguration.timeouts.idsBatchFetch
-                )
-                // The runtime coordinator is created per write; attribution
-                // stays set for its whole lifetime.
-                await runtime.coordinator.setRunAttribution(runID)
-                return try await runtime.coordinator.applyAcceptedChanges(
-                    changes,
-                    progressHandler: ignoreProgress,
-                    checkpoint: checkpoint
-                )
-            }
+                    let runtime = try await dependencies.makeRuntime(plan.configuration, input.scope)
+                    let scriptConfiguration = plan.configuration.appConfiguration.applescript
+                    try await prepareWriteIDs(
+                        for: acceptedChanges,
+                        mapper: dependencies.mapper,
+                        scriptClient: runtime.scripts,
+                        batchSize: scriptConfiguration.batchProcessing.idsBatchSize,
+                        timeout: scriptConfiguration.timeouts.idsBatchFetch
+                    )
+                    // The runtime coordinator is created per write; attribution
+                    // stays set for its whole lifetime.
+                    await runtime.coordinator.setRunAttribution(runID)
+                    return try await runtime.coordinator.applyAcceptedChanges(
+                        changes,
+                        progressHandler: ignoreProgress,
+                        checkpoint: checkpoint
+                    )
+                }
+            )
         }
     }
 

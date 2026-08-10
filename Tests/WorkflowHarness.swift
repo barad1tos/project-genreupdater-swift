@@ -30,7 +30,10 @@ struct WorkflowFixtureOptions {
     var updateIncrementalRunTimestamp: (() async -> Void)?
     var failRunRecordPersistence = false
     var failTerminalRunRecordPersistence = false
-    var recordProcessedTracks: (Int) -> Void = { _ in }
+    var recordTrackUsage: (Int) -> Void = { _ in
+        // Most workflow fixtures do not observe subscription persistence.
+    }
+    var featureGate: FeatureGate?
 }
 
 private struct WorkflowFixtureInput {
@@ -86,7 +89,10 @@ private func assembleWorkflowFixture(_ input: WorkflowFixtureInput) -> WorkflowF
         scriptClient: scriptClient,
         cache: cache
     )
-    let gate = FeatureGate(fixedTier: input.options.tier)
+    let gate = input.options.featureGate ?? FeatureGate(
+        fixedTier: input.options.tier,
+        usageRecorder: input.options.recordTrackUsage
+    )
     let processor = BatchProcessor(
         checkpointManager: CheckpointManager(
             directory: input.options.checkpointDirectory,
@@ -204,7 +210,6 @@ private func makeFixtureViewModel(
             changePreviewPipeline: ChangePreviewPipeline(),
             pendingVerificationService: input.pendingVerificationService,
             featureGate: gate,
-            recordProcessedTracks: input.options.recordProcessedTracks,
             runMaintenancePreflight: input.options.runMaintenancePreflight,
             ensureRecoveryHold: input.options.ensureRecoveryHold,
             clearRecovery: clearRecovery,

@@ -23,6 +23,8 @@ actor MockAppleScriptClient: AppleScriptClient {
     var singleWriteResult: AppleScriptWriteResult = .changed
     var customWriteError: Error?
     var customBatchError: Error?
+    private var writeErrorsByTrackID: [String: any Error] = [:]
+    private var writeErrorsByProperty: [String: any Error] = [:]
     private var failingWriteTrackIDs: Set<String> = []
     private var fetchedTracksByIDsCalls: [ScriptFetchRequest] = []
     private var fetchedAllTrackIDsTimeouts: [Duration?] = []
@@ -96,6 +98,14 @@ actor MockAppleScriptClient: AppleScriptClient {
         if let customWriteError {
             try await onAttempt?()
             throw customWriteError
+        }
+        if let writeError = writeErrorsByTrackID[trackID] {
+            try await onAttempt?()
+            throw writeError
+        }
+        if let writeError = writeErrorsByProperty[property] {
+            try await onAttempt?()
+            throw writeError
         }
         if shouldThrow || failingWriteTrackIDs.contains(trackID) {
             throw MockScriptError.intentional
@@ -186,6 +196,14 @@ actor MockAppleScriptClient: AppleScriptClient {
 
     func setCustomWriteError(_ error: Error?) {
         customWriteError = error
+    }
+
+    func setWriteError(_ error: (any Error)?, for trackID: String) {
+        writeErrorsByTrackID[trackID] = error
+    }
+
+    func setWriteError(_ error: (any Error)?, forProperty property: String) {
+        writeErrorsByProperty[property] = error
     }
 
     func setCustomBatchError(_ error: Error?) {

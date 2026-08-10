@@ -152,14 +152,17 @@ extension WorkflowViewModel {
                 Self.pendingAlbumTracks(for: $0, in: admissionGroups)
             }
             let runOutcome = try await batchProcessor.performRecoverableWrite(
-                trackCount: Set(admissionTracks.map(\.id)).count
-            ) { @MainActor [self] in
-                try await performPendingVerification(
-                    dueEntries: dueEntries,
-                    trackContext: trackContext,
-                    pendingVerificationService: pendingVerificationService
-                )
-            }
+                trackCount: Set(admissionTracks.map(\.id)).count,
+                appliedTrackIDs: { Set($0.completed.map(\.trackID)) },
+                partialTrackIDs: Self.partialTrackIDs,
+                operation: { @MainActor [self] in
+                    try await performPendingVerification(
+                        dueEntries: dueEntries,
+                        trackContext: trackContext,
+                        pendingVerificationService: pendingVerificationService
+                    )
+                }
+            )
             let finalRefreshGeneration = invalidatePendingVerificationRefreshes()
             await refreshPendingVerificationReportSummary(
                 refreshGeneration: finalRefreshGeneration,
@@ -213,14 +216,17 @@ extension WorkflowViewModel {
             let trackContext = await pendingVerificationTrackContext(from: pendingScopeTracks)
             preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
             let outcome = try await batchProcessor.performRecoverableWrite(
-                trackCount: Set(trackContext.tracks.map(\.id)).count
-            ) { @MainActor [self] in
-                try await performPendingVerification(
-                    dueEntries: dueEntries,
-                    trackContext: trackContext,
-                    pendingVerificationService: pendingVerificationService
-                )
-            }
+                trackCount: Set(trackContext.tracks.map(\.id)).count,
+                appliedTrackIDs: { Set($0.completed.map(\.trackID)) },
+                partialTrackIDs: Self.partialTrackIDs,
+                operation: { @MainActor [self] in
+                    try await performPendingVerification(
+                        dueEntries: dueEntries,
+                        trackContext: trackContext,
+                        pendingVerificationService: pendingVerificationService
+                    )
+                }
+            )
             let finalSnapshot = await pendingVerificationSnapshot()
             await refreshPendingVerificationReportSummary(snapshot: finalSnapshot, outcome: outcome)
             failedCount = outcome.failedTrackIDs.count
@@ -276,6 +282,12 @@ extension WorkflowViewModel {
                 processedCount += entryOutcome.processedCount
             } catch is CancellationError {
                 throw PendingVerificationCancellation(outcome: runOutcome)
+            } catch {
+                guard !runOutcome.completed.isEmpty else { throw error }
+                throw PartialWriteError(
+                    appliedTrackIDs: Set(runOutcome.completed.map(\.trackID)),
+                    underlyingError: error
+                )
             }
         }
 
@@ -291,6 +303,16 @@ extension WorkflowViewModel {
             }
         }
         return runOutcome
+    }
+
+    nonisolated private static func partialTrackIDs(from error: any Error) -> Set<String> {
+        if let cancellation = error as? PendingVerificationCancellation {
+            return Set(cancellation.outcome.completed.map(\.trackID))
+        }
+        if let failure = error as? PendingVerificationFailure {
+            return Set(failure.outcome.completed.map(\.trackID))
+        }
+        return []
     }
 
     private func pendingVerificationTrackContext(from tracks: [Track]) async -> PendingVerificationTrackContext {
@@ -430,6 +452,8 @@ extension WorkflowViewModel {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as PartialWriteError {
+            throw error
         } catch let error as AppleScriptOutcomeError {
             throw error
         } catch {
