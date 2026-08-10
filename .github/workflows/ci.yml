@@ -81,9 +81,8 @@ jobs:
         run: swift test --package-path Packages/Services --enable-code-coverage
         timeout-minutes: 5
 
-      # SharedUITests and DesignUITests existed and compiled but no job ran
-      # them, which is why their coverage read as ~0 — nothing was measuring.
-      # No threshold yet: a floor set at today's number would ratify the hole.
+      # Run UI package tests with coverage instrumentation. Thresholds remain
+      # deferred because current coverage is too low to provide a useful floor.
       - name: Test SharedUI
         run: swift test --package-path Packages/SharedUI --enable-code-coverage
         timeout-minutes: 5
@@ -194,12 +193,9 @@ jobs:
           Packages/SharedUI/Sources
           --lint
 
-      # The previous form scanned Core and Services only, with --retain-public.
-      # Every cross-package declaration is public by construction, so the flag
-      # suppressed nearly everything and App/, Agent/, SharedUI and DesignUI
-      # were never scanned at all — which is how ~3,900 lines of dead App code
-      # survived to slice 17. This scans the whole project through the index
-      # xcode-gate already produced, so --retain-public is unnecessary.
+      # Scan the application scheme so Periphery analyzes App, Agent, and
+      # package sources. Do not retain all public declarations because
+      # redundant package accessibility is part of the ratchet.
       #
       # A ratchet, not a clean bill: unused declarations and redundant public
       # access are separate debt categories, so neither can hide growth in the
