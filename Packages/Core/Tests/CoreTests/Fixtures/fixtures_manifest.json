@@ -1,0 +1,38 @@
+{
+  "_comment": "Provenance of the Python parity fixtures. 'generated' cases are emitted by tools/generate_swift_fixtures.py in the Python repo, which executes the real implementation. 'verifiedByExecution' cases were hand-authored and later confirmed by feeding their inputs through the same Python entry points. digest covers the canonical (sorted-key, separator-normalized) file contents. Regenerate with scripts/refresh-fixture-manifest.py after any intentional change.",
+  "files": {
+    "genre_reference.json": {
+      "digest": "sha256:90626ab935c505ac8951cc65a99d24b87d29e6bdfca176c093809f934b5563c0",
+      "caseCount": 33,
+      "generated": 26,
+      "verifiedByExecution": 7
+    },
+    "python_scoring_config.json": {
+      "digest": "sha256:f7b84b9e71c51298e8b8f0a571b47eaf5277a8e99206d9ee00633012ac42fb2b"
+    },
+    "year_fallback_reference.json": {
+      "digest": "sha256:e312f50bc3ff2908bd31c530117fe6416e5280e11ea89481b4b7509778e14a79",
+      "caseCount": 22,
+      "generated": 15,
+      "verifiedByExecution": 7
+    },
+    "year_resolution_reference.json": {
+      "digest": "sha256:003f861826d27f6552c203482359515816b30ff7a2fd99ac7038eb8b6ea62776",
+      "caseCount": 21,
+      "generated": 13,
+      "verifiedByExecution": 8
+    },
+    "year_scoring_reference.json": {
+      "digest": "sha256:e200de9f55cdb4e86bd51e5fd116797163a48065e56f5f1f0c75ffd5813e20c0",
+      "caseCount": 35,
+      "generated": 29,
+      "verifiedByExecution": 6
+    },
+    "year_validation_reference.json": {
+      "digest": "sha256:aa9779489a890fe9c22e5f6cb69ba946cc3ba57523f0c1ef1d9755e94d91e09c",
+      "caseCount": 18,
+      "generated": 13,
+      "verifiedByExecution": 5
+    }
+  }
+}

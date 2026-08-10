@@ -65,10 +65,14 @@ public enum FixPlanProjector {
         )
     }
 
+    /// Scores are unclamped domain values (Python parity: a perfect match is
+    /// 125), and every consumer of this renders it as "N% avg confidence".
+    /// Clamping belongs here, at the point the score becomes a percentage.
     private static func averageConfidence(for items: [FixPlanProjectionItem]) -> Int? {
         guard !items.isEmpty else { return nil }
         let total = items.reduce(0) { $0 + $1.confidence }
-        return Int((Double(total) / Double(items.count)).rounded())
+        let average = Int((Double(total) / Double(items.count)).rounded())
+        return min(100, max(0, average))
     }
 
     /// The single write-ID rule: a non-blank AppleScript ID. Browse

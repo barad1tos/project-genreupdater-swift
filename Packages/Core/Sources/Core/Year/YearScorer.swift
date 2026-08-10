@@ -184,7 +184,7 @@ public struct YearScorer: Sendable {
             existingYear: existingYear,
             calendarYear: calendarYear
         ) {
-            let confidence = min(100, max(0, existingYearResult.score))
+            let confidence = existingYearResult.score
             return YearResult(
                 year: existingYearResult.score > 0 ? existingYearResult.year : nil,
                 isDefinitive: existingYearResult.isDefinitive,
@@ -218,7 +218,10 @@ public struct YearScorer: Sendable {
             calendarYear: calendarYear
         )
 
-        let confidence = min(100, max(0, finalScore))
+        // Python parity: YearScoreResolver.select_best_year returns the raw
+        // best score as confidence — a perfect match reports 125, not 100.
+        // Clamping belongs at the display boundary, not in the domain.
+        let confidence = finalScore
 
         return YearResult(
             year: finalScore > 0 ? finalYear : nil,
@@ -441,8 +444,8 @@ public struct YearScorer: Sendable {
 
 extension YearScorer {
     private func scoreArtistMatch(query: String, candidate: String) -> Int {
-        let normQuery = normalizeArtistForMatching(query)
-        let normCandidate = normalizeArtistForMatching(candidate)
+        let normQuery = normalizePythonName(query)
+        let normCandidate = normalizePythonName(candidate)
 
         // Exact match after normalization
         if normQuery == normCandidate {
@@ -497,6 +500,26 @@ extension YearScorer {
         }
 
         return config.albumUnrelatedPenalty
+    }
+
+    /// Python parity: `ReleaseScorer._normalize_name` — lowercase, `&` to `and`,
+    /// drop everything outside `[\w\s]`, collapse whitespace runs, trim.
+    ///
+    /// Deliberately does NOT strip featuring credits or a leading "The".
+    /// `normalizeArtistForMatching` does both, which made a credited release
+    /// ("Eminem feat. Rihanna") an exact match against the bare artist and
+    /// scored it 50 points above Python's substring result.
+    private func normalizePythonName(_ text: String) -> String {
+        guard !text.isEmpty else { return "" }
+        let lowered = text.lowercased().replacingOccurrences(of: "&", with: "and")
+        let kept = lowered.unicodeScalars.filter { scalar in
+            CharacterSet.alphanumerics.contains(scalar)
+                || scalar == "_"
+                || CharacterSet.whitespacesAndNewlines.contains(scalar)
+        }
+        return String(String.UnicodeScalarView(kept))
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
     }
 
     /// Python parity: normalize by lowercasing and removing non-alphanumeric characters.

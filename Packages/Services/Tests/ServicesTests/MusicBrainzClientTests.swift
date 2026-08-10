@@ -207,6 +207,22 @@ struct MusicBrainzClientTests {
         #expect(urlString.contains("limit=1"))
     }
 
+    @Test("a quote in the artist name cannot break out of the query phrase")
+    func artistSearchEscapesQuotes() throws {
+        // Probed against the live API: unescaped, this name returns Metallica.
+        let url = try #require(MusicBrainzClient.buildArtistSearchURL(artist: "Radiohead\" OR artist:\"Metallica"))
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let query = try #require(components.queryItems?.first { $0.name == "query" }?.value)
+
+        #expect(query == "artist:\"Radiohead\\\" OR artist:\\\"Metallica\"")
+    }
+
+    @Test("backslashes are escaped before the quotes they would otherwise absorb")
+    func artistSearchEscapesBackslashesFirst() {
+        #expect(MusicBrainzClient.escapeLucenePhrase(#"AC\DC"#) == #"AC\\DC"#)
+        #expect(MusicBrainzClient.escapeLucenePhrase(#"a\"b"#) == #"a\\\"b"#)
+    }
+
     // MARK: - Request Headers
 
     @Test("makeRequest sets correct User-Agent header")
