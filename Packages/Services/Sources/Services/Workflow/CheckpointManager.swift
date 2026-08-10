@@ -231,11 +231,16 @@ public actor CheckpointManager {
 
     private func recoveryMarkerID() -> UUID? {
         guard let marker = recoveryDefaults.string(forKey: recoveryMarkerKey) else { return nil }
-        if let recoveryID = UUID(uuidString: marker) {
-            return recoveryID
+        guard let recoveryID = UUID(uuidString: marker) else {
+            // A marker we cannot parse names no batch. Minting a replacement
+            // made `loadRecovery` hand back a placeholder for a batch that
+            // never existed — a permanent hold, persisted across launches,
+            // which also hid any genuine pending recovery on disk by
+            // short-circuiting the checkpoint scan below it.
+            log.error("Discarding unparseable recovery marker")
+            recoveryDefaults.removeObject(forKey: recoveryMarkerKey)
+            return nil
         }
-        let recoveryID = UUID()
-        recoveryDefaults.set(recoveryID.uuidString, forKey: recoveryMarkerKey)
         return recoveryID
     }
 
