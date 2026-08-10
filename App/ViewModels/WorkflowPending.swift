@@ -140,7 +140,9 @@ extension WorkflowViewModel {
                 refreshGeneration: refreshGeneration
             ) else { return }
             preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
-            let runOutcome = try await batchProcessor.performRecoverableWrite { @MainActor [self] in
+            let runOutcome = try await batchProcessor.performRecoverableWrite(
+                trackCount: Set(trackContext.tracks.map(\.id)).count
+            ) { @MainActor [self] in
                 try await performPendingVerification(
                     dueEntries: dueEntries,
                     trackContext: trackContext,
@@ -199,7 +201,9 @@ extension WorkflowViewModel {
 
             let trackContext = await pendingVerificationTrackContext(from: pendingScopeTracks)
             preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
-            let outcome = try await batchProcessor.performRecoverableWrite { @MainActor [self] in
+            let outcome = try await batchProcessor.performRecoverableWrite(
+                trackCount: Set(trackContext.tracks.map(\.id)).count
+            ) { @MainActor [self] in
                 try await performPendingVerification(
                     dueEntries: dueEntries,
                     trackContext: trackContext,

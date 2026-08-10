@@ -153,7 +153,14 @@ enum FixPlanWrite {
             if await dependencies.hasRunRecovery() {
                 throw WriteAdmissionError.recoveryRequired
             }
-            return try await dependencies.batchProcessor.performRecoverableWrite {
+            // Distinct read identities in the run's work set. No production
+            // path builds an album work target, so track targets are the whole
+            // write surface.
+            let trackCount = Set(input.workItems.compactMap { item -> String? in
+                guard case let .track(identity) = item.target else { return nil }
+                return identity.readID
+            }).count
+            return try await dependencies.batchProcessor.performRecoverableWrite(trackCount: trackCount) {
                 guard let plan = try await dependencies.fixPlanStore.plan(
                     id: input.target.planID,
                     revision: input.target.planRevision

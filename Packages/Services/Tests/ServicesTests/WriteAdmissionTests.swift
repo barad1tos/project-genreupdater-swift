@@ -101,7 +101,7 @@ struct WriteAdmissionTests {
         await batchHold.waitUntilEntered()
 
         await #expect(throws: BatchProcessorError.self) {
-            _ = try await processor.performRecoverableWrite {
+            _ = try await processor.performRecoverableWrite(trackCount: 1) {
                 calls.append("external-during-batch")
                 return AppleScriptWriteResult.changed
             }
@@ -112,7 +112,7 @@ struct WriteAdmissionTests {
 
         let externalHold = WriteHold()
         let external = Task {
-            try await processor.performRecoverableWrite {
+            try await processor.performRecoverableWrite(trackCount: 1) {
                 calls.append("external")
                 await externalHold.wait()
                 return AppleScriptWriteResult.changed
@@ -135,6 +135,49 @@ struct WriteAdmissionTests {
         _ = try await external.value
     }
 
+    @Test("A write past the free limit is refused at the reservation")
+    func writePastFreeLimitIsRefusedAtReservation() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let processor = await BatchProcessor(
+            checkpointManager: CheckpointManager(directory: dir),
+            featureGate: FeatureGate(
+                fixedTier: .free,
+                freeTracksUsed: FeatureGate.freeTrackLimit
+            )
+        )
+        let calls = CallList()
+
+        // The gate used to live in WorkflowFilters, so this path — and the
+        // restore, pending-verification, and fix-plan paths beside it — wrote
+        // past the free limit without ever consulting it.
+        await #expect(throws: FeatureGateError.self) {
+            _ = try await processor.performRecoverableWrite(trackCount: 1) {
+                calls.append("write")
+            }
+        }
+        #expect(calls.values.isEmpty)
+    }
+
+    @Test("A write within the free limit still reserves")
+    func writeWithinFreeLimitReserves() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let processor = await BatchProcessor(
+            checkpointManager: CheckpointManager(directory: dir),
+            featureGate: FeatureGate(fixedTier: .free, freeTracksUsed: 0)
+        )
+        let calls = CallList()
+
+        _ = try await processor.performRecoverableWrite(trackCount: 1) {
+            calls.append("write")
+        }
+
+        #expect(calls.values == ["write"])
+    }
+
     @Test("Recovery clearance waits for the physical callback")
     func clearanceWaitsForCallback() async throws {
         let dir = FileManager.default.temporaryDirectory
@@ -147,16 +190,19 @@ struct WriteAdmissionTests {
         let gate = ScriptGate(limit: 2)
         let callback = CallbackHold()
         let dispatches = CallList()
-        let firstCall = ScriptCall(
-            name: "update_property",
-            intent: .mutation,
-            deadline: ContinuousClock().now.advanced(by: .milliseconds(20)),
-            timeout: .milliseconds(20)
-        )
-
         let outcome: AppleScriptOutcomeError
         do {
-            _ = try await processor.performRecoverableWrite {
+            _ = try await processor.performRecoverableWrite(trackCount: 1) {
+                // Built inside the write so the 20 ms budget measures the
+                // dispatch this test is about. Reserving a write crosses to
+                // the MainActor for the paid gate, and an absolute deadline
+                // captured before that hop times the reservation instead.
+                let firstCall = ScriptCall(
+                    name: "update_property",
+                    intent: .mutation,
+                    deadline: ContinuousClock().now.advanced(by: .milliseconds(20)),
+                    timeout: .milliseconds(20)
+                )
                 try await ScriptDispatch.run(firstCall, limiter: nil, gate: gate) { finish in
                     dispatches.append("first")
                     callback.store(finish)
@@ -179,7 +225,7 @@ struct WriteAdmissionTests {
         #expect(clearanceResults.count(where: { $0 }) == 1)
 
         await #expect(throws: AppleScriptOutcomeError.self) {
-            _ = try await processor.performRecoverableWrite {
+            _ = try await processor.performRecoverableWrite(trackCount: 1) {
                 throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
             }
         }
@@ -193,7 +239,7 @@ struct WriteAdmissionTests {
             deadline: ContinuousClock().now.advanced(by: .seconds(1)),
             timeout: .seconds(1)
         )
-        _ = try await processor.performRecoverableWrite {
+        _ = try await processor.performRecoverableWrite(trackCount: 1) {
             try await ScriptDispatch.run(secondCall, limiter: nil, gate: gate) { finish in
                 dispatches.append("second")
                 finish(.success("done"))
@@ -236,7 +282,7 @@ struct WriteAdmissionTests {
         let completion = ScriptCompletion()
 
         do {
-            _ = try await processor.performRecoverableWrite {
+            _ = try await processor.performRecoverableWrite(trackCount: 1) {
                 try await bridge.updateTrackProperty(
                     trackID: "101",
                     property: "genre",
@@ -300,7 +346,7 @@ struct WriteAdmissionTests {
         await waitForResult(secondResult)
         #expect(secondResult.value == false)
         await #expect(throws: BatchProcessorError.self) {
-            _ = try await processor.performRecoverableWrite {
+            _ = try await processor.performRecoverableWrite(trackCount: 1) {
                 dispatches.append("early-second")
                 return AppleScriptWriteResult.changed
             }
