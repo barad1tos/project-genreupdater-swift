@@ -34,10 +34,14 @@ struct RecoveryAdmissionTests {
             return
         }
         await gate.release()
-        guard case .failed = await active.value else {
+        guard case let .failed(snapshot) = await active.value else {
             Issue.record("Expected the fenced writer to fail before its attempt")
             return
         }
+        // Naming the reason keeps this honest: a plain .failed also matches a
+        // write that blew up for its own reasons, which would leave the
+        // recoveryPending fence itself unpinned.
+        #expect(snapshot.failureMessage == "A restored recovery hold blocks the next write attempt")
         #expect(await holds.liveCount == 0)
         #expect(await holds.restoredIDs == [recoveryID])
         #expect(await orchestrator.currentLifecycle()?.runID == recovery.runID)
