@@ -51,11 +51,21 @@ run_case reduced-debt 0 \
 run_case zero-clean-report 0 \
     'unused=0\nredundant_public_accessibility=0\n' \
     ''
-run_case zero-broken-scan 1 \
+run_case zero-missing-project 1 \
     'unused=0\nredundant_public_accessibility=0\n' \
     '' \
     0 \
-    '* Analyzing nothing\n'
+    '* Analyzing...\n[index:swift:phase:one] /tmp/App.swift (Genre_Updater) (0.001s)\n'
+run_case zero-missing-analysis 1 \
+    'unused=0\nredundant_public_accessibility=0\n' \
+    '' \
+    0 \
+    '[xcode:project] Loading /tmp/GenreUpdater.xcodeproj\n[index:swift:phase:one] /tmp/App.swift (Genre_Updater) (0.001s)\n'
+run_case zero-missing-app-unit 1 \
+    'unused=0\nredundant_public_accessibility=0\n' \
+    '' \
+    0 \
+    '[xcode:project] Loading /tmp/GenreUpdater.xcodeproj\n* Analyzing...\n'
 run_case scanner-failure 1 \
     'unused=1\nredundant_public_accessibility=1\n' \
     'Periphery failed before producing diagnostics\n' \
