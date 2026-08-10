@@ -165,7 +165,7 @@ jobs:
           brew install swiftlint swiftformat
           PERIPHERY_DIRECTORY="$RUNNER_TEMP/periphery-${PERIPHERY_VERSION}"
           PERIPHERY_ARCHIVE="${PERIPHERY_DIRECTORY}.zip"
-          curl --fail --location --silent --show-error \
+          curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error \
             --output "$PERIPHERY_ARCHIVE" \
             "https://github.com/peripheryapp/periphery/releases/download/${PERIPHERY_VERSION}/periphery-${PERIPHERY_VERSION}.zip"
           echo "${PERIPHERY_SHA256}  ${PERIPHERY_ARCHIVE}" | shasum --algorithm 256 --check
