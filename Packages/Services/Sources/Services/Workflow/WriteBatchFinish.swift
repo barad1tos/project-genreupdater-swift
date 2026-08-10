@@ -40,7 +40,7 @@ extension UpdateCoordinator {
         attemptedIndexes: Set<Int>,
         error: AppleScriptBatchVerificationError,
         checkpoint: WorkCheckpointSink?
-    ) async throws -> AppleScriptOutcomeError {
+    ) async throws -> any Error {
         let confirmedIndexes = batch.appliedIndexes.union(batch.noOpIndexes)
         let outcome = Self.partialBatchOutcome(
             applied: batch.appliedIndexes.count,
@@ -64,13 +64,12 @@ extension UpdateCoordinator {
             throw error
         }
         var reportedOutcome = outcome
-        do {
-            try await recordBatchEffects(
-                preparedWrites,
-                batch: batch,
-                indexes: confirmedIndexes
-            )
-        } catch {
+        let recordedEffects = await recordBatchEffects(
+            preparedWrites,
+            batch: batch,
+            indexes: confirmedIndexes
+        )
+        if let error = recordedEffects.error {
             log.error("""
             Batch finalization failed after checkpointing \(confirmedIndexes.count, privacy: .public) confirmed \
             outcomes with \(String(describing: type(of: error)), privacy: .public): \
@@ -85,7 +84,11 @@ extension UpdateCoordinator {
         for index in attemptedIndexes.subtracting(batch.appliedIndexes).sorted() {
             await invalidateCaches(for: preparedWrites[index].change)
         }
-        return reportedOutcome
+        guard !recordedEffects.trackIDs.isEmpty else { return reportedOutcome }
+        return PartialWriteError(
+            appliedTrackIDs: recordedEffects.trackIDs,
+            underlyingError: reportedOutcome
+        )
     }
 
     private func invalidateBatchCaches(_ preparedWrites: [PreparedWrite]) async {
@@ -171,7 +174,11 @@ extension UpdateCoordinator {
             }
         }
         if let firstFinalizationError {
-            throw firstFinalizationError
+            guard !entries.isEmpty else { throw firstFinalizationError }
+            throw PartialWriteError(
+                appliedTrackIDs: Set(entries.map(\.trackID)),
+                underlyingError: firstFinalizationError
+            )
         }
         return (entries, noOpEntries)
     }
@@ -225,14 +232,16 @@ extension UpdateCoordinator {
         _ preparedWrites: [PreparedWrite],
         batch: BatchFinalization,
         indexes: Set<Int>
-    ) async throws {
+    ) async -> (trackIDs: Set<String>, error: (any Error)?) {
+        var trackIDs: Set<String> = []
         var firstFinalizationError: (any Error)?
         for index in indexes.sorted() {
             let write = preparedWrites[index]
             switch Self.batchWorkOutcome(at: index, write: write, batch: batch) {
             case .written:
                 do {
-                    _ = try await recordAppliedChange(write.change)
+                    let entry = try await recordAppliedChange(write.change)
+                    trackIDs.insert(entry.trackID)
                 } catch {
                     firstFinalizationError = firstFinalizationError ?? error
                 }
@@ -242,8 +251,6 @@ extension UpdateCoordinator {
                 assertionFailure("Unexpected unconfirmed batch work outcome")
             }
         }
-        if let firstFinalizationError {
-            throw firstFinalizationError
-        }
+        return (trackIDs, firstFinalizationError)
     }
 }

@@ -76,6 +76,167 @@ private final class ClearanceProbe: @unchecked Sendable {
 
 @Suite("Write admission")
 struct WriteAdmissionTests {
+    @MainActor
+    @Test("Recoverable writes record only returned applied track IDs")
+    func recoverableWriteRecordsAppliedTracks() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var recordedCounts: [Int] = []
+        let processor = BatchProcessor(
+            checkpointManager: CheckpointManager(directory: dir),
+            featureGate: FeatureGate(
+                fixedTier: .free,
+                usageRecorder: { recordedCounts.append($0) }
+            )
+        )
+        let result = BatchUpdateResult(
+            entries: [
+                admissionEntry(trackID: "T1"),
+                admissionEntry(trackID: "T1"),
+                admissionEntry(trackID: "T2"),
+            ],
+            noOpEntries: [admissionEntry(trackID: "T4")],
+            failedTrackIDs: ["T3"],
+            errorDescriptions: ["failed"]
+        )
+
+        _ = try await processor.performRecoverableWrite(
+            trackCount: 3,
+            appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+            partialTrackIDs: { _ in [] }
+        ) {
+            result
+        }
+
+        #expect(recordedCounts == [2])
+    }
+
+    @MainActor
+    @Test("The same track is recorded again in a later write")
+    func laterWriteRecordsSameTrackAgain() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var recordedCounts: [Int] = []
+        let processor = BatchProcessor(
+            checkpointManager: CheckpointManager(directory: dir),
+            featureGate: FeatureGate(
+                fixedTier: .free,
+                usageRecorder: { recordedCounts.append($0) }
+            )
+        )
+        let result = BatchUpdateResult(
+            entries: [admissionEntry(trackID: "T1")],
+            failedTrackIDs: [],
+            errorDescriptions: []
+        )
+
+        for _ in 0 ..< 2 {
+            _ = try await processor.performRecoverableWrite(
+                trackCount: 1,
+                appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+                partialTrackIDs: { _ in [] },
+                operation: { result }
+            )
+        }
+
+        #expect(recordedCounts == [1, 1])
+    }
+
+    @MainActor
+    @Test("Failed recoverable writes do not record usage")
+    func failedRecoverableWriteDoesNotRecordUsage() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var recordedCounts: [Int] = []
+        let processor = BatchProcessor(
+            checkpointManager: CheckpointManager(directory: dir),
+            featureGate: FeatureGate(
+                fixedTier: .free,
+                usageRecorder: { recordedCounts.append($0) }
+            )
+        )
+
+        await #expect(throws: AdmissionWriteError.self) {
+            _ = try await processor.performRecoverableWrite(
+                trackCount: 1,
+                appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+                partialTrackIDs: { _ in [] },
+                operation: { () async throws -> BatchUpdateResult in
+                    throw AdmissionWriteError.failed
+                }
+            )
+        }
+
+        #expect(recordedCounts.isEmpty)
+    }
+
+    @MainActor
+    @Test("Recoverable writes record explicitly projected partial outcomes")
+    func recoverableWriteRecordsPartialOutcome() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var recordedCounts: [Int] = []
+        let processor = BatchProcessor(
+            checkpointManager: CheckpointManager(directory: dir),
+            featureGate: FeatureGate(
+                fixedTier: .free,
+                usageRecorder: { recordedCounts.append($0) }
+            )
+        )
+        let partialOutcome = AdmissionPartialWriteError(trackIDs: ["T1", "T2"])
+
+        await #expect(throws: AdmissionPartialWriteError.self) {
+            _ = try await processor.performRecoverableWrite(
+                trackCount: 2,
+                appliedTrackIDs: { (_: BatchUpdateResult) in [] },
+                partialTrackIDs: { error in
+                    (error as? AdmissionPartialWriteError)?.trackIDs ?? []
+                },
+                operation: { () async throws -> BatchUpdateResult in
+                    throw partialOutcome
+                }
+            )
+        }
+
+        #expect(recordedCounts == [2])
+    }
+
+    @MainActor
+    @Test("Wrapped partial writes record known successes and rethrow the underlying error")
+    func wrappedPartialWriteRecordsKnownSuccesses() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var recordedCounts: [Int] = []
+        let processor = BatchProcessor(
+            checkpointManager: CheckpointManager(directory: dir),
+            featureGate: FeatureGate(
+                fixedTier: .free,
+                usageRecorder: { recordedCounts.append($0) }
+            )
+        )
+
+        await #expect(throws: AdmissionWriteError.self) {
+            _ = try await processor.performRecoverableWrite(
+                trackCount: 3,
+                appliedTrackIDs: { (_: BatchUpdateResult) in [] },
+                partialTrackIDs: { _ in [] },
+                operation: { () async throws -> BatchUpdateResult in
+                    throw PartialWriteError(
+                        appliedTrackIDs: ["T1", "T2"],
+                        underlyingError: AdmissionWriteError.failed
+                    )
+                }
+            )
+        }
+
+        #expect(recordedCounts == [2])
+    }
+
     @Test("Batch and external writes share one reservation")
     func sharesWriteReservation() async throws {
         let dir = FileManager.default.temporaryDirectory
@@ -101,7 +262,11 @@ struct WriteAdmissionTests {
         await batchHold.waitUntilEntered()
 
         await #expect(throws: BatchProcessorError.self) {
-            _ = try await processor.performRecoverableWrite(trackCount: 1) {
+            _ = try await processor.performRecoverableWrite(
+                trackCount: 1,
+                appliedTrackIDs: { _ in [] },
+                partialTrackIDs: { _ in [] }
+            ) {
                 calls.append("external-during-batch")
                 return AppleScriptWriteResult.changed
             }
@@ -112,7 +277,11 @@ struct WriteAdmissionTests {
 
         let externalHold = WriteHold()
         let external = Task {
-            try await processor.performRecoverableWrite(trackCount: 1) {
+            try await processor.performRecoverableWrite(
+                trackCount: 1,
+                appliedTrackIDs: { _ in [] },
+                partialTrackIDs: { _ in [] }
+            ) {
                 calls.append("external")
                 await externalHold.wait()
                 return AppleScriptWriteResult.changed
@@ -153,7 +322,11 @@ struct WriteAdmissionTests {
         // restore, pending-verification, and fix-plan paths beside it — wrote
         // past the free limit without ever consulting it.
         await #expect(throws: FeatureGateError.self) {
-            _ = try await processor.performRecoverableWrite(trackCount: 1) {
+            _ = try await processor.performRecoverableWrite(
+                trackCount: 1,
+                appliedTrackIDs: { _ in [] },
+                partialTrackIDs: { _ in [] }
+            ) {
                 calls.append("write")
             }
         }
@@ -171,7 +344,11 @@ struct WriteAdmissionTests {
         )
         let calls = CallList()
 
-        _ = try await processor.performRecoverableWrite(trackCount: 1) {
+        _ = try await processor.performRecoverableWrite(
+            trackCount: 1,
+            appliedTrackIDs: { _ in [] },
+            partialTrackIDs: { _ in [] }
+        ) {
             calls.append("write")
         }
 
@@ -192,7 +369,11 @@ struct WriteAdmissionTests {
         let dispatches = CallList()
         let outcome: AppleScriptOutcomeError
         do {
-            _ = try await processor.performRecoverableWrite(trackCount: 1) {
+            _ = try await processor.performRecoverableWrite(
+                trackCount: 1,
+                appliedTrackIDs: { _ in [] },
+                partialTrackIDs: { _ in [] }
+            ) {
                 // Built inside the write so the 20 ms budget measures the
                 // dispatch this test is about. Reserving a write crosses to
                 // the MainActor for the paid gate, and an absolute deadline
@@ -203,7 +384,7 @@ struct WriteAdmissionTests {
                     deadline: ContinuousClock().now.advanced(by: .milliseconds(20)),
                     timeout: .milliseconds(20)
                 )
-                try await ScriptDispatch.run(firstCall, limiter: nil, gate: gate) { finish in
+                return try await ScriptDispatch.run(firstCall, limiter: nil, gate: gate) { finish in
                     dispatches.append("first")
                     callback.store(finish)
                 }
@@ -225,7 +406,11 @@ struct WriteAdmissionTests {
         #expect(clearanceResults.count(where: { $0 }) == 1)
 
         await #expect(throws: AppleScriptOutcomeError.self) {
-            _ = try await processor.performRecoverableWrite(trackCount: 1) {
+            _ = try await processor.performRecoverableWrite(
+                trackCount: 1,
+                appliedTrackIDs: { _ in [] },
+                partialTrackIDs: { _ in [] }
+            ) {
                 throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
             }
         }
@@ -239,7 +424,11 @@ struct WriteAdmissionTests {
             deadline: ContinuousClock().now.advanced(by: .seconds(1)),
             timeout: .seconds(1)
         )
-        _ = try await processor.performRecoverableWrite(trackCount: 1) {
+        _ = try await processor.performRecoverableWrite(
+            trackCount: 1,
+            appliedTrackIDs: { _ in [] },
+            partialTrackIDs: { _ in [] }
+        ) {
             try await ScriptDispatch.run(secondCall, limiter: nil, gate: gate) { finish in
                 dispatches.append("second")
                 finish(.success("done"))
@@ -282,7 +471,11 @@ struct WriteAdmissionTests {
         let completion = ScriptCompletion()
 
         do {
-            _ = try await processor.performRecoverableWrite(trackCount: 1) {
+            _ = try await processor.performRecoverableWrite(
+                trackCount: 1,
+                appliedTrackIDs: { _ in [] },
+                partialTrackIDs: { _ in [] }
+            ) {
                 try await bridge.updateTrackProperty(
                     trackID: "101",
                     property: "genre",
@@ -346,7 +539,11 @@ struct WriteAdmissionTests {
         await waitForResult(secondResult)
         #expect(secondResult.value == false)
         await #expect(throws: BatchProcessorError.self) {
-            _ = try await processor.performRecoverableWrite(trackCount: 1) {
+            _ = try await processor.performRecoverableWrite(
+                trackCount: 1,
+                appliedTrackIDs: { _ in [] },
+                partialTrackIDs: { _ in [] }
+            ) {
                 dispatches.append("early-second")
                 return AppleScriptWriteResult.changed
             }
@@ -374,6 +571,18 @@ struct WriteAdmissionTests {
 
 private func admissionTrack(_ id: String) -> Track {
     Track(id: id, name: "Track \(id)", artist: "Artist", album: "Album")
+}
+
+private func admissionEntry(trackID: String) -> ChangeLogEntry {
+    ChangeLogEntry(changeType: .genreUpdate, trackID: trackID, artist: "Artist")
+}
+
+private enum AdmissionWriteError: Error {
+    case failed
+}
+
+private struct AdmissionPartialWriteError: Error {
+    let trackIDs: Set<String>
 }
 
 private func ignoreAdmissionProgress(_: ProgressUpdate) {

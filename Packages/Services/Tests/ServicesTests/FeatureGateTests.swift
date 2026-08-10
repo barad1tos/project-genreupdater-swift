@@ -166,6 +166,34 @@ struct FeatureGateTrackLimitTests {
     func limitConstant() {
         #expect(FeatureGate.freeTrackLimit == 500)
     }
+
+    @Test("Free tier records applied track usage")
+    func freeRecordsAppliedUsage() {
+        var recordedCounts: [Int] = []
+        let gate = FeatureGate(
+            fixedTier: .free,
+            usageRecorder: { recordedCounts.append($0) }
+        )
+
+        gate.recordTrackUsage(for: Set(["T1", "T2"]))
+        gate.recordTrackUsage(for: [])
+
+        #expect(recordedCounts == [2])
+    }
+
+    @Test("Paid tiers do not grow free usage")
+    func paidDoesNotRecordFreeUsage() {
+        var recordedCounts: [Int] = []
+        for tier in [Tier.weekPass, .pro] {
+            let gate = FeatureGate(
+                fixedTier: tier,
+                usageRecorder: { recordedCounts.append($0) }
+            )
+            gate.recordTrackUsage(for: Set(["T1", "T2"]))
+        }
+
+        #expect(recordedCounts.isEmpty)
+    }
 }
 
 // MARK: - Accessible / Locked Features

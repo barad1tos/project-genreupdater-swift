@@ -106,11 +106,17 @@ extension UpdateCoordinator {
                 if let noOpEntry = outcome.noOpEntry {
                     noOpEntries.append(noOpEntry)
                 }
-            } catch let error as WorkCheckpointError {
-                throw error
-            } catch let error as AppleScriptOutcomeError {
-                throw error
             } catch {
+                if let partialWrite = error as? PartialWriteError {
+                    throw partialWrite
+                }
+                if Self.shouldPropagateWriteFailure(error) {
+                    guard !entries.isEmpty else { throw error }
+                    throw PartialWriteError(
+                        appliedTrackIDs: Set(entries.map(\.trackID)),
+                        underlyingError: error
+                    )
+                }
                 try recordWorkflowWriteFailure(
                     error,
                     isReviewedChange: true,
@@ -121,6 +127,10 @@ extension UpdateCoordinator {
             }
         }
         return (entries, noOpEntries)
+    }
+
+    private static func shouldPropagateWriteFailure(_ error: any Error) -> Bool {
+        error is CancellationError || error is WorkCheckpointError || error is AppleScriptOutcomeError
     }
 
     func applyGeneratedAcceptedChanges(
@@ -143,13 +153,17 @@ extension UpdateCoordinator {
         )
 
         let acceptedChanges = changes.filter(\.isAccepted)
-        if let applied = try await applyChangesAsBatchIfPossible(
-            acceptedChanges,
-            isReviewedChange: false,
-            failedTrackIDs: &failedTrackIDs,
-            errorDescriptions: &errorDescriptions
-        ) {
-            return applied
+        do {
+            if let applied = try await applyChangesAsBatchIfPossible(
+                acceptedChanges,
+                isReviewedChange: false,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            ) {
+                return applied
+            }
+        } catch let partialWrite as PartialWriteError {
+            throw partialWrite.underlyingError
         }
 
         var entries: [ChangeLogEntry] = []

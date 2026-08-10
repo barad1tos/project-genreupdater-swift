@@ -269,8 +269,11 @@ final class AppDependencies {
             log.info("DEBUG: FeatureGate set to .pro (all features unlocked)")
             #else
             let gate = FeatureGate(
-                tierProvider: { [weak subscription] in subscription?.currentTier ?? .free },
-                freeTracksUsedProvider: { [weak subscription] in subscription?.freeTracksUsed ?? 0 }
+                tierProvider: { subscription.currentTier },
+                freeTracksUsedProvider: { subscription.freeTracksUsed },
+                usageRecorder: { count in
+                    subscription.incrementFreeTracksUsed(by: count)
+                }
             )
             #endif
             featureGate = gate

@@ -192,7 +192,8 @@ struct BatchRunAppTests {
     func applyAcceptedFlowsThroughOrchestratorToRecord() async {
         let metered = MeteredTracksBox()
         let fixture = makeWorkflowFixture(configure: { options in
-            options.recordProcessedTracks = { metered.count += $0 }
+            options.tier = .free
+            options.recordTrackUsage = { metered.count += $0 }
         })
         let viewModel = fixture.viewModel
         viewModel.phase = .review
@@ -209,8 +210,7 @@ struct BatchRunAppTests {
         let batchRecords = await fixture.runRecords.records.filter { $0.intent == .batchUpdate }
         #expect(batchRecords.last?.state == .completed)
         #expect(viewModel.pendingBatchExecution == nil)
-        // The free-tier metering call lives inside the runner section
-        // now; a taxonomy refactor must not drop it.
+        // The free-tier gate records only the successful write returned by the runner.
         #expect(metered.count == 1)
     }
 

@@ -392,9 +392,6 @@ struct DesignRootHostView: View {
             changePreviewPipeline: pipeline,
             pendingVerificationService: dependencies.pendingVerificationService,
             featureGate: dependencies.featureGate,
-            recordProcessedTracks: { count in
-                dependencies.subscriptionService?.incrementFreeTracksUsed(by: count)
-            },
             runMaintenancePreflight: {
                 await dependencies.runMaintenancePreflight()
             },

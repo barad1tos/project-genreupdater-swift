@@ -27,6 +27,7 @@ struct RandomAccessWorkflowFixtureOptions {
     var randomAccessYear: Int?
     var failingWriteTrackIDs: Set<String> = []
     var cancellingWriteTrackIDs: Set<String> = []
+    var outcomeTrackIDs: Set<String> = []
     var additionalEnrichedTracks: [Track] = []
     var additionalAppleScriptIDsByMusicKitID: [String: String] = [:]
     var idMapper: (any TrackIDMapping)?
@@ -35,6 +36,7 @@ struct RandomAccessWorkflowFixtureOptions {
     var ensureRecoveryHold: () async -> Bool = { false }
     var prepareMutationMetadata: (([Track]) async throws -> Void)? = noOpPrepareMutationMetadata
     var updateIncrementalRunTimestamp: (() async -> Void)?
+    var recordTrackUsage: (Int) -> Void = { _ in }
 }
 
 enum PendingPreflightState {
@@ -186,9 +188,11 @@ func makeRandomAccessWorkflowFixture(
     ) { fixtureOptions in
         fixtureOptions.tier = options.tier
         fixtureOptions.cancellingWriteTrackIDs = options.cancellingWriteTrackIDs
+        fixtureOptions.outcomeTrackIDs = options.outcomeTrackIDs
         fixtureOptions.runMaintenancePreflight = options.runMaintenancePreflight
         fixtureOptions.ensureRecoveryHold = options.ensureRecoveryHold
         fixtureOptions.updateIncrementalRunTimestamp = options.updateIncrementalRunTimestamp
+        fixtureOptions.recordTrackUsage = options.recordTrackUsage
     }
 }
 

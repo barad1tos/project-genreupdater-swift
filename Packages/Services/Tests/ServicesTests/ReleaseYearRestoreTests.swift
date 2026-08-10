@@ -119,6 +119,33 @@ struct ReleaseYearRestoreTests {
         #expect(written.first?.value == "1997")
     }
 
+    @Test("Preserves restored tracks before an unknown outcome")
+    func preservesRestoresBeforeUnknownOutcome() async throws {
+        let fixture = await makeReleaseYearRestoreFixture()
+        let tracks = [
+            makeReleaseYearTrack(id: "T1", year: 2025, releaseYear: 1997),
+            makeReleaseYearTrack(id: "T2", year: 2025, releaseYear: 1997),
+        ]
+        await fixture.bridge.setWriteError(
+            AppleScriptOutcomeError(scriptName: "update_property", reason: "unverifiable response"),
+            for: "T2"
+        )
+
+        do {
+            _ = try await fixture.coordinator.restoreReleaseYears(
+                in: tracks,
+                threshold: 5,
+                progressHandler: ignoreReleaseYearProgress
+            )
+            Issue.record("Expected the second restore outcome to remain unknown")
+        } catch let error as PartialWriteError {
+            #expect(error.appliedTrackIDs == ["T1"])
+            #expect(error.underlyingError is AppleScriptOutcomeError)
+        } catch {
+            Issue.record("Expected PartialWriteError, got \(error)")
+        }
+    }
+
     @Test("Skips prerelease tracks before release-year restore consensus")
     func skipsPrereleaseTracks() async throws {
         let fixture = await makeReleaseYearRestoreFixture()

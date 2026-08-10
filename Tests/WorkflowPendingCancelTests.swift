@@ -144,9 +144,13 @@ struct WorkflowPendingCancelTests {
             dueEntries: [randomAccessMemoriesPendingEntry()],
             timestampUpdateFailure: CancellationError()
         )
+        let metered = MeteredTracksBox()
         let fixture = makeRandomAccessWorkflowFixture(
             pendingVerificationService: pendingVerification
-        )
+        ) { options in
+            options.tier = .free
+            options.recordTrackUsage = { metered.count += $0 }
+        }
         let viewModel = fixture.viewModel
         viewModel.mode = .pendingVerification
 
@@ -165,6 +169,7 @@ struct WorkflowPendingCancelTests {
         #expect(viewModel.failedTracks.isEmpty)
         #expect(viewModel.failedCount == 0)
         #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
+        #expect(metered.count == 2)
     }
 
     @Test("completed pending entries stay visible when timestamp update fails")
@@ -174,9 +179,13 @@ struct WorkflowPendingCancelTests {
             dueEntries: [randomAccessMemoriesPendingEntry()],
             timestampUpdateFailure: PendingTimestampUpdateError.failed
         )
+        let metered = MeteredTracksBox()
         let fixture = makeRandomAccessWorkflowFixture(
             pendingVerificationService: pendingVerification
-        )
+        ) { options in
+            options.tier = .free
+            options.recordTrackUsage = { metered.count += $0 }
+        }
         let viewModel = fixture.viewModel
         viewModel.mode = .pendingVerification
 
@@ -199,6 +208,67 @@ struct WorkflowPendingCancelTests {
         } else {
             Issue.record("Expected timestamp update failure to keep workflow in error phase")
         }
+        #expect(metered.count == 2)
+    }
+
+    @Test("completed pending writes are metered before an unknown outcome")
+    func completedPendingWritesAreMeteredBeforeUnknownOutcome() async {
+        let pendingEntries = [
+            randomAccessMemoriesPendingEntry(),
+            pureRockFuryPendingEntry(),
+        ]
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: pendingEntries,
+            dueEntries: pendingEntries
+        )
+        let clutchTrack = batchYearTrack()
+        let metered = MeteredTracksBox()
+        let fixture = makeRandomAccessWorkflowFixture(
+            pendingVerificationService: pendingVerification
+        ) { options in
+            options.tier = .free
+            options.outcomeTrackIDs = ["as-batch-year"]
+            options.additionalEnrichedTracks = [clutchTrack]
+            options.additionalAppleScriptIDsByMusicKitID = [clutchTrack.id: "as-batch-year"]
+            options.recordTrackUsage = { metered.count += $0 }
+        }
+        let viewModel = fixture.viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.startPendingVerification(
+            tracks: randomAccessMemoriesMusicKitTracks() + [clutchTrack]
+        )
+        await viewModel.processingTask?.value
+
+        let writes = await fixture.scriptClient.updatedProperties()
+        #expect(writes.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(metered.count == 2)
+    }
+
+    @Test("completed writes within one pending album are metered before an unknown outcome")
+    func completedAlbumWritesAreMeteredBeforeUnknownOutcome() async {
+        let pendingEntry = randomAccessMemoriesPendingEntry()
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [pendingEntry],
+            dueEntries: [pendingEntry]
+        )
+        let metered = MeteredTracksBox()
+        let fixture = makeRandomAccessWorkflowFixture(
+            pendingVerificationService: pendingVerification
+        ) { options in
+            options.tier = .free
+            options.outcomeTrackIDs = ["as-ram-2"]
+            options.recordTrackUsage = { metered.count += $0 }
+        }
+        let viewModel = fixture.viewModel
+        viewModel.mode = .pendingVerification
+
+        viewModel.startPendingVerification(tracks: randomAccessMemoriesMusicKitTracks())
+        await viewModel.processingTask?.value
+
+        let writes = await fixture.scriptClient.updatedProperties()
+        #expect(writes.map(\.trackID) == ["as-ram-1"])
+        #expect(metered.count == 1)
     }
 
     @Test("empty preflight cancellation clears stale batch result")

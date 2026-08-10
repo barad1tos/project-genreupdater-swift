@@ -499,7 +499,7 @@ extension ApplyAcceptedTests {
         let (fixture, itemIDs, proposals) = await makePartialBatch()
         let checkpoints = CheckpointProbe()
 
-        await #expect(throws: AppleScriptOutcomeError.self) {
+        do {
             _ = try await fixture.coordinator.applyAcceptedChanges(
                 proposals,
                 progressHandler: ignoreAcceptedChangeProgress,
@@ -508,6 +508,12 @@ extension ApplyAcceptedTests {
                     await checkpoints.append(checkpoint, effects: effects)
                 }
             )
+            Issue.record("Expected a partially applied batch outcome")
+        } catch let error as PartialWriteError {
+            #expect(error.appliedTrackIDs == ["MK1"])
+            #expect(error.underlyingError is AppleScriptOutcomeError)
+        } catch {
+            Issue.record("Expected PartialWriteError, got \(error)")
         }
 
         let captured = await checkpoints.values

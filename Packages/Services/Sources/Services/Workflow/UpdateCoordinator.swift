@@ -637,12 +637,21 @@ public actor UpdateCoordinator {
         var index = 0
         while index < accepted.count {
             let changeGroup = reviewedChangeGroup(in: accepted, startingAt: index)
-            let groupOutcome = try await applyReviewedChangeGroup(
-                changeGroup,
-                failedTrackIDs: &failedTrackIDs,
-                errorDescriptions: &errorDescriptions,
-                checkpoint: checkpoint
-            )
+            let groupOutcome: AppliedChangeEntries
+            do {
+                groupOutcome = try await applyReviewedChangeGroup(
+                    changeGroup,
+                    failedTrackIDs: &failedTrackIDs,
+                    errorDescriptions: &errorDescriptions,
+                    checkpoint: checkpoint
+                )
+            } catch {
+                guard !entries.isEmpty else { throw error }
+                throw PartialWriteError(
+                    appliedTrackIDs: Set(entries.map(\.trackID)),
+                    underlyingError: error
+                )
+            }
             entries.append(contentsOf: groupOutcome.entries)
             noOpEntries.append(contentsOf: groupOutcome.noOpEntries)
 

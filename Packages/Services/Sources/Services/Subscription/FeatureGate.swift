@@ -38,6 +38,7 @@ public final class FeatureGate {
 
     private let tierProvider: () -> Tier
     private let freeTracksUsedProvider: () -> Int
+    private let usageRecorder: (Int) -> Void
 
     // MARK: - Production Init
 
@@ -46,18 +47,26 @@ public final class FeatureGate {
     /// - Parameters:
     ///   - tierProvider: Closure that returns the current tier (from SubscriptionService).
     ///   - freeTracksUsedProvider: Closure that returns the count of free tracks used.
+    ///   - usageRecorder: Closure that persists successful free-tier track usage.
     public init(
         tierProvider: @escaping () -> Tier,
-        freeTracksUsedProvider: @escaping () -> Int = { 0 }
+        freeTracksUsedProvider: @escaping () -> Int,
+        usageRecorder: @escaping (Int) -> Void
     ) {
         self.tierProvider = tierProvider
         self.freeTracksUsedProvider = freeTracksUsedProvider
+        self.usageRecorder = usageRecorder
     }
 
     /// Convenience: create a gate with a fixed tier (for tests and previews).
-    public init(fixedTier: Tier, freeTracksUsed: Int = 0) {
+    public init(
+        fixedTier: Tier,
+        freeTracksUsed: Int = 0,
+        usageRecorder: @escaping (Int) -> Void = { _ in }
+    ) {
         tierProvider = { fixedTier }
         freeTracksUsedProvider = { freeTracksUsed }
+        self.usageRecorder = usageRecorder
     }
 
     // MARK: - Public API
@@ -111,6 +120,12 @@ public final class FeatureGate {
         let uniqueTrackCount = Set(tracks.map(\.id)).count
         try requireTrackCapacity(count: uniqueTrackCount)
         return uniqueTrackCount
+    }
+
+    /// Record successful writes against the free-tier lifetime allowance.
+    public func recordTrackUsage(for trackIDs: Set<String>) {
+        guard currentTier == .free, !trackIDs.isEmpty else { return }
+        usageRecorder(trackIDs.count)
     }
 
     /// All features accessible at the current tier.
