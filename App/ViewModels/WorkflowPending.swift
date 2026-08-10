@@ -140,8 +140,13 @@ extension WorkflowViewModel {
                 refreshGeneration: refreshGeneration
             ) else { return }
             preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
+            // The write iterates dueEntries; trackContext is the album lookup
+            // pool it resolves them against, and it is built from the whole
+            // library here. Admitting on the pool would reject a free-tier user
+            // holding one due album and 500 unused writes.
+            let admissionTracks = Self.pendingMutationPreparationTracks(tracks, entries: dueEntries)
             let runOutcome = try await batchProcessor.performRecoverableWrite(
-                trackCount: Set(trackContext.tracks.map(\.id)).count
+                trackCount: Set(admissionTracks.map(\.id)).count
             ) { @MainActor [self] in
                 try await performPendingVerification(
                     dueEntries: dueEntries,
