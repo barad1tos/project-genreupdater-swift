@@ -81,6 +81,17 @@ jobs:
         run: swift test --package-path Packages/Services --enable-code-coverage
         timeout-minutes: 5
 
+      # SharedUITests and DesignUITests existed and compiled but no job ran
+      # them, which is why their coverage read as ~0 — nothing was measuring.
+      # No threshold yet: a floor set at today's number would ratify the hole.
+      - name: Test SharedUI
+        run: swift test --package-path Packages/SharedUI
+        timeout-minutes: 5
+
+      - name: Test DesignUI
+        run: swift test --package-path Packages/DesignUI
+        timeout-minutes: 5
+
       - name: Check coverage thresholds
         run: |
           FAILED=0
@@ -170,18 +181,40 @@ jobs:
           Packages/SharedUI/Sources
           --lint
 
+      # The previous form scanned Core and Services only, with --retain-public.
+      # Every cross-package declaration is public by construction, so the flag
+      # suppressed nearly everything and App/, Agent/, SharedUI and DesignUI
+      # were never scanned at all — which is how ~3,900 lines of dead App code
+      # survived to slice 17. This scans the whole project through the index
+      # xcode-gate already produced, so --retain-public is unnecessary.
+      #
+      # A ratchet, not a clean bill: ~70% of the current findings are false
+      # positives (protocol witnesses, closure-indirect calls), triaged in the
+      # slice-17 ledger. Growth fails the build; the standing debt stays visible.
       - name: Scan for unused code (Periphery)
         run: |
-          for pkg in Core Services; do
-            echo "=== Scanning $pkg ==="
-            cd Packages/$pkg
-            periphery scan \
-              --retain-public \
-              --retain-codable-properties \
-              --format xcode \
-              --strict
-            cd ../..
-          done
+          BASELINE=$(cat .periphery-baseline)
+          periphery scan \
+            --project GenreUpdater.xcodeproj \
+            --schemes GenreUpdater \
+            --skip-build \
+            --index-store-path .build/xcode/Index.noindex/DataStore \
+            --retain-codable-properties \
+            --retain-swift-ui-previews \
+            --retain-assign-only-properties \
+            --retain-objc-accessible \
+            --exclude-tests \
+            --quiet > periphery-report.txt 2>&1 || true
+          COUNT=$(grep -c "warning: Unused" periphery-report.txt || true)
+          echo "Unused declarations: ${COUNT} (baseline: ${BASELINE})"
+          grep "warning: Unused" periphery-report.txt || true
+          if [ "$COUNT" -gt "$BASELINE" ]; then
+            echo "::error::Unused declarations rose from ${BASELINE} to ${COUNT}"
+            exit 1
+          fi
+          if [ "$COUNT" -lt "$BASELINE" ]; then
+            echo "::notice::Unused declarations fell to ${COUNT}; lower .periphery-baseline to lock it in"
+          fi
 
   gate:
     name: CI Gate
