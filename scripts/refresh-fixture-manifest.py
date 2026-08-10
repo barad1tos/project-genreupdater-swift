@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 
 FIXTURES = (
@@ -53,7 +54,7 @@ def main() -> None:
             continue
         data = json.loads(path.read_text())
         entry: dict[str, object] = {
-            "digest": "sha256:" + hashlib.sha256(canonical(data).encode()).hexdigest()
+            "digest": f"sha256:{hashlib.sha256(canonical(data).encode()).hexdigest()}"
         }
 
         if isinstance(data, list):
@@ -61,9 +62,7 @@ def main() -> None:
             source = generated_dir / path.name if generated_dir else None
             if source and source.exists():
                 emitted = {canonical(case) for case in json.loads(source.read_text())}
-                entry["generated"] = sum(
-                    1 for case in data if canonical(case) in emitted
-                )
+                entry["generated"] = sum(canonical(case) in emitted for case in data)
             else:
                 entry["generated"] = previous.get(path.name, {}).get("generated", 0)
             entry["verifiedByExecution"] = len(data) - int(entry["generated"])
@@ -75,7 +74,9 @@ def main() -> None:
         json.dumps({"_comment": COMMENT, "files": files}, indent=2, ensure_ascii=False)
         + "\n"
     )
-    print(f"Wrote {MANIFEST.relative_to(Path.cwd())}")
+    # relative_to raises when the cwd is not an ancestor — this script is meant
+    # to be runnable from anywhere, including a CI wrapper or an editor.
+    print(f"Wrote {os.path.relpath(MANIFEST, Path.cwd())}")
 
 
 if __name__ == "__main__":

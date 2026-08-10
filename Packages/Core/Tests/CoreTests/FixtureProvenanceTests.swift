@@ -23,6 +23,27 @@ struct FixtureProvenanceTests {
         let files: [String: Entry]
     }
 
+    /// Without this the suite only ever checks files the manifest already
+    /// names, so a new fixture added without an entry ships completely
+    /// unpinned — the guard would pass by not looking.
+    @Test("the manifest names every fixture file that ships")
+    func manifestCoversEveryFixture() throws {
+        let manifest = try loadManifest()
+        let urls = try #require(
+            Bundle.module.urls(forResourcesWithExtension: "json", subdirectory: "Fixtures")
+        )
+        let onDisk = Set(urls.map(\.lastPathComponent)).subtracting(["fixtures_manifest.json"])
+
+        #expect(
+            onDisk == Set(manifest.files.keys),
+            """
+            fixture set and manifest disagree — unpinned: \
+            \(onDisk.subtracting(manifest.files.keys).sorted()), \
+            stale entries: \(Set(manifest.files.keys).subtracting(onDisk).sorted())
+            """
+        )
+    }
+
     @Test("every fixture matches its recorded digest and case count")
     func fixturesMatchManifest() throws {
         let manifest = try loadManifest()

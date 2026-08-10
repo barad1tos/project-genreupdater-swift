@@ -39,6 +39,30 @@ struct FixPlanProjectionTests {
         #expect(projection.items.map(\.verdict) == [.accepted, .accepted])
     }
 
+    @Test("average confidence stays a percentage when scores exceed 100")
+    func averageConfidenceIsClampedForDisplay() {
+        // Domain scores are unclamped for Python parity — a perfect match is
+        // 125 — but every consumer renders this value as "N%".
+        let plan = makePlan(items: [
+            makeItem(id: itemID(1), type: .genreUpdate, confidence: 125),
+            makeItem(id: itemID(2), type: .yearUpdate, confidence: 125),
+        ])
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: decidedAt)
+        let staleness = FixPlanStaleness.evaluate(
+            plan: plan,
+            currentScope: plan.scope,
+            currentConfiguration: plan.configuration
+        )
+
+        let projection = FixPlanProjector.makeProjection(
+            plan: plan,
+            decision: decision,
+            staleness: staleness
+        )
+
+        #expect(projection.averageConfidence == 100)
+    }
+
     @Test("projection counts rejected decisions without mutating the plan")
     func countsRejectedDecisions() {
         let rejectedID = itemID(1)
