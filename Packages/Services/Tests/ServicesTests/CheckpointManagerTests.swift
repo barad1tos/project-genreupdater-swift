@@ -219,6 +219,25 @@ struct CheckpointManagerTests {
         #expect(try await manager.loadRecovery() == nil)
     }
 
+    @Test("An unparseable recovery marker is discarded, not replaced with a phantom hold")
+    func unparseableRecoveryMarkerIsDiscarded() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // The manager keys the marker on its own checkpoints subdirectory.
+        let markerKey = "com.genreupdater.recovery."
+            + dir.appendingPathComponent("checkpoints", isDirectory: true).path
+        UserDefaults.standard.set("not-a-uuid", forKey: markerKey)
+        defer { UserDefaults.standard.removeObject(forKey: markerKey) }
+
+        let manager = CheckpointManager(directory: dir)
+
+        // Minting a replacement id would name a batch that never existed, and
+        // loadRecovery would hand back a placeholder for it — a hold nothing
+        // on disk can justify, which also masks any real pending recovery.
+        #expect(try await manager.loadRecovery() == nil)
+        #expect(UserDefaults.standard.string(forKey: markerKey) == nil)
+    }
+
     @Test("Load latest with empty directory returns nil")
     func loadLatestEmpty() async throws {
         let dir = try makeTempDirectory()

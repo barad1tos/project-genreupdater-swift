@@ -219,7 +219,9 @@ extension WorkflowViewModel {
         let progressHandler = makeApplyProgressHandler()
         let coordinator = updateCoordinator
         do {
-            let batchResult = try await batchProcessor.performRecoverableWrite {
+            let batchResult = try await batchProcessor.performRecoverableWrite(
+                trackCount: Set(apply.accepted.map(\.track.id)).count
+            ) {
                 try await coordinator.applyAcceptedChanges(
                     apply.accepted,
                     progressHandler: progressHandler

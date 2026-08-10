@@ -79,6 +79,44 @@ struct RecoveryClearTests {
         #expect(durable.first?.runID == record.runID.rawValue)
     }
 
+    @Test("Clearance fails closed when the undo coordinator is missing")
+    func clearanceFailsClosedWithoutUndoCoordinator() async throws {
+        let setup = try await makeRecoverySetup()
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let recoveryID = await setup.processor.beginRecoveryHold()
+        let (record, _) = uncertainRunRecord(
+            recoveryID: recoveryID,
+            itemState: .outcome(.written)
+        )
+        try await setup.store.upsert(record)
+        try await setup.trackStore.saveTracks([Track(
+            id: "persistent-1",
+            name: "Track",
+            artist: "Artist",
+            album: "Album",
+            genre: "Stoner Rock"
+        )])
+        let stored = try #require(await setup.store.record(for: record.runID))
+        await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
+
+        // Drop the coordinator that owns durable change history: the written
+        // item's evidence can no longer be rebuilt.
+        setup.dependencies.installTestWrites(TestWriteServices(
+            batchProcessor: setup.processor,
+            undoCoordinator: nil,
+            runRecordStore: setup.store
+        ))
+
+        await #expect(throws: AppDependencyServiceError.self) {
+            try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+        }
+
+        // Clearing a hold whose evidence was never repaired would report a
+        // verified close over missing history, so the hold has to survive.
+        #expect(await setup.processor.recoveryHoldID() == recoveryID)
+        #expect(try await setup.changeLog.loadAll().isEmpty)
+    }
+
     @Test("Checkpointed terminal writes repair history without observation")
     func terminalWrittenRepairsHistory() async throws {
         let setup = try await makeRecoverySetup()

@@ -22,6 +22,7 @@ struct RandomAccessLiveBatchRun {
 }
 
 struct RandomAccessWorkflowFixtureOptions {
+    var tier: Tier = .pro
     var apiService = DashboardStateAPIService(year: 2013, confidence: 100)
     var randomAccessYear: Int?
     var failingWriteTrackIDs: Set<String> = []
@@ -183,6 +184,7 @@ func makeRandomAccessWorkflowFixture(
         idMapper: resolvedIDMapper,
         prepareMutationMetadata: options.prepareMutationMetadata
     ) { fixtureOptions in
+        fixtureOptions.tier = options.tier
         fixtureOptions.cancellingWriteTrackIDs = options.cancellingWriteTrackIDs
         fixtureOptions.runMaintenancePreflight = options.runMaintenancePreflight
         fixtureOptions.ensureRecoveryHold = options.ensureRecoveryHold

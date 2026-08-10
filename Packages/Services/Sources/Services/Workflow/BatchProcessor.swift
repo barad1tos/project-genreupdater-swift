@@ -181,10 +181,14 @@ public actor BatchProcessor {
         return recoveryID
     }
 
+    /// - Parameter trackCount: distinct tracks this write may touch. Required
+    ///   rather than defaulted so the compiler names every write path when the
+    ///   gate moves; a default would let a caller opt out in silence.
     public func performRecoverableWrite<Value: Sendable>(
+        trackCount: Int,
         operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
-        try await reserveWrite(requiresBatchFeature: false)
+        try await reserveWrite(requiresBatchFeature: false, trackCount: trackCount)
         defer { isWriteReserved = false }
         do {
             return try await operation()
@@ -208,7 +212,10 @@ public actor BatchProcessor {
         operation: @Sendable (Track) async throws -> [ChangeLogEntry],
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> [ChangeLogEntry] {
-        try await reserveWrite(requiresBatchFeature: true)
+        try await reserveWrite(
+            requiresBatchFeature: true,
+            trackCount: Set(tracks.map(\.id)).count
+        )
         defer { isWriteReserved = false }
         var resume = try await loadResumeState(
             tracks: tracks,
@@ -366,12 +373,17 @@ public actor BatchProcessor {
 
     // MARK: Internal Steps
 
-    private func reserveWrite(requiresBatchFeature: Bool) async throws {
+    private func reserveWrite(requiresBatchFeature: Bool, trackCount: Int) async throws {
         guard !isWriteReserved else {
             throw BatchProcessorError.alreadyRunning
         }
         isWriteReserved = true
         do {
+            // Every write path funnels through this reservation, which is why
+            // the paid gate lives here. It used to be asked only by
+            // WorkflowFilters, so the reviewed-apply, restore, pending-
+            // verification, and fix-plan paths all wrote past the free limit.
+            try await featureGate.requireTrackCapacity(count: trackCount)
             if requiresBatchFeature {
                 guard await featureGate.canAccess(.batchProcessing) else {
                     throw await BatchProcessorError.featureNotAvailable(

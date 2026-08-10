@@ -296,8 +296,12 @@ extension AppDependencies {
         observedOutcomes: [UUID: ObservedWorkOutcome]?
     ) async throws {
         guard let undoCoordinator else {
-            recoveryLog.error("Recovery evidence repair skipped: undo coordinator unavailable")
-            return
+            // Returning here reported a verified close over evidence that was
+            // never rebuilt: the caller reads a normal return as repaired and
+            // goes on to clear the hold. Fail closed so the hold is retained,
+            // which is what this function's contract promises.
+            recoveryLog.error("Recovery evidence repair blocked: undo coordinator unavailable")
+            throw AppDependencyServiceError.recoveryUnavailable
         }
         let writtenItems = RecoveryEvidenceRepair.writtenItems(
             in: record.workItems,

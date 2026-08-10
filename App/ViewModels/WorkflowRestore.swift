@@ -22,7 +22,9 @@ extension WorkflowViewModel {
             do {
                 let threshold = releaseYearRestoreThreshold
                 let coordinator = updateCoordinator
-                restoreResult = try await batchProcessor.performRecoverableWrite {
+                restoreResult = try await batchProcessor.performRecoverableWrite(
+                    trackCount: Set(scopedTracks.map(\.id)).count
+                ) {
                     try await coordinator.restoreReleaseYears(
                         in: scopedTracks,
                         threshold: threshold,

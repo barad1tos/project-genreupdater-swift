@@ -140,7 +140,20 @@ extension WorkflowViewModel {
                 refreshGeneration: refreshGeneration
             ) else { return }
             preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
-            let runOutcome = try await batchProcessor.performRecoverableWrite { @MainActor [self] in
+            // Admit on exactly what the write touches, derived the way the
+            // write derives it: performPendingVerification groups the pool by
+            // album and writes each due entry's album. The pool itself is the
+            // whole library here, so charging it would refuse a free-tier user
+            // holding one due album and 500 unused writes; charging only the
+            // tracks that matched the entry would undercount an album whose
+            // other tracks the pass still writes.
+            let admissionGroups = Self.groupTracksByAlbum(trackContext.tracks)
+            let admissionTracks = dueEntries.flatMap {
+                Self.pendingAlbumTracks(for: $0, in: admissionGroups)
+            }
+            let runOutcome = try await batchProcessor.performRecoverableWrite(
+                trackCount: Set(admissionTracks.map(\.id)).count
+            ) { @MainActor [self] in
                 try await performPendingVerification(
                     dueEntries: dueEntries,
                     trackContext: trackContext,
@@ -199,7 +212,9 @@ extension WorkflowViewModel {
 
             let trackContext = await pendingVerificationTrackContext(from: pendingScopeTracks)
             preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
-            let outcome = try await batchProcessor.performRecoverableWrite { @MainActor [self] in
+            let outcome = try await batchProcessor.performRecoverableWrite(
+                trackCount: Set(trackContext.tracks.map(\.id)).count
+            ) { @MainActor [self] in
                 try await performPendingVerification(
                     dueEntries: dueEntries,
                     trackContext: trackContext,

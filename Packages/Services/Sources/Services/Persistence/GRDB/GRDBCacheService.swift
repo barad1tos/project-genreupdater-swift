@@ -113,7 +113,9 @@ public actor GRDBCacheService: CacheService {
                 return try JSONDecoder().decode(T.self, from: row.value)
             }
         } catch {
-            log.error("Cache get failed for key=\(key, privacy: .public): \(error, privacy: .public)")
+            // Cache keys embed library metadata ("artist_region:<artist>"), so
+            // the key is user data, not a system identifier.
+            log.error("Cache get failed for key=\(key, privacy: .private): \(error, privacy: .private)")
             return nil
         }
     }
@@ -141,7 +143,7 @@ public actor GRDBCacheService: CacheService {
                 lastGenericCleanupAt = now
             }
         } catch {
-            log.error("Cache set failed for key=\(key, privacy: .public): \(error, privacy: .public)")
+            log.error("Cache set failed for key=\(key, privacy: .private): \(error, privacy: .private)")
         }
     }
 
@@ -156,7 +158,7 @@ public actor GRDBCacheService: CacheService {
                 _ = try GenericCacheRow.deleteOne(database, key: key)
             }
         } catch {
-            log.error("Cache invalidate failed for key=\(key, privacy: .public): \(error, privacy: .public)")
+            log.error("Cache invalidate failed for key=\(key, privacy: .private): \(error, privacy: .private)")
         }
     }
 
