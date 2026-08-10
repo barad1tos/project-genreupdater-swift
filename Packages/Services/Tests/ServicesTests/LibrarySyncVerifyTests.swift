@@ -19,7 +19,6 @@ struct LibrarySyncVerifyTests {
     func removesMissingTracks() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let logDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
 
@@ -53,7 +52,6 @@ struct LibrarySyncVerifyTests {
     func readProviderDatabaseVerificationUsesAppleScriptIDsForDestructiveCleanup() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
         let logDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
@@ -91,7 +89,6 @@ struct LibrarySyncVerifyTests {
     func databaseVerificationPreservesMusicKitRowsWithoutAppleScriptIDs() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
         let logDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
@@ -124,7 +121,6 @@ struct LibrarySyncVerifyTests {
     func databaseVerificationPreservesRowsWithoutAppleScriptIDs() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
         let logDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
@@ -162,7 +158,6 @@ struct LibrarySyncVerifyTests {
     func databaseVerificationPreservesLegacyRowsWithoutAppleScriptIDs() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
         let logDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
@@ -199,7 +194,6 @@ struct LibrarySyncVerifyTests {
     func databaseVerificationInvalidatesCacheForRemovedTracks() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let cache = MockCacheService()
         let snapshotService = SyncMockLibrarySnapshotService()
         let logDirectory = FileManager.default.temporaryDirectory
@@ -240,7 +234,6 @@ struct LibrarySyncVerifyTests {
     func databaseVerificationRemovesPendingPrereleaseRowWhenAlbumDisappears(trackStatus: String?) async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let pending = PendingVerificationProbe(
             entry: PendingAlbumEntry(
                 id: "pending-prerelease",
@@ -285,7 +278,6 @@ struct LibrarySyncVerifyTests {
     func skipsRecentRunUnlessForced() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let logDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
 

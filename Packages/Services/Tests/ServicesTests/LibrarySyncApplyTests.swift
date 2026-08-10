@@ -15,7 +15,6 @@ struct LibrarySyncApplyTests {
     func noChanges() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
 
         let track = Track(id: "T1", name: "Track", artist: "A", album: "B")
         await bridge.setLibrary(ids: ["T1"], tracks: ["T1": track])
@@ -34,7 +33,6 @@ struct LibrarySyncApplyTests {
     func synchronizeNowAppliesDetectedChanges() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let modifiedDate = Date()
 
         let newTrack = Track(id: "NEW", name: "New Song", artist: "Artist", album: "Album")
@@ -116,7 +114,6 @@ struct LibrarySyncApplyTests {
     func synchronizeNowInvalidatesCacheForModifiedIdentitiesAndRemovedTracks() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let cache = MockCacheService()
         let snapshotService = SyncMockLibrarySnapshotService()
 
@@ -148,7 +145,6 @@ struct LibrarySyncApplyTests {
     private func makePrereleaseFixture(currentStatus: TrackKind) async -> PrereleaseFixture {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let pendingVerification = PendingVerificationProbe(
             entry: PendingAlbumEntry(
                 id: "subrosa-future-album",

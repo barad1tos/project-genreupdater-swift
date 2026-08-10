@@ -219,7 +219,6 @@ struct LibrarySyncIdentityTests {
     func invalidatesAlbumIdentityCachesForAlbumArtistChangesAndRemovals() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let cache = MockCacheService()
         let snapshotService = SyncMockLibrarySnapshotService()
         let oldModified = Track(
@@ -446,7 +445,6 @@ struct LibrarySyncIdentityTests {
     func persistsIdentityOnlyChangesAndInvalidatesOldAndNewCaches() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let cache = MockCacheService()
         let snapshotService = SyncMockLibrarySnapshotService()
         let storedTrack = Track(
@@ -493,7 +491,6 @@ struct LibrarySyncIdentityTests {
     func displayMetadataChangesRefreshPersistedTracksWithoutAPICacheInvalidation() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let cache = MockCacheService()
         let snapshotService = SyncMockLibrarySnapshotService()
         let storedTrack = Track(
@@ -540,7 +537,6 @@ struct LibrarySyncIdentityTests {
     func rawAlbumIdentityDisplayChangesRefreshPersistedTracksWithoutAPICacheInvalidation() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let cache = MockCacheService()
         let snapshotService = SyncMockLibrarySnapshotService()
         let storedTrack = Track(
@@ -590,7 +586,6 @@ struct LibrarySyncIdentityTests {
     func lastModifiedAloneDoesNotRefreshPersistedTracks() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let cache = MockCacheService()
         let snapshotService = SyncMockLibrarySnapshotService()
         let storedTrack = Track(
@@ -634,7 +629,6 @@ struct LibrarySyncIdentityTests {
     func newTracksInvalidateCurrentCachesAndClearSnapshot() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let cache = MockCacheService()
         let snapshotService = SyncMockLibrarySnapshotService()
         let newTrack = Track(
@@ -670,7 +664,6 @@ struct LibrarySyncIdentityTests {
     func managedMetadataChangesStayModifiedAndInvalidateCurrentCaches() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let cache = MockCacheService()
         let snapshotService = SyncMockLibrarySnapshotService()
         let storedTrack = Track(
@@ -714,7 +707,6 @@ struct LibrarySyncIdentityTests {
     func releaseYearChangesRefreshPersistedTrackMetadata() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let cache = MockCacheService()
         let snapshotService = SyncMockLibrarySnapshotService()
         let storedTrack = Track(
@@ -759,7 +751,6 @@ struct LibrarySyncIdentityTests {
     func managedMetadataAndAlbumIdentityChangesInvalidateOldAndNewCaches() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let cache = MockCacheService()
         let snapshotService = SyncMockLibrarySnapshotService()
         let storedTrack = Track(
@@ -808,7 +799,6 @@ struct LibrarySyncIdentityTests {
     ) async -> LibrarySyncService {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         await bridge.setLibrary(ids: currentTracks.keys.sorted(), tracks: currentTracks)
         await store.setStored(storedTracks)
         return LibrarySyncService(
