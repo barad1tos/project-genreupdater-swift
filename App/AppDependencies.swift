@@ -519,7 +519,6 @@ final class AppDependencies {
         let syncService = makeLibrarySyncService(
             bridge: bridge,
             store: store,
-            gate: gate,
             cache: cache
         )
         librarySyncService = syncService
@@ -542,7 +541,6 @@ final class AppDependencies {
     private func makeLibrarySyncService(
         bridge: AppleScriptBridge,
         store: any TrackStateStore,
-        gate: FeatureGate,
         cache: any CacheService
     ) -> LibrarySyncService {
         LibrarySyncService(
