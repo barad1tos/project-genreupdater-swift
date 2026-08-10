@@ -44,7 +44,7 @@ def canonical(obj: object) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--generated-dir", type=Path, default=None)
-    generated_dir = parser.parse_args().generated_dir
+    generated_dir: Path | None = parser.parse_args().generated_dir
 
     previous = json.loads(MANIFEST.read_text())["files"] if MANIFEST.exists() else {}
     files: dict[str, dict] = {}
@@ -59,13 +59,14 @@ def main() -> None:
 
         if isinstance(data, list):
             entry["caseCount"] = len(data)
-            source = generated_dir / path.name if generated_dir else None
-            if source and source.exists():
+            source = generated_dir / path.name if generated_dir is not None else None
+            if source is not None and source.exists():
                 emitted = {canonical(case) for case in json.loads(source.read_text())}
-                entry["generated"] = sum(canonical(case) in emitted for case in data)
+                generated_count = sum(canonical(case) in emitted for case in data)
             else:
-                entry["generated"] = previous.get(path.name, {}).get("generated", 0)
-            entry["verifiedByExecution"] = len(data) - int(entry["generated"])
+                generated_count = int(previous.get(path.name, {}).get("generated", 0))
+            entry["generated"] = generated_count
+            entry["verifiedByExecution"] = len(data) - generated_count
 
         files[path.name] = entry
         print(f"  {path.name}: {entry.get('caseCount', '-')} cases")
