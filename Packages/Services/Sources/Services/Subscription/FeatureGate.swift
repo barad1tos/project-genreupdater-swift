@@ -1,8 +1,7 @@
 // FeatureGate.swift — Centralized feature access control based on subscription tier.
 //
-// Two init paths:
-// - Production: init(subscription:) reads tier from SubscriptionService
-// - Testing: init(fixedTier:) bypasses StoreKit entirely
+// Production injects live tier, allowance, and persistence providers.
+// Tests and previews can use a fixed tier without StoreKit.
 
 import Core
 import Foundation

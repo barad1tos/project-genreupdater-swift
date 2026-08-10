@@ -31,6 +31,7 @@ struct WorkflowFixtureOptions {
     var failRunRecordPersistence = false
     var failTerminalRunRecordPersistence = false
     var recordTrackUsage: (Int) -> Void = { _ in }
+    var featureGate: FeatureGate?
 }
 
 private struct WorkflowFixtureInput {
@@ -86,7 +87,7 @@ private func assembleWorkflowFixture(_ input: WorkflowFixtureInput) -> WorkflowF
         scriptClient: scriptClient,
         cache: cache
     )
-    let gate = FeatureGate(
+    let gate = input.options.featureGate ?? FeatureGate(
         fixedTier: input.options.tier,
         usageRecorder: input.options.recordTrackUsage
     )

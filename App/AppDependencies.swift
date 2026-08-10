@@ -268,13 +268,7 @@ final class AppDependencies {
             let gate = FeatureGate(fixedTier: .pro)
             log.info("DEBUG: FeatureGate set to .pro (all features unlocked)")
             #else
-            let gate = FeatureGate(
-                tierProvider: { subscription.currentTier },
-                freeTracksUsedProvider: { subscription.freeTracksUsed },
-                usageRecorder: { count in
-                    subscription.incrementFreeTracksUsed(by: count)
-                }
-            )
+            let gate = Self.makeFeatureGate(for: subscription)
             #endif
             featureGate = gate
 
@@ -290,6 +284,16 @@ final class AppDependencies {
             log.error("Initialization failed: \(error.localizedDescription, privacy: .public)")
             appState = .error(error.localizedDescription)
         }
+    }
+
+    static func makeFeatureGate(for subscription: SubscriptionService) -> FeatureGate {
+        FeatureGate(
+            tierProvider: { subscription.currentTier },
+            freeTracksUsedProvider: { subscription.freeTracksUsed },
+            usageRecorder: { count in
+                subscription.incrementFreeTracksUsed(by: count)
+            }
+        )
     }
 
     /// Called when onboarding completes script installation.
