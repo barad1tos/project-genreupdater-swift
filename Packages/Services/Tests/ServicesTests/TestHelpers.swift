@@ -468,9 +468,7 @@ func taskValue<Value: Sendable>(
             } catch {
                 return
             }
-            race.resolve(.failure(TaskWaitTimeout())) {
-                task.cancel()
-            }
+            race.resolve(.failure(TaskWaitTimeout()), cancelling: task)
         }
         race.installTimeout(timeoutTask)
     }
@@ -501,7 +499,7 @@ private final class TaskValueRace<Value: Sendable>: @unchecked Sendable {
     @discardableResult
     func resolve(
         _ result: Result<Value, any Error>,
-        beforeResume: () -> Void = {}
+        cancelling task: Task<Value, any Error>? = nil
     ) -> Bool {
         let resolution: (CheckedContinuation<Value, any Error>?, Task<Void, Never>?)? = lock.withLock {
             guard !isResolved else { return nil }
@@ -513,7 +511,7 @@ private final class TaskValueRace<Value: Sendable>: @unchecked Sendable {
         }
         guard let (continuation, timeoutTask) = resolution else { return false }
 
-        beforeResume()
+        task?.cancel()
         timeoutTask?.cancel()
         continuation?.resume(with: result)
         return true
