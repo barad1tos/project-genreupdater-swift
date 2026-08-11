@@ -457,18 +457,61 @@ func taskValue<Value: Sendable>(
     _ task: Task<Value, any Error>,
     timeout: Duration = .seconds(60)
 ) async throws -> Value {
-    try await withThrowingTaskGroup(of: Value.self) { group in
-        group.addTask {
-            try await task.value
+    try await withCheckedThrowingContinuation { continuation in
+        let race = TaskValueRace(continuation)
+        Task {
+            await race.resolve(task.result)
         }
-        group.addTask {
-            try await Task.sleep(for: timeout)
-            task.cancel()
-            throw TaskWaitTimeout()
+        let timeoutTask = Task {
+            do {
+                try await Task.sleep(for: timeout)
+            } catch {
+                return
+            }
+            if race.resolve(.failure(TaskWaitTimeout())) {
+                task.cancel()
+            }
         }
+        race.installTimeout(timeoutTask)
+    }
+}
 
-        defer { group.cancelAll() }
-        guard let value = try await group.next() else { throw TaskWaitTimeout() }
-        return value
+// Safety: the lock serializes the one-shot continuation and timeout-task state.
+private final class TaskValueRace<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, any Error>?
+    private var timeoutTask: Task<Void, Never>?
+    private var isResolved = false
+
+    init(_ continuation: CheckedContinuation<Value, any Error>) {
+        self.continuation = continuation
+    }
+
+    func installTimeout(_ task: Task<Void, Never>) {
+        let shouldCancel = lock.withLock {
+            guard !isResolved else { return true }
+            timeoutTask = task
+            return false
+        }
+        if shouldCancel {
+            task.cancel()
+        }
+    }
+
+    @discardableResult
+    func resolve(_ result: Result<Value, any Error>) -> Bool {
+        let resolution: (CheckedContinuation<Value, any Error>?, Task<Void, Never>?)? = lock.withLock {
+            guard !isResolved else { return nil }
+            isResolved = true
+            let resolution = (continuation, timeoutTask)
+            continuation = nil
+            timeoutTask = nil
+            return resolution
+        }
+        guard let (continuation, timeoutTask) = resolution else { return false }
+
+        timeoutTask?.cancel()
+        continuation?.resume(with: result)
+        return true
     }
 }
