@@ -9,7 +9,6 @@ struct LibrarySyncDetectionTests {
     func detectNewTracks() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
 
         let newTrack = Track(id: "NEW1", name: "New Song", artist: "Artist", album: "Album")
         await bridge.setLibrary(ids: ["T1", "NEW1"], tracks: [
@@ -35,7 +34,6 @@ struct LibrarySyncDetectionTests {
     func detectRemovedTracks() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
 
         await bridge.setLibrary(ids: ["T1"], tracks: [
             "T1": Track(id: "T1", name: "Stays", artist: "A", album: "B")
@@ -59,7 +57,6 @@ struct LibrarySyncDetectionTests {
     func ignoreTimestampOnlyMetadataChurnDuringForceScan() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
 
         let oldDate = Date().addingTimeInterval(-3600)
         let newDate = Date()
@@ -104,7 +101,6 @@ struct LibrarySyncDetectionTests {
     func ignoreNewlyPopulatedTrackStatusDuringForceScan() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
 
         await bridge.setLibrary(ids: ["T1"], tracks: [
             "T1": Track(
@@ -141,7 +137,6 @@ struct LibrarySyncDetectionTests {
     func persistedReleaseMetadataDoesNotRepeatForceScanDeltas() async throws {
         let bridge = SyncMockScriptClient()
         let store = try TrackDataStore.createInMemory()
-        let gate = await FeatureGate(fixedTier: .free)
         let track = Track(
             id: "T1",
             name: "Track",
@@ -169,7 +164,6 @@ struct LibrarySyncDetectionTests {
     func detectModifiedTracksByProcessingMetadataWhenLastModifiedIsOlder() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let storedDate = Date()
         let currentDate = storedDate.addingTimeInterval(-3600)
 
@@ -215,7 +209,6 @@ struct LibrarySyncConfigTests {
     func usesConfiguredAppleScriptBatchAndTimeoutValues() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
 
         let newTrack = Track(id: "NEW1", name: "New Song", artist: "Artist", album: "Album")
         await bridge.setLibrary(ids: ["NEW1"], tracks: ["NEW1": newTrack])
@@ -243,7 +236,6 @@ struct LibrarySyncConfigTests {
     func runtimeConfigurationUpdateAppliesToSubsequentSync() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
 
         let newTrack = Track(id: "NEW1", name: "New Song", artist: "Artist", album: "Album")
         await bridge.setLibrary(ids: ["NEW1"], tracks: ["NEW1": newTrack])
@@ -271,7 +263,6 @@ struct LibrarySyncConfigTests {
     func trackIDFetchFailureDoesNotApplyRemovals() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         await bridge.setFetchAllTrackIDsError(.executionFailed(
             scriptName: "fetch_track_ids",
             detail: "ERROR:Music failed"
@@ -290,5 +281,4 @@ struct LibrarySyncConfigTests {
         }
         #expect(try await store.trackCount() == 1)
     }
-
 }

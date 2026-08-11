@@ -8,7 +8,6 @@ struct LibrarySyncScopeTests {
     func scopedSyncUsesAppleScriptWhenReadProviderIsAvailable() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([])
@@ -58,7 +57,6 @@ struct LibrarySyncScopeTests {
     func appleScriptFallbackSyncUsesConfiguredTestArtistScope() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
 
         await bridge.setLibrary(ids: ["AS-OUTSIDE"], tracks: [
             "AS-OUTSIDE": Track(
@@ -113,7 +111,6 @@ struct LibrarySyncScopeTests {
     func appleScriptFallbackUsesEffectiveArtistScope() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
 
         let includedTrack = Track(
             id: "AS-ALBUM-ARTIST",

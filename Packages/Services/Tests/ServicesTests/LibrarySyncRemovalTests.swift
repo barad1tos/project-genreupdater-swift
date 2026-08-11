@@ -22,7 +22,6 @@ struct LibrarySyncRemovalTests {
             ]
         )
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([

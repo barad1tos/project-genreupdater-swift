@@ -8,7 +8,6 @@ struct LibrarySyncPendingTests {
     func syncRemovesPendingPrereleaseRowWhenAlbumDisappears() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let pending = PendingVerificationProbe(
             entry: PendingAlbumEntry(
                 id: "pending-prerelease",

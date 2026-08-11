@@ -265,7 +265,7 @@ final class AppDependencies {
             subscriptionService = subscription
 
             #if DEBUG
-            let gate = FeatureGate(fixedTier: .pro)
+            let gate = Self.makeFeatureGate(for: subscription, fixedTier: .pro)
             log.info("DEBUG: FeatureGate set to .pro (all features unlocked)")
             #else
             let gate = Self.makeFeatureGate(for: subscription)
@@ -286,9 +286,12 @@ final class AppDependencies {
         }
     }
 
-    static func makeFeatureGate(for subscription: SubscriptionService) -> FeatureGate {
+    static func makeFeatureGate(
+        for subscription: SubscriptionService,
+        fixedTier: Tier? = nil
+    ) -> FeatureGate {
         FeatureGate(
-            tierProvider: { subscription.currentTier },
+            tierProvider: { fixedTier ?? subscription.currentTier },
             freeTracksUsedProvider: { subscription.freeTracksUsed },
             usageRecorder: { count in
                 subscription.incrementFreeTracksUsed(by: count)
@@ -516,7 +519,6 @@ final class AppDependencies {
         let syncService = makeLibrarySyncService(
             bridge: bridge,
             store: store,
-            gate: gate,
             cache: cache
         )
         librarySyncService = syncService
@@ -539,7 +541,6 @@ final class AppDependencies {
     private func makeLibrarySyncService(
         bridge: AppleScriptBridge,
         store: any TrackStateStore,
-        gate: FeatureGate,
         cache: any CacheService
     ) -> LibrarySyncService {
         LibrarySyncService(

@@ -8,7 +8,6 @@ struct LibrarySyncMappingTests {
     func readProviderSyncEnrichesNewMusicKitRowsWithAppleScriptMetadata() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
@@ -45,7 +44,6 @@ struct LibrarySyncMappingTests {
     func readProviderSyncToleratesDuplicateMusicKitIDs() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
@@ -72,7 +70,6 @@ struct LibrarySyncMappingTests {
     func readProviderSyncConfirmsRemovalsThroughAppleScriptIDs() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
@@ -105,7 +102,6 @@ struct LibrarySyncMappingTests {
     func readProviderSyncPreservesRowsWithoutAppleScriptIDsWhenCandidateHasNoArtistScope() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
@@ -136,7 +132,6 @@ struct LibrarySyncMappingTests {
     func readProviderSyncRemovesUnmappedMusicKitRowsAfterAppleScriptMetadataCheck() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
@@ -173,7 +168,6 @@ struct LibrarySyncFallbackTests {
     func readProviderSyncPreservesUnmappedRowsWithPossibleAppleScriptIdentityMatch() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
@@ -209,7 +203,6 @@ struct LibrarySyncFallbackTests {
     func readProviderSyncKeepsMusicKitOnlyRowsWhenMusicKitSnapshotIsEmpty() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([])
@@ -236,7 +229,6 @@ struct LibrarySyncFallbackTests {
     func readProviderSyncKeepsStoredTracksWhenMusicKitSnapshotIsEmpty() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([])
@@ -266,7 +258,6 @@ struct LibrarySyncFallbackTests {
     func readProviderSyncFallsBackWhenStoredTracksAreAppleScriptKeyed() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
@@ -297,7 +288,6 @@ struct LibrarySyncFallbackTests {
     func readProviderSyncFallsBackWhenLegacyRowsLackAppleScriptIDs() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([

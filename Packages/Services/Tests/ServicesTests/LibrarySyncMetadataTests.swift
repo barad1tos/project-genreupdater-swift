@@ -9,7 +9,6 @@ struct LibrarySyncMutationTests {
     func readProviderForceScanIgnoresMissingMusicKitMutationMetadata() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
@@ -45,7 +44,6 @@ struct LibrarySyncMutationTests {
     func readProviderRemovalResolutionPreservesPartialAppleScriptMetadata() async {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
 
         let service = LibrarySyncService(
             scriptBridge: bridge,
@@ -87,7 +85,6 @@ struct LibrarySyncMutationTests {
     func readProviderForceScanRefreshesAppleScriptMutationMetadata() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
@@ -140,7 +137,6 @@ struct LibrarySyncMutationTests {
     func readProviderForceScanPreservesClearedAppleScriptMutationMetadata() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
@@ -202,7 +198,6 @@ struct LibrarySyncEnrichmentTests {
     func readProviderSyncVerifiesStoredPrereleaseAvailabilityThroughAppleScript() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([
@@ -249,7 +244,6 @@ struct LibrarySyncEnrichmentTests {
     func readProviderRefreshPreservesAppleScriptEnrichmentMetadata() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let readProvider = SyncMockReadProvider()
 
         await readProvider.setTracks([

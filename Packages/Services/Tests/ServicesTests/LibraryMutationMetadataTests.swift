@@ -142,7 +142,6 @@ struct LibraryMutationMetadataTests {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let readProvider = SyncMockReadProvider()
-        let featureGate = await FeatureGate(fixedTier: .free)
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,

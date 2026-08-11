@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Services
 
@@ -6,37 +7,42 @@ import Testing
 struct ScriptGateRaceTests {
     @Test("Expired grant returns its permit")
     func releasesExpiredGrant() async throws {
+        let clock = GrantClock()
+        let expiredDeadline = clock.now.advanced(by: .seconds(60))
+        let nextDeadline = clock.now.advanced(by: .seconds(120))
         let pause = GrantPause(grant: 2)
         let gate = ScriptGate(
             limit: 1,
-            hooks: .init(afterGrant: { await pause.enter() })
+            hooks: .init(
+                afterGrant: { await pause.enter() },
+                now: { clock.now }
+            )
         )
         let holder = try await gate.acquire(
             scriptName: "holder",
-            deadline: ContinuousClock().now.advanced(by: .seconds(30)),
-            timeout: .seconds(30)
+            deadline: nextDeadline,
+            timeout: .seconds(120)
         )
         let expired = Task {
-            let deadline = ContinuousClock().now.advanced(by: .seconds(1))
-            return try await gate.acquire(
+            try await gate.acquire(
                 scriptName: "expired",
-                deadline: deadline,
-                timeout: .seconds(1)
+                deadline: expiredDeadline,
+                timeout: .seconds(60)
             )
         }
         #expect(await awaitQueue(gate, count: 1))
         let next = Task {
             try await gate.acquire(
                 scriptName: "next",
-                deadline: ContinuousClock().now.advanced(by: .seconds(30)),
-                timeout: .seconds(30)
+                deadline: nextDeadline,
+                timeout: .seconds(120)
             )
         }
         #expect(await awaitQueue(gate, count: 2))
 
         holder.release()
         #expect(await pause.waitForEntry())
-        try await Task.sleep(for: .milliseconds(1100))
+        clock.advance(past: expiredDeadline)
         await pause.open()
 
         var didExpire = false
@@ -55,6 +61,20 @@ struct ScriptGateRaceTests {
         #expect(didExpire)
         let permit = try await next.value
         permit.release()
+    }
+}
+
+// Safety: the lock protects the test clock instant and every access to it.
+private final class GrantClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instant = ContinuousClock().now
+
+    var now: ContinuousClock.Instant {
+        lock.withLock { instant }
+    }
+
+    func advance(past deadline: ContinuousClock.Instant) {
+        lock.withLock { instant = deadline.advanced(by: .nanoseconds(1)) }
     }
 }
 

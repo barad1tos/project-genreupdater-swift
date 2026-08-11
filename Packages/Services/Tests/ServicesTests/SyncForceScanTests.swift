@@ -102,7 +102,6 @@ struct SyncForceScanTests {
     ) async -> ForceScanFixture {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let gate = await FeatureGate(fixedTier: .free)
         let snapshotService = SyncMockLibrarySnapshotService()
         let dateProvider: @Sendable () -> Date = if let currentDate {
             currentDate

@@ -10,9 +10,14 @@ actor ScriptGate {
     #if DEBUG
     struct TestHooks {
         let afterGrant: (@Sendable () async -> Void)?
+        let now: (@Sendable () -> ContinuousClock.Instant)?
 
-        init(afterGrant: (@Sendable () async -> Void)? = nil) {
+        init(
+            afterGrant: (@Sendable () async -> Void)? = nil,
+            now: (@Sendable () -> ContinuousClock.Instant)? = nil
+        ) {
             self.afterGrant = afterGrant
+            self.now = now
         }
     }
     #endif
@@ -152,7 +157,12 @@ actor ScriptGate {
         deadline: ContinuousClock.Instant,
         timeout: Duration
     ) throws {
-        guard ContinuousClock().now < deadline else {
+        #if DEBUG
+        let now = hooks?.now?() ?? ContinuousClock().now
+        #else
+        let now = ContinuousClock().now
+        #endif
+        guard now < deadline else {
             throw AppleScriptBridgeError.dispatchDeadline(
                 scriptName: scriptName,
                 duration: timeout
