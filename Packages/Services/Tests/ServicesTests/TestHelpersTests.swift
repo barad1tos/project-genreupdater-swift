@@ -6,9 +6,8 @@ struct TestHelpersTests {
     @Test("Task wait times out without awaiting a stalled task")
     func taskWaitTimesOut() async {
         let entered = EventCounter()
-        let stall = TaskStall()
+        let stall = TaskStall(entered: entered)
         let task: Task<Int, any Error> = Task {
-            entered.record()
             await stall.wait()
             try Task.checkCancellation()
             return 1
@@ -28,11 +27,17 @@ struct TestHelpersTests {
 }
 
 private actor TaskStall {
+    private let entered: EventCounter
     private var continuation: CheckedContinuation<Void, Never>?
+
+    init(entered: EventCounter) {
+        self.entered = entered
+    }
 
     func wait() async {
         await withCheckedContinuation { continuation in
             self.continuation = continuation
+            entered.record()
         }
     }
 
