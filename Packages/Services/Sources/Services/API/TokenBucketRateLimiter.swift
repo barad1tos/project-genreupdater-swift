@@ -35,17 +35,23 @@ public actor TokenBucketRateLimiter: RateLimiter {
     #if DEBUG
     struct TestHooks {
         let beforeEnqueue: (@Sendable () async -> Void)?
+        let afterEnqueue: (@Sendable () -> Void)?
         let afterCancel: (@Sendable () async -> Void)?
         let afterGrant: (@Sendable () async -> Void)?
+        let now: (@Sendable () -> ContinuousClock.Instant)?
 
         init(
             beforeEnqueue: (@Sendable () async -> Void)? = nil,
+            afterEnqueue: (@Sendable () -> Void)? = nil,
             afterCancel: (@Sendable () async -> Void)? = nil,
-            afterGrant: (@Sendable () async -> Void)? = nil
+            afterGrant: (@Sendable () async -> Void)? = nil,
+            now: (@Sendable () -> ContinuousClock.Instant)? = nil
         ) {
             self.beforeEnqueue = beforeEnqueue
+            self.afterEnqueue = afterEnqueue
             self.afterCancel = afterCancel
             self.afterGrant = afterGrant
+            self.now = now
         }
     }
     #endif
@@ -108,7 +114,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
         self.clock = clock
         self.hooks = hooks
         self.currentTokens = settings.maxTokens
-        self.lastRefillInstant = clock.now
+        self.lastRefillInstant = hooks.now?() ?? clock.now
     }
     #endif
 
@@ -147,7 +153,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
             #endif
             do {
                 try Task.checkCancellation()
-                guard clock.now < deadline else {
+                guard currentInstant < deadline else {
                     throw RateLimitError.deadlineExceeded
                 }
             } catch {
@@ -202,8 +208,8 @@ public actor TokenBucketRateLimiter: RateLimiter {
     /// Polls until a stable waiter count equals `count` or the timeout elapses.
     /// Transient queue states between polling intervals may not be observed.
     func waitForQueue(_ count: Int, timeout: Duration = .seconds(30)) async -> Bool {
-        let deadline = clock.now.advanced(by: timeout)
-        while waiters.count != count, clock.now < deadline {
+        let deadline = currentInstant.advanced(by: timeout)
+        while waiters.count != count, currentInstant < deadline {
             do {
                 try await clock.sleep(for: .milliseconds(1))
             } catch {
@@ -232,7 +238,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
         refillTokens()
         grantTokens()
 
-        if let deadline, clock.now >= deadline {
+        if let deadline, currentInstant >= deadline {
             return .deadlineExceeded
         }
 
@@ -280,20 +286,23 @@ public actor TokenBucketRateLimiter: RateLimiter {
         return await withCheckedContinuation { continuation in
             waiters.append(Waiter(
                 id: id,
-                queuedAt: clock.now,
+                queuedAt: currentInstant,
                 deadline: deadline,
                 continuation: continuation
             ))
             if deadline != nil {
                 deadlineWaiterCount += 1
             }
+            #if DEBUG
+            hooks?.afterEnqueue?()
+            #endif
             log.debug("Rate limited: queued request")
             scheduleWake()
         }
     }
 
     private func grantTokens() {
-        let now = clock.now
+        let now = currentInstant
         expireWaiters(at: now)
 
         while currentTokens > 0, !waiters.isEmpty {
@@ -401,7 +410,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
 
     /// Refills tokens based on elapsed time since the last refill.
     private func refillTokens() {
-        let now = clock.now
+        let now = currentInstant
         let elapsed = lastRefillInstant.duration(to: now)
 
         guard elapsed >= refillInterval else { return }
@@ -431,6 +440,14 @@ public actor TokenBucketRateLimiter: RateLimiter {
         guard intervalNanoseconds > 0 else { return 0 }
 
         return Int(elapsedNanoseconds / intervalNanoseconds)
+    }
+
+    private var currentInstant: ContinuousClock.Instant {
+        #if DEBUG
+        hooks?.now?() ?? clock.now
+        #else
+        clock.now
+        #endif
     }
 }
 

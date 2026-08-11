@@ -118,32 +118,25 @@ struct RetryUtilityTests {
     @Test("Delays increase exponentially between attempts")
     func exponentialBackoff() async {
         let attemptCounter = AtomicCounter()
+        let delayProbe = DelayProbe()
         let initialDelay = Duration.milliseconds(50)
-
-        let start = ContinuousClock.now
 
         await #expect(throws: DiscogsError.self) {
             try await withRetry(
                 maxAttempts: 3,
-                initialDelay: initialDelay
-            ) {
-                await attemptCounter.increment()
-                throw DiscogsError.rateLimited
-            }
+                initialDelay: initialDelay,
+                jitter: { $0 },
+                sleep: { await delayProbe.record($0) },
+                operation: {
+                    await attemptCounter.increment()
+                    throw DiscogsError.rateLimited
+                }
+            )
         }
 
-        let elapsed = ContinuousClock.now - start
         let finalCount = await attemptCounter.value
         #expect(finalCount == 3)
-
-        // 3 attempts = 2 delays: ~50ms + ~100ms = ~150ms minimum (before jitter).
-        // With -25% jitter: 37.5ms + 75ms = 112.5ms.
-        // With +25% jitter: 62.5ms + 125ms = 187.5ms.
-        // The lower bound proves the delays actually ran. The upper bound only
-        // guards against magnitude bugs (e.g. ms-vs-s units): loaded CI runners
-        // add arbitrary scheduling latency, so it must stay generous.
-        #expect(elapsed >= .milliseconds(80))
-        #expect(elapsed < .seconds(5))
+        #expect(await delayProbe.values == [.milliseconds(50), .milliseconds(100)])
     }
 
     // MARK: - Custom Classifier
@@ -171,6 +164,14 @@ struct RetryUtilityTests {
         #expect(result == "custom-recovered")
         let finalCount = await attemptCounter.value
         #expect(finalCount == 3)
+    }
+}
+
+private actor DelayProbe {
+    private(set) var values: [Duration] = []
+
+    func record(_ delay: Duration) {
+        values.append(delay)
     }
 }
 
