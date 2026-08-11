@@ -400,3 +400,53 @@ struct MockAPIService: ExternalAPIService {
 enum MockAPIError: Error {
     case intentional
 }
+
+// MARK: - EventCounter
+
+// Safety: the lock protects the observed count; AsyncStream owns waiter cancellation.
+final class EventCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private let stream: AsyncStream<Int>
+    private let continuation: AsyncStream<Int>.Continuation
+    private var count = 0
+
+    init() {
+        (stream, continuation) = AsyncStream.makeStream(
+            of: Int.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+    }
+
+    deinit {
+        continuation.finish()
+    }
+
+    func record() {
+        let observedCount = lock.withLock {
+            count += 1
+            return count
+        }
+        continuation.yield(observedCount)
+    }
+
+    func wait(for expectedCount: Int, timeout: Duration = .seconds(60)) async -> Bool {
+        guard lock.withLock({ count }) < expectedCount else { return true }
+
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { [stream] in
+                for await observedCount in stream where observedCount >= expectedCount {
+                    return true
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+
+            let didObserveEvent = await group.next() ?? false
+            group.cancelAll()
+            return didObserveEvent
+        }
+    }
+}

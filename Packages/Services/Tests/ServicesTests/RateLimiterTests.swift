@@ -1,4 +1,3 @@
-import Foundation
 import Testing
 @testable import Services
 
@@ -100,7 +99,7 @@ struct RateLimiterTests {
 
     @Test("Cancelled protocol acquire still returns a real token")
     func cancellationKeepsReservation() async {
-        let queue = QueueProbe()
+        let queue = EventCounter()
         let limiter = TokenBucketRateLimiter(
             maxTokens: 1,
             refillInterval: .seconds(5),
@@ -109,7 +108,7 @@ struct RateLimiterTests {
         _ = await limiter.acquire()
 
         let cancelled = Task { await limiter.acquire() }
-        await queue.wait()
+        #expect(await queue.wait(for: 1))
         cancelled.cancel()
 
         await limiter.release()
@@ -200,36 +199,6 @@ struct RateLimiterTests {
         // The refill should have provided a token, so wait should be zero
         // (or negligibly small if timing is tight).
         #expect(waitTime < .milliseconds(50))
-    }
-}
-
-// Safety: the lock protects the queued flag and suspended test waiter.
-private final class QueueProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var isQueued = false
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    func record() {
-        let waiter = lock.withLock {
-            isQueued = true
-            let waiter = continuation
-            continuation = nil
-            return waiter
-        }
-        waiter?.resume()
-    }
-
-    func wait() async {
-        await withCheckedContinuation { continuation in
-            let isReady = lock.withLock {
-                guard !isQueued else { return true }
-                self.continuation = continuation
-                return false
-            }
-            if isReady {
-                continuation.resume()
-            }
-        }
     }
 }
 

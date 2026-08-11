@@ -7,7 +7,7 @@ struct RateLeaseTests {
     @Test("Cancelling a reservation returns exactly one token")
     func cancelReturnsOneToken() async throws {
         let clock = ManualClock()
-        let queue = QueueProbe()
+        let queue = EventCounter()
         let limiter = TokenBucketRateLimiter(
             maxTokens: 1,
             refillInterval: .seconds(300),
@@ -25,11 +25,11 @@ struct RateLeaseTests {
         let first = Task {
             try await limiter.acquire(until: firstDeadline)
         }
-        await queue.wait(for: 1)
+        #expect(await queue.wait(for: 1))
         let second = Task {
             try await limiter.acquire(until: expiredDeadline)
         }
-        await queue.wait(for: 2)
+        #expect(await queue.wait(for: 2))
 
         clock.advance(past: expiredDeadline)
         await lease.cancel()
@@ -45,7 +45,7 @@ struct RateLeaseTests {
     @Test("Abandoned reservation returns its token")
     func abandonedLeaseReturnsToken() async throws {
         let clock = ManualClock()
-        let queue = QueueProbe()
+        let queue = EventCounter()
         let limiter = TokenBucketRateLimiter(
             maxTokens: 1,
             refillInterval: .seconds(300),
@@ -62,7 +62,7 @@ struct RateLeaseTests {
         let next = Task {
             try await limiter.acquire(until: deadline)
         }
-        await queue.wait(for: 1)
+        #expect(await queue.wait(for: 1))
 
         #expect(lease != nil)
         lease = nil
@@ -74,7 +74,7 @@ struct RateLeaseTests {
     @Test("Committed reservation keeps its consumed token")
     func committedLeaseKeepsToken() async throws {
         let clock = ManualClock()
-        let queue = QueueProbe()
+        let queue = EventCounter()
         let limiter = TokenBucketRateLimiter(
             maxTokens: 1,
             refillInterval: .seconds(300),
@@ -95,7 +95,7 @@ struct RateLeaseTests {
         let next = Task {
             try await limiter.acquire(until: blockedDeadline)
         }
-        await queue.wait(for: 1)
+        #expect(await queue.wait(for: 1))
 
         await lease?.cancel()
         lease = nil
@@ -139,36 +139,6 @@ private final class ManualClock: @unchecked Sendable {
 
     func advance(past deadline: ContinuousClock.Instant) {
         lock.withLock { instant = deadline.advanced(by: .nanoseconds(1)) }
-    }
-}
-
-// Safety: the lock protects the observed count and suspended test waiters.
-private final class QueueProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var count = 0
-    private var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
-
-    func record() {
-        let ready = lock.withLock {
-            count += 1
-            let ready = waiters.filter { count >= $0.count }
-            waiters.removeAll { count >= $0.count }
-            return ready
-        }
-        ready.forEach { $0.continuation.resume() }
-    }
-
-    func wait(for expectedCount: Int) async {
-        await withCheckedContinuation { continuation in
-            let isReady = lock.withLock {
-                guard count < expectedCount else { return true }
-                waiters.append((expectedCount, continuation))
-                return false
-            }
-            if isReady {
-                continuation.resume()
-            }
-        }
     }
 }
 
