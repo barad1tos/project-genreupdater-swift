@@ -39,6 +39,7 @@ struct RateLeaseTests {
         await #expect(throws: RateLimitError.self) {
             _ = try await second.value
         }
+        #expect(await limiter.getStats().currentTokens == 0)
     }
 
     @Test("Abandoned reservation returns its token")
