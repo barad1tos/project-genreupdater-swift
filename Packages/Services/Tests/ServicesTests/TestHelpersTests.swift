@@ -21,6 +21,9 @@ struct TestHelpersTests {
         #expect(task.isCancelled)
 
         await stall.release()
+        await #expect(throws: CancellationError.self) {
+            _ = try await task.value
+        }
     }
 }
 
