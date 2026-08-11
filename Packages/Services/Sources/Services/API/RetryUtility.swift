@@ -28,6 +28,26 @@ public func withRetry<T: Sendable>(
     shouldRetry: @Sendable (any Error) -> Bool = isTransientError,
     operation: @Sendable () async throws -> T
 ) async throws -> T {
+    try await withRetry(
+        maxAttempts: maxAttempts,
+        initialDelay: initialDelay,
+        maxDelay: maxDelay,
+        shouldRetry: shouldRetry,
+        jitter: applyJitter,
+        sleep: { try await Task.sleep(for: $0) },
+        operation: operation
+    )
+}
+
+func withRetry<T: Sendable>(
+    maxAttempts: Int = 3,
+    initialDelay: Duration = .seconds(1),
+    maxDelay: Duration = .seconds(30),
+    shouldRetry: @Sendable (any Error) -> Bool = isTransientError,
+    jitter: @Sendable (Duration) -> Duration,
+    sleep: @Sendable (Duration) async throws -> Void,
+    operation: @Sendable () async throws -> T
+) async throws -> T {
     var currentDelay = initialDelay
 
     for attempt in 1 ... maxAttempts {
@@ -47,12 +67,12 @@ public func withRetry<T: Sendable>(
 
             try Task.checkCancellation()
 
-            let jitteredDelay = applyJitter(to: currentDelay)
+            let jitteredDelay = jitter(currentDelay)
             log.debug(
                 "Attempt \(attempt, privacy: .public)/\(maxAttempts, privacy: .public) failed: \(error.localizedDescription, privacy: .public). Retrying in \(jitteredDelay, privacy: .public)."
             )
 
-            try await Task.sleep(for: jitteredDelay)
+            try await sleep(jitteredDelay)
             currentDelay = min(currentDelay * 2, maxDelay)
         }
     }

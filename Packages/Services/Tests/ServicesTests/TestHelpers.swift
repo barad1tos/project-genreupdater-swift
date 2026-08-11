@@ -400,3 +400,120 @@ struct MockAPIService: ExternalAPIService {
 enum MockAPIError: Error {
     case intentional
 }
+
+// MARK: - EventCounter
+
+// Safety: the lock protects the observed count; AsyncStream owns waiter cancellation.
+final class EventCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private let stream: AsyncStream<Int>
+    private let continuation: AsyncStream<Int>.Continuation
+    private var count = 0
+
+    init() {
+        (stream, continuation) = AsyncStream.makeStream(
+            of: Int.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+    }
+
+    deinit {
+        continuation.finish()
+    }
+
+    func record() {
+        let observedCount = lock.withLock {
+            count += 1
+            return count
+        }
+        continuation.yield(observedCount)
+    }
+
+    func wait(for expectedCount: Int, timeout: Duration = .seconds(60)) async -> Bool {
+        guard lock.withLock({ count }) < expectedCount else { return true }
+
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { [stream] in
+                for await observedCount in stream where observedCount >= expectedCount {
+                    return true
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+
+            let didObserveEvent = await group.next() ?? false
+            group.cancelAll()
+            return didObserveEvent
+        }
+    }
+}
+
+struct TaskWaitTimeout: Error {}
+
+func taskValue<Value: Sendable>(
+    _ task: Task<Value, any Error>,
+    timeout: Duration = .seconds(60)
+) async throws -> Value {
+    try await withCheckedThrowingContinuation { continuation in
+        let race = TaskValueRace(continuation)
+        Task {
+            await race.resolve(task.result)
+        }
+        let timeoutTask = Task {
+            do {
+                try await Task.sleep(for: timeout)
+            } catch {
+                return
+            }
+            race.resolve(.failure(TaskWaitTimeout()), cancelling: task)
+        }
+        race.installTimeout(timeoutTask)
+    }
+}
+
+// Safety: the lock serializes the one-shot continuation and timeout-task state.
+private final class TaskValueRace<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, any Error>?
+    private var timeoutTask: Task<Void, Never>?
+    private var isResolved = false
+
+    init(_ continuation: CheckedContinuation<Value, any Error>) {
+        self.continuation = continuation
+    }
+
+    func installTimeout(_ task: Task<Void, Never>) {
+        let shouldCancel = lock.withLock {
+            guard !isResolved else { return true }
+            timeoutTask = task
+            return false
+        }
+        if shouldCancel {
+            task.cancel()
+        }
+    }
+
+    @discardableResult
+    func resolve(
+        _ result: Result<Value, any Error>,
+        cancelling task: Task<Value, any Error>? = nil
+    ) -> Bool {
+        let resolution: (CheckedContinuation<Value, any Error>?, Task<Void, Never>?)? = lock.withLock {
+            guard !isResolved else { return nil }
+            isResolved = true
+            let resolution = (continuation, timeoutTask)
+            continuation = nil
+            timeoutTask = nil
+            return resolution
+        }
+        guard let (continuation, timeoutTask) = resolution else { return false }
+
+        task?.cancel()
+        timeoutTask?.cancel()
+        continuation?.resume(with: result)
+        return true
+    }
+}

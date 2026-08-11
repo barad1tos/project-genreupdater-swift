@@ -99,14 +99,16 @@ struct RateLimiterTests {
 
     @Test("Cancelled protocol acquire still returns a real token")
     func cancellationKeepsReservation() async {
+        let queue = EventCounter()
         let limiter = TokenBucketRateLimiter(
             maxTokens: 1,
-            refillInterval: .seconds(5)
+            refillInterval: .seconds(5),
+            hooks: .init(afterEnqueue: { queue.record() })
         )
         _ = await limiter.acquire()
 
         let cancelled = Task { await limiter.acquire() }
-        #expect(await limiter.waitForQueue(1))
+        #expect(await queue.wait(for: 1))
         cancelled.cancel()
 
         await limiter.release()
