@@ -35,7 +35,7 @@ struct RateLeaseTests {
         await lease.cancel()
         await lease.cancel()
 
-        #expect(try await first.value > .zero)
+        #expect(try await taskValue(first) > .zero)
         await #expect(throws: RateLimitError.self) {
             _ = try await second.value
         }
@@ -67,7 +67,7 @@ struct RateLeaseTests {
         #expect(lease != nil)
         lease = nil
 
-        _ = try await next.value
+        _ = try await taskValue(next)
         #expect(await limiter.getStats().currentTokens == 0)
     }
 

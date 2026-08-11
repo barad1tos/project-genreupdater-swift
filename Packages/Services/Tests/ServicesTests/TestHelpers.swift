@@ -450,3 +450,25 @@ final class EventCounter: @unchecked Sendable {
         }
     }
 }
+
+struct TaskWaitTimeout: Error {}
+
+func taskValue<Value: Sendable>(
+    _ task: Task<Value, any Error>,
+    timeout: Duration = .seconds(60)
+) async throws -> Value {
+    try await withThrowingTaskGroup(of: Value.self) { group in
+        group.addTask {
+            try await task.value
+        }
+        group.addTask {
+            try await Task.sleep(for: timeout)
+            task.cancel()
+            throw TaskWaitTimeout()
+        }
+
+        defer { group.cancelAll() }
+        guard let value = try await group.next() else { throw TaskWaitTimeout() }
+        return value
+    }
+}
