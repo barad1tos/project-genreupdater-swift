@@ -11,7 +11,7 @@ private struct BackupRecoveryFixture {
     let liveTrack: Track
     let csv: String
 
-    static func make() async throws -> Self {
+    static func make(liveYear: Int = 1998) async throws -> Self {
         let bridge = MockAppleScriptClient()
         let historyStore = MockChangeLogStore()
         let trackStore = MockTrackStore()
@@ -25,7 +25,7 @@ private struct BackupRecoveryFixture {
             year: 2019
         )
         var liveTrack = staleMirror
-        liveTrack.year = 1998
+        liveTrack.year = liveYear
         try await trackStore.saveTracks([staleMirror])
         await bridge.setFetchedTracks([liveTrack])
         return Self(
@@ -91,8 +91,8 @@ struct BackupRecoveryTests {
     }
 
     @Test("Pre-dispatch cancellation remains safe to retry")
-    func cancellationRetryStaysSafe() async throws {
-        let fixture = try await BackupRecoveryFixture.make()
+    func cancellationRetry() async throws {
+        let fixture = try await BackupRecoveryFixture.make(liveYear: 2019)
         await fixture.bridge.setWriteCancellationMode(true)
 
         do {
@@ -107,8 +107,17 @@ struct BackupRecoveryTests {
         await fixture.bridge.setWriteCancellationMode(false)
         let retry = try await Self.restore(using: fixture.coordinator(), fixture: fixture)
 
-        #expect(retry.skippedCount == 1)
-        #expect(await fixture.historyStore.entries.isEmpty)
+        #expect(retry.updatedCount == 1)
+        #expect(retry.skippedCount == 0)
+        #expect(await fixture.bridge.writtenProperties.count == 1)
+        let history = await fixture.historyStore.entries
+        #expect(history.count == 1)
+        #expect(history.first?.oldYear == 2019)
+        #expect(history.first?.newYear == 1998)
+        #expect(try await fixture.trackStore.getTrack(byID: "T1")?.year == 1998)
+        #expect(!FileManager.default.fileExists(
+            atPath: fixture.directory.appendingPathComponent("pending-year-revert.json").path
+        ))
     }
 
     @Test("Failed no-change phase persistence blocks automatic retry")

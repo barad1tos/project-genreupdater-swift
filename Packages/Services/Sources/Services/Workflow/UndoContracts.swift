@@ -62,7 +62,7 @@ public struct YearBackupRevertResult: Sendable, Equatable {
 }
 
 extension UndoCoordinator {
-    public struct Stores {
+    public struct Stores: Sendable {
         let changeLog: (any ChangeLogStore)?
         let tracks: (any TrackStateStore)?
         let cache: (any CacheService)?
