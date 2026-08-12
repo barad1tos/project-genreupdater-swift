@@ -77,6 +77,7 @@ public actor UndoCoordinator {
     private let scriptBridge: any AppleScriptClient
     private let idMapper: (any TrackIDMapping)?
     private let changeLogStore: (any ChangeLogStore)?
+    private let trackStore: (any TrackStateStore)?
     private let cache: (any CacheService)?
     private var librarySnapshotService: (any LibrarySnapshotService)?
     private var cleaning: CleaningConfig?
@@ -90,6 +91,7 @@ public actor UndoCoordinator {
         scriptBridge: any AppleScriptClient,
         idMapper: (any TrackIDMapping)? = nil,
         changeLogStore: (any ChangeLogStore)? = nil,
+        trackStore: (any TrackStateStore)? = nil,
         cache: (any CacheService)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         cleaning: CleaningConfig? = nil,
@@ -98,6 +100,7 @@ public actor UndoCoordinator {
         self.scriptBridge = scriptBridge
         self.idMapper = idMapper
         self.changeLogStore = changeLogStore
+        self.trackStore = trackStore
         self.cache = cache
         self.librarySnapshotService = librarySnapshotService
         self.cleaning = cleaning
@@ -352,11 +355,24 @@ public actor UndoCoordinator {
                 property: property,
                 value: value
             )
+            do {
+                try await trackStore?.persistAppliedChange(
+                    UpdateCoordinator.changeToLogEntry(mutationChange)
+                )
+            } catch {
+                await invalidateCaches(for: mutationChange)
+                throw UpdateCoordinatorError.writeFinalizationFailed(
+                    trackID: change.track.id,
+                    effects: ["track mirror"]
+                )
+            }
             await invalidateCaches(for: mutationChange)
             return result
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as UndoCoordinatorError {
+            throw error
+        } catch let error as UpdateCoordinatorError {
             throw error
         } catch let error as AppleScriptBridgeError {
             throw error
@@ -407,8 +423,8 @@ public actor UndoCoordinator {
         return ProposedChange(
             track: track,
             changeType: entry.changeType,
-            oldValue: values.oldValue,
-            newValue: values.newValue,
+            oldValue: values.newValue,
+            newValue: values.oldValue,
             confidence: 100,
             source: "undo"
         )

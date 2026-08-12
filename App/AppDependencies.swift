@@ -492,6 +492,7 @@ final class AppDependencies {
             scriptBridge: bridge,
             idMapper: mapper,
             changeLogStore: logStore,
+            trackStore: store,
             cache: cache,
             librarySnapshotService: librarySnapshotService,
             cleaning: config.cleaning

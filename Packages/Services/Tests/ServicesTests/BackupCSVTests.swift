@@ -40,8 +40,10 @@ struct BackupCSVTests {
     @Test("Revert backup CSV writes years and records revert history")
     func revertBackupCSVWritesYearsAndRecordsHistory() async throws {
         let bridge = MockAppleScriptClient()
+        let trackStore = try TrackDataStore.createInMemory()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
+            trackStore: trackStore,
             directory: makeBackupTempDirectory()
         )
         let csv = """
@@ -66,6 +68,7 @@ struct BackupCSVTests {
                 year: 2020
             ),
         ]
+        try await trackStore.saveTracks(tracks)
 
         let result = try await coordinator.revertYearsFromBackupCSV(
             csv,
@@ -92,6 +95,8 @@ struct BackupCSVTests {
         #expect(history.allSatisfy { $0.changeType == .yearRevert })
         #expect(history.contains { $0.trackID == "T1" && $0.oldYear == 2019 && $0.newYear == 1998 })
         #expect(history.contains { $0.trackID == "T2" && $0.oldYear == 2020 && $0.newYear == 1998 })
+        #expect(try await trackStore.getTrack(byID: "T1")?.year == 1998)
+        #expect(try await trackStore.getTrack(byID: "T2")?.year == 1998)
     }
 
     @Test("Applied backup write survives history persistence failure")
@@ -99,9 +104,11 @@ struct BackupCSVTests {
         let bridge = MockAppleScriptClient()
         let store = MockChangeLogStore()
         await store.failSaves()
+        let trackStore = try TrackDataStore.createInMemory()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
             changeLogStore: store,
+            trackStore: trackStore,
             directory: makeBackupTempDirectory()
         )
         let csv = """
@@ -117,6 +124,7 @@ struct BackupCSVTests {
                 year: 2019
             ),
         ]
+        try await trackStore.saveTracks(tracks)
 
         do {
             _ = try await coordinator.revertYearsFromBackupCSV(
@@ -144,6 +152,7 @@ struct BackupCSVTests {
         #expect(history.count == 1)
         #expect(history.first?.trackID == "T1")
         #expect(await store.entries.isEmpty)
+        #expect(try await trackStore.getTrack(byID: "T1")?.year == 1998)
     }
 
     @Test("Backup CSV revert invalidates album API and snapshot caches")
@@ -203,8 +212,10 @@ struct BackupCSVTests {
     func backupCSVNoChangeRowsAreReportedAsSkippedWithoutHistory() async throws {
         let bridge = MockAppleScriptClient()
         await bridge.setSingleWriteResult(.noChange)
+        let trackStore = try TrackDataStore.createInMemory()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
+            trackStore: trackStore,
             directory: makeBackupTempDirectory()
         )
         let csv = """
@@ -220,6 +231,15 @@ struct BackupCSVTests {
                 year: 1998
             ),
         ]
+        try await trackStore.saveTracks([
+            Track(
+                id: "T1",
+                name: "Angel",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                year: 2019
+            ),
+        ])
 
         let result = try await coordinator.revertYearsFromBackupCSV(
             csv,
@@ -232,6 +252,7 @@ struct BackupCSVTests {
         #expect(result.skippedCount == 1)
         #expect(result.failedCount == 0)
         #expect(await coordinator.getHistory().isEmpty)
+        #expect(try await trackStore.getTrack(byID: "T1")?.year == 1998)
     }
 
     @Test("Backup CSV revert refuses missing AppleScript ID mapping")
