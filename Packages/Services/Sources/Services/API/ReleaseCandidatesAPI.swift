@@ -268,7 +268,7 @@ private func cacheReleaseCandidates(
     let ttl = candidates.isEmpty ? cacheContext.negativeResultTTL : cacheContext.positiveResultTTL
     await cacheContext.cache?.set(
         key: cacheKey,
-        value: candidates.map(CachedReleaseCandidate.init),
+        value: cacheableCandidates(candidates, source: source).map(CachedReleaseCandidate.init),
         ttl: ttl
     )
 }
@@ -301,8 +301,23 @@ private func classifiedCandidates(
     source: APISource,
     iTunesScoringYear: Int
 ) -> [ReleaseCandidate] {
-    guard source == .itunes else { return candidates }
     let reissueCutoffYear = iTunesScoringYear - 1
+    return mapITunesCandidates(candidates, source: source) { $0.year >= reissueCutoffYear }
+}
+
+private func cacheableCandidates(
+    _ candidates: [ReleaseCandidate],
+    source: APISource
+) -> [ReleaseCandidate] {
+    mapITunesCandidates(candidates, source: source) { _ in false }
+}
+
+private func mapITunesCandidates(
+    _ candidates: [ReleaseCandidate],
+    source: APISource,
+    isReissue: (ReleaseCandidate) -> Bool
+) -> [ReleaseCandidate] {
+    guard source == .itunes else { return candidates }
     return candidates.map { candidate in
         ReleaseCandidate(
             artist: candidate.artist,
@@ -312,7 +327,7 @@ private func classifiedCandidates(
             releaseType: candidate.releaseType,
             status: candidate.status,
             country: candidate.country,
-            isReissue: candidate.year >= reissueCutoffYear,
+            isReissue: isReissue(candidate),
             mbReleaseGroupID: candidate.mbReleaseGroupID,
             mbReleaseGroupFirstYear: candidate.mbReleaseGroupFirstYear,
             genre: candidate.genre

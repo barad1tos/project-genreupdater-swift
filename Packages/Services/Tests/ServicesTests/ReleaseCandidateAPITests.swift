@@ -233,7 +233,8 @@ struct ReleaseCandidateAPITests {
             source: .itunes,
             releaseType: .album,
             status: .official,
-            country: "us"
+            country: "us",
+            isReissue: true
         )
         let appleMusic = CountingReleaseCandidateService(
             callCounter: callCounter,

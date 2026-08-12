@@ -218,14 +218,12 @@ struct CatalogSearchClientTests {
             return (response, Data(json.utf8))
         }
 
-        let client = CatalogSearchClient(session: session, lookupFallbackEnabled: false)
-        let orchestrator = makeAPIOrchestrator(
-            musicBrainz: MockAPIService(),
-            discogs: MockAPIService(),
-            appleMusic: client,
-            disabledSources: [.musicBrainz, .discogs]
-        ) { $0.dateProvider = { scoringDate } }
-        let candidates = await orchestrator.getReleaseCandidates(
+        let client = CatalogSearchClient(
+            session: session,
+            lookupFallbackEnabled: false,
+            dateProvider: { scoringDate }
+        )
+        let candidates = try await client.getReleaseCandidates(
             artist: "Parity Artist",
             album: "Parity Album",
             currentLibraryYear: nil,

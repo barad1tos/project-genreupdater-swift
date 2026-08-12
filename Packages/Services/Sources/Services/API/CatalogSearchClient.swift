@@ -27,6 +27,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     private let limit: Int
     private let iTunesConfiguration: ITunesSearchConfiguration
     private let lookupFallbackEnabled: Bool
+    private let dateProvider: @Sendable () -> Date
     private let log = AppLogger.api
 
     public init(
@@ -38,6 +39,28 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         lookupFallbackEnabled: Bool = true,
         rawRequestCache: RawAPIRequestCache? = nil
     ) {
+        self.init(
+            session: session,
+            countryCode: countryCode,
+            entity: entity,
+            limit: limit,
+            iTunesConfiguration: iTunesConfiguration,
+            lookupFallbackEnabled: lookupFallbackEnabled,
+            rawRequestCache: rawRequestCache,
+            dateProvider: { Date() }
+        )
+    }
+
+    init(
+        session: URLSession = .shared,
+        countryCode: String = "US",
+        entity: String = "album",
+        limit: Int = 200,
+        iTunesConfiguration: ITunesSearchConfiguration = ITunesSearchConfiguration(),
+        lookupFallbackEnabled: Bool = true,
+        rawRequestCache: RawAPIRequestCache? = nil,
+        dateProvider: @escaping @Sendable () -> Date
+    ) {
         self.session = session
         self.rawRequestCache = rawRequestCache
         self.countryCode = countryCode
@@ -45,6 +68,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         self.limit = min(max(limit, 1), 200)
         self.iTunesConfiguration = iTunesConfiguration
         self.lookupFallbackEnabled = lookupFallbackEnabled
+        self.dateProvider = dateProvider
     }
 
     // MARK: - ExternalAPIService
@@ -123,6 +147,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         currentLibraryYear _: Int?,
         earliestTrackAddedYear _: Int?
     ) async throws -> [ReleaseCandidate] {
+        let scoringYear = utcYear(at: dateProvider())
         guard let searchURL = Self.buildITunesSearchURL(
             term: "\(artist) \(album)",
             countryCode: countryCode,
@@ -137,7 +162,8 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         let directCandidates = Self.candidates(
             from: searchResults,
             artist: artist,
-            album: album
+            album: album,
+            scoringYear: scoringYear
         )
         if !directCandidates.isEmpty || !lookupFallbackEnabled {
             return directCandidates
@@ -150,7 +176,8 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         return Self.candidates(
             from: lookupResults,
             artist: artist,
-            album: album
+            album: album,
+            scoringYear: scoringYear
         )
     }
 
@@ -315,7 +342,8 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     private static func candidates(
         from results: [ITunesAlbumResult],
         artist: String,
-        album: String
+        album: String,
+        scoringYear: Int
     ) -> [ReleaseCandidate] {
         let normalizedArtist = normalizeForMatching(artist)
         let normalizedAlbum = normalizeForMatching(album)
@@ -340,9 +368,16 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
                 source: .itunes,
                 releaseType: .album,
                 status: .official,
-                country: result.country?.lowercased()
+                country: result.country?.lowercased(),
+                isReissue: year >= scoringYear - 1
             )
         }
+    }
+
+    private func utcYear(at date: Date) -> Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        return calendar.component(.year, from: date)
     }
 
     private static func releaseYear(
