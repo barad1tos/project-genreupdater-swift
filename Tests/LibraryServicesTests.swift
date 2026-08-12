@@ -53,6 +53,42 @@ struct LibraryServicesTests {
         #expect(await fixture.snapshotService.savedTrackIDs() == ["track-1"])
     }
 
+    @Test("A partial MusicKit load preserves authoritative mirror metadata")
+    func musicKitLoadPreservesMirror() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        try await fixture.trackStore.saveTracks([
+            Core.Track(
+                id: "live",
+                name: "Song",
+                artist: "Clutch",
+                album: "Blast Tyrant",
+                genre: "Stoner Rock",
+                year: 2004,
+                trackStatus: TrackKind.purchased.rawValue,
+                originalArtist: "Clutch",
+                originalAlbum: "Blast Tyrant",
+                yearBeforeMGU: 2003,
+                yearSetByMGU: 2004,
+                albumArtist: "Clutch"
+            ),
+        ])
+        fixture.dependencies.installTestLibraryReadProvider(PartialLibraryReadProvider())
+
+        await fixture.dependencies.loadLibrary(forceRefresh: true)
+
+        let visibleTrack = try #require(fixture.dependencies.libraryTracks.first)
+        let persistedTrack = try #require(await fixture.trackStore.getTrack(byID: "live"))
+        for track in [visibleTrack, persistedTrack] {
+            #expect(track.year == 2004)
+            #expect(track.albumArtist == "Clutch")
+            #expect(track.trackStatus == TrackKind.purchased.rawValue)
+            #expect(track.originalArtist == "Clutch")
+            #expect(track.originalAlbum == "Blast Tyrant")
+            #expect(track.yearBeforeMGU == 2003)
+            #expect(track.yearSetByMGU == 2004)
+        }
+    }
+
     @Test("Blank-only test artists save full-library snapshot")
     func blankOnlyTestArtistsSaveFullLibrarySnapshot() async throws {
         let fixture = try makeFixture(testArtists: ["  "])
@@ -88,7 +124,7 @@ struct LibraryServicesTests {
 
         #expect(
             compactSource.contains(
-                "await persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)"
+                "await persistLoadedLibraryTracks( liveLoad.tracks, scopedArtists: scopedArtists )"
             )
         )
     }
@@ -381,5 +417,13 @@ struct LibraryServicesTests {
         let continuations = await fixture.dependencies.loadRunContinuations(id: "not-a-uuid")
 
         #expect(continuations.isEmpty)
+    }
+}
+
+private actor PartialLibraryReadProvider: LibraryReadProvider {
+    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+        LibraryReadSnapshot(tracks: [
+            Core.Track(id: "live", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+        ], scannedAt: Date(timeIntervalSince1970: 200))
     }
 }

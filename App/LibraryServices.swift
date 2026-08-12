@@ -104,29 +104,39 @@ extension AppDependencies {
         }
     }
 
+    @discardableResult
     func persistLoadedLibraryTracks(
         _ tracks: [Track],
         scopedArtists capturedScopedArtists: [String]? = nil
-    ) async {
+    ) async -> [Track] {
         let scopedArtists = capturedScopedArtists ?? ArtistAllowList.normalized(config.development.testArtists)
-        guard !tracks.isEmpty else { return }
+        guard !tracks.isEmpty else { return [] }
         let previousTracks = await loadPreviousIncrementalScopeTracks()
         replacePreviousIncrementalScopeTracks(previousTracks)
+        let previousByID = Dictionary(
+            previousTracks.map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let reconciledTracks = tracks.map { track in
+            guard let stored = previousByID[track.id] else { return track }
+            return LibraryReadReconciler.reconcile(live: track, stored: stored)
+        }
 
         do {
-            try await trackStore?.saveTracks(tracks)
+            try await trackStore?.saveTracks(reconciledTracks)
         } catch {
             libraryServicesLog.error("Failed to persist loaded tracks: \(error.localizedDescription, privacy: .public)")
         }
 
         if scopedArtists.isEmpty {
             do {
-                _ = try await librarySnapshotService?.saveSnapshot(tracks)
+                _ = try await librarySnapshotService?.saveSnapshot(reconciledTracks)
             } catch {
                 libraryServicesLog
                     .warning("Failed to save library snapshot: \(error.localizedDescription, privacy: .public)")
             }
         }
+        return reconciledTracks
     }
 
     private func loadPreviousIncrementalScopeTracks() async -> [Track] {

@@ -156,17 +156,20 @@ extension AppDependencies {
     ) async {
         guard libraryLoadGate.isCurrent(token) else { return }
         isLibraryReadyForUpdates = liveLoad.isLibraryReadyForUpdates
-        libraryTracks = liveLoad.tracks
-        await persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)
+        let reconciledTracks = await persistLoadedLibraryTracks(
+            liveLoad.tracks,
+            scopedArtists: scopedArtists
+        )
         guard libraryLoadGate.isCurrent(token) else { return }
-        await applyBrowseTruthForLoad?(liveLoad.tracks, .liveLibrary(scannedAt: liveLoad.scanDate), token)
+        libraryTracks = reconciledTracks
+        await applyBrowseTruthForLoad?(reconciledTracks, .liveLibrary(scannedAt: liveLoad.scanDate), token)
         guard libraryLoadGate.isCurrent(token) else { return }
-        let upsertedMetrics = await metricsSnapshotStore?.upsert(from: liveLoad.tracks)
+        let upsertedMetrics = await metricsSnapshotStore?.upsert(from: reconciledTracks)
         guard libraryLoadGate.isCurrent(token) else { return }
         lastLibraryScanDate = liveLoad.scanDate
         libraryMetrics = upsertedMetrics
-        onLibraryLoadApplied?(liveLoad.tracks)
-        await recordLibraryLoad(source: "music", count: liveLoad.tracks.count, startedAt: loadStart)
+        onLibraryLoadApplied?(reconciledTracks)
+        await recordLibraryLoad(source: "music", count: reconciledTracks.count, startedAt: loadStart)
     }
 
     private func handleLibraryLoadFailure(
