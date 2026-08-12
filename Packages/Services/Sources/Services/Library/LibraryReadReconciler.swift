@@ -2,8 +2,22 @@ import Core
 
 /// Reconciles fast library reads with the persisted Music.app metadata mirror.
 public enum LibraryReadReconciler {
-    /// Preserves mutation metadata omitted by partial reads while allowing an
-    /// authoritative AppleScript read to clear writable fields explicitly.
+    /// Merges a live track with its persisted Music.app metadata mirror.
+    ///
+    /// Stored values fill metadata omitted by partial reads. When `appleScript`
+    /// is present and `isAuthoritative` is `true`, `nil` genre, year, release-year,
+    /// and album-artist values are explicit clears. A missing AppleScript record
+    /// falls back to stored values, then to live values where that field's
+    /// precedence permits; year falls back only to the stored mirror. Other
+    /// optional fields use their non-`nil` source precedence.
+    ///
+    /// - Parameters:
+    ///   - live: Current provider result and source of the returned identity.
+    ///   - stored: Persisted mirror used to fill metadata omitted by `live`.
+    ///   - appleScript: Optional Music.app-authoritative metadata enrichment.
+    ///   - isAuthoritative: Whether `nil` values in a present AppleScript record
+    ///     explicitly clear genre, year, release year, and album artist.
+    /// - Returns: A track keyed by `live.id`, reconciled from the supplied sources.
     public static func reconcile(
         live: Track,
         stored: Track,

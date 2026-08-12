@@ -7,7 +7,7 @@ private let runRuntimeLog = Logger(subsystem: "com.genreupdater", category: "run
 
 struct RunRuntimeFactory {
     let services: RunServiceFactory
-    let store: TrackDataStore
+    let store: any TrackStateStore
     let gate: FeatureGate
     let cache: GRDBCacheService
     let undo: UndoCoordinator

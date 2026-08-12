@@ -41,7 +41,7 @@ struct LibrarySyncMutationTests {
     }
 
     @Test("Read provider removal resolution preserves partial AppleScript metadata")
-    func readProviderRemovalResolutionPreservesPartialAppleScriptMetadata() {
+    func removalResolutionPreservesMetadata() {
         let storedTrack = Track(
             id: "MK-1",
             name: "Existing",

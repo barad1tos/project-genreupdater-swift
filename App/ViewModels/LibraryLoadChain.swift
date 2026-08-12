@@ -113,7 +113,7 @@ extension AppDependencies {
                 provider: provider,
                 scopedArtists: scopedArtists
             )
-            await applyLiveLibraryLoad(
+            try await applyLiveLibraryLoad(
                 liveLoad,
                 token: token,
                 scopedArtists: scopedArtists,
@@ -153,14 +153,14 @@ extension AppDependencies {
         token: UInt64,
         scopedArtists: [String],
         loadStart: ContinuousClock.Instant
-    ) async {
+    ) async throws {
         guard libraryLoadGate.isCurrent(token) else { return }
-        isLibraryReadyForUpdates = liveLoad.isLibraryReadyForUpdates
-        let reconciledTracks = await persistLoadedLibraryTracks(
+        let reconciledTracks = try await persistLibraryLoad(
             liveLoad.tracks,
             scopedArtists: scopedArtists
         )
         guard libraryLoadGate.isCurrent(token) else { return }
+        isLibraryReadyForUpdates = liveLoad.isLibraryReadyForUpdates
         libraryTracks = reconciledTracks
         await applyBrowseTruthForLoad?(reconciledTracks, .liveLibrary(scannedAt: liveLoad.scanDate), token)
         guard libraryLoadGate.isCurrent(token) else { return }

@@ -32,6 +32,7 @@ private func isOpenReportState(_ state: RunLifecycleState) -> Bool {
 
 enum AppDependencyServiceError: LocalizedError, Equatable {
     case librarySyncUnavailable
+    case trackStoreUnavailable
     case recoveryBlocked
     case recoveryUpdateRequired
     case recoveryUnavailable
@@ -45,6 +46,8 @@ enum AppDependencyServiceError: LocalizedError, Equatable {
         switch self {
         case .librarySyncUnavailable:
             "Library sync service is unavailable"
+        case .trackStoreUnavailable:
+            "Track state store is unavailable"
         case .recoveryBlocked:
             "Recovery needs attention before this run can be closed"
         case .recoveryUpdateRequired:
@@ -105,13 +108,16 @@ extension AppDependencies {
     }
 
     @discardableResult
-    func persistLoadedLibraryTracks(
+    func persistLibraryLoad(
         _ tracks: [Track],
         scopedArtists capturedScopedArtists: [String]? = nil
-    ) async -> [Track] {
+    ) async throws -> [Track] {
         let scopedArtists = capturedScopedArtists ?? ArtistAllowList.normalized(config.development.testArtists)
         guard !tracks.isEmpty else { return [] }
-        let previousTracks = await loadPreviousIncrementalScopeTracks()
+        guard let trackStore else {
+            throw AppDependencyServiceError.trackStoreUnavailable
+        }
+        let previousTracks = try await trackStore.loadAllTracks()
         replacePreviousIncrementalScopeTracks(previousTracks)
         let previousByID = Dictionary(
             previousTracks.map { ($0.id, $0) },
@@ -123,7 +129,7 @@ extension AppDependencies {
         }
 
         do {
-            try await trackStore?.saveTracks(reconciledTracks)
+            try await trackStore.saveTracks(reconciledTracks)
         } catch {
             libraryServicesLog.error("Failed to persist loaded tracks: \(error.localizedDescription, privacy: .public)")
         }
@@ -137,18 +143,6 @@ extension AppDependencies {
             }
         }
         return reconciledTracks
-    }
-
-    private func loadPreviousIncrementalScopeTracks() async -> [Track] {
-        guard let trackStore else { return [] }
-        do {
-            return try await trackStore.loadAllTracks()
-        } catch {
-            libraryServicesLog.warning(
-                "Failed to load previous incremental scope tracks: \(error.localizedDescription, privacy: .public)"
-            )
-            return []
-        }
     }
 
     func runMaintenancePreflight() async -> MaintenancePreflightResult? {
