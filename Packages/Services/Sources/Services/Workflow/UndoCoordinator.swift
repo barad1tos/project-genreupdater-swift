@@ -598,13 +598,7 @@ public actor UndoCoordinator {
         }
         do {
             await loadHistoryIfNeeded()
-            if isRetry,
-               history.contains(where: {
-                   $0.changeType == .yearRevert
-                       && $0.trackID == entry.trackID
-                       && $0.oldYear == entry.oldYear
-                       && $0.newYear == entry.newYear
-               }) {
+            if isRetry, history.contains(where: { $0.id == entry.id }) {
                 return
             }
             try await recordRepairedChanges([entry])

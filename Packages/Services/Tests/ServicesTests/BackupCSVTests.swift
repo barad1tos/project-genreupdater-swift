@@ -229,6 +229,68 @@ struct BackupCSVTests {
         #expect(try await trackStore.getTrack(byID: "T1")?.year == 1998)
     }
 
+    @Test("Retry preserves distinct evidence for identical restores")
+    func distinctRestoreEvidence() async throws {
+        let bridge = MockAppleScriptClient()
+        let historyStore = MockChangeLogStore()
+        let trackStore = MockTrackStore()
+        let directory = makeBackupTempDirectory()
+        let track = Track(
+            id: "T1",
+            name: "Angel",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            year: 2019
+        )
+        let csv = """
+        id,name,artist,album,year_before_mgu
+        T1,Angel,Massive Attack,Mezzanine,1998
+        """
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            changeLogStore: historyStore,
+            trackStore: trackStore,
+            directory: directory
+        )
+        try await trackStore.saveTracks([track])
+        await bridge.setFetchedTracks([track])
+        _ = try await coordinator.revertYearsFromBackupCSV(
+            csv,
+            artist: "Massive Attack",
+            currentTracks: [track]
+        )
+
+        try await trackStore.saveTracks([track])
+        await bridge.setFetchedTracks([track])
+        await historyStore.failSaves()
+        await expectFinalizationFailure(effects: ["change history"]) {
+            _ = try await coordinator.revertYearsFromBackupCSV(
+                csv,
+                artist: "Massive Attack",
+                currentTracks: [track]
+            )
+        }
+
+        await historyStore.resumeSaves()
+        var restoredTrack = track
+        restoredTrack.year = 1998
+        let retryCoordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            changeLogStore: historyStore,
+            trackStore: trackStore,
+            directory: directory
+        )
+        _ = try await retryCoordinator.revertYearsFromBackupCSV(
+            csv,
+            artist: "Massive Attack",
+            currentTracks: [restoredTrack]
+        )
+
+        let entries = await historyStore.entries
+        #expect(entries.count == 2)
+        #expect(Set(entries.map(\.id)).count == 2)
+    }
+
     @Test("Corrupt recovery checkpoint blocks backup writes")
     func corruptCheckpointBlocksWrites() async throws {
         let bridge = MockAppleScriptClient()
