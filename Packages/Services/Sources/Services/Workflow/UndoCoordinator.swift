@@ -83,6 +83,7 @@ public actor UndoCoordinator {
     private var cleaning: CleaningConfig?
     private var history: [ChangeLogEntry]
     private let legacyHistoryURL: URL
+    private let backupCheckpointURL: URL
     private let fileManager: FileManager
     private let log = Logger(subsystem: "com.genreupdater", category: "UndoCoordinator")
     private var hasLoadedHistory = false
@@ -108,6 +109,7 @@ public actor UndoCoordinator {
         let base = directory ?? Self.defaultDirectory()
         let historyURL = base.appendingPathComponent("undo-history.json")
         self.legacyHistoryURL = historyURL
+        self.backupCheckpointURL = base.appendingPathComponent("pending-year-revert.json")
         self.history = []
     }
 
@@ -220,6 +222,8 @@ public actor UndoCoordinator {
             } catch is CancellationError {
                 throw CancellationError()
             } catch let error as AppleScriptOutcomeError {
+                throw error
+            } catch let error as UpdateCoordinatorError {
                 throw error
             } catch {
                 let failureDescription = Self.publicFailureDescription(for: error)
@@ -342,7 +346,8 @@ public actor UndoCoordinator {
     private func performRevertWrite(
         change: ProposedChange,
         property: String,
-        value: String
+        value: String,
+        prepareMirror: ((ProposedChange, AppleScriptWriteResult) async throws -> Void)? = nil
     ) async throws -> AppleScriptWriteResult {
         let mutationTrack = try await mutationTrack(for: change.track)
         try validateWriteEligibility(for: mutationTrack)
@@ -355,6 +360,12 @@ public actor UndoCoordinator {
                 property: property,
                 value: value
             )
+            do {
+                try await prepareMirror?(mutationChange, result)
+            } catch {
+                await invalidateCaches(for: mutationChange)
+                throw error
+            }
             do {
                 try await trackStore?.persistAppliedChange(
                     UpdateCoordinator.changeToLogEntry(mutationChange)
@@ -430,17 +441,6 @@ public actor UndoCoordinator {
         )
     }
 
-    private func yearRevertProposal(for track: Track, targetYear: Int) -> ProposedChange {
-        ProposedChange(
-            track: track,
-            changeType: .yearRevert,
-            oldValue: track.year.map(String.init),
-            newValue: String(targetYear),
-            confidence: 100,
-            source: "backup_csv"
-        )
-    }
-
     private func originalChangeValues(for entry: ChangeLogEntry) -> (oldValue: String?, newValue: String?) {
         switch entry.changeType {
         case .genreUpdate:
@@ -476,28 +476,12 @@ public actor UndoCoordinator {
             }
 
             do {
-                let change = yearRevertProposal(for: track, targetYear: target.year)
-                let writeResult = try await performRevertWrite(
-                    change: change,
-                    property: "year",
-                    value: String(target.year)
-                )
-                guard writeResult == .changed else {
+                let result = try await finishBackupWrite(track, targetYear: target.year)
+                if result == .changed {
+                    updatedCount += 1
+                } else {
                     skippedCount += 1
-                    continue
                 }
-
-                var entry = ChangeLogEntry(
-                    changeType: .yearRevert,
-                    trackID: track.id,
-                    artist: track.artist,
-                    trackName: track.name,
-                    albumName: track.album
-                )
-                entry.oldYear = track.year
-                entry.newYear = target.year
-                try await recordYearRevert(entry, trackID: track.id)
-                updatedCount += 1
             } catch is CancellationError {
                 throw CancellationError()
             } catch let error as AppleScriptOutcomeError {
@@ -524,16 +508,113 @@ public actor UndoCoordinator {
         )
     }
 
-    private func recordYearRevert(_ entry: ChangeLogEntry, trackID: String) async throws {
+    private func finishBackupWrite(
+        _ track: Track,
+        targetYear: Int
+    ) async throws -> AppleScriptWriteResult {
+        let mirrorTrack = try await trackStore?.getTrack(byID: track.id)
+        let change = ProposedChange(
+            track: track,
+            changeType: .yearRevert,
+            oldValue: (mirrorTrack?.year ?? track.year).map(String.init),
+            newValue: String(targetYear),
+            confidence: 100,
+            source: "backup_csv"
+        )
+        let candidateEntry = UpdateCoordinator.changeToLogEntry(change)
+        let pendingEntry: ChangeLogEntry?
         do {
-            try await recordChange(entry)
+            if fileManager.fileExists(atPath: backupCheckpointURL.path) {
+                let data = try Data(contentsOf: backupCheckpointURL)
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                pendingEntry = try decoder.decode(ChangeLogEntry.self, from: data)
+            } else {
+                pendingEntry = nil
+            }
+        } catch {
+            throw UpdateCoordinatorError.writeFinalizationFailed(
+                trackID: track.id,
+                effects: ["backup recovery checkpoint"]
+            )
+        }
+        if let pendingEntry,
+           pendingEntry.changeType != .yearRevert
+           || pendingEntry.trackID != candidateEntry.trackID
+           || pendingEntry.newYear != candidateEntry.newYear {
+            throw UpdateCoordinatorError.writeFinalizationFailed(
+                trackID: pendingEntry.trackID,
+                effects: ["prior backup recovery checkpoint"]
+            )
+        }
+
+        let result = try await performRevertWrite(
+            change: change,
+            property: "year",
+            value: String(targetYear)
+        ) { [self] mutationChange, writeResult in
+            let entry = pendingEntry ?? UpdateCoordinator.changeToLogEntry(mutationChange)
+            guard writeResult == .changed || pendingEntry != nil else { return }
+            try await recordYearRevert(
+                entry,
+                isRetry: pendingEntry != nil,
+                shouldCheckpoint: writeResult == .changed && pendingEntry == nil
+            )
+        }
+        if result == .changed || pendingEntry != nil,
+           fileManager.fileExists(atPath: backupCheckpointURL.path) {
+            do {
+                try fileManager.removeItem(at: backupCheckpointURL)
+            } catch {
+                throw UpdateCoordinatorError.writeFinalizationFailed(
+                    trackID: track.id,
+                    effects: ["backup recovery checkpoint"]
+                )
+            }
+        }
+        return result
+    }
+
+    private func recordYearRevert(
+        _ entry: ChangeLogEntry,
+        isRetry: Bool,
+        shouldCheckpoint: Bool
+    ) async throws {
+        if shouldCheckpoint {
+            do {
+                try fileManager.createDirectory(
+                    at: backupCheckpointURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                try encoder.encode(entry).write(to: backupCheckpointURL, options: .atomic)
+            } catch {
+                throw UpdateCoordinatorError.writeFinalizationFailed(
+                    trackID: entry.trackID,
+                    effects: ["backup recovery checkpoint"]
+                )
+            }
+        }
+        do {
+            await loadHistoryIfNeeded()
+            if isRetry,
+               history.contains(where: {
+                   $0.changeType == .yearRevert
+                       && $0.trackID == entry.trackID
+                       && $0.oldYear == entry.oldYear
+                       && $0.newYear == entry.newYear
+               }) {
+                return
+            }
+            try await recordRepairedChanges([entry])
         } catch {
             log.error("""
-            Failed to persist year revert history for track \(trackID, privacy: .private): \
+            Failed to persist year revert history for track \(entry.trackID, privacy: .private): \
             \(error.localizedDescription, privacy: .private)
             """)
             throw UpdateCoordinatorError.writeFinalizationFailed(
-                trackID: trackID,
+                trackID: entry.trackID,
                 effects: ["change history"]
             )
         }

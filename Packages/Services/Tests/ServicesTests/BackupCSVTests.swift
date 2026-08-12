@@ -99,17 +99,18 @@ struct BackupCSVTests {
         #expect(try await trackStore.getTrack(byID: "T2")?.year == 1998)
     }
 
-    @Test("Applied backup write survives history persistence failure")
-    func retainsAppliedWrite() async throws {
+    @Test("History failure preserves mirror evidence and retry finalizes once")
+    func historyFailureRetryFinalizesOnce() async throws {
         let bridge = MockAppleScriptClient()
         let store = MockChangeLogStore()
         await store.failSaves()
-        let trackStore = try TrackDataStore.createInMemory()
+        let trackStore = MockTrackStore()
+        let directory = makeBackupTempDirectory()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
             changeLogStore: store,
             trackStore: trackStore,
-            directory: makeBackupTempDirectory()
+            directory: directory
         )
         let csv = """
         id,name,artist,album,year_before_mgu
@@ -125,34 +126,152 @@ struct BackupCSVTests {
             ),
         ]
         try await trackStore.saveTracks(tracks)
+        await bridge.setFetchedTracks(tracks)
 
-        do {
+        await expectFinalizationFailure(effects: ["change history"]) {
             _ = try await coordinator.revertYearsFromBackupCSV(
                 csv,
                 artist: "Massive Attack",
                 album: "Mezzanine",
                 currentTracks: tracks
             )
-            Issue.record("Expected post-write finalization failure")
-        } catch let error as UpdateCoordinatorError {
-            guard case let .writeFinalizationFailed(trackID, effects) = error else {
-                Issue.record("Expected writeFinalizationFailed, got \(error)")
-                return
-            }
-            #expect(trackID == "T1")
-            #expect(effects == ["change history"])
-        } catch {
-            Issue.record("Unexpected error: \(error)")
         }
 
         let written = await bridge.writtenProperties
         #expect(written.count == 1)
         #expect(written.first?.value == "1998")
-        let history = await coordinator.getHistory()
-        #expect(history.count == 1)
-        #expect(history.first?.trackID == "T1")
+        #expect(await coordinator.getHistory().isEmpty)
         #expect(await store.entries.isEmpty)
+        #expect(try await trackStore.getTrack(byID: "T1")?.year == 2019)
+
+        await store.resumeSaves()
+        let retryCoordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            changeLogStore: store,
+            trackStore: trackStore,
+            directory: directory
+        )
+        var liveTrack = tracks[0]
+        liveTrack.year = 1998
+        let retryResult = try await retryCoordinator.revertYearsFromBackupCSV(
+            csv,
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            currentTracks: [liveTrack]
+        )
+
+        #expect(retryResult.skippedCount == 1)
+        #expect(await store.entries.count == 1)
+        #expect(await store.entries.first?.oldYear == 2019)
+        #expect(await store.entries.first?.newYear == 1998)
         #expect(try await trackStore.getTrack(byID: "T1")?.year == 1998)
+    }
+
+    @Test("Mirror failure retry preserves one durable backup history entry")
+    func mirrorFailureRetryFinalizesOnce() async throws {
+        let bridge = MockAppleScriptClient()
+        let historyStore = MockChangeLogStore()
+        let trackStore = MockTrackStore()
+        let directory = makeBackupTempDirectory()
+        let tracks = [
+            Track(
+                id: "T1",
+                name: "Angel",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                year: 2019
+            ),
+        ]
+        try await trackStore.saveTracks(tracks)
+        await trackStore.failAppliedUpdates()
+        await bridge.setFetchedTracks(tracks)
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            changeLogStore: historyStore,
+            trackStore: trackStore,
+            directory: directory
+        )
+        let csv = """
+        id,name,artist,album,year_before_mgu
+        T1,Angel,Massive Attack,Mezzanine,1998
+        """
+
+        await expectFinalizationFailure {
+            _ = try await coordinator.revertYearsFromBackupCSV(
+                csv,
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                currentTracks: tracks
+            )
+        }
+
+        #expect(await historyStore.entries.count == 1)
+        #expect(try await trackStore.getTrack(byID: "T1")?.year == 2019)
+
+        await trackStore.resumeAppliedUpdates()
+        let retryCoordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            changeLogStore: historyStore,
+            trackStore: trackStore,
+            directory: directory
+        )
+        var liveTrack = tracks[0]
+        liveTrack.year = 1998
+        let retryResult = try await retryCoordinator.revertYearsFromBackupCSV(
+            csv,
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            currentTracks: [liveTrack]
+        )
+
+        #expect(retryResult.skippedCount == 1)
+        #expect(await historyStore.entries.count == 1)
+        #expect(try await trackStore.getTrack(byID: "T1")?.year == 1998)
+    }
+
+    @Test("Corrupt recovery checkpoint blocks backup writes")
+    func corruptCheckpointBlocksWrites() async throws {
+        let bridge = MockAppleScriptClient()
+        let directory = makeBackupTempDirectory()
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        try Data("not-json".utf8).write(
+            to: directory.appendingPathComponent("pending-year-revert.json")
+        )
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            directory: directory
+        )
+        let csv = """
+        id,name,artist,album,year_before_mgu
+        T1,Angel,Massive Attack,Mezzanine,1998
+        """
+        let track = Track(
+            id: "T1",
+            name: "Angel",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            year: 2019
+        )
+
+        do {
+            _ = try await coordinator.revertYearsFromBackupCSV(
+                csv,
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                currentTracks: [track]
+            )
+            Issue.record("Expected backup recovery checkpoint failure")
+        } catch let error as UpdateCoordinatorError {
+            guard case .writeFinalizationFailed = error else {
+                Issue.record("Expected writeFinalizationFailed, got \(error)")
+                return
+            }
+        }
+
+        #expect(await bridge.writtenProperties.isEmpty)
     }
 
     @Test("Backup CSV revert invalidates album API and snapshot caches")
@@ -334,5 +453,26 @@ struct BackupCSVTests {
 
         let history = await coordinator.getHistory()
         #expect(history.isEmpty)
+    }
+
+    private func expectFinalizationFailure(
+        effects expectedEffects: [String]? = nil,
+        operation: () async throws -> Void
+    ) async {
+        do {
+            try await operation()
+            Issue.record("Expected post-write finalization failure")
+        } catch let error as UpdateCoordinatorError {
+            guard case let .writeFinalizationFailed(trackID, effects) = error else {
+                Issue.record("Expected writeFinalizationFailed, got \(error)")
+                return
+            }
+            #expect(trackID == "T1")
+            if let expectedEffects {
+                #expect(effects == expectedEffects)
+            }
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 }

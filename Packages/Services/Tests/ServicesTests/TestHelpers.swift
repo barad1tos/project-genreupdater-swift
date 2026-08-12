@@ -55,6 +55,10 @@ actor MockTrackStore: TrackStateStore {
         shouldFailMirror = true
     }
 
+    func resumeAppliedUpdates() {
+        shouldFailMirror = false
+    }
+
     func initialize() async throws {}
 
     func loadAllTracks() async throws -> [Track] {

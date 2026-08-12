@@ -35,6 +35,12 @@ extension UpdateCoordinator {
                 album: change.track.album
             ))
         }
+        if change.changeType == .artistRename, let newArtist = change.newValue {
+            candidates.append(contentsOf: AlbumIdentity.lookupCandidates(
+                artist: newArtist,
+                album: change.track.album
+            ))
+        }
         if change.changeType == .albumCleaning, let oldAlbum = change.oldValue {
             Self.appendCacheInvalidationIdentities(&candidates, for: change.track, album: oldAlbum)
         }
