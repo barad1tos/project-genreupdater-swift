@@ -122,14 +122,8 @@ public enum PrereleaseHandling: String, Sendable, Codable, CaseIterable {
 // MARK: - Cleaning Configuration
 
 public struct CleaningConfig: Sendable, Codable, Equatable {
-    // swiftlint:disable:next inclusive_language
-    public var remasterKeywords: [String] = [
-        "remaster", "remastered", "reissue", "expanded edition", "soundtrack",
-        "original motion picture", "original score", "motion picture", "film score",
-    ]
-    public var albumSuffixesToRemove: [String] = [
-        "Remaster", "Remastered", "The 12 Singles", "The 12\" Singles",
-    ]
+    public var editionMarkers: [String] = MetadataRuleDefaults.editionMarkers
+    public var albumSuffixes: [String] = MetadataRuleDefaults.albumSuffixes
     public var trackCleaningExceptions: [TrackCleaningException] = []
 
     /// User-defined genre mappings applied after genre determination.
@@ -140,10 +134,12 @@ public struct CleaningConfig: Sendable, Codable, Equatable {
     public var genreMappings: [String: String] = [:]
 
     private enum CodingKeys: String, CodingKey {
-        case editionKeywords = "remasterKeywords"
-        case legacyEditionKeywords = "remaster_keywords"
-        case albumSuffixesToRemove
-        case legacyAlbumSuffixesToRemove = "album_suffixes_to_remove"
+        case editionMarkers
+        case legacyEditionMarkers = "remasterKeywords"
+        case pythonEditionMarkers = "remaster_keywords"
+        case albumSuffixes
+        case legacyAlbumSuffixes = "albumSuffixesToRemove"
+        case pythonAlbumSuffixes = "album_suffixes_to_remove"
         case trackCleaningExceptions
         case trackCleaning
         case legacyTrackCleaningExceptions = "track_cleaning"
@@ -157,12 +153,14 @@ public struct CleaningConfig: Sendable, Codable, Equatable {
         let defaults = Self()
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        remasterKeywords = try container.decodeIfPresent([String].self, forKey: .editionKeywords)
-            ?? container.decodeIfPresent([String].self, forKey: .legacyEditionKeywords)
-            ?? defaults.remasterKeywords
-        albumSuffixesToRemove = try container.decodeIfPresent([String].self, forKey: .albumSuffixesToRemove)
-            ?? container.decodeIfPresent([String].self, forKey: .legacyAlbumSuffixesToRemove)
-            ?? defaults.albumSuffixesToRemove
+        editionMarkers = try container.decodeIfPresent([String].self, forKey: .editionMarkers)
+            ?? container.decodeIfPresent([String].self, forKey: .legacyEditionMarkers)
+            ?? container.decodeIfPresent([String].self, forKey: .pythonEditionMarkers)
+            ?? defaults.editionMarkers
+        albumSuffixes = try container.decodeIfPresent([String].self, forKey: .albumSuffixes)
+            ?? container.decodeIfPresent([String].self, forKey: .legacyAlbumSuffixes)
+            ?? container.decodeIfPresent([String].self, forKey: .pythonAlbumSuffixes)
+            ?? defaults.albumSuffixes
         trackCleaningExceptions = try container.decodeIfPresent(
             [TrackCleaningException].self,
             forKey: .trackCleaningExceptions
@@ -177,8 +175,8 @@ public struct CleaningConfig: Sendable, Codable, Equatable {
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(remasterKeywords, forKey: .editionKeywords)
-        try container.encode(albumSuffixesToRemove, forKey: .albumSuffixesToRemove)
+        try container.encode(editionMarkers, forKey: .editionMarkers)
+        try container.encode(albumSuffixes, forKey: .albumSuffixes)
         try container.encode(trackCleaningExceptions, forKey: .trackCleaningExceptions)
         try container.encode(genreMappings, forKey: .genreMappings)
     }
@@ -259,15 +257,11 @@ public struct PendingVerificationConfig: Sendable, Codable {
 // MARK: - Album Type Detection Configuration
 
 public struct AlbumTypeDetectionConfig: Sendable, Codable, Equatable {
-    public var specialPatterns: [String] = ["b-sides", "demo", "demos"]
-    public var compilationPatterns: [String] = ["greatest hits", "best of", "compilation"]
-    public var reissuePatterns: [String] = ["remaster", "remastered", "anniversary"]
-    public var soundtrackPatterns: [String] = [
-        "soundtrack", "original score", "OST", "motion picture", "film score",
-    ]
-    public var variousArtistsNames: [String] = [
-        "Various Artists", "Various", "VA", "Різні виконавці",
-    ]
+    public var specialPatterns: [String] = MetadataRuleDefaults.specialAlbums
+    public var compilationPatterns: [String] = MetadataRuleDefaults.compilations
+    public var reissuePatterns: [String] = MetadataRuleDefaults.reissues
+    public var soundtrackPatterns: [String] = MetadataRuleDefaults.soundtracks
+    public var variousArtistsNames: [String] = MetadataRuleDefaults.variousArtists
 
     public init() { /* memberwise defaults are the whole initial state */ }
 }

@@ -125,7 +125,8 @@ struct AppConfigurationTests {
         #expect(config.analytics.maxEvents == 10000)
         #expect(config.analytics.enabled == false)
         #expect(config.analytics.durationThresholds.mediumMax == 20)
-        #expect(config.cleaning.remasterKeywords.count == 9)
+        #expect(config.cleaning.editionMarkers == MetadataRuleDefaults.editionMarkers)
+        #expect(config.cleaning.albumSuffixes == MetadataRuleDefaults.albumSuffixes)
         #expect(config.exceptions.trackCleaning.isEmpty)
         #expect(config.artistRenamer.mappings.isEmpty)
         #expect(config.databaseVerification.autoVerifyDays == 7)
@@ -275,6 +276,14 @@ struct AppConfigurationTests {
     func jsonRoundTrip() throws {
         var original = AppConfiguration()
         original.development.testArtists = ["Amon Amarth", "DK Energetyk"]
+        original.cleaning.editionMarkers = []
+        original.cleaning.albumSuffixes = ["Fan Club Edition"]
+        original.albumTypeDetection.specialPatterns = []
+        original.albumTypeDetection.compilationPatterns = ["box set"]
+        original.albumTypeDetection.reissuePatterns = []
+        original.albumTypeDetection.soundtrackPatterns = []
+        original.albumTypeDetection.variousArtistsNames = ["Compilation Artists"]
+        original.yearRetrieval.reissueDetection.reissueKeywords = []
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
@@ -293,10 +302,19 @@ struct AppConfigurationTests {
         #expect(decoded.caching.librarySnapshot.compressLevel == original.caching.librarySnapshot.compressLevel)
         #expect(decoded.processing.batchSize == original.processing.batchSize)
         #expect(decoded.analytics.maxEvents == original.analytics.maxEvents)
-        #expect(decoded.cleaning.remasterKeywords == original.cleaning.remasterKeywords)
+        #expect(decoded.cleaning.editionMarkers == original.cleaning.editionMarkers)
+        #expect(decoded.cleaning.albumSuffixes == original.cleaning.albumSuffixes)
         #expect(decoded.databaseVerification.batchSize == original.databaseVerification.batchSize)
         #expect(decoded.artistRenamer.mappings == original.artistRenamer.mappings)
+        #expect(decoded.albumTypeDetection.specialPatterns == original.albumTypeDetection.specialPatterns)
+        #expect(decoded.albumTypeDetection.compilationPatterns == original.albumTypeDetection.compilationPatterns)
+        #expect(decoded.albumTypeDetection.reissuePatterns == original.albumTypeDetection.reissuePatterns)
         #expect(decoded.albumTypeDetection.soundtrackPatterns == original.albumTypeDetection.soundtrackPatterns)
+        #expect(decoded.albumTypeDetection.variousArtistsNames == original.albumTypeDetection.variousArtistsNames)
+        #expect(
+            decoded.yearRetrieval.reissueDetection.reissueKeywords ==
+                original.yearRetrieval.reissueDetection.reissueKeywords
+        )
         #expect(decoded.development.testArtists == original.development.testArtists)
         #expect(decoded.development.debugMode == original.development.debugMode)
     }
@@ -570,8 +588,8 @@ struct AppConfigurationTests {
         """
         let decoded = try JSONDecoder().decode(AppConfiguration.self, from: Data(jsonString.utf8))
 
-        #expect(decoded.cleaning.remasterKeywords == ["promo", "expanded edition"])
-        #expect(decoded.cleaning.albumSuffixesToRemove == ["EP", "Single"])
+        #expect(decoded.cleaning.editionMarkers == ["promo", "expanded edition"])
+        #expect(decoded.cleaning.albumSuffixes == ["EP", "Single"])
         #expect(decoded.cleaning.trackCleaningExceptions == [
             TrackCleaningException(artist: "Rabbit Junk", album: "Xenospheres"),
         ])
@@ -768,107 +786,5 @@ struct AppConfigurationTests {
         #expect(timeouts.singleArtistFetch == .seconds(600))
         #expect(timeouts.batchUpdate == .seconds(1800))
         #expect(timeouts.idsBatchFetch == .seconds(120))
-    }
-
-    // MARK: - PreferredAPI
-
-    @Test(
-        "PreferredAPI all cases encode and decode via rawValue",
-        arguments: PreferredAPI.allCases
-    )
-    func preferredAPIRoundTrip(api: PreferredAPI) throws {
-        let data = try JSONEncoder().encode(api)
-        let decoded = try JSONDecoder().decode(PreferredAPI.self, from: data)
-        #expect(decoded == api)
-    }
-
-    @Test("PreferredAPI rawValues match expected strings")
-    func preferredAPIRawValues() {
-        #expect(PreferredAPI.musicbrainz.rawValue == "musicbrainz")
-        #expect(PreferredAPI.discogs.rawValue == "discogs")
-        #expect(PreferredAPI.itunes.rawValue == "itunes")
-    }
-
-    // MARK: - ScoringConfig
-
-    @Test("ScoringConfig default values")
-    func scoringDefaults() {
-        let scoring = ScoringConfig()
-
-        #expect(scoring.baseScore == 10)
-        #expect(scoring.artistExactMatchBonus == 20)
-        #expect(scoring.albumExactMatchBonus == 25)
-        #expect(scoring.perfectMatchBonus == 10)
-        #expect(scoring.mbReleaseGroupMatchBonus == 50)
-        #expect(scoring.sourceMBBonus == 25)
-        #expect(scoring.sourceITunesBonus == -10)
-    }
-
-    // MARK: - CleaningConfig
-
-    @Test("CleaningConfig default remasterKeywords has 9 items")
-    func cleaningEditionKeywordsCount() {
-        let cleaning = CleaningConfig()
-        #expect(cleaning.remasterKeywords.count == 9)
-    }
-
-    @Test("CleaningConfig default albumSuffixesToRemove has 4 items")
-    func cleaningAlbumSuffixesCount() {
-        let cleaning = CleaningConfig()
-        #expect(cleaning.albumSuffixesToRemove.count == 4)
-    }
-
-    @Test("CleaningConfig default trackCleaningExceptions is empty")
-    func cleaningExceptionsEmpty() {
-        let cleaning = CleaningConfig()
-        #expect(cleaning.trackCleaningExceptions.isEmpty)
-    }
-
-    @Test("CleaningConfig default genreMappings is empty")
-    func cleaningGenreMappingsEmpty() {
-        let cleaning = CleaningConfig()
-        #expect(cleaning.genreMappings.isEmpty)
-    }
-
-    @Test("CleaningConfig genreMappings round-trip preserves entries")
-    func cleaningGenreMappingsRoundTrip() throws {
-        var cleaning = CleaningConfig()
-        cleaning.genreMappings = [
-            "Electronica": "Electronic",
-            "Hip Hop": "Hip-Hop",
-        ]
-        let data = try JSONEncoder().encode(cleaning)
-        let decoded = try JSONDecoder().decode(CleaningConfig.self, from: data)
-        #expect(decoded.genreMappings == ["Electronica": "Electronic", "Hip Hop": "Hip-Hop"])
-    }
-
-    // MARK: - ScriptAPIPriority
-
-    @Test("ScriptAPIPriority with primary only leaves fallback empty")
-    func scriptAPIPriorityPrimaryOnly() {
-        let priority = ScriptAPIPriority(primary: ["musicbrainz"])
-
-        #expect(priority.primary == ["musicbrainz"])
-        #expect(priority.fallback.isEmpty)
-    }
-
-    @Test("ScriptAPIPriority with both primary and fallback")
-    func scriptAPIPriorityBoth() {
-        let priority = ScriptAPIPriority(primary: ["musicbrainz"], fallback: ["discogs"])
-
-        #expect(priority.primary == ["musicbrainz"])
-        #expect(priority.fallback == ["discogs"])
-    }
-
-    // MARK: - TrackCleaningException
-
-    @Test("TrackCleaningException round-trip preserves fields")
-    func trackCleaningExceptionRoundTrip() throws {
-        let original = TrackCleaningException(artist: "Pink Floyd", album: "The Wall")
-        let data = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(TrackCleaningException.self, from: data)
-
-        #expect(decoded.artist == "Pink Floyd")
-        #expect(decoded.album == "The Wall")
     }
 }

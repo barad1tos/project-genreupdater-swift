@@ -1,9 +1,15 @@
 // DiscogsClient.swift — REST API client for Discogs metadata
-// Phase 4: API + Cache
-
 import Core
 import Foundation
 import OSLog
+
+func normalizedReissueKeywords(_ keywords: [String]) -> [String] {
+    let normalized = keywords.compactMap { keyword -> String? in
+        let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return trimmed.isEmpty ? nil : trimmed
+    }
+    return Set(normalized).sorted()
+}
 
 // MARK: - DiscogsClient
 
@@ -34,6 +40,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     private let rateLimiter: TokenBucketRateLimiter
     private let token: String?
     private var rawRequestCache: RawAPIRequestCache?
+    private var reissueKeywords: [String]
     private let baseURL: URL
     private let log = AppLogger.api
 
@@ -51,13 +58,16 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     ///   - session: URL session for network requests. Defaults to `.shared`.
     ///   - rateLimiter: Rate limiter for throttling. Defaults to 60 req/min.
     ///   - baseURL: Base Discogs API URL. Defaults to the public Discogs API endpoint.
+    ///   - rawRequestCache: Optional cache for raw API responses.
+    ///   - reissueKeywords: Release text treated as reissue evidence.
     public init(
         token: String? = nil,
         contactEmail: String = "",
         session: URLSession = .shared,
         rateLimiter: TokenBucketRateLimiter? = nil,
         baseURL: URL = Self.defaultBaseURL,
-        rawRequestCache: RawAPIRequestCache? = nil
+        rawRequestCache: RawAPIRequestCache? = nil,
+        reissueKeywords: [String] = MetadataRuleDefaults.releaseReissues
     ) {
         if contactEmail.isEmpty {
             self.userAgent = "GenreUpdater/1.0"
@@ -66,6 +76,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         }
         self.token = token
         self.rawRequestCache = rawRequestCache
+        self.reissueKeywords = normalizedReissueKeywords(reissueKeywords)
         self.session = session
         self.baseURL = baseURL
         self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
@@ -329,14 +340,14 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         return .album
     }
 
-    private static func isReissue(formats: [String], title: String) -> Bool {
+    private func isReissue(formats: [String], title: String) -> Bool {
         containsReissueMarker(in: title)
             || formats.contains { containsReissueMarker(in: $0) }
     }
 
-    private static func containsReissueMarker(in value: String) -> Bool {
+    private func containsReissueMarker(in value: String) -> Bool {
         let lowered = value.lowercased()
-        return lowered.contains("remaster") || lowered.contains("reissue")
+        return reissueKeywords.contains { lowered.contains($0) }
     }
 
     private static func firstNonEmpty(_ values: [String]?) -> String? {
@@ -457,7 +468,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             releaseType: Self.releaseType(from: formats),
             status: .official,
             country: result.country?.lowercased(),
-            isReissue: Self.isReissue(
+            isReissue: isReissue(
                 formats: formats,
                 title: reissueTitle
             ),
@@ -606,6 +617,13 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     public func withRawRequestCache(_ cache: RawAPIRequestCache?) -> Self {
         var copy = self
         copy.rawRequestCache = cache
+        return copy
+    }
+
+    /// Returns a copy using the supplied release text as reissue evidence.
+    public func withReissueKeywords(_ keywords: [String]) -> Self {
+        var copy = self
+        copy.reissueKeywords = normalizedReissueKeywords(keywords)
         return copy
     }
 

@@ -5,7 +5,7 @@ import Services
 import Testing
 @testable import Genre_Updater
 
-@Suite("AppDependencies API clients")
+@Suite("AppDependencies API clients", .serialized)
 @MainActor
 struct APIClientsTests {
     @Test("Keychain Discogs failures are reported before fallback client creation")
@@ -166,6 +166,64 @@ struct APIClientsTests {
         let baseURL = try #require(capturedBaseURL)
         #expect(baseURL.scheme == "https")
         #expect(baseURL.host == "sandbox.discogs.com")
+    }
+
+    @Test("Configured reissue evidence reaches the composed Discogs client")
+    func composesDiscogsReissueEvidence() async {
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.preferredAPI = .discogs
+        configuration.yearRetrieval.apiAuth.discogsTokenReference = "configured-token"
+        configuration.yearRetrieval.reissueDetection.reissueKeywords = ["anniversary"]
+        CapturedAuthURLProtocol.requestHandler = { request in
+            let url = try #require(request.url)
+            let response = try #require(HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            let data = Data(
+                """
+                {"results":[{"id":7,"title":"Test Artist - Test Album (Anniversary)","year":2020,
+                "type":"release","format":["Album"]}]}
+                """
+                .utf8
+            )
+            return (response, data)
+        }
+        defer { CapturedAuthURLProtocol.requestHandler = nil }
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [CapturedAuthURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        let factoryOverrides = APIClientFactoryOverrides(
+            configuredDiscogsClientFactory: { token, contactEmail, rateLimiter, baseURL in
+                DiscogsClient(
+                    token: token,
+                    contactEmail: contactEmail,
+                    session: session,
+                    rateLimiter: rateLimiter,
+                    baseURL: baseURL
+                )
+            },
+            musicBrainz: DashboardStateAPIService(),
+            appleMusic: DashboardStateAPIService()
+        )
+
+        let orchestrator = AppDependencies.makeAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            factoryOverrides: factoryOverrides
+        )
+        let candidates = await orchestrator.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Test Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.first?.isReissue == true)
     }
 
     @Test("Captured Discogs access is not reloaded during execution")

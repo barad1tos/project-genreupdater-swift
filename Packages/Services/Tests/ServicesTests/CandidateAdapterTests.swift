@@ -638,7 +638,7 @@ struct CandidateAdapterTests {
     }
 }
 
-private func makeMockSession(json: String) -> URLSession {
+func makeMockSession(json: String) -> URLSession {
     APIReleaseCandidateMockURLProtocol.responseData = Data(json.utf8)
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [APIReleaseCandidateMockURLProtocol.self]
@@ -663,7 +663,7 @@ private func musicBrainzQuery(from request: URLRequest) throws -> (url: URL, que
     return (url, query)
 }
 
-private func jsonResponse(url: URL, statusCode: Int = 200) throws -> HTTPURLResponse {
+func jsonResponse(url: URL, statusCode: Int = 200) throws -> HTTPURLResponse {
     guard let response = HTTPURLResponse(
         url: url,
         statusCode: statusCode,
@@ -712,7 +712,7 @@ private let musicBrainzPromotionalReleaseJSON = """
 }
 """
 
-private final class APIReleaseCandidateMockURLProtocol: URLProtocol {
+final class APIReleaseCandidateMockURLProtocol: URLProtocol {
     // Safety: each test configures this static response before constructing its isolated URLSession.
     nonisolated(unsafe) static var responseData = Data()
     nonisolated(unsafe) static var requestedQueries: [String] = []

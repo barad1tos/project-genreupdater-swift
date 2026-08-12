@@ -16,11 +16,13 @@ extension APIOrchestrator {
         currentLibraryYear: Int?,
         earliestTrackAddedYear: Int?
     ) async -> [ReleaseCandidate] {
+        let scoringYear = utcYear(at: dateProvider())
         let standard = await fetchReleaseCandidatesOnce(
             artist: artist,
             album: album,
             currentLibraryYear: currentLibraryYear,
-            earliestTrackAddedYear: earliestTrackAddedYear
+            earliestTrackAddedYear: earliestTrackAddedYear,
+            scoringYear: scoringYear
         )
         guard standard.isEmpty else { return standard }
 
@@ -45,7 +47,8 @@ extension APIOrchestrator {
             artist: altArtist,
             album: altAlbum,
             currentLibraryYear: currentLibraryYear,
-            earliestTrackAddedYear: earliestTrackAddedYear
+            earliestTrackAddedYear: earliestTrackAddedYear,
+            scoringYear: scoringYear
         )
     }
 
@@ -53,7 +56,8 @@ extension APIOrchestrator {
         artist: String,
         album: String,
         currentLibraryYear: Int?,
-        earliestTrackAddedYear: Int?
+        earliestTrackAddedYear: Int?,
+        scoringYear: Int
     ) async -> [ReleaseCandidate] {
         let log = AppLogger.api
         if let reachability, await !reachability.isConnected {
@@ -85,11 +89,7 @@ extension APIOrchestrator {
         )
         let sourceRank = Dictionary(uniqueKeysWithValues: activeSources.enumerated().map { ($0.element, $0.offset) })
         let apiRetryConfiguration = apiRetryConfiguration
-        let cacheContext = ReleaseCandidateCacheContext(
-            cache: cache,
-            positiveResultTTL: candidateResultTTL,
-            negativeResultTTL: negativeResultTTL
-        )
+        let cacheContext = candidateCacheContext(scoringYear: scoringYear)
 
         let fetched = await withTaskGroup(
             of: (source: APISource, candidates: [ReleaseCandidate]).self,
@@ -119,6 +119,16 @@ extension APIOrchestrator {
             .sorted { (sourceRank[$0.source] ?? Int.max) < (sourceRank[$1.source] ?? Int.max) }
             .flatMap(\.candidates)
     }
+
+    private func candidateCacheContext(scoringYear: Int) -> ReleaseCandidateCacheContext {
+        ReleaseCandidateCacheContext(
+            cache: cache,
+            positiveResultTTL: candidateResultTTL,
+            negativeResultTTL: negativeResultTTL,
+            discogsReissueKeywords: discogsReissueKeywords,
+            iTunesScoringYear: scoringYear
+        )
+    }
 }
 
 private func cachedOrFetchedReleaseCandidates(
@@ -131,9 +141,13 @@ private func cachedOrFetchedReleaseCandidates(
     if let cached = await cachedReleaseCandidates(
         source: sourceEntry.source,
         query: query,
-        cache: cacheContext.cache
+        cacheContext: cacheContext
     ) {
-        return cached
+        return classifiedCandidates(
+            cached,
+            source: sourceEntry.source,
+            iTunesScoringYear: cacheContext.iTunesScoringYear
+        )
     }
 
     let outcome = await fetchReleaseCandidatesWithTimeout(
@@ -150,7 +164,11 @@ private func cachedOrFetchedReleaseCandidates(
         cacheContext: cacheContext,
         shouldCacheEmptyResult: outcome.shouldCacheEmptyResult
     )
-    return outcome.candidates
+    return classifiedCandidates(
+        outcome.candidates,
+        source: sourceEntry.source,
+        iTunesScoringYear: cacheContext.iTunesScoringYear
+    )
 }
 
 private func fetchReleaseCandidatesWithTimeout(
@@ -224,10 +242,14 @@ private func fetchReleaseCandidatesWithRetry(
 private func cachedReleaseCandidates(
     source: APISource,
     query: ReleaseCandidateQuery,
-    cache: (any CacheService)?
+    cacheContext: ReleaseCandidateCacheContext
 ) async -> [ReleaseCandidate]? {
-    let cacheKey = releaseCandidateCacheKey(source: source, query: query)
-    let cachedEntries: [CachedReleaseCandidate]? = await cache?.get(key: cacheKey)
+    let cacheKey = releaseCandidateCacheKey(
+        source: source,
+        query: query,
+        discogsReissueKeywords: cacheContext.discogsReissueKeywords
+    )
+    let cachedEntries: [CachedReleaseCandidate]? = await cacheContext.cache?.get(key: cacheKey)
     return cachedEntries?.map(\.releaseCandidate)
 }
 
@@ -242,29 +264,90 @@ private func cacheReleaseCandidates(
         return
     }
 
-    let cacheKey = releaseCandidateCacheKey(source: source, query: query)
+    let cacheKey = releaseCandidateCacheKey(
+        source: source,
+        query: query,
+        discogsReissueKeywords: cacheContext.discogsReissueKeywords
+    )
     let ttl = candidates.isEmpty ? cacheContext.negativeResultTTL : cacheContext.positiveResultTTL
     await cacheContext.cache?.set(
         key: cacheKey,
-        value: candidates.map(CachedReleaseCandidate.init),
+        value: cacheableCandidates(candidates, source: source).map(CachedReleaseCandidate.init),
         ttl: ttl
     )
 }
 
-private func releaseCandidateCacheKey(source: APISource, query: ReleaseCandidateQuery) -> String {
-    let components = [
-        "v2",
+private func releaseCandidateCacheKey(
+    source: APISource,
+    query: ReleaseCandidateQuery,
+    discogsReissueKeywords: [String]
+) -> String {
+    var components = [
+        "v3",
         source.rawValue,
         normalizeForMatching(query.artist),
         normalizeForMatching(query.album),
         query.currentLibraryYear.map { "library_year=\($0)" } ?? "library_year=nil",
         query.earliestTrackAddedYear.map { "earliest_added_year=\($0)" } ?? "earliest_added_year=nil",
     ]
+    if source == .discogs {
+        components.append(reissueRuleComponent(discogsReissueKeywords))
+    }
 
     return [
         "release_candidates",
         components.map(cacheKeyComponent).joined(separator: "|"),
     ].joined(separator: ":")
+}
+
+private func classifiedCandidates(
+    _ candidates: [ReleaseCandidate],
+    source: APISource,
+    iTunesScoringYear: Int
+) -> [ReleaseCandidate] {
+    let reissueCutoffYear = iTunesScoringYear - 1
+    return mapITunesCandidates(candidates, source: source) { $0.year >= reissueCutoffYear }
+}
+
+private func cacheableCandidates(
+    _ candidates: [ReleaseCandidate],
+    source: APISource
+) -> [ReleaseCandidate] {
+    mapITunesCandidates(candidates, source: source) { _ in false }
+}
+
+private func mapITunesCandidates(
+    _ candidates: [ReleaseCandidate],
+    source: APISource,
+    isReissue: (ReleaseCandidate) -> Bool
+) -> [ReleaseCandidate] {
+    guard source == .itunes else { return candidates }
+    return candidates.map { candidate in
+        ReleaseCandidate(
+            artist: candidate.artist,
+            album: candidate.album,
+            year: candidate.year,
+            source: candidate.source,
+            releaseType: candidate.releaseType,
+            status: candidate.status,
+            country: candidate.country,
+            isReissue: isReissue(candidate),
+            mbReleaseGroupID: candidate.mbReleaseGroupID,
+            mbReleaseGroupFirstYear: candidate.mbReleaseGroupFirstYear,
+            genre: candidate.genre
+        )
+    }
+}
+
+private func utcYear(at date: Date) -> Int {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = .gmt
+    return calendar.component(.year, from: date)
+}
+
+private func reissueRuleComponent(_ keywords: [String]) -> String {
+    let normalizedKeywords = normalizedReissueKeywords(keywords)
+    return "reissue_rules=" + normalizedKeywords.map(cacheKeyComponent).joined(separator: "|")
 }
 
 private func cacheKeyComponent(_ value: String) -> String {
@@ -283,6 +366,8 @@ private struct ReleaseCandidateCacheContext {
     let cache: (any CacheService)?
     let positiveResultTTL: TimeInterval?
     let negativeResultTTL: TimeInterval
+    let discogsReissueKeywords: [String]
+    let iTunesScoringYear: Int
 }
 
 private struct ReleaseCandidateFetchOutcome {

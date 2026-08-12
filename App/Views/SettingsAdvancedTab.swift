@@ -10,8 +10,7 @@ import SwiftUI
 
 struct AdvancedTab: View {
     @Environment(AppDependencies.self) private var dependencies
-    // swiftlint:disable:next inclusive_language
-    @State private var newRemasterKeyword = ""
+    @State private var newEditionMarker = ""
     @State private var newAlbumSuffix = ""
     @State private var newMappingSource = ""
     @State private var newMappingTarget = ""
@@ -19,6 +18,7 @@ struct AdvancedTab: View {
     @State private var newArtistRenameTarget = ""
     @State private var newExceptionArtist = ""
     @State private var newExceptionAlbum = ""
+    @State private var ruleRemovalFlow = MetadataRuleRemovalFlow()
     @State private var showResetConfirmation = false
     @State private var configurationJSON = ""
     @State private var jsonEditorState: JSONEditorState = .idle
@@ -32,7 +32,7 @@ struct AdvancedTab: View {
         Form {
             genreMappingsSection
             artistRenamerSection
-            editionKeywordsSection
+            editionMarkersSection
             albumSuffixesSection
             AlbumTypeDetectionSection(dependencies: dependencies)
             SettingsTestArtistsSection(dependencies: dependencies)
@@ -52,6 +52,7 @@ struct AdvancedTab: View {
                 reloadJSON()
             }
         }
+        .confirmRuleRemoval($ruleRemovalFlow, apply: removeRules)
     }
 
     private var genreMappingsSection: some View {
@@ -86,31 +87,43 @@ struct AdvancedTab: View {
         )
     }
 
-    private var editionKeywordsSection: some View {
-        Section("Remaster Keywords") {
-            ForEach(dependencies.config.cleaning.remasterKeywords, id: \.self) { keyword in
+    private var editionMarkersSection: some View {
+        let snapshot = dependencies.config.cleaning.editionMarkers
+
+        return Section("Edition Text Markers") {
+            ForEach(Array(snapshot.enumerated()), id: \.offset) { _, keyword in
                 Text(keyword)
             }
             .onDelete { offsets in
-                applyMutation { $0.cleaning.remasterKeywords.remove(atOffsets: offsets) }
+                requestRemoval(
+                    from: snapshot,
+                    at: offsets,
+                    group: .editionMarkers
+                )
             }
 
             HStack {
-                TextField("New keyword", text: $newRemasterKeyword)
+                TextField("New marker", text: $newEditionMarker)
                     .textFieldStyle(.roundedBorder)
-                Button("Add") { addRemasterKeyword() }
-                    .disabled(newRemasterKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button("Add") { addEditionMarker() }
+                    .disabled(newEditionMarker.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
     }
 
     private var albumSuffixesSection: some View {
-        Section("Album Suffixes to Remove") {
-            ForEach(dependencies.config.cleaning.albumSuffixesToRemove, id: \.self) { suffix in
+        let snapshot = dependencies.config.cleaning.albumSuffixes
+
+        return Section("Album Suffixes to Remove") {
+            ForEach(Array(snapshot.enumerated()), id: \.offset) { _, suffix in
                 Text(suffix)
             }
             .onDelete { offsets in
-                applyMutation { $0.cleaning.albumSuffixesToRemove.remove(atOffsets: offsets) }
+                requestRemoval(
+                    from: snapshot,
+                    at: offsets,
+                    group: .albumSuffixes
+                )
             }
 
             HStack {
@@ -170,6 +183,13 @@ struct AdvancedTab: View {
 
     private var advancedJSONSection: some View {
         Section("Advanced JSON") {
+            Text(
+                "Removing metadata rules here can change cleaning, matching, or lookup behavior. "
+                    + "The list editors above warn before removing built-in rules."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
             TextEditor(text: $configurationJSON)
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 220)
@@ -225,21 +245,34 @@ struct AdvancedTab: View {
         }
     }
 
-    // swiftlint:disable:next inclusive_language
-    private func addRemasterKeyword() {
-        let trimmed = newRemasterKeyword.trimmingCharacters(in: .whitespaces)
+    private func addEditionMarker() {
+        let trimmed = newEditionMarker.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        if applyMutation({ $0.cleaning.remasterKeywords.append(trimmed) }) == .accepted {
-            newRemasterKeyword = ""
+        if applyMutation({ $0.cleaning.editionMarkers.append(trimmed) }) == .accepted {
+            newEditionMarker = ""
         }
     }
 
     private func addAlbumSuffix() {
         let trimmed = newAlbumSuffix.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        if applyMutation({ $0.cleaning.albumSuffixesToRemove.append(trimmed) }) == .accepted {
+        if applyMutation({ $0.cleaning.albumSuffixes.append(trimmed) }) == .accepted {
             newAlbumSuffix = ""
         }
+    }
+
+    private func requestRemoval(
+        from values: [String],
+        at offsets: IndexSet,
+        group: MetadataRuleGroup
+    ) {
+        guard let removal = MetadataRuleRemoval(group: group, snapshot: values, offsets: offsets) else { return }
+        ruleRemovalFlow.request(removal, apply: removeRules)
+    }
+
+    private func removeRules(_ removal: MetadataRuleRemoval) -> RuleRemovalOutcome {
+        guard let updated = removal.removing(from: dependencies.config) else { return .stale }
+        return RuleRemovalOutcome(status: applyMutation { $0 = updated })
     }
 
     /// Dispatches a settings command and refreshes the JSON preview to the

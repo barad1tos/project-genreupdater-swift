@@ -381,31 +381,6 @@ struct YearScorerScoringTests {
         // Heavy penalties: artist mismatch, album unrelated, compilation, reissue, year diff
         #expect(result.totalScore < 0)
     }
-
-    // MARK: - Soundtrack Compensation
-
-    @Test("Soundtrack album compensates artist mismatch")
-    func soundtrackCompensation() {
-        let candidate = makeCandidate(
-            artist: "Hans Zimmer",
-            album: "Inception (Original Motion Picture Soundtrack)",
-            year: 2010,
-            releaseType: .soundtrack
-        )
-        let result = scorer.scoreRelease(
-            candidate,
-            queryArtist: "Various Artists",
-            queryAlbum: "Inception (Original Motion Picture Soundtrack)"
-        )
-        #expect(result.breakdown.soundtrackCompensation == 75)
-    }
-
-    @Test("Non-soundtrack does not get compensation")
-    func noSoundtrackCompensation() {
-        let candidate = makeCandidate(artist: "X", album: "Album", year: 2000, releaseType: .album)
-        let result = scorer.scoreRelease(candidate, queryArtist: "Y", queryAlbum: "Album")
-        #expect(result.breakdown.soundtrackCompensation == 0)
-    }
 }
 
 // MARK: - Score Resolution Tests

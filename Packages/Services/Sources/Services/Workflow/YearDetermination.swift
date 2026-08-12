@@ -29,6 +29,21 @@ extension UpdateCoordinator {
         forceYearLookup: Bool = false
     ) async throws -> ProposedChange? {
         let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(track.album)
+        return try await determineYearChange(
+            track: track,
+            albumTracks: albumTracks,
+            forceYearLookup: forceYearLookup,
+            albumTypeInfo: albumTypeInfo
+        )
+    }
+
+    func determineYearChange(
+        track: Track,
+        albumTracks: [Track],
+        forceYearLookup: Bool,
+        albumTypeInfo: AlbumTypeInfo,
+        queryAlbum: String? = nil
+    ) async throws -> ProposedChange? {
         guard albumTypeInfo.strategy != .markAndSkip else { return nil }
         if await shouldSkipYearPreflight(
             track: track,
@@ -66,6 +81,7 @@ extension UpdateCoordinator {
             track: track,
             albumTracks: albumTracks,
             albumTypeInfo: albumTypeInfo,
+            queryAlbum: queryAlbum ?? track.album,
             ignoreLocalAlbumYears: forceYearLookup || releaseYearConflict != nil || hasAmbiguousReleaseYearSignal
         )
 
@@ -308,10 +324,14 @@ extension UpdateCoordinator {
         track: Track,
         albumTracks: [Track],
         albumTypeInfo: AlbumTypeInfo,
+        queryAlbum: String,
         ignoreLocalAlbumYears: Bool = false
     ) async -> (yearResult: YearResult, sourceLabel: String) {
         let earliestTrackAddedYear = earliestAddedYear(albumTracks)
-        let identity = track.albumIdentity
+        let identity = AlbumIdentity(
+            artist: AlbumIdentity.groupingArtist(for: track),
+            album: queryAlbum
+        )
         let apiCandidates = await apiOrchestrator.getReleaseCandidates(
             artist: identity.artist,
             album: identity.album,
@@ -320,7 +340,10 @@ extension UpdateCoordinator {
         )
 
         guard !apiCandidates.isEmpty else {
-            let pendingRemovalAliases = AlbumIdentity.lookupCandidates(for: track).map {
+            let pendingRemovalAliases = (
+                AlbumIdentity.lookupCandidates(for: track) +
+                    AlbumIdentity.lookupCandidates(artist: identity.artist, album: identity.album)
+            ).map {
                 (artist: $0.artist, album: $0.album)
             }
             let yearResult = await apiOrchestrator.getAlbumYear(
@@ -350,7 +373,8 @@ extension UpdateCoordinator {
             currentYear: track.year,
             artistActivityPeriod: artistActivityPeriod,
             artistCountry: artistCountry,
-            albumTypeInfo: albumTypeInfo
+            albumTypeInfo: albumTypeInfo,
+            queryAlbum: queryAlbum
         )
         return (determination.yearResult, determination.source.rawValue.capitalized)
     }

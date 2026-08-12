@@ -2,6 +2,13 @@ import Core
 import Foundation
 import Services
 
+enum SettingsRevisionRecovery {
+    static var message: String {
+        "The stored settings revision is invalid. Open \(AppConfiguration.configFileURL.path), " +
+            "set \"revision\" to 0, save the file, and relaunch GenreUpdater."
+    }
+}
+
 /// The single mutation choke point for pipeline settings (ADR 0022): CAS
 /// against the global settings revision, persist, runtime apply, projection
 /// publication. UI surfaces build copy-with-edit values and dispatch here;
@@ -25,6 +32,9 @@ enum SettingsCommands {
         case .rejectedStale:
             Task { await dependencies.publishSettingsProjection() }
             return .rejectedStale
+        case .requiresAttention:
+            Task { await dependencies.publishSettingsProjection() }
+            return .requiresAttention
         case .temporaryUnavailable:
             Task {
                 // Re-probe at execution: a retry may have repaired the
@@ -53,6 +63,10 @@ enum SettingsCommands {
             let refreshed = await dependencies.publishSettingsProjection()
             return .rejectedStale(message: message, refreshedSettings: refreshed)
 
+        case let .requiresAttention(message):
+            let refreshed = await dependencies.publishSettingsProjection()
+            return .requiresAttention(message: message, refreshedSettings: refreshed)
+
         case .temporaryUnavailable:
             let saveError = dependencies.configurationSaveErrorMessage ?? "Could not save the configuration."
             let refreshed = await dependencies.publishSettingsProjection(saveErrorMessage: saveError)
@@ -77,6 +91,7 @@ enum SettingsCommands {
     private enum Acceptance {
         case accepted
         case rejectedStale(message: String)
+        case requiresAttention(message: String)
         case temporaryUnavailable(message: String)
     }
 
@@ -97,12 +112,12 @@ enum SettingsCommands {
         // config.json; conflict instead of trapping (the FixPlanDataStore
         // corrupted-row precedent). Escalate through appState: dispatch
         // sites discard results, and this state blocks every future
-        // mutation — including the reset the message recommends.
+        // in-app mutation. Recovery must happen in the persisted file.
         let (bumpedRevision, overflowed) = currentRevision.addingReportingOverflow(1)
         guard !overflowed else {
-            let message = "The stored settings revision is invalid. Restore or reset the configuration file."
+            let message = SettingsRevisionRecovery.message
             dependencies.reportSettingsRevisionCorruption(message)
-            return .rejectedStale(message: message)
+            return .requiresAttention(message: message)
         }
 
         let previousConfiguration = dependencies.config

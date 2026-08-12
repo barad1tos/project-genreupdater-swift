@@ -403,7 +403,8 @@ final class AppDependencies {
             scorer: YearScorer(
                 config: yearRetrieval.scoring,
                 yearLogic: yearRetrieval.logic,
-                editionKeywords: configuration.cleaning.remasterKeywords
+                editionKeywords: configuration.cleaning.editionMarkers,
+                soundtrackPatterns: configuration.albumTypeDetection.soundtrackPatterns
             ),
             validator: YearValidator(config: yearRetrieval.logic),
             fallback: YearFallbackStrategy(

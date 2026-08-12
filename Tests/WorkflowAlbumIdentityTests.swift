@@ -81,11 +81,8 @@ struct WorkflowAlbumIdentityTests {
         #expect(groups[AlbumIdentity.key(for: tracks[1])]?.map(\.id) == ["two"])
     }
 
-    @Test("unites ampersand collaborations into one album like Python")
-    func unitesAmpersandCollaborationsIntoOneAlbum() {
-        // Slice-15 full-parity adjudication: both collab strings split to
-        // the same primary artist, so the album groups as ONE — exactly
-        // Python's group_tracks_by_album fallback behavior.
+    @Test("ampersand artist names stay distinct without album artist evidence")
+    func ampersandDoesNotGroup() {
         let tracks = [
             Track(
                 id: "one",
@@ -103,8 +100,9 @@ struct WorkflowAlbumIdentityTests {
 
         let groups = WorkflowViewModel.groupTracksByAlbum(tracks)
 
-        #expect(groups.count == 1)
-        #expect(groups[AlbumIdentity.key(for: tracks[0])]?.map(\.id) == ["one", "two"])
+        #expect(groups.count == 2)
+        #expect(groups[AlbumIdentity.key(for: tracks[0])]?.map(\.id) == ["one"])
+        #expect(groups[AlbumIdentity.key(for: tracks[1])]?.map(\.id) == ["two"])
     }
 
     @Test("matches pending entries with album identity")

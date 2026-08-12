@@ -230,6 +230,7 @@ public actor UpdateCoordinator {
             mappings: runtimeConfiguration.artistRenameMappings
         )
         let policyTrack = artistRenameChange?.track ?? track
+        let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(policyTrack.album)
         let cleaningOutcome = Self.cleaningOutcome(
             policyTrack: policyTrack,
             proposalTrack: track,
@@ -262,7 +263,14 @@ public actor UpdateCoordinator {
            let change = try await determineYearChange(
                track: decisionTrack,
                albumTracks: albumTracks,
-               forceYearLookup: options.forceYearLookup
+               forceYearLookup: options.forceYearLookup,
+               albumTypeInfo: albumTypeInfo,
+               queryAlbum: detectSearchStrategy(
+                   artist: AlbumIdentity.groupingArtist(for: policyTrack),
+                   album: policyTrack.album,
+                   soundtrackPatterns: runtimeConfiguration.albumTypeDetection.soundtrackPatterns,
+                   variousArtistsNames: runtimeConfiguration.albumTypeDetection.variousArtistsNames
+               ).strategy == .soundtrack ? policyTrack.album : decisionTrack.album
            ) {
             proposedChanges.append(Self.change(change, usingTrack: proposalTrack))
         }

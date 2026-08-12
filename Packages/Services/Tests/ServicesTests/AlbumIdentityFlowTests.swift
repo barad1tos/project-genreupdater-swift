@@ -639,7 +639,7 @@ struct AlbumIdentityFlowTests {
         ) == nil)
     }
 
-    private func makeCoordinator(
+    func makeCoordinator(
         apiService: any ExternalAPIService = MockAPIService(),
         script: MockAppleScriptClient = MockAppleScriptClient(),
         cache: MockCacheService = MockCacheService(),

@@ -36,8 +36,8 @@ struct AlbumIdentityTests {
         #expect(identity.key == "daft punk\u{1F}random access memories")
     }
 
-    @Test("splits ampersand artist like Python when album artist is absent")
-    func splitsAmpersandArtistWhenAlbumArtistIsAbsent() {
+    @Test("keeps ampersand artist when album artist is absent")
+    func keepsAmpersandArtistWhenAlbumArtistIsAbsent() {
         let track = Track(
             id: "1",
             name: "Get Lucky",
@@ -47,15 +47,12 @@ struct AlbumIdentityTests {
 
         let identity = AlbumIdentity(track: track)
 
-        #expect(identity.artist == "Daft Punk")
-        #expect(identity.key == "daft punk\u{1F}random access memories")
+        #expect(identity.artist == "Daft Punk & Pharrell Williams")
+        #expect(identity.key == "daft punk & pharrell williams\u{1F}random access memories")
     }
 
-    @Test("splits legal ampersand names too — the Python fallback contract")
-    func splitsLegalAmpersandNamesPerPythonFallback() {
-        // Deliberate full-parity adjudication (slice 15): albumArtist is
-        // the shield for legal duo names; a track WITHOUT one takes
-        // Python's aggressive split, wart and all.
+    @Test("keeps legal ampersand names without requiring album artist")
+    func keepsLegalAmpersandNamesWithoutAlbumArtist() {
         let track = Track(
             id: "1",
             name: "The Cave",
@@ -65,8 +62,8 @@ struct AlbumIdentityTests {
 
         let identity = AlbumIdentity(track: track)
 
-        #expect(identity.artist == "Mumford")
-        #expect(identity.key == "mumford\u{1F}sigh no more")
+        #expect(identity.artist == "Mumford & Sons")
+        #expect(identity.key == "mumford & sons\u{1F}sigh no more")
     }
 
     @Test("includes legacy artist aliases for lookup")
@@ -99,8 +96,8 @@ struct AlbumIdentityTests {
         let keys = AlbumIdentity.lookupKeys(for: track)
 
         #expect(keys == [
-            "daft punk\u{1F}random access memories",
             "daft punk & pharrell williams\u{1F}random access memories",
+            "daft punk\u{1F}random access memories",
         ])
     }
 
@@ -170,8 +167,8 @@ struct AlbumIdentityTests {
         let keys = AlbumIdentity.lookupKeys(for: track)
 
         #expect(keys == [
-            "mumford\u{1F}sigh no more",
             "mumford & sons\u{1F}sigh no more",
+            "mumford\u{1F}sigh no more",
         ])
     }
 
@@ -225,20 +222,11 @@ struct AlbumIdentityTests {
     }
 }
 
-/// Python parity: normalize_collaboration_artist (year_utils.py) — the
-/// separator LIST ORDER wins (not string position), matching is
-/// case-sensitive, split takes the left side. The aggressive " and "/" x "
-/// splits ARE the contract; fixtures document them deliberately.
-@Suite("Collaboration artist parity — Python reference fixtures")
-struct CollaborationArtistParityTests {
+@Suite("Album artist feature-credit normalization")
+struct AlbumArtistFeatureCreditTests {
     @Test("feat splits to the primary artist")
     func featSplits() {
         #expect(primary("Drake feat. Rihanna") == "Drake")
-    }
-
-    @Test("ampersand splits like Python")
-    func ampersandSplits() {
-        #expect(primary("Daft Punk & Pharrell") == "Daft Punk")
     }
 
     @Test("a solo artist passes through")
@@ -246,40 +234,20 @@ struct CollaborationArtistParityTests {
         #expect(primary("Solo Artist") == "Solo Artist")
     }
 
-    @Test("vs variants split")
-    func vsSplits() {
-        #expect(primary("A vs. B") == "A")
-        #expect(primary("A vs B") == "A")
+    @Test("feature markers are case-insensitive")
+    func featureMarkersAreCaseInsensitive() {
+        #expect(primary("A FEAT. B") == "A")
+        #expect(primary("A Ft B") == "A")
+        #expect(primary("A featuring B") == "A")
     }
 
-    @Test("the aggressive and-split is the Python contract")
-    func andSplits() {
-        #expect(primary("Florence and the Machine") == "Florence")
-    }
-
-    @Test("with and x variants split")
-    func withAndLowercaseXSplit() {
-        #expect(primary("A with B") == "A")
-        #expect(primary("A x B") == "A")
-        #expect(primary("A X B") == "A")
-    }
-
-    @Test("list order outranks string position")
-    func listOrderOutranksStringPosition() {
-        // " & " precedes " feat. " in the Python list, so it wins even
-        // though " feat. " appears earlier in the string.
-        #expect(primary("A feat. B & C") == "A feat. B")
-    }
-
-    @Test("matching is case-sensitive like Python")
-    func matchingIsCaseSensitive() {
-        #expect(primary("A FEAT. B") == "A FEAT. B")
-        #expect(primary("A And B") == "A And B")
-    }
-
-    @Test("featuring is not a Python separator")
-    func featuringDoesNotSplit() {
-        #expect(primary("A featuring B") == "A featuring B")
+    @Test("legal collaboration words and symbols stay intact")
+    func legalCollaborationWordsAndSymbolsStayIntact() {
+        #expect(primary("Florence and the Machine") == "Florence and the Machine")
+        #expect(primary("Simon & Garfunkel") == "Simon & Garfunkel")
+        #expect(primary("A with B") == "A with B")
+        #expect(primary("A vs B") == "A vs B")
+        #expect(primary("A x B") == "A x B")
     }
 
     @Test("an empty left side falls back to the whole artist")

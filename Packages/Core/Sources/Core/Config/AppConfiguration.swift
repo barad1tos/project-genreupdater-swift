@@ -307,10 +307,14 @@ public struct AppConfiguration: Sendable, Codable {
 
     /// Save configuration to the app's container.
     public func save() throws {
+        try save(to: Self.configFileURL)
+    }
+
+    func save(to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(self)
-        try data.write(to: Self.configFileURL, options: .atomic)
+        try data.write(to: url, options: .atomic)
     }
 
     /// Path to the JSON config file in the app's Application Support directory.

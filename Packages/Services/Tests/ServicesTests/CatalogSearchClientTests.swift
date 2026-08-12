@@ -183,6 +183,69 @@ struct CatalogSearchClientTests {
         #expect(candidate.album == "Test Album")
     }
 
+    @Test("Recent iTunes candidate preserves Python scoring output")
+    func recentReleaseParity() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ITunesMockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer {
+            ITunesMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+
+        let scoringDate = Date()
+        let currentYear = try utcYear(at: scoringDate)
+        ITunesMockURLProtocol.requestHandler = { request in
+            let url = try #require(request.url)
+            let json = """
+            {
+              "resultCount": 1,
+              "results": [{
+                "artistName": "Parity Artist",
+                "collectionName": "Parity Album",
+                "collectionType": "Album",
+                "releaseDate": "\(currentYear)-01-01T00:00:00Z",
+                "country": "US"
+              }]
+            }
+            """
+            let response = try #require(HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            return (response, Data(json.utf8))
+        }
+
+        let client = CatalogSearchClient(
+            session: session,
+            lookupFallbackEnabled: false,
+            dateProvider: { scoringDate }
+        )
+        let candidates = try await client.getReleaseCandidates(
+            artist: "Parity Artist",
+            album: "Parity Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+        let candidate = try #require(candidates.first)
+        let scorer = YearScorer()
+        let scored = scorer.scoreRelease(
+            candidate,
+            queryArtist: "Parity Artist",
+            queryAlbum: "Parity Album"
+        )
+        let result = scorer.resolveScores([scored])
+
+        #expect(candidate.isReissue)
+        #expect(scored.totalScore == 50)
+        #expect(result.year == currentYear)
+        #expect(result.isDefinitive)
+        #expect(result.confidence == 50)
+        #expect(result.yearScores == [currentYear: 50])
+    }
+
     @Test("getReleaseCandidates throws for unsuccessful iTunes HTTP status")
     func releaseCandidatesThrowForUnsuccessfulITunesStatus() async throws {
         let configuration = URLSessionConfiguration.ephemeral
@@ -295,6 +358,10 @@ struct CatalogSearchClientTests {
     private func requireExternalAPIService(_ service: any ExternalAPIService) {
         _ = service
     }
+}
+
+private func utcYear(at date: Date) throws -> Int {
+    try #require(Calendar(identifier: .gregorian).dateComponents(in: .gmt, from: date).year)
 }
 
 private final class ITunesMockURLProtocol: URLProtocol {

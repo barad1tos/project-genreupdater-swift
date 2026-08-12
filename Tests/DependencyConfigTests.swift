@@ -150,13 +150,15 @@ struct DependencyConfigTests {
                 didSaveConfiguration = true
             }
         )
-        dependencies.config.cleaning.remasterKeywords = ["Anniversary", "Deluxe"]
+        dependencies.config.cleaning.editionMarkers = ["Anniversary", "Deluxe"]
+        dependencies.config.albumTypeDetection.soundtrackPatterns = ["Game Score"]
         dependencies.config.yearRetrieval.logic.definitiveScoreDiff = 15
 
         #expect(dependencies.persistConfiguration())
         await dependencies.applyRuntimeConfigurationAndWait()
         #expect(didSaveConfiguration)
         #expect(dependencies.yearDeterminator?.scorer.editionKeywords == ["Anniversary", "Deluxe"])
+        #expect(dependencies.yearDeterminator?.scorer.soundtrackPatterns == ["Game Score"])
 
         let scoredReleases = [
             makeScoredRelease(year: 2020, score: 94, album: "Clayman (20th Anniversary Edition)"),

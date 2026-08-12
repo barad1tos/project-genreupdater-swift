@@ -142,8 +142,8 @@ struct SettingsCommandsTests {
         #expect(dependencies.config.revision == 1)
     }
 
-    @Test("a revision at the UInt64 maximum conflicts instead of trapping")
-    func maxRevisionConflictsInsteadOfTrapping() async {
+    @Test("a revision at the UInt64 maximum requires attention")
+    func maxRevisionRequiresAttention() async {
         let saved = SavedConfigurations()
         let dependencies = AppDependencies(
             configurationLoader: {
@@ -157,11 +157,15 @@ struct SettingsCommandsTests {
 
         let result = await SettingsCommands.apply(dependencies.config, target: target, dependencies: dependencies)
 
-        #expect(result.status == .rejectedStale)
+        #expect(result.status == .requiresAttention)
+        #expect(result.message.contains(AppConfiguration.configFileURL.path))
+        #expect(result.message.contains("set \"revision\" to 0"))
+        #expect(result.message.contains("relaunch GenreUpdater"))
+        #expect(result.message.localizedCaseInsensitiveContains("reset") == false)
         #expect(dependencies.config.revision == .max)
         #expect(saved.configurations.isEmpty)
-        // Corrupted persistence blocks every future mutation — including
-        // the recommended reset — so it must escalate loudly.
+        // Corrupted persistence blocks every in-app mutation, so recovery
+        // must direct the user to the persisted file instead of offering retry.
         #expect(isErrorState(dependencies.appState))
     }
 
@@ -194,7 +198,7 @@ struct SettingsCommandsTests {
         let baseline = await dependencies.refreshFixPlanProjection()
         #expect(baseline.stalenessReasons.isEmpty)
         var edited = dependencies.config
-        edited.cleaning.remasterKeywords.append("Deluxe Probe Edition")
+        edited.cleaning.editionMarkers.append("Deluxe Probe Edition")
         let target = SettingsCommandTarget(expectedSettingsRevision: 1)
 
         let result = await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
