@@ -8,6 +8,11 @@ private func makeBackupTempDirectory() -> URL {
         .appendingPathComponent("BackupCSVTests-\(UUID().uuidString)")
 }
 
+private struct TestBackupCheckpoint: Encodable {
+    let entry: ChangeLogEntry
+    let didChange: Bool?
+}
+
 @Suite("UndoCoordinator — backup CSV year revert")
 struct BackupCSVTests {
     @Test("Parse backup CSV filters artist and album")
@@ -370,7 +375,7 @@ struct BackupCSVTests {
         staleEntry.newYear = 2001
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(staleEntry).write(
+        try encoder.encode(TestBackupCheckpoint(entry: staleEntry, didChange: nil)).write(
             to: directory.appendingPathComponent("pending-year-revert.json")
         )
         let coordinator = UndoCoordinator(
@@ -586,8 +591,8 @@ struct BackupCSVTests {
         #expect(history.isEmpty)
     }
 
-    @Test("Backup CSV write failure description is public-safe")
-    func backupCSVWriteFailureDescriptionIsPublicSafe() async throws {
+    @Test("Backup CSV write failure leaves terminal recovery evidence")
+    func writeFailureKeepsCheckpoint() async throws {
         let bridge = MockAppleScriptClient()
         await bridge.setCustomWriteError(RawTrackIDWriteError(trackID: "MK1"))
         let coordinator = UndoCoordinator(
@@ -608,16 +613,22 @@ struct BackupCSVTests {
             ),
         ]
 
-        let result = try await coordinator.revertYearsFromBackupCSV(
-            csv,
-            artist: "Massive Attack",
-            album: "Mezzanine",
-            currentTracks: tracks
-        )
-
-        #expect(result.updatedCount == 0)
-        #expect(result.failedCount == 1)
-        #expect(result.firstFailureDescription == "AppleScript write failed")
+        do {
+            _ = try await coordinator.revertYearsFromBackupCSV(
+                csv,
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                currentTracks: tracks
+            )
+            Issue.record("Expected pending recovery failure")
+        } catch let error as UpdateCoordinatorError {
+            guard case let .writeFinalizationFailed(trackID, effects) = error else {
+                Issue.record("Expected writeFinalizationFailed, got \(error)")
+                return
+            }
+            #expect(trackID == "MK1")
+            #expect(effects == ["backup recovery checkpoint"])
+        }
 
         let written = await bridge.writtenProperties
         #expect(written.isEmpty)

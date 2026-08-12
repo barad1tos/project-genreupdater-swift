@@ -487,6 +487,12 @@ public actor UndoCoordinator {
             } catch let error as UpdateCoordinatorError {
                 throw error
             } catch {
+                if fileManager.fileExists(atPath: backupCheckpointURL.path) {
+                    throw UpdateCoordinatorError.writeFinalizationFailed(
+                        trackID: track.id,
+                        effects: ["backup recovery checkpoint"]
+                    )
+                }
                 failedCount += 1
                 let failureDescription = Self.publicFailureDescription(for: error)
                 firstFailureDescription = firstFailureDescription ?? failureDescription
@@ -519,14 +525,13 @@ public actor UndoCoordinator {
             confidence: 100,
             source: "backup_csv"
         )
-        let candidateEntry = UpdateCoordinator.changeToLogEntry(change)
-        let pendingEntry = try backupCheckpoint(for: track.id)
-        if let pendingEntry,
-           pendingEntry.changeType != .yearRevert
-           || pendingEntry.trackID != candidateEntry.trackID
-           || pendingEntry.newYear != candidateEntry.newYear {
+        let pendingCheckpoint = try backupCheckpoint(for: track.id)
+        if let pendingCheckpoint,
+           pendingCheckpoint.entry.changeType != .yearRevert
+           || pendingCheckpoint.entry.trackID != track.id
+           || pendingCheckpoint.entry.newYear != targetYear {
             throw UpdateCoordinatorError.writeFinalizationFailed(
-                trackID: pendingEntry.trackID,
+                trackID: pendingCheckpoint.entry.trackID,
                 effects: ["prior backup recovery checkpoint"]
             )
         }
@@ -536,21 +541,28 @@ public actor UndoCoordinator {
             property: "year",
             value: String(targetYear),
             prepareWrite: { [self] mutationChange in
-                guard pendingEntry == nil else { return }
+                guard pendingCheckpoint == nil else { return }
                 let entry = UpdateCoordinator.changeToLogEntry(mutationChange)
-                _ = try backupCheckpoint(for: entry.trackID, writing: entry)
+                _ = try backupCheckpoint(for: entry.trackID, writing: (entry, nil))
             },
             prepareMirror: { [self] mutationChange, writeResult in
-                guard writeResult == .changed || pendingEntry != nil else { return }
-                guard let recoveryEntry = try pendingEntry ?? backupCheckpoint(for: mutationChange.track.id) else {
+                guard var checkpoint = try pendingCheckpoint ?? backupCheckpoint(for: mutationChange.track.id) else {
                     throw UpdateCoordinatorError.writeFinalizationFailed(
                         trackID: mutationChange.track.id,
                         effects: ["backup recovery checkpoint"]
                     )
                 }
+                checkpoint.didChange = switch writeResult {
+                case .changed:
+                    true
+                case .noChange:
+                    checkpoint.didChange ?? (pendingCheckpoint != nil)
+                }
+                _ = try backupCheckpoint(for: checkpoint.entry.trackID, writing: checkpoint)
+                guard checkpoint.didChange == true else { return }
                 try await recordYearRevert(
-                    recoveryEntry,
-                    isRetry: pendingEntry != nil
+                    checkpoint.entry,
+                    isRetry: pendingCheckpoint != nil
                 )
             }
         )
@@ -569,26 +581,33 @@ public actor UndoCoordinator {
 
     private func backupCheckpoint(
         for trackID: String,
-        writing entry: ChangeLogEntry? = nil
-    ) throws -> ChangeLogEntry? {
-        if entry == nil, !fileManager.fileExists(atPath: backupCheckpointURL.path) {
+        writing checkpoint: (entry: ChangeLogEntry, didChange: Bool?)? = nil
+    ) throws -> (entry: ChangeLogEntry, didChange: Bool?)? {
+        struct Payload: Codable {
+            let entry: ChangeLogEntry
+            let didChange: Bool?
+        }
+
+        if checkpoint == nil, !fileManager.fileExists(atPath: backupCheckpointURL.path) {
             return nil
         }
         do {
-            if let entry {
+            if let checkpoint {
                 try fileManager.createDirectory(
                     at: backupCheckpointURL.deletingLastPathComponent(),
                     withIntermediateDirectories: true
                 )
                 let encoder = JSONEncoder()
                 encoder.dateEncodingStrategy = .iso8601
-                try encoder.encode(entry).write(to: backupCheckpointURL, options: .atomic)
-                return entry
+                let payload = Payload(entry: checkpoint.entry, didChange: checkpoint.didChange)
+                try encoder.encode(payload).write(to: backupCheckpointURL, options: .atomic)
+                return checkpoint
             }
             let data = try Data(contentsOf: backupCheckpointURL)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            return try decoder.decode(ChangeLogEntry.self, from: data)
+            let payload = try decoder.decode(Payload.self, from: data)
+            return (payload.entry, payload.didChange)
         } catch {
             throw UpdateCoordinatorError.writeFinalizationFailed(
                 trackID: trackID,
