@@ -256,6 +256,30 @@ struct TrackModelTests {
         #expect(musicKitTrack.hashValue == sameTrackWithDifferentMutationID.hashValue)
         #expect(Set([musicKitTrack, sameTrackWithDifferentMutationID]).count == 1)
     }
+
+    @Test("Year revert keeps the supplied recovery origin")
+    func yearRevertOrigin() throws {
+        let track = Track(
+            id: "T1",
+            name: "Angel",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            year: 1998
+        )
+        var entry = ChangeLogEntry(
+            changeType: .yearRevert,
+            trackID: track.id,
+            artist: track.artist
+        )
+        entry.oldYear = 1998
+        entry.newYear = 2019
+
+        let restored = try track.applying(entry)
+
+        #expect(restored.year == 2019)
+        #expect(restored.yearBeforeMGU == 1998)
+        #expect(restored.yearSetByMGU == 2019)
+    }
 }
 
 // MARK: - ChangeLogEntry Tests

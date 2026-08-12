@@ -23,6 +23,10 @@ struct PersistedTrackTests {
             year: 2020,
             dateAdded: fixedDate,
             trackStatus: "matched",
+            originalArtist: "Original Artist",
+            originalAlbum: "Original Album",
+            yearBeforeMGU: 1999,
+            yearSetByMGU: 2020,
             releaseYear: 2019,
             albumArtist: "AlbumArtist"
         )
@@ -42,6 +46,10 @@ struct PersistedTrackTests {
         #expect(persisted.dateAdded == fixedDate)
         #expect(persisted.albumArtist == "AlbumArtist")
         #expect(persisted.trackStatus == "matched")
+        #expect(persisted.originalArtist == "Original Artist")
+        #expect(persisted.originalAlbum == "Original Album")
+        #expect(persisted.yearBeforeMGU == 1999)
+        #expect(persisted.yearSetByMGU == 2020)
         #expect(persisted.releaseYear == 2019)
         #expect(persisted.genreUpdated == false)
         #expect(persisted.yearUpdated == false)
@@ -58,6 +66,10 @@ struct PersistedTrackTests {
         #expect(persisted.dateAdded == nil)
         #expect(persisted.albumArtist == nil)
         #expect(persisted.trackStatus == nil)
+        #expect(persisted.originalArtist == nil)
+        #expect(persisted.originalAlbum == nil)
+        #expect(persisted.yearBeforeMGU == nil)
+        #expect(persisted.yearSetByMGU == nil)
         #expect(persisted.releaseYear == nil)
     }
 
@@ -75,6 +87,10 @@ struct PersistedTrackTests {
         #expect(result.dateAdded == fixedDate)
         #expect(result.albumArtist == "AlbumArtist")
         #expect(result.trackStatus == "matched")
+        #expect(result.originalArtist == "Original Artist")
+        #expect(result.originalAlbum == "Original Album")
+        #expect(result.yearBeforeMGU == 1999)
+        #expect(result.yearSetByMGU == 2020)
         #expect(result.releaseYear == 2019)
     }
 
@@ -92,6 +108,10 @@ struct PersistedTrackTests {
         #expect(roundTripped.dateAdded == original.dateAdded)
         #expect(roundTripped.albumArtist == original.albumArtist)
         #expect(roundTripped.trackStatus == original.trackStatus)
+        #expect(roundTripped.originalArtist == original.originalArtist)
+        #expect(roundTripped.originalAlbum == original.originalAlbum)
+        #expect(roundTripped.yearBeforeMGU == original.yearBeforeMGU)
+        #expect(roundTripped.yearSetByMGU == original.yearSetByMGU)
         #expect(roundTripped.releaseYear == original.releaseYear)
     }
 
@@ -135,6 +155,12 @@ struct PersistedTrackTests {
         #expect(persisted.yearUpdated == true)
         #expect(persisted.processedDate == processedAt)
         #expect(persisted.lastError == "some error")
+
+        let roundTripped = persisted.toTrack()
+        #expect(roundTripped.originalArtist == "Original Artist")
+        #expect(roundTripped.originalAlbum == "Original Album")
+        #expect(roundTripped.yearBeforeMGU == 1999)
+        #expect(roundTripped.yearSetByMGU == 2020)
     }
 
     @Test("update(from:) can set optional fields to nil")

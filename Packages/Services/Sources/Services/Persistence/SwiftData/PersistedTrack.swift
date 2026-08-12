@@ -32,6 +32,10 @@ public final class PersistedTrack {
     public var dateAdded: Date?
     public var albumArtist: String?
     public var trackStatus: String?
+    public var originalArtist: String?
+    public var originalAlbum: String?
+    public var yearBeforeMGU: Int?
+    public var yearSetByMGU: Int?
     public var releaseYear: Int?
 
     @Relationship(deleteRule: .cascade, inverse: \PersistedChangeLogEntry.track)
@@ -52,6 +56,10 @@ public final class PersistedTrack {
         dateAdded: Date? = nil,
         albumArtist: String? = nil,
         trackStatus: String? = nil,
+        originalArtist: String? = nil,
+        originalAlbum: String? = nil,
+        yearBeforeMGU: Int? = nil,
+        yearSetByMGU: Int? = nil,
         releaseYear: Int? = nil
     ) {
         self.trackID = trackID
@@ -68,6 +76,10 @@ public final class PersistedTrack {
         self.dateAdded = dateAdded
         self.albumArtist = albumArtist
         self.trackStatus = trackStatus
+        self.originalArtist = originalArtist
+        self.originalAlbum = originalAlbum
+        self.yearBeforeMGU = yearBeforeMGU
+        self.yearSetByMGU = yearSetByMGU
         self.releaseYear = releaseYear
     }
 }
@@ -88,6 +100,10 @@ extension PersistedTrack {
             dateAdded: track.dateAdded,
             albumArtist: track.albumArtist,
             trackStatus: track.trackStatus,
+            originalArtist: track.originalArtist,
+            originalAlbum: track.originalAlbum,
+            yearBeforeMGU: track.yearBeforeMGU,
+            yearSetByMGU: track.yearSetByMGU,
             releaseYear: track.releaseYear
         )
     }
@@ -103,6 +119,10 @@ extension PersistedTrack {
             year: year,
             dateAdded: dateAdded,
             trackStatus: trackStatus,
+            originalArtist: originalArtist,
+            originalAlbum: originalAlbum,
+            yearBeforeMGU: yearBeforeMGU,
+            yearSetByMGU: yearSetByMGU,
             releaseYear: releaseYear,
             albumArtist: albumArtist,
             appleScriptID: appleScriptID
@@ -120,6 +140,10 @@ extension PersistedTrack {
         dateAdded = track.dateAdded
         albumArtist = track.albumArtist
         trackStatus = track.trackStatus
+        originalArtist = originalArtist ?? track.originalArtist
+        originalAlbum = originalAlbum ?? track.originalAlbum
+        yearBeforeMGU = yearBeforeMGU ?? track.yearBeforeMGU
+        yearSetByMGU = track.yearSetByMGU ?? yearSetByMGU
         releaseYear = track.releaseYear
     }
 }

@@ -5,6 +5,111 @@ import Testing
 
 @Suite("Run store migrations")
 struct RunMigrationTests {
+    @Test("A legacy track and undo history survive upgrade, undo, and relaunch")
+    func upgradePreservesUndo() async throws {
+        let storeURL = try makeStoreDirectory().appendingPathComponent("GenreUpdater.store")
+        defer { removeStoreDirectory(storeURL) }
+        try copyLegacyStore(to: storeURL)
+
+        do {
+            let currentSchema = ModelContainerFactory.makeSchema()
+            let currentConfig = ModelConfiguration(
+                "GenreUpdaterTrackMigration",
+                schema: currentSchema,
+                url: storeURL,
+                cloudKitDatabase: .none
+            )
+            let currentContainer = try ModelContainer(for: currentSchema, configurations: [currentConfig])
+            let trackStore = TrackDataStore(modelContainer: currentContainer)
+            let changeLogStore = ChangeLogDataStore(modelContainer: currentContainer)
+            let migratedTrack = try #require(try await trackStore.getTrack(byID: "T1"))
+            #expect(migratedTrack.artist == "Florence & the Machine")
+            #expect(migratedTrack.originalArtist == nil)
+            #expect(migratedTrack.originalAlbum == nil)
+            #expect(migratedTrack.yearBeforeMGU == nil)
+            #expect(migratedTrack.yearSetByMGU == nil)
+
+            let coordinator = UndoCoordinator(
+                scriptBridge: MockAppleScriptClient(),
+                stores: .init(changeLog: changeLogStore, tracks: trackStore),
+                directory: storeURL.deletingLastPathComponent().appendingPathComponent("undo")
+            )
+            await coordinator.initialize()
+            let history = await coordinator.getHistory()
+            #expect(history.count == 4)
+
+            try await coordinator.revertBatch(history)
+        }
+
+        let relaunchedSchema = ModelContainerFactory.makeSchema()
+        let relaunchedConfig = ModelConfiguration(
+            "GenreUpdaterTrackMigration",
+            schema: relaunchedSchema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        let relaunchedContainer = try ModelContainer(for: relaunchedSchema, configurations: [relaunchedConfig])
+        let relaunchedTrackStore = TrackDataStore(modelContainer: relaunchedContainer)
+        let relaunchedLogStore = ChangeLogDataStore(modelContainer: relaunchedContainer)
+        let restoredTrack = try #require(try await relaunchedTrackStore.getTrack(byID: "T1"))
+        #expect(restoredTrack.artist == "Florence and the Machine")
+        #expect(restoredTrack.originalArtist == "Florence and the Machine")
+        let restoredYearTrack = try #require(try await relaunchedTrackStore.getTrack(byID: "T2"))
+        #expect(restoredYearTrack.year == 1998)
+        #expect(restoredYearTrack.yearBeforeMGU == 1998)
+        #expect(restoredYearTrack.yearSetByMGU == 1998)
+        #expect(try await relaunchedLogStore.loadAll().isEmpty)
+    }
+
+    @Test("Selective legacy year undo keeps the oldest origin across relaunch")
+    func selectiveYearUndo() async throws {
+        let storeURL = try makeStoreDirectory().appendingPathComponent("GenreUpdater.store")
+        defer { removeStoreDirectory(storeURL) }
+        try copyLegacyStore(to: storeURL)
+
+        do {
+            let currentSchema = ModelContainerFactory.makeSchema()
+            let currentConfig = ModelConfiguration(
+                "GenreUpdaterTrackMigration",
+                schema: currentSchema,
+                url: storeURL,
+                cloudKitDatabase: .none
+            )
+            let currentContainer = try ModelContainer(for: currentSchema, configurations: [currentConfig])
+            let trackStore = TrackDataStore(modelContainer: currentContainer)
+            let changeLogStore = ChangeLogDataStore(modelContainer: currentContainer)
+            let coordinator = UndoCoordinator(
+                scriptBridge: MockAppleScriptClient(),
+                stores: .init(changeLog: changeLogStore, tracks: trackStore),
+                directory: storeURL.deletingLastPathComponent().appendingPathComponent("undo")
+            )
+            await coordinator.initialize()
+            let yearRevert = try #require(await coordinator.getHistory().first {
+                $0.trackID == "T2" && $0.changeType == .yearRevert
+            })
+
+            try await coordinator.revertSelective([yearRevert])
+        }
+
+        let relaunchedSchema = ModelContainerFactory.makeSchema()
+        let relaunchedConfig = ModelConfiguration(
+            "GenreUpdaterTrackMigration",
+            schema: relaunchedSchema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        let relaunchedContainer = try ModelContainer(for: relaunchedSchema, configurations: [relaunchedConfig])
+        let trackStore = TrackDataStore(modelContainer: relaunchedContainer)
+        let changeLogStore = ChangeLogDataStore(modelContainer: relaunchedContainer)
+        let restoredTrack = try #require(try await trackStore.getTrack(byID: "T2"))
+        #expect(restoredTrack.year == 2019)
+        #expect(restoredTrack.yearBeforeMGU == 1998)
+        #expect(restoredTrack.yearSetByMGU == 2019)
+        let remainingHistory = try await changeLogStore.loadAll()
+        #expect(remainingHistory.count == 3)
+        #expect(remainingHistory.contains { $0.trackID == "T2" && $0.changeType == .yearUpdate })
+    }
+
     @Test("Adding work-item storage preserves existing run records")
     func migratesWorkItemModel() throws {
         let storeURL = try makeStoreDirectory().appendingPathComponent("GenreUpdater.store")
@@ -99,6 +204,14 @@ struct RunMigrationTests {
         } catch {
             Issue.record("Failed to remove migration fixture: \(error)")
         }
+    }
+
+    private func copyLegacyStore(to storeURL: URL) throws {
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("LegacyFixtures/TrackRecoveryLegacy.fixture")
+        try FileManager.default.copyItem(at: fixtureURL, to: storeURL)
     }
 }
 

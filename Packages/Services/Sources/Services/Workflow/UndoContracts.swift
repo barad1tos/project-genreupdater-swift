@@ -1,6 +1,15 @@
 import Core
 import Foundation
 
+/// Retry contract: prepared may dispatch; dispatchedUnknown blocks;
+/// changed and noChange may only finalize their already-observed outcome.
+enum BackupRestorePhase: String, Codable {
+    case prepared
+    case dispatchedUnknown
+    case changed
+    case noChange
+}
+
 enum UndoCoordinatorError: Error, LocalizedError {
     case revertFailed(trackID: String, reason: String)
     case noChangesToRevert

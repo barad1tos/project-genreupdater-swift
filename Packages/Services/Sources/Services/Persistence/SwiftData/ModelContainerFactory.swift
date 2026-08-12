@@ -33,7 +33,7 @@ public enum ModelContainerFactory {
         return try ModelContainer(for: schema, configurations: [config])
     }
 
-    private static func makeSchema() -> Schema {
+    static func makeSchema() -> Schema {
         Schema([
             PersistedTrack.self,
             PersistedChangeLogEntry.self,

@@ -11,6 +11,18 @@ struct TrackDataTests {
         try TrackDataStore.createInMemory()
     }
 
+    private func makeStore(at url: URL) throws -> TrackDataStore {
+        let schema = Schema([PersistedTrack.self, PersistedChangeLogEntry.self])
+        let configuration = ModelConfiguration(
+            "TrackRecoveryRelaunch",
+            schema: schema,
+            url: url,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        return TrackDataStore(modelContainer: container)
+    }
+
     private func sampleTrack(id: String = "T001", name: String = "Test Song") -> Track {
         Track(
             id: id,
@@ -246,6 +258,116 @@ struct TrackDataTests {
         try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
 
         #expect(try await store.getUnprocessedTracks().isEmpty)
+    }
+
+    @Test("Confirmed writes persist recovery metadata")
+    func persistsRecoveryMetadata() async throws {
+        let store = try makeStore()
+        try await store.saveTracks([sampleTrack()])
+
+        try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
+        try await store.persistAppliedChange(appliedChange(type: .artistRename))
+        try await store.persistAppliedChange(appliedChange(type: .albumCleaning))
+
+        let stored = try #require(try await store.getTrack(byID: "T001"))
+        #expect(stored.yearBeforeMGU == 2020)
+        #expect(stored.yearSetByMGU == 2024)
+        #expect(stored.originalArtist == "Test Artist")
+        #expect(stored.originalAlbum == "Test Album")
+        #expect(stored.hasBeenProcessed)
+    }
+
+    @Test("Repeated writes preserve first originals and update the applied year")
+    func preservesFirstValues() async throws {
+        let store = try makeStore()
+        try await store.saveTracks([sampleTrack()])
+
+        try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
+        var secondYear = appliedChange(type: .yearUpdate)
+        secondYear.oldYear = 2024
+        secondYear.newYear = 2025
+        try await store.persistAppliedChange(secondYear)
+
+        try await store.persistAppliedChange(appliedChange(type: .artistRename))
+        var secondArtist = appliedChange(type: .artistRename)
+        secondArtist.oldArtist = "Canonical Artist"
+        secondArtist.newArtist = "Final Artist"
+        try await store.persistAppliedChange(secondArtist)
+
+        try await store.persistAppliedChange(appliedChange(type: .albumCleaning))
+        var secondAlbum = appliedChange(type: .albumCleaning)
+        secondAlbum.oldAlbumName = "Clean Album"
+        secondAlbum.newAlbumName = "Final Album"
+        try await store.persistAppliedChange(secondAlbum)
+
+        let stored = try #require(try await store.getTrack(byID: "T001"))
+        #expect(stored.yearBeforeMGU == 2020)
+        #expect(stored.yearSetByMGU == 2025)
+        #expect(stored.originalArtist == "Test Artist")
+        #expect(stored.originalAlbum == "Test Album")
+    }
+
+    @Test("Sparse library refresh preserves recovery metadata")
+    func sparseRefreshPreservesState() async throws {
+        let store = try makeStore()
+        let tracked = Track(
+            id: "T001",
+            name: "Test Song",
+            artist: "Canonical Artist",
+            album: "Clean Album",
+            year: 2024,
+            originalArtist: "Test Artist",
+            originalAlbum: "Test Album",
+            yearBeforeMGU: 2020,
+            yearSetByMGU: 2024
+        )
+        try await store.saveTracks([tracked])
+
+        let sparseRefresh = Track(
+            id: "T001",
+            name: "Test Song",
+            artist: "Canonical Artist",
+            album: "Clean Album",
+            year: 2024
+        )
+        try await store.saveTracks([sparseRefresh])
+
+        let stored = try #require(try await store.getTrack(byID: "T001"))
+        #expect(stored.originalArtist == "Test Artist")
+        #expect(stored.originalAlbum == "Test Album")
+        #expect(stored.yearBeforeMGU == 2020)
+        #expect(stored.yearSetByMGU == 2024)
+    }
+
+    @Test("Recovery metadata survives store relaunch")
+    func survivesRelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TrackRecoveryRelaunch-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            do {
+                try FileManager.default.removeItem(at: directory)
+            } catch {
+                Issue.record("Failed to remove relaunch fixture: \(error)")
+            }
+        }
+        let storeURL = directory.appendingPathComponent("GenreUpdater.store")
+
+        do {
+            let store = try makeStore(at: storeURL)
+            try await store.saveTracks([sampleTrack()])
+            try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
+            try await store.persistAppliedChange(appliedChange(type: .artistRename))
+            try await store.persistAppliedChange(appliedChange(type: .albumCleaning))
+        }
+
+        let relaunchedStore = try makeStore(at: storeURL)
+        let stored = try #require(try await relaunchedStore.getTrack(byID: "T001"))
+        #expect(stored.yearBeforeMGU == 2020)
+        #expect(stored.yearSetByMGU == 2024)
+        #expect(stored.originalArtist == "Test Artist")
+        #expect(stored.originalAlbum == "Test Album")
+        #expect(stored.hasBeenProcessed)
     }
 
     @Test("Applied change persistence fails when the track is missing")
