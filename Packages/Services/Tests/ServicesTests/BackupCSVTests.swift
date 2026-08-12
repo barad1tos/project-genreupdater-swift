@@ -291,6 +291,115 @@ struct BackupCSVTests {
         #expect(Set(entries.map(\.id)).count == 2)
     }
 
+    @Test("Checkpoint failure blocks a physical write before dispatch")
+    func checkpointFailureBlocksWrite() async throws {
+        let bridge = MockAppleScriptClient()
+        let historyStore = MockChangeLogStore()
+        let trackStore = MockTrackStore()
+        let directory = makeBackupTempDirectory()
+        try Data().write(to: directory)
+        let track = Track(
+            id: "T1",
+            name: "Angel",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            year: 2019
+        )
+        let csv = """
+        id,name,artist,album,year_before_mgu
+        T1,Angel,Massive Attack,Mezzanine,1998
+        """
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            changeLogStore: historyStore,
+            trackStore: trackStore,
+            directory: directory
+        )
+        try await trackStore.saveTracks([track])
+        await bridge.setFetchedTracks([track])
+
+        await expectFinalizationFailure(effects: ["backup recovery checkpoint"]) {
+            _ = try await coordinator.revertYearsFromBackupCSV(
+                csv,
+                artist: "Massive Attack",
+                currentTracks: [track]
+            )
+        }
+
+        #expect(await bridge.writtenProperties.isEmpty)
+        #expect(await historyStore.entries.isEmpty)
+        #expect(try await trackStore.getTrack(byID: "T1")?.year == 2019)
+
+        try FileManager.default.removeItem(at: directory)
+        let retryCoordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            changeLogStore: historyStore,
+            trackStore: trackStore,
+            directory: directory
+        )
+        let result = try await retryCoordinator.revertYearsFromBackupCSV(
+            csv,
+            artist: "Massive Attack",
+            currentTracks: [track]
+        )
+
+        #expect(result.updatedCount == 1)
+        #expect(await bridge.writtenProperties.count == 1)
+        #expect(await historyStore.entries.count == 1)
+        #expect(await historyStore.entries.first?.oldYear == 2019)
+        #expect(await historyStore.entries.first?.newYear == 1998)
+        #expect(try await trackStore.getTrack(byID: "T1")?.year == 1998)
+    }
+
+    @Test("A stale recovery checkpoint blocks backup writes")
+    func staleCheckpointBlocksWrite() async throws {
+        let bridge = MockAppleScriptClient()
+        let directory = makeBackupTempDirectory()
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        var staleEntry = ChangeLogEntry(
+            changeType: .yearRevert,
+            trackID: "T1",
+            artist: "Massive Attack",
+            trackName: "Angel",
+            albumName: "Mezzanine"
+        )
+        staleEntry.oldYear = 2019
+        staleEntry.newYear = 2001
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(staleEntry).write(
+            to: directory.appendingPathComponent("pending-year-revert.json")
+        )
+        let coordinator = UndoCoordinator(
+            scriptBridge: bridge,
+            directory: directory
+        )
+        let csv = """
+        id,name,artist,album,year_before_mgu
+        T1,Angel,Massive Attack,Mezzanine,1998
+        """
+        let track = Track(
+            id: "T1",
+            name: "Angel",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            year: 2019
+        )
+
+        await expectFinalizationFailure(effects: ["prior backup recovery checkpoint"]) {
+            _ = try await coordinator.revertYearsFromBackupCSV(
+                csv,
+                artist: "Massive Attack",
+                currentTracks: [track]
+            )
+        }
+
+        #expect(await bridge.writtenProperties.isEmpty)
+    }
+
     @Test("Corrupt recovery checkpoint blocks backup writes")
     func corruptCheckpointBlocksWrites() async throws {
         let bridge = MockAppleScriptClient()
