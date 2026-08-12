@@ -101,6 +101,7 @@ public struct APIOrchestratorConfiguration: Sendable {
     public var soundtrackPatterns: [String]
     public var variousArtistsNames: [String]
     public var discogsReissueKeywords: [String]
+    public var dateProvider: @Sendable () -> Date
 
     public init() {
         reachability = nil
@@ -110,6 +111,7 @@ public struct APIOrchestratorConfiguration: Sendable {
         timeout = .seconds(15)
         negativeResultTTL = CachingConfig().negativeResultTTL
         candidateResultTTL = nil
+        dateProvider = { Date() }
         disabledSources = []
         maxConcurrentSourceCalls = 3
         maxAPIRetries = 0
@@ -179,6 +181,7 @@ public actor APIOrchestrator {
     let soundtrackPatterns: [String]
     let variousArtistsNames: [String]
     let discogsReissueKeywords: [String]
+    let dateProvider: @Sendable () -> Date
     private let log = AppLogger.api
 
     /// Creates an orchestrator with three API sources and a per-source timeout.
@@ -205,6 +208,7 @@ public actor APIOrchestrator {
         soundtrackPatterns = configuration.soundtrackPatterns
         variousArtistsNames = configuration.variousArtistsNames
         discogsReissueKeywords = configuration.discogsReissueKeywords
+        dateProvider = configuration.dateProvider
         apiRetryConfiguration = APIRetryConfiguration(
             maxRetries: configuration.maxAPIRetries,
             delaySeconds: configuration.apiRetryDelaySeconds

@@ -319,7 +319,6 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     ) -> [ReleaseCandidate] {
         let normalizedArtist = normalizeForMatching(artist)
         let normalizedAlbum = normalizeForMatching(album)
-        let reissueCutoffYear = Calendar.current.component(.year, from: Date()) - 1
 
         return results.compactMap { result in
             let resultArtist = normalizeForMatching(result.artistName ?? "")
@@ -341,8 +340,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
                 source: .itunes,
                 releaseType: .album,
                 status: .official,
-                country: result.country?.lowercased(),
-                isReissue: year >= reissueCutoffYear
+                country: result.country?.lowercased()
             )
         }
     }

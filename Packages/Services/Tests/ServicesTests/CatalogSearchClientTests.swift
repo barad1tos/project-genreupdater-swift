@@ -193,7 +193,8 @@ struct CatalogSearchClientTests {
             session.invalidateAndCancel()
         }
 
-        let currentYear = Calendar.current.component(.year, from: Date())
+        let scoringDate = Date()
+        let currentYear = try utcYear(at: scoringDate)
         ITunesMockURLProtocol.requestHandler = { request in
             let url = try #require(request.url)
             let json = """
@@ -217,11 +218,14 @@ struct CatalogSearchClientTests {
             return (response, Data(json.utf8))
         }
 
-        let client = CatalogSearchClient(
-            session: session,
-            lookupFallbackEnabled: false
-        )
-        let candidates = try await client.getReleaseCandidates(
+        let client = CatalogSearchClient(session: session, lookupFallbackEnabled: false)
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(),
+            discogs: MockAPIService(),
+            appleMusic: client,
+            disabledSources: [.musicBrainz, .discogs]
+        ) { $0.dateProvider = { scoringDate } }
+        let candidates = await orchestrator.getReleaseCandidates(
             artist: "Parity Artist",
             album: "Parity Album",
             currentLibraryYear: nil,
@@ -356,6 +360,10 @@ struct CatalogSearchClientTests {
     private func requireExternalAPIService(_ service: any ExternalAPIService) {
         _ = service
     }
+}
+
+private func utcYear(at date: Date) throws -> Int {
+    try #require(Calendar(identifier: .gregorian).dateComponents(in: .gmt, from: date).year)
 }
 
 private final class ITunesMockURLProtocol: URLProtocol {

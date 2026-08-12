@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Core
 @testable import Services
@@ -221,12 +222,77 @@ struct ReleaseCandidateAPITests {
         #expect(await callCounter.count() == 1)
     }
 
-    @Test("Release candidate cache ignores legacy v1 entries")
-    func releaseCandidateCacheIgnoresLegacyV1Entries() async {
+    @Test("iTunes cache and classification follow the UTC scoring year")
+    func iTunesCacheUsesUTCYear() async throws {
+        let cache = MockCacheService()
+        let callCounter = APICallCounter()
+        let candidate = ReleaseCandidate(
+            artist: "Parity Artist",
+            album: "Parity Album",
+            year: 2025,
+            source: .itunes,
+            releaseType: .album,
+            status: .official,
+            country: "us"
+        )
+        let appleMusic = CountingReleaseCandidateService(
+            callCounter: callCounter,
+            releaseCandidates: [candidate]
+        )
+        let beforeUTCNewYear = try utcDate(year: 2026, month: 12, day: 31, hour: 22)
+        let afterUTCNewYear = try utcDate(year: 2027, month: 1, day: 1, hour: 1)
+        let firstOrchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(),
+            discogs: MockAPIService(),
+            appleMusic: appleMusic,
+            cache: cache,
+            disabledSources: [.musicBrainz, .discogs]
+        ) { $0.dateProvider = { beforeUTCNewYear } }
+        let secondOrchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(),
+            discogs: MockAPIService(),
+            appleMusic: appleMusic,
+            cache: cache,
+            disabledSources: [.musicBrainz, .discogs]
+        ) { $0.dateProvider = { afterUTCNewYear } }
+
+        let firstCandidates = await firstOrchestrator.getReleaseCandidates(
+            artist: candidate.artist,
+            album: candidate.album,
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+        let secondCandidates = await secondOrchestrator.getReleaseCandidates(
+            artist: candidate.artist,
+            album: candidate.album,
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+        let scorer = YearScorer()
+        let firstScore = try scorer.scoreRelease(
+            #require(firstCandidates.first),
+            queryArtist: candidate.artist,
+            queryAlbum: candidate.album
+        ).totalScore
+        let secondScore = try scorer.scoreRelease(
+            #require(secondCandidates.first),
+            queryArtist: candidate.artist,
+            queryAlbum: candidate.album
+        ).totalScore
+
+        #expect(firstCandidates.first?.isReissue == true)
+        #expect(secondCandidates.first?.isReissue == false)
+        #expect(firstScore == 50)
+        #expect(secondScore == 80)
+        #expect(await callCounter.count() == 1)
+    }
+
+    @Test("Release candidate cache ignores legacy v2 entries")
+    func ignoresLegacyV2Cache() async {
         let cache = MockCacheService()
         await cache.setRawJSON(
-            key: legacyV1MusicBrainzBattlesCacheKey,
-            json: legacyV1ReleaseCandidateCacheJSON,
+            key: legacyV2CacheKey,
+            json: legacyV2CacheJSON,
             ttl: 86400
         )
         let callCounter = APICallCounter()
@@ -592,10 +658,21 @@ private enum ReleaseCandidateTestError: Error {
     case transientFailure
 }
 
-private let legacyV1MusicBrainzBattlesCacheKey =
-    "release_candidates:2:v1|11:musicbrainz|9:in flames|7:battles|16:library_year=nil|23:earliest_added_year=nil"
+private func utcDate(year: Int, month: Int, day: Int, hour: Int) throws -> Date {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = .gmt
+    return try #require(calendar.date(from: DateComponents(
+        year: year,
+        month: month,
+        day: day,
+        hour: hour
+    )))
+}
 
-private let legacyV1ReleaseCandidateCacheJSON = """
+private let legacyV2CacheKey =
+    "release_candidates:2:v2|11:musicbrainz|9:in flames|7:battles|16:library_year=nil|23:earliest_added_year=nil"
+
+private let legacyV2CacheJSON = """
 [
   {
     "artist": "In Flames",
