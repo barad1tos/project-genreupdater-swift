@@ -287,8 +287,8 @@ extension AppDependencies {
         }
     }
 
-    /// Rebuilds missing finalization evidence — durable change history and
-    /// track processing state — for written items, whether the write was
+    /// Rebuilds missing finalization evidence — durable change history, track
+    /// metadata mirror, and processing state — for written items, whether the write was
     /// checkpointed terminal before the loss or confirmed by observation.
     /// A repair failure aborts clearance and the hold is retained.
     private func repairFinalizationEvidence(
@@ -308,10 +308,11 @@ extension AppDependencies {
             observed: observedOutcomes
         )
         guard !writtenItems.isEmpty else { return }
-        let existing = await undoCoordinator.getHistory()
+        let existing = try await undoCoordinator.loadDurableHistory()
         let entries = RecoveryEvidenceRepair.missingEntries(
             for: writtenItems,
-            existing: existing
+            existing: existing,
+            runID: record.runID.rawValue
         ).map { entry in
             var attributed = entry
             attributed.runID = record.runID.rawValue

@@ -36,6 +36,8 @@ public protocol TrackStateStore: Actor {
     @discardableResult
     func deleteTrackIDs(_ ids: [String]) async throws -> Int
     func getTrack(byID id: String) async throws -> Track?
+    /// Atomically persists metadata and processing flags for a change whose
+    /// track ID is the canonical library read ID, never an AppleScript ID.
     func persistAppliedChange(_ change: ChangeLogEntry) async throws
     func getUnprocessedTracks() async throws -> [Track]
     func trackCount() async throws -> Int

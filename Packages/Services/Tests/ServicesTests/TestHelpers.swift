@@ -109,6 +109,10 @@ actor MockChangeLogStore: ChangeLogStore {
         shouldFailSaves = true
     }
 
+    func resumeSaves() {
+        shouldFailSaves = false
+    }
+
     func loadRecent(limit: Int) async throws -> [ChangeLogEntry] {
         Array(entries.sorted { $0.timestamp > $1.timestamp }.prefix(limit))
     }
@@ -117,6 +121,7 @@ actor MockChangeLogStore: ChangeLogStore {
         if shouldFailSaves {
             throw MockScriptError.intentional
         }
+        entries.removeAll { $0.id == entry.id }
         entries.append(entry)
     }
 
@@ -124,6 +129,8 @@ actor MockChangeLogStore: ChangeLogStore {
         if shouldFailSaves {
             throw MockScriptError.intentional
         }
+        let entryIDs = Set(entries.map(\.id))
+        self.entries.removeAll { entryIDs.contains($0.id) }
         self.entries.append(contentsOf: entries)
     }
 
