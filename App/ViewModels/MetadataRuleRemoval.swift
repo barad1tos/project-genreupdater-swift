@@ -85,6 +85,7 @@ enum RuleRemovalOutcome {
     case applied
     case stale
     case unavailable
+    case requiresAttention
 
     init(status: CommandResultStatus) {
         switch status {
@@ -92,12 +93,13 @@ enum RuleRemovalOutcome {
             self = .applied
         case .rejectedStale:
             self = .stale
+        case .requiresAttention:
+            self = .requiresAttention
         case .temporaryUnavailable,
              .queued,
              .alreadyCovered,
              .noOp,
              .rejectedInvalid,
-             .requiresAttention,
              .blockedByRecovery,
              .blockedByPermission,
              .navigated:
@@ -149,6 +151,8 @@ struct MetadataRuleRemovalFlow {
             failureMessage = Self.staleMessage
         case .unavailable:
             failureMessage = "Metadata rules could not be saved. Nothing was changed. Try again."
+        case .requiresAttention:
+            failureMessage = "The stored settings revision is invalid. Restore or reset the configuration file."
         }
     }
 }

@@ -98,6 +98,10 @@ public struct SettingsCommandResult: Sendable {
     public static func temporaryUnavailable(message: String, refreshedSettings: SettingsProjection) -> Self {
         Self(status: .temporaryUnavailable, message: message, refreshedSettings: refreshedSettings)
     }
+
+    public static func requiresAttention(message: String, refreshedSettings: SettingsProjection) -> Self {
+        Self(status: .requiresAttention, message: message, refreshedSettings: refreshedSettings)
+    }
 }
 
 extension SettingsProjection: Equatable {

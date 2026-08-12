@@ -25,6 +25,9 @@ enum SettingsCommands {
         case .rejectedStale:
             Task { await dependencies.publishSettingsProjection() }
             return .rejectedStale
+        case .requiresAttention:
+            Task { await dependencies.publishSettingsProjection() }
+            return .requiresAttention
         case .temporaryUnavailable:
             Task {
                 // Re-probe at execution: a retry may have repaired the
@@ -53,6 +56,10 @@ enum SettingsCommands {
             let refreshed = await dependencies.publishSettingsProjection()
             return .rejectedStale(message: message, refreshedSettings: refreshed)
 
+        case let .requiresAttention(message):
+            let refreshed = await dependencies.publishSettingsProjection()
+            return .requiresAttention(message: message, refreshedSettings: refreshed)
+
         case .temporaryUnavailable:
             let saveError = dependencies.configurationSaveErrorMessage ?? "Could not save the configuration."
             let refreshed = await dependencies.publishSettingsProjection(saveErrorMessage: saveError)
@@ -77,6 +84,7 @@ enum SettingsCommands {
     private enum Acceptance {
         case accepted
         case rejectedStale(message: String)
+        case requiresAttention(message: String)
         case temporaryUnavailable(message: String)
     }
 
@@ -102,7 +110,7 @@ enum SettingsCommands {
         guard !overflowed else {
             let message = "The stored settings revision is invalid. Restore or reset the configuration file."
             dependencies.reportSettingsRevisionCorruption(message)
-            return .rejectedStale(message: message)
+            return .requiresAttention(message: message)
         }
 
         let previousConfiguration = dependencies.config

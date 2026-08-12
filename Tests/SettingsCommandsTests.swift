@@ -142,8 +142,8 @@ struct SettingsCommandsTests {
         #expect(dependencies.config.revision == 1)
     }
 
-    @Test("a revision at the UInt64 maximum conflicts instead of trapping")
-    func maxRevisionConflictsInsteadOfTrapping() async {
+    @Test("a revision at the UInt64 maximum requires attention")
+    func maxRevisionRequiresAttention() async {
         let saved = SavedConfigurations()
         let dependencies = AppDependencies(
             configurationLoader: {
@@ -157,7 +157,8 @@ struct SettingsCommandsTests {
 
         let result = await SettingsCommands.apply(dependencies.config, target: target, dependencies: dependencies)
 
-        #expect(result.status == .rejectedStale)
+        #expect(result.status == .requiresAttention)
+        #expect(result.message.contains("Restore or reset"))
         #expect(dependencies.config.revision == .max)
         #expect(saved.configurations.isEmpty)
         // Corrupted persistence blocks every future mutation — including

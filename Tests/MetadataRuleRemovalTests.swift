@@ -108,6 +108,21 @@ struct MetadataRuleRemovalTests {
         #expect(flow.failureMessage?.contains("Nothing was changed") == true)
     }
 
+    @Test("Invalid settings revision requires configuration recovery")
+    func revisionRecoveryMessage() throws {
+        var flow = MetadataRuleRemovalFlow()
+        let removal = try #require(
+            MetadataRuleRemoval(group: .editionMarkers, snapshot: ["remaster"], offsets: [0])
+        )
+
+        flow.request(removal) { _ in .applied }
+        flow.confirm(removal) { _ in RuleRemovalOutcome(status: .requiresAttention) }
+
+        #expect(flow.pending == nil)
+        #expect(flow.failureMessage?.contains("Restore or reset") == true)
+        #expect(flow.failureMessage?.contains("try again") == false)
+    }
+
     @Test("Every built-in group explains its consequence")
     func groupsExplainConsequences() throws {
         let expectedPhrases: [MetadataRuleGroup: String] = [
