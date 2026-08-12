@@ -16,11 +16,13 @@ extension APIOrchestrator {
         currentLibraryYear: Int?,
         earliestTrackAddedYear: Int?
     ) async -> [ReleaseCandidate] {
+        let scoringYear = utcYear(at: dateProvider())
         let standard = await fetchReleaseCandidatesOnce(
             artist: artist,
             album: album,
             currentLibraryYear: currentLibraryYear,
-            earliestTrackAddedYear: earliestTrackAddedYear
+            earliestTrackAddedYear: earliestTrackAddedYear,
+            scoringYear: scoringYear
         )
         guard standard.isEmpty else { return standard }
 
@@ -45,7 +47,8 @@ extension APIOrchestrator {
             artist: altArtist,
             album: altAlbum,
             currentLibraryYear: currentLibraryYear,
-            earliestTrackAddedYear: earliestTrackAddedYear
+            earliestTrackAddedYear: earliestTrackAddedYear,
+            scoringYear: scoringYear
         )
     }
 
@@ -53,7 +56,8 @@ extension APIOrchestrator {
         artist: String,
         album: String,
         currentLibraryYear: Int?,
-        earliestTrackAddedYear: Int?
+        earliestTrackAddedYear: Int?,
+        scoringYear: Int
     ) async -> [ReleaseCandidate] {
         let log = AppLogger.api
         if let reachability, await !reachability.isConnected {
@@ -85,7 +89,7 @@ extension APIOrchestrator {
         )
         let sourceRank = Dictionary(uniqueKeysWithValues: activeSources.enumerated().map { ($0.element, $0.offset) })
         let apiRetryConfiguration = apiRetryConfiguration
-        let cacheContext = candidateCacheContext()
+        let cacheContext = candidateCacheContext(scoringYear: scoringYear)
 
         let fetched = await withTaskGroup(
             of: (source: APISource, candidates: [ReleaseCandidate]).self,
@@ -116,13 +120,13 @@ extension APIOrchestrator {
             .flatMap(\.candidates)
     }
 
-    private func candidateCacheContext() -> ReleaseCandidateCacheContext {
+    private func candidateCacheContext(scoringYear: Int) -> ReleaseCandidateCacheContext {
         ReleaseCandidateCacheContext(
             cache: cache,
             positiveResultTTL: candidateResultTTL,
             negativeResultTTL: negativeResultTTL,
             discogsReissueKeywords: discogsReissueKeywords,
-            iTunesScoringYear: utcYear(at: dateProvider())
+            iTunesScoringYear: scoringYear
         )
     }
 }
