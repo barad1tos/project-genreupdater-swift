@@ -158,11 +158,14 @@ struct SettingsCommandsTests {
         let result = await SettingsCommands.apply(dependencies.config, target: target, dependencies: dependencies)
 
         #expect(result.status == .requiresAttention)
-        #expect(result.message.contains("Restore or reset"))
+        #expect(result.message.contains(AppConfiguration.configFileURL.path))
+        #expect(result.message.contains("set \"revision\" to 0"))
+        #expect(result.message.contains("relaunch GenreUpdater"))
+        #expect(result.message.localizedCaseInsensitiveContains("reset") == false)
         #expect(dependencies.config.revision == .max)
         #expect(saved.configurations.isEmpty)
-        // Corrupted persistence blocks every future mutation — including
-        // the recommended reset — so it must escalate loudly.
+        // Corrupted persistence blocks every in-app mutation, so recovery
+        // must direct the user to the persisted file instead of offering retry.
         #expect(isErrorState(dependencies.appState))
     }
 

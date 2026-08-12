@@ -119,7 +119,10 @@ struct MetadataRuleRemovalTests {
         flow.confirm(removal) { _ in RuleRemovalOutcome(status: .requiresAttention) }
 
         #expect(flow.pending == nil)
-        #expect(flow.failureMessage?.contains("Restore or reset") == true)
+        #expect(flow.failureMessage?.contains(AppConfiguration.configFileURL.path) == true)
+        #expect(flow.failureMessage?.contains("set \"revision\" to 0") == true)
+        #expect(flow.failureMessage?.contains("relaunch GenreUpdater") == true)
+        #expect(flow.failureMessage?.localizedCaseInsensitiveContains("reset") == false)
         #expect(flow.failureMessage?.contains("try again") == false)
     }
 

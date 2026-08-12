@@ -152,7 +152,7 @@ struct MetadataRuleRemovalFlow {
         case .unavailable:
             failureMessage = "Metadata rules could not be saved. Nothing was changed. Try again."
         case .requiresAttention:
-            failureMessage = "The stored settings revision is invalid. Restore or reset the configuration file."
+            failureMessage = SettingsRevisionRecovery.message
         }
     }
 }
