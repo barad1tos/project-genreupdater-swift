@@ -108,4 +108,27 @@ struct MetadataRuleRemovalTests {
         #expect(MetadataRuleRemoval(group: .editionMarkers, snapshot: ["remaster"], offsets: []) == nil)
         #expect(MetadataRuleRemoval(group: .editionMarkers, snapshot: ["remaster"], offsets: [1]) == nil)
     }
+
+    @Test("Every rule group removes from its persisted configuration list", arguments: MetadataRuleGroup.allCases)
+    func groupTargetsList(_ group: MetadataRuleGroup) throws {
+        let configuration = AppConfiguration()
+        let snapshot = MetadataRuleDefaults.values(for: group)
+        let removal = try #require(MetadataRuleRemoval(group: group, snapshot: snapshot, offsets: [0]))
+
+        let updated = try #require(removal.removing(from: configuration))
+
+        #expect(rules(for: group, in: updated) == Array(snapshot.dropFirst()))
+    }
+
+    private func rules(for group: MetadataRuleGroup, in configuration: AppConfiguration) -> [String] {
+        switch group {
+        case .editionMarkers: configuration.cleaning.editionMarkers
+        case .albumSuffixes: configuration.cleaning.albumSuffixes
+        case .specialAlbums: configuration.albumTypeDetection.specialPatterns
+        case .compilations: configuration.albumTypeDetection.compilationPatterns
+        case .reissues: configuration.albumTypeDetection.reissuePatterns
+        case .soundtracks: configuration.albumTypeDetection.soundtrackPatterns
+        case .variousArtists: configuration.albumTypeDetection.variousArtistsNames
+        }
+    }
 }

@@ -3,22 +3,6 @@ import Testing
 
 @Suite("MetadataUtils")
 struct MetadataUtilsTests {
-    // MARK: - isRemaster
-
-    @Test("Detects remaster in text")
-    func editionKeywordDetection() {
-        #expect(isRemaster("Album (Remastered 2021)"))
-        #expect(isRemaster("Song - Remaster"))
-        #expect(!isRemaster("Normal Album"))
-        #expect(!isRemaster(""))
-    }
-
-    @Test("Custom remaster keywords")
-    func customEditionKeywords() {
-        #expect(isRemaster("Album (Deluxe)", keywords: ["deluxe", "expanded"]))
-        #expect(!isRemaster("Album (Deluxe)", keywords: ["remaster"]))
-    }
-
     // MARK: - removeParenthesesWithKeywords
 
     @Test("Removes parenthetical segment with keyword")

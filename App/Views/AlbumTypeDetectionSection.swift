@@ -106,27 +106,7 @@ struct AlbumTypeDetectionSection: View {
     }
 
     private func removeRules(_ removal: MetadataRuleRemoval) {
-        switch removal.group {
-        case .specialAlbums:
-            applyRemoval(removal, at: \.albumTypeDetection.specialPatterns)
-        case .compilations:
-            applyRemoval(removal, at: \.albumTypeDetection.compilationPatterns)
-        case .reissues:
-            applyRemoval(removal, at: \.albumTypeDetection.reissuePatterns)
-        case .soundtracks:
-            applyRemoval(removal, at: \.albumTypeDetection.soundtrackPatterns)
-        case .variousArtists:
-            applyRemoval(removal, at: \.albumTypeDetection.variousArtistsNames)
-        case .editionMarkers, .albumSuffixes:
-            break
-        }
-    }
-
-    private func applyRemoval(
-        _ removal: MetadataRuleRemoval,
-        at keyPath: WritableKeyPath<AppConfiguration, [String]>
-    ) {
-        guard let remaining = removal.removing(from: dependencies.config[keyPath: keyPath]) else { return }
-        mutateConfiguration(dependencies) { $0[keyPath: keyPath] = remaining }
+        guard let updated = removal.removing(from: dependencies.config) else { return }
+        mutateConfiguration(dependencies) { $0 = updated }
     }
 }

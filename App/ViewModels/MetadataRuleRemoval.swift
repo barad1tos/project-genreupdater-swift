@@ -41,6 +41,25 @@ struct MetadataRuleRemoval: Equatable, Identifiable {
         return remaining
     }
 
+    func removing(from configuration: AppConfiguration) -> AppConfiguration? {
+        guard let remaining = removing(from: configuration[keyPath: rulesPath]) else { return nil }
+        var updated = configuration
+        updated[keyPath: rulesPath] = remaining
+        return updated
+    }
+
+    private var rulesPath: WritableKeyPath<AppConfiguration, [String]> {
+        switch group {
+        case .editionMarkers: \.cleaning.editionMarkers
+        case .albumSuffixes: \.cleaning.albumSuffixes
+        case .specialAlbums: \.albumTypeDetection.specialPatterns
+        case .compilations: \.albumTypeDetection.compilationPatterns
+        case .reissues: \.albumTypeDetection.reissuePatterns
+        case .soundtracks: \.albumTypeDetection.soundtrackPatterns
+        case .variousArtists: \.albumTypeDetection.variousArtistsNames
+        }
+    }
+
     private var consequence: String {
         switch group {
         case .editionMarkers:

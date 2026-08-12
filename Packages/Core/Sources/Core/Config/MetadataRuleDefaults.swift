@@ -47,10 +47,6 @@ public enum MetadataRuleDefaults {
 
     /// Release-result text that marks an API candidate as a reissue.
     public static let releaseReissues = ["reissue", "remaster", "remastered"]
-    static let albumVariants = [
-        "remaster", "remastered", "deluxe", "expanded", "anniversary",
-        "special edition", "bonus", "collector", "redux",
-    ]
     static let normalBrackets = ["deluxe", "remaster", "bonus", "disc", "cd", "version"]
 
     /// Returns the shipped default values for a user-configurable metadata rule group.

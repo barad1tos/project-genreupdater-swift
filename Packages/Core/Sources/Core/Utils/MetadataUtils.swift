@@ -6,20 +6,6 @@
 
 import Foundation
 
-// MARK: - Remaster Detection
-
-/// Check if text contains remaster-related keywords.
-///
-/// - Parameters:
-///   - text: Text to check
-///   - keywords: Release and reissue evidence markers; shipped markers are used when omitted
-/// - Returns: `true` if any keyword is found (case-insensitive)
-public func isRemaster(_ text: String, keywords: [String]? = nil) -> Bool { // swiftlint:disable:this inclusive_language
-    let kws = keywords ?? MetadataRuleDefaults.releaseReissues
-    let lower = text.lowercased()
-    return kws.contains { lower.contains($0.lowercased()) }
-}
-
 // MARK: - Parentheses/Bracket Removal
 
 /// Remove parenthetical and bracket segments containing any of the keywords.

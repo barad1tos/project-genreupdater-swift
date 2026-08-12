@@ -271,22 +271,8 @@ struct AdvancedTab: View {
     }
 
     private func removeRules(_ removal: MetadataRuleRemoval) {
-        switch removal.group {
-        case .editionMarkers:
-            applyRemoval(removal, at: \.cleaning.editionMarkers)
-        case .albumSuffixes:
-            applyRemoval(removal, at: \.cleaning.albumSuffixes)
-        case .specialAlbums, .compilations, .reissues, .soundtracks, .variousArtists:
-            break
-        }
-    }
-
-    private func applyRemoval(
-        _ removal: MetadataRuleRemoval,
-        at keyPath: WritableKeyPath<AppConfiguration, [String]>
-    ) {
-        guard let remaining = removal.removing(from: dependencies.config[keyPath: keyPath]) else { return }
-        applyMutation { $0[keyPath: keyPath] = remaining }
+        guard let updated = removal.removing(from: dependencies.config) else { return }
+        applyMutation { $0 = updated }
     }
 
     /// Dispatches a settings command and refreshes the JSON preview to the

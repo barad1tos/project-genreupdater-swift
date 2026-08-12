@@ -142,7 +142,11 @@ public func normalizeAlbumForComparison(_ album: String) -> String {
     cleaned = stripDiscNumber(cleaned)
 
     // Remove common remaster/deluxe markers in parentheses and brackets
-    cleaned = removeParenthesesWithKeywords(cleaned, keywords: MetadataRuleDefaults.albumVariants)
+    cleaned = removeParenthesesWithKeywords(cleaned, keywords: [
+        "remaster", "remastered", "deluxe", "expanded",
+        "anniversary", "special edition", "bonus",
+        "collector", "redux",
+    ])
 
     return normalizeForMatching(cleaned)
 }
