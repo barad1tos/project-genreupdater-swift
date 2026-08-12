@@ -14,6 +14,7 @@ actor MockAppleScriptClient: AppleScriptClient {
     var trackIDsToFetch: [String] = []
     var tracksByID: [String: Track] = [:]
     var shouldThrow = false
+    var shouldCancelWrite = false
     var shouldThrowBatch = false
     var shouldThrowFetch = false
     var shouldCancelBatch = false
@@ -26,6 +27,7 @@ actor MockAppleScriptClient: AppleScriptClient {
     private var writeErrorsByTrackID: [String: any Error] = [:]
     private var writeErrorsByProperty: [String: any Error] = [:]
     private var failingWriteTrackIDs: Set<String> = []
+    private var writeAttemptHook: (@Sendable () throws -> Void)?
     private var fetchedTracksByIDsCalls: [ScriptFetchRequest] = []
     private var fetchedAllTrackIDsTimeouts: [Duration?] = []
 
@@ -95,15 +97,21 @@ actor MockAppleScriptClient: AppleScriptClient {
         value: String,
         onAttempt: WriteAttemptHook?
     ) async throws -> AppleScriptWriteResult {
+        if shouldCancelWrite {
+            throw CancellationError()
+        }
         if let customWriteError {
+            try writeAttemptHook?()
             try await onAttempt?()
             throw customWriteError
         }
         if let writeError = writeErrorsByTrackID[trackID] {
+            try writeAttemptHook?()
             try await onAttempt?()
             throw writeError
         }
         if let writeError = writeErrorsByProperty[property] {
+            try writeAttemptHook?()
             try await onAttempt?()
             throw writeError
         }
@@ -114,12 +122,14 @@ actor MockAppleScriptClient: AppleScriptClient {
         if currentValue(for: property, inTrackWithID: trackID) == value {
             // The real bridge fires the attempt hook for every dispatched
             // response, including "no change".
+            try writeAttemptHook?()
             try await onAttempt?()
             return .noChange
         }
         if singleWriteResult == .changed {
             apply(property: property, value: value, toTrackWithID: trackID)
         }
+        try writeAttemptHook?()
         try await onAttempt?()
         return singleWriteResult
     }
@@ -168,6 +178,14 @@ actor MockAppleScriptClient: AppleScriptClient {
 
     func setThrowMode(_ shouldFail: Bool) {
         shouldThrow = shouldFail
+    }
+
+    func setWriteCancellationMode(_ shouldCancel: Bool) {
+        shouldCancelWrite = shouldCancel
+    }
+
+    func setWriteAttemptHook(_ hook: (@Sendable () throws -> Void)?) {
+        writeAttemptHook = hook
     }
 
     func setBatchThrowMode(_ shouldFail: Bool) {

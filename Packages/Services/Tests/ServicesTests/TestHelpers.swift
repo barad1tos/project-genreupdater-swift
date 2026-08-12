@@ -50,9 +50,18 @@ actor MockTrackStore: TrackStateStore {
     var tracks: [Track] = []
     private(set) var appliedUpdates: [AppliedTrackUpdate] = []
     private var shouldFailMirror = false
+    private var appliedUpdateHook: (@Sendable () throws -> Void)?
 
     func failAppliedUpdates() {
         shouldFailMirror = true
+    }
+
+    func resumeAppliedUpdates() {
+        shouldFailMirror = false
+    }
+
+    func setAppliedUpdateHook(_ hook: (@Sendable () throws -> Void)?) {
+        appliedUpdateHook = hook
     }
 
     func initialize() async throws {}
@@ -88,6 +97,7 @@ actor MockTrackStore: TrackStateStore {
             genreUpdated: change.changeType == .genreUpdate ? true : nil,
             yearUpdated: change.changeType == .yearUpdate || change.changeType == .yearRevert ? true : nil
         ))
+        try appliedUpdateHook?()
     }
 
     func getUnprocessedTracks() async throws -> [Track] {

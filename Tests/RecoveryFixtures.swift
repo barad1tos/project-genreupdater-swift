@@ -282,7 +282,7 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) async throws -> Recov
     let trackStore = TrackDataStore(modelContainer: persistenceContainer)
     let undo = UndoCoordinator(
         scriptBridge: RecoveryScriptStub(tracks: []),
-        changeLogStore: changeLog,
+        stores: .init(changeLog: changeLog),
         directory: directory.appendingPathComponent("undo", isDirectory: true)
     )
     let fixture = try makeFixture(testArtists: [], runRecordStore: store)
