@@ -37,7 +37,7 @@ struct YearScorerSoundtrackTests {
         let scorer = YearScorer(soundtrackPatterns: ["game score"])
         let candidate = ReleaseCandidate(
             artist: "Composer",
-            album: "Journey Game Score",
+            album: "Journey",
             year: 2012,
             source: .musicBrainz
         )
@@ -45,7 +45,7 @@ struct YearScorerSoundtrackTests {
         let result = scorer.scoreRelease(
             candidate,
             queryArtist: "Various Artists",
-            queryAlbum: "Journey Game Score"
+            queryAlbum: "Journey (Game Score)"
         )
 
         #expect(result.breakdown.soundtrackCompensation == 75)
