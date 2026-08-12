@@ -332,12 +332,17 @@ extension Track {
         case .genreUpdate:
             updated.genre = try change.required(change.newGenre)
         case .yearUpdate, .yearRevert:
-            updated.year = try change.required(change.newYear)
+            let appliedYear = try change.required(change.newYear)
+            updated.yearBeforeMGU = updated.yearBeforeMGU ?? change.oldYear
+            updated.yearSetByMGU = appliedYear
+            updated.year = appliedYear
         case .trackCleaning:
             updated.name = try change.required(change.newTrackName)
         case .albumCleaning:
+            updated.originalAlbum = updated.originalAlbum ?? change.oldAlbumName
             updated.album = try change.required(change.newAlbumName)
         case .artistRename:
+            updated.originalArtist = updated.originalArtist ?? change.oldArtist
             updated.artist = try change.required(change.newArtist)
         }
         return updated
