@@ -69,6 +69,35 @@ struct BackupRecoveryTests {
         #expect(try await fixture.trackStore.getTrack(byID: "T1")?.year == 1998)
     }
 
+    @Test("No-change finalization retry refuses a newer live year")
+    func staleNoChangeRetry() async throws {
+        let fixture = try await BackupRecoveryFixture.make()
+        await fixture.trackStore.failAppliedUpdates()
+
+        await expectRecoveryFailure(effects: ["track mirror"]) {
+            _ = try await Self.restore(using: fixture.coordinator(), fixture: fixture)
+        }
+
+        var changedTrack = fixture.liveTrack
+        changedTrack.year = 2019
+        await fixture.bridge.setFetchedTracks([changedTrack])
+        await fixture.trackStore.resumeAppliedUpdates()
+        await expectRecoveryFailure(effects: ["stale backup recovery checkpoint"]) {
+            _ = try await fixture.coordinator().revertYearsFromBackupCSV(
+                fixture.csv,
+                artist: "Massive Attack",
+                currentTracks: [changedTrack]
+            )
+        }
+
+        #expect(await fixture.bridge.writtenProperties.count == 1)
+        #expect(await fixture.historyStore.entries.isEmpty)
+        #expect(try await fixture.trackStore.getTrack(byID: "T1")?.year == 2019)
+        #expect(FileManager.default.fileExists(
+            atPath: fixture.directory.appendingPathComponent("pending-year-revert.json").path
+        ))
+    }
+
     @Test("No-change cleanup retry never creates restore history")
     func cleanupRetrySkipsHistory() async throws {
         let fixture = try await BackupRecoveryFixture.make()

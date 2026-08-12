@@ -12,6 +12,8 @@ import OSLog
 ///
 /// Undo is a FREE feature — no tier gating required.
 public actor UndoCoordinator {
+    /// Retry contract: prepared may dispatch; dispatchedUnknown blocks;
+    /// changed and noChange may only finalize their already-observed outcome.
     private enum BackupRestorePhase: String, Codable {
         case prepared
         case dispatchedUnknown
@@ -491,6 +493,31 @@ public actor UndoCoordinator {
             confidence: 100,
             source: "backup_csv"
         )
+        if let pendingCheckpoint {
+            switch pendingCheckpoint.phase {
+            case .prepared: break
+            case .dispatchedUnknown:
+                throw UpdateCoordinatorError.writeFinalizationFailed(
+                    trackID: change.track.id,
+                    effects: ["ambiguous backup write outcome"]
+                )
+            case .changed, .noChange:
+                guard change.track.year == targetYear else {
+                    throw UpdateCoordinatorError.writeFinalizationFailed(
+                        trackID: change.track.id,
+                        effects: ["stale backup recovery checkpoint"]
+                    )
+                }
+                let result: AppleScriptWriteResult = pendingCheckpoint.phase == .changed ? .changed : .noChange
+                try await finalizeBackupCheckpoint(
+                    pendingCheckpoint,
+                    change: change,
+                    result: result,
+                    completesRecovery: true
+                )
+                return result
+            }
+        }
         let result = try await performRevertWrite(
             change: change,
             property: "year",
@@ -514,31 +541,29 @@ public actor UndoCoordinator {
                 try await finalizeBackupCheckpoint(pendingCheckpoint, change: change, result: result)
             }
         )
-        do {
-            try fileManager.removeItem(at: backupCheckpointURL)
-            return result
-        } catch {
-            throw UpdateCoordinatorError.writeFinalizationFailed(
-                trackID: track.id,
-                effects: ["backup recovery checkpoint"]
-            )
-        }
+        _ = try backupCheckpoint(for: track.id, shouldRemove: true)
+        return result
     }
 
     private func backupCheckpoint(
         for trackID: String,
         targetYear: Int? = nil,
-        writing checkpoint: (entry: ChangeLogEntry, phase: BackupRestorePhase)? = nil
+        writing checkpoint: (entry: ChangeLogEntry, phase: BackupRestorePhase)? = nil,
+        shouldRemove: Bool = false
     ) throws -> (entry: ChangeLogEntry, phase: BackupRestorePhase)? {
         struct Payload: Codable {
             let entry: ChangeLogEntry
             let phase: BackupRestorePhase
         }
 
-        if checkpoint == nil, !fileManager.fileExists(atPath: backupCheckpointURL.path) {
+        if !shouldRemove, checkpoint == nil, !fileManager.fileExists(atPath: backupCheckpointURL.path) {
             return nil
         }
         do {
+            if shouldRemove {
+                try fileManager.removeItem(at: backupCheckpointURL)
+                return nil
+            }
             if let checkpoint {
                 try fileManager.createDirectory(
                     at: backupCheckpointURL.deletingLastPathComponent(),
@@ -585,7 +610,8 @@ public actor UndoCoordinator {
     private func finalizeBackupCheckpoint(
         _ pendingCheckpoint: (entry: ChangeLogEntry, phase: BackupRestorePhase)?,
         change: ProposedChange,
-        result: AppleScriptWriteResult
+        result: AppleScriptWriteResult,
+        completesRecovery: Bool = false
     ) async throws {
         guard var checkpoint = try pendingCheckpoint ?? backupCheckpoint(for: change.track.id) else {
             throw UpdateCoordinatorError.writeFinalizationFailed(
@@ -600,24 +626,36 @@ public actor UndoCoordinator {
             result == .changed ? .changed : .noChange
         }
         _ = try backupCheckpoint(for: checkpoint.entry.trackID, writing: checkpoint)
-        guard checkpoint.phase == .changed else { return }
+        if checkpoint.phase == .changed {
+            do {
+                await loadHistoryIfNeeded()
+                if pendingCheckpoint == nil || !history.contains(where: { $0.id == checkpoint.entry.id }) {
+                    try await recordRepairedChanges([checkpoint.entry])
+                }
+            } catch {
+                log.error("""
+                Failed to persist year revert history for track \(checkpoint.entry.trackID, privacy: .private): \
+                \(error.localizedDescription, privacy: .private)
+                """)
+                throw UpdateCoordinatorError.writeFinalizationFailed(
+                    trackID: checkpoint.entry.trackID,
+                    effects: ["change history"]
+                )
+            }
+        }
+        guard completesRecovery else { return }
 
         do {
-            await loadHistoryIfNeeded()
-            if pendingCheckpoint != nil, history.contains(where: { $0.id == checkpoint.entry.id }) {
-                return
-            }
-            try await recordRepairedChanges([checkpoint.entry])
+            try await trackStore?.persistAppliedChange(checkpoint.entry)
         } catch {
-            log.error("""
-            Failed to persist year revert history for track \(checkpoint.entry.trackID, privacy: .private): \
-            \(error.localizedDescription, privacy: .private)
-            """)
+            await invalidateCaches(for: change)
             throw UpdateCoordinatorError.writeFinalizationFailed(
-                trackID: checkpoint.entry.trackID,
-                effects: ["change history"]
+                trackID: change.track.id,
+                effects: ["track mirror"]
             )
         }
+        await invalidateCaches(for: change)
+        _ = try backupCheckpoint(for: change.track.id, shouldRemove: true)
     }
 
     private static func publicFailureDescription(for error: Error) -> String {

@@ -163,7 +163,9 @@ struct BackupCSVTests {
             currentTracks: [liveTrack]
         )
 
-        #expect(retryResult.skippedCount == 1)
+        #expect(retryResult.updatedCount == 1)
+        #expect(retryResult.skippedCount == 0)
+        #expect(await bridge.writtenProperties.count == 1)
         #expect(await store.entries.count == 1)
         #expect(await store.entries.first?.oldYear == 2019)
         #expect(await store.entries.first?.newYear == 1998)
@@ -225,7 +227,9 @@ struct BackupCSVTests {
             currentTracks: [liveTrack]
         )
 
-        #expect(retryResult.skippedCount == 1)
+        #expect(retryResult.updatedCount == 1)
+        #expect(retryResult.skippedCount == 0)
+        #expect(await bridge.writtenProperties.count == 1)
         #expect(await historyStore.entries.count == 1)
         #expect(try await trackStore.getTrack(byID: "T1")?.year == 1998)
     }
