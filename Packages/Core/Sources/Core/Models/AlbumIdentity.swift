@@ -81,9 +81,9 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
     /// Returns canonical and legacy lookup identities for a track.
     ///
     /// The first candidate is the canonical album identity. Later candidates preserve legacy caches and pending
-    /// rows that may have been written under effective artist, raw artist, or a feature-stripped artist.
-    /// Split-artist aliases exist ONLY when albumArtist is absent: with an album artist present the
-    /// shield applies to lookups too — a "Simon & Garfunkel" album must never query rows for "Simon".
+    /// rows that may have been written under effective artist, raw artist, or a previously split artist.
+    /// Legacy split aliases exist ONLY when albumArtist is absent: with an album artist present the
+    /// shield applies to lookups too because no split identity was ever produced for that track.
     public static func lookupCandidates(for track: Track) -> [Self] {
         var artists = [
             groupingArtist(for: track),
@@ -93,7 +93,7 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         let albumArtist = track.albumArtist?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if albumArtist.isEmpty {
             artists.append(explicitPrimaryArtist(track.artist))
-            artists.append(legacyFeatureArtist(track.artist))
+            artists.append(legacyCollaborationArtist(track.artist))
         }
         return lookupCandidates(artists: artists, album: track.album)
     }
@@ -105,7 +105,7 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
             artists: [
                 artist,
                 explicitPrimaryArtist(artist),
-                legacyFeatureArtist(artist),
+                legacyCollaborationArtist(artist),
             ],
             album: album
         )
@@ -147,19 +147,39 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         }
     }
 
-    /// Verbatim port of Python's normalize_collaboration_artist
-    /// (year_utils.py): the separator LIST ORDER decides (not string
-    /// position), matching is case-sensitive, the left side of the first
-    /// listed separator wins. Deliberate divergences, both pathological
-    /// edge inputs only: the input is trimmed FIRST, so a leading or
-    /// trailing separator fragment (" & Friends", "A & ") no longer
-    /// matches where Python would return "" or "A"; and the empty-left
-    /// fallback below keeps the whole artist as a defensive floor.
+    /// Removes only explicit feature credits. Connectors such as `&`, `and`,
+    /// `with`, `vs`, and `x` can be part of a legal artist name and are not
+    /// identity boundaries.
     private static func explicitPrimaryArtist(_ artist: String) -> String {
         let trimmed = artist.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
 
-        for separator in collaborationSeparators {
+        for separator in featureSeparators {
+            if let range = trimmed.range(of: separator, options: .caseInsensitive) {
+                let primaryArtist = trimmed[trimmed.startIndex ..< range.lowerBound]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return primaryArtist.isEmpty ? trimmed : primaryArtist
+            }
+        }
+
+        return trimmed
+    }
+
+    private static let featureSeparators = [
+        " feat. ",
+        " feat ",
+        " ft. ",
+        " ft ",
+        " featuring ",
+    ]
+
+    /// The retired Python-parity splitter survives only as a lookup alias for
+    /// cache and pending rows that it wrote. It never produces new identities.
+    private static func legacyCollaborationArtist(_ artist: String) -> String {
+        let trimmed = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+
+        for separator in legacyCollaborationSeparators {
             if let range = trimmed.range(of: separator) {
                 let primaryArtist = trimmed[trimmed.startIndex ..< range.lowerBound]
                     .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -170,7 +190,7 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         return trimmed
     }
 
-    private static let collaborationSeparators = [
+    private static let legacyCollaborationSeparators = [
         " & ",
         " feat. ",
         " feat ",
@@ -182,33 +202,6 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
         " and ",
         " x ",
         " X ",
-    ]
-
-    /// The RETIRED pre-parity splitter (feat family + " featuring ",
-    /// case-insensitive): album-year and pending rows persisted before the
-    /// Python-parity switch were written under ITS output, so it survives
-    /// as a lookup alias only — never as a producer of new identities.
-    private static func legacyFeatureArtist(_ artist: String) -> String {
-        let trimmed = artist.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "" }
-
-        for separator in legacyFeatureSeparators {
-            if let range = trimmed.range(of: separator, options: .caseInsensitive) {
-                let primaryArtist = trimmed[trimmed.startIndex ..< range.lowerBound]
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                return primaryArtist.isEmpty ? trimmed : primaryArtist
-            }
-        }
-
-        return trimmed
-    }
-
-    private static let legacyFeatureSeparators = [
-        " feat. ",
-        " feat ",
-        " ft. ",
-        " ft ",
-        " featuring ",
     ]
 }
 

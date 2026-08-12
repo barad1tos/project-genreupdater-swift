@@ -125,7 +125,8 @@ struct AppConfigurationTests {
         #expect(config.analytics.maxEvents == 10000)
         #expect(config.analytics.enabled == false)
         #expect(config.analytics.durationThresholds.mediumMax == 20)
-        #expect(config.cleaning.remasterKeywords.count == 9)
+        #expect(config.cleaning.editionMarkers == MetadataRuleDefaults.editionMarkers)
+        #expect(config.cleaning.albumSuffixes == MetadataRuleDefaults.albumSuffixes)
         #expect(config.exceptions.trackCleaning.isEmpty)
         #expect(config.artistRenamer.mappings.isEmpty)
         #expect(config.databaseVerification.autoVerifyDays == 7)
@@ -275,6 +276,14 @@ struct AppConfigurationTests {
     func jsonRoundTrip() throws {
         var original = AppConfiguration()
         original.development.testArtists = ["Amon Amarth", "DK Energetyk"]
+        original.cleaning.editionMarkers = []
+        original.cleaning.albumSuffixes = ["Fan Club Edition"]
+        original.albumTypeDetection.specialPatterns = []
+        original.albumTypeDetection.compilationPatterns = ["box set"]
+        original.albumTypeDetection.reissuePatterns = []
+        original.albumTypeDetection.soundtrackPatterns = []
+        original.albumTypeDetection.variousArtistsNames = ["Compilation Artists"]
+        original.yearRetrieval.reissueDetection.reissueKeywords = []
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
@@ -293,10 +302,19 @@ struct AppConfigurationTests {
         #expect(decoded.caching.librarySnapshot.compressLevel == original.caching.librarySnapshot.compressLevel)
         #expect(decoded.processing.batchSize == original.processing.batchSize)
         #expect(decoded.analytics.maxEvents == original.analytics.maxEvents)
-        #expect(decoded.cleaning.remasterKeywords == original.cleaning.remasterKeywords)
+        #expect(decoded.cleaning.editionMarkers == original.cleaning.editionMarkers)
+        #expect(decoded.cleaning.albumSuffixes == original.cleaning.albumSuffixes)
         #expect(decoded.databaseVerification.batchSize == original.databaseVerification.batchSize)
         #expect(decoded.artistRenamer.mappings == original.artistRenamer.mappings)
+        #expect(decoded.albumTypeDetection.specialPatterns == original.albumTypeDetection.specialPatterns)
+        #expect(decoded.albumTypeDetection.compilationPatterns == original.albumTypeDetection.compilationPatterns)
+        #expect(decoded.albumTypeDetection.reissuePatterns == original.albumTypeDetection.reissuePatterns)
         #expect(decoded.albumTypeDetection.soundtrackPatterns == original.albumTypeDetection.soundtrackPatterns)
+        #expect(decoded.albumTypeDetection.variousArtistsNames == original.albumTypeDetection.variousArtistsNames)
+        #expect(
+            decoded.yearRetrieval.reissueDetection.reissueKeywords ==
+                original.yearRetrieval.reissueDetection.reissueKeywords
+        )
         #expect(decoded.development.testArtists == original.development.testArtists)
         #expect(decoded.development.debugMode == original.development.debugMode)
     }
@@ -570,8 +588,8 @@ struct AppConfigurationTests {
         """
         let decoded = try JSONDecoder().decode(AppConfiguration.self, from: Data(jsonString.utf8))
 
-        #expect(decoded.cleaning.remasterKeywords == ["promo", "expanded edition"])
-        #expect(decoded.cleaning.albumSuffixesToRemove == ["EP", "Single"])
+        #expect(decoded.cleaning.editionMarkers == ["promo", "expanded edition"])
+        #expect(decoded.cleaning.albumSuffixes == ["EP", "Single"])
         #expect(decoded.cleaning.trackCleaningExceptions == [
             TrackCleaningException(artist: "Rabbit Junk", album: "Xenospheres"),
         ])
@@ -806,16 +824,44 @@ struct AppConfigurationTests {
 
     // MARK: - CleaningConfig
 
-    @Test("CleaningConfig default remasterKeywords has 9 items")
-    func cleaningEditionKeywordsCount() {
+    @Test("CleaningConfig uses centralized edition markers")
+    func cleaningUsesEditionDefaults() {
         let cleaning = CleaningConfig()
-        #expect(cleaning.remasterKeywords.count == 9)
+        #expect(cleaning.editionMarkers == MetadataRuleDefaults.editionMarkers)
     }
 
-    @Test("CleaningConfig default albumSuffixesToRemove has 4 items")
+    @Test("CleaningConfig includes bare edition suffixes")
     func cleaningAlbumSuffixesCount() {
         let cleaning = CleaningConfig()
-        #expect(cleaning.albumSuffixesToRemove.count == 4)
+        #expect(Set(cleaning.albumSuffixes) == [
+            "Expanded Edition",
+            "Remaster",
+            "Remastered",
+            "Reissue",
+            "The 12 Singles",
+            "The 12\" Singles",
+        ])
+    }
+
+    @Test("Legacy suffixes preserve the user's stored selection")
+    func legacySuffixesRemain() throws {
+        let json = Data(#"{"albumSuffixesToRemove":["Remaster","Remastered","The 12 Singles","The 12\" Singles"]}"#
+            .utf8)
+
+        let cleaning = try JSONDecoder().decode(CleaningConfig.self, from: json)
+
+        #expect(cleaning.albumSuffixes == [
+            "Remaster", "Remastered", "The 12 Singles", "The 12\" Singles",
+        ])
+    }
+
+    @Test("Customized legacy suffixes remain unchanged")
+    func customSuffixesRemain() throws {
+        let json = Data(#"{"albumSuffixesToRemove":["Remaster","Fan Club Edition"]}"#.utf8)
+
+        let cleaning = try JSONDecoder().decode(CleaningConfig.self, from: json)
+
+        #expect(cleaning.albumSuffixes == ["Remaster", "Fan Club Edition"])
     }
 
     @Test("CleaningConfig default trackCleaningExceptions is empty")

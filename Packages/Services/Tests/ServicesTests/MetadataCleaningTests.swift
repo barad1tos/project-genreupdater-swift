@@ -94,6 +94,109 @@ struct MetadataCleaningTests {
         #expect(queriedAlbums.allSatisfy { $0 == "Album" })
     }
 
+    @Test("Album type detection reads the raw title before cleaning")
+    func albumTypeDetectionReadsRawTitleBeforeCleaning() async throws {
+        let lookupRecorder = AlbumYearLookupRecorder()
+        let apiService = RecordingAlbumYearAPIService(
+            lookupRecorder: lookupRecorder,
+            yearResult: YearResult(
+                year: 1968,
+                isDefinitive: true,
+                confidence: 100,
+                yearScores: [1968: 100]
+            )
+        )
+        var albumTypeDetection = AlbumTypeDetectionConfig()
+        albumTypeDetection.specialPatterns = ["remastered"]
+        albumTypeDetection.compilationPatterns = []
+        albumTypeDetection.reissuePatterns = []
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: UpdateRuntimeConfiguration.Policies(
+                isYearLookupEnabled: true,
+                albumTypeDetection: albumTypeDetection
+            )
+        )
+        let coordinator = await makeCoordinator(
+            runtimeConfiguration: runtimeConfiguration,
+            apiService: apiService
+        )
+        let track = makeTrack(
+            name: "Song",
+            album: "Album (Remastered)",
+            dateAdded: Date(timeIntervalSince1970: 2000)
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(
+                updateGenre: false,
+                updateYear: true,
+                forceYearLookup: true,
+                cleanAlbumNames: true,
+                minConfidence: 0
+            ),
+            dryRun: true
+        )
+
+        #expect(changes.map(\.changeType) == [.albumCleaning])
+        #expect(await lookupRecorder.queriedAlbums().isEmpty)
+    }
+
+    @Test("Soundtrack lookup keeps raw markers after cleaning")
+    func soundtrackLookupKeepsRawMarkers() async throws {
+        let lookupRecorder = AlbumYearLookupRecorder()
+        let apiService = RecordingAlbumYearAPIService(
+            lookupRecorder: lookupRecorder,
+            yearResult: YearResult(),
+            candidates: [
+                ReleaseCandidate(
+                    artist: "Austin Wintory",
+                    album: "Journey (Original Score)",
+                    year: 1968,
+                    source: .musicBrainz
+                ),
+            ],
+            candidateQueryArtist: "Journey"
+        )
+        var cleaning = CleaningConfig()
+        cleaning.editionMarkers = ["original score"]
+        var albumTypeDetection = AlbumTypeDetectionConfig()
+        albumTypeDetection.soundtrackPatterns = ["original score"]
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: UpdateRuntimeConfiguration.Policies(
+                isYearLookupEnabled: true,
+                albumTypeDetection: albumTypeDetection,
+                cleaning: cleaning
+            )
+        )
+        let coordinator = await makeCoordinator(
+            runtimeConfiguration: runtimeConfiguration,
+            apiService: apiService
+        )
+        let track = makeTrack(
+            name: "Nascence",
+            artist: "Various Artists",
+            album: "Journey (Original Score)",
+            dateAdded: Date(timeIntervalSince1970: 2000)
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(
+                updateGenre: false,
+                updateYear: true,
+                forceYearLookup: true,
+                cleanAlbumNames: true,
+                minConfidence: 0
+            ),
+            dryRun: true
+        )
+
+        #expect(changes.contains { $0.changeType == .albumCleaning && $0.newValue == "Journey" })
+        #expect(changes.contains { $0.changeType == .yearUpdate && $0.newValue == "1968" })
+        #expect(await lookupRecorder.queriedArtists().contains("Journey"))
+    }
+
     @Test("Cleaning exceptions use artist rename mappings")
     func cleaningExceptionsUseArtistRenameMappings() async throws {
         var cleaning = CleaningConfig()
@@ -307,28 +410,49 @@ struct MetadataCleaningTests {
 
 private actor AlbumYearLookupRecorder {
     private var albums: [String] = []
+    private var artists: [String] = []
 
-    func record(album: String) {
+    func record(artist: String, album: String) {
+        artists.append(artist)
         albums.append(album)
     }
 
     func queriedAlbums() -> [String] {
         albums
     }
+
+    func queriedArtists() -> [String] {
+        artists
+    }
 }
 
 private struct RecordingAlbumYearAPIService: ExternalAPIService {
     let lookupRecorder: AlbumYearLookupRecorder
     let yearResult: YearResult
+    var candidates: [ReleaseCandidate] = []
+    var candidateQueryArtist: String?
 
     func getAlbumYear(
-        artist _: String,
+        artist: String,
         album: String,
         currentLibraryYear _: Int?,
         earliestTrackAddedYear _: Int?
     ) async throws -> YearResult {
-        await lookupRecorder.record(album: album)
+        await lookupRecorder.record(artist: artist, album: album)
         return yearResult
+    }
+
+    func getReleaseCandidates(
+        artist: String,
+        album: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> [ReleaseCandidate] {
+        await lookupRecorder.record(artist: artist, album: album)
+        if let candidateQueryArtist, artist != candidateQueryArtist {
+            return []
+        }
+        return candidates
     }
 
     func initialize(force _: Bool) async throws {

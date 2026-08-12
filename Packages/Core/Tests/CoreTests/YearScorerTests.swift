@@ -406,6 +406,34 @@ struct YearScorerScoringTests {
         let result = scorer.scoreRelease(candidate, queryArtist: "Y", queryAlbum: "Album")
         #expect(result.breakdown.soundtrackCompensation == 0)
     }
+
+    @Test("Configured soundtrack markers drive compensation")
+    func configuredSoundtrackMarkers() {
+        let scorer = YearScorer(soundtrackPatterns: ["game score"])
+        let candidate = makeCandidate(artist: "Composer", album: "Journey Game Score", year: 2012)
+
+        let result = scorer.scoreRelease(
+            candidate,
+            queryArtist: "Various Artists",
+            queryAlbum: "Journey Game Score"
+        )
+
+        #expect(result.breakdown.soundtrackCompensation == 75)
+    }
+
+    @Test("Empty soundtrack markers disable built-in compensation")
+    func emptySoundtrackMarkersDisableCompensation() {
+        let scorer = YearScorer(soundtrackPatterns: [])
+        let candidate = makeCandidate(artist: "Composer", album: "Journey Original Score", year: 2012)
+
+        let result = scorer.scoreRelease(
+            candidate,
+            queryArtist: "Various Artists",
+            queryAlbum: "Journey Original Score"
+        )
+
+        #expect(result.breakdown.soundtrackCompensation == 0)
+    }
 }
 
 // MARK: - Score Resolution Tests

@@ -55,6 +55,7 @@ public struct YearDeterminator: Sendable {
     ///   - artistCountry: Artist's country code
     ///   - albumTypeInfo: Album classification result
     ///   - verificationAttempts: Previous escalation count
+    ///   - queryAlbum: Album text used to score candidates when cleaning removed search evidence
     /// - Returns: Year determination result with source and breakdown
     public func determineYear(
         candidates: [ReleaseCandidate],
@@ -64,7 +65,8 @@ public struct YearDeterminator: Sendable {
         artistActivityPeriod: (start: Int?, end: Int?)? = nil,
         artistCountry: String? = nil,
         albumTypeInfo: AlbumTypeInfo? = nil,
-        verificationAttempts: Int = 0
+        verificationAttempts: Int = 0,
+        queryAlbum: String? = nil
     ) -> YearDeterminationResult {
         let signpostState = AppSignpost.yearDetermination.beginInterval("determineYear")
         defer { AppSignpost.yearDetermination.endInterval("determineYear", signpostState) }
@@ -86,15 +88,14 @@ public struct YearDeterminator: Sendable {
             )
         }
 
-        // Score with the SAME artist the candidates were fetched for
-        // (Python parity: the orchestrator scores with its query artist) —
-        // scoring a split-identity fetch against the raw collab string
-        // would penalize every candidate for an artist mismatch.
+        // Score against the canonical album-grouping artist. Feature credits
+        // do not become album identities, while soundtrack compensation handles
+        // the intentional artist mismatch in rewritten soundtrack searches.
         let scored = candidates.map { candidate in
             scorer.scoreRelease(
                 candidate,
                 queryArtist: AlbumIdentity.groupingArtist(for: track),
-                queryAlbum: track.album,
+                queryAlbum: queryAlbum ?? track.album,
                 currentYear: effectiveCurrentYear,
                 artistActivityPeriod: artistActivityPeriod,
                 artistCountry: artistCountry

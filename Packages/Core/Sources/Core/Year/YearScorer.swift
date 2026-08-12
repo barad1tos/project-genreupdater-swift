@@ -28,15 +28,26 @@ public struct YearScorer: Sendable {
     public let config: ScoringConfig
     public let yearLogic: YearLogicConfig
     public let editionKeywords: [String]
+    /// Album patterns that activate soundtrack-specific artist mismatch compensation.
+    public let soundtrackPatterns: [String]
 
+    /// Creates a scorer with configurable release-scoring and metadata matching rules.
+    ///
+    /// - Parameters:
+    ///   - config: Weights and thresholds for release scoring.
+    ///   - yearLogic: Valid-year and suspicious-year boundaries.
+    ///   - editionKeywords: Edition text removed while comparing album titles.
+    ///   - soundtrackPatterns: Album text that enables soundtrack mismatch compensation.
     public init(
         config: ScoringConfig = ScoringConfig(),
         yearLogic: YearLogicConfig = YearLogicConfig(),
-        editionKeywords: [String] = []
+        editionKeywords: [String] = [],
+        soundtrackPatterns: [String] = MetadataRuleDefaults.soundtracks
     ) {
         self.config = config
         self.yearLogic = yearLogic
         self.editionKeywords = editionKeywords
+        self.soundtrackPatterns = soundtrackPatterns
     }
 
     // MARK: - Score One Release
@@ -673,14 +684,7 @@ extension YearScorer {
 
     private func isSoundtrackAlbum(_ album: String) -> Bool {
         let lower = album.lowercased()
-        let keywords = [
-            "soundtrack",
-            "ost",
-            "original score",
-            "motion picture",
-            "film score"
-        ]
-        return keywords.contains { lower.contains($0) }
+        return soundtrackPatterns.contains { lower.contains($0.lowercased()) }
     }
 
     /// Python parity: cross-script = one is Latin AND other is non-Latin.

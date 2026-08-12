@@ -188,10 +188,31 @@ struct MetadataUtilsTests {
         #expect(album == "Album")
     }
 
+    @Test("Default edition suffixes remove bare reissue labels")
+    func cleanNamesRemovesBareEditionSuffixes() {
+        let config = CleaningConfig()
+
+        let reissue = cleanNames(
+            artist: "Artist",
+            trackName: "Song",
+            albumName: "Album - Reissue",
+            config: config
+        ).cleanedAlbum
+        let expanded = cleanNames(
+            artist: "Artist",
+            trackName: "Song",
+            albumName: "Album Expanded Edition",
+            config: config
+        ).cleanedAlbum
+
+        #expect(reissue == "Album")
+        #expect(expanded == "Album")
+    }
+
     @Test("Whitespace normalization matches Python cleaner")
     func cleanNamesCollapsesAllWhitespace() {
         var config = CleaningConfig()
-        config.remasterKeywords = ["promo"]
+        config.editionMarkers = ["promo"]
 
         let (track, album) = cleanNames(
             artist: "Artist",

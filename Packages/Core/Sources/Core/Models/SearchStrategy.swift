@@ -1,10 +1,10 @@
 import Foundation
 
 /// How to FIND a year in the first place (query rewriting), as opposed to
-/// AlbumType's how-to-HANDLE-a-year-once-found. Verbatim port of Python's
-/// search_strategy.py: detection order soundtrack → Various Artists →
-/// unusual brackets → normal, first match wins, and the rewrite only ever
-/// runs as a second-chance search after an empty standard aggregate.
+/// AlbumType's how-to-HANDLE-a-year-once-found. Python's detection order is
+/// preserved: soundtrack → Various Artists → unusual brackets → normal,
+/// first match wins, and rewriting runs only after an empty standard aggregate.
+/// Documented Swift divergences remain explicit beside the affected helpers.
 public enum SearchStrategy: String, Sendable, Equatable {
     case normal
     case soundtrack
@@ -35,27 +35,15 @@ public struct SearchStrategyInfo: Sendable, Equatable {
 /// configuration exists; an explicitly EMPTY configured list stays empty
 /// and disables the detection (Python's is-not-None semantics).
 public enum SearchStrategyDefaults {
-    public static let soundtrackPatterns = [
-        "soundtrack",
-        "original score",
-        "OST",
-        "motion picture",
-        "film score",
-    ]
-
-    public static let variousArtistsNames = [
-        "Various Artists",
-        "Various",
-        "VA",
-        "Різні виконавці",
-    ]
+    public static let soundtrackPatterns = MetadataRuleDefaults.soundtracks
+    public static let variousArtistsNames = MetadataRuleDefaults.variousArtists
 }
 
 /// Short tags like [CD1] are normal; longer content like
 /// [MESSAGE FROM THE CLERGY] is unusual (Python threshold).
 private let unusualBracketMinLength = 10
 
-private let normalBracketContent = ["deluxe", "remaster", "bonus", "disc", "cd", "version"]
+private let normalBracketContent = MetadataRuleDefaults.normalBrackets
 
 public func detectSearchStrategy(
     artist: String,

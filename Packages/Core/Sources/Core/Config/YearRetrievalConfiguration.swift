@@ -344,7 +344,7 @@ public struct ScoringConfig: Sendable, Codable {
 }
 
 public struct ReissueDetectionConfig: Sendable, Codable {
-    public var reissueKeywords: [String] = ["reissue", "remaster", "remastered"]
+    public var reissueKeywords: [String] = MetadataRuleDefaults.releaseReissues
 
     public init() {
         // Defaults keep common reissue markers available when config omits this section.

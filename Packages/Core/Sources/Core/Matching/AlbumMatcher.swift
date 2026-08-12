@@ -114,14 +114,13 @@ public func isAlbumVariant(_ album1: String, _ album2: String, threshold: Double
 ///
 /// - Parameter albumName: Album name to clean
 /// - Returns: Album name with disc number removed
-private let discNumberRegex: NSRegularExpression = // swiftlint:disable:next force_try
-    try! NSRegularExpression(
-        pattern: "[\\s\\-]*(?:disc|disk|cd)\\s*\\d+\\s*$",
-        options: .caseInsensitive
-    )
+private let discNumberRegex = try? NSRegularExpression(
+    pattern: "[\\s\\-]*(?:disc|disk|cd)\\s*\\d+\\s*$",
+    options: .caseInsensitive
+)
 
 public func stripDiscNumber(_ albumName: String) -> String {
-    let regex = discNumberRegex
+    guard let regex = discNumberRegex else { return albumName }
     let range = NSRange(albumName.startIndex..., in: albumName)
     let result = regex.stringByReplacingMatches(
         in: albumName, range: range, withTemplate: ""
@@ -143,11 +142,7 @@ public func normalizeAlbumForComparison(_ album: String) -> String {
     cleaned = stripDiscNumber(cleaned)
 
     // Remove common remaster/deluxe markers in parentheses and brackets
-    cleaned = removeParenthesesWithKeywords(cleaned, keywords: [
-        "remaster", "remastered", "deluxe", "expanded",
-        "anniversary", "special edition", "bonus",
-        "collector", "redux",
-    ])
+    cleaned = removeParenthesesWithKeywords(cleaned, keywords: MetadataRuleDefaults.albumVariants)
 
     return normalizeForMatching(cleaned)
 }

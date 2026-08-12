@@ -194,7 +194,7 @@ struct SettingsCommandsTests {
         let baseline = await dependencies.refreshFixPlanProjection()
         #expect(baseline.stalenessReasons.isEmpty)
         var edited = dependencies.config
-        edited.cleaning.remasterKeywords.append("Deluxe Probe Edition")
+        edited.cleaning.editionMarkers.append("Deluxe Probe Edition")
         let target = SettingsCommandTarget(expectedSettingsRevision: 1)
 
         let result = await SettingsCommands.apply(edited, target: target, dependencies: dependencies)

@@ -12,10 +12,10 @@ import Foundation
 ///
 /// - Parameters:
 ///   - text: Text to check
-///   - keywords: Keywords to search for (defaults to common remaster terms)
+///   - keywords: Release and reissue evidence markers; shipped markers are used when omitted
 /// - Returns: `true` if any keyword is found (case-insensitive)
 public func isRemaster(_ text: String, keywords: [String]? = nil) -> Bool { // swiftlint:disable:this inclusive_language
-    let kws = keywords ?? ["remaster", "remastered"]
+    let kws = keywords ?? MetadataRuleDefaults.releaseReissues
     let lower = text.lowercased()
     return kws.contains { lower.contains($0.lowercased()) }
 }
@@ -112,7 +112,7 @@ public func cleanNames(
         )
     }
 
-    let keywords = config.remasterKeywords
+    let keywords = config.editionMarkers
 
     // Remove parenthetical segments containing remaster keywords
     var cleanedTrack = removeParenthesesWithKeywords(trackName, keywords: keywords)
@@ -123,7 +123,7 @@ public func cleanNames(
     cleanedAlbum = collapseWhitespace(cleanedAlbum)
 
     // Strip configured album suffixes
-    cleanedAlbum = stripAlbumSuffixes(cleanedAlbum, suffixes: config.albumSuffixesToRemove)
+    cleanedAlbum = stripAlbumSuffixes(cleanedAlbum, suffixes: config.albumSuffixes)
 
     return (cleanedTrack, cleanedAlbum)
 }
@@ -217,12 +217,12 @@ private func compileSuffixPatterns(_ rawSuffixes: [String]) -> [(String, NSRegul
 
         let pattern: String
         if hasSpecial {
-            // Match literally at end of string (rstrip trailing whitespace from suffix)
-            var rstripped = suffix
-            while rstripped.last?.isWhitespace == true {
-                rstripped.removeLast()
+            // Match literally at the end after removing trailing whitespace from the configured suffix.
+            var trimmedSuffix = suffix
+            while trimmedSuffix.last?.isWhitespace == true {
+                trimmedSuffix.removeLast()
             }
-            let escaped = NSRegularExpression.escapedPattern(for: rstripped)
+            let escaped = NSRegularExpression.escapedPattern(for: trimmedSuffix)
             pattern = "\(escaped)\\s*$"
         } else {
             // Word boundary match at end of string
