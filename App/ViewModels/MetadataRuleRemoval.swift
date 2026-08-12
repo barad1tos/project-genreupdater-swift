@@ -80,68 +80,106 @@ struct MetadataRuleRemoval: Equatable, Identifiable {
     }
 }
 
+enum RuleRemovalOutcome {
+    case applied
+    case stale
+}
+
 struct MetadataRuleRemovalFlow {
+    private static let staleMessage =
+        "Metadata rules changed while confirmation was open. Review the current rules and try again."
+
     var pending: MetadataRuleRemoval?
+    var failureMessage: String?
 
     mutating func request(
         _ removal: MetadataRuleRemoval,
-        apply: (MetadataRuleRemoval) -> Void
+        apply: (MetadataRuleRemoval) -> RuleRemovalOutcome
     ) {
         if removal.requiresConfirmation {
             pending = removal
         } else {
-            apply(removal)
+            finish(apply(removal))
         }
     }
 
     mutating func confirm(
         _ removal: MetadataRuleRemoval,
-        apply: (MetadataRuleRemoval) -> Void
+        apply: (MetadataRuleRemoval) -> RuleRemovalOutcome
     ) {
         guard pending == removal else { return }
-        apply(removal)
-        pending = nil
+        finish(apply(removal))
     }
 
     mutating func cancel() {
         pending = nil
     }
+
+    mutating func dismissFailure() {
+        failureMessage = nil
+    }
+
+    private mutating func finish(_ outcome: RuleRemovalOutcome) {
+        pending = nil
+        switch outcome {
+        case .applied:
+            failureMessage = nil
+        case .stale:
+            failureMessage = Self.staleMessage
+        }
+    }
 }
 
 private struct RuleRemovalDialog: ViewModifier {
     @Binding var flow: MetadataRuleRemovalFlow
-    let apply: (MetadataRuleRemoval) -> Void
+    let apply: (MetadataRuleRemoval) -> RuleRemovalOutcome
 
     func body(content: Content) -> some View {
-        content.confirmationDialog(
-            "Remove built-in metadata rule?",
-            isPresented: Binding(
-                get: { flow.pending != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        flow.cancel()
+        content
+            .confirmationDialog(
+                "Remove built-in metadata rule?",
+                isPresented: Binding(
+                    get: { flow.pending != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            flow.cancel()
+                        }
                     }
+                ),
+                titleVisibility: .visible,
+                presenting: flow.pending
+            ) { pending in
+                Button(pending.actionTitle, role: .destructive) {
+                    flow.confirm(pending, apply: apply)
                 }
-            ),
-            titleVisibility: .visible,
-            presenting: flow.pending
-        ) { pending in
-            Button(pending.actionTitle, role: .destructive) {
-                flow.confirm(pending, apply: apply)
+                Button("Cancel", role: .cancel) {
+                    flow.cancel()
+                }
+            } message: { pending in
+                Text(pending.message)
             }
-            Button("Cancel", role: .cancel) {
-                flow.cancel()
+            .alert(
+                "Rule removal wasn’t applied",
+                isPresented: Binding(
+                    get: { flow.failureMessage != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            flow.dismissFailure()
+                        }
+                    }
+                )
+            ) {
+                Button("OK") { flow.dismissFailure() }
+            } message: {
+                Text(flow.failureMessage ?? "")
             }
-        } message: { pending in
-            Text(pending.message)
-        }
     }
 }
 
 extension View {
     func confirmRuleRemoval(
         _ flow: Binding<MetadataRuleRemovalFlow>,
-        apply: @escaping (MetadataRuleRemoval) -> Void
+        apply: @escaping (MetadataRuleRemoval) -> RuleRemovalOutcome
     ) -> some View {
         modifier(RuleRemovalDialog(flow: flow, apply: apply))
     }

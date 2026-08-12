@@ -114,15 +114,20 @@ public func isAlbumVariant(_ album1: String, _ album2: String, threshold: Double
 ///
 /// - Parameter albumName: Album name to clean
 /// - Returns: Album name with disc number removed
-private let discNumberRegex = try? NSRegularExpression(
-    pattern: "[\\s\\-]*(?:disc|disk|cd)\\s*\\d+\\s*$",
-    options: .caseInsensitive
-)
+private let discNumberRegex: NSRegularExpression = {
+    do {
+        return try NSRegularExpression(
+            pattern: "[\\s\\-]*(?:disc|disk|cd)\\s*\\d+\\s*$",
+            options: .caseInsensitive
+        )
+    } catch {
+        preconditionFailure("Invalid disc-number regex: \(error)")
+    }
+}()
 
 public func stripDiscNumber(_ albumName: String) -> String {
-    guard let regex = discNumberRegex else { return albumName }
     let range = NSRange(albumName.startIndex..., in: albumName)
-    let result = regex.stringByReplacingMatches(
+    let result = discNumberRegex.stringByReplacingMatches(
         in: albumName, range: range, withTemplate: ""
     )
     return result.trimmingCharacters(in: .whitespaces)

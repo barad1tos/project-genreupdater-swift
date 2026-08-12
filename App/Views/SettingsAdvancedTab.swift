@@ -270,9 +270,9 @@ struct AdvancedTab: View {
         ruleRemovalFlow.request(removal, apply: removeRules)
     }
 
-    private func removeRules(_ removal: MetadataRuleRemoval) {
-        guard let updated = removal.removing(from: dependencies.config) else { return }
-        applyMutation { $0 = updated }
+    private func removeRules(_ removal: MetadataRuleRemoval) -> RuleRemovalOutcome {
+        guard let updated = removal.removing(from: dependencies.config) else { return .stale }
+        return applyMutation { $0 = updated } == .accepted ? .applied : .stale
     }
 
     /// Dispatches a settings command and refreshes the JSON preview to the

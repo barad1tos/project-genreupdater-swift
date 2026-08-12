@@ -284,7 +284,7 @@ private func releaseCandidateCacheKey(
 }
 
 private func reissueRuleComponent(_ keywords: [String]) -> String {
-    let normalizedKeywords = Set(keywords.map { $0.lowercased() }).sorted()
+    let normalizedKeywords = normalizedReissueKeywords(keywords)
     return "reissue_rules=" + normalizedKeywords.map(cacheKeyComponent).joined(separator: "|")
 }
 

@@ -3,6 +3,14 @@ import Core
 import Foundation
 import OSLog
 
+func normalizedReissueKeywords(_ keywords: [String]) -> [String] {
+    let normalized = keywords.compactMap { keyword -> String? in
+        let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return trimmed.isEmpty ? nil : trimmed
+    }
+    return Set(normalized).sorted()
+}
+
 // MARK: - DiscogsClient
 
 /// Discogs REST API client for album year and genre data.
@@ -68,7 +76,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         }
         self.token = token
         self.rawRequestCache = rawRequestCache
-        self.reissueKeywords = reissueKeywords
+        self.reissueKeywords = normalizedReissueKeywords(reissueKeywords)
         self.session = session
         self.baseURL = baseURL
         self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
@@ -339,7 +347,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
 
     private func containsReissueMarker(in value: String) -> Bool {
         let lowered = value.lowercased()
-        return reissueKeywords.contains { lowered.contains($0.lowercased()) }
+        return reissueKeywords.contains { lowered.contains($0) }
     }
 
     private static func firstNonEmpty(_ values: [String]?) -> String? {
@@ -615,7 +623,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     /// Returns a copy using the supplied release text as reissue evidence.
     public func withReissueKeywords(_ keywords: [String]) -> Self {
         var copy = self
-        copy.reissueKeywords = keywords
+        copy.reissueKeywords = normalizedReissueKeywords(keywords)
         return copy
     }
 

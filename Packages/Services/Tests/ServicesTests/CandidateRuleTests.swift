@@ -70,4 +70,39 @@ extension CandidateAdapterTests {
 
         #expect(candidates.first?.isReissue == false)
     }
+
+    @Test("Blank reissue evidence does not classify every Discogs candidate")
+    func blankReissueEvidence() async throws {
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            let json = """
+            {
+              "results": [{
+                "id": 9,
+                "title": "Test Artist - Test Album",
+                "year": 2020,
+                "type": "release",
+                "country": "US",
+                "format": ["Album"]
+              }]
+            }
+            """
+            return try (jsonResponse(url: url), Data(json.utf8))
+        }
+        defer { APIReleaseCandidateMockURLProtocol.requestHandler = nil }
+
+        let client = DiscogsClient(
+            token: "test-token",
+            session: makeMockSession(json: "{}")
+        ).withReissueKeywords([" "])
+        let candidates = try await client.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Test Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.count == 1)
+        #expect(candidates[0].isReissue == false)
+    }
 }

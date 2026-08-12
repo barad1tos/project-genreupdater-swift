@@ -44,7 +44,10 @@ struct MetadataRuleRemovalTests {
             MetadataRuleRemoval(group: .editionMarkers, snapshot: ["remaster"], offsets: [0])
         )
 
-        flow.request(builtIn) { removed.append(contentsOf: $0.values) }
+        flow.request(builtIn) {
+            removed.append(contentsOf: $0.values)
+            return .applied
+        }
         #expect(flow.pending == builtIn)
         #expect(removed.isEmpty)
 
@@ -52,8 +55,14 @@ struct MetadataRuleRemovalTests {
         #expect(flow.pending == nil)
         #expect(removed.isEmpty)
 
-        flow.request(builtIn) { removed.append(contentsOf: $0.values) }
-        flow.confirm(builtIn) { removed.append(contentsOf: $0.values) }
+        flow.request(builtIn) {
+            removed.append(contentsOf: $0.values)
+            return .applied
+        }
+        flow.confirm(builtIn) {
+            removed.append(contentsOf: $0.values)
+            return .applied
+        }
         #expect(flow.pending == nil)
         #expect(removed == ["remaster"])
 
@@ -62,9 +71,26 @@ struct MetadataRuleRemovalTests {
             snapshot: ["fan club edition"],
             offsets: [0]
         ))
-        flow.request(custom) { removed.append(contentsOf: $0.values) }
+        flow.request(custom) {
+            removed.append(contentsOf: $0.values)
+            return .applied
+        }
         #expect(flow.pending == nil)
         #expect(removed == ["remaster", "fan club edition"])
+    }
+
+    @Test("Stale confirmation surfaces a retry message")
+    func staleShowsRetry() throws {
+        var flow = MetadataRuleRemovalFlow()
+        let removal = try #require(
+            MetadataRuleRemoval(group: .editionMarkers, snapshot: ["remaster"], offsets: [0])
+        )
+
+        flow.request(removal) { _ in .applied }
+        flow.confirm(removal) { _ in .stale }
+
+        #expect(flow.pending == nil)
+        #expect(flow.failureMessage?.contains("try again") == true)
     }
 
     @Test("Every built-in group explains its consequence")
