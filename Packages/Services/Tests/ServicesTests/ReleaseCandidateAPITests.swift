@@ -114,6 +114,63 @@ struct ReleaseCandidateAPITests {
         #expect(await callCounter.count() == 1)
     }
 
+    @Test("Discogs candidate cache changes when reissue rules change")
+    func discogsRuleCache() async {
+        let cache = MockCacheService()
+        let callCounter = APICallCounter()
+        let cachedCandidate = ReleaseCandidate(
+            artist: "Björk",
+            album: "Homogenic Anniversary",
+            year: 1997,
+            source: .discogs,
+            isReissue: true
+        )
+        let currentCandidate = ReleaseCandidate(
+            artist: "Björk",
+            album: "Homogenic Anniversary",
+            year: 1997,
+            source: .discogs,
+            isReissue: false
+        )
+        let firstOrchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(),
+            discogs: CountingReleaseCandidateService(
+                callCounter: callCounter,
+                releaseCandidates: [cachedCandidate]
+            ),
+            appleMusic: MockAPIService(),
+            cache: cache,
+            disabledSources: [.musicBrainz, .itunes]
+        ) { $0.discogsReissueKeywords = ["anniversary"] }
+        let secondOrchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(),
+            discogs: CountingReleaseCandidateService(
+                callCounter: callCounter,
+                releaseCandidates: [currentCandidate]
+            ),
+            appleMusic: MockAPIService(),
+            cache: cache,
+            disabledSources: [.musicBrainz, .itunes]
+        ) { $0.discogsReissueKeywords = [] }
+
+        let firstResult = await firstOrchestrator.getReleaseCandidates(
+            artist: "Björk",
+            album: "Homogenic Anniversary",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+        let secondResult = await secondOrchestrator.getReleaseCandidates(
+            artist: "Björk",
+            album: "Homogenic Anniversary",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(firstResult == [cachedCandidate])
+        #expect(secondResult == [currentCandidate])
+        #expect(await callCounter.count() == 2)
+    }
+
     @Test("Release candidate cache ignores legacy v1 entries")
     func releaseCandidateCacheIgnoresLegacyV1Entries() async {
         let cache = MockCacheService()

@@ -560,7 +560,9 @@ extension YearScorer {
         // Only compensate if artist was penalized
         guard artistMatchScore < 0 else { return 0 }
         // Album names should still match
-        let albumSimilar = fuzzyAlbumMatch(queryAlbum, candidateAlbum, threshold: 0.7)
+        let comparableQuery = stripEditionSuffix(queryAlbum)
+        let comparableCandidate = stripEditionSuffix(candidateAlbum)
+        let albumSimilar = fuzzyAlbumMatch(comparableQuery, comparableCandidate, threshold: 0.7)
         return albumSimilar ? config.soundtrackCompensationBonus : 0
     }
 

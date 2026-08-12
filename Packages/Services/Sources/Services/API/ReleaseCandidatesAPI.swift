@@ -88,7 +88,8 @@ extension APIOrchestrator {
         let cacheContext = ReleaseCandidateCacheContext(
             cache: cache,
             positiveResultTTL: candidateResultTTL,
-            negativeResultTTL: negativeResultTTL
+            negativeResultTTL: negativeResultTTL,
+            discogsReissueKeywords: discogsReissueKeywords
         )
 
         let fetched = await withTaskGroup(
@@ -131,7 +132,7 @@ private func cachedOrFetchedReleaseCandidates(
     if let cached = await cachedReleaseCandidates(
         source: sourceEntry.source,
         query: query,
-        cache: cacheContext.cache
+        cacheContext: cacheContext
     ) {
         return cached
     }
@@ -224,10 +225,14 @@ private func fetchReleaseCandidatesWithRetry(
 private func cachedReleaseCandidates(
     source: APISource,
     query: ReleaseCandidateQuery,
-    cache: (any CacheService)?
+    cacheContext: ReleaseCandidateCacheContext
 ) async -> [ReleaseCandidate]? {
-    let cacheKey = releaseCandidateCacheKey(source: source, query: query)
-    let cachedEntries: [CachedReleaseCandidate]? = await cache?.get(key: cacheKey)
+    let cacheKey = releaseCandidateCacheKey(
+        source: source,
+        query: query,
+        discogsReissueKeywords: cacheContext.discogsReissueKeywords
+    )
+    let cachedEntries: [CachedReleaseCandidate]? = await cacheContext.cache?.get(key: cacheKey)
     return cachedEntries?.map(\.releaseCandidate)
 }
 
@@ -242,7 +247,11 @@ private func cacheReleaseCandidates(
         return
     }
 
-    let cacheKey = releaseCandidateCacheKey(source: source, query: query)
+    let cacheKey = releaseCandidateCacheKey(
+        source: source,
+        query: query,
+        discogsReissueKeywords: cacheContext.discogsReissueKeywords
+    )
     let ttl = candidates.isEmpty ? cacheContext.negativeResultTTL : cacheContext.positiveResultTTL
     await cacheContext.cache?.set(
         key: cacheKey,
@@ -251,8 +260,12 @@ private func cacheReleaseCandidates(
     )
 }
 
-private func releaseCandidateCacheKey(source: APISource, query: ReleaseCandidateQuery) -> String {
-    let components = [
+private func releaseCandidateCacheKey(
+    source: APISource,
+    query: ReleaseCandidateQuery,
+    discogsReissueKeywords: [String]
+) -> String {
+    var components = [
         "v2",
         source.rawValue,
         normalizeForMatching(query.artist),
@@ -260,11 +273,19 @@ private func releaseCandidateCacheKey(source: APISource, query: ReleaseCandidate
         query.currentLibraryYear.map { "library_year=\($0)" } ?? "library_year=nil",
         query.earliestTrackAddedYear.map { "earliest_added_year=\($0)" } ?? "earliest_added_year=nil",
     ]
+    if source == .discogs {
+        components.append(reissueRuleComponent(discogsReissueKeywords))
+    }
 
     return [
         "release_candidates",
         components.map(cacheKeyComponent).joined(separator: "|"),
     ].joined(separator: ":")
+}
+
+private func reissueRuleComponent(_ keywords: [String]) -> String {
+    let normalizedKeywords = Set(keywords.map { $0.lowercased() }).sorted()
+    return "reissue_rules=" + normalizedKeywords.map(cacheKeyComponent).joined(separator: "|")
 }
 
 private func cacheKeyComponent(_ value: String) -> String {
@@ -283,6 +304,7 @@ private struct ReleaseCandidateCacheContext {
     let cache: (any CacheService)?
     let positiveResultTTL: TimeInterval?
     let negativeResultTTL: TimeInterval
+    let discogsReissueKeywords: [String]
 }
 
 private struct ReleaseCandidateFetchOutcome {

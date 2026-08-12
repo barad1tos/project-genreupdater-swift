@@ -69,4 +69,24 @@ struct YearScorerSoundtrackTests {
 
         #expect(result.breakdown.soundtrackCompensation == 0)
     }
+
+    @Test("Soundtrack compensation compares titles after edition cleaning")
+    func decoratedSoundtrackCompensation() {
+        let scorer = YearScorer(editionKeywords: ["original score"])
+        let candidate = ReleaseCandidate(
+            artist: "Austin Wintory",
+            album: "Journey",
+            year: 2012,
+            source: .musicBrainz,
+            releaseType: .soundtrack
+        )
+
+        let result = scorer.scoreRelease(
+            candidate,
+            queryArtist: "Various Artists",
+            queryAlbum: "Journey (Original Score)"
+        )
+
+        #expect(result.breakdown.soundtrackCompensation == 75)
+    }
 }

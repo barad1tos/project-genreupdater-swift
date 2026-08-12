@@ -100,6 +100,7 @@ public struct APIOrchestratorConfiguration: Sendable {
     public var sourcePriorityConfiguration: APISourcePriorityConfiguration
     public var soundtrackPatterns: [String]
     public var variousArtistsNames: [String]
+    public var discogsReissueKeywords: [String]
 
     public init() {
         reachability = nil
@@ -116,6 +117,7 @@ public struct APIOrchestratorConfiguration: Sendable {
         sourcePriorityConfiguration = APISourcePriorityConfiguration()
         soundtrackPatterns = SearchStrategyDefaults.soundtrackPatterns
         variousArtistsNames = SearchStrategyDefaults.variousArtistsNames
+        discogsReissueKeywords = MetadataRuleDefaults.releaseReissues
     }
 
     /// Maps every config-derived field from `AppConfiguration`.
@@ -134,6 +136,7 @@ public struct APIOrchestratorConfiguration: Sendable {
         sourcePriorityConfiguration = APISourcePriorityConfiguration(configuration: configuration)
         soundtrackPatterns = configuration.albumTypeDetection.soundtrackPatterns
         variousArtistsNames = configuration.albumTypeDetection.variousArtistsNames
+        discogsReissueKeywords = configuration.yearRetrieval.reissueDetection.reissueKeywords
     }
 }
 
@@ -175,6 +178,7 @@ public actor APIOrchestrator {
     let sourcePriorityConfiguration: APISourcePriorityConfiguration
     let soundtrackPatterns: [String]
     let variousArtistsNames: [String]
+    let discogsReissueKeywords: [String]
     private let log = AppLogger.api
 
     /// Creates an orchestrator with three API sources and a per-source timeout.
@@ -200,6 +204,7 @@ public actor APIOrchestrator {
         maxConcurrentSourceCalls = max(1, configuration.maxConcurrentSourceCalls)
         soundtrackPatterns = configuration.soundtrackPatterns
         variousArtistsNames = configuration.variousArtistsNames
+        discogsReissueKeywords = configuration.discogsReissueKeywords
         apiRetryConfiguration = APIRetryConfiguration(
             maxRetries: configuration.maxAPIRetries,
             delaySeconds: configuration.apiRetryDelaySeconds
