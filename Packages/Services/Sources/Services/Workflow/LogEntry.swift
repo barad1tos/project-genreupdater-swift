@@ -1,7 +1,7 @@
 import Core
 
 extension UpdateCoordinator {
-    static func changeToLogEntry(_ change: ProposedChange) -> ChangeLogEntry {
+    static func changeToLogEntry(_ change: ProposedChange, recoveryOrigin: String? = nil) -> ChangeLogEntry {
         var entry = ChangeLogEntry(
             changeType: change.changeType,
             trackID: change.track.id,
@@ -26,6 +26,19 @@ extension UpdateCoordinator {
         case .artistRename:
             entry.oldArtist = change.oldValue
             entry.newArtist = change.newValue
+        }
+
+        if let recoveryOrigin {
+            switch change.changeType {
+            case .yearUpdate, .yearRevert:
+                entry.oldYear = Int(recoveryOrigin)
+            case .albumCleaning:
+                entry.oldAlbumName = recoveryOrigin
+            case .artistRename:
+                entry.oldArtist = recoveryOrigin
+            case .genreUpdate, .trackCleaning:
+                break
+            }
         }
 
         return entry

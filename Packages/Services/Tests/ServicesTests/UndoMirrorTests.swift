@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Core
 @testable import Services
@@ -124,6 +125,95 @@ struct UndoMirrorTests {
         #expect(await cache.getAlbumYear(artist: entry.newArtist ?? "", album: entry.albumName) == nil)
     }
 
+    @Test("Artist undo after upgrade preserves the restored original across relaunch")
+    func artistUndoRelaunch() async throws {
+        let storeURL = try makeStoreURL()
+        defer { removeStore(at: storeURL) }
+        let entry = artistEntry()
+
+        do {
+            let trackStore = try makeStore(at: storeURL)
+            try await trackStore.saveTracks([Track(
+                id: entry.trackID,
+                name: entry.trackName,
+                artist: entry.newArtist ?? "",
+                album: entry.albumName
+            )])
+            let coordinator = UndoCoordinator(
+                scriptBridge: MockAppleScriptClient(),
+                stores: .init(tracks: trackStore),
+                directory: makeDirectory()
+            )
+
+            try await coordinator.revertChange(entry)
+        }
+
+        let relaunchedStore = try makeStore(at: storeURL)
+        let persistedTrack = try #require(try await relaunchedStore.getTrack(byID: entry.trackID))
+        #expect(persistedTrack.artist == entry.oldArtist)
+        #expect(persistedTrack.originalArtist == entry.oldArtist)
+    }
+
+    @Test("Album undo after upgrade preserves the restored original across relaunch")
+    func albumUndoRelaunch() async throws {
+        let storeURL = try makeStoreURL()
+        defer { removeStore(at: storeURL) }
+        let entry = albumEntry()
+
+        do {
+            let trackStore = try makeStore(at: storeURL)
+            try await trackStore.saveTracks([Track(
+                id: entry.trackID,
+                name: entry.trackName,
+                artist: entry.artist,
+                album: entry.newAlbumName ?? ""
+            )])
+            let coordinator = UndoCoordinator(
+                scriptBridge: MockAppleScriptClient(),
+                stores: .init(tracks: trackStore),
+                directory: makeDirectory()
+            )
+
+            try await coordinator.revertChange(entry)
+        }
+
+        let relaunchedStore = try makeStore(at: storeURL)
+        let persistedTrack = try #require(try await relaunchedStore.getTrack(byID: entry.trackID))
+        #expect(persistedTrack.album == entry.oldAlbumName)
+        #expect(persistedTrack.originalAlbum == entry.oldAlbumName)
+    }
+
+    @Test("Year undo after upgrade preserves the restored year across relaunch")
+    func yearUndoRelaunch() async throws {
+        let storeURL = try makeStoreURL()
+        defer { removeStore(at: storeURL) }
+        let entry = yearEntry()
+
+        do {
+            let trackStore = try makeStore(at: storeURL)
+            try await trackStore.saveTracks([Track(
+                id: entry.trackID,
+                name: entry.trackName,
+                artist: entry.artist,
+                album: entry.albumName,
+                year: entry.newYear
+            )])
+            let coordinator = UndoCoordinator(
+                scriptBridge: MockAppleScriptClient(),
+                stores: .init(tracks: trackStore),
+                directory: makeDirectory()
+            )
+
+            try await coordinator.revertChange(entry)
+        }
+
+        let relaunchedStore = try makeStore(at: storeURL)
+        let persistedTrack = try #require(try await relaunchedStore.getTrack(byID: entry.trackID))
+        #expect(persistedTrack.year == entry.oldYear)
+        #expect(persistedTrack.yearBeforeMGU == entry.oldYear)
+        #expect(persistedTrack.yearSetByMGU == entry.oldYear)
+    }
+
     private func currentTrack(genre: String = "Pop") -> Track {
         Track(
             id: "T1",
@@ -163,6 +253,60 @@ struct UndoMirrorTests {
         entry.oldArtist = "Florence and the Machine"
         entry.newArtist = "Florence + the Machine"
         return entry
+    }
+
+    private func albumEntry() -> ChangeLogEntry {
+        ChangeLogEntry(
+            id: UUID(),
+            timestamp: .now,
+            changeType: .albumCleaning,
+            trackID: "T3",
+            artist: "Massive Attack",
+            trackName: "Angel",
+            albumName: "Mezzanine (Remastered)",
+            oldAlbumName: "Mezzanine (Remastered)",
+            newAlbumName: "Mezzanine"
+        )
+    }
+
+    private func yearEntry() -> ChangeLogEntry {
+        ChangeLogEntry(
+            id: UUID(),
+            timestamp: .now,
+            changeType: .yearUpdate,
+            trackID: "T4",
+            artist: "Massive Attack",
+            trackName: "Angel",
+            albumName: "Mezzanine",
+            oldYear: 1998,
+            newYear: 2019
+        )
+    }
+
+    private func makeStore(at storeURL: URL) throws -> TrackDataStore {
+        let schema = Schema([PersistedTrack.self, PersistedChangeLogEntry.self])
+        let configuration = ModelConfiguration(
+            "UndoMirrorTests",
+            schema: schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        return TrackDataStore(modelContainer: container)
+    }
+
+    private func makeStoreURL() throws -> URL {
+        let directory = makeDirectory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("GenreUpdater.store")
+    }
+
+    private func removeStore(at storeURL: URL) {
+        do {
+            try FileManager.default.removeItem(at: storeURL.deletingLastPathComponent())
+        } catch {
+            Issue.record("Failed to remove undo mirror fixture: \(error)")
+        }
     }
 
     private func makeDirectory() -> URL {

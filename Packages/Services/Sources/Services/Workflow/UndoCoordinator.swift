@@ -12,15 +12,6 @@ import OSLog
 ///
 /// Undo is a FREE feature — no tier gating required.
 public actor UndoCoordinator {
-    /// Retry contract: prepared may dispatch; dispatchedUnknown blocks;
-    /// changed and noChange may only finalize their already-observed outcome.
-    private enum BackupRestorePhase: String, Codable {
-        case prepared
-        case dispatchedUnknown
-        case changed
-        case noChange
-    }
-
     private let scriptBridge: any AppleScriptClient
     private let idMapper: (any TrackIDMapping)?
     private let changeLogStore: (any ChangeLogStore)?
@@ -133,17 +124,18 @@ public actor UndoCoordinator {
     public func revertChange(_ entry: ChangeLogEntry) async throws {
         await loadHistoryIfNeeded()
 
-        let oldValue: (property: String, value: String)? = switch entry.changeType {
+        let context = revertContext(for: entry)
+        let oldValue: (property: String, value: String, recoveryOrigin: String?)? = switch entry.changeType {
         case .genreUpdate:
-            entry.oldGenre.map { ("genre", $0) }
+            entry.oldGenre.map { ("genre", $0, nil) }
         case .yearUpdate, .yearRevert:
-            entry.oldYear.map { ("year", String($0)) }
+            entry.oldYear.map { ("year", String($0), context.oldestEntry?.oldYear.map(String.init)) }
         case .trackCleaning:
-            entry.oldTrackName.map { ("name", $0) }
+            entry.oldTrackName.map { ("name", $0, nil) }
         case .albumCleaning:
-            entry.oldAlbumName.map { ("album", $0) }
+            entry.oldAlbumName.map { ("album", $0, context.oldestEntry?.oldAlbumName) }
         case .artistRename:
-            entry.oldArtist.map { ("artist", $0) }
+            entry.oldArtist.map { ("artist", $0, context.oldestEntry?.oldArtist) }
         }
 
         guard let oldValue else {
@@ -154,11 +146,11 @@ public actor UndoCoordinator {
             return
         }
 
-        let change = revertProposal(for: entry)
         _ = try await performRevertWrite(
-            change: change,
+            change: context.change,
             property: oldValue.property,
-            value: oldValue.value
+            value: oldValue.value,
+            recoveryOrigin: oldValue.recoveryOrigin ?? oldValue.value
         )
 
         await removeFromHistory(entry)
@@ -282,12 +274,19 @@ public actor UndoCoordinator {
         return appleScriptID
     }
 
-    private func mutationTrack(for track: Track) async throws -> Track {
-        guard let idMapper else { return track }
-        guard let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track) else {
-            throw UndoCoordinatorError.missingAppleScriptID(trackID: track.id)
+    private func mutationContext(for track: Track) async throws -> (track: Track, writeID: String) {
+        let mutationTrack: Track
+        if let idMapper {
+            guard let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track) else {
+                throw UndoCoordinatorError.missingAppleScriptID(trackID: track.id)
+            }
+            mutationTrack = enrichedTrack
+        } else {
+            mutationTrack = track
         }
-        return enrichedTrack
+        try validateWriteEligibility(for: mutationTrack)
+        let writeID = try await resolveWriteID(for: mutationTrack.id)
+        return (mutationTrack, writeID)
     }
 
     private func validateWriteEligibility(for track: Track) throws {
@@ -312,17 +311,16 @@ public actor UndoCoordinator {
         change: ProposedChange,
         property: String,
         value: String,
+        recoveryOrigin: String? = nil,
         prepareWrite: ((ProposedChange) async throws -> Void)? = nil,
         prepareDispatch: ((ProposedChange) async throws -> Void)? = nil,
         restorePreparedWrite: ((ProposedChange) async throws -> Void)? = nil,
         prepareMirror: ((ProposedChange, AppleScriptWriteResult) async throws -> Void)? = nil
     ) async throws -> AppleScriptWriteResult {
-        let mutationTrack = try await mutationTrack(for: change.track)
-        try validateWriteEligibility(for: mutationTrack)
-        let writeID = try await resolveWriteID(for: mutationTrack.id)
+        let mutation = try await mutationContext(for: change.track)
         let mutationChange = ProposedChange(
             id: change.id,
-            track: mutationTrack,
+            track: mutation.track,
             changeType: change.changeType,
             oldValue: change.oldValue,
             newValue: change.newValue,
@@ -338,7 +336,7 @@ public actor UndoCoordinator {
             let result: AppleScriptWriteResult
             do {
                 result = try await scriptBridge.updateTrackProperty(
-                    trackID: writeID,
+                    trackID: mutation.writeID,
                     property: property,
                     value: value,
                     onAttempt: { attemptState.markAttempted() }
@@ -351,12 +349,13 @@ public actor UndoCoordinator {
             }
             do {
                 try await prepareMirror?(mutationChange, result)
-                try await trackStore?.persistAppliedChange(UpdateCoordinator.changeToLogEntry(mutationChange))
-            } catch let error as UpdateCoordinatorError {
-                await invalidateCaches(for: mutationChange)
-                throw error
+                let entry = UpdateCoordinator.changeToLogEntry(mutationChange, recoveryOrigin: recoveryOrigin)
+                try await trackStore?.persistAppliedChange(entry)
             } catch {
                 await invalidateCaches(for: mutationChange)
+                if let error = error as? UpdateCoordinatorError {
+                    throw error
+                }
                 throw UpdateCoordinatorError.writeFinalizationFailed(
                     trackID: change.track.id,
                     effects: ["track mirror"]
@@ -390,7 +389,7 @@ public actor UndoCoordinator {
         await librarySnapshotService?.clearSnapshot()
     }
 
-    private func revertProposal(for entry: ChangeLogEntry) -> ProposedChange {
+    private func revertContext(for entry: ChangeLogEntry) -> (change: ProposedChange, oldestEntry: ChangeLogEntry?) {
         let track = Track(
             id: entry.trackID,
             name: entry.newTrackName ?? entry.trackName,
@@ -411,7 +410,7 @@ public actor UndoCoordinator {
         case .artistRename:
             (entry.oldArtist, entry.newArtist)
         }
-        return ProposedChange(
+        let change = ProposedChange(
             track: track,
             changeType: entry.changeType,
             oldValue: values.newValue,
@@ -419,6 +418,23 @@ public actor UndoCoordinator {
             confidence: 100,
             source: "undo"
         )
+        let oldestEntry = history
+            .filter { candidate in
+                guard candidate.trackID == entry.trackID else { return false }
+                return switch entry.changeType {
+                case .yearUpdate, .yearRevert:
+                    candidate.changeType == .yearUpdate || candidate.changeType == .yearRevert
+                case .albumCleaning:
+                    candidate.changeType == .albumCleaning
+                case .artistRename:
+                    candidate.changeType == .artistRename
+                case .genreUpdate, .trackCleaning:
+                    false
+                }
+            }
+            .min { $0.timestamp < $1.timestamp }
+
+        return (change, oldestEntry)
     }
 
     // MARK: Backup CSV Revert
@@ -520,6 +536,7 @@ public actor UndoCoordinator {
             change: change,
             property: "year",
             value: String(targetYear),
+            recoveryOrigin: String(targetYear),
             prepareWrite: { [self] change in
                 guard pendingCheckpoint == nil else { return }
                 let entry = UpdateCoordinator.changeToLogEntry(change)
@@ -652,7 +669,9 @@ public actor UndoCoordinator {
         guard completesRecovery else { return }
 
         do {
-            try await trackStore?.persistAppliedChange(checkpoint.entry)
+            var mirrorEntry = checkpoint.entry
+            mirrorEntry.oldYear = mirrorEntry.newYear
+            try await trackStore?.persistAppliedChange(mirrorEntry)
         } catch {
             await invalidateCaches(for: change)
             throw UpdateCoordinatorError.writeFinalizationFailed(

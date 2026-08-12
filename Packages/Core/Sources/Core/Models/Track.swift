@@ -331,11 +331,16 @@ extension Track {
         switch change.changeType {
         case .genreUpdate:
             updated.genre = try change.required(change.newGenre)
-        case .yearUpdate, .yearRevert:
+        case .yearUpdate:
             let appliedYear = try change.required(change.newYear)
             updated.yearBeforeMGU = updated.yearBeforeMGU ?? change.oldYear
             updated.yearSetByMGU = appliedYear
             updated.year = appliedYear
+        case .yearRevert:
+            let restoredYear = try change.required(change.newYear)
+            updated.yearBeforeMGU = updated.yearBeforeMGU ?? change.oldYear ?? restoredYear
+            updated.yearSetByMGU = restoredYear
+            updated.year = restoredYear
         case .trackCleaning:
             updated.name = try change.required(change.newTrackName)
         case .albumCleaning:

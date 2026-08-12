@@ -100,8 +100,14 @@ struct BackupCSVTests {
         #expect(history.allSatisfy { $0.changeType == .yearRevert })
         #expect(history.contains { $0.trackID == "T1" && $0.oldYear == 2019 && $0.newYear == 1998 })
         #expect(history.contains { $0.trackID == "T2" && $0.oldYear == 2020 && $0.newYear == 1998 })
-        #expect(try await trackStore.getTrack(byID: "T1")?.year == 1998)
-        #expect(try await trackStore.getTrack(byID: "T2")?.year == 1998)
+        let firstTrack = try #require(try await trackStore.getTrack(byID: "T1"))
+        let secondTrack = try #require(try await trackStore.getTrack(byID: "T2"))
+        #expect(firstTrack.year == 1998)
+        #expect(firstTrack.yearBeforeMGU == 1998)
+        #expect(firstTrack.yearSetByMGU == 1998)
+        #expect(secondTrack.year == 1998)
+        #expect(secondTrack.yearBeforeMGU == 1998)
+        #expect(secondTrack.yearSetByMGU == 1998)
     }
 
     @Test("History failure preserves mirror evidence and retry finalizes once")
@@ -169,7 +175,7 @@ struct BackupCSVTests {
         #expect(await store.entries.count == 1)
         #expect(await store.entries.first?.oldYear == 2019)
         #expect(await store.entries.first?.newYear == 1998)
-        #expect(try await trackStore.getTrack(byID: "T1")?.year == 1998)
+        try await expectRestoredYear(in: trackStore)
     }
 
     @Test("Mirror failure retry preserves one durable backup history entry")
@@ -231,7 +237,7 @@ struct BackupCSVTests {
         #expect(retryResult.skippedCount == 0)
         #expect(await bridge.writtenProperties.count == 1)
         #expect(await historyStore.entries.count == 1)
-        #expect(try await trackStore.getTrack(byID: "T1")?.year == 1998)
+        try await expectRestoredYear(in: trackStore)
     }
 
     @Test("Retry preserves distinct evidence for identical restores")
@@ -652,5 +658,12 @@ struct BackupCSVTests {
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
+    }
+
+    private func expectRestoredYear(in store: MockTrackStore) async throws {
+        let track = try #require(try await store.getTrack(byID: "T1"))
+        #expect(track.year == 1998)
+        #expect(track.yearBeforeMGU == 1998)
+        #expect(track.yearSetByMGU == 1998)
     }
 }
