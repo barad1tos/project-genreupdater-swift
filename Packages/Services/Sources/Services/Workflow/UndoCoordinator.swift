@@ -4,7 +4,7 @@ import OSLog
 
 // MARK: - Undo Error
 
-public enum UndoCoordinatorError: Error, LocalizedError {
+enum UndoCoordinatorError: Error, LocalizedError {
     case revertFailed(trackID: String, reason: String)
     case noChangesToRevert
     case partialRevertFailure(succeeded: Int, failed: Int, errorDescriptions: [String])
@@ -12,7 +12,7 @@ public enum UndoCoordinatorError: Error, LocalizedError {
     case missingAppleScriptID(trackID: String)
     case historyStoreUnavailable
 
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case let .revertFailed(trackID, reason):
             "Failed to revert track \(trackID): \(reason)"
