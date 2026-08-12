@@ -107,6 +107,6 @@ struct AlbumTypeDetectionSection: View {
 
     private func removeRules(_ removal: MetadataRuleRemoval) -> RuleRemovalOutcome {
         guard let updated = removal.removing(from: dependencies.config) else { return .stale }
-        return mutateConfiguration(dependencies) { $0 = updated } == .accepted ? .applied : .stale
+        return RuleRemovalOutcome(status: mutateConfiguration(dependencies) { $0 = updated })
     }
 }

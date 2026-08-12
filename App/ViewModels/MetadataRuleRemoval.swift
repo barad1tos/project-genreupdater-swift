@@ -1,4 +1,5 @@
 import Core
+import Services
 import SwiftUI
 
 struct MetadataRuleRemoval: Equatable, Identifiable {
@@ -83,6 +84,26 @@ struct MetadataRuleRemoval: Equatable, Identifiable {
 enum RuleRemovalOutcome {
     case applied
     case stale
+    case unavailable
+
+    init(status: CommandResultStatus) {
+        switch status {
+        case .accepted:
+            self = .applied
+        case .rejectedStale:
+            self = .stale
+        case .temporaryUnavailable,
+             .queued,
+             .alreadyCovered,
+             .noOp,
+             .rejectedInvalid,
+             .requiresAttention,
+             .blockedByRecovery,
+             .blockedByPermission,
+             .navigated:
+            self = .unavailable
+        }
+    }
 }
 
 struct MetadataRuleRemovalFlow {
@@ -126,6 +147,8 @@ struct MetadataRuleRemovalFlow {
             failureMessage = nil
         case .stale:
             failureMessage = Self.staleMessage
+        case .unavailable:
+            failureMessage = "Metadata rules could not be saved. Nothing was changed. Try again."
         }
     }
 }

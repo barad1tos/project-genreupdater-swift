@@ -93,6 +93,21 @@ struct MetadataRuleRemovalTests {
         #expect(flow.failureMessage?.contains("try again") == true)
     }
 
+    @Test("Unavailable persistence reports a save failure")
+    func saveFailureMessage() throws {
+        var flow = MetadataRuleRemovalFlow()
+        let removal = try #require(
+            MetadataRuleRemoval(group: .editionMarkers, snapshot: ["remaster"], offsets: [0])
+        )
+
+        flow.request(removal) { _ in .applied }
+        flow.confirm(removal) { _ in RuleRemovalOutcome(status: .temporaryUnavailable) }
+
+        #expect(flow.pending == nil)
+        #expect(flow.failureMessage?.contains("could not be saved") == true)
+        #expect(flow.failureMessage?.contains("Nothing was changed") == true)
+    }
+
     @Test("Every built-in group explains its consequence")
     func groupsExplainConsequences() throws {
         let expectedPhrases: [MetadataRuleGroup: String] = [
