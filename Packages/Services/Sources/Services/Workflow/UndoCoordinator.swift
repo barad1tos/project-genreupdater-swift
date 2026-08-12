@@ -36,7 +36,7 @@ public actor UndoCoordinator {
     public init(
         scriptBridge: any AppleScriptClient,
         idMapper: (any TrackIDMapping)? = nil,
-        stores: Stores = Stores(),
+        stores: Stores,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         cleaning: CleaningConfig? = nil,
         directory: URL? = nil
@@ -54,6 +54,25 @@ public actor UndoCoordinator {
         self.legacyHistoryURL = historyURL
         self.backupCheckpointURL = base.appendingPathComponent("pending-year-revert.json")
         self.history = []
+    }
+
+    public init(
+        scriptBridge: any AppleScriptClient,
+        idMapper: (any TrackIDMapping)? = nil,
+        changeLogStore: (any ChangeLogStore)? = nil,
+        cache: (any CacheService)? = nil,
+        librarySnapshotService: (any LibrarySnapshotService)? = nil,
+        cleaning: CleaningConfig? = nil,
+        directory: URL? = nil
+    ) {
+        self.init(
+            scriptBridge: scriptBridge,
+            idMapper: idMapper,
+            stores: Stores(changeLog: changeLogStore, cache: cache),
+            librarySnapshotService: librarySnapshotService,
+            cleaning: cleaning,
+            directory: directory
+        )
     }
 
     public func initialize() async {
@@ -603,7 +622,14 @@ public actor UndoCoordinator {
 
     private static func publicFailureDescription(for error: Error) -> String {
         if let undoError = error as? UndoCoordinatorError {
-            return publicUndoFailureDescription(for: undoError)
+            switch undoError {
+            case let .revertFailed(_, reason):
+                return reason == "AppleScript write failed" ? reason : "Failed to revert track"
+            case .noChangesToRevert, .invalidBackupCSV, .missingAppleScriptID, .historyStoreUnavailable:
+                return undoError.errorDescription ?? "Undo operation failed"
+            case let .partialRevertFailure(succeeded, failed, _):
+                return "Partial revert: \(succeeded) succeeded, \(failed) failed"
+            }
         }
         if let appleScriptError = error as? AppleScriptBridgeError {
             return publicAppleScriptFailureDescription(for: appleScriptError)
@@ -612,17 +638,6 @@ public actor UndoCoordinator {
             return outcomeError.localizedDescription
         }
         return "AppleScript write failed"
-    }
-
-    private static func publicUndoFailureDescription(for error: UndoCoordinatorError) -> String {
-        switch error {
-        case let .revertFailed(_, reason):
-            reason == "AppleScript write failed" ? reason : "Failed to revert track"
-        case .noChangesToRevert, .invalidBackupCSV, .missingAppleScriptID, .historyStoreUnavailable:
-            error.errorDescription ?? "Undo operation failed"
-        case let .partialRevertFailure(succeeded, failed, _):
-            "Partial revert: \(succeeded) succeeded, \(failed) failed"
-        }
     }
 
     private static func publicAppleScriptFailureDescription(for error: AppleScriptBridgeError) -> String {

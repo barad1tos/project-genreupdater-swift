@@ -247,7 +247,7 @@ struct UndoCoordinatorTests {
         let snapshotService = MockUndoLibrarySnapshotService()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            stores: .init(cache: cache),
+            cache: cache,
             librarySnapshotService: snapshotService,
             directory: makeTempDirectory()
         )
