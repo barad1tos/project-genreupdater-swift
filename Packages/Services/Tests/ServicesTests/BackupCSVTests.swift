@@ -10,7 +10,7 @@ private func makeBackupTempDirectory() -> URL {
 
 private struct TestBackupCheckpoint: Encodable {
     let entry: ChangeLogEntry
-    let didChange: Bool?
+    let phase: String
 }
 
 @Suite("UndoCoordinator — backup CSV year revert")
@@ -48,7 +48,7 @@ struct BackupCSVTests {
         let trackStore = try TrackDataStore.createInMemory()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            trackStore: trackStore,
+            stores: .init(tracks: trackStore),
             directory: makeBackupTempDirectory()
         )
         let csv = """
@@ -113,8 +113,7 @@ struct BackupCSVTests {
         let directory = makeBackupTempDirectory()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            changeLogStore: store,
-            trackStore: trackStore,
+            stores: .init(changeLog: store, tracks: trackStore),
             directory: directory
         )
         let csv = """
@@ -152,8 +151,7 @@ struct BackupCSVTests {
         await store.resumeSaves()
         let retryCoordinator = UndoCoordinator(
             scriptBridge: bridge,
-            changeLogStore: store,
-            trackStore: trackStore,
+            stores: .init(changeLog: store, tracks: trackStore),
             directory: directory
         )
         var liveTrack = tracks[0]
@@ -192,8 +190,7 @@ struct BackupCSVTests {
         await bridge.setFetchedTracks(tracks)
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            changeLogStore: historyStore,
-            trackStore: trackStore,
+            stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
         let csv = """
@@ -216,8 +213,7 @@ struct BackupCSVTests {
         await trackStore.resumeAppliedUpdates()
         let retryCoordinator = UndoCoordinator(
             scriptBridge: bridge,
-            changeLogStore: historyStore,
-            trackStore: trackStore,
+            stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
         var liveTrack = tracks[0]
@@ -253,8 +249,7 @@ struct BackupCSVTests {
         """
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            changeLogStore: historyStore,
-            trackStore: trackStore,
+            stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
         try await trackStore.saveTracks([track])
@@ -281,8 +276,7 @@ struct BackupCSVTests {
         restoredTrack.year = 1998
         let retryCoordinator = UndoCoordinator(
             scriptBridge: bridge,
-            changeLogStore: historyStore,
-            trackStore: trackStore,
+            stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
         _ = try await retryCoordinator.revertYearsFromBackupCSV(
@@ -316,8 +310,7 @@ struct BackupCSVTests {
         """
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            changeLogStore: historyStore,
-            trackStore: trackStore,
+            stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
         try await trackStore.saveTracks([track])
@@ -338,8 +331,7 @@ struct BackupCSVTests {
         try FileManager.default.removeItem(at: directory)
         let retryCoordinator = UndoCoordinator(
             scriptBridge: bridge,
-            changeLogStore: historyStore,
-            trackStore: trackStore,
+            stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
         let result = try await retryCoordinator.revertYearsFromBackupCSV(
@@ -375,7 +367,7 @@ struct BackupCSVTests {
         staleEntry.newYear = 2001
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(TestBackupCheckpoint(entry: staleEntry, didChange: nil)).write(
+        try encoder.encode(TestBackupCheckpoint(entry: staleEntry, phase: "prepared")).write(
             to: directory.appendingPathComponent("pending-year-revert.json")
         )
         let coordinator = UndoCoordinator(
@@ -457,7 +449,7 @@ struct BackupCSVTests {
         let snapshotService = MockUndoLibrarySnapshotService()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            cache: cache,
+            stores: .init(cache: cache),
             librarySnapshotService: snapshotService,
             directory: makeBackupTempDirectory()
         )
@@ -510,7 +502,7 @@ struct BackupCSVTests {
         let trackStore = try TrackDataStore.createInMemory()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            trackStore: trackStore,
+            stores: .init(tracks: trackStore),
             directory: makeBackupTempDirectory()
         )
         let csv = """

@@ -44,8 +44,7 @@ private struct BackupRecoveryFixture {
     func coordinator() -> UndoCoordinator {
         UndoCoordinator(
             scriptBridge: bridge,
-            changeLogStore: historyStore,
-            trackStore: trackStore,
+            stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
     }
@@ -91,6 +90,48 @@ struct BackupRecoveryTests {
         #expect(try await fixture.trackStore.getTrack(byID: "T1")?.year == 1998)
     }
 
+    @Test("Pre-dispatch cancellation remains safe to retry")
+    func cancellationRetryStaysSafe() async throws {
+        let fixture = try await BackupRecoveryFixture.make()
+        await fixture.bridge.setWriteCancellationMode(true)
+
+        do {
+            _ = try await Self.restore(using: fixture.coordinator(), fixture: fixture)
+            Issue.record("Expected cancellation")
+        } catch is CancellationError {
+            // Expected: the bridge never reported an attempted write.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        await fixture.bridge.setWriteCancellationMode(false)
+        let retry = try await Self.restore(using: fixture.coordinator(), fixture: fixture)
+
+        #expect(retry.skippedCount == 1)
+        #expect(await fixture.historyStore.entries.isEmpty)
+    }
+
+    @Test("Failed no-change phase persistence blocks automatic retry")
+    func noChangePhaseFailureBlocksRetry() async throws {
+        let fixture = try await BackupRecoveryFixture.make()
+        let checkpoint = fixture.directory.appendingPathComponent("pending-year-revert.json")
+        await fixture.bridge.setWriteAttemptHook {
+            try Self.setImmutable(true, on: checkpoint)
+        }
+        defer { _ = try? Self.setImmutable(false, on: checkpoint) }
+
+        await expectRecoveryFailure(effects: ["backup recovery checkpoint"]) {
+            _ = try await Self.restore(using: fixture.coordinator(), fixture: fixture)
+        }
+
+        try Self.setImmutable(false, on: checkpoint)
+        await fixture.bridge.setWriteAttemptHook(nil)
+        await expectRecoveryFailure(effects: ["ambiguous backup write outcome"]) {
+            _ = try await Self.restore(using: fixture.coordinator(), fixture: fixture)
+        }
+        #expect(await fixture.historyStore.entries.isEmpty)
+    }
+
     @Test("A write error with recovery evidence stops later targets")
     func writeErrorStopsBackupBatch() async {
         let bridge = MockAppleScriptClient()
@@ -119,6 +160,14 @@ struct BackupRecoveryTests {
             )
         }
 
+        await bridge.setWriteError(nil, for: "T1")
+        await expectRecoveryFailure(effects: ["ambiguous backup write outcome"]) {
+            _ = try await coordinator.revertYearsFromBackupCSV(
+                csv,
+                artist: "Massive Attack",
+                currentTracks: tracks
+            )
+        }
         #expect(await bridge.writtenProperties.isEmpty)
     }
 
@@ -137,6 +186,13 @@ struct BackupRecoveryTests {
         try FileManager.default.setAttributes(
             [.posixPermissions: NSNumber(value: permissions)],
             ofItemAtPath: directory.path
+        )
+    }
+
+    private static func setImmutable(_ isImmutable: Bool, on file: URL) throws {
+        try FileManager.default.setAttributes(
+            [.immutable: isImmutable],
+            ofItemAtPath: file.path
         )
     }
 

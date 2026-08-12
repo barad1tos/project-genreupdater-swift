@@ -12,7 +12,7 @@ struct UndoMirrorTests {
         try await trackStore.saveTracks([currentTrack()])
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            trackStore: trackStore,
+            stores: .init(tracks: trackStore),
             directory: makeDirectory()
         )
         let entry = genreEntry()
@@ -33,7 +33,7 @@ struct UndoMirrorTests {
         await trackStore.failAppliedUpdates()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            trackStore: trackStore,
+            stores: .init(tracks: trackStore),
             directory: makeDirectory()
         )
         let entry = genreEntry()
@@ -64,7 +64,7 @@ struct UndoMirrorTests {
         await trackStore.failAppliedUpdates()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            trackStore: trackStore,
+            stores: .init(tracks: trackStore),
             directory: makeDirectory()
         )
         let newer = genreEntry(
@@ -101,7 +101,7 @@ struct UndoMirrorTests {
         let cache = MockCacheService()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            cache: cache,
+            stores: .init(cache: cache),
             directory: makeDirectory()
         )
         let entry = artistEntry()

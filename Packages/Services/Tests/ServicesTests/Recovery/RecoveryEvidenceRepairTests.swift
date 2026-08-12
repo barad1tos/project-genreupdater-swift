@@ -128,7 +128,7 @@ struct RecoveryEvidenceRepairTests {
         let store = MockChangeLogStore()
         let coordinator = UndoCoordinator(
             scriptBridge: MockAppleScriptClient(),
-            changeLogStore: store,
+            stores: .init(changeLog: store),
             directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent("RecoveryRepair-\(UUID().uuidString)")
         )

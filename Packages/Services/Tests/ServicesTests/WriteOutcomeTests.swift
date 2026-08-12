@@ -417,8 +417,7 @@ private func makeUndoCoordinator(
 ) -> UndoCoordinator {
     UndoCoordinator(
         scriptBridge: client,
-        changeLogStore: changeLogStore,
-        cache: cache,
+        stores: .init(changeLog: changeLogStore, cache: cache),
         librarySnapshotService: snapshot,
         directory: FileManager.default.temporaryDirectory
             .appendingPathComponent("WriteOutcomeTests-\(UUID().uuidString)")

@@ -491,9 +491,7 @@ final class AppDependencies {
         let undo = UndoCoordinator(
             scriptBridge: bridge,
             idMapper: mapper,
-            changeLogStore: logStore,
-            trackStore: store,
-            cache: cache,
+            stores: .init(changeLog: logStore, tracks: store, cache: cache),
             librarySnapshotService: librarySnapshotService,
             cleaning: config.cleaning
         )

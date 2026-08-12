@@ -160,7 +160,7 @@ struct UndoCoordinatorTests {
         await store.failSaves()
         let coordinator = UndoCoordinator(
             scriptBridge: MockAppleScriptClient(),
-            changeLogStore: store,
+            stores: .init(changeLog: store),
             directory: makeTempDirectory()
         )
 
@@ -179,7 +179,7 @@ struct UndoCoordinatorTests {
         await store.failSaves()
         let coordinator = UndoCoordinator(
             scriptBridge: MockAppleScriptClient(),
-            changeLogStore: store,
+            stores: .init(changeLog: store),
             directory: makeTempDirectory()
         )
 
@@ -247,7 +247,7 @@ struct UndoCoordinatorTests {
         let snapshotService = MockUndoLibrarySnapshotService()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            cache: cache,
+            stores: .init(cache: cache),
             librarySnapshotService: snapshotService,
             directory: makeTempDirectory()
         )
@@ -290,7 +290,7 @@ struct UndoCoordinatorTests {
                     ),
                 ]
             ),
-            cache: cache,
+            stores: .init(cache: cache),
             librarySnapshotService: snapshotService,
             directory: makeTempDirectory()
         )
@@ -324,7 +324,7 @@ struct UndoCoordinatorTests {
         let cache = MockCacheService()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            cache: cache,
+            stores: .init(cache: cache),
             cleaning: CleaningConfig(),
             directory: makeTempDirectory()
         )
@@ -359,7 +359,7 @@ struct UndoCoordinatorTests {
         let snapshotService = MockUndoLibrarySnapshotService()
         let coordinator = UndoCoordinator(
             scriptBridge: bridge,
-            cache: cache,
+            stores: .init(cache: cache),
             librarySnapshotService: snapshotService,
             directory: makeTempDirectory()
         )
@@ -728,12 +728,12 @@ struct UndoCoordinatorPersistenceTests {
         let container = try ModelContainerFactory.createInMemory()
         let store1 = ChangeLogDataStore(modelContainer: container)
 
-        let coordinator1 = UndoCoordinator(scriptBridge: bridge, changeLogStore: store1, directory: directory)
+        let coordinator1 = UndoCoordinator(scriptBridge: bridge, stores: .init(changeLog: store1), directory: directory)
         try await coordinator1.recordChange(makeGenreEntry(trackID: "T1"))
         try await coordinator1.recordChange(makeYearEntry(trackID: "T2"))
 
         let store2 = ChangeLogDataStore(modelContainer: container)
-        let coordinator2 = UndoCoordinator(scriptBridge: bridge, changeLogStore: store2, directory: directory)
+        let coordinator2 = UndoCoordinator(scriptBridge: bridge, stores: .init(changeLog: store2), directory: directory)
         let history = await coordinator2.getHistory()
         #expect(history.count == 2)
 
@@ -772,7 +772,7 @@ struct UndoCoordinatorPersistenceTests {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(legacyEntries).write(to: historyURL, options: .atomic)
 
-        let coordinator = UndoCoordinator(scriptBridge: bridge, changeLogStore: store, directory: directory)
+        let coordinator = UndoCoordinator(scriptBridge: bridge, stores: .init(changeLog: store), directory: directory)
         let history = await coordinator.getHistory()
         let stored = try await store.loadAll()
 
