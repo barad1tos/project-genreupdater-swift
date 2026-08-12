@@ -23,6 +23,102 @@ struct TrackDataTests {
         )
     }
 
+    private func appliedChange(
+        trackID: String = "T001",
+        type: ChangeType
+    ) -> ChangeLogEntry {
+        var change = ChangeLogEntry(
+            changeType: type,
+            trackID: trackID,
+            artist: "Test Artist",
+            trackName: "Test Song",
+            albumName: "Test Album"
+        )
+        switch type {
+        case .genreUpdate:
+            change.oldGenre = "Rock"
+            change.newGenre = "Metal"
+        case .yearUpdate:
+            change.oldYear = 2020
+            change.newYear = 2024
+        case .yearRevert:
+            change.oldYear = 2020
+            change.newYear = 1999
+        case .trackCleaning:
+            change.oldTrackName = "Test Song"
+            change.newTrackName = "Clean Song"
+        case .albumCleaning:
+            change.oldAlbumName = "Test Album"
+            change.newAlbumName = "Clean Album"
+        case .artistRename:
+            change.oldArtist = "Test Artist"
+            change.newArtist = "Canonical Artist"
+        }
+        return change
+    }
+
+    private struct AppliedChangeExpectation {
+        let type: ChangeType
+        let name: String
+        let artist: String
+        let album: String
+        let genre: String
+        let year: Int
+    }
+
+    private var appliedChangeExpectations: [AppliedChangeExpectation] {
+        [
+            AppliedChangeExpectation(
+                type: .genreUpdate,
+                name: "Test Song",
+                artist: "Test Artist",
+                album: "Test Album",
+                genre: "Metal",
+                year: 2020
+            ),
+            AppliedChangeExpectation(
+                type: .yearUpdate,
+                name: "Test Song",
+                artist: "Test Artist",
+                album: "Test Album",
+                genre: "Rock",
+                year: 2024
+            ),
+            AppliedChangeExpectation(
+                type: .yearRevert,
+                name: "Test Song",
+                artist: "Test Artist",
+                album: "Test Album",
+                genre: "Rock",
+                year: 1999
+            ),
+            AppliedChangeExpectation(
+                type: .trackCleaning,
+                name: "Clean Song",
+                artist: "Test Artist",
+                album: "Test Album",
+                genre: "Rock",
+                year: 2020
+            ),
+            AppliedChangeExpectation(
+                type: .albumCleaning,
+                name: "Test Song",
+                artist: "Test Artist",
+                album: "Clean Album",
+                genre: "Rock",
+                year: 2020
+            ),
+            AppliedChangeExpectation(
+                type: .artistRename,
+                name: "Test Song",
+                artist: "Canonical Artist",
+                album: "Test Album",
+                genre: "Rock",
+                year: 2020
+            ),
+        ]
+    }
+
     // MARK: - Initialization
 
     @Test("Store initializes without error")
@@ -122,21 +218,60 @@ struct TrackDataTests {
 
     // MARK: - Processing State
 
-    @Test("updateTrackProcessingState sets flags")
-    func updateProcessingState() async throws {
+    @Test("Persisted applied changes update only their target metadata")
+    func appliesMetadataChanges() async throws {
+        for expectation in appliedChangeExpectations {
+            let store = try makeStore()
+            try await store.initialize()
+            try await store.saveTracks([sampleTrack()])
+
+            try await store.persistAppliedChange(appliedChange(type: expectation.type))
+
+            let stored = try #require(try await store.getTrack(byID: "T001"))
+            #expect(stored.name == expectation.name)
+            #expect(stored.artist == expectation.artist)
+            #expect(stored.album == expectation.album)
+            #expect(stored.genre == expectation.genre)
+            #expect(stored.year == expectation.year)
+        }
+    }
+
+    @Test("Genre and year writes complete processing state")
+    func completesProcessingState() async throws {
+        let store = try makeStore()
+        try await store.initialize()
+        try await store.saveTracks([sampleTrack()])
+
+        try await store.persistAppliedChange(appliedChange(type: .genreUpdate))
+        try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
+
+        #expect(try await store.getUnprocessedTracks().isEmpty)
+    }
+
+    @Test("Applied change persistence fails when the track is missing")
+    func rejectsMissingTrack() async throws {
         let store = try makeStore()
         try await store.initialize()
 
-        try await store.saveTracks([sampleTrack(id: "PS1")])
-        try await store.updateTrackProcessingState(id: "PS1", genreUpdated: true, yearUpdated: nil)
+        await #expect(throws: TrackStoreError.self) {
+            try await store.persistAppliedChange(appliedChange(trackID: "MISSING", type: .genreUpdate))
+        }
+    }
 
-        let unprocessed = try await store.getUnprocessedTracks()
-        // genreUpdated=true, yearUpdated=false → still unprocessed
-        #expect(unprocessed.count == 1)
+    @Test("Applied change persistence fails when the new value is missing")
+    func rejectsMissingValue() async throws {
+        let store = try makeStore()
+        try await store.initialize()
+        try await store.saveTracks([sampleTrack()])
+        let change = ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "T001",
+            artist: "Test Artist"
+        )
 
-        try await store.updateTrackProcessingState(id: "PS1", genreUpdated: nil, yearUpdated: true)
-        let stillUnprocessed = try await store.getUnprocessedTracks()
-        #expect(stillUnprocessed.isEmpty)
+        await #expect(throws: TrackChangeError.self) {
+            try await store.persistAppliedChange(change)
+        }
     }
 
     @Test("getUnprocessedTracks filters correctly")
@@ -150,8 +285,8 @@ struct TrackDataTests {
             sampleTrack(id: "P3"),
         ])
 
-        // Mark P1 as fully processed
-        try await store.updateTrackProcessingState(id: "P1", genreUpdated: true, yearUpdated: true)
+        try await store.persistAppliedChange(appliedChange(trackID: "P1", type: .genreUpdate))
+        try await store.persistAppliedChange(appliedChange(trackID: "P1", type: .yearUpdate))
 
         let unprocessed = try await store.getUnprocessedTracks()
         #expect(unprocessed.count == 2)
@@ -177,14 +312,5 @@ struct TrackDataTests {
         try await store.saveTracks(tracks)
         let count = try await store.trackCount()
         #expect(count == 600)
-    }
-
-    @Test("updateTrackProcessingState ignores missing track")
-    func updateMissingTrack() async throws {
-        let store = try makeStore()
-        try await store.initialize()
-
-        // Should not throw
-        try await store.updateTrackProcessingState(id: "MISSING", genreUpdated: true, yearUpdated: true)
     }
 }

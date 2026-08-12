@@ -25,7 +25,7 @@ actor CheckpointProbe {
 
 struct CheckpointEffects: Sendable {
     let historyCount: Int
-    let processingCount: Int
+    let mirrorCount: Int
 }
 
 func makeCoordinator(

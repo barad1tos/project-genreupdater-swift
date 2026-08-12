@@ -15,6 +15,14 @@ struct RecoveryClearTests {
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, item) = uncertainRunRecord(recoveryID: recoveryID)
         try await setup.store.upsert(record)
+        try await setup.trackStore.saveTracks([Track(
+            id: "read-1",
+            name: "Track",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            appleScriptID: "persistent-1"
+        )])
         setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
             isMusicAppRunning: { true },
             areScriptsInstalled: { true }
@@ -49,6 +57,14 @@ struct RecoveryClearTests {
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
         try await setup.store.upsert(record)
+        try await setup.trackStore.saveTracks([Track(
+            id: "read-1",
+            name: "Track",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            appleScriptID: "persistent-1"
+        )])
         setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
             isMusicAppRunning: { true },
             areScriptsInstalled: { true }
@@ -69,11 +85,11 @@ struct RecoveryClearTests {
         try await setup.dependencies.clearRecoveryHold(id: recoveryID)
 
         let history = await setup.undo.getHistory()
-        #expect(history.map(\.trackID) == ["persistent-1"])
+        #expect(history.map(\.trackID) == ["read-1"])
         #expect(history.first?.changeType == .genreUpdate)
         #expect(history.first?.newGenre == "Stoner Rock")
         let durable = try await setup.changeLog.loadAll()
-        #expect(durable.map(\.trackID) == ["persistent-1"])
+        #expect(durable.map(\.trackID) == ["read-1"])
         // Repaired evidence must attribute to the repaired run, or the entry
         // becomes a permanent nil-runID row that run retention never prunes.
         #expect(durable.first?.runID == record.runID.rawValue)
@@ -90,11 +106,12 @@ struct RecoveryClearTests {
         )
         try await setup.store.upsert(record)
         try await setup.trackStore.saveTracks([Track(
-            id: "persistent-1",
+            id: "read-1",
             name: "Track",
             artist: "Artist",
             album: "Album",
-            genre: "Stoner Rock"
+            genre: "Rock",
+            appleScriptID: "persistent-1"
         )])
         let stored = try #require(await setup.store.record(for: record.runID))
         await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
@@ -128,11 +145,12 @@ struct RecoveryClearTests {
         )
         try await setup.store.upsert(record)
         try await setup.trackStore.saveTracks([Track(
-            id: "persistent-1",
+            id: "read-1",
             name: "Track",
             artist: "Artist",
             album: "Album",
-            genre: "Stoner Rock"
+            genre: "Rock",
+            appleScriptID: "persistent-1"
         )])
         let stored = try #require(await setup.store.record(for: record.runID))
         await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
@@ -144,6 +162,8 @@ struct RecoveryClearTests {
         #expect(durable.first?.runID == record.runID.rawValue)
         let persisted = try ModelContext(setup.persistenceContainer)
             .fetch(FetchDescriptor<PersistedTrack>())
+        #expect(persisted.map(\.trackID) == ["read-1"])
+        #expect(persisted.map(\.genre) == ["Stoner Rock"])
         #expect(persisted.map(\.genreUpdated) == [true])
         #expect(await setup.processor.recoveryHoldID() == nil)
     }

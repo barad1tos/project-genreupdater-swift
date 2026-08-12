@@ -17,7 +17,18 @@ public protocol CacheService: Actor, Sendable {
     func syncToDisk() async throws
 }
 
-/// Protocol for persisting track processing state.
+public enum TrackStoreError: LocalizedError, Sendable {
+    case missingTrack(id: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .missingTrack(id):
+            "Track state store has no track with ID \(id)"
+        }
+    }
+}
+
+/// Protocol for persisting the track metadata mirror and processing state.
 public protocol TrackStateStore: Actor {
     func initialize() async throws
     func loadAllTracks() async throws -> [Track]
@@ -25,7 +36,7 @@ public protocol TrackStateStore: Actor {
     @discardableResult
     func deleteTrackIDs(_ ids: [String]) async throws -> Int
     func getTrack(byID id: String) async throws -> Track?
-    func updateTrackProcessingState(id: String, genreUpdated: Bool?, yearUpdated: Bool?) async throws
+    func persistAppliedChange(_ change: ChangeLogEntry) async throws
     func getUnprocessedTracks() async throws -> [Track]
     func trackCount() async throws -> Int
 }

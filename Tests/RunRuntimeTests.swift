@@ -62,13 +62,16 @@ struct RunRuntimeTests {
         track: Track
     ) async throws -> RunRuntimeFactory {
         let container = try ModelContainerFactory.createInMemory()
+        let store = TrackDataStore(modelContainer: container)
+        try await store.initialize()
+        try await store.saveTracks([track])
         let cache = try GRDBCacheService.createInMemory()
         try await cache.initialize()
         let mapper = TrackIDMapper()
         await mapper.seedKnownMappings([(musicKitTrack: track, appleScriptTrack: track)])
         return RunRuntimeFactory(
             services: services,
-            store: TrackDataStore(modelContainer: container),
+            store: store,
             gate: FeatureGate(fixedTier: .pro),
             cache: cache,
             undo: UndoCoordinator(scriptBridge: script),

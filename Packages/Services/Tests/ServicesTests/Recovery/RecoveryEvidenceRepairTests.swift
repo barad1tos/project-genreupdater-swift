@@ -11,7 +11,7 @@ struct RecoveryEvidenceRepairTests {
 
         let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: item))
 
-        #expect(entry.trackID == "persistent-1")
+        #expect(entry.trackID == "music-kit-1")
         #expect(entry.changeType == .genreUpdate)
         #expect(entry.oldGenre == "Rock")
         #expect(entry.newGenre == "Stoner Rock")

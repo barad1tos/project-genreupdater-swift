@@ -304,6 +304,53 @@ public enum ChangeType: String, Sendable, Codable, CaseIterable {
     case yearRevert = "year_revert"
 }
 
+enum TrackChangeError: LocalizedError, Sendable {
+    case identityMismatch(trackID: String, changeTrackID: String)
+    case missingValue(ChangeType)
+
+    var errorDescription: String? {
+        switch self {
+        case let .identityMismatch(trackID, changeTrackID):
+            "Cannot apply change for track \(changeTrackID) to track \(trackID)"
+        case let .missingValue(changeType):
+            "Applied \(changeType.rawValue) change has no new value"
+        }
+    }
+}
+
+extension Track {
+    /// Returns a copy with the verified metadata change applied.
+    ///
+    /// - Throws: When the change belongs to another track or lacks its required new value.
+    public func applying(_ change: ChangeLogEntry) throws -> Self {
+        guard id == change.trackID else {
+            throw TrackChangeError.identityMismatch(trackID: id, changeTrackID: change.trackID)
+        }
+
+        var updated = self
+        switch change.changeType {
+        case .genreUpdate:
+            updated.genre = try change.required(change.newGenre)
+        case .yearUpdate, .yearRevert:
+            updated.year = try change.required(change.newYear)
+        case .trackCleaning:
+            updated.name = try change.required(change.newTrackName)
+        case .albumCleaning:
+            updated.album = try change.required(change.newAlbumName)
+        case .artistRename:
+            updated.artist = try change.required(change.newArtist)
+        }
+        return updated
+    }
+}
+
+extension ChangeLogEntry {
+    fileprivate func required<Value>(_ value: Value?) throws -> Value {
+        guard let value else { throw TrackChangeError.missingValue(changeType) }
+        return value
+    }
+}
+
 // MARK: - Track Parsing from AppleScript
 
 extension Track {

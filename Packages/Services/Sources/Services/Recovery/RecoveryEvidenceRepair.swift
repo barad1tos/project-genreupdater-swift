@@ -15,7 +15,7 @@ public enum RecoveryEvidenceRepair {
         else { return nil }
         var entry = ChangeLogEntry(
             changeType: item.change.changeType,
-            trackID: trackID,
+            trackID: identity.readID,
             artist: identity.artist,
             trackName: identity.trackName,
             albumName: identity.album

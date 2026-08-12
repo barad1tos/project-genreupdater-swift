@@ -320,21 +320,16 @@ extension AppDependencies {
         if !entries.isEmpty {
             try await undoCoordinator.recordRepairedChanges(entries)
         }
-        try await repairProcessingState(for: writtenItems)
+        try await repairTrackMirror(for: writtenItems)
     }
 
-    private func repairProcessingState(for items: [RunWorkItem]) async throws {
-        guard let trackStore else { return }
+    private func repairTrackMirror(for items: [RunWorkItem]) async throws {
+        guard let trackStore else {
+            throw AppDependencyServiceError.recoveryUnavailable
+        }
         for item in items {
-            guard case let .track(identity) = item.target,
-                  let trackID = identity.appleScriptID
-            else { continue }
-            try await trackStore.updateTrackProcessingState(
-                id: trackID,
-                genreUpdated: item.change.changeType == .genreUpdate ? true : nil,
-                yearUpdated: item.change.changeType == .yearUpdate
-                    || item.change.changeType == .yearRevert ? true : nil
-            )
+            guard let change = RecoveryEvidenceRepair.changeLogEntry(for: item) else { continue }
+            try await trackStore.persistAppliedChange(change)
         }
     }
 

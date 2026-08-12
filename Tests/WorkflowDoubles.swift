@@ -220,12 +220,8 @@ actor DashboardStateTrackStore: TrackStateStore {
         nil
     }
 
-    func updateTrackProcessingState(
-        id _: String,
-        genreUpdated _: Bool?,
-        yearUpdated _: Bool?
-    ) async throws {
-        // These tests do not assert processing-state persistence.
+    func persistAppliedChange(_: ChangeLogEntry) async throws {
+        // These tests do not assert applied track persistence.
     }
 
     func getUnprocessedTracks() async throws -> [Track] {

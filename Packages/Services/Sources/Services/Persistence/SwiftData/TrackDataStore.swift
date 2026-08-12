@@ -106,29 +106,32 @@ public actor TrackDataStore: TrackStateStore {
         return deletedCount
     }
 
-    public func updateTrackProcessingState(
-        id: String,
-        genreUpdated: Bool?,
-        yearUpdated: Bool?
-    ) async throws {
-        let descriptor = FetchDescriptor<PersistedTrack>(
-            predicate: #Predicate { $0.trackID == id }
-        )
+    public func persistAppliedChange(_ change: ChangeLogEntry) async throws {
+        do {
+            let descriptor = FetchDescriptor<PersistedTrack>(
+                predicate: #Predicate { $0.trackID == change.trackID }
+            )
+            guard let persisted = try modelContext.fetch(descriptor).first else {
+                throw TrackStoreError.missingTrack(id: change.trackID)
+            }
 
-        guard let persisted = try modelContext.fetch(descriptor).first else {
-            log.warning("Track not found for processing state update: \(id, privacy: .private)")
-            return
-        }
+            let updated = try persisted.toTrack().applying(change)
+            persisted.update(from: updated)
+            switch change.changeType {
+            case .genreUpdate:
+                persisted.genreUpdated = true
+            case .yearUpdate, .yearRevert:
+                persisted.yearUpdated = true
+            case .trackCleaning, .albumCleaning, .artistRename:
+                break
+            }
+            persisted.processedDate = .now
 
-        if let genreUpdated {
-            persisted.genreUpdated = genreUpdated
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
         }
-        if let yearUpdated {
-            persisted.yearUpdated = yearUpdated
-        }
-        persisted.processedDate = .now
-
-        try modelContext.save()
     }
 }
 
