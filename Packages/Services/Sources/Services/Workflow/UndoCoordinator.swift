@@ -483,7 +483,11 @@ public actor UndoCoordinator {
         _ track: Track,
         targetYear: Int
     ) async throws -> AppleScriptWriteResult {
-        let pendingCheckpoint = try backupCheckpoint(for: track.id, targetYear: targetYear)
+        let pendingCheckpoint = try backupCheckpoint(
+            for: track.id,
+            targetYear: targetYear,
+            observedYear: track.year
+        )
         let mirrorTrack = try await trackStore?.getTrack(byID: track.id)
         let change = ProposedChange(
             track: track,
@@ -502,12 +506,6 @@ public actor UndoCoordinator {
                     effects: ["ambiguous backup write outcome"]
                 )
             case .changed, .noChange:
-                guard change.track.year == targetYear else {
-                    throw UpdateCoordinatorError.writeFinalizationFailed(
-                        trackID: change.track.id,
-                        effects: ["stale backup recovery checkpoint"]
-                    )
-                }
                 let result: AppleScriptWriteResult = pendingCheckpoint.phase == .changed ? .changed : .noChange
                 try await finalizeBackupCheckpoint(
                     pendingCheckpoint,
@@ -548,6 +546,7 @@ public actor UndoCoordinator {
     private func backupCheckpoint(
         for trackID: String,
         targetYear: Int? = nil,
+        observedYear: Int? = nil,
         writing checkpoint: (entry: ChangeLogEntry, phase: BackupRestorePhase)? = nil,
         shouldRemove: Bool = false
     ) throws -> (entry: ChangeLogEntry, phase: BackupRestorePhase)? {
@@ -593,6 +592,13 @@ public actor UndoCoordinator {
                     throw UpdateCoordinatorError.writeFinalizationFailed(
                         trackID: trackID,
                         effects: ["ambiguous backup write outcome"]
+                    )
+                }
+                let expectedYear = payload.phase == .prepared ? payload.entry.oldYear : targetYear
+                guard observedYear == expectedYear else {
+                    throw UpdateCoordinatorError.writeFinalizationFailed(
+                        trackID: trackID,
+                        effects: ["stale backup recovery checkpoint"]
                     )
                 }
             }

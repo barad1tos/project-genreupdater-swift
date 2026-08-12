@@ -149,6 +149,40 @@ struct BackupRecoveryTests {
         ))
     }
 
+    @Test("Prepared retry refuses a newer live year")
+    func stalePreparedRetry() async throws {
+        let fixture = try await BackupRecoveryFixture.make(liveYear: 2019)
+        await fixture.bridge.setWriteCancellationMode(true)
+
+        do {
+            _ = try await Self.restore(using: fixture.coordinator(), fixture: fixture)
+            Issue.record("Expected cancellation")
+        } catch is CancellationError {
+            // Expected: the bridge never reported an attempted write.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        var changedTrack = fixture.liveTrack
+        changedTrack.year = 2020
+        await fixture.bridge.setFetchedTracks([changedTrack])
+        await fixture.bridge.setWriteCancellationMode(false)
+        await expectRecoveryFailure(effects: ["stale backup recovery checkpoint"]) {
+            _ = try await fixture.coordinator().revertYearsFromBackupCSV(
+                fixture.csv,
+                artist: "Massive Attack",
+                currentTracks: [changedTrack]
+            )
+        }
+
+        #expect(await fixture.bridge.writtenProperties.isEmpty)
+        #expect(await fixture.historyStore.entries.isEmpty)
+        #expect(try await fixture.trackStore.getTrack(byID: "T1")?.year == 2019)
+        #expect(FileManager.default.fileExists(
+            atPath: fixture.directory.appendingPathComponent("pending-year-revert.json").path
+        ))
+    }
+
     @Test("Failed no-change phase persistence blocks automatic retry")
     func noChangePhaseFailureBlocksRetry() async throws {
         let fixture = try await BackupRecoveryFixture.make()
