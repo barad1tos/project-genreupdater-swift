@@ -172,7 +172,7 @@ private func findMatchingParenthesis(
 ) -> Int {
     var count = 1
     var position = start + 1
-    while position < chars.count, count > 0 {
+    while position < chars.count && count > 0 {
         if chars[position] == open {
             count += 1
         } else if chars[position] == close {
