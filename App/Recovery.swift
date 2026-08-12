@@ -287,8 +287,8 @@ extension AppDependencies {
         }
     }
 
-    /// Rebuilds missing finalization evidence — durable change history and
-    /// track processing state — for written items, whether the write was
+    /// Rebuilds missing finalization evidence — durable change history, track
+    /// metadata mirror, and processing state — for written items, whether the write was
     /// checkpointed terminal before the loss or confirmed by observation.
     /// A repair failure aborts clearance and the hold is retained.
     private func repairFinalizationEvidence(
@@ -308,10 +308,11 @@ extension AppDependencies {
             observed: observedOutcomes
         )
         guard !writtenItems.isEmpty else { return }
-        let existing = await undoCoordinator.getHistory()
+        let existing = try await undoCoordinator.loadDurableHistory()
         let entries = RecoveryEvidenceRepair.missingEntries(
             for: writtenItems,
-            existing: existing
+            existing: existing,
+            runID: record.runID.rawValue
         ).map { entry in
             var attributed = entry
             attributed.runID = record.runID.rawValue
@@ -320,21 +321,16 @@ extension AppDependencies {
         if !entries.isEmpty {
             try await undoCoordinator.recordRepairedChanges(entries)
         }
-        try await repairProcessingState(for: writtenItems)
+        try await repairTrackMirror(for: writtenItems)
     }
 
-    private func repairProcessingState(for items: [RunWorkItem]) async throws {
-        guard let trackStore else { return }
+    private func repairTrackMirror(for items: [RunWorkItem]) async throws {
+        guard let trackStore else {
+            throw AppDependencyServiceError.recoveryUnavailable
+        }
         for item in items {
-            guard case let .track(identity) = item.target,
-                  let trackID = identity.appleScriptID
-            else { continue }
-            try await trackStore.updateTrackProcessingState(
-                id: trackID,
-                genreUpdated: item.change.changeType == .genreUpdate ? true : nil,
-                yearUpdated: item.change.changeType == .yearUpdate
-                    || item.change.changeType == .yearRevert ? true : nil
-            )
+            guard let change = RecoveryEvidenceRepair.changeLogEntry(for: item) else { continue }
+            try await trackStore.persistAppliedChange(change)
         }
     }
 

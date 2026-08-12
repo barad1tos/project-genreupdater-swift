@@ -150,11 +150,10 @@ actor SyncMockTrackStore: TrackStateStore {
         storedTracks.first { $0.id == id }
     }
 
-    func updateTrackProcessingState(
-        id _: String,
-        genreUpdated _: Bool?,
-        yearUpdated _: Bool?
-    ) async throws {}
+    func persistAppliedChange(_ change: ChangeLogEntry) async throws {
+        guard let index = storedTracks.firstIndex(where: { $0.id == change.trackID }) else { return }
+        storedTracks[index] = try storedTracks[index].applying(change)
+    }
 
     func getUnprocessedTracks() async throws -> [Track] {
         storedTracks

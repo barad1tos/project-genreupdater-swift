@@ -85,9 +85,9 @@ extension ApplyAcceptedTests {
             [itemID: .outcome(.written)],
         ])
         #expect(effects.map(\.historyCount) == [0])
-        #expect(effects.map(\.processingCount) == [0])
+        #expect(effects.map(\.mirrorCount) == [0])
         #expect(await fixture.undo.getHistory().count == 1)
-        #expect(await fixture.trackStore.processingUpdates.count == 1)
+        #expect(await fixture.trackStore.appliedUpdates.count == 1)
     }
 
     @Test("Unknown single-write outcomes remain at the attempted boundary")
@@ -489,9 +489,9 @@ extension ApplyAcceptedTests {
             itemIDs[1]: .outcome(.written),
         ])
         #expect(effects.map(\.historyCount) == [0])
-        #expect(effects.map(\.processingCount) == [0])
+        #expect(effects.map(\.mirrorCount) == [0])
         #expect(await fixture.undo.getHistory().count == 2)
-        #expect(await fixture.trackStore.processingUpdates.count == 2)
+        #expect(await fixture.trackStore.appliedUpdates.count == 2)
     }
 
     @Test("Partial batch verification records confirmed items")
@@ -523,19 +523,19 @@ extension ApplyAcceptedTests {
         let history = await fixture.undo.getHistory()
         #expect(history.map(\.trackID) == ["MK1"])
         #expect(history.map(\.changeType) == [.genreUpdate])
-        let processingUpdates = await fixture.trackStore.processingUpdates
-        #expect(processingUpdates.count == 1)
-        #expect(processingUpdates.first?.id == "MK1")
-        #expect(processingUpdates.first?.genreUpdated == true)
-        #expect(processingUpdates.first?.yearUpdated == nil)
+        let appliedUpdates = await fixture.trackStore.appliedUpdates
+        #expect(appliedUpdates.count == 1)
+        #expect(appliedUpdates.first?.id == "MK1")
+        #expect(appliedUpdates.first?.genreUpdated == true)
+        #expect(appliedUpdates.first?.yearUpdated == nil)
         #expect(effects.map(\.historyCount) == [0])
-        #expect(effects.map(\.processingCount) == [0])
+        #expect(effects.map(\.mirrorCount) == [0])
     }
 
     @Test("Single-write finalization failures keep the written outcome")
     func singlePersistenceFailure() async throws {
         let fixture = await makeCoordinator()
-        await fixture.trackStore.failProcessingUpdates()
+        await fixture.trackStore.failAppliedUpdates()
         let itemID = UUID()
         let proposal = ProposedChange(
             id: itemID,
@@ -561,7 +561,7 @@ extension ApplyAcceptedTests {
         #expect(await checkpoints.values.map(\.boundary) == [.beforeAttempt, .afterAttempt, .afterVerification])
         #expect(await checkpoints.values.last?.states == [itemID: .outcome(.written)])
         #expect(await fixture.undo.getHistory().count == 1)
-        #expect(await fixture.trackStore.processingUpdates.isEmpty)
+        #expect(await fixture.trackStore.appliedUpdates.isEmpty)
     }
 
     @Test("Verified batch finalization failures keep written outcomes")
@@ -572,7 +572,7 @@ extension ApplyAcceptedTests {
                 maxBatchUpdateSize: 5
             )
         )
-        await fixture.trackStore.failProcessingUpdates()
+        await fixture.trackStore.failAppliedUpdates()
         let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
         await fixture.bridge.setFetchedTracks([track])
         let itemIDs = [UUID(), UUID()]
@@ -613,13 +613,13 @@ extension ApplyAcceptedTests {
             itemIDs[1]: .outcome(.written),
         ])
         #expect(await fixture.undo.getHistory().count == 2)
-        #expect(await fixture.trackStore.processingUpdates.isEmpty)
+        #expect(await fixture.trackStore.appliedUpdates.isEmpty)
     }
 
     @Test("Partial-batch finalization failures keep confirmed outcomes")
     func partialPersistenceFailure() async throws {
         let (fixture, itemIDs, proposals) = await makePartialBatch()
-        await fixture.trackStore.failProcessingUpdates()
+        await fixture.trackStore.failAppliedUpdates()
         let checkpoints = CheckpointProbe()
 
         do {
@@ -640,7 +640,7 @@ extension ApplyAcceptedTests {
             itemIDs[0]: .outcome(.written),
         ])
         #expect(await fixture.undo.getHistory().count == 1)
-        #expect(await fixture.trackStore.processingUpdates.isEmpty)
+        #expect(await fixture.trackStore.appliedUpdates.isEmpty)
     }
 
     @Test("Partial-batch checkpoint failure keeps verification context")
@@ -773,7 +773,7 @@ extension ApplyAcceptedTests {
         }
 
         #expect(await fixture.undo.getHistory().isEmpty)
-        #expect(await fixture.trackStore.processingUpdates.isEmpty)
+        #expect(await fixture.trackStore.appliedUpdates.isEmpty)
         await expectCachesCleared(for: track, fixture: fixture)
     }
 
@@ -783,10 +783,10 @@ extension ApplyAcceptedTests {
     ) async -> CheckpointEffects? {
         guard checkpoint.boundary == .afterVerification else { return nil }
         let historyCount = await fixture.undo.getHistory().count
-        let processingCount = await fixture.trackStore.processingUpdates.count
+        let mirrorCount = await fixture.trackStore.appliedUpdates.count
         return CheckpointEffects(
             historyCount: historyCount,
-            processingCount: processingCount
+            mirrorCount: mirrorCount
         )
     }
 

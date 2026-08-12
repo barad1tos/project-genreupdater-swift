@@ -274,15 +274,11 @@ extension UpdateCoordinator {
             """)
         }
         do {
-            try await trackStore.updateTrackProcessingState(
-                id: change.track.id,
-                genreUpdated: change.changeType == .genreUpdate ? true : nil,
-                yearUpdated: change.changeType == .yearUpdate || change.changeType == .yearRevert ? true : nil
-            )
+            try await trackStore.persistAppliedChange(entry)
         } catch {
-            failedEffects.append("track processing state")
+            failedEffects.append("track mirror")
             log.error("""
-            Failed to persist processing state for track \(change.track.id, privacy: .private): \
+            Failed to persist applied metadata for track \(change.track.id, privacy: .private): \
             \(error.localizedDescription, privacy: .private)
             """)
         }

@@ -40,7 +40,7 @@ extension ExternalAPIService {
 
 // MARK: - MockTrackStore
 
-struct TrackProcessingUpdate {
+struct AppliedTrackUpdate {
     let id: String
     let genreUpdated: Bool?
     let yearUpdated: Bool?
@@ -48,11 +48,11 @@ struct TrackProcessingUpdate {
 
 actor MockTrackStore: TrackStateStore {
     var tracks: [Track] = []
-    private(set) var processingUpdates: [TrackProcessingUpdate] = []
-    private var shouldFailProcessingUpdates = false
+    private(set) var appliedUpdates: [AppliedTrackUpdate] = []
+    private var shouldFailMirror = false
 
-    func failProcessingUpdates() {
-        shouldFailProcessingUpdates = true
+    func failAppliedUpdates() {
+        shouldFailMirror = true
     }
 
     func initialize() async throws {}
@@ -76,18 +76,17 @@ actor MockTrackStore: TrackStateStore {
         tracks.first { $0.id == id }
     }
 
-    func updateTrackProcessingState(
-        id: String,
-        genreUpdated: Bool?,
-        yearUpdated: Bool?
-    ) async throws {
-        if shouldFailProcessingUpdates {
+    func persistAppliedChange(_ change: ChangeLogEntry) async throws {
+        if shouldFailMirror {
             throw MockScriptError.intentional
         }
-        processingUpdates.append(TrackProcessingUpdate(
-            id: id,
-            genreUpdated: genreUpdated,
-            yearUpdated: yearUpdated
+        if let index = tracks.firstIndex(where: { $0.id == change.trackID }) {
+            tracks[index] = try tracks[index].applying(change)
+        }
+        appliedUpdates.append(AppliedTrackUpdate(
+            id: change.trackID,
+            genreUpdated: change.changeType == .genreUpdate ? true : nil,
+            yearUpdated: change.changeType == .yearUpdate || change.changeType == .yearRevert ? true : nil
         ))
     }
 
@@ -110,6 +109,10 @@ actor MockChangeLogStore: ChangeLogStore {
         shouldFailSaves = true
     }
 
+    func resumeSaves() {
+        shouldFailSaves = false
+    }
+
     func loadRecent(limit: Int) async throws -> [ChangeLogEntry] {
         Array(entries.sorted { $0.timestamp > $1.timestamp }.prefix(limit))
     }
@@ -118,6 +121,7 @@ actor MockChangeLogStore: ChangeLogStore {
         if shouldFailSaves {
             throw MockScriptError.intentional
         }
+        entries.removeAll { $0.id == entry.id }
         entries.append(entry)
     }
 
@@ -125,6 +129,8 @@ actor MockChangeLogStore: ChangeLogStore {
         if shouldFailSaves {
             throw MockScriptError.intentional
         }
+        let entryIDs = Set(entries.map(\.id))
+        self.entries.removeAll { entryIDs.contains($0.id) }
         self.entries.append(contentsOf: entries)
     }
 

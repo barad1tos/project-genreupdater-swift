@@ -142,8 +142,8 @@ actor FactoryTrackStore: TrackStateStore {
         nil
     }
 
-    func updateTrackProcessingState(id _: String, genreUpdated _: Bool?, yearUpdated _: Bool?) async throws {
-        // Factory tests do not persist processing state.
+    func persistAppliedChange(_: ChangeLogEntry) async throws {
+        // Factory tests do not persist applied track changes.
     }
 
     func getUnprocessedTracks() async throws -> [Track] {

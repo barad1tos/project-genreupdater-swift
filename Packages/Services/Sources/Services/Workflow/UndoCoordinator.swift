@@ -4,14 +4,15 @@ import OSLog
 
 // MARK: - Undo Error
 
-public enum UndoCoordinatorError: Error, LocalizedError {
+enum UndoCoordinatorError: Error, LocalizedError {
     case revertFailed(trackID: String, reason: String)
     case noChangesToRevert
     case partialRevertFailure(succeeded: Int, failed: Int, errorDescriptions: [String])
     case invalidBackupCSV(reason: String)
     case missingAppleScriptID(trackID: String)
+    case historyStoreUnavailable
 
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case let .revertFailed(trackID, reason):
             "Failed to revert track \(trackID): \(reason)"
@@ -27,6 +28,8 @@ public enum UndoCoordinatorError: Error, LocalizedError {
             "Invalid backup CSV: \(reason)"
         case .missingAppleScriptID:
             "Missing AppleScript ID mapping for a track"
+        case .historyStoreUnavailable:
+            "Durable change history is unavailable"
         }
     }
 
@@ -140,15 +143,16 @@ public actor UndoCoordinator {
         log.info("Recorded \(entries.count, privacy: .public) change(s)")
     }
 
-    /// Records repaired evidence durable-first: the in-memory history gains
-    /// the entries only after the store accepted them, so a failed repair
-    /// stays visible to the next attempt instead of masking itself behind a
-    /// cached phantom (the write-path `recordChanges` deliberately does the
-    /// opposite to retain in-memory undo when persistence fails mid-run).
+    /// Records repaired evidence durable-first, replacing same-ID in-memory
+    /// entries only after the store accepts them. The normal `recordChange`
+    /// and `recordChanges` paths deliberately retain in-memory undo when
+    /// persistence fails mid-run.
     public func recordRepairedChanges(_ entries: [ChangeLogEntry]) async throws {
         await loadHistoryIfNeeded()
 
         try await changeLogStore?.saveEntries(entries)
+        let repairedIDs = Set(entries.map(\.id))
+        history.removeAll { repairedIDs.contains($0.id) }
         history.append(contentsOf: entries)
         log.info("Repaired \(entries.count, privacy: .public) change history entrie(s)")
     }
@@ -270,6 +274,19 @@ public actor UndoCoordinator {
             return Array(sorted.prefix(limit))
         }
         return sorted
+    }
+
+    /// Reads store-backed history for recovery decisions, migrating legacy
+    /// JSON into an empty store, then reconciles the in-memory view. Missing
+    /// storage and read or migration failures propagate without reconciliation.
+    public func loadDurableHistory() async throws -> [ChangeLogEntry] {
+        guard changeLogStore != nil else {
+            throw UndoCoordinatorError.historyStoreUnavailable
+        }
+        let durableHistory = try await loadHistoryFromStoreOrLegacy()
+        history = durableHistory
+        hasLoadedHistory = true
+        return durableHistory.sorted { $0.timestamp > $1.timestamp }
     }
 
     /// Clear all history from memory and disk.
@@ -523,7 +540,7 @@ public actor UndoCoordinator {
         switch error {
         case let .revertFailed(_, reason):
             reason == "AppleScript write failed" ? reason : "Failed to revert track"
-        case .noChangesToRevert, .invalidBackupCSV, .missingAppleScriptID:
+        case .noChangesToRevert, .invalidBackupCSV, .missingAppleScriptID, .historyStoreUnavailable:
             error.errorDescription ?? "Undo operation failed"
         case let .partialRevertFailure(succeeded, failed, _):
             "Partial revert: \(succeeded) succeeded, \(failed) failed"

@@ -11,7 +11,7 @@ struct RecoveryEvidenceRepairTests {
 
         let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: item))
 
-        #expect(entry.trackID == "persistent-1")
+        #expect(entry.trackID == "music-kit-1")
         #expect(entry.changeType == .genreUpdate)
         #expect(entry.oldGenre == "Rock")
         #expect(entry.newGenre == "Stoner Rock")
@@ -63,6 +63,7 @@ struct RecoveryEvidenceRepairTests {
 
     @Test("repair skips entries the history already records")
     func filtersMissingEntries() throws {
+        let runID = UUID()
         let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
         let recorded = makeWorkItem(
             state: .outcome(.written),
@@ -74,7 +75,8 @@ struct RecoveryEvidenceRepairTests {
 
         let entries = RecoveryEvidenceRepair.missingEntries(
             for: [landed, recorded],
-            existing: [existing]
+            existing: [existing],
+            runID: runID
         )
 
         #expect(entries.map(\.newGenre) == ["Stoner Rock"])
@@ -82,12 +84,81 @@ struct RecoveryEvidenceRepairTests {
 
     @Test("repair is idempotent across repeated clearance attempts")
     func staysIdempotent() {
+        let runID = UUID()
         let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
-        let first = RecoveryEvidenceRepair.missingEntries(for: [landed], existing: [])
+        let first = RecoveryEvidenceRepair.missingEntries(for: [landed], existing: [], runID: runID)
 
-        let second = RecoveryEvidenceRepair.missingEntries(for: [landed], existing: first)
+        let second = RecoveryEvidenceRepair.missingEntries(for: [landed], existing: first, runID: runID)
 
         #expect(first.count == 1)
         #expect(second.isEmpty)
+    }
+
+    @Test("legacy history from another run is not migrated")
+    func keepsForeignHistory() {
+        let runID = UUID()
+        let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
+        let legacyID = UUID()
+        var legacy = ChangeLogEntry(
+            id: legacyID,
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            changeType: .genreUpdate,
+            trackID: "persistent-1",
+            artist: "Artist",
+            trackName: "Track",
+            albumName: "Album",
+            oldGenre: "Rock",
+            newGenre: "Stoner Rock"
+        )
+        legacy.runID = UUID()
+
+        let entries = RecoveryEvidenceRepair.missingEntries(
+            for: [landed],
+            existing: [legacy],
+            runID: runID
+        )
+
+        #expect(entries.count == 1)
+        #expect(entries.first?.id != legacyID)
+        #expect(entries.first?.trackID == "music-kit-1")
+    }
+
+    @Test("failed repaired save keeps legacy history until retry")
+    func retriesFailedRepair() async throws {
+        let store = MockChangeLogStore()
+        let coordinator = UndoCoordinator(
+            scriptBridge: MockAppleScriptClient(),
+            changeLogStore: store,
+            directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("RecoveryRepair-\(UUID().uuidString)")
+        )
+        let legacy = ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: "persistent-1",
+            artist: "Artist"
+        )
+        try await coordinator.recordChange(legacy)
+        let canonical = ChangeLogEntry(
+            id: legacy.id,
+            timestamp: legacy.timestamp,
+            changeType: legacy.changeType,
+            trackID: "read-1",
+            artist: legacy.artist,
+            oldGenre: "Rock",
+            newGenre: "Stoner Rock"
+        )
+        await store.failSaves()
+
+        await #expect(throws: MockScriptError.self) {
+            try await coordinator.recordRepairedChanges([canonical])
+        }
+        #expect(await coordinator.getHistory().map(\.trackID) == ["persistent-1"])
+        #expect(try await store.loadAll().map(\.trackID) == ["persistent-1"])
+
+        await store.resumeSaves()
+        try await coordinator.recordRepairedChanges([canonical])
+
+        #expect(await coordinator.getHistory().map(\.trackID) == ["read-1"])
+        #expect(try await store.loadAll().map(\.trackID) == ["read-1"])
     }
 }

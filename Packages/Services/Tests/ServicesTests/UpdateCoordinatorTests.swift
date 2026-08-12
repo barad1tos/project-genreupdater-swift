@@ -45,6 +45,7 @@ func makeEditableTrack(
 struct CoordinatorFixture {
     let coordinator: UpdateCoordinator
     let bridge: MockAppleScriptClient
+    let store: MockTrackStore
     let undo: UndoCoordinator
 }
 
@@ -147,6 +148,7 @@ struct UpdateCoordinatorTests {
         return CoordinatorFixture(
             coordinator: coordinator,
             bridge: bridge,
+            store: store,
             undo: undo
         )
     }
@@ -301,6 +303,7 @@ struct UpdateCoordinatorTests {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)
 
         let track = makeEditableTrack(year: 1969)
+        try await fixture.store.saveTracks([track])
         let changes = try await fixture.coordinator.updateTrack(
             track,
             options: UpdateOptions(updateGenre: false, updateYear: true),
@@ -310,6 +313,8 @@ struct UpdateCoordinatorTests {
         #expect(!changes.isEmpty)
         let written = await fixture.bridge.writtenProperties
         #expect(written.contains { $0.property == "year" && $0.value == "2020" })
+        let storedTrack = try await fixture.store.getTrack(byID: track.id)
+        #expect(storedTrack?.year == 2020)
     }
 
     @Test("Non-editable track throws trackNotEditable")

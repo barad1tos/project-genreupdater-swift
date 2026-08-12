@@ -15,7 +15,7 @@ public enum RecoveryEvidenceRepair {
         else { return nil }
         var entry = ChangeLogEntry(
             changeType: item.change.changeType,
-            trackID: trackID,
+            trackID: identity.readID,
             artist: identity.artist,
             trackName: identity.trackName,
             albumName: identity.album
@@ -55,28 +55,68 @@ public enum RecoveryEvidenceRepair {
         }
     }
 
-    /// Entries for written items that the existing history does not already
-    /// record, matched by track, change type, and new value so repair stays
-    /// idempotent across retries and partial finalizations.
+    /// Returns missing canonical entries for written items. A same-run legacy
+    /// AppleScript-ID entry is rewritten to the read ID while preserving its
+    /// event identity; entries owned by another run are never rewritten.
     public static func missingEntries(
         for items: [RunWorkItem],
-        existing: [ChangeLogEntry]
+        existing: [ChangeLogEntry],
+        runID: UUID
     ) -> [ChangeLogEntry] {
         items.compactMap { item -> ChangeLogEntry? in
-            guard let entry = changeLogEntry(for: item),
-                  !existing.contains(where: { matches($0, entry) })
+            guard let candidate = changeLogEntry(for: item),
+                  !existing.contains(where: { matches($0, candidate) })
             else { return nil }
-            return entry
+            guard case let .track(identity) = item.target,
+                  identity.appleScriptID != candidate.trackID,
+                  let legacy = existing.first(where: {
+                      $0.trackID == identity.appleScriptID
+                          && $0.runID == runID
+                          && matchesChange($0, candidate)
+                  })
+            else { return candidate }
+            return canonicalEntry(candidate, preserving: legacy)
         }
     }
 
     private static func matches(_ recorded: ChangeLogEntry, _ candidate: ChangeLogEntry) -> Bool {
         recorded.trackID == candidate.trackID
-            && recorded.changeType == candidate.changeType
+            && matchesChange(recorded, candidate)
+    }
+
+    private static func matchesChange(_ recorded: ChangeLogEntry, _ candidate: ChangeLogEntry) -> Bool {
+        recorded.changeType == candidate.changeType
             && recorded.newGenre == candidate.newGenre
             && recorded.newYear == candidate.newYear
             && recorded.newTrackName == candidate.newTrackName
             && recorded.newAlbumName == candidate.newAlbumName
             && recorded.newArtist == candidate.newArtist
+    }
+
+    private static func canonicalEntry(
+        _ candidate: ChangeLogEntry,
+        preserving legacy: ChangeLogEntry
+    ) -> ChangeLogEntry {
+        var canonical = ChangeLogEntry(
+            id: legacy.id,
+            timestamp: legacy.timestamp,
+            changeType: candidate.changeType,
+            trackID: candidate.trackID,
+            artist: candidate.artist,
+            trackName: candidate.trackName,
+            albumName: candidate.albumName,
+            oldGenre: candidate.oldGenre,
+            newGenre: candidate.newGenre,
+            oldYear: candidate.oldYear,
+            newYear: candidate.newYear,
+            oldTrackName: candidate.oldTrackName,
+            newTrackName: candidate.newTrackName,
+            oldAlbumName: candidate.oldAlbumName,
+            newAlbumName: candidate.newAlbumName,
+            oldArtist: candidate.oldArtist,
+            newArtist: candidate.newArtist
+        )
+        canonical.runID = legacy.runID
+        return canonical
     }
 }

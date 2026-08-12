@@ -9,10 +9,69 @@ struct RecoverySetup {
     let processor: BatchProcessor
     let store: any RunRecordStore
     let undo: UndoCoordinator
-    let changeLog: ChangeLogDataStore
+    let changeLog: RecoveryChangeLogStore
     let trackStore: TrackDataStore
     let persistenceContainer: ModelContainer
     let directory: URL
+}
+
+/// SwiftData-backed history store with a controllable save failure for
+/// app-level recovery tests.
+actor RecoveryChangeLogStore: ChangeLogStore {
+    struct SaveFailure: Error {}
+    struct ReadFailure: Error {}
+
+    private let base: ChangeLogDataStore
+    private var shouldFailSaves = false
+    private var shouldFailReads = false
+
+    init(base: ChangeLogDataStore) {
+        self.base = base
+    }
+
+    func failSaves() {
+        shouldFailSaves = true
+    }
+
+    func resumeSaves() {
+        shouldFailSaves = false
+    }
+
+    func failReads() {
+        shouldFailReads = true
+    }
+
+    func resumeReads() {
+        shouldFailReads = false
+    }
+
+    func saveEntry(_ entry: ChangeLogEntry) async throws {
+        guard !shouldFailSaves else { throw SaveFailure() }
+        try await base.saveEntry(entry)
+    }
+
+    func saveEntries(_ entries: [ChangeLogEntry]) async throws {
+        guard !shouldFailSaves else { throw SaveFailure() }
+        try await base.saveEntries(entries)
+    }
+
+    func loadAll() async throws -> [ChangeLogEntry] {
+        guard !shouldFailReads else { throw ReadFailure() }
+        return try await base.loadAll()
+    }
+
+    func loadRecent(limit: Int) async throws -> [ChangeLogEntry] {
+        guard !shouldFailReads else { throw ReadFailure() }
+        return try await base.loadRecent(limit: limit)
+    }
+
+    func delete(entryID: UUID) async throws {
+        try await base.delete(entryID: entryID)
+    }
+
+    func deleteAll() async throws {
+        try await base.deleteAll()
+    }
 }
 
 /// One write-uncertain track item for the recovery fixtures below.
@@ -217,7 +276,9 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) async throws -> Recov
     )
     let store = try store ?? RunRecordDataStore(modelContainer: ModelContainerFactory.createInMemory())
     let persistenceContainer = try ModelContainerFactory.createInMemory()
-    let changeLog = ChangeLogDataStore(modelContainer: persistenceContainer)
+    let changeLog = RecoveryChangeLogStore(
+        base: ChangeLogDataStore(modelContainer: persistenceContainer)
+    )
     let trackStore = TrackDataStore(modelContainer: persistenceContainer)
     let undo = UndoCoordinator(
         scriptBridge: RecoveryScriptStub(tracks: []),
