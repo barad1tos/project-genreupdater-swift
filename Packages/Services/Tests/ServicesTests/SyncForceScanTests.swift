@@ -100,28 +100,33 @@ struct SyncForceScanTests {
         let dateProvider = SyncDateProvider(forceScanDate)
         let cache = try GRDBCacheService.createInMemory()
         try await cache.initialize()
-        let snapshotService = CachedLibrarySnapshotService(
+        let uiSnapshotService = CachedLibrarySnapshotService(
             cache: cache,
             configuration: LibrarySnapshotConfig(),
             currentDate: dateProvider.now
         )
         let storedTrack = Self.track(name: "Metal")
-        _ = try await snapshotService.saveSnapshot([storedTrack])
-        var metadata = try #require(await snapshotService.getSnapshotMetadata())
+        _ = try await uiSnapshotService.saveSnapshot([storedTrack])
+        var metadata = try #require(await uiSnapshotService.getSnapshotMetadata())
         metadata.lastForceScanDate = forceScanDate
-        try await snapshotService.updateSnapshotMetadata(metadata)
+        try await uiSnapshotService.updateSnapshotMetadata(metadata)
 
         dateProvider.set(refreshDate)
-        _ = try await snapshotService.saveSnapshot([storedTrack])
+        _ = try await uiSnapshotService.saveSnapshot([storedTrack])
 
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         await bridge.setLibrary(ids: ["T1"], tracks: ["T1": Self.track(name: "Alternative")])
         await store.setStored([storedTrack])
+        let syncSnapshotService = CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: LibrarySnapshotConfig(),
+            currentDate: dateProvider.now
+        )
         let service = LibrarySyncService(
             scriptBridge: bridge,
             trackStore: store,
-            librarySnapshotService: snapshotService,
+            librarySnapshotService: syncSnapshotService,
             currentDate: dateProvider.now
         )
 
