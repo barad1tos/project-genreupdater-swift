@@ -360,6 +360,7 @@ struct AppConfigurationTests {
         #expect(decoded.yearRetrieval.apiAuth.discogsBaseHost == "api.discogs.com")
         #expect(decoded.yearRetrieval.reissueDetection.reissueKeywords.count == 3)
         #expect(decoded.caching.defaultTTLSeconds == 120)
+        #expect(decoded.caching.negativeResultTTL == 3600)
         #expect(decoded.caching.cleanupErrorRetryDelay == 60)
         #expect(decoded.caching.librarySnapshot.cacheFile == "cache/library_snapshot.json")
         #expect(decoded.caching.librarySnapshot.compress)

@@ -136,7 +136,7 @@ public struct CachingConfig: Sendable, Codable {
     public var albumCacheSyncInterval: Int = 300
     public var cleanupErrorRetryDelay: Int = 60
     public var cleanupIntervalSeconds: Int = 300
-    public var negativeResultTTL: Double = 2_592_000
+    public var negativeResultTTL: Double = 3600
     public var librarySnapshot = LibrarySnapshotConfig()
 
     private enum CodingKeys: String, CodingKey {
@@ -175,7 +175,7 @@ public struct CachingConfig: Sendable, Codable {
         negativeResultTTL = try container.decodeIfPresent(Double.self, forKey: .negativeResultTTL)
             ?? container.decodeIfPresent(Double.self, forKey: .negativeResultTtl)
             ?? container.decodeIfPresent(Double.self, forKey: .legacyNegativeResultTTL)
-            ?? 2_592_000
+            ?? 3600
         if let configuredSnapshot = try container
             .decodeIfPresent(LibrarySnapshotConfig.self, forKey: .librarySnapshot) {
             librarySnapshot = configuredSnapshot

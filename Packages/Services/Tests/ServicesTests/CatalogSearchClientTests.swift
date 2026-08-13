@@ -5,6 +5,7 @@
 // in the app-hosted IntegrationTests target.
 
 import Foundation
+import MusicKit
 import Testing
 @testable import Core
 @testable import Services
@@ -27,6 +28,63 @@ struct CatalogSearchClientTests {
     @Test("Client conforms to ExternalAPIService")
     func conformsToProtocol() {
         requireExternalAPIService(CatalogSearchClient())
+    }
+
+    @Test("Album year lookup reports unavailable MusicKit authorization as a failure")
+    func requiresAuthorization() async {
+        let client = CatalogSearchClient(
+            dateProvider: { Date() },
+            authorizeMusic: { .denied },
+            findReleaseDate: { _ in
+                Issue.record("Catalog search must not run without authorization")
+                return nil
+            }
+        )
+
+        await #expect(throws: CatalogSearchError.self) {
+            _ = try await client.getAlbumYear(
+                artist: "Test Artist",
+                album: "Test Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+    }
+
+    @Test("Album year lookup propagates catalog request failures")
+    func propagatesRequestFailure() async {
+        let client = CatalogSearchClient(
+            dateProvider: { Date() },
+            authorizeMusic: { .authorized },
+            findReleaseDate: { _ in throw URLError(.timedOut) }
+        )
+
+        await #expect(throws: URLError.self) {
+            _ = try await client.getAlbumYear(
+                artist: "Test Artist",
+                album: "Test Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+    }
+
+    @Test("Album year lookup keeps an empty catalog response as a confirmed miss")
+    func returnsConfirmedMiss() async throws {
+        let client = CatalogSearchClient(
+            dateProvider: { Date() },
+            authorizeMusic: { .authorized },
+            findReleaseDate: { _ in nil }
+        )
+
+        let result = try await client.getAlbumYear(
+            artist: "Test Artist",
+            album: "Missing Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == nil)
     }
 
     @Test("iTunes configuration uses expected wire paths")

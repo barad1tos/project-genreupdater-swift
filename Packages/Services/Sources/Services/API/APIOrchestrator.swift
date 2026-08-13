@@ -478,7 +478,7 @@ public actor APIOrchestrator {
         log: Logger
     ) async -> SourceFetchResult {
         let source = sourceEntry.source
-        if let cached = await cachedAPIResult(source: source, query: query, cache: cacheContext.cache) {
+        if let cached = await cachedAPIResult(source: source, query: query, cacheContext: cacheContext) {
             return SourceFetchResult(source: source, result: cached)
         }
 
@@ -502,9 +502,9 @@ public actor APIOrchestrator {
     private static func cachedAPIResult(
         source: APISource,
         query: SourceQuery,
-        cache: (any CacheService)?
+        cacheContext: SourceCacheContext
     ) async -> YearResult? {
-        guard let cached = await cache?.getCachedAPIResult(
+        guard let cached = await cacheContext.cache?.getCachedAPIResult(
             artist: query.artist,
             album: query.album,
             source: source.rawValue
@@ -513,6 +513,11 @@ public actor APIOrchestrator {
         }
 
         guard let year = cached.year else {
+            guard cacheContext.negativeResultTTL > 0,
+                  Date.now.timeIntervalSince(cached.timestamp) < cacheContext.negativeResultTTL
+            else {
+                return nil
+            }
             return YearResult()
         }
 

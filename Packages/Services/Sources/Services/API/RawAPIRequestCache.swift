@@ -13,6 +13,22 @@ public enum RawAPIRequestCacheError: Error, Equatable {
 /// The stored entry: response bytes for a success, a marker for a miss.
 private struct RawRequestEntry: Codable {
     let payload: Data?
+    let storedAt: Date?
+
+    init(payload: Data?, storedAt: Date = .now) {
+        self.payload = payload
+        self.storedAt = storedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case payload, storedAt
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        payload = try container.decodeIfPresent(Data.self, forKey: .payload)
+        storedAt = try container.decodeIfPresent(Date.self, forKey: .storedAt)
+    }
 }
 
 /// The shared pre-limiter response cache all three API clients front their
@@ -26,6 +42,8 @@ private struct RawRequestEntry: Codable {
 /// would freeze the FIRST transient 429/503 for the whole TTL — this
 /// seam therefore never writes a miss. Only responses that parse as JSON
 /// are stored, mirroring Python caching the parsed dict.
+/// Persisted hits are also checked against the current TTL so a shorter policy
+/// or Off takes effect without waiting for an older physical expiry.
 public struct RawAPIRequestCache: Sendable {
     /// Raw bodies share the generic table's row budget with the derived
     /// caches (release candidates, artist regions). An iTunes search at
@@ -39,7 +57,7 @@ public struct RawAPIRequestCache: Sendable {
 
     public init(cache: any CacheService, ttl: TimeInterval) {
         self.cache = cache
-        self.ttl = ttl
+        self.ttl = max(0, ttl)
     }
 
     public func data(
@@ -49,10 +67,13 @@ public struct RawAPIRequestCache: Sendable {
     ) async throws -> Data {
         let key = Self.cacheKey(api: api, url: url)
         if let entry: RawRequestEntry = await cache.get(key: key) {
-            guard let payload = entry.payload else {
-                throw RawAPIRequestCacheError.cachedFailure
+            if isCurrent(entry) {
+                guard let payload = entry.payload else {
+                    throw RawAPIRequestCacheError.cachedFailure
+                }
+                return payload
             }
-            return payload
+            await cache.invalidate(key: key)
         }
 
         let payload = try await fetch()
@@ -69,6 +90,11 @@ public struct RawAPIRequestCache: Sendable {
         }
         await cache.set(key: key, value: RawRequestEntry(payload: payload), ttl: ttl)
         return payload
+    }
+
+    private func isCurrent(_ entry: RawRequestEntry) -> Bool {
+        guard ttl > 0, let storedAt = entry.storedAt else { return false }
+        return Date.now.timeIntervalSince(storedAt) < ttl
     }
 
     /// Deterministic, order-insensitive request identity (Python sorts
