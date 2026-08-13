@@ -30,7 +30,19 @@ extension APIOrchestrator {
             return cachedYear == ArtistStartYearCache.notFoundSentinel ? nil : cachedYear
         }
 
-        let (musicBrainzStartYear, _) = await getArtistActivityPeriod(normalizedArtist: normalizedArtist)
+        let musicBrainzStartYear: Int?
+        var hasProviderFailure = false
+        do {
+            (musicBrainzStartYear, _) = try await musicBrainz.getArtistActivityPeriod(
+                normalizedArtist: normalizedArtist
+            )
+        } catch {
+            hasProviderFailure = true
+            musicBrainzStartYear = nil
+            AppLogger.api.warning(
+                "MusicBrainz artist activity lookup failed: \(error.localizedDescription, privacy: .public)"
+            )
+        }
         if let musicBrainzStartYear {
             await cache?.set(
                 key: cacheKey,
@@ -50,10 +62,13 @@ extension APIOrchestrator {
                 return appleMusicStartYear
             }
         } catch {
+            hasProviderFailure = true
             AppLogger.api.warning(
                 "Apple Music artist start lookup failed: \(error.localizedDescription, privacy: .public)"
             )
         }
+
+        guard !hasProviderFailure else { return nil }
 
         await cache?.set(
             key: cacheKey,
