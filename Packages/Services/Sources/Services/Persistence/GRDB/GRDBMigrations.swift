@@ -44,5 +44,28 @@ enum GRDBMigrations {
                 table.column("timestamp", .datetime).notNull()
             }
         }
+
+        migrator.registerMigration("v2_add_generic_access_order") { database in
+            try database.alter(table: "generic_cache") { table in
+                table.add(column: "accessOrder", .integer).notNull().defaults(to: 0)
+            }
+
+            let keys = try String.fetchAll(
+                database,
+                sql: "SELECT key FROM generic_cache ORDER BY timestamp ASC, key ASC"
+            )
+            for (offset, key) in keys.enumerated() {
+                try database.execute(
+                    sql: "UPDATE generic_cache SET accessOrder = ? WHERE key = ?",
+                    arguments: [offset + 1, key]
+                )
+            }
+
+            try database.create(
+                index: "generic_cache_on_accessOrder",
+                on: "generic_cache",
+                columns: ["accessOrder"]
+            )
+        }
     }
 }

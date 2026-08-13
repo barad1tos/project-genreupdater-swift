@@ -10,6 +10,7 @@ import OSLog
 ///
 /// Uses GRDB's `DatabasePool` for concurrent reads and serialized writes.
 /// Database file lives in Application Support/GenreUpdater/api_cache.db.
+/// Generic entries use persisted least-recently-used eviction without extending their TTL on reads.
 ///
 /// TTL defaults:
 /// - Album years: 30 days
@@ -98,7 +99,7 @@ public actor GRDBCacheService: CacheService {
 
     public func get<T: Codable & Sendable>(key: String) async -> T? {
         do {
-            return try await dbWriter.read { database in
+            return try await dbWriter.write { database in
                 guard let row = try GenericCacheRow.fetchOne(
                     database,
                     key: key
@@ -107,10 +108,16 @@ public actor GRDBCacheService: CacheService {
                 }
 
                 if row.isExpired {
+                    _ = try GenericCacheRow.deleteOne(database, key: key)
                     return nil
                 }
 
-                return try JSONDecoder().decode(T.self, from: row.value)
+                let value = try JSONDecoder().decode(T.self, from: row.value)
+                try database.execute(
+                    sql: "UPDATE generic_cache SET accessOrder = ? WHERE key = ?",
+                    arguments: [Self.nextAccessOrder(in: database), key]
+                )
+                return value
             }
         } catch {
             // Cache keys embed library metadata ("artist_region:<artist>"), so
@@ -127,11 +134,12 @@ public actor GRDBCacheService: CacheService {
             let now = Date.now
             let shouldCleanup = shouldRunGenericCleanup(at: now)
             try await dbWriter.write { database in
-                let row = GenericCacheRow(
+                let row = try GenericCacheRow(
                     key: key,
                     value: data,
                     ttl: resolvedTTL,
-                    timestamp: .now
+                    timestamp: .now,
+                    accessOrder: Self.nextAccessOrder(in: database)
                 )
                 try row.save(database)
                 if shouldCleanup {
@@ -607,12 +615,17 @@ extension GRDBCacheService {
             DELETE FROM generic_cache
             WHERE key IN (
                 SELECT key FROM generic_cache
-                ORDER BY timestamp ASC
+                ORDER BY accessOrder ASC, key ASC
                 LIMIT ?
             )
             """,
             arguments: [overflowCount]
         )
+    }
+
+    fileprivate static func nextAccessOrder(in database: Database) throws -> Int64 {
+        let latest = try Int64.fetchOne(database, sql: "SELECT MAX(accessOrder) FROM generic_cache") ?? 0
+        return latest + 1
     }
 
     fileprivate static func deleteExpiredGenericRows(in database: Database) throws {

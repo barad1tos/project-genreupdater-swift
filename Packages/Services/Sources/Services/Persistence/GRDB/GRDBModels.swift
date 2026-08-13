@@ -104,6 +104,7 @@ struct GenericCacheRow: Codable, FetchableRecord, PersistableRecord {
     var value: Data
     var ttl: Double?
     var timestamp: Date
+    var accessOrder: Int64 = 0
 
     var isExpired: Bool {
         guard let ttl else { return false }

@@ -57,7 +57,9 @@ struct GRDBCacheServiceTests {
         // Set with TTL of -1 second (already expired)
         await service.set(key: "expired", value: "old", ttl: -1)
         let result: String? = await service.get(key: "expired")
+        let stats = await service.getCacheStatistics()
         #expect(result == nil)
+        #expect(stats.genericCacheCount == 0)
     }
 
     @Test("Generic cache uses configured default TTL when none is provided")
@@ -84,6 +86,33 @@ struct GRDBCacheServiceTests {
         #expect(result == "long")
     }
 
+    @Test("Generic cache hits do not extend TTL")
+    func hitPreservesExpiry() async throws {
+        let databaseQueue = try DatabaseQueue()
+        let service = GRDBCacheService(dbWriter: databaseQueue)
+        try await service.initialize()
+        await service.set(key: "fixed_ttl", value: "value", ttl: 3600)
+
+        let timestampBefore = try await databaseQueue.read { database in
+            try Date.fetchOne(
+                database,
+                sql: "SELECT timestamp FROM generic_cache WHERE key = ?",
+                arguments: ["fixed_ttl"]
+            )
+        }
+        let value: String? = await service.get(key: "fixed_ttl")
+        let timestampAfter = try await databaseQueue.read { database in
+            try Date.fetchOne(
+                database,
+                sql: "SELECT timestamp FROM generic_cache WHERE key = ?",
+                arguments: ["fixed_ttl"]
+            )
+        }
+
+        #expect(value == "value")
+        #expect(timestampAfter == timestampBefore)
+    }
+
     @Test("Generic cache enforces configured entry limit")
     func genericCacheEntryLimit() async throws {
         let service = try GRDBCacheService.createInMemory(maxGenericEntries: 2)
@@ -95,6 +124,68 @@ struct GRDBCacheServiceTests {
 
         let stats = await service.getCacheStatistics()
         #expect(stats.genericCacheCount == 2)
+    }
+
+    @Test("Updating a generic cache entry makes it most recently used")
+    func updateBecomesRecent() async throws {
+        let service = try GRDBCacheService.createInMemory(maxGenericEntries: 2)
+        try await service.initialize()
+
+        await service.set(key: "a", value: 1, ttl: 3600)
+        await service.set(key: "b", value: 2, ttl: 3600)
+        await service.set(key: "a", value: 10, ttl: 3600)
+        await service.set(key: "c", value: 3, ttl: 3600)
+
+        let updated: Int? = await service.get(key: "a")
+        let unused: Int? = await service.get(key: "b")
+        let newest: Int? = await service.get(key: "c")
+        #expect(updated == 10)
+        #expect(unused == nil)
+        #expect(newest == 3)
+    }
+
+    @Test("Generic cache persists LRU order across migration and relaunch")
+    func durableLRUEviction() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("api_cache.db")
+
+        do {
+            let legacyDatabase = try DatabaseQueue(path: databaseURL.path)
+            var migrator = DatabaseMigrator()
+            GRDBMigrations.registerMigrations(&migrator)
+            try migrator.migrate(legacyDatabase, upTo: "v1_create_generic_cache")
+            try await legacyDatabase.write { database in
+                try database.execute(
+                    sql: "INSERT INTO generic_cache (key, value, timestamp) VALUES (?, ?, ?)",
+                    arguments: ["release_candidates:a", JSONEncoder().encode("A"), Date(timeIntervalSince1970: 1)]
+                )
+                try database.execute(
+                    sql: "INSERT INTO generic_cache (key, value, timestamp) VALUES (?, ?, ?)",
+                    arguments: ["artist_region:b", JSONEncoder().encode("B"), Date(timeIntervalSince1970: 2)]
+                )
+            }
+        }
+
+        do {
+            let service = try GRDBCacheService(databasePath: databaseURL.path, maxGenericEntries: 2)
+            try await service.initialize()
+            let frequentlyUsed: String? = await service.get(key: "release_candidates:a")
+            #expect(frequentlyUsed == "A")
+        }
+
+        let relaunched = try GRDBCacheService(databasePath: databaseURL.path, maxGenericEntries: 2)
+        try await relaunched.initialize()
+        await relaunched.set(key: "raw_request:c", value: "C", ttl: 3600)
+
+        let frequentlyUsed: String? = await relaunched.get(key: "release_candidates:a")
+        let unused: String? = await relaunched.get(key: "artist_region:b")
+        let newest: String? = await relaunched.get(key: "raw_request:c")
+        #expect(frequentlyUsed == "A")
+        #expect(unused == nil)
+        #expect(newest == "C")
     }
 
     @Test("Generic cache clear removes all entries")
