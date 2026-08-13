@@ -98,21 +98,6 @@ public struct LibraryCacheMetadata: Sendable, Codable {
     }
 }
 
-/// Delta cache tracking changes between snapshots.
-public struct LibraryDeltaCache: Sendable, Codable {
-    public var addedIDs: Set<String>
-    public var removedIDs: Set<String>
-    public var modifiedIDs: Set<String>
-    public var timestamp: Date
-
-    public init(addedIDs: Set<String>, removedIDs: Set<String>, modifiedIDs: Set<String>, timestamp: Date) {
-        self.addedIDs = addedIDs
-        self.removedIDs = removedIDs
-        self.modifiedIDs = modifiedIDs
-        self.timestamp = timestamp
-    }
-}
-
 /// Entry for an album pending manual verification.
 public struct PendingAlbumEntry: Sendable, Codable, Identifiable {
     public struct RetryState: Sendable {

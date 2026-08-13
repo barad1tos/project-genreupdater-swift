@@ -328,13 +328,11 @@ private struct FingerprintInput: Encodable {
 
         struct Snapshot: Encodable {
             let enabled: Bool
-            let deltaEnabled: Bool
             let cacheFile: String
             let maxAgeHours: Int
 
             init(_ snapshot: LibrarySnapshotConfig) {
                 enabled = snapshot.enabled
-                deltaEnabled = snapshot.deltaEnabled
                 cacheFile = snapshot.cacheFile
                 maxAgeHours = snapshot.maxAgeHours
             }

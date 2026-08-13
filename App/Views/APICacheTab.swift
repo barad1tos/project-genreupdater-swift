@@ -194,9 +194,6 @@ struct APICacheTab: View {
 
             Toggle("Library snapshot cache", isOn: configBinding(dependencies, \.caching.librarySnapshot.enabled))
 
-            Toggle("Delta snapshots", isOn: configBinding(dependencies, \.caching.librarySnapshot.deltaEnabled))
-                .disabled(!isLibrarySnapshotEnabled)
-
             Stepper(value: configBinding(dependencies, \.caching.librarySnapshot.maxAgeHours), in: 1 ... 168) {
                 LabeledContent("Snapshot max age", value: "\(dependencies.config.caching.librarySnapshot.maxAgeHours)h")
             }

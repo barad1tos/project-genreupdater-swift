@@ -51,7 +51,6 @@ struct CoordinatorFixture {
 
 actor MockLibrarySnapshotService: LibrarySnapshotService {
     var isEnabled = true
-    var isDeltaEnabled = true
     private var didClearSnapshot = false
 
     func loadSnapshot() async throws -> [Track]? {
@@ -68,12 +67,6 @@ actor MockLibrarySnapshotService: LibrarySnapshotService {
     }
     func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {
         // These tests only assert snapshot invalidation, not metadata persistence.
-    }
-    func loadDelta() async -> LibraryDeltaCache? {
-        nil
-    }
-    func saveDelta(_: LibraryDeltaCache) async throws {
-        // Delta persistence is outside this mock's UpdateCoordinator coverage.
     }
     func getLibraryModificationDate() async throws -> Date {
         .distantPast

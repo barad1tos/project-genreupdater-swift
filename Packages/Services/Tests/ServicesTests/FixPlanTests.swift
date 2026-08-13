@@ -210,6 +210,34 @@ struct FixPlanTests {
         #expect(decoded == snapshot)
     }
 
+    @Test("A legacy delta setting does not stale a persisted fix plan")
+    func legacyDeltaKeepsPlanFresh() throws {
+        let current = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSinceReferenceDate: 773_996_400)
+        )
+        let encoded = try JSONEncoder().encode(current)
+        var legacyJSON = try #require(String(data: encoded, encoding: .utf8))
+        let snapshotMarker = #""librarySnapshot":{"#
+        let fingerprintMarker = #""fingerprint":"\#(current.fingerprint)""#
+        #expect(legacyJSON.contains(snapshotMarker))
+        #expect(legacyJSON.contains(fingerprintMarker))
+        legacyJSON = legacyJSON.replacingOccurrences(
+            of: snapshotMarker,
+            with: #""librarySnapshot":{"deltaEnabled":false,"#
+        )
+        legacyJSON = legacyJSON.replacingOccurrences(
+            of: fingerprintMarker,
+            with: #""fingerprint":"legacy fingerprint""#
+        )
+        let legacyPayload = Data(legacyJSON.utf8)
+
+        let decoded = try JSONDecoder().decode(FixPlanConfig.self, from: legacyPayload)
+
+        #expect(decoded.fingerprint == current.fingerprint)
+    }
+
     @Test("an album target rides the config through Codable")
     func albumTargetRoundTripsThroughCodable() throws {
         let snapshot = FixPlanConfig.capture(

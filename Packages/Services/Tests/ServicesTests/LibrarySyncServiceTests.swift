@@ -209,7 +209,6 @@ extension SyncMockTrackStore {
 
 actor SyncMockLibrarySnapshotService: LibrarySnapshotService {
     var isEnabled = true
-    var isDeltaEnabled = true
     private var didClearSnapshot = false
     private var metadata: LibraryCacheMetadata?
 
@@ -230,12 +229,6 @@ actor SyncMockLibrarySnapshotService: LibrarySnapshotService {
     }
     func updateSnapshotMetadata(_ metadata: LibraryCacheMetadata) async throws {
         self.metadata = metadata
-    }
-    func loadDelta() async -> LibraryDeltaCache? {
-        nil
-    }
-    func saveDelta(_: LibraryDeltaCache) async throws {
-        // Tests using this mock do not assert delta persistence.
     }
     func getLibraryModificationDate() async throws -> Date {
         .distantPast

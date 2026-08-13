@@ -112,7 +112,6 @@ struct AppConfigurationTests {
         #expect(config.caching.cleanupIntervalSeconds == 300)
         #expect(config.caching.cleanupErrorRetryDelay == 60)
         #expect(config.caching.librarySnapshot.enabled)
-        #expect(config.caching.librarySnapshot.deltaEnabled)
         #expect(config.caching.librarySnapshot.cacheFile == "cache/library_snapshot.json")
         #expect(config.caching.librarySnapshot.maxAgeHours == 24)
         #expect(config.caching.librarySnapshot.compress)
@@ -699,8 +698,8 @@ struct AppConfigurationTests {
         }
     }
 
-    @Test("Decoding Python-style cache keys preserves snapshot settings")
-    func pythonStyleSnapshotCacheKeysDecode() throws {
+    @Test("Legacy delta snapshot key is ignored and omitted when saving")
+    func legacyDeltaSettingIsIgnored() throws {
         let jsonString = """
         {
           "caching": {
@@ -729,11 +728,16 @@ struct AppConfigurationTests {
         #expect(decoded.caching.cleanupIntervalSeconds == 120)
         #expect(decoded.caching.negativeResultTTL == 86400)
         #expect(!decoded.caching.librarySnapshot.enabled)
-        #expect(!decoded.caching.librarySnapshot.deltaEnabled)
         #expect(decoded.caching.librarySnapshot.cacheFile == "cache/custom_snapshot.json")
         #expect(decoded.caching.librarySnapshot.maxAgeHours == 12)
         #expect(!decoded.caching.librarySnapshot.compress)
         #expect(decoded.caching.librarySnapshot.compressLevel == 3)
+
+        let encoded = try JSONEncoder().encode(decoded)
+        let root = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let caching = try #require(root["caching"] as? [String: Any])
+        let snapshot = try #require(caching["librarySnapshot"] as? [String: Any])
+        #expect(snapshot["deltaEnabled"] == nil)
     }
 
     // MARK: - Batch Processing

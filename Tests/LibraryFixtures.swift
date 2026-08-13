@@ -272,7 +272,6 @@ func libraryLoadSourceURL() throws -> URL {
 
 actor SnapshotServiceSpy: LibrarySnapshotService {
     var isEnabled = true
-    var isDeltaEnabled = true
     private var saveSnapshotCallCount = 0
     private var savedTracks: [Track] = []
 
@@ -306,14 +305,6 @@ actor SnapshotServiceSpy: LibrarySnapshotService {
 
     func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {
         // Metadata writes are outside this spy's assertions.
-    }
-
-    func loadDelta() async -> LibraryDeltaCache? {
-        nil
-    }
-
-    func saveDelta(_: LibraryDeltaCache) async throws {
-        // Delta writes are outside this spy's assertions.
     }
 
     func getLibraryModificationDate() async throws -> Date {

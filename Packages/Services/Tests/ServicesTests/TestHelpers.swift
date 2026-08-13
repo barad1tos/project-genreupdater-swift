@@ -244,24 +244,14 @@ actor MockCacheService: CacheService {
 actor MockUndoLibrarySnapshotService: LibrarySnapshotService {
     private var didClearSnapshot = false
     private var snapshotMetadata: LibraryCacheMetadata?
-    private var deltaCache: LibraryDeltaCache?
     private let isSnapshotCachingEnabled: Bool
-    private let isSnapshotDeltaCachingEnabled: Bool
 
-    init(
-        isSnapshotCachingEnabled: Bool = true,
-        isSnapshotDeltaCachingEnabled: Bool = true
-    ) {
+    init(isSnapshotCachingEnabled: Bool = true) {
         self.isSnapshotCachingEnabled = isSnapshotCachingEnabled
-        self.isSnapshotDeltaCachingEnabled = isSnapshotDeltaCachingEnabled
     }
 
     var isEnabled: Bool {
         isSnapshotCachingEnabled
-    }
-
-    var isDeltaEnabled: Bool {
-        isSnapshotDeltaCachingEnabled
     }
 
     func loadSnapshot() async throws -> [Track]? {
@@ -286,14 +276,6 @@ actor MockUndoLibrarySnapshotService: LibrarySnapshotService {
 
     func updateSnapshotMetadata(_ metadata: LibraryCacheMetadata) async throws {
         snapshotMetadata = metadata
-    }
-
-    func loadDelta() async -> LibraryDeltaCache? {
-        deltaCache
-    }
-
-    func saveDelta(_ delta: LibraryDeltaCache) async throws {
-        deltaCache = delta
     }
 
     func getLibraryModificationDate() async throws -> Date {
