@@ -249,8 +249,16 @@ private func cachedReleaseCandidates(
         query: query,
         discogsReissueKeywords: cacheContext.discogsReissueKeywords
     )
-    let cachedEntries: [CachedReleaseCandidate]? = await cacheContext.cache?.get(key: cacheKey)
-    return cachedEntries?.map(\.releaseCandidate)
+    let cachedEntry: CandidateCacheEntry? = await cacheContext.cache?.get(key: cacheKey)
+    guard let cachedEntry else { return nil }
+
+    if cachedEntry.candidates.isEmpty,
+       !cachedEntry.isCurrentMiss(ttl: cacheContext.negativeResultTTL) {
+        await cacheContext.cache?.invalidate(key: cacheKey)
+        return nil
+    }
+
+    return cachedEntry.candidates.map(\.releaseCandidate)
 }
 
 private func cacheReleaseCandidates(
@@ -272,7 +280,9 @@ private func cacheReleaseCandidates(
     let ttl = candidates.isEmpty ? cacheContext.negativeResultTTL : cacheContext.positiveResultTTL
     await cacheContext.cache?.set(
         key: cacheKey,
-        value: cacheableCandidates(candidates, source: source).map(CachedReleaseCandidate.init),
+        value: CandidateCacheEntry(
+            candidates: cacheableCandidates(candidates, source: source).map(CachedReleaseCandidate.init)
+        ),
         ttl: ttl
     )
 }
@@ -416,6 +426,33 @@ private struct CachedReleaseCandidate: Codable {
             mbReleaseGroupFirstYear: mbReleaseGroupFirstYear,
             genre: genre
         )
+    }
+}
+
+private struct CandidateCacheEntry: Codable {
+    let candidates: [CachedReleaseCandidate]
+    let storedAt: Date?
+
+    init(candidates: [CachedReleaseCandidate], storedAt: Date = .now) {
+        self.candidates = candidates
+        self.storedAt = storedAt
+    }
+
+    init(from decoder: any Decoder) throws {
+        if let legacyCandidates = try? decoder.singleValueContainer().decode([CachedReleaseCandidate].self) {
+            candidates = legacyCandidates
+            storedAt = nil
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        candidates = try container.decode([CachedReleaseCandidate].self, forKey: .candidates)
+        storedAt = try container.decodeIfPresent(Date.self, forKey: .storedAt)
+    }
+
+    func isCurrentMiss(ttl: TimeInterval) -> Bool {
+        guard ttl > 0, let storedAt else { return false }
+        return Date.now.timeIntervalSince(storedAt) < ttl
     }
 }
 

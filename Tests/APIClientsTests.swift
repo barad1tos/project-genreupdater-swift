@@ -1,4 +1,5 @@
 import Core
+import CryptoKit
 import Foundation
 import Security
 import Services
@@ -369,10 +370,121 @@ struct APIClientsTests {
         #expect(retried.map(\.year) == [2024])
         #expect(fixture.probe.requestCount == 2)
     }
+
+    @Test("An upgrade ignores a raw response written before policy timestamps")
+    func refreshesLegacyRaw() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("api-cache.db")
+        let requestURL = try #require(URL(
+            string: "https://itunes.apple.com/search?term=Test%20Artist%20Test%20Album&country=US&entity=album&limit=200"
+        ))
+
+        do {
+            let legacyCache = try GRDBCacheService(databasePath: databaseURL.path, defaultGenericTTL: 31_536_000)
+            try await legacyCache.initialize()
+            await legacyCache.set(
+                key: legacyRawKey(api: "itunes", url: requestURL),
+                value: LegacyRawEntry(payload: RawRequestProbe.emptyPayload),
+                ttl: 31_536_000
+            )
+            try await legacyCache.syncToDisk()
+        }
+
+        let relaunchedCache = try GRDBCacheService(databasePath: databaseURL.path, defaultGenericTTL: 10)
+        try await relaunchedCache.initialize()
+        let probe = RawRequestProbe(startingAt: 1)
+        let fixture = try await makeCacheJourney(cache: relaunchedCache, probe: probe)
+        defer {
+            CapturedAuthURLProtocol.requestHandler = nil
+            fixture.session.invalidateAndCancel()
+        }
+
+        let candidates = await fixture.orchestrator.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Test Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.map(\.year) == [2024])
+        #expect(probe.requestCount == 2)
+    }
+
+    @Test("Off bypasses a durable miss written under a longer policy")
+    func offRetriesMiss() async throws {
+        try await verifyMissRetry(negativeTTL: 0, aging: .zero)
+    }
+
+    @Test("A shorter policy bypasses an older durable miss")
+    func retriesAgedMiss() async throws {
+        try await verifyMissRetry(negativeTTL: 0.05, aging: .milliseconds(120))
+    }
 }
 
 @MainActor
-private func makeCacheJourney(negativeTTL: TimeInterval = 1) async throws -> (
+private func verifyMissRetry(
+    negativeTTL: TimeInterval,
+    aging: Duration
+) async throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let databaseURL = directory.appendingPathComponent("api-cache.db")
+    let probe = RawRequestProbe()
+
+    do {
+        let initialCache = try GRDBCacheService(databasePath: databaseURL.path, defaultGenericTTL: 31_536_000)
+        try await initialCache.initialize()
+        let initial = try await makeCacheJourney(
+            cache: initialCache,
+            negativeTTL: 31_536_000,
+            probe: probe
+        )
+        _ = await initial.orchestrator.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Test Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+        initial.session.invalidateAndCancel()
+        try await initialCache.syncToDisk()
+    }
+
+    try await Task.sleep(for: aging)
+
+    let relaunchedCache = try GRDBCacheService(databasePath: databaseURL.path, defaultGenericTTL: 10)
+    try await relaunchedCache.initialize()
+    let relaunched = try await makeCacheJourney(
+        cache: relaunchedCache,
+        negativeTTL: negativeTTL,
+        probe: probe
+    )
+    defer {
+        CapturedAuthURLProtocol.requestHandler = nil
+        relaunched.session.invalidateAndCancel()
+    }
+
+    let candidates = await relaunched.orchestrator.getReleaseCandidates(
+        artist: "Test Artist",
+        album: "Test Album",
+        currentLibraryYear: nil,
+        earliestTrackAddedYear: nil
+    )
+
+    #expect(candidates.map(\.year) == [2024])
+    #expect(probe.requestCount == 2)
+}
+
+@MainActor
+private func makeCacheJourney(
+    cache: GRDBCacheService? = nil,
+    negativeTTL: TimeInterval = 1,
+    probe: RawRequestProbe = RawRequestProbe()
+) async throws -> (
     orchestrator: APIOrchestrator,
     probe: RawRequestProbe,
     session: URLSession
@@ -383,13 +495,12 @@ private func makeCacheJourney(negativeTTL: TimeInterval = 1) async throws -> (
     configuration.caching.negativeResultTTL = negativeTTL
     configuration.processing.cacheTTLDays = 36500
     configuration.runtime.maxRetries = 0
-    let cache = try GRDBCacheService.createInMemory(defaultGenericTTL: 10)
+    let cache = try cache ?? GRDBCacheService.createInMemory(defaultGenericTTL: 10)
     try await cache.initialize()
     let rawCache = try #require(AppDependencies.makeRawCache(
         configuration: configuration,
         cache: cache
     ))
-    let probe = RawRequestProbe()
     CapturedAuthURLProtocol.requestHandler = { request in
         let url = try #require(request.url)
         let response = try #require(HTTPURLResponse(
@@ -454,8 +565,14 @@ private final class AuthHeaderProbe: @unchecked Sendable {
 }
 
 private final class RawRequestProbe: @unchecked Sendable {
+    static let emptyPayload = Data(#"{"resultCount":0,"results":[]}"#.utf8)
+
     private let lock = NSLock()
-    private var count = 0
+    private var count: Int
+
+    init(startingAt count: Int = 0) {
+        self.count = count
+    }
 
     var requestCount: Int {
         lock.withLock { count }
@@ -465,7 +582,7 @@ private final class RawRequestProbe: @unchecked Sendable {
         lock.withLock {
             count += 1
             guard count > 1 else {
-                return Data(#"{"resultCount":0,"results":[]}"#.utf8)
+                return Self.emptyPayload
             }
             return Data(
                 """
@@ -482,6 +599,23 @@ private final class RawRequestProbe: @unchecked Sendable {
             )
         }
     }
+}
+
+private struct LegacyRawEntry: Codable, Sendable {
+    let payload: Data?
+}
+
+private func legacyRawKey(api: String, url: URL) -> String {
+    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    let sortedQuery = (components?.queryItems ?? [])
+        .map { "\($0.name)=\($0.value ?? "")" }
+        .sorted()
+        .joined(separator: "&")
+    let port = components?.port.map { ":\($0)" } ?? ""
+    let base = "\(components?.scheme ?? "")://\(components?.host ?? "")\(port)\(components?.path ?? "")"
+    let canonical = "\(api)|\(base)?\(sortedQuery)"
+    let digest = SHA256.hash(data: Data(canonical.utf8))
+    return "raw_request:\(api):" + digest.map { String(format: "%02x", $0) }.joined()
 }
 
 private final class CapturedAuthURLProtocol: URLProtocol {
