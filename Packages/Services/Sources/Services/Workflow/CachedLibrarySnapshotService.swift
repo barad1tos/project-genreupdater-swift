@@ -5,7 +5,7 @@ import CryptoKit
 import Foundation
 
 public actor CachedLibrarySnapshotService: LibrarySnapshotService {
-    private let cache: any CacheService
+    private let cache: any PersistentCacheService
     private let configuration: LibrarySnapshotConfig
     private let currentDate: @Sendable () -> Date
     private let libraryModificationDateProvider: (@Sendable () -> Date?)?
@@ -16,7 +16,7 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
     }
 
     public init(
-        cache: any CacheService,
+        cache: any PersistentCacheService,
         configuration: LibrarySnapshotConfig,
         currentDate: @escaping @Sendable () -> Date = { Date() },
         libraryModificationDateProvider: (@Sendable () -> Date?)? = nil

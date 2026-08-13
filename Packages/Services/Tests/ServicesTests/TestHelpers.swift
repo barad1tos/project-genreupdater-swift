@@ -177,10 +177,6 @@ actor MockCacheService: CacheService {
         genericEntries[key] = MockGenericCacheEntry(data: data, timestamp: .now, ttl: ttl)
     }
 
-    func setPersistent(key: String, value: some Codable & Sendable) async {
-        await set(key: key, value: value, ttl: nil)
-    }
-
     func setRawJSON(key: String, json: String, ttl: TimeInterval?) async {
         genericEntries[key] = MockGenericCacheEntry(data: Data(json.utf8), timestamp: .now, ttl: ttl)
     }

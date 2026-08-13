@@ -246,10 +246,6 @@ actor DashboardStateCacheService: CacheService {
         // These tests do not assert generic cache writes.
     }
 
-    func setPersistent(key _: String, value _: some Codable & Sendable) async {
-        // These tests do not assert generic cache writes.
-    }
-
     func invalidate(key _: String) async {
         // These tests do not assert generic cache invalidation.
     }

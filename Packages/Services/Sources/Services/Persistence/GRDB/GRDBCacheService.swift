@@ -15,8 +15,9 @@ import OSLog
 /// TTL defaults:
 /// - Album years: 30 days
 /// - API responses: caller-configured, 15 minutes by default
-/// - Generic cache: caller-specified or configured default
-public actor GRDBCacheService: CacheService {
+/// - Expiring generic writes: caller-specified or configured default
+/// - Persistent generic writes: no time-based expiry
+public actor GRDBCacheService: PersistentCacheService {
     private let dbWriter: any DatabaseWriter
     private let log = AppLogger.cache
     private let albumYearTTL: TimeInterval

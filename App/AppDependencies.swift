@@ -687,7 +687,7 @@ extension AppDependencies {
     }
 
     static func makeSnapshotService(
-        cache: any CacheService,
+        cache: any PersistentCacheService,
         configuration: AppConfiguration
     ) -> CachedLibrarySnapshotService {
         CachedLibrarySnapshotService(

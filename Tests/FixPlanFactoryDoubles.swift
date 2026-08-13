@@ -168,10 +168,6 @@ actor FactoryCache: CacheService {
         // Factory tests do not persist generic cache values.
     }
 
-    func setPersistent(key _: String, value _: some Codable & Sendable) async {
-        // Factory tests do not persist generic cache values.
-    }
-
     func invalidate(key _: String) async {
         // Factory tests do not persist generic cache values.
     }

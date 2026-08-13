@@ -5,8 +5,6 @@ public protocol CacheService: Actor, Sendable {
     func initialize() async throws
     func get<T: Codable & Sendable>(key: String) async -> T?
     func set(key: String, value: some Codable & Sendable, ttl: TimeInterval?) async
-    /// Stores a value until explicit invalidation or capacity eviction.
-    func setPersistent(key: String, value: some Codable & Sendable) async
     func invalidate(key: String) async
     func clear() async
     func getAlbumYear(artist: String, album: String) async -> AlbumCacheEntry?
@@ -17,6 +15,13 @@ public protocol CacheService: Actor, Sendable {
     func setCachedAPIResult(_ result: CachedAPIResult) async
     func invalidateCachedAPIResults(artist: String, album: String) async
     func syncToDisk() async throws
+}
+
+/// Cache capability for values that must not expire by time.
+public protocol PersistentCacheService: CacheService {
+    /// Stores a value without time-based expiry; it remains removable by `invalidate(key:)`, `clear()`, or capacity
+    /// eviction.
+    func setPersistent(key: String, value: some Codable & Sendable) async
 }
 
 public enum TrackStoreError: LocalizedError, Sendable {
